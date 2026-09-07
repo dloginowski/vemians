@@ -22,9 +22,39 @@ CREATE TABLE shift (
   status      TEXT NOT NULL DEFAULT 'scheduled'
                 CHECK (status IN ('scheduled','confirmed','cancelled','completed')),
   notes       TEXT NOT NULL DEFAULT '',
+  -- Rolled off the working set. NEVER deleted: a past shift is payroll
+  -- evidence and an attendance record. Setting this only removes the row from
+  -- the default read path.
+  archived_at TEXT,
   CHECK (ends_at > starts_at)
 );
 CREATE INDEX idx_shift_start ON shift (starts_at);
+CREATE INDEX idx_shift_active ON shift (archived_at, starts_at);
+
+-- ── the index: what a reader gets by default ───────────────────────────────
+--
+-- An agentic surface pays for every row it reads, in context and in latency,
+-- so the default read is the WORKING SET, not the whole table. Rolled-off
+-- shifts stay in this same table and stay queryable; they are simply not what
+-- `schedule.view` returns unless asked for.
+--
+-- Nothing here deletes. Archiving is a timestamp.
+CREATE VIEW shift_index AS
+SELECT id, employee_id, location_id, starts_at, ends_at, status, notes
+FROM shift
+WHERE archived_at IS NULL;
+
+-- Rolling off is a marker, and it refuses to touch anything still in play:
+-- a future shift, or a past one nobody has resolved yet.
+CREATE TRIGGER shift_archive_only_settled BEFORE UPDATE OF archived_at ON shift
+WHEN NEW.archived_at IS NOT NULL AND OLD.archived_at IS NULL
+     AND (NEW.ends_at > datetime('now') OR NEW.status IN ('scheduled','confirmed'))
+BEGIN
+  SELECT RAISE(ABORT, 'only a settled past shift can be rolled off: complete or cancel it first');
+END;
+
+CREATE TRIGGER shift_no_delete BEFORE DELETE ON shift
+BEGIN SELECT RAISE(ABORT, 'shifts are archived, never deleted'); END;
 
 -- Postgres would express this as EXCLUDE USING gist. SQLite has no such
 -- constraint, but D1 serialises writes to a single writer, so a trigger check

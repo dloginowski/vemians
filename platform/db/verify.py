@@ -599,6 +599,60 @@ def test_PRD_P0_32_tickets__an_unknown_category_is_refused():
                 " VALUES('t9',9,'x','payroll','a')")
 
 
+print("\nworking-set index  (P0-36: read the index, archive the rest, delete nothing)")
+
+_ppl = db("people")
+_ppl.execute("INSERT INTO employee(id,email,name) VALUES('e9','rae@vemians.com','Rae')")
+_ppl.execute("INSERT INTO shift(id,employee_id,starts_at,ends_at,status)"
+             " VALUES('s_past','e9','2026-01-05T09:00Z','2026-01-05T17:00Z','completed')")
+_ppl.execute("INSERT INTO shift(id,employee_id,starts_at,ends_at,status)"
+             " VALUES('s_future','e9','2027-01-05T09:00Z','2027-01-05T17:00Z','scheduled')")
+
+
+@holds
+def test_PRD_P0_36_working_set_index__the_index_starts_as_everything_unarchived():
+    assert _ppl.execute("SELECT count(*) FROM shift_index").fetchone()[0] == 2
+
+
+@rejects
+def test_PRD_P0_36_working_set_index__a_future_shift_cannot_be_rolled_off():
+    _ppl.execute("UPDATE shift SET archived_at=datetime('now') WHERE id='s_future'")
+
+
+@holds
+def test_PRD_P0_36_working_set_index__a_settled_past_shift_rolls_off_the_index():
+    _ppl.execute("UPDATE shift SET archived_at=datetime('now') WHERE id='s_past'")
+    assert _ppl.execute("SELECT count(*) FROM shift_index").fetchone()[0] == 1
+
+
+@holds
+def test_PRD_P0_36_working_set_index__rolled_off_data_is_still_there():
+    assert _ppl.execute("SELECT count(*) FROM shift").fetchone()[0] == 2
+    assert _ppl.execute("SELECT status FROM shift WHERE id='s_past'").fetchone()[0] == "completed"
+
+
+@rejects
+def test_PRD_P0_36_working_set_index__a_shift_cannot_be_deleted():
+    _ppl.execute("DELETE FROM shift WHERE id='s_past'")
+
+
+_tkx = db("tickets")
+_tkx.execute("INSERT INTO ticket(id,number,title,created_by) VALUES('tx1',1,'Open thing','a@vemians.com')")
+
+
+@rejects
+def test_PRD_P0_36_working_set_index__an_open_ticket_cannot_be_rolled_off():
+    _tkx.execute("UPDATE ticket SET archived_at=datetime('now') WHERE id='tx1'")
+
+
+@holds
+def test_PRD_P0_36_working_set_index__a_closed_ticket_rolls_off_but_survives():
+    _tkx.execute("UPDATE ticket SET status='closed', resolved_at=datetime('now') WHERE id='tx1'")
+    _tkx.execute("UPDATE ticket SET archived_at=datetime('now') WHERE id='tx1'")
+    assert _tkx.execute("SELECT count(*) FROM ticket_index").fetchone()[0] == 0
+    assert _tkx.execute("SELECT count(*) FROM ticket").fetchone()[0] == 1
+
+
 @holds
 def test_PRD_P0_30_prd_traceability__every_label_used_here_exists_in_the_prd():
     assert PRD.exists(), f"{PRD} not found: PRD-backed checks cannot be traced"

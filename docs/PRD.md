@@ -260,6 +260,13 @@ that does not trace to one of these is a process failure (see §12).
     minted server-side from the human's browser action and is never returned to, nor accepted
     from, a model. This holds identically for every client.
 
+35. **`Test-PRD-P0-36-working_set_index`** — Every store exposes an **index** — the working set
+    — and that is what a read returns by default. Rolling data off the index sets an
+    `archived_at` marker; **nothing is deleted**, and archived rows stay queryable by an explicit
+    call. Only settled data may be rolled off: an open ticket or a future shift is refused.
+    The rule exists because an agentic surface pays for every row it reads, in context and in
+    latency, so an unbounded default read is a cost, not just untidiness.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

@@ -33,10 +33,25 @@ CREATE TABLE ticket (
   assigned_to TEXT,                         -- Access identity
   created_at  TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
-  resolved_at TEXT
+  resolved_at TEXT,
+  archived_at TEXT                            -- rolled off the working set, never deleted
 );
 CREATE INDEX idx_ticket_status ON ticket (status, priority, created_at DESC);
 CREATE INDEX idx_ticket_assignee ON ticket (assigned_to, status);
+
+-- The working set: what an agent reads unless it asks for history.
+CREATE VIEW ticket_index AS
+SELECT id, number, title, category, priority, status, created_by, assigned_to, created_at
+FROM ticket
+WHERE archived_at IS NULL;
+
+-- An open ticket cannot be quietly rolled off. Archiving is for settled work.
+CREATE TRIGGER ticket_archive_only_settled BEFORE UPDATE OF archived_at ON ticket
+WHEN NEW.archived_at IS NOT NULL AND OLD.archived_at IS NULL
+     AND NEW.status NOT IN ('resolved','closed')
+BEGIN
+  SELECT RAISE(ABORT, 'only a resolved or closed ticket can be rolled off');
+END;
 
 CREATE TABLE ticket_comment (
   id         TEXT PRIMARY KEY,
