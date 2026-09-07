@@ -79,7 +79,11 @@ Roles derive from **Google Workspace groups**. No role is assigned inside the ap
 - **R2.3** URLs use our handles and remain stable across a provider switch.
 - **R2.4** Checkout hands off to the active provider's hosted checkout.
 - **R2.5** Design system — tokens, components, layout — lives in our repo with no
-  vendor theming dependency.
+  vendor theming dependency. Direction in [`design-direction.md`](./design-direction.md).
+- **R2.6** Product imagery is served as AVIF/WebP with responsive `srcset` cut to actual
+  grid widths, and every image carries explicit dimensions. An image-weight budget is
+  enforced in CI alongside the Exit Test — this design is image-led and N1 is not
+  otherwise reachable.
 
 ### 5.3 Commerce provider integration
 
