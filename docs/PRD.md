@@ -6,7 +6,7 @@
 | **Last updated** | 2026-09-07 |
 | **Owner** | dimitri@handsome.la |
 | **Supersedes** | the single-Postgres / Shopify-hosted-storefront draft |
-| **Decided in** | [ADR-001](./adr/001-catalog-storage.md) · [ADR-002](./adr/002-data-domains.md) · [ADR-003](./adr/003-sharding-and-customer-data.md) · [ADR-004](./adr/004-customer-data-protection.md) |
+| **Decided in** | [ADR-001](./adr/001-catalog-storage.md) · [ADR-002](./adr/002-data-domains.md) · [ADR-003](./adr/003-sharding-and-customer-data.md) · [ADR-004](./adr/004-customer-data-protection.md) · [ADR-006](./adr/006-encrypted-storage-vendor.md) |
 
 ---
 
@@ -301,8 +301,9 @@ Store reachability, per ADR-002:
 - **N7** **No single database.** Catalog, knowledge and reports are Git — the most portable
   format available, more portable than any SQL engine. Operational data is per-domain D1, kept
   to plain SQL so a store is restorable into any SQLite-compatible engine.
-- **N8** A KMS dependency sits on the identity read path. Unwrapped data keys are cached in
-  memory per request and **never persisted**.
+- **N8** A KMS dependency sits on the identity read path — AWS KMS, one KEK, ~$1–5/month
+  (ADR-006); a managed PII vault is not warranted while checkout is rented and we hold no card
+  data. Unwrapped data keys are cached in memory per request and **never persisted**.
 - **N9** Every operation spanning two stores is **idempotent and retryable**, because it cannot
   be atomic.
 - **N10** Migrations and backups are per-store: six D1 migration trails, three Git histories.
