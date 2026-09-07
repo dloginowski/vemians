@@ -43,6 +43,93 @@ dig +short NS vemians.com          # should return the two Cloudflare nameserver
 Do not continue until the zone is Active. A Workers Custom Domain cannot be created on a zone
 Cloudflare does not hold, and `wrangler deploy` will fail with a fairly opaque error.
 
+## 1b. Namecheap and Gmail — the specific path
+
+Namecheap keeps DNS in **two places**, and this is where domains lose their mail:
+
+- **Domain List → Manage → the NAMESERVERS panel** — decides *who answers* for the domain.
+- **Domain List → Manage → Advanced DNS tab** — the records themselves, served **only while
+  the nameservers are Namecheap's**.
+
+Switching the first to Custom DNS makes the second stop being served **entirely and
+instantly**. The records are not migrated, not merged, and not consulted again. Whatever is on
+the Advanced DNS tab has to exist in Cloudflare before you flip it.
+
+### Before you touch anything
+
+1. Open **Advanced DNS** and screenshot the whole table. Every row.
+2. Run the capture, which reaches records the tab can hide from a screenshot:
+
+   ```sh
+   ./tools/dns-preflight.sh capture vemians.com
+   ```
+
+3. If **Email Forwarding** is set up on that tab, note it — it is a Namecheap feature and it
+   stops working when the nameservers leave. Gmail is unaffected; forwarding is not.
+
+### The Gmail records that must survive
+
+Copy these into Cloudflare **exactly as they are now**. All are `TXT` unless marked.
+
+| Record | Name | What it does | If lost |
+|---|---|---|---|
+| `MX` | `@` | Delivers your mail | **Mail bounces immediately** |
+| SPF | `@` | `v=spf1 include:_spf.google.com ~all` | Your mail lands in spam |
+| Verification | `@` | `google-site-verification=…` | Workspace may unverify the domain |
+| DKIM | `google._domainkey` | Signs outgoing mail | Mail lands in spam |
+| DMARC | `_dmarc` | Handling policy | Weakened deliverability |
+
+**Your MX will be one of two shapes. Copy the one you have — do not switch to the other
+during this migration.**
+
+Since April 2023 Google issues a single record:
+
+| Priority | Value |
+|---|---|
+| 1 | `smtp.google.com` |
+
+Domains set up before then use five, all still fully supported and routing to identical
+infrastructure:
+
+| Priority | Value |
+|---|---|
+| 1 | `aspmx.l.google.com` |
+| 5 | `alt1.aspmx.l.google.com` |
+| 5 | `alt2.aspmx.l.google.com` |
+| 10 | `alt3.aspmx.l.google.com` |
+| 10 | `alt4.aspmx.l.google.com` |
+
+Both work. Migrating from five to one is a fine thing to do **on a different day** — doing it
+now means changing your nameservers and your mail routing at once, and if mail breaks you will
+not know which caused it. One variable at a time.
+
+### Two Cloudflare-specific traps
+
+**MX records must be grey-cloud.** Cloudflare cannot proxy mail. An MX pointing at a proxied
+record is a broken mail server. Cloudflare normally gets this right on import — check anyway.
+
+**DKIM is long, and long TXT records break.** A DKIM key exceeds the 255-character limit for a
+single TXT string, so it is stored split. Import sometimes mangles the split. After the move,
+compare it character-for-character against the capture rather than glancing at it.
+
+### Making the switch
+
+**Domain List → Manage → NAMESERVERS → dropdown → Custom DNS**, then enter Cloudflare's two
+nameservers and save with the green tick. Remove any others; a mixed set fails intermittently,
+which is harder to diagnose than failing outright.
+
+### Confirm mail, not just the website
+
+```sh
+./tools/dns-preflight.sh verify vemians.com
+```
+
+Then **send an email to yourself from an outside address** — a phone on mobile data, a personal
+account. `dig` proves the record resolves; only a delivered message proves mail works. Do this
+before you go to bed on the day you switch.
+
+---
+
 ## 2. Deploy the Worker
 
 From a clone, in `platform/storefront`:
