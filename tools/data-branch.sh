@@ -153,6 +153,16 @@ cmd_commit() {
 
 	sid=$(session_id)
 	old=$(tip_of "$branch")
+	if [ -z "$old" ]; then
+		tracked=$(git rev-parse --verify --quiet "refs/remotes/$REMOTE/$branch" || true)
+		if [ -n "$tracked" ]; then
+			# The branch exists on the remote but not here. Starting a fresh root
+			# would push away everyone else's history on the next force-push.
+			git update-ref -m 'data-branch adopt remote' "refs/heads/$branch" "$tracked" ''
+			old=$tracked
+			say "$branch: adopted $REMOTE/$branch ($(git rev-parse --short "$tracked")) as the base."
+		fi
+	fi
 	writes=1
 	mode='root'
 	parent=''
@@ -293,7 +303,16 @@ cmd_checkout() {
 
 	setup_repo
 	branch=$(branch_of "$domain")
-	[ -n "$(tip_of "$branch")" ] || die "$branch does not exist — nothing to check out"
+	ref="refs/heads/$branch"
+	if [ -z "$(tip_of "$branch")" ]; then
+		if git rev-parse --verify --quiet "refs/remotes/$REMOTE/$branch" >/dev/null; then
+			ref="refs/remotes/$REMOTE/$branch"
+		else
+			die "$branch exists neither locally nor on $REMOTE.
+  A data branch shares no history with main, so a build must fetch it:
+    git fetch $REMOTE '+refs/heads/$PREFIX/*:refs/remotes/$REMOTE/$PREFIX/*'"
+		fi
+	fi
 
 	case $dest in /*) abs=$dest ;; *) abs="$ROOT/$dest" ;; esac
 	if [ -e "$abs" ] && [ -n "$(ls -A "$abs" 2>/dev/null || true)" ] && [ "$force" -eq 0 ]; then
@@ -302,14 +321,14 @@ cmd_checkout() {
 
 	if [ "$worktree" -eq 1 ]; then
 		[ "$force" -eq 0 ] || rm -rf "$abs"
-		git worktree add --detach "$abs" "refs/heads/$branch" >/dev/null
+		git worktree add --detach "$abs" "$ref" >/dev/null
 	else
 		mkdir -p "$abs"
-		git archive --format=tar "refs/heads/$branch" | tar -x -C "$abs"
+		git archive --format=tar "$ref" | tar -x -C "$abs"
 	fi
 
 	n=$(find "$abs" -type f -not -path '*/.git/*' -not -name '.git' | wc -l | tr -d ' ')
-	say "$branch: checked out to $abs ($n file(s), $(git rev-parse --short "refs/heads/$branch"))."
+	say "$branch: checked out to $abs ($n file(s), $ref @ $(git rev-parse --short "$ref"))."
 }
 
 cmd_push() {
