@@ -15,10 +15,10 @@
 Vemians runs on a storefront and an operations layer we own outright, with commerce
 providers reduced to pluggable sales channels.
 
-There is no central database. Data is split into **seven stores by blast radius and
-retention**, not by topic: **catalog, knowledge and reports live in Git** (versioned,
-reviewable, publishable, no PII); **customers, identity, commerce, people, finance and
-audit live in D1** (concurrent, erasable, constraint-enforcing). Nothing joins across a
+There is no central database. Data is split into **nine stores by blast radius and
+retention**, not by topic — three in Git, six in D1. **Catalog, knowledge and reports live
+in Git** (versioned, reviewable, publishable, no PII); **customers, identity, commerce,
+people, finance and audit live in D1** (concurrent, erasable, constraint-enforcing). Nothing joins across a
 store boundary — cross-store references are an id plus a snapshot.
 
 Customer identifiers — name, email, phone — exist in exactly one place, the `identity`
@@ -61,7 +61,7 @@ theming layer.
 **G5 — Customer data we can actually delete.** Erasure obligations are a design input, not
 a policy document.
 
-**G6 — Minimal moving parts.** Seven stores, one commerce port, no infrastructure the
+**G6 — Minimal moving parts.** Nine stores, one commerce port, no infrastructure the
 storefront does not need.
 
 ---
@@ -73,9 +73,10 @@ that does not trace to one of these is a process failure (see §12).
 
 ### 3.1 Data topology
 
-1. **`Test-PRD-P0-01-store_topology`** — Seven stores, none central: `catalog`, `knowledge`
+1. **`Test-PRD-P0-01-store_topology`** — Nine stores, none central: `catalog`, `knowledge`
    and `reports` in Git; `customers`, `identity`, `commerce`, `people`, `finance` and `audit`
-   in D1. Each D1 store is an independent schema and an independent binding, loads and
+   in D1. (Six in ADR-002, grown by ADR-003's `reports` and `customers` split and ADR-004's
+   `identity` vault.) Each D1 store is an independent schema and an independent binding, loads and
    migrates on its own, and holds **no foreign key and no transaction** reaching another
    store. Cross-store references are `id` plus a snapshot of what was needed.
 2. **`Test-PRD-P0-02-catalog_git_shards`** — The catalog is JSON in Git, one file per entity
@@ -304,7 +305,8 @@ Store reachability, per ADR-002:
   memory per request and **never persisted**.
 - **N9** Every operation spanning two stores is **idempotent and retryable**, because it cannot
   be atomic.
-- **N10** Migrations and backups are per-store. Seven of each is the accepted price of §3.1.
+- **N10** Migrations and backups are per-store: six D1 migration trails, three Git histories.
+  That repetition is the accepted price of §3.1.
 
 ---
 
@@ -407,8 +409,9 @@ records.
 Per `RULES.md`:
 
 - Tests exist to enforce the numbered features above, not implementation details.
-- Python test names use `test_PRD_P0_01_short_id__specific_behaviour`; other frameworks preserve
-  the visible `Test-PRD-P0-01-short_id` label.
+- Python check names use `test_PRD_P0_NN_short_id__specific_behaviour`; other frameworks preserve
+  the visible `Test-PRD-P0-NN-short_id` label. (`NN` and `short_id` are the feature's, above —
+  the placeholder is written with `NN` here deliberately, so it never reads as a real label.)
 - Every PRD-backed test file opens with a header block stating this contract.
 - A behaviour change moves the PRD feature and its labeled test **in the same change**.
 - Unlabeled tests are not acceptable.
@@ -447,7 +450,7 @@ Where each feature is enforced today:
 | Losing the KEK loses every customer identity | Backup and rotation policy before the first record (M3, P1-09) |
 | KMS on the identity read path adds latency and a failure mode | Per-request in-memory key cache; only clienteling tools touch it |
 | Pseudonymous ≠ anonymous at luxury scale | Retention period on `customers`, not just `identity` (P1-08) |
-| Seven stores means seven migrations and backups | Accepted; the alternative is one shared blast radius |
+| Nine stores means nine migration and backup paths | Accepted; the alternative is one shared blast radius |
 | Eventual consistency across stores | Every cross-store operation idempotent and retryable (N9) |
 | Projection drift between our stores and the provider | Nightly reconciliation and drift alerts (P1-07) |
 | Agent takes a damaging action | PR gate, in-session approval, caps, append-only audit, destructive ops absent |
