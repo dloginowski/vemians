@@ -1,155 +1,152 @@
-# Vemians — Cloudflare architecture
+# Vemians — platform architecture
 
-Goal: an online store whose **operations run through an agentic control plane** on a
-subdomain, where Shopify is one replaceable sales channel rather than the system of record.
+> Requirements and scope live in [`PRD.md`](./PRD.md), which is authoritative.
+> This document covers the technical design only.
 
-Status: proposed design. Nothing here is provisioned yet.
+**Thesis:** we own the catalog, the storefront and the database. Shopify is a *plugged-in
+sales channel* — it can be switched off without losing products, content, orders, media or
+operational history.
+
+This inverts the usual Shopify setup, where Shopify is the system of record and everything
+else is a projection of it. Here it is the other way round.
 
 ---
 
-## 1. The load-bearing constraint
+## 1. Ownership map
 
-**Shopify storefronts cannot be proxied through Cloudflare.** Cloudflare's orange-cloud
-proxy interferes with Shopify's TLS certificate provisioning and can break at any time as
-either side changes. Shopify's own tooling detects it and errors with *"Your domain has a
-Cloudflare Proxy, which is not supported by Shopify."*
-
-This is not a reason to avoid Cloudflare. It only means the zone is **split**:
-
-- storefront records → **DNS only** (grey cloud), Shopify terminates TLS
-- everything we own → **proxied** (orange cloud), full Cloudflare feature set
-
-## 2. DNS layout
-
-Zone `vemians.com` on Cloudflare nameservers.
-
-| Type  | Name | Value                  | Proxy      | Purpose            |
-|-------|------|------------------------|------------|--------------------|
-| A     | `@`  | `23.227.38.65`         | DNS only   | Shopify storefront |
-| CNAME | `www`| `shops.myshopify.com`  | DNS only   | Shopify storefront |
-| —     | `ops`| Workers Custom Domain  | Proxied    | Agentic control plane |
-
-`ops` is not added by hand — declare it as a Workers Custom Domain in `wrangler.toml` and
-Cloudflare creates and manages the proxied record.
-
-Verify before trusting it:
-
-```sh
-dig +short vemians.com A          # expect 23.227.38.65
-dig +short www.vemians.com CNAME  # expect shops.myshopify.com
-```
-
-If either resolves to a Cloudflare anycast IP (104.x / 172.67.x), the proxy is still on and
-Shopify TLS will fail. DNS changes can take up to 48h to settle.
-
-## 3. Control plane — `ops.vemians.com`
-
-A single Cloudflare Worker, fronted by **Cloudflare Access** (Zero Trust). Access handles
-employee SSO — Google or email OTP — before a request reaches the Worker. That removes the
-entire auth surface from our code, which is the highest-leverage decision in this design.
-Free for small teams; confirm the current user limit against Cloudflare's pricing page.
-
-**Runtime**
-- **Agents SDK** (`agents`) — stateful conversational agent, one Durable Object per session.
-  Durable Objects are the right primitive here precisely because the agent *does* hold state.
-- **`createMcpHandler`** — tools exposed as MCP servers. This is the current pattern; the
-  older Durable-Object-backed `McpAgent` is deprecated and feature-frozen. Tools are
-  request-scoped and stateless, so they scale independently of session state.
-- **Model** — Anthropic API (Claude) for the reasoning loop. Tool-use quality is the whole
-  product here, so this is not the place to economise.
-
-**Storage**
-- **D1** — employees, shifts, schedule, order mirror, ledger mirror, audit log.
-- **R2** — receipts, invoices, contracts, exports.
-- **Durable Objects** — session state, plus one coordinator DO holding the schedule lock so
-  two concurrent agent runs cannot double-book a shift.
-- **Queues** — async fan-out (order sync, notifications).
-- **Workflows** — durable multi-step processes with retries and resumption. Correct primitive
-  for anything that must not half-complete: employee onboarding, month-end close.
-- **Cron Triggers** — nightly reconciliation jobs.
-
-Cost is roughly Workers Paid ($5/mo, covers Workers + DO + Queues + Workflows) plus
-generous D1/R2 free tiers, plus Anthropic API usage. The model calls will dominate.
-
-## 4. Keeping Shopify replaceable
-
-This is the part that answers *"Shopify is just a sales channel but I'm not sure I like them."*
-
-Define a **commerce port** — a narrow interface the control plane talks to:
-
-```
-listOrders · getOrder · listProducts · updateInventory · getPayouts
-```
-
-`ShopifyAdapter` implements it against the Shopify Admin GraphQL API. Shopify's official
-**AI Toolkit** (open-sourced April 2026, MIT) ships MCP servers that cover the read-heavy
-side well; writes work but need deliberate API scopes.
-
-Two rules make the swap cheap later:
-
-1. **Shopify types never leak past the adapter.** The agent's tools speak our vocabulary.
-2. **Shopify GIDs are never primary keys.** D1 rows carry our own IDs plus an
-   `external_ref` column.
-
-Swapping to Medusa, Swell, or a custom storefront then costs one adapter plus a backfill,
-not a rewrite — the control plane, the schedule, the employee records and the audit history
-all stay put.
-
-One honest caveat: **checkout and payments are the expensive part to leave**, not the
-catalog. Budget the migration around that, not around product data.
-
-## 5. Domain-by-domain, and where to stop building
-
-| Domain | Build it? | Approach |
+| Thing | Owner | Notes |
 |---|---|---|
-| Shopify ops | Integrate | Official Shopify MCP servers behind the commerce port |
-| Scheduling | **Build** | D1 + coordinator DO. Genuinely ours; no vendor lock-in worth paying for |
-| Finances | **Mirror only** | Read-only sync into D1 for the agent to reason over. Books of record stay in Xero/QuickBooks |
-| Employees | Split | Scheduling and documents ours; **payroll via Gusto/Deel** |
+| Product catalog, variants, prices | **Us** (Postgres) | Pushed *out* to channels |
+| Product media | **Us** (R2) | Never only in a vendor CDN |
+| Storefront + design | **Us** (Astro on Workers) | The beautiful part |
+| Content / copy | **Us** (Postgres) | |
+| Orders, customers | **Us** (ingested) | Shopify webhooks land here |
+| Employees, schedule | **Us** (Postgres) | |
+| **Checkout + payments + PCI** | **Shopify** | The one thing worth renting |
+| Books of record | Xero / QuickBooks | Never build a ledger |
 
-Do not build a ledger of record. Tax and audit obligations need a real accounting system,
-and an agent writing directly into one is not a position to be in. Mirror for reasoning,
-write through the accounting vendor's API for anything that counts.
+The honest boundary: **checkout is the expensive thing to own**, because it drags in PCI
+scope, fraud, tax calculation and payment-provider relationships. Renting it is the right
+call. Everything upstream of checkout is ours, and that is what makes the vendor swappable.
 
-Likewise, employment records are sensitive PII. Encrypt at rest in D1 and gate them behind
-a dedicated Cloudflare Access group, not the general employee login.
+## 2. Sync direction
+
+```
+   catalog          ┌──────────────┐   push (projection)   ┌─────────┐
+   inventory  ─────►│   Postgres   │──────────────────────►│ Shopify │
+   media            │  (our SoR)   │◄──────────────────────│         │
+                    └──────────────┘   webhooks (orders)   └─────────┘
+                           │
+                           ├──► ops.vemians.com   (agentic control plane)
+                           └──► vemians.com       (storefront, reads only)
+```
+
+- **Catalog → Shopify** is a one-way projection. Shopify holds a *copy* so its checkout works.
+- **Orders → us** via webhook, normalised on ingest into our own order tables.
+- **Inventory** is bidirectional but **we are authoritative**; Shopify decrements are ingested.
+
+Switching commerce provider means writing a second adapter and re-projecting. The catalog,
+the storefront, the media, the order history and the ops data never move.
+
+## 3. DNS
+
+Because the storefront is **ours**, the apex is no longer Shopify — so it can be proxied
+normally and we get the full Cloudflare feature set on it.
+
+| Type | Name | Target | Proxy |
+|---|---|---|---|
+| — | `@` / `www` | Storefront Worker (Custom Domain) | **Proxied** |
+| — | `ops` | Control-plane Worker (Custom Domain) | **Proxied** |
+
+Shopify needs **no DNS records at all** in this design — its checkout lives on
+`<store>.myshopify.com`. Customers cross to it only at the checkout step.
+
+> Superseded: an earlier draft of this document put the Shopify storefront at the apex and
+> required those records to be DNS-only, because **Shopify does not support Cloudflare's
+> proxy**. That constraint still holds — it just no longer applies to us, since we are not
+> pointing a domain at a Shopify storefront. If a Shopify-hosted storefront is ever
+> reintroduced, its records must be grey-cloud (`A @ 23.227.38.65`,
+> `CNAME www shops.myshopify.com`).
+
+## 4. Stack
+
+**Storefront — `vemians.com`**
+Astro, server-rendered on Workers. Content-first, islands architecture, ships almost no JS
+by default. Chosen over Next.js for weight and over Shopify's Hydrogen deliberately —
+Hydrogen is Shopify-coupled, which is the exact thing we are avoiding.
+
+**Control plane — `ops.vemians.com`**
+Worker behind **Cloudflare Access** (Zero Trust), with **Google Workspace as the identity
+provider**. Access terminates identity before a request reaches our code: no login form, no
+session cookie of ours, no password reset path. Roles come from Google Workspace groups
+mapped to Access policies, so offboarding someone in Workspace revokes platform access with
+no application-side action — and the verified email becomes the `actor` on every audit row.
+
+Agents SDK for stateful sessions; tools exposed via `createMcpHandler` (the current pattern —
+the older Durable-Object-backed `McpAgent` is deprecated and feature-frozen).
+
+**Database — Postgres (Neon) via Hyperdrive**
+Not D1. D1 is cheaper and simpler, but its API is Cloudflare-specific, and the entire point
+of this project is portability. Postgres runs anywhere — Neon, RDS, Supabase, a box — so
+leaving Cloudflare costs a connection string, not a rewrite. Hyperdrive gives Workers pooled,
+low-latency access. Take D1 only if the cost of Neon is genuinely blocking.
+
+**Media — R2 + Cloudflare Images.** Originals in R2 under our own keys; Images for
+transforms. Product photography living only in a vendor's CDN is a quiet lock-in vector.
+
+**Async — Queues** (channel sync, webhook fan-out), **Workflows** (durable multi-step:
+onboarding, month-end close), **Cron** (nightly reconcile).
+
+## 5. The portability mechanism
+
+Two rules, and one table, are what actually deliver the promise:
+
+1. **Vendor IDs are never primary keys.** Our IDs are UUIDs we mint.
+2. **Vendor types never leak past the adapter.** The storefront and the agent speak our
+   vocabulary only.
+3. **`external_ref`** maps `(entity_type, entity_id, channel, external_id)`. Every vendor
+   identifier in the system lives in that one table. Dropping a channel is a `DELETE` on one
+   table, not a schema migration.
+
+See `platform/db/schema.sql` for the model and `platform/commerce-port.ts` for the interface.
 
 ## 6. Guardrails
 
-Non-negotiable before any write tool is enabled:
+Before any agent write tool is enabled:
 
-- **Two-tier tools.** Reads run automatically. Writes — refunds, price changes, publishing,
-  anything touching payroll — go through a human approval gate. The Agents SDK supports
-  human-in-the-loop confirmation directly.
-- **Append-only audit log** in D1: actor, tool, arguments, result, timestamp. Every agent
-  action, no exceptions. This is what makes the system defensible after an incident.
-- **Scoped credentials.** Separate Shopify custom-app tokens for read and write paths, held
-  in Workers Secrets. Never one token with full Admin scope.
-- **Caps.** Rate and monetary limits on write tools, enforced in the tool layer rather than
-  trusted to the prompt.
+- **Two-tier tools.** Reads run automatically; writes — price changes, refunds, publishing,
+  anything touching payroll — pass a human approval gate.
+- **Append-only `audit_log`.** Actor, tool, arguments, result, timestamp, for every action.
+  Build it before the first tool, not after.
+- **Scoped credentials.** Separate Shopify tokens for read and write, in Workers Secrets.
+- **Caps** on write tools, enforced in the tool layer — never trusted to the prompt.
 
-## 7. Repository layout
+Employment records are sensitive PII: encrypt at rest and gate behind a dedicated Access
+group, not the general employee login.
 
-This repo (`vemians`) is a fork of Shopify's **Dawn** theme — it is the storefront
-presentation layer and should stay that. The control plane belongs in a **separate repo**
-with its own `wrangler.toml` and deploy pipeline; its lifecycle, dependencies and blast
-radius have nothing in common with a Liquid theme.
+## 7. This repository
+
+`vemians` is currently a fork of Shopify's **Dawn** theme. In this design the Dawn theme is
+**not used** — the storefront is ours. Dawn stays in place for now as a fallback and is safe
+to delete once the Astro storefront is live. New work lives under `platform/`.
+
+Note that `.github/workflows/ci.yml` is Dawn's inherited CI (Lighthouse + theme-check
+against a Shopify store) and will need replacing when the theme goes.
 
 ## 8. Order of work
 
-1. Move `vemians.com` to Cloudflare nameservers; add the two storefront records **DNS only**.
-2. Confirm Shopify issues its TLS certificate and the storefront serves cleanly.
-3. Stand up the control-plane repo: Worker + Access on `ops.vemians.com`, auth only, no tools.
-4. Add D1 schema and the audit log **before** the first tool.
-5. Add read-only Shopify tools behind the commerce port.
-6. Add scheduling (D1 + coordinator DO).
-7. Add write tools, each one behind the approval gate.
-8. Finance and payroll integrations last — they carry the most risk and the least novelty.
+1. **Schema + `external_ref`** — the portable core. *(done)*
+2. **Commerce port interface** — the adapter boundary. *(done)*
+3. Provision Neon + Hyperdrive; run migrations.
+4. Storefront skeleton on Workers, reading products from Postgres.
+5. Shopify adapter: catalog projection out, order webhooks in.
+6. Control plane: Worker + Access, no tools. Audit log first.
+7. Read-only agent tools, then scheduling, then gated write tools.
+8. Finance and payroll integrations last — most risk, least novelty.
 
 ## References
 
-- [Shopify — troubleshooting connected domains](https://help.shopify.com/en/manual/domains/troubleshoot-issues-with-domains)
-- [Shopify/hydrogen — Cloudflare Proxy not supported](https://github.com/Shopify/hydrogen/discussions/1180)
 - [Cloudflare Agents SDK](https://github.com/cloudflare/agents)
 - [Cloudflare — the next generation of MCP](https://blog.cloudflare.com/mcp-v2/)
-- [Cloudflare — McpAgent API docs](https://developers.cloudflare.com/agents/model-context-protocol/apis/agent-api/)
+- [Shopify — domain troubleshooting](https://help.shopify.com/en/manual/domains/troubleshoot-issues-with-domains)
+- [Shopify/hydrogen — Cloudflare proxy unsupported](https://github.com/Shopify/hydrogen/discussions/1180)
