@@ -10,3 +10,5 @@ Thumbs.db
 .shopify
 node_modules
 *.zip
+# Claude Code agent worktrees and local harness state
+.claude/
