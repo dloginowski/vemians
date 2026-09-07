@@ -33,6 +33,39 @@ check("zero-quantity line rejected",
       lambda: c.execute("INSERT INTO order_line(id,order_id,product_handle,title_snapshot,quantity,unit_price_minor,currency)"
                         " VALUES('l2','o1','x','X',0,1,'USD')"), expect_fail=True)
 
+print("\ncustomers  (erasure is the whole point of this split)")
+cu = db('customers')
+cu.execute("INSERT INTO customer(id,email,phone,name,birth_year) VALUES('c1','k@x.com','+1555','Kim',1990)")
+cu.execute("INSERT INTO customer_fit(customer_id,garment,size_label) VALUES('c1','tops','IT 42')")
+cu.execute("INSERT INTO customer_consent(customer_id,purpose,granted,source) VALUES('c1','marketing',1,'checkout')")
+check("implausible birth year rejected",
+      lambda: cu.execute("INSERT INTO customer(id,birth_year) VALUES('c9',1200)"), expect_fail=True)
+check("unknown consent purpose rejected",
+      lambda: cu.execute("INSERT INTO customer_consent(customer_id,purpose,granted,source) VALUES('c1','resale',1,'x')"),
+      expect_fail=True)
+cu.execute("INSERT INTO erasure_request(id,customer_id) VALUES('er1','c1')")
+cu.execute("DELETE FROM customer WHERE id='c1'")
+check("erasing a profile cascades to fit data",
+      lambda: cu.execute("SELECT count(*) FROM customer_fit").fetchone()[0] == 0 or (_ for _ in ()).throw(AssertionError()))
+check("erasing a profile cascades to consent",
+      lambda: cu.execute("SELECT count(*) FROM customer_consent").fetchone()[0] == 0 or (_ for _ in ()).throw(AssertionError()))
+check("erasure evidence survives the erasure",
+      lambda: cu.execute("SELECT count(*) FROM erasure_request").fetchone()[0] == 1 or (_ for _ in ()).throw(AssertionError()))
+check("erasure evidence cannot itself be deleted",
+      lambda: cu.execute("DELETE FROM erasure_request"), expect_fail=True)
+
+print("\ncross-store: erasure vs tax retention")
+c.execute("INSERT INTO \"order\"(id,order_number,channel,external_id,customer_id,currency)"
+          " VALUES('o9',9,'pos','pos/1','c1','USD')")
+check("order survives customer erasure (tax retention)",
+      lambda: c.execute("SELECT count(*) FROM \"order\" WHERE id='o9'").fetchone()[0] == 1 or (_ for _ in ()).throw(AssertionError()))
+check("order carries no customer PII, only a dangling id",
+      lambda: (lambda cols: 'customer_id' in cols and not {'email','phone','name','birth_year'} & set(cols)
+               or (_ for _ in ()).throw(AssertionError(f"PII columns present: {cols}")))(
+          [r[1] for r in c.execute("PRAGMA table_info('order')")]))
+check("POS is just another channel - no schema change needed",
+      lambda: c.execute("SELECT channel FROM \"order\" WHERE id='o9'").fetchone()[0] == 'pos' or (_ for _ in ()).throw(AssertionError()))
+
 print("\npeople")
 p = db('people')
 p.execute("INSERT INTO employee(id,email,name) VALUES('e1','ana@vemians.com','Ana')")

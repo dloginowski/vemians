@@ -1,21 +1,17 @@
--- D1: commerce  -- orders, customers, stock.
--- Contains customer PII and is subject to erasure requests. Nothing else may
--- live here. Cross-domain references are id + snapshot, never a foreign key.
-
-CREATE TABLE customer (
-  id          TEXT PRIMARY KEY,            -- app-minted uuid
-  email       TEXT UNIQUE COLLATE NOCASE,
-  name        TEXT,
-  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-  erased_at   TEXT                          -- soft-erase marker; see verify.py
-);
+-- D1: commerce  -- orders and stock.
+-- Holds NO customer PII - profiles live in the `customers` store and are
+-- referenced by id only, so an erasure there leaves orders intact and
+-- anonymous. Cross-domain references are id + snapshot, never a foreign key.
 
 CREATE TABLE "order" (
   id             TEXT PRIMARY KEY,
   order_number   INTEGER UNIQUE,            -- ours, independent of any vendor numbering
   channel        TEXT NOT NULL,             -- 'shopify' | ...
   external_id    TEXT,                      -- vendor order id; the ONLY vendor field
-  customer_id    TEXT REFERENCES customer(id) ON DELETE SET NULL,
+  -- Pseudonymous reference into the `customers` store. NO customer PII may be
+  -- stored here: erasing a profile must leave these rows intact but anonymous,
+  -- because tax rules require the order to be retained.
+  customer_id    TEXT,
   status         TEXT NOT NULL DEFAULT 'pending'
                    CHECK (status IN ('pending','paid','fulfilled','cancelled','refunded')),
   total_minor    INTEGER NOT NULL DEFAULT 0,
