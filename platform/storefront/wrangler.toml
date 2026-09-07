@@ -160,27 +160,27 @@ enabled = true
 [[env.ops.d1_databases]]
 binding       = "CUSTOMERS"          # profile, fit, consent, version log. No identifiers.
 database_name = "vemians-customers"
-database_id   = "00000000-0000-0000-0000-00000000c057"
+database_id   = "78b8dd1b-86b1-4e3c-98d8-57a3cfa59720"
 
 [[env.ops.d1_databases]]
 binding       = "COMMERCE"           # orders, lines, inventory
 database_name = "vemians-commerce"
-database_id   = "00000000-0000-0000-0000-00000000c0e3"
+database_id   = "05c238a1-a580-435c-999c-e3c63bf82571"
 
 [[env.ops.d1_databases]]
 binding       = "PEOPLE"             # employees, shifts. Tightest Access policy of the six.
 database_name = "vemians-people"
-database_id   = "00000000-0000-0000-0000-0000000000e9"
+database_id   = "b8fca30d-3a95-4962-b5cd-981df4636496"
 
 [[env.ops.d1_databases]]
 binding       = "FINANCE"            # expenses, budgets, vendors
 database_name = "vemians-finance"
-database_id   = "00000000-0000-0000-0000-0000000000f1"
+database_id   = "335e217f-4080-4dca-ac29-22cf6461628f"
 
 [[env.ops.d1_databases]]
 binding       = "AUDIT"              # append-only agent record; insert-only credentials
 database_name = "vemians-audit"
-database_id   = "00000000-0000-0000-0000-0000000000a0"
+database_id   = "178ae750-75b0-479b-bbed-14ddb2e5035a"
 
 # The vault. Bound here so the erasure and clienteling workflows have somewhere
 # to land when they are built (identity-skills says build them LAST), and
@@ -190,9 +190,9 @@ database_id   = "00000000-0000-0000-0000-0000000000a0"
 [[env.ops.d1_databases]]
 binding       = "TICKETS"            # company-wide issues; closed, never deleted
 database_name = "vemians-tickets"
-database_id   = "00000000-0000-0000-0000-00000000d1c5"
+database_id   = "9addc2c1-7f22-44be-bf93-f8e831905ce7"
 
 [[env.ops.d1_databases]]
 binding       = "IDENTITY"           # ciphertext name/email/phone under an external KEK
 database_name = "vemians-identity"
-database_id   = "00000000-0000-0000-0000-0000000000d1"
+database_id   = "ad42f20e-f3af-47c9-9022-09c318ec68ec"
