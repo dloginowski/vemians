@@ -224,6 +224,25 @@ that does not trace to one of these is a process failure (see §12).
 
 ---
 
+### 3.10 Inventory and tickets
+
+30. **`Test-PRD-P0-31-inventory_ledger`** — Stock is a **ledger, not a number**. No tool writes
+    `on_hand`; every change is an append-only `inventory_adjustment` with a delta, a reason, an
+    actor and an optional `reverses` pointer, and a trigger folds it into the count. Direct
+    writes to `on_hand` are refused by the database. History cannot be edited or deleted, so the
+    undo for a mistake is a reversing adjustment that leaves both the error and the correction on
+    the record.
+
+31. **`Test-PRD-P0-32-tickets`** — Company-wide issues live in their own `tickets` store. A ticket
+    cannot be deleted, only moved through status, and resolving one requires a timestamp.
+    Comments are append-only. Links to orders, customers, products and shifts are id plus a
+    non-identifying label, never a foreign key, so a ticket survives the erasure of what it
+    points at and reading a ticket does not confer access to the linked record.
+
+32. **`Test-PRD-P0-33-customer_intake`** — Creating a customer writes the profile and the
+    encrypted identity as one operation, records consent per purpose at intake, and is a T2
+    action for manager and above. A customer is never created as a side effect of another tool.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
