@@ -6,9 +6,13 @@
   "description": "Prototype Worker: public catalog on vemians.com, Access-gated ops on ops.vemians.com.",
   "scripts": {
     "dev": "wrangler dev --port 8787",
+    "dev:ops": "wrangler dev --env ops --local --port 8791",
     "deploy": "wrangler deploy"
   },
   "devDependencies": {
     "wrangler": "4.129.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.0.0"
   }
 }

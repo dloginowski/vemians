@@ -28,6 +28,7 @@
  */
 
 import { readAccessIdentity } from "./access.js";
+import { handleMcp, isMcpPath } from "./mcp.js";
 import { products, customers, week } from "./seed.js";
 import { catalogPage, opsPage, refusalPage, notFoundPage } from "./views.js";
 
@@ -53,6 +54,11 @@ function surface(hostname, env) {
 }
 
 async function ops(request, env, path) {
+  /* The MCP endpoint owns its own identity check: it refuses a service token
+     the ops page would happily render for, and its refusal is JSON with a
+     WWW-Authenticate header rather than an HTML page. See src/mcp.js. */
+  if (isMcpPath(path)) return handleMcp(request, env, path);
+
   const identity = await readAccessIdentity(request, env);
 
   if (!identity.ok) {
