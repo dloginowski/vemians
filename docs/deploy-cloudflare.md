@@ -192,7 +192,12 @@ assertion reaches it. That is the correct resting state, not a fault.
 Access needs one identity provider. Two options; the Worker cannot tell them apart, because it
 only ever verifies the Access JWT — **swapping later needs no code change**.
 
-### Option A — One-time PIN (default, no external setup)
+### Option A — One-time PIN (fallback, no external setup)
+
+> **Not the chosen path.** Workspace SSO (Option B) is the decision, because directory groups
+> are what scope `identity`, `finance` and `people` to the right people. Keep this option in
+> mind only as a way to unblock yourself if the Google side stalls — swapping later costs no
+> code change.
 
 Nothing to configure. It is enabled on a new Zero Trust organisation already. Staff enter their
 work email at `ops.vemians.com`, Cloudflare emails a 6-digit code, they are in. Combined with
@@ -204,7 +209,7 @@ What you give up: no true single sign-on — being signed into Google does not c
 it is an email and a code each time a session expires. And no directory groups, so roles come
 from **Access Groups** instead (§6b).
 
-### Option B — Google Workspace (real SSO and directory groups)
+### Option B — Google Workspace **(chosen)**
 
 Two dashboards, and the order matters because each needs a value from the other.
 

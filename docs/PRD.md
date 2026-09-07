@@ -34,10 +34,16 @@ The log gives the same undo while leaving deletion possible. Deleting a customer
 therefore really deletes it, while the orders survive intact and anonymous for tax retention.
 
 Staff reach `ops.vemians.com` through **Cloudflare Access**, which terminates identity before
-a request reaches our code. The identity provider is a configuration choice, not an
-architectural one: **One-time PIN at launch** (no external IdP), with Google Workspace
-available later for true single sign-on. Roles come from **Cloudflare Access Groups**, and tool
-scope is enforced by per-store bindings rather than by prompt. The storefront is **ours** — Astro on Workers, our design system, a
+a request reaches our code. The gate is **Google Workspace SSO**. The provider remains a
+configuration choice rather than an architectural one — the Worker only verifies the Access
+JWT, which is identical whichever provider issued it — but Workspace is the decision, because
+it gives directory groups for role scoping. Tool scope is enforced by per-store bindings, not
+by prompt.
+
+Staff reach those tools two ways, and both hit the same tool layer: the **browser chat** at
+`ops.vemians.com`, and a **remote MCP endpoint** for people using their own AI client. Some
+staff use Claude, some use ChatGPT; that is a per-person preference, not an architectural
+commitment. The storefront is **ours** — Astro on Workers, our design system, a
 resolution-adaptive grid and 8:9 imagery — and calls a provider only to mint a checkout URL.
 **Checkout is deliberately rented**: PCI scope, fraud and tax are the one accepted dependency,
 and Shopify and POS are both channels behind the same commerce port.
@@ -179,12 +185,12 @@ that does not trace to one of these is a process failure (see §12).
 ### 3.7 Access and authorisation
 
 22. **`Test-PRD-P0-22-access_gated_ops`** — All `ops.vemians.com` access authenticates through
-    **Cloudflare Access**, whichever identity provider is configured (One-time PIN at launch).
-    Swapping provider is a dashboard change and must require no code change: the Worker verifies
-    the Access JWT, which is identical either way. The application has no login form, no password, no
+    **Cloudflare Access with Google Workspace** as the identity provider. Swapping provider stays
+    a dashboard change requiring no code change: the Worker verifies the Access JWT, which is
+    identical whichever provider issued it. The application has no login form, no password, no
     session cookie of its own and no reset path; identity is terminated before a request reaches
     application code.
-23. **`Test-PRD-P0-23-group_derived_roles`** — Authorisation derives from **Cloudflare Access Group
+23. **`Test-PRD-P0-23-group_derived_roles`** — Authorisation derives from **Google Workspace group
     membership** mapped to Access policies. No role is assigned inside the app, and offboarding in
     the Access Group revokes platform access with no application-side action. The verified Access identity
     is the `actor` on every audit row.
@@ -243,6 +249,17 @@ that does not trace to one of these is a process failure (see §12).
     encrypted identity as one operation, records consent per purpose at intake, and is a T2
     action for manager and above. A customer is never created as a side effect of another tool.
 
+33. **`Test-PRD-P0-34-multi_client_tools`** — The tool layer has more than one consumer: the
+    browser chat, a remote **MCP endpoint** at `ops.vemians.com/mcp`, and any future automation.
+    Tools are defined once and every consumer goes through the same `runTool`, so tiers, role
+    filtering, caps and the audit row cannot differ per client. A tool a role may not use is
+    absent from that client's tool list rather than present and refused.
+
+34. **`Test-PRD-P0-35-approval_never_in_band`** — A T2 action requested through MCP does not
+    execute in the model's context. It returns an approval URL on `ops.vemians.com`; the token is
+    minted server-side from the human's browser action and is never returned to, nor accepted
+    from, a model. This holds identically for every client.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -296,9 +313,9 @@ that does not trace to one of these is a process failure (see §12).
 | **Manager** | Build schedules, edit catalog and pricing, approve agent writes | `ops`, manager role |
 | **Owner** | Everything, plus finance views and audit history | `ops`, owner role |
 
-Roles derive from **Cloudflare Access Groups** — reusable named sets of email addresses or
-rules, referenced by each application's policy. No role is assigned inside the app. If Google
-Workspace is added later, an Access Group can be backed by a Workspace group instead of a list.
+Roles derive from **Google Workspace groups**, surfaced through Cloudflare Access Groups and
+referenced by each application's policy. No role is assigned inside the app, so offboarding
+someone in Workspace revokes platform access with no application-side change.
 
 Store reachability, per ADR-002:
 
@@ -376,7 +393,8 @@ Full detail in [`cloudflare-architecture.md`](./cloudflare-architecture.md).
     finance    expenses, budgets                                     via the commerce port
     audit      append-only agent record
         │
-        └──► ops.vemians.com   agent, Cloudflare Access (OTP), one binding per store
+        └──► ops.vemians.com   browser chat + /mcp, Access via Google Workspace,
+                                 one binding per store
 ```
 
 No store is central. No foreign key crosses a boundary. `identity` is reachable only by
@@ -392,9 +410,9 @@ trigger, race-free because D1 serialises writes to a single writer (P0-18).
 
 ## 10. Acceptance criteria for v1
 
-- [ ] An employee signs in at `ops.vemians.com` via Cloudflare Access, with no
+- [ ] An employee signs in at `ops.vemians.com` with their Workspace account, with no
       app-specific credential.
-- [ ] Removing that employee from the Access Group revokes access, verified.
+- [ ] Removing that employee from Google Workspace revokes access, verified.
 - [ ] A manager builds a week's schedule conversationally; a double-booking attempt is refused
       by the database, not by the prompt.
 - [ ] A manager changes a price conversationally; it arrives as a pull request, is merged by a
