@@ -33,9 +33,11 @@ undo by making history permanent, and that permanence is exactly what forecloses
 The log gives the same undo while leaving deletion possible. Deleting a customer profile
 therefore really deletes it, while the orders survive intact and anonymous for tax retention.
 
-Staff reach `ops.vemians.com` through **Google Workspace SSO via Cloudflare Access**, with
-roles derived from Workspace groups and tool scope enforced by per-store bindings rather than
-by prompt. The storefront is **ours** — Astro on Workers, our design system, a
+Staff reach `ops.vemians.com` through **Cloudflare Access**, which terminates identity before
+a request reaches our code. The identity provider is a configuration choice, not an
+architectural one: **One-time PIN at launch** (no external IdP), with Google Workspace
+available later for true single sign-on. Roles come from **Cloudflare Access Groups**, and tool
+scope is enforced by per-store bindings rather than by prompt. The storefront is **ours** — Astro on Workers, our design system, a
 resolution-adaptive grid and 8:9 imagery — and calls a provider only to mint a checkout URL.
 **Checkout is deliberately rented**: PCI scope, fraud and tax are the one accepted dependency,
 and Shopify and POS are both channels behind the same commerce port.
@@ -56,7 +58,7 @@ store, the storefront, or the design. Verified by the Exit Test in CI (§7).
 **G3 — A beautiful storefront we control.** Design and front-end code are ours, no vendor
 theming layer.
 
-**G4 — Agentic operations at `ops.vemians.com`**, behind Google Workspace SSO.
+**G4 — Agentic operations at `ops.vemians.com`**, behind Cloudflare Access.
 
 **G5 — Customer data we can actually delete.** Erasure obligations are a design input, not
 a policy document.
@@ -176,13 +178,15 @@ that does not trace to one of these is a process failure (see §12).
 
 ### 3.7 Access and authorisation
 
-22. **`Test-PRD-P0-22-workspace_sso`** — All `ops.vemians.com` access authenticates via **Google
-    Workspace SSO through Cloudflare Access**. The application has no login form, no password, no
+22. **`Test-PRD-P0-22-access_gated_ops`** — All `ops.vemians.com` access authenticates through
+    **Cloudflare Access**, whichever identity provider is configured (One-time PIN at launch).
+    Swapping provider is a dashboard change and must require no code change: the Worker verifies
+    the Access JWT, which is identical either way. The application has no login form, no password, no
     session cookie of its own and no reset path; identity is terminated before a request reaches
     application code.
-23. **`Test-PRD-P0-23-group_derived_roles`** — Authorisation derives from **Google Workspace group
+23. **`Test-PRD-P0-23-group_derived_roles`** — Authorisation derives from **Cloudflare Access Group
     membership** mapped to Access policies. No role is assigned inside the app, and offboarding in
-    Workspace revokes platform access with no application-side action. The verified Access identity
+    the Access Group revokes platform access with no application-side action. The verified Access identity
     is the `actor` on every audit row.
 24. **`Test-PRD-P0-24-binding_scoped_tools`** — Tool scope is **structural**: each store is a
     separate Access policy and a separate binding, so a knowledge tool *cannot* read finance. This
@@ -273,7 +277,9 @@ that does not trace to one of these is a process failure (see §12).
 | **Manager** | Build schedules, edit catalog and pricing, approve agent writes | `ops`, manager role |
 | **Owner** | Everything, plus finance views and audit history | `ops`, owner role |
 
-Roles derive from **Google Workspace groups**. No role is assigned inside the app.
+Roles derive from **Cloudflare Access Groups** — reusable named sets of email addresses or
+rules, referenced by each application's policy. No role is assigned inside the app. If Google
+Workspace is added later, an Access Group can be backed by a Workspace group instead of a list.
 
 Store reachability, per ADR-002:
 
@@ -351,7 +357,7 @@ Full detail in [`cloudflare-architecture.md`](./cloudflare-architecture.md).
     finance    expenses, budgets                                     via the commerce port
     audit      append-only agent record
         │
-        └──► ops.vemians.com   agent, Google Workspace SSO via Access, one binding per store
+        └──► ops.vemians.com   agent, Cloudflare Access (OTP), one binding per store
 ```
 
 No store is central. No foreign key crosses a boundary. `identity` is reachable only by
@@ -367,9 +373,9 @@ trigger, race-free because D1 serialises writes to a single writer (P0-18).
 
 ## 10. Acceptance criteria for v1
 
-- [ ] An employee signs in at `ops.vemians.com` with their Workspace account, with no
+- [ ] An employee signs in at `ops.vemians.com` via Cloudflare Access, with no
       app-specific credential.
-- [ ] Removing that employee from Google Workspace revokes access, verified.
+- [ ] Removing that employee from the Access Group revokes access, verified.
 - [ ] A manager builds a week's schedule conversationally; a double-booking attempt is refused
       by the database, not by the prompt.
 - [ ] A manager changes a price conversationally; it arrives as a pull request, is merged by a

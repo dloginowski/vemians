@@ -177,12 +177,33 @@ takes to do §4–§6.
    every token and the hostname of every login page.
 3. Choose the **Free** plan. Card details are requested even on Free. See §8.
 
-## 5. Add Google Workspace as the identity provider
+## 5. Pick a login method
+
+Access needs one identity provider. Two options; the Worker cannot tell them apart, because it
+only ever verifies the Access JWT — **swapping later needs no code change**.
+
+### Option A — One-time PIN (default, no external setup)
+
+Nothing to configure. It is enabled on a new Zero Trust organisation already. Staff enter their
+work email at `ops.vemians.com`, Cloudflare emails a 6-digit code, they are in. Combined with
+the `@vemians.com` policy in §6, only company addresses can get a code that works.
+
+**Skip to §6.** That is the whole step.
+
+What you give up: no true single sign-on — being signed into Google does not carry over, so
+it is an email and a code each time a session expires. And no directory groups, so roles come
+from **Access Groups** instead (§6b).
+
+### Option B — Google Workspace (real SSO and directory groups)
+
+Two dashboards, and the order matters because each needs a value from the other.
+
+
 
 Two dashboards, and the order matters because each one needs a value from the other.
 
-**In Google Cloud Console** (<https://console.cloud.google.com>), signed in as a Workspace
-**super administrator**:
+**In Google Cloud Console** (<https://console.cloud.google.com> — *not* admin.google.com;
+OAuth clients live in Cloud Console), signed in as a Workspace **super administrator**:
 
 1. Create a project, or pick an existing one — e.g. `vemians-sso`.
 2. **APIs & Services → Library** → enable the **Admin SDK API**. This is what lets Cloudflare
@@ -248,6 +269,32 @@ then `npx wrangler deploy`. Until you do this the Worker still fails closed on a
 assertion, but it accepts any well-formed one **without checking its signature**, and says so
 in a black banner across the top of the ops page. Access is the gate either way; this makes
 the Worker verify that the request really came through it.
+
+## 6b. Roles without a directory — Access Groups
+
+The domain-wide policy in §6 makes every `@vemians.com` address equal. That is fine to launch
+with and wrong for `identity`, `finance` and `people`, which the PRD scopes to owner and
+manager (`Test-PRD-P0-24-binding_scoped_tools`).
+
+With One-time PIN there is no directory to derive roles from, so use **Cloudflare Access
+Groups** — named, reusable sets of emails or rules, defined once and referenced by any policy.
+
+**Zero Trust → Access → Groups → Add a group:**
+
+| Group | Include |
+|---|---|
+| `vemians-staff` | Emails ending in `@vemians.com` |
+| `vemians-managers` | Emails → the specific manager addresses |
+| `vemians-owners` | Emails → your address |
+
+Then each tighter surface gets **its own Access application** on its own hostname or path,
+with the appropriate group as the Include. Adding or removing someone is one edit in one group,
+not a policy change in several applications.
+
+If Google Workspace is added later, an Access Group can be backed by a **Workspace group**
+instead of a hand-maintained list — the applications referencing it do not change.
+
+---
 
 ## 7. Test both surfaces — and test the refusal
 
