@@ -85,37 +85,43 @@ These hold at every viewport and are what actually make it feel like this:
 - Card order: eyebrow + heart → image → brand → name → price.
 - No borders, shadows, cards or rounded corners.
 
-### 3.2 Responsive — what flexes
+### 3.2 Responsive — derived, not declared
 
-Only the grid and the page gutter flex. The single measured column (2-up, 16px gutter,
-30px margin at 540px) is one point on this curve; the rest is **proposed**, pending a
-desktop screenshot.
+The grid has **no breakpoints**. Column count is derived from available width, so the
+catalog uses whatever resolution it is given. Measured in headless Chromium against
+`platform/design/catalog-grid.css`:
 
-| Viewport | Columns | Gutter | Page margin |
-|---|---|---|---|
-| <600px | 2 *(measured)* | 16px *(measured)* | 30px *(measured)* |
-| 600–899 | 3 | proposed | fluid |
-| 900–1279 | 4 | proposed | fluid |
-| ≥1280 | 4 | proposed | capped max-width |
+| Viewport | Columns | Card width |
+|---|---|---|
+| 390px | 2 | 173px |
+| 540px *(the reference capture)* | 2 | 242px |
+| 768px | 3 | 227px |
+| 1024px | 3 | 303px |
+| 1440px | 5 | 247px |
+| 1920px | 7 | 232px |
+| 2560px | 7 | 323px |
+| 3840px | 11 | 312px |
 
-Two columns on mobile, never one — it keeps browsing dense enough to scan.
+Card width stays within 173–323px across a 10× range of viewport widths. Wide displays
+gain **both** more columns and slightly larger cards — the card floor is
+`clamp(14rem, 11vw, 19rem)` rather than a constant, which stops a 4K display degrading
+into a contact sheet of thumbnails.
 
-Because the card has no intrinsic width, the grid needs no breakpoints at all:
+Two columns on the narrowest phones, never one, enforced by the `min(…, 46%)` floor.
 
-```css
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(232px, 46%), 1fr));
-  gap: clamp(0.75rem, 2vw, 1.5rem);
-  padding-inline: clamp(1rem, 5vw, 4rem);
-}
-.card-media { aspect-ratio: 8 / 9; background: var(--image-ground); }
-```
+**`auto-fill`, not `auto-fit`** — despite the names reading backwards. On a full grid the
+two are identical. They diverge on filtered results, where `auto-fit` collapses the empty
+tracks and lets the survivors absorb the space:
 
-`auto-fill` + `minmax` derives the column count from available width, and the `min(…, 46%)`
-floor guarantees two columns on the narrowest phones. Media queries then only handle genuine
-*art-direction* changes — the header collapsing to a hamburger, type stepping up on desktop —
-rather than re-declaring the grid at every breakpoint.
+| 2 results at 3840px | `auto-fill` | `auto-fit` |
+|---|---|---|
+| Card width | 312px | **1842px** |
+
+A 1842px-wide product image is not a design. `auto-fill` is what actually keeps the layout
+filling the viewport sensibly at *every* result count.
+
+Media queries are then reserved for genuine art-direction changes — the header collapsing,
+type stepping up — rather than re-declaring the grid.
 
 ## 4. Product card anatomy
 
