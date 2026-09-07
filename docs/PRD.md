@@ -1,0 +1,460 @@
+# PRD — Vemians Platform
+
+| | |
+|---|---|
+| **Status** | Draft for review |
+| **Last updated** | 2026-09-07 |
+| **Owner** | dimitri@handsome.la |
+| **Supersedes** | the single-Postgres / Shopify-hosted-storefront draft |
+| **Decided in** | [ADR-001](./adr/001-catalog-storage.md) · [ADR-002](./adr/002-data-domains.md) · [ADR-003](./adr/003-sharding-and-customer-data.md) · [ADR-004](./adr/004-customer-data-protection.md) · [ADR-006](./adr/006-encrypted-storage-vendor.md) |
+
+---
+
+## 1. Synopsis
+
+Vemians runs on a storefront and an operations layer we own outright, with commerce
+providers reduced to pluggable sales channels.
+
+There is no central database. Data is split into **nine stores by blast radius and
+retention**, not by topic — three in Git, six in D1. **Catalog, knowledge and reports live
+in Git** (versioned, reviewable, publishable, no PII); **customers, identity, commerce,
+people, finance and audit live in D1** (concurrent, erasable, constraint-enforcing). Nothing joins across a
+store boundary — cross-store references are an id plus a snapshot.
+
+Customer identifiers — name, email, phone — exist in exactly one place, the `identity`
+store, as **ciphertext under application-level envelope encryption with the KEK held in an
+external KMS**, so neither provider alone can read a customer record. Hashing was
+considered and rejected: low-entropy inputs are brute-forced in seconds, and re-identifiable
+data is still personal data. Everything else keys off an opaque customer id.
+
+Reversibility — "employees edit freely, nothing is destroyed, changes revert like a commit"
+— comes from an **append-only `customer_version` log**, not from Git immutability. Git gives
+undo by making history permanent, and that permanence is exactly what forecloses erasure.
+The log gives the same undo while leaving deletion possible. Deleting a customer profile
+therefore really deletes it, while the orders survive intact and anonymous for tax retention.
+
+Staff reach `ops.vemians.com` through **Google Workspace SSO via Cloudflare Access**, with
+roles derived from Workspace groups and tool scope enforced by per-store bindings rather than
+by prompt. The storefront is **ours** — Astro on Workers, our design system, a
+resolution-adaptive grid and 8:9 imagery — and calls a provider only to mint a checkout URL.
+**Checkout is deliberately rented**: PCI scope, fraud and tax are the one accepted dependency,
+and Shopify and POS are both channels behind the same commerce port.
+
+Provider independence is not asserted, it is executed: **the Exit Test runs in CI** and blocks
+merge.
+
+---
+
+## 2. Goals
+
+**G1 — Own the system of record.** Catalog, content, knowledge, orders, customers,
+employees and schedules live in stores we control. A commerce provider holds a *copy*.
+
+**G2 — Provider independence, proven not promised.** Removing a provider must not touch a
+store, the storefront, or the design. Verified by the Exit Test in CI (§7).
+
+**G3 — A beautiful storefront we control.** Design and front-end code are ours, no vendor
+theming layer.
+
+**G4 — Agentic operations at `ops.vemians.com`**, behind Google Workspace SSO.
+
+**G5 — Customer data we can actually delete.** Erasure obligations are a design input, not
+a policy document.
+
+**G6 — Minimal moving parts.** Nine stores, one commerce port, no infrastructure the
+storefront does not need.
+
+---
+
+## 3. P0 features
+
+Every numbered feature carries a stable label. Tests enforce these features by label; a test
+that does not trace to one of these is a process failure (see §12).
+
+### 3.1 Data topology
+
+1. **`Test-PRD-P0-01-store_topology`** — Nine stores, none central: `catalog`, `knowledge`
+   and `reports` in Git; `customers`, `identity`, `commerce`, `people`, `finance` and `audit`
+   in D1. (Six in ADR-002, grown by ADR-003's `reports` and `customers` split and ADR-004's
+   `identity` vault.) Each D1 store is an independent schema and an independent binding, loads and
+   migrates on its own, and holds **no foreign key and no transaction** reaching another
+   store. Cross-store references are `id` plus a snapshot of what was needed.
+2. **`Test-PRD-P0-02-catalog_git_shards`** — The catalog is JSON in Git, one file per entity
+   (`catalog/products/<handle>.json`), so a product edit is a one-file diff and two agent PRs
+   do not conflict. The index is **derived at build time and never committed** — it is a
+   cache, not a source. One writer per file.
+3. **`Test-PRD-P0-03-knowledge_git_vectorize`** — The knowledge library is Markdown in Git.
+   Semantic search is a **derived index** in Vectorize, embedded on commit and rebuildable
+   from Git at any time. If the index disagrees with Git, Git wins.
+4. **`Test-PRD-P0-04-reports_git_shards`** — Reports are JSON in Git, sharded by period
+   (`reports/2026-Q3.json`). No PII may enter any Git store.
+
+### 3.2 Customer data protection
+
+5. **`Test-PRD-P0-05-identity_vault`** — Direct identifiers (name, email, phone) exist **only**
+   in the `identity` store and **only as ciphertext**. Encryption is application-level
+   envelope encryption: a per-customer data key encrypts the fields, is stored wrapped, and
+   the KEK lives in an **external KMS** — so the database provider holds ciphertext and
+   wrapped keys but never a key that opens them. Every row records the `kek_id` that wrapped
+   it. No plaintext identifier column may exist in this store.
+6. **`Test-PRD-P0-06-keyed_lookup_handle`** — Fields that must stay matchable (email, phone)
+   carry an **HMAC-SHA256 handle under a secret key**, never a bare digest. Hashing was
+   rejected as a protection mechanism: a phone number has ~10^10 possible values and is
+   enumerated on a laptop in seconds, and under GDPR Recital 26 a re-identifiable hash is
+   still personal data. Exact-match lookup by handle is the only query available against
+   encrypted fields.
+7. **`Test-PRD-P0-07-crypto_shred`** — Destroying a wrapped data key crypto-shreds that
+   customer irreversibly, and the ciphertext and lookup handles are cleared in the same
+   operation. Retained ciphertext with no key is retention with extra steps.
+8. **`Test-PRD-P0-08-customers_no_identifiers`** — The `customers` store holds profile, fit
+   and consent against an opaque id and **no direct identifier**. Most agent tools bind here
+   and can read a profile without ever seeing who it is; only clienteling tools bind to
+   `identity`.
+9. **`Test-PRD-P0-09-data_minimisation`** — Collect the coarsest field that answers the
+   question: **birth year, not date of birth**; fit and measurements in their own table so
+   they can be dropped or bound independently; purchase history **derived** from `commerce`
+   by `customer_id`, never duplicated. Consent is recorded per purpose with a timestamp and a
+   source, and an unknown purpose is rejected.
+10. **`Test-PRD-P0-10-erasure_is_real`** — Erasing a profile deletes the row and cascades to
+    fit data and consent. The erasure request itself is retained as evidence, holds the
+    customer id only — never a copy of what was erased — and cannot be deleted.
+11. **`Test-PRD-P0-11-erasure_vs_tax_retention`** — Erasure and tax retention are resolved by
+    the split, not by a compromise: orders survive a customer erasure **intact and anonymous**.
+    The `order` table is asserted to carry `customer_id` and **no** `email`, `phone`, `name` or
+    `birth_year` column, so the guarantee cannot rot when somebody adds a column.
+12. **`Test-PRD-P0-12-reversible_edits`** — Non-destructive editing comes from an **append-only
+    `customer_version` log**, not from immutable storage. Every edit records field, old value,
+    new value, actor and timestamp before it is applied; a revert **appends a compensating row**
+    pointing at the original rather than overwriting; the log cannot be updated; and it can be
+    deleted only under an open erasure request — otherwise old values would outlive the record
+    they belong to.
+
+### 3.3 Commerce, orders and the provider boundary
+
+13. **`Test-PRD-P0-13-webhook_idempotency`** — Order ingest is idempotent: a replayed webhook
+    for the same `(channel, external_id)` cannot create a second order. The original payload is
+    retained so ingest can be replayed after a mapping fix.
+14. **`Test-PRD-P0-14-order_line_snapshot`** — The catalog is in Git, so an order line has no
+    foreign key to follow. Lines carry `product_handle`, title, SKU and unit-price snapshots and
+    stay permanently readable whatever the catalog does later. A line quantity must be positive.
+15. **`Test-PRD-P0-15-money_minor_units`** — Money is stored as an **integer minor amount plus an
+    explicit currency**, everywhere, in every store. No floats, no implied currency.
+16. **`Test-PRD-P0-16-commerce_port`** — All provider interaction passes through a single adapter
+    interface (`platform/commerce-port.ts`). No vendor SDK or vendor identifier appears outside an
+    adapter; in the database the vendor's id is the single `external_id` field alongside `channel`,
+    and nothing else. Catalog and inventory project **outbound**; the provider is never
+    authoritative.
+17. **`Test-PRD-P0-17-channel_agnostic_orders`** — A new sales channel — POS included — is a new
+    adapter and a new `channel` value, with **no schema change**. Card data is never stored; a
+    channel token and last four digits only, so the platform stays out of PCI scope.
+
+### 3.4 People and scheduling
+
+18. **`Test-PRD-P0-18-no_double_booking`** — An employee cannot hold two overlapping active
+    shifts. This is enforced **in the database** — D1 serialises writes to a single writer, so the
+    trigger check is race-free where an application read-then-write is not — on insert *and* on
+    update. Intervals are half-open, so back-to-back shifts are legal; cancelling a shift frees its
+    slot; an inverted time range is rejected.
+
+### 3.5 Finance
+
+19. **`Test-PRD-P0-19-approved_expense_immutable`** — An approved or reimbursed expense is a
+    financial record and cannot be edited in place; it is reversed instead. Progressing its state
+    (approved → reimbursed) remains legal.
+20. **`Test-PRD-P0-20-cross_store_snapshot`** — An expense references an employee by
+    `employee_id` **plus an `employee_name` snapshot**, because `people` is a different database.
+    The record stays readable when the other store is unavailable or the referenced row has
+    changed. Receipts live in R2, never inline.
+
+### 3.6 Audit
+
+21. **`Test-PRD-P0-21-append_only_audit`** — Every agent action — actor, on-behalf-of, domain,
+    tool, arguments, result, timestamp — is written to an audit store that **no application role
+    can update or delete**, enforced by trigger. The domain must be one of the known stores.
+    Audit is its own store so it survives a mistake in any other one, and the application holds
+    insert-only credentials against it.
+
+### 3.7 Access and authorisation
+
+22. **`Test-PRD-P0-22-workspace_sso`** — All `ops.vemians.com` access authenticates via **Google
+    Workspace SSO through Cloudflare Access**. The application has no login form, no password, no
+    session cookie of its own and no reset path; identity is terminated before a request reaches
+    application code.
+23. **`Test-PRD-P0-23-group_derived_roles`** — Authorisation derives from **Google Workspace group
+    membership** mapped to Access policies. No role is assigned inside the app, and offboarding in
+    Workspace revokes platform access with no application-side action. The verified Access identity
+    is the `actor` on every audit row.
+24. **`Test-PRD-P0-24-binding_scoped_tools`** — Tool scope is **structural**: each store is a
+    separate Access policy and a separate binding, so a knowledge tool *cannot* read finance. This
+    is enforced by binding, not by query filter and not by prompt. `people` and finance views sit
+    behind their own policy, tighter than general staff access.
+25. **`Test-PRD-P0-25-write_approval_gate`** — Reads execute directly; **writes require explicit
+    human approval before execution** — a reviewable pull request for the Git stores, an in-session
+    approval for the D1 stores. Rate and monetary caps are enforced in code, never in the prompt.
+    Refunds, payroll changes and record deletion are not gated — they are **absent**.
+
+### 3.8 Storefront
+
+26. **`Test-PRD-P0-26-owned_storefront`** — `vemians.com` is ours: Astro on Workers, our design
+    tokens and components, no vendor theming layer. It renders products, collections and content
+    from the Git catalog and our own R2 media, makes **zero** calls to any commerce provider except
+    to mint a checkout URL, and keeps our handles as stable URLs across a provider switch.
+27. **`Test-PRD-P0-27-adaptive_grid`** — The catalog grid is **resolution-adaptive with no
+    breakpoints**: column count derives from available width (2 columns at 390px through 11 at
+    3840px) with card width held between 173px and 323px. `auto-fill`, never `auto-fit` — a
+    filtered result must not stretch two cards across a 4K viewport.
+28. **`Test-PRD-P0-28-image_contract`** — The design is image-led, so imagery is a contract:
+    **8:9 (1:1.125)** product images on the `#EFF0F4` ground, served as AVIF/WebP with `srcset` cut
+    to actual grid widths, every image carrying explicit dimensions, under an **image-weight budget
+    enforced in CI**. N1 is not otherwise reachable.
+
+### 3.9 Provider independence and traceability
+
+29. **`Test-PRD-P0-29-exit_test`** — Provider independence is a **CI check** (§7), not a claim.
+    Deleting a provider must leave catalog, media, orders, schedule and finance intact, remove every
+    vendor identifier, and leave the storefront building and rendering. A failing Exit Test blocks
+    merge.
+30. **`Test-PRD-P0-30-prd_traceability`** — Every check in a PRD-backed test file carries a
+    `Test-PRD-*` label, and every label used must exist in this PRD. The test files enforce this
+    themselves, so a renamed or invented label fails the run rather than drifting silently.
+
+---
+
+## 4. P1 features
+
+1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
+   inventory, schedule and knowledge, scoped by the caller's bindings.
+2. **`Test-PRD-P1-02-agent_scheduling`** — Managers build, amend and publish shifts
+   conversationally; the overlap guarantee (P0-18) is what makes this safe to expose.
+3. **`Test-PRD-P1-03-agent_catalog_pr`** — Catalog and pricing edits are made by the agent
+   **opening a pull request**: the platform supplies the approval gate, the reviewable diff and
+   the audit history for free, and revert is a revert.
+4. **`Test-PRD-P1-04-knowledge_semantic_search`** — Vectorize-backed semantic search over the
+   knowledge library, rebuildable from Git.
+5. **`Test-PRD-P1-05-second_adapter`** — A second commerce adapter ships with **no schema
+   migration** — the real test of P0-16.
+6. **`Test-PRD-P1-06-pos_channel`** — A live POS channel, with the customer-matching key
+   (email or phone) decided *before* import, since merging duplicate customer records
+   retroactively is genuinely unpleasant.
+7. **`Test-PRD-P1-07-projection_reconciliation`** — A nightly job reconciles our catalog and
+   stock against the provider's copy and alerts on drift.
+8. **`Test-PRD-P1-08-customer_retention_policy`** — A retention period applied to `customers`
+   as well as `identity`. De-identified is *pseudonymous*, not anonymous: at luxury scale
+   "bought that £9,000 coat, size IT 42, born 1985" may still be one person.
+9. **`Test-PRD-P1-09-kek_rotation`** — KEK backup and rotation tooling: rotation re-wraps data
+   keys and updates `kek_id`; it does not re-encrypt customer data. Policy must exist before the
+   first customer record is written; losing the KEK loses every identity.
+10. **`Test-PRD-P1-10-notes_governance`** — `customer.notes` is free text and will accumulate
+    names unless something stops it: encrypt it, or govern it explicitly as identifying data.
+
+---
+
+## 5. Non-goals
+
+- **Not building checkout or payments.** PCI scope, fraud and tax are deliberately rented from
+  the commerce provider. This is the one accepted dependency.
+- **Not building a ledger.** Books of record stay in Xero/QuickBooks; `finance` exists so the
+  agent can reason about spend.
+- **Not building payroll.** Gusto/Deel. We hold scheduling, not compensation.
+- **Not a Shopify theme.** The Dawn fork in this repo is superseded by G3.
+- **Not one database.** A central store is not a simplification here; it is a shared blast
+  radius with a single retention policy.
+- **Not storing card data**, ever, in any store.
+- Not multi-tenant, not a public API, not a mobile app — for v1.
+
+---
+
+## 6. Users
+
+| Persona | Needs | Access |
+|---|---|---|
+| **Customer** | Browse products, buy | Public storefront |
+| **Staff** | View and swap own shifts, look up orders and stock | `ops`, staff role |
+| **Manager** | Build schedules, edit catalog and pricing, approve agent writes | `ops`, manager role |
+| **Owner** | Everything, plus finance views and audit history | `ops`, owner role |
+
+Roles derive from **Google Workspace groups**. No role is assigned inside the app.
+
+Store reachability, per ADR-002:
+
+| Store | Who reaches it |
+|---|---|
+| catalog, knowledge, reports | All staff (via PR review) |
+| commerce | Staff (read), managers (write) |
+| customers | Staff (profile), managers (write) |
+| **identity** | Clienteling tools only, under their own policy |
+| finance | Managers and owner |
+| **people** | Owner and the individual employee |
+| audit | Owner (read); application is insert-only |
+
+---
+
+## 7. Non-functional requirements
+
+- **N1** Storefront p75 LCP < 2.0s on 4G mobile.
+- **N2** Storefront reads never block on a provider API.
+- **N3** Provider outage degrades checkout only; browsing stays fully available.
+- **N4** All money stored as integer minor units with explicit currency. No floats.
+- **N5** Customer identifiers encrypted at the application layer with the KEK outside the
+  database provider. Employee PII behind its own Access policy.
+- **N6** Infrastructure cost target < $50/month at launch scale, excluding model usage.
+- **N7** **No single database.** Catalog, knowledge and reports are Git — the most portable
+  format available, more portable than any SQL engine. Operational data is per-domain D1, kept
+  to plain SQL so a store is restorable into any SQLite-compatible engine.
+- **N8** A KMS dependency sits on the identity read path — AWS KMS, one KEK, ~$1–5/month
+  (ADR-006); a managed PII vault is not warranted while checkout is rented and we hold no card
+  data. Unwrapped data keys are cached in memory per request and **never persisted**.
+- **N9** Every operation spanning two stores is **idempotent and retryable**, because it cannot
+  be atomic.
+- **N10** Migrations and backups are per-store: six D1 migration trails, three Git histories.
+  That repetition is the accepted price of §3.1.
+
+---
+
+## 8. The Exit Test — how G2 is verified
+
+Provider independence is a claim that rots silently unless tested. It is therefore a **CI check**,
+run on every change to the data layer and reviewed quarterly:
+
+1. Load every store schema into a scratch database and seed a product, variant and provider.
+2. Delete the provider: the `external_ref` keys in the catalog JSON, and the provider's rows and
+   `external_id` values in `commerce`.
+3. **Assert:** catalog, media, orders, schedule and finance are intact; every vendor identifier
+   is gone; the storefront still builds and renders the catalog.
+
+A failing Exit Test blocks merge. If we cannot delete the provider in CI, we cannot delete it in
+production either.
+
+The store-level half of this drill is implemented in `platform/db/verify.py` and passes today.
+
+---
+
+## 9. Architecture summary
+
+Full detail in [`cloudflare-architecture.md`](./cloudflare-architecture.md).
+
+```
+  GIT  (versioned, reviewable, publishable, no PII)
+    catalog/    products, collections, content, vendor id mappings
+    knowledge/  reference library  ──embed on commit──►  Vectorize (derived)
+    reports/    sharded by period
+        │
+        │ static build
+        ▼
+  vemians.com ── Astro on Workers, our design, R2 media ──► checkout URL only ──┐
+                                                                                │
+  D1  (concurrent, erasable, constraint-enforcing)                              ▼
+    identity   name/email/phone as ciphertext   ◄── KEK in external KMS   ┌────────────┐
+    customers  profile, fit, consent, versions                            │  Provider  │
+    commerce   orders, lines, inventory  ◄──── webhooks (orders) ─────────│ Shopify/POS│
+    people     employees, shifts         ──── projection (catalog) ──────►└────────────┘
+    finance    expenses, budgets                                     via the commerce port
+    audit      append-only agent record
+        │
+        └──► ops.vemians.com   agent, Google Workspace SSO via Access, one binding per store
+```
+
+No store is central. No foreign key crosses a boundary. `identity` is reachable only by
+clienteling tools; erasing one row there de-identifies a customer everywhere at once.
+
+**Why D1 rather than Postgres:** the portability argument favoured Postgres mainly to protect
+the catalog, and the catalog now lives in Git, which protects it better. What remains is small
+and operational, and seven bindings in `wrangler.toml` at near-zero cost is exactly what D1 is
+good at. The one thing given up — `EXCLUDE USING gist` for shift overlap — is recovered by a
+trigger, race-free because D1 serialises writes to a single writer (P0-18).
+
+---
+
+## 10. Acceptance criteria for v1
+
+- [ ] An employee signs in at `ops.vemians.com` with their Workspace account, with no
+      app-specific credential.
+- [ ] Removing that employee from Google Workspace revokes access, verified.
+- [ ] A manager builds a week's schedule conversationally; a double-booking attempt is refused
+      by the database, not by the prompt.
+- [ ] A manager changes a price conversationally; it arrives as a pull request, is merged by a
+      human, rebuilds the storefront, projects to the provider, and appears in the audit log.
+- [ ] A customer erasure request deletes the identity row, the profile, the fit data, the consent
+      and the change history — and the orders remain, intact and anonymous.
+- [ ] A clienteling tool reads a customer's fit profile **without** being able to see who it is.
+- [ ] The storefront renders the full catalog with the provider API unreachable.
+- [ ] A customer completes a purchase; the order lands in `commerce`, normalised, once, even if
+      the webhook is replayed.
+- [ ] `python3 platform/db/verify.py` and the Exit Test both pass in CI.
+
+---
+
+## 11. Milestones
+
+| # | Milestone | Exit condition |
+|---|---|---|
+| M0 | Six D1 schemas + `verify.py` + Exit Test in CI | Green on every commit |
+| M1 | Git stores + derived index | Catalog, knowledge and reports build from shards |
+| M2 | Storefront on our catalog | Grid and imagery contract met, provider unplugged |
+| M3 | KMS, envelope encryption, identity vault | KEK backup and rotation policy in place |
+| M4 | Commerce port + Shopify adapter | Catalog projects out; orders ingest in, idempotently |
+| M5 | `ops` shell + Google SSO + audit log | Sign-in works; zero tools shipped |
+| M6 | Read-only agent tools | Staff query catalog, orders, stock within their bindings |
+| M7 | Scheduling | Managers build schedules conversationally |
+| M8 | Gated write tools | PR gate, approval gate and caps enforced |
+| M9 | Finance and POS integrations | Read-only mirrors; POS as a channel |
+
+M3 ships **before the first customer record is written** — the KEK policy cannot be
+retrofitted. M5 ships **before any tool**: the audit log must exist before the first action it
+records.
+
+---
+
+## 12. Test contract
+
+Per `RULES.md`:
+
+- Tests exist to enforce the numbered features above, not implementation details.
+- Python check names use `test_PRD_P0_NN_short_id__specific_behaviour`; other frameworks preserve
+  the visible `Test-PRD-P0-NN-short_id` label. (`NN` and `short_id` are the feature's, above —
+  the placeholder is written with `NN` here deliberately, so it never reads as a real label.)
+- Every PRD-backed test file opens with a header block stating this contract.
+- A behaviour change moves the PRD feature and its labeled test **in the same change**.
+- Unlabeled tests are not acceptable.
+
+Where each feature is enforced today:
+
+| Features | Enforced by |
+|---|---|
+| P0-01, P0-05 – P0-21, P0-30 | `platform/db/verify.py` |
+| P0-02 – P0-04 | Build-time catalog/knowledge/report checks (M1) |
+| P0-22 – P0-25 | Access policy review + `ops` integration tests (M5) |
+| P0-26 – P0-28 | Storefront build checks and the CI image-weight budget (M2) |
+| P0-29 | The Exit Test in CI |
+
+---
+
+## 13. Open questions
+
+1. **Domain** — is it `vemians.com`? Everything above assumes so.
+2. **Existing data** — is there a live Shopify store with products and order history to
+   migrate, or do we start clean?
+3. **Shopify plan** — checkout customisation and some headless features vary by tier.
+4. **Team size** — sets the Cloudflare Access tier and the scheduling model.
+5. **Catalog scale** — hundreds of SKUs or tens of thousands? Changes the sync design.
+6. **Launch date** — is there a date the storefront must be live?
+7. **Provider intent** — is Shopify the launch provider, or is a switch already planned?
+   Affects whether M4 builds one adapter or two.
+
+---
+
+## 14. Risks
+
+| Risk | Mitigation |
+|---|---|
+| Checkout dependency is real lock-in | Accepted and scoped. Catalog and customers stay ours |
+| Losing the KEK loses every customer identity | Backup and rotation policy before the first record (M3, P1-09) |
+| KMS on the identity read path adds latency and a failure mode | Per-request in-memory key cache; only clienteling tools touch it |
+| Pseudonymous ≠ anonymous at luxury scale | Retention period on `customers`, not just `identity` (P1-08) |
+| Nine stores means nine migration and backup paths | Accepted; the alternative is one shared blast radius |
+| Eventual consistency across stores | Every cross-store operation idempotent and retryable (N9) |
+| Projection drift between our stores and the provider | Nightly reconciliation and drift alerts (P1-07) |
+| Agent takes a damaging action | PR gate, in-session approval, caps, append-only audit, destructive ops absent |
+| Free-text notes accumulate identifiers | Encrypt or govern (P1-10) |
+| Publishing pipeline leaks a Git store | No PII may enter Git at all — the rule is the mitigation (P0-04) |
+| Cloudflare lock-in replacing Shopify lock-in | Catalog in Git; plain SQL in D1; standard web framework |

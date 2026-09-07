@@ -1,0 +1,66 @@
+/*
+ * Catalog grid — resolution-adaptive, no breakpoints.
+ *
+ * The column count is derived from available width rather than declared at
+ * breakpoints, so the grid uses whatever resolution it is given. Measured in
+ * headless Chromium (see docs/design-direction.md §3.2):
+ *
+ *     390px -> 2 cols   1440px ->  5 cols
+ *     768px -> 3 cols   1920px ->  7 cols
+ *    1024px -> 3 cols   3840px -> 11 cols
+ *
+ * Card width stays inside 173-323px across that whole range.
+ *
+ * NOTE ON auto-fill VS auto-fit
+ * -----------------------------
+ * `auto-fit` collapses empty tracks, so with fewer items than tracks the
+ * remaining cards stretch to absorb the leftover space. On a full grid the two
+ * behave identically, but on a filtered result they diverge badly:
+ *
+ *     2 results at 3840px --  auto-fill: 312px cards   auto-fit: 1842px cards
+ *
+ * A 1842px-wide product image is not a design. `auto-fill` is therefore the
+ * correct keyword here despite the name reading backwards: it is what actually
+ * keeps the layout filling the viewport sensibly at every result count.
+ */
+
+.catalog {
+  /* Card floor grows with the viewport, so wide displays gain BOTH more columns
+     and slightly larger cards, rather than degrading into a contact sheet. */
+  --card-min: clamp(14rem, 11vw, 19rem);
+  --gutter:   clamp(0.75rem, 1.6vw, 1.75rem);
+  --margin:   clamp(1rem, 4vw, 4rem);
+
+  display: grid;
+  /* min(--card-min, 46%) floors the track below half the content width, which
+     guarantees two columns on the narrowest phones - never one. */
+  grid-template-columns: repeat(auto-fill, minmax(min(var(--card-min), 46%), 1fr));
+  gap: var(--gutter);
+  padding-inline: var(--margin);
+}
+
+/* Reserve the slot before the image loads. With a fixed ratio and a flat ground
+   colour, an unloaded card is visually identical to a loaded one, so the grid
+   never reflows. */
+.card-media {
+  aspect-ratio: 8 / 9;
+  background: var(--image-ground, #EFF0F4);
+  overflow: hidden;
+}
+
+.card-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/*
+ * REQUIRED on every catalog image, and easy to forget on a fluid grid:
+ *
+ *   sizes="(min-width: 1920px) 19rem, (min-width: 768px) 11vw, 46vw"
+ *
+ * The browser cannot infer the rendered slot width from a derived column count,
+ * so without `sizes` it assumes 100vw and ships desktop-sized files to phones -
+ * which loses PRD N1 on its own. Keep this mirroring --card-min.
+ */
