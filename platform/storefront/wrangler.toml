@@ -190,7 +190,7 @@ database_id   = "00000000-0000-0000-0000-0000000000a0"
 [[env.ops.d1_databases]]
 binding       = "TICKETS"            # company-wide issues; closed, never deleted
 database_name = "vemians-tickets"
-database_id   = "00000000-0000-0000-0000-0000000000d1c"
+database_id   = "00000000-0000-0000-0000-00000000d1c5"
 
 [[env.ops.d1_databases]]
 binding       = "IDENTITY"           # ciphertext name/email/phone under an external KEK
