@@ -4,10 +4,12 @@ Reference: **Mytheresa** — *The finest edit in luxury* (mobile, category listi
 
 > **Provenance.** The site is blocked by this environment's egress proxy, so values below are
 > measured from a **mobile screenshot** supplied on 2026-09-07, at device-pixel accuracy.
-> The capture is 1080dpx wide at DPR 2 — a **540px CSS viewport**, wider than a typical
-> 390–430px phone. Column arithmetic is self-consistent at that width
-> (540 − 30 − 30 margins − 16 gutter = 2 × 232), but treat margins as *scaling* values rather
-> than absolutes. Desktop and product-page layouts are still unobserved.
+>
+> The reference is a **fluid, responsive layout**. The capture is therefore *one sample point
+> on that curve*, not the specification: 1080dpx at DPR 2, a 540px CSS viewport. Column
+> arithmetic checks out at that width (540 − 60 margins − 16 gutter = 2 × 232), which is why
+> the measurements are trustworthy — but the absolute margin and column figures are outputs of
+> the viewport, not design constants. §3.2 separates what is invariant from what flexes.
 
 Satisfies **G3** and **R2.5** in [`PRD.md`](./PRD.md).
 
@@ -71,16 +73,49 @@ No accent colour appears anywhere in the capture.
 
 Line-height on body copy is 22/16 = **1.375**.
 
-**Layout** (at the observed 540px viewport)
+### 3.1 Invariant — the design DNA
 
-| Property | Value |
-|---|---|
-| Page margin | 30px |
-| Grid | 2 columns, 16px gutter |
-| Column width | 232px |
-| Image aspect | **8:9** (1:1.125) |
-| Image → brand line | 10px |
-| Row gap | ~142px including the text block |
+These hold at every viewport and are what actually make it feel like this:
+
+- Achromatic palette; `#EFF0F4` behind all product photography.
+- **8:9** image aspect, applied without exception. A consistent crop across the grid is
+  most of what makes these pages read as composed.
+- The near-flat type scale — one size doing nearly all the work.
+- Sentence case; tracked caps reserved for the wordmark.
+- Card order: eyebrow + heart → image → brand → name → price.
+- No borders, shadows, cards or rounded corners.
+
+### 3.2 Responsive — what flexes
+
+Only the grid and the page gutter flex. The single measured column (2-up, 16px gutter,
+30px margin at 540px) is one point on this curve; the rest is **proposed**, pending a
+desktop screenshot.
+
+| Viewport | Columns | Gutter | Page margin |
+|---|---|---|---|
+| <600px | 2 *(measured)* | 16px *(measured)* | 30px *(measured)* |
+| 600–899 | 3 | proposed | fluid |
+| 900–1279 | 4 | proposed | fluid |
+| ≥1280 | 4 | proposed | capped max-width |
+
+Two columns on mobile, never one — it keeps browsing dense enough to scan.
+
+Because the card has no intrinsic width, the grid needs no breakpoints at all:
+
+```css
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(232px, 46%), 1fr));
+  gap: clamp(0.75rem, 2vw, 1.5rem);
+  padding-inline: clamp(1rem, 5vw, 4rem);
+}
+.card-media { aspect-ratio: 8 / 9; background: var(--image-ground); }
+```
+
+`auto-fill` + `minmax` derives the column count from available width, and the `min(…, 46%)`
+floor guarantees two columns on the narrowest phones. Media queries then only handle genuine
+*art-direction* changes — the header collapsing to a hamburger, type stepping up on desktop —
+rather than re-declaring the grid at every breakpoint.
 
 ## 4. Product card anatomy
 
@@ -101,7 +136,8 @@ photograph. No border, no shadow, no rounded corners: the image edge is the card
 
 ## 5. Still unobserved
 
-Desktop column count and margins; the product detail page; hover behaviour (the alternate-image
+Desktop column count, gutters and whether there is a max-width cap; the product detail page;
+whether type steps up at wider viewports; hover behaviour (the alternate-image
 swap is a genre convention but unverified here); sale/markdown treatment; footer; the filter and
 sort panels. Screenshots of a desktop grid and a product page would close most of this.
 
@@ -117,8 +153,9 @@ brand decision regardless, and the single largest lever on how this feels.
 choice, decides whether we hit it. Required, not optional:
 
 - AVIF with WebP fallback, via Cloudflare Images off R2 originals (**R2.2**).
-- `srcset` cut to the real column width — at the observed layout that is a 232px slot, so
-  never ship a 2000px file into it.
+- `srcset` cut to the real rendered column width at each breakpoint, with a `sizes` attribute
+  that mirrors the `clamp()` above — the browser cannot infer it from a fluid grid. At the one
+  measured layout that slot is 232px, so never ship a 2000px file into it.
 - `fetchpriority="high"` on the first-row images; lazy-load below the fold.
 - Explicit dimensions on every image. With a fixed 8:9 slot there is no excuse for layout shift.
 - A page-weight budget enforced in CI, alongside the Exit Test (**R2.6**).
