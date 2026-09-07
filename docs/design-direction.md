@@ -1,141 +1,135 @@
 # Design direction
 
-Reference supplied: **Mytheresa** — *New Season: The Finest Edit in Luxury*.
+Reference: **Mytheresa** — *The finest edit in luxury* (mobile, category listing).
 
-> **Provenance.** This environment's network policy blocks `mytheresa.com`, so I could not
-> load or screenshot the page. What follows is the **luxury multi-brand retail idiom** as
-> practised by Mytheresa, Net-a-Porter, MatchesFashion and SSENSE — a stable and well
-> documented convention — not an observation of that specific page. Treat every concrete
-> value below as a proposal to correct, not a measurement. Screenshots would let me tighten
-> this considerably.
+> **Provenance.** The site is blocked by this environment's egress proxy, so values below are
+> measured from a **mobile screenshot** supplied on 2026-09-07, at device-pixel accuracy.
+> The capture is 1080dpx wide at DPR 2 — a **540px CSS viewport**, wider than a typical
+> 390–430px phone. Column arithmetic is self-consistent at that width
+> (540 − 30 − 30 margins − 16 gutter = 2 × 232), but treat margins as *scaling* values rather
+> than absolutes. Desktop and product-page layouts are still unobserved.
 
-Satisfies **G3** and **R2.5** in [`PRD.md`](./PRD.md): the design system is ours, with no
-vendor theming layer.
+Satisfies **G3** and **R2.5** in [`PRD.md`](./PRD.md).
 
 ---
 
-## 1. The idiom, and why it works
+## 1. The idiom
 
-Luxury retail design is **subtractive**. The interface earns trust by getting out of the
-way; the product photography carries the entire emotional load. Every rule below follows
-from that one idea.
+Luxury retail design is **subtractive**. Photography carries the emotional load; the
+interface earns trust by getting out of the way. Confirmed in the reference:
 
-1. **The image is the hero. Chrome recedes.** Interface elements are small, quiet and
-   monochrome. Nothing competes with the product.
-2. **Colour comes only from the product.** The palette is achromatic — white ground, black
-   text, one grey. Saturated UI colour reads as discount retail.
-3. **Space, not lines.** Separation is achieved with whitespace. Borders, shadows, cards
-   and rounded corners are largely absent.
-4. **Small type, wide tracking.** Restraint signals confidence. Labels are 11–12px,
-   uppercase, generously letter-spaced. Headings stay modest — no 72px hero type.
-5. **Brand name first.** On a multi-brand product card the designer's name leads, then the
-   product description, then price. This ordering is a genre convention because the brand
-   is the primary purchase signal. Getting it backwards immediately reads as mass-market.
-6. **Editorial framing.** "Edits" — curated, named, seasonally themed collections with
-   editorial imagery and copy — are the organising unit, not raw category listings. The
-   linked page is exactly this.
+1. **The image is the hero.** Interface elements are monochrome and quiet.
+2. **Colour comes only from the product.** The palette is fully achromatic.
+3. **Space, not lines.** No cards, borders, shadows or rounded corners anywhere.
+4. **Brand name leads** on the product card, then description, then price.
+5. **Editorial framing** — a named, curated "Edit" with a title and standfirst above the grid,
+   rather than a bare category listing.
 
-## 2. Proposed tokens
+## 2. What the reference actually does — and where I guessed wrong
 
-Starting values. The typeface is a brand decision and is deliberately left open (§4).
+My first draft assumed the austere Net-a-Porter/SSENSE register. Mytheresa is **warmer and
+more legible**. Six corrections, all now reflected below:
 
-**Colour** — achromatic; all pairings meet WCAG AA.
+| # | I proposed | Reference actually does |
+|---|---|---|
+| 1 | A five-step type scale down to 13px | **Almost no scale.** Body, nav, brand, product name and price are all ~16px |
+| 2 | Uppercase 11px labels at `0.12em` tracking | **Sentence case, normal tracking.** Tracked caps are reserved for the wordmark alone |
+| 3 | Modest, restrained headings | Heading is **bold**, 1.9× body, centred |
+| 4 | White ground throughout | Product images sit on a **cool pale grey** `#EFF0F4` |
+| 5 | 3:4 portrait imagery | **8:9** (1:1.125) — considerably shallower |
+| 6 | (omitted) | A lowercase **eyebrow label** and wishlist heart sit *above* each image |
+
+The through-line: it is less austere than I assumed. Larger type, sentence case, bold
+headings. Restraint comes from the palette and the whitespace, not from shrinking the text.
+
+## 3. Measured tokens
+
+**Colour**
 
 | Token | Value | Use |
 |---|---|---|
 | `--ground` | `#FFFFFF` | Page |
-| `--ground-alt` | `#FAFAF8` | Editorial bands, quiet sections |
-| `--ink` | `#111111` | Primary text |
-| `--ink-muted` | `#6E6E6E` | Product name, metadata (4.9:1 on white) |
-| `--rule` | `#E5E5E5` | The rare divider |
-| `--sale` | `#8A2119` | Markdown price only. Nowhere else |
+| `--image-ground` | `#EFF0F4` | Behind product photography. Cool, not warm |
+| `--ink` | `#000000` | Text — effectively pure black |
+| `--bar` | `#000000` | Announcement bar, white text, centred |
+| `--rule` | `#E5E5E5` | Header underline. Almost the only rule on the page |
 
-**Type scale** — small and tight.
+No accent colour appears anywhere in the capture.
 
-| Token | Size / tracking | Use |
-|---|---|---|
-| `--t-nav` | 11px, uppercase, `0.12em` | Navigation, labels |
-| `--t-meta` | 12px, `0.04em` | Price, size, metadata |
-| `--t-brand` | 13px, medium, `0.06em` | Product card — brand name |
-| `--t-name` | 13px, regular, muted | Product card — description |
-| `--t-body` | 15px / 1.6 | Editorial copy |
-| `--t-h2` | 22px, `0.06em` | Section headings |
-| `--t-h1` | 34px | Editorial hero. Ceiling, not a target |
+**Type** — one size does nearly all the work. Values in CSS px at DPR 2.
 
-**Space** — 4px base; the large end gets used far more than in typical UI.
-`4 · 8 · 12 · 16 · 24 · 32 · 48 · 64 · 96 · 128`
-
-**Grid**
-
-| Breakpoint | Columns | Gutter | Page margin |
+| Role | Size | Case / weight | Notes |
 |---|---|---|---|
-| ≥1440px | 4 | 24px | 48px |
-| 1024–1439 | 3 | 20px | 32px |
-| 768–1023 | 2 | 16px | 24px |
-| <768 | 2 | 12px | 16px |
+| Wordmark | ~32px | Uppercase, tracked, light | The *only* tracked-caps element |
+| Editorial heading | ~30px (1.9×) | Sentence case, **bold**, centred | "The finest edit in luxury" |
+| Body / standfirst | **16px** / 22px | Regular, **left-aligned** | Left-aligned under a centred heading |
+| Category nav | 16px | Sentence case | Pipe-separated, horizontally scrollable |
+| Product brand | ~16px | Regular | Line 1 of the card |
+| Product name | 16px | Regular | Line 2, truncated to one line with ellipsis |
+| Price | ~16px | Regular | Format is `$ 5,600` — **space after the symbol** |
+| Eyebrow label | ~14px | **lowercase** | "new season", "new" |
 
-Two columns on mobile, not one — the genre standard, and it keeps browsing dense enough
-to scan.
+Line-height on body copy is 22/16 = **1.375**.
 
-**Imagery.** Portrait **3:4**, applied without exception. A consistent crop across the grid
-is most of what makes these pages feel composed. Neutral or on-model, consistent lighting.
-Hover swaps to an alternate shot.
+**Layout** (at the observed 540px viewport)
 
-## 3. Product card anatomy
+| Property | Value |
+|---|---|
+| Page margin | 30px |
+| Grid | 2 columns, 16px gutter |
+| Column width | 232px |
+| Image aspect | **8:9** (1:1.125) |
+| Image → brand line | 10px |
+| Row gap | ~142px including the text block |
+
+## 4. Product card anatomy
 
 ```
-┌────────────────┐
-│                │
-│   3:4 image    │   ← hover swaps to alternate
-│                │
-└────────────────┘
-  THE ROW              ← brand, --t-brand, uppercase
-  Leather tote bag     ← name, --t-name, muted
-  $1,890               ← price, --t-meta
+  new season                    ♡     ← eyebrow ~14px lowercase; heart outline, right
+┌────────────────────────────────┐
+│                                │
+│        8:9, ground #EFF0F4     │    ← product floats on grey, never white
+│                                │
+└────────────────────────────────┘
+  Valentino                           ← brand, 16px regular
+  Shearling-trimmed wool-bl…          ← name, 16px regular, ONE line, ellipsis
+  $ 5,600                             ← price, 16px, space after symbol
 ```
 
-No border, no card background, no shadow, no rounded corners. The image edge *is* the card.
+The eyebrow and heart sit **above** the image, on the page ground — not overlaid on the
+photograph. No border, no shadow, no rounded corners: the image edge is the card.
 
-## 4. Decisions still open
+## 5. Still unobserved
 
-- **Typeface.** The single largest lever on how this feels, and a brand decision rather
-  than a technical one. The structure above works with a refined grotesque (Söhne, Neue
-  Haas), a modern serif for the wordmark, or a well-set system stack for v1. Licensing
-  cost varies enormously — worth deciding early since it affects §2 sizing.
-- **Light only.** I would not build dark mode. The genre is committed to a white ground and
-  a dark variant would weaken it. This is a deliberate single-look commitment.
+Desktop column count and margins; the product detail page; hover behaviour (the alternate-image
+swap is a genre convention but unverified here); sale/markdown treatment; footer; the filter and
+sort panels. Screenshots of a desktop grid and a product page would close most of this.
 
-## 5. The tension with N1
+**Typeface.** A humanist sans with fairly geometric round forms, set light in the wordmark and
+bold in the heading. I am not going to guess the exact face from one screenshot — and it is a
+brand decision regardless, and the single largest lever on how this feels.
 
-**PRD N1 sets p75 LCP < 2.0s. This design is image-led. Those pull against each other**,
-and image strategy — not framework choice — decides whether we hit it.
+**Light only.** I would not build dark mode. The genre is committed to a white ground.
 
-Mitigations, all required rather than optional:
+## 6. The tension with N1
+
+**PRD N1 sets p75 LCP < 2.0s, and this design is image-led.** Image strategy, not framework
+choice, decides whether we hit it. Required, not optional:
 
 - AVIF with WebP fallback, via Cloudflare Images off R2 originals (**R2.2**).
-- Responsive `srcset` cut to the actual grid widths; never ship a 2000px file into a 340px slot.
-- `fetchpriority="high"` on the hero or first-row image; lazy-load everything below the fold.
-- Explicit `width`/`height` on every image — with a 3:4 grid there is no excuse for layout shift.
-- A page-weight budget enforced in CI, alongside the Exit Test.
+- `srcset` cut to the real column width — at the observed layout that is a 232px slot, so
+  never ship a 2000px file into it.
+- `fetchpriority="high"` on the first-row images; lazy-load below the fold.
+- Explicit dimensions on every image. With a fixed 8:9 slot there is no excuse for layout shift.
+- A page-weight budget enforced in CI, alongside the Exit Test (**R2.6**).
 
-Set the image budget before building, not after the first Lighthouse run.
+The grey image ground helps here: a flat `#EFF0F4` placeholder at the right aspect ratio is
+indistinguishable from an unloaded image, so the grid holds its shape while photography streams in.
 
-## 6. Learning from it versus copying it
+## 7. Learning from it versus copying it
 
-We should build **in this idiom** — the conventions above are shared genre vocabulary and
-using them is ordinary practice. We should not reproduce Mytheresa's specific expression:
-their wordmark, their typeface pairing, their photography, their exact layout.
+Build **in this idiom** — these conventions are shared genre vocabulary. Do not reproduce
+Mytheresa's specific expression: their wordmark, typeface, photography or yellow-box identity.
 
-That is partly a legal point and mostly a strategic one. For a luxury brand, distinctiveness
-*is* the product. A site that reads as a Mytheresa clone signals reseller, not house.
-
-## 7. What would sharpen this
-
-Since I could not load the reference, the most useful thing you can send is screenshots —
-ideally the landing hero, a product grid, and a product page, desktop and mobile. With those
-I can replace the proposed values above with observed ones, and put a visual mockup in front
-of you to react to.
-
-Worth naming now: which parts of the reference do you actually like — the restraint and
-whitespace, the editorial "Edit" framing, the photography treatment, or the typography?
-They are separable, and knowing which one is the draw changes what we build first.
+Partly legal, mostly strategic. For a luxury brand distinctiveness *is* the product, and a
+clone reads as reseller rather than house.
