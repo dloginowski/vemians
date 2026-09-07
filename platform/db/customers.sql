@@ -13,14 +13,14 @@
 --   orders intact and anonymous. That is only possible because they are split.
 
 CREATE TABLE customer (
-  id            TEXT PRIMARY KEY,           -- app-minted uuid; the ONLY id orders keep
-  email         TEXT UNIQUE COLLATE NOCASE,
-  phone         TEXT,
-  name          TEXT,
+  id            TEXT PRIMARY KEY,           -- app-minted uuid; opaque everywhere
+  -- NO name, email or phone. Direct identifiers live only in the `identity`
+  -- store, so most tools can be bound here and see a customer's profile
+  -- without ever seeing who they are.
   -- Store a birth year, not a full date of birth: enough for segmentation,
   -- materially less identifying, and less to lose. See ADR-003 on minimisation.
   birth_year    INTEGER CHECK (birth_year IS NULL OR birth_year BETWEEN 1900 AND 2100),
-  notes         TEXT NOT NULL DEFAULT '',   -- clienteling notes
+  notes         TEXT NOT NULL DEFAULT '',   -- clienteling notes; see ADR-004 warning
   created_at    TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -59,3 +59,34 @@ CREATE TABLE erasure_request (
 
 CREATE TRIGGER erasure_log_append_only BEFORE DELETE ON erasure_request
 BEGIN SELECT RAISE(ABORT, 'erasure_request is evidence and cannot be deleted'); END;
+
+
+-- Reversibility WITHOUT immutability.
+--
+-- The requirement was that employee edits be non-destructive and revertible,
+-- like a git commit. That is a property of the data model, not of the storage
+-- engine: an append-only change log gives undo and full history here, while
+-- still allowing a real delete when erasure is required. Git gives the first
+-- and forecloses the second.
+CREATE TABLE customer_version (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  customer_id TEXT NOT NULL,
+  table_name  TEXT NOT NULL,
+  field       TEXT NOT NULL,
+  old_value   TEXT,                          -- non-identifying fields only
+  new_value   TEXT,
+  actor       TEXT NOT NULL,                 -- Workspace identity via Access
+  reverts     INTEGER REFERENCES customer_version(id),
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_version_customer ON customer_version (customer_id, created_at DESC);
+
+CREATE TRIGGER version_no_update BEFORE UPDATE ON customer_version
+BEGIN SELECT RAISE(ABORT, 'customer_version is append-only; append a revert instead'); END;
+
+-- Erasure is the ONE permitted deletion: a right-to-erasure request must reach
+-- the change history too, or old values survive the erasure.
+CREATE TRIGGER version_delete_only_for_erasure BEFORE DELETE ON customer_version
+WHEN NOT EXISTS (SELECT 1 FROM erasure_request
+                  WHERE customer_id = OLD.customer_id AND completed_at IS NULL)
+BEGIN SELECT RAISE(ABORT, 'history is deletable only under an open erasure request'); END;

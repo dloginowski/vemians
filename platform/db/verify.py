@@ -35,7 +35,11 @@ check("zero-quantity line rejected",
 
 print("\ncustomers  (erasure is the whole point of this split)")
 cu = db('customers')
-cu.execute("INSERT INTO customer(id,email,phone,name,birth_year) VALUES('c1','k@x.com','+1555','Kim',1990)")
+cu.execute("INSERT INTO customer(id,birth_year) VALUES('c1',1990)")
+check("customers store holds NO direct identifiers",
+      lambda: (lambda cols: not {'email','phone','name'} & set(cols)
+               or (_ for _ in ()).throw(AssertionError(f"identifier columns present: {cols}")))(
+          [r[1] for r in cu.execute("PRAGMA table_info('customer')")]))
 cu.execute("INSERT INTO customer_fit(customer_id,garment,size_label) VALUES('c1','tops','IT 42')")
 cu.execute("INSERT INTO customer_consent(customer_id,purpose,granted,source) VALUES('c1','marketing',1,'checkout')")
 check("implausible birth year rejected",
@@ -53,6 +57,45 @@ check("erasure evidence survives the erasure",
       lambda: cu.execute("SELECT count(*) FROM erasure_request").fetchone()[0] == 1 or (_ for _ in ()).throw(AssertionError()))
 check("erasure evidence cannot itself be deleted",
       lambda: cu.execute("DELETE FROM erasure_request"), expect_fail=True)
+
+print("\nreversibility  (non-destructive edits without immutability)")
+cv = db('customers')
+cv.execute("INSERT INTO customer(id,birth_year) VALUES('c2',1985)")
+cv.execute("INSERT INTO customer_fit(customer_id,garment,size_label) VALUES('c2','tops','IT 40')")
+cv.execute("INSERT INTO customer_version(customer_id,table_name,field,old_value,new_value,actor)"
+           " VALUES('c2','customer_fit','size_label','IT 40','IT 42','ana@vemians.com')")
+cv.execute("UPDATE customer_fit SET size_label='IT 42' WHERE customer_id='c2'")
+check("an edit is recorded before it is applied",
+      lambda: cv.execute("SELECT old_value FROM customer_version WHERE customer_id='c2'").fetchone()[0]=='IT 40'
+              or (_ for _ in ()).throw(AssertionError()))
+check("history cannot be rewritten",
+      lambda: cv.execute("UPDATE customer_version SET new_value='IT 50'"), expect_fail=True)
+cv.execute("INSERT INTO customer_version(customer_id,table_name,field,old_value,new_value,actor,reverts)"
+           " VALUES('c2','customer_fit','size_label','IT 42','IT 40','ana@vemians.com',1)")
+cv.execute("UPDATE customer_fit SET size_label='IT 40' WHERE customer_id='c2'")
+check("a change is revertible, and the revert is itself recorded",
+      lambda: (cv.execute("SELECT size_label FROM customer_fit WHERE customer_id='c2'").fetchone()[0]=='IT 40'
+               and cv.execute("SELECT count(*) FROM customer_version WHERE reverts IS NOT NULL").fetchone()[0]==1)
+              or (_ for _ in ()).throw(AssertionError()))
+check("history is NOT deletable without an erasure request",
+      lambda: cv.execute("DELETE FROM customer_version WHERE customer_id='c2'"), expect_fail=True)
+cv.execute("INSERT INTO erasure_request(id,customer_id) VALUES('er2','c2')")
+check("history IS deletable under an open erasure request",
+      lambda: cv.execute("DELETE FROM customer_version WHERE customer_id='c2'"))
+
+print("\nidentity  (the vault)")
+idn = db('identity')
+idn.execute("INSERT INTO customer_identity(customer_id,name_enc,email_enc,email_hmac,wrapped_dek,kek_id)"
+            " VALUES('c1',x'AA',x'BB',x'CC',x'DD','kek-1')")
+check("lookup handle is keyed (HMAC), not a bare hash",
+      lambda: (lambda cols: 'email_hmac' in cols and 'email_enc' in cols
+               or (_ for _ in ()).throw(AssertionError()))(
+          [r[1] for r in idn.execute("PRAGMA table_info('customer_identity')")]))
+idn.execute("UPDATE customer_identity SET crypto_shredded=1 WHERE customer_id='c1'")
+r = idn.execute("SELECT name_enc,email_enc,email_hmac,length(wrapped_dek) FROM customer_identity WHERE customer_id='c1'").fetchone()
+check("crypto-shredding clears ciphertext and the wrapped key",
+      lambda: (r[0] is None and r[1] is None and r[2] is None and r[3]==0)
+              or (_ for _ in ()).throw(AssertionError(f"residue: {r}")))
 
 print("\ncross-store: erasure vs tax retention")
 c.execute("INSERT INTO \"order\"(id,order_number,channel,external_id,customer_id,currency)"
