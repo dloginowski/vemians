@@ -7,7 +7,8 @@ CREATE TABLE audit_log (
   actor        TEXT NOT NULL,               -- Google Workspace identity via Access
   on_behalf_of TEXT,                        -- the human, when the actor is an agent
   domain       TEXT NOT NULL                -- which store the action touched
-                 CHECK (domain IN ('catalog','commerce','people','finance','knowledge')),
+                 CHECK (domain IN ('catalog','commerce','customers','identity',
+                                   'people','finance','knowledge','tickets')),
   tool         TEXT NOT NULL,
   arguments    TEXT NOT NULL DEFAULT '{}',  -- JSON
   result       TEXT NOT NULL

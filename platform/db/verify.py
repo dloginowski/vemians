@@ -501,6 +501,158 @@ def test_PRD_P0_21_append_only_audit__the_actor_is_recorded_and_the_history_stay
 print("\ntraceability  (P0-30: no label here that is not a feature in the PRD)")
 # ─────────────────────────────────────────────────────────────────────────────
 
+print("\ninventory as a ledger  (P0-31: an agent cannot overwrite a count)")
+
+_inv = db("commerce")
+_inv.execute("INSERT INTO location(id,name) VALUES('loc1','Boutique')")
+
+
+@holds
+def test_PRD_P0_31_inventory_ledger__an_adjustment_creates_the_count():
+    _inv.execute("INSERT INTO inventory_adjustment(id,sku,location_id,delta,reason,actor)"
+                 " VALUES('a1','TEE-M','loc1',12,'receipt','ana@vemians.com')")
+    assert _inv.execute("SELECT on_hand FROM inventory_level WHERE sku='TEE-M'").fetchone()[0] == 12
+
+
+@holds
+def test_PRD_P0_31_inventory_ledger__deltas_accumulate():
+    _inv.execute("INSERT INTO inventory_adjustment(id,sku,location_id,delta,reason,actor)"
+                 " VALUES('a2','TEE-M','loc1',-3,'sale','ana@vemians.com')")
+    assert _inv.execute("SELECT on_hand FROM inventory_level WHERE sku='TEE-M'").fetchone()[0] == 9
+
+
+@rejects
+def test_PRD_P0_31_inventory_ledger__the_count_cannot_be_written_directly():
+    _inv.execute("UPDATE inventory_level SET on_hand=999 WHERE sku='TEE-M'")
+
+
+@rejects
+def test_PRD_P0_31_inventory_ledger__history_cannot_be_edited():
+    _inv.execute("UPDATE inventory_adjustment SET delta=99 WHERE id='a1'")
+
+
+@rejects
+def test_PRD_P0_31_inventory_ledger__history_cannot_be_deleted():
+    _inv.execute("DELETE FROM inventory_adjustment WHERE id='a1'")
+
+
+@rejects
+def test_PRD_P0_31_inventory_ledger__a_zero_delta_is_refused():
+    _inv.execute("INSERT INTO inventory_adjustment(id,sku,location_id,delta,reason,actor)"
+                 " VALUES('a3','TEE-M','loc1',0,'count','x')")
+
+
+@holds
+def test_PRD_P0_31_inventory_ledger__a_mistake_is_undone_by_reversal_not_erasure():
+    _inv.execute("INSERT INTO inventory_adjustment(id,sku,location_id,delta,reason,actor,reverses)"
+                 " VALUES('a4','TEE-M','loc1',3,'correction','ana@vemians.com','a2')")
+    assert _inv.execute("SELECT on_hand FROM inventory_level WHERE sku='TEE-M'").fetchone()[0] == 12
+    assert _inv.execute("SELECT count(*) FROM inventory_adjustment").fetchone()[0] == 3
+
+
+print("\ntickets  (P0-32: closed, never deleted)")
+
+_tk = db("tickets")
+_tk.execute("INSERT INTO ticket(id,number,title,category,created_by)"
+            " VALUES('t1',1,'Stock mismatch on TEE-M','stock','ana@vemians.com')")
+_tk.execute("INSERT INTO ticket_comment(id,ticket_id,author,body)"
+            " VALUES('c1','t1','ana@vemians.com','Counted 9, system said 12.')")
+_tk.execute("INSERT INTO ticket_link(ticket_id,entity_type,entity_id,label)"
+            " VALUES('t1','sku','TEE-M','TEE-M at Boutique')")
+
+
+@rejects
+def test_PRD_P0_32_tickets__a_ticket_cannot_be_deleted_only_closed():
+    _tk.execute("DELETE FROM ticket WHERE id='t1'")
+
+
+@rejects
+def test_PRD_P0_32_tickets__comments_cannot_be_edited():
+    _tk.execute("UPDATE ticket_comment SET body='never mind' WHERE id='c1'")
+
+
+@rejects
+def test_PRD_P0_32_tickets__comments_cannot_be_deleted():
+    _tk.execute("DELETE FROM ticket_comment WHERE id='c1'")
+
+
+@rejects
+def test_PRD_P0_32_tickets__resolving_without_a_timestamp_is_refused():
+    _tk.execute("UPDATE ticket SET status='resolved' WHERE id='t1'")
+
+
+@holds
+def test_PRD_P0_32_tickets__resolving_with_a_timestamp_is_allowed():
+    _tk.execute("UPDATE ticket SET status='resolved', resolved_at=datetime('now') WHERE id='t1'")
+
+
+@holds
+def test_PRD_P0_32_tickets__links_carry_ids_not_cross_store_foreign_keys():
+    sql = (HERE / "tickets.sql").read_text()
+    for foreign in ("REFERENCES customer(", "REFERENCES \"order\"(", "REFERENCES employee("):
+        assert foreign not in sql, f"tickets.sql has a cross-store FK: {foreign}"
+
+
+@rejects
+def test_PRD_P0_32_tickets__an_unknown_category_is_refused():
+    _tk.execute("INSERT INTO ticket(id,number,title,category,created_by)"
+                " VALUES('t9',9,'x','payroll','a')")
+
+
+print("\nworking-set index  (P0-36: read the index, archive the rest, delete nothing)")
+
+_ppl = db("people")
+_ppl.execute("INSERT INTO employee(id,email,name) VALUES('e9','rae@vemians.com','Rae')")
+_ppl.execute("INSERT INTO shift(id,employee_id,starts_at,ends_at,status)"
+             " VALUES('s_past','e9','2026-01-05T09:00Z','2026-01-05T17:00Z','completed')")
+_ppl.execute("INSERT INTO shift(id,employee_id,starts_at,ends_at,status)"
+             " VALUES('s_future','e9','2027-01-05T09:00Z','2027-01-05T17:00Z','scheduled')")
+
+
+@holds
+def test_PRD_P0_36_working_set_index__the_index_starts_as_everything_unarchived():
+    assert _ppl.execute("SELECT count(*) FROM shift_index").fetchone()[0] == 2
+
+
+@rejects
+def test_PRD_P0_36_working_set_index__a_future_shift_cannot_be_rolled_off():
+    _ppl.execute("UPDATE shift SET archived_at=datetime('now') WHERE id='s_future'")
+
+
+@holds
+def test_PRD_P0_36_working_set_index__a_settled_past_shift_rolls_off_the_index():
+    _ppl.execute("UPDATE shift SET archived_at=datetime('now') WHERE id='s_past'")
+    assert _ppl.execute("SELECT count(*) FROM shift_index").fetchone()[0] == 1
+
+
+@holds
+def test_PRD_P0_36_working_set_index__rolled_off_data_is_still_there():
+    assert _ppl.execute("SELECT count(*) FROM shift").fetchone()[0] == 2
+    assert _ppl.execute("SELECT status FROM shift WHERE id='s_past'").fetchone()[0] == "completed"
+
+
+@rejects
+def test_PRD_P0_36_working_set_index__a_shift_cannot_be_deleted():
+    _ppl.execute("DELETE FROM shift WHERE id='s_past'")
+
+
+_tkx = db("tickets")
+_tkx.execute("INSERT INTO ticket(id,number,title,created_by) VALUES('tx1',1,'Open thing','a@vemians.com')")
+
+
+@rejects
+def test_PRD_P0_36_working_set_index__an_open_ticket_cannot_be_rolled_off():
+    _tkx.execute("UPDATE ticket SET archived_at=datetime('now') WHERE id='tx1'")
+
+
+@holds
+def test_PRD_P0_36_working_set_index__a_closed_ticket_rolls_off_but_survives():
+    _tkx.execute("UPDATE ticket SET status='closed', resolved_at=datetime('now') WHERE id='tx1'")
+    _tkx.execute("UPDATE ticket SET archived_at=datetime('now') WHERE id='tx1'")
+    assert _tkx.execute("SELECT count(*) FROM ticket_index").fetchone()[0] == 0
+    assert _tkx.execute("SELECT count(*) FROM ticket").fetchone()[0] == 1
+
+
 @holds
 def test_PRD_P0_30_prd_traceability__every_label_used_here_exists_in_the_prd():
     assert PRD.exists(), f"{PRD} not found: PRD-backed checks cannot be traced"

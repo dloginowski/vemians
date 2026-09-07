@@ -33,9 +33,17 @@ undo by making history permanent, and that permanence is exactly what forecloses
 The log gives the same undo while leaving deletion possible. Deleting a customer profile
 therefore really deletes it, while the orders survive intact and anonymous for tax retention.
 
-Staff reach `ops.vemians.com` through **Google Workspace SSO via Cloudflare Access**, with
-roles derived from Workspace groups and tool scope enforced by per-store bindings rather than
-by prompt. The storefront is **ours** — Astro on Workers, our design system, a
+Staff reach `ops.vemians.com` through **Cloudflare Access**, which terminates identity before
+a request reaches our code. The gate is **Google Workspace SSO**. The provider remains a
+configuration choice rather than an architectural one — the Worker only verifies the Access
+JWT, which is identical whichever provider issued it — but Workspace is the decision, because
+it gives directory groups for role scoping. Tool scope is enforced by per-store bindings, not
+by prompt.
+
+Staff reach those tools two ways, and both hit the same tool layer: the **browser chat** at
+`ops.vemians.com`, and a **remote MCP endpoint** for people using their own AI client. Some
+staff use Claude, some use ChatGPT; that is a per-person preference, not an architectural
+commitment. The storefront is **ours** — Astro on Workers, our design system, a
 resolution-adaptive grid and 8:9 imagery — and calls a provider only to mint a checkout URL.
 **Checkout is deliberately rented**: PCI scope, fraud and tax are the one accepted dependency,
 and Shopify and POS are both channels behind the same commerce port.
@@ -56,7 +64,7 @@ store, the storefront, or the design. Verified by the Exit Test in CI (§7).
 **G3 — A beautiful storefront we control.** Design and front-end code are ours, no vendor
 theming layer.
 
-**G4 — Agentic operations at `ops.vemians.com`**, behind Google Workspace SSO.
+**G4 — Agentic operations at `ops.vemians.com`**, behind Cloudflare Access.
 
 **G5 — Customer data we can actually delete.** Erasure obligations are a design input, not
 a policy document.
@@ -176,13 +184,15 @@ that does not trace to one of these is a process failure (see §12).
 
 ### 3.7 Access and authorisation
 
-22. **`Test-PRD-P0-22-workspace_sso`** — All `ops.vemians.com` access authenticates via **Google
-    Workspace SSO through Cloudflare Access**. The application has no login form, no password, no
+22. **`Test-PRD-P0-22-access_gated_ops`** — All `ops.vemians.com` access authenticates through
+    **Cloudflare Access with Google Workspace** as the identity provider. Swapping provider stays
+    a dashboard change requiring no code change: the Worker verifies the Access JWT, which is
+    identical whichever provider issued it. The application has no login form, no password, no
     session cookie of its own and no reset path; identity is terminated before a request reaches
     application code.
 23. **`Test-PRD-P0-23-group_derived_roles`** — Authorisation derives from **Google Workspace group
     membership** mapped to Access policies. No role is assigned inside the app, and offboarding in
-    Workspace revokes platform access with no application-side action. The verified Access identity
+    the Access Group revokes platform access with no application-side action. The verified Access identity
     is the `actor` on every audit row.
 24. **`Test-PRD-P0-24-binding_scoped_tools`** — Tool scope is **structural**: each store is a
     separate Access policy and a separate binding, so a knowledge tool *cannot* read finance. This
@@ -219,6 +229,43 @@ that does not trace to one of these is a process failure (see §12).
     themselves, so a renamed or invented label fails the run rather than drifting silently.
 
 ---
+
+### 3.10 Inventory and tickets
+
+30. **`Test-PRD-P0-31-inventory_ledger`** — Stock is a **ledger, not a number**. No tool writes
+    `on_hand`; every change is an append-only `inventory_adjustment` with a delta, a reason, an
+    actor and an optional `reverses` pointer, and a trigger folds it into the count. Direct
+    writes to `on_hand` are refused by the database. History cannot be edited or deleted, so the
+    undo for a mistake is a reversing adjustment that leaves both the error and the correction on
+    the record.
+
+31. **`Test-PRD-P0-32-tickets`** — Company-wide issues live in their own `tickets` store. A ticket
+    cannot be deleted, only moved through status, and resolving one requires a timestamp.
+    Comments are append-only. Links to orders, customers, products and shifts are id plus a
+    non-identifying label, never a foreign key, so a ticket survives the erasure of what it
+    points at and reading a ticket does not confer access to the linked record.
+
+32. **`Test-PRD-P0-33-customer_intake`** — Creating a customer writes the profile and the
+    encrypted identity as one operation, records consent per purpose at intake, and is a T2
+    action for manager and above. A customer is never created as a side effect of another tool.
+
+33. **`Test-PRD-P0-34-multi_client_tools`** — The tool layer has more than one consumer: the
+    browser chat, a remote **MCP endpoint** at `ops.vemians.com/mcp`, and any future automation.
+    Tools are defined once and every consumer goes through the same `runTool`, so tiers, role
+    filtering, caps and the audit row cannot differ per client. A tool a role may not use is
+    absent from that client's tool list rather than present and refused.
+
+34. **`Test-PRD-P0-35-approval_never_in_band`** — A T2 action requested through MCP does not
+    execute in the model's context. It returns an approval URL on `ops.vemians.com`; the token is
+    minted server-side from the human's browser action and is never returned to, nor accepted
+    from, a model. This holds identically for every client.
+
+35. **`Test-PRD-P0-36-working_set_index`** — Every store exposes an **index** — the working set
+    — and that is what a read returns by default. Rolling data off the index sets an
+    `archived_at` marker; **nothing is deleted**, and archived rows stay queryable by an explicit
+    call. Only settled data may be rolled off: an open ticket or a future shift is refused.
+    The rule exists because an agentic surface pays for every row it reads, in context and in
+    latency, so an unbounded default read is a cost, not just untidiness.
 
 ## 4. P1 features
 
@@ -273,7 +320,9 @@ that does not trace to one of these is a process failure (see §12).
 | **Manager** | Build schedules, edit catalog and pricing, approve agent writes | `ops`, manager role |
 | **Owner** | Everything, plus finance views and audit history | `ops`, owner role |
 
-Roles derive from **Google Workspace groups**. No role is assigned inside the app.
+Roles derive from **Google Workspace groups**, surfaced through Cloudflare Access Groups and
+referenced by each application's policy. No role is assigned inside the app, so offboarding
+someone in Workspace revokes platform access with no application-side change.
 
 Store reachability, per ADR-002:
 
@@ -351,7 +400,8 @@ Full detail in [`cloudflare-architecture.md`](./cloudflare-architecture.md).
     finance    expenses, budgets                                     via the commerce port
     audit      append-only agent record
         │
-        └──► ops.vemians.com   agent, Google Workspace SSO via Access, one binding per store
+        └──► ops.vemians.com   browser chat + /mcp, Access via Google Workspace,
+                                 one binding per store
 ```
 
 No store is central. No foreign key crosses a boundary. `identity` is reachable only by
