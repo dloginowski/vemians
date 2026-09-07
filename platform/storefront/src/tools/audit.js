@@ -30,29 +30,21 @@
  *   it goes into `detail.stores` verbatim.
  */
 
-/* Exactly the CHECK list in platform/db/audit.sql. Asserted by test. */
-export const AUDIT_DOMAINS = Object.freeze([
-  "catalog",
-  "commerce",
-  "people",
-  "finance",
-  "knowledge",
-]);
-
 /*
  * Tool domain -> audit domain. `customers` maps to `commerce` because the
  * schema has no `customers` value; the true store is recorded in detail.stores
  * so nothing is lost. Fix by widening the CHECK in audit.sql, then delete this
  * line — not by inventing a value the database will reject.
  */
-export const AUDIT_DOMAIN_BY_DOMAIN = Object.freeze({
-  catalog: "catalog",
-  commerce: "commerce",
-  customers: "commerce",
-  people: "people",
-  finance: "finance",
-  knowledge: "knowledge",
-});
+/* The audit schema now names every store, so a domain records where the action
+   actually happened. This was briefly a mapping with customers -> commerce,
+   because audit.sql's CHECK predated the customers store; recording an action
+   against the wrong store is exactly the kind of quiet inaccuracy an audit log
+   cannot afford, so the schema was widened instead of the map kept. */
+export const AUDIT_DOMAINS = Object.freeze([
+  "catalog", "commerce", "customers", "identity",
+  "people", "finance", "knowledge", "tickets",
+]);
 
 export const RESULTS = Object.freeze(["ok", "error", "denied", "pending_approval"]);
 
@@ -102,8 +94,8 @@ export async function writeAudit(db, row) {
     console.error("ERROR tools: no AUDIT binding — refusing the call, nothing ran");
     throw new Error("audit_unavailable: no AUDIT binding");
   }
-  const domain = AUDIT_DOMAIN_BY_DOMAIN[row.domain];
-  if (!domain) throw new Error(`audit_unavailable: unmapped domain ${row.domain}`);
+  const domain = AUDIT_DOMAINS.includes(row.domain) ? row.domain : null;
+  if (!domain) throw new Error(`audit_unavailable: unknown domain ${row.domain}`);
   if (!RESULTS.includes(row.result)) throw new Error(`audit_unavailable: bad result ${row.result}`);
   if (!row.actor) throw new Error("audit_unavailable: no actor");
 

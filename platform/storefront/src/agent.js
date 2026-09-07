@@ -51,15 +51,13 @@ const MAX_ROUND_TRIPS = 6;
  */
 const ROLES = ["staff", "manager", "owner"];
 
-export function roleFor(identity) {
-  const claims = identity.claims || {};
-  const raw = []
-    .concat(claims.groups || [], claims.roles || [], claims["custom"]?.groups || [])
-    .map((g) => String(g).toLowerCase());
-  /* Highest role wins, and nothing here can promote past `owner`. */
-  for (const r of [...ROLES].reverse()) if (raw.some((g) => g === r || g.endsWith(`-${r}`))) return r;
-  return "staff";
-}
+/* Canonical mapping lives in access.js; see the comment there for why there is
+   exactly one. Re-exported so existing callers keep working. */
+/* Imported, not re-exported blind: `export … from` creates no local
+   binding, so the module could not call it. */
+import { roleFor } from "./access.js";
+export { roleFor };
+
 
 /* Role -> tool visibility. The matrix in the tool contract, expressed against
    the only two fields of a tool a role decision may depend on: its tier and its

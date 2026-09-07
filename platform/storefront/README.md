@@ -40,6 +40,21 @@ curl -i -H "Cf-Access-Jwt-Assertion: <a.jwt.token>" \
 
 `/healthz` returns `ok` on both surfaces, ungated.
 
+The MCP endpoint (ADR-007) is on the ops surface, so run the ops build to reach it:
+
+```sh
+npm run dev:ops                                      # wrangler dev --env ops --local :8791
+curl -i -X POST http://127.0.0.1:8791/mcp            # 401 + WWW-Authenticate
+curl -X POST http://127.0.0.1:8791/mcp \
+     -H "Cf-Access-Jwt-Assertion: <a.jwt.token>" \
+     -H "Content-Type: application/json" \
+     -H "Accept: application/json, text/event-stream" \
+     -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+It lists only the tools the caller's Access groups allow, and a T2 write returns a link to
+approve in a browser instead of performing the write. It needs `src/tools/`.
+
 ## The gate
 
 **Cloudflare Access is the security boundary. This application is not.**
@@ -86,6 +101,7 @@ pasting a copy into a template and letting the two drift.
 ```
 src/index.js    hostname/path routing, and the fail-closed ops handler
 src/access.js   Cloudflare Access assertion: fail closed, then RS256 + aud + exp + iss
+src/mcp.js      POST /mcp — the ops tools over MCP, for staff AI clients (ADR-007)
 src/seed.js     hardcoded catalog, customers and schedule. Money as integer minor units
 src/views.js    HTML. Imports catalog-grid.css verbatim + theme.css
 src/theme.css   the measured tokens from docs/design-direction.md §3

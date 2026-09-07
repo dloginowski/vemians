@@ -39,7 +39,7 @@ import { runTool, TOOLS, STORE_BINDINGS, describeTools } from "../src/tools/inde
 import { createApprovalStore } from "../src/tools/approval.js";
 import { createRateLimiter } from "../src/tools/rate.js";
 import { createSeedCatalogSource } from "../src/tools/catalog-source.js";
-import { AUDIT_DOMAINS, AUDIT_DOMAIN_BY_DOMAIN } from "../src/tools/audit.js";
+import { AUDIT_DOMAINS } from "../src/tools/audit.js";
 import { CAPS } from "../src/tools/caps.js";
 import { T3_ABSENT } from "../src/tools/tiers.js";
 
@@ -121,7 +121,9 @@ function seed(env) {
              ('ord_2',2,'pos','pos/1','cus_1','fulfilled',98000,'USD','2026-09-02T10:00:00Z');
     INSERT INTO order_line(id,order_id,product_handle,sku_snapshot,title_snapshot,quantity,unit_price_minor,currency)
       VALUES ('lin_1','ord_1','shearling-trimmed-wool-coat','VEM-0001','Shearling-trimmed wool-blend coat',1,560000,'USD');
-    INSERT INTO inventory_level(sku,location_id,on_hand,reserved) VALUES ('VEM-0001','loc_1',4,1);
+    INSERT INTO inventory_adjustment(id,sku,location_id,delta,reason,actor)
+      VALUES ('adj_seed','VEM-0001','loc_1',4,'count','seed@vemians.com');
+    INSERT INTO inventory_reservation(id,sku,location_id,quantity) VALUES ('res_seed','VEM-0001','loc_1',1);
   `);
 
   const pe = env.PEOPLE._raw;
@@ -269,12 +271,16 @@ check("test_PRD_P0_21_append_only_audit__the_log_refuses_an_update_or_a_delete_f
   assert.throws(() => raw.exec("DELETE FROM audit_log"), /append-only/);
 });
 
-check("test_PRD_P0_21_append_only_audit__every_mapped_audit_domain_is_one_the_schema_accepts", () => {
-  for (const [domain, mapped] of Object.entries(AUDIT_DOMAIN_BY_DOMAIN)) {
-    assert.ok(AUDIT_DOMAINS.includes(mapped), `${domain} maps to '${mapped}', which the CHECK rejects`);
+check("test_PRD_P0_21_append_only_audit__every_tool_domain_is_one_the_schema_accepts", () => {
+  /* No mapping any more: an audit row names the store the action actually
+     touched. This asserts the code's list and the schema's CHECK agree, so
+     widening one without the other fails here rather than at runtime. */
+  const sql = fs.readFileSync(path.join(DB_DIR, "audit.sql"), "utf8");
+  for (const domain of AUDIT_DOMAINS) {
+    assert.ok(sql.includes(`'${domain}'`), `audit.sql CHECK does not accept '${domain}'`);
   }
   for (const [name, tool] of Object.entries(TOOLS)) {
-    assert.ok(AUDIT_DOMAIN_BY_DOMAIN[tool.domain], `${name} has domain '${tool.domain}' with no audit mapping`);
+    assert.ok(AUDIT_DOMAINS.includes(tool.domain), `${name} has domain '${tool.domain}', which the CHECK rejects`);
   }
 });
 
@@ -810,7 +816,11 @@ check("test_PRD_P1_01_agent_read_tools__inventory_check_is_a_live_store_read_not
   assert.equal(res.data.available_total, 3, "available is on_hand minus reserved");
 
   /* Change the store; the next call must show the new number, not a cached one. */
-  f.env.COMMERCE._raw.exec("UPDATE inventory_level SET on_hand = 9 WHERE sku='VEM-0001'");
+  /* Stock moves by posting to the ledger; the count is a view and cannot be
+     written. Seed was 4, so +5 reaches 9. */
+  f.env.COMMERCE._raw.exec(
+    "INSERT INTO inventory_adjustment(id,sku,location_id,delta,reason,actor)" +
+    " VALUES ('adj_t','VEM-0001','loc_1',5,'receipt','seed@vemians.com')");
   const again = await runTool("inventory.check", { sku: "VEM-0001" }, f.ctx);
   assert.equal(again.data.levels[0].on_hand, 9);
   assert.equal(again.data.available_total, 8);

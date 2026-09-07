@@ -98,6 +98,25 @@ name = "vemians-ops"
 PUBLIC_HOST = "vemians.com"
 OPS_HOST    = "ops.vemians.com"
 SURFACE     = "ops"
+# Cloudflare Access group -> role (P0-23). Defaults are these exact names, so
+# set them only if the Workspace groups are called something else. Roles are
+# never assigned in the application; renaming a group is a var change here.
+# OWNER_GROUP   = "vemians-owner"
+# MANAGER_GROUP = "vemians-manager"
+# STAFF_GROUP   = "vemians-staff"
+
+# ---------------------------------------------------------------------------
+# Pending T2 approvals for POST /mcp (ADR-007). A T2 tool called over MCP parks
+# its intent here and returns a link; the write happens when a human approves it
+# in a browser. WITHOUT this binding the intents live in a per-isolate Map and an
+# approval link dies with its isolate — fine for `wrangler dev`, a launch blocker
+# for ops.vemians.com. The Worker logs a WARNING on every T2 call until it exists.
+#
+#   npx wrangler kv namespace create vemians-approvals
+#
+# [[env.ops.kv_namespaces]]
+# binding = "APPROVALS"
+# id      = "<id>"
 
 [[env.ops.rules]]
 type = "Text"

@@ -141,3 +141,35 @@ export async function readAccessIdentity(request, env) {
     claims,
   };
 }
+
+
+/*
+ * Claims -> role. THE canonical mapping; agent.js and mcp.js both import it.
+ *
+ * There were briefly two implementations. They disagreed: one matched group
+ * names by suffix and defaulted to "staff", the other required an exact name
+ * and failed closed. The same person got different privileges depending on
+ * whether they used the browser or their own AI client, which is the kind of
+ * split that is invisible until it matters.
+ *
+ * Fails closed, per PRD Test-PRD-P0-23-group_derived_roles: authorisation
+ * derives from group membership, so no group is no role. An @vemians.com
+ * address gets someone through Access; it does not by itself grant a role.
+ */
+export const ROLE_ORDER = Object.freeze(["staff", "manager", "owner"]);
+
+export function groupsFrom(claims = {}) {
+  return []
+    .concat(claims.groups || [], claims.roles || [], claims.custom?.groups || [])
+    .map((g) => String(g).toLowerCase());
+}
+
+export function roleFor(identity, env = {}) {
+  const claims = identity?.claims || identity || {};
+  const groups = new Set(groupsFrom(claims));
+  const named = (v, fallback) => String(v || fallback).toLowerCase();
+  if (groups.has(named(env.OWNER_GROUP, "vemians-owner"))) return "owner";
+  if (groups.has(named(env.MANAGER_GROUP, "vemians-manager"))) return "manager";
+  if (groups.has(named(env.STAFF_GROUP, "vemians-staff"))) return "staff";
+  return null;
+}
