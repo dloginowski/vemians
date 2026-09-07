@@ -33,6 +33,9 @@ fallthrough = true
 # area never has an unauthenticated twin outside the Access application.
 PUBLIC_HOST = "vemians.com"
 OPS_HOST    = "ops.vemians.com"
+# Pins this deployment to the public surface: /ops is unreachable in this build,
+# so Access is never needed here and the shop never sits behind a login page.
+SURFACE     = "public"
 
 # Cloudflare Access assertion verification. Unset in the prototype: the Worker
 # still FAILS CLOSED when the Cf-Access-Jwt-Assertion header is absent, but it
@@ -113,4 +116,28 @@ OPS_HOST    = "ops.vemians.com"
 # database_id   = "<id>"
 
 [observability]
+enabled = true
+
+# ---------------------------------------------------------------------------
+# Second Worker: the employee area. `wrangler deploy --env ops`.
+#
+# Cloudflare Access attaches to a WHOLE Worker, not to a route inside one, so
+# the two surfaces cannot share a Worker: gating it would gate the storefront.
+# Attach ops.vemians.com as a Custom Domain on THIS Worker, and put the Access
+# application on this Worker only.
+# ---------------------------------------------------------------------------
+[env.ops]
+name = "vemians-ops"
+
+[env.ops.vars]
+PUBLIC_HOST = "vemians.com"
+OPS_HOST    = "ops.vemians.com"
+SURFACE     = "ops"
+
+[[env.ops.rules]]
+type = "Text"
+globs = ["**/*.css"]
+fallthrough = true
+
+[env.ops.observability]
 enabled = true

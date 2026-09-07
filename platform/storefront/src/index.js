@@ -1,8 +1,20 @@
 /*
- * Vemians storefront prototype — one Worker, two surfaces.
+ * Vemians storefront prototype — two surfaces.
  *
  *   vemians.com/*      public catalog. No Cloudflare Access. Anyone can view.
  *   ops.vemians.com/*  employee area. Behind Cloudflare Access, fails closed.
+ *
+ * DEPLOYED AS TWO WORKERS. Cloudflare Access applies to a whole Worker, not to
+ * a route within one, so a single Worker serving both surfaces cannot be gated
+ * on one and open on the other — turning Access on would put a login page in
+ * front of the shop. `SURFACE` pins each deployment to one surface and the
+ * other becomes unreachable in that build:
+ *
+ *   wrangler deploy              -> vemians-storefront, SURFACE=public, no Access
+ *   wrangler deploy --env ops    -> vemians-ops,        SURFACE=ops,   Access on
+ *
+ * Leave SURFACE unset and it falls back to hostname routing, which is what
+ * `wrangler dev` uses to serve both from one process.
  *
  * The split is by HOSTNAME, not by path, and that is load-bearing. An Access
  * application covers a hostname; if `/ops` also answered on the public host it
@@ -28,6 +40,11 @@ const json = (body, status = 200) =>
 const DEV_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "[::1]"]);
 
 function surface(hostname, env) {
+  /* An explicit SURFACE wins over the hostname. This is the guarantee that the
+     public Worker cannot serve the employee area whatever Host it is sent. */
+  if (env.SURFACE === "public") return "public";
+  if (env.SURFACE === "ops") return "ops";
+
   const host = hostname.toLowerCase();
   if (host === (env.OPS_HOST || "").toLowerCase()) return "ops";
   if (host === (env.PUBLIC_HOST || "").toLowerCase() || host === `www.${(env.PUBLIC_HOST || "").toLowerCase()}`) return "public";
@@ -88,7 +105,8 @@ export default {
       return ops(request, env, path);
     }
 
-    if (kind === "dev" && url.pathname.startsWith("/ops")) {
+    /* Dev convenience only, and only when this build is not pinned to public. */
+    if (kind === "dev" && url.pathname.startsWith("/ops") && env.SURFACE !== "public") {
       return ops(request, env, url.pathname.slice(4));
     }
 

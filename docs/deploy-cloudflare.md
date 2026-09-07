@@ -143,30 +143,40 @@ That publishes `vemians-storefront` on its `*.workers.dev` URL. Open it and conf
 catalog renders before attaching any hostname — if something is wrong, it is much easier to
 see here than behind a domain and a gate.
 
-## 3. Attach the three Custom Domains
+## 3. Deploy two Workers and attach their domains
 
-Custom Domains, not Routes. A Custom Domain creates and manages the proxied DNS record for
-you, and it is what makes the hostname something Cloudflare Access can sit in front of.
+**Two Workers, not one.** Cloudflare Access attaches to a *whole Worker*, with no way to scope
+it to one route inside it. A single Worker serving both surfaces therefore cannot be gated on
+the employee area and open on the shop — switching Access on would put a login page in front of
+customers.
 
-Dashboard path: **Workers & Pages → `vemians-storefront` → Settings → Domains & Routes →
-Add → Custom domain**. Add three, one at a time:
+`wrangler.toml` handles this with a second environment. `SURFACE` pins each deployment so the
+other surface is unreachable in that build, whatever `Host` header arrives:
+
+```sh
+cd platform/storefront
+npx wrangler deploy              # vemians-storefront   SURFACE=public   no Access
+npx wrangler deploy --env ops    # vemians-ops          SURFACE=ops      Access on
+```
+
+Then attach Custom Domains — **Custom Domains, not Routes**; a Custom Domain creates and
+manages the proxied DNS record, and it is what Access can sit in front of.
+
+**Workers & Pages → `vemians-storefront` → Settings → Domains & Routes → Add → Custom domain**
 
 - `vemians.com`
 - `www.vemians.com`
+
+**Workers & Pages → `vemians-ops` → … → Add → Custom domain**
+
 - `ops.vemians.com`
 
-Each takes a minute or two to issue a certificate. Then in **DNS → Records** confirm each
-shows as an orange-cloud (proxied) record pointing at the Worker. If a stale `A` or `CNAME`
-for any of those three names survived the import, delete it — a leftover record and a Custom
-Domain on the same name is a fight you will lose confusingly.
+Each takes a minute or two to issue a certificate. In **DNS → Records** confirm all three show
+as orange-cloud (proxied). Delete any stale `A` or `CNAME` for those names that survived the
+import — a leftover record fighting a Custom Domain fails confusingly.
 
-The equivalent lives in `wrangler.toml` as a commented `[[routes]]` block. Uncomment it if
-you would rather have the domains declared in the repo than clicked in the dashboard; either
-way, do it only after §1 is Active.
-
-At this point **both** hostnames are public. `ops.vemians.com` is not gated yet — the Worker
-still refuses it (401, no Access assertion), but do not leave it in this state longer than it
-takes to do §4–§6.
+`vemians-ops` refuses every request with **401** until §5–6 are done, because no Access
+assertion reaches it. That is the correct resting state, not a fault.
 
 ## 4. Turn on Zero Trust and pick a team name
 
@@ -238,12 +248,21 @@ listing your email and groups. If groups come back empty, step 2 is the thing to
 
 ## 6. Create the Access application for `ops.vemians.com`
 
-**Zero Trust → Access → Applications → Add an application → Self-hosted.**
+**Zero Trust → Access controls → Applications → Add an application.**
+
+Choose the **Workers** application type and select **`vemians-ops`**. Access applies to the
+whole Worker, which is exactly why §3 deploys two: `vemians-storefront` is a separate Worker
+with no application on it, so the shop stays open.
+
+*(Cloudflare has reorganised this navigation more than once. If the type list differs, you
+want the one that targets a Worker or a self-hosted web application — not SaaS/SSO app, which
+makes Cloudflare an identity provider for third-party software, and not Service Auth, which is
+machine-to-machine.)*
 
 1. **Application name**: `Vemians ops`
 2. **Session duration**: 24 hours is a reasonable start.
-3. **Public hostname**: subdomain `ops`, domain `vemians.com`, path empty. This must match the
-   Custom Domain from §3 exactly.
+3. **Target**: the `vemians-ops` Worker (equivalently, hostname `ops.vemians.com` — it must
+   match the Custom Domain from §3 exactly).
 4. **Identity providers**: tick **Google Workspace**, and untick **Accept all available
    identity providers** so nothing else can be used.
 5. Next → **Add policy**:
