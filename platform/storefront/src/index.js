@@ -28,6 +28,7 @@
  */
 
 import { readAccessIdentity } from "./access.js";
+import { agentTurn, approve, roleFor, sessionBindings } from "./agent.js";
 import { products, customers, week } from "./seed.js";
 import { catalogPage, opsPage, refusalPage, notFoundPage } from "./views.js";
 
@@ -52,13 +53,23 @@ function surface(hostname, env) {
   return "public"; /* unknown host: serve the safe surface, never the ops one */
 }
 
+/* Both agent endpoints answer JSON, so a refusal on them must be JSON too —
+   the composer's fetch() has no use for a login page. */
+const AGENT_PATHS = new Set(["/agent", "/agent/approve"]);
+
+async function body(request) {
+  const ct = request.headers.get("content-type") || "";
+  if (ct.includes("application/json")) return await request.json();
+  return Object.fromEntries(await request.formData());
+}
+
 async function ops(request, env, path) {
   const identity = await readAccessIdentity(request, env);
 
   if (!identity.ok) {
-    /* Fail closed. No assertion, no employee area. */
-    const wantsJson = path === "/agent";
-    return wantsJson
+    /* Fail closed. No assertion, no employee area — and that covers the agent
+       endpoints, which are reached before any of their own code runs. */
+    return AGENT_PATHS.has(path)
       ? json({ error: identity.reason }, identity.status)
       : html(refusalPage(identity.status, identity.reason), identity.status);
   }
@@ -67,26 +78,34 @@ async function ops(request, env, path) {
     if (request.method !== "POST") return json({ error: "POST only" }, 405);
     let q = "";
     try {
-      const ct = request.headers.get("content-type") || "";
-      if (ct.includes("application/json")) {
-        q = String((await request.json()).q || "");
-      } else {
-        q = String((await request.formData()).get("q") || "");
-      }
+      q = String((await body(request)).q || "");
     } catch (err) {
       console.error(`ERROR ops/agent: unreadable body — ${err.message}`);
       return json({ error: "Unreadable request body." }, 400);
     }
-    /* Stub. No model, no tools, no bindings. It echoes and says so. */
-    return json({
-      actor: identity.email,
-      verified: identity.verified,
-      reply: `Echo (no model wired): ${q}`,
-    });
+
+    const turn = await agentTurn({ q, identity, env });
+    return json({ verified: identity.verified, ...turn });
+  }
+
+  if (path === "/agent/approve") {
+    if (request.method !== "POST") return json({ error: "POST only" }, 405);
+    let id = "";
+    try {
+      id = String((await body(request)).id || "");
+    } catch (err) {
+      console.error(`ERROR ops/agent/approve: unreadable body — ${err.message}`);
+      return json({ error: "Unreadable request body." }, 400);
+    }
+
+    /* The id is the whole of what the client sends. The tool, its arguments and
+       the approval token all come from the server side — see agent.js. */
+    const out = await approve({ id, identity, env });
+    return json({ verified: identity.verified, ...out }, out.status);
   }
 
   if (path === "" || path === "/") {
-    return html(opsPage(identity, { customers, week }));
+    return html(opsPage(identity, { customers, week, bindings: sessionBindings(roleFor(identity)), hasKey: Boolean(env.ANTHROPIC_API_KEY) }));
   }
 
   return html(notFoundPage(), 404);
