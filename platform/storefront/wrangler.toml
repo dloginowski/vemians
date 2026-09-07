@@ -1,0 +1,116 @@
+#
+# One Worker, two custom domains.
+#
+#   vemians.com      public catalog, no Cloudflare Access, anyone can view
+#   ops.vemians.com  employee area, behind Cloudflare Access
+#
+# One Worker rather than two because the two surfaces share the design tokens,
+# the grid and the seed data, and a second deployment would duplicate all three
+# for no isolation gain: the boundary that matters is the Access application on
+# the ops hostname, which is configured in the dashboard and applies to the
+# hostname regardless of how many Workers sit behind it. Split into two Workers
+# the day the ops surface takes a binding the storefront must never hold.
+#
+# Custom Domains, not Routes: a Custom Domain creates and manages the proxied
+# DNS record for you, which is what lets Access sit in front of the hostname.
+# The click-path is docs/deploy-cloudflare.md.
+#
+name = "vemians-storefront"
+main = "src/index.js"
+compatibility_date = "2025-10-01"
+
+# Serve platform/design/catalog-grid.css and src/theme.css as text modules, so
+# the grid is imported byte-for-byte from where it is maintained rather than
+# copied into a template and left to drift.
+[[rules]]
+type = "Text"
+globs = ["**/*.css"]
+fallthrough = true
+
+[vars]
+# Hostname routing. The ops surface exists ONLY on OPS_HOST (and on localhost
+# under `wrangler dev`); on PUBLIC_HOST the path /ops is a 404, so the employee
+# area never has an unauthenticated twin outside the Access application.
+PUBLIC_HOST = "vemians.com"
+OPS_HOST    = "ops.vemians.com"
+
+# Cloudflare Access assertion verification. Unset in the prototype: the Worker
+# still FAILS CLOSED when the Cf-Access-Jwt-Assertion header is absent, but it
+# decodes the assertion without checking the signature and says so on screen.
+# Fill both in before ops.vemians.com is reachable from the internet.
+#
+#   ACCESS_TEAM_DOMAIN  your Zero Trust team domain, e.g. "vemians.cloudflareaccess.com"
+#   ACCESS_AUD          the Application Audience (AUD) tag from the Access
+#                       application's Overview page
+#
+# ACCESS_TEAM_DOMAIN = "vemians.cloudflareaccess.com"
+# ACCESS_AUD         = "0000000000000000000000000000000000000000000000000000000000000000"
+
+# ---------------------------------------------------------------------------
+# Custom Domains. Commented out because `wrangler deploy` will try to create
+# them, which fails until the zone is on Cloudflare (deploy-cloudflare.md §1).
+# Uncomment once the nameservers have moved, then deploy.
+#
+# [[routes]]
+# pattern      = "vemians.com"
+# custom_domain = true
+#
+# [[routes]]
+# pattern      = "www.vemians.com"
+# custom_domain = true
+#
+# [[routes]]
+# pattern      = "ops.vemians.com"
+# custom_domain = true
+
+# ---------------------------------------------------------------------------
+# The six D1 stores (PRD §3.1). Wiring shown, none required: the prototype runs
+# entirely on the hardcoded seed data in src/seed.js.
+#
+# Each store is an independent database, an independent binding and an
+# independent migration trail. No foreign key and no transaction crosses a
+# boundary; a cross-store reference is an id plus a snapshot. Schemas live in
+# platform/db/*.sql. Create each with:
+#
+#   npx wrangler d1 create vemians-<store>
+#
+# and paste the returned database_id below.
+#
+# `identity` is deliberately listed last and separately: it holds the only
+# direct identifiers in the system, as ciphertext under a KEK in an external
+# KMS. Binding it into the same Worker as the storefront is a decision to make
+# on purpose, not by uncommenting a block — most tools must not hold it
+# (Test-PRD-P0-24-binding_scoped_tools).
+#
+# [[d1_databases]]
+# binding       = "CUSTOMERS"          # profile, fit, consent, version log. No identifiers.
+# database_name = "vemians-customers"
+# database_id   = "<id>"
+#
+# [[d1_databases]]
+# binding       = "COMMERCE"           # orders, lines, inventory
+# database_name = "vemians-commerce"
+# database_id   = "<id>"
+#
+# [[d1_databases]]
+# binding       = "PEOPLE"             # employees, shifts
+# database_name = "vemians-people"
+# database_id   = "<id>"
+#
+# [[d1_databases]]
+# binding       = "FINANCE"            # expenses, budgets
+# database_name = "vemians-finance"
+# database_id   = "<id>"
+#
+# [[d1_databases]]
+# binding       = "AUDIT"              # append-only agent record; insert-only credentials
+# database_name = "vemians-audit"
+# database_id   = "<id>"
+#
+# [[d1_databases]]
+# binding       = "IDENTITY"           # ciphertext name/email/phone. Clienteling tools only.
+# database_name = "vemians-identity"
+# database_id   = "<id>"
+
+[observability]
+enabled = true

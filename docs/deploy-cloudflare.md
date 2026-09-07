@@ -1,0 +1,244 @@
+# Deploying to Cloudflare — the click-path
+
+Everything here happens in **your** Cloudflare and Google dashboards. None of it can be done
+from the repository, so this is written as an ordered click-path rather than as prose. The
+code being deployed is [`platform/storefront`](../platform/storefront/README.md).
+
+End state:
+
+| Hostname | Serves | Gate |
+|---|---|---|
+| `vemians.com`, `www.vemians.com` | The Worker's public catalog | none |
+| `ops.vemians.com` | The Worker's employee area | Cloudflare Access → Google Workspace |
+
+> **The apex points at our Worker, not at Shopify.** `cloudflare-architecture.md` §3 carries a
+> superseded note about grey-clouding `A @ 23.227.38.65` and `CNAME www shops.myshopify.com`
+> because Shopify does not support Cloudflare's proxy. That constraint is real but **does not
+> apply here** — nothing points at a Shopify-hosted storefront. Checkout, when it exists, lives
+> on `<store>.myshopify.com` and needs no DNS record in this zone. Reach for that note only if
+> a Shopify-hosted storefront is ever reintroduced at the apex.
+
+---
+
+## 1. Put the zone on Cloudflare
+
+1. <https://dash.cloudflare.com> → **Add a site** → `vemians.com` → **Continue**.
+2. Choose the **Free** plan unless you already know you need otherwise. See §8.
+3. Cloudflare scans the existing DNS and shows you what it found. **Check this list before
+   continuing** — anything it missed (mail, verification `TXT` records, subdomains) is
+   offline the moment the nameservers move. Add what is missing now.
+4. Cloudflare gives you **two nameservers**, e.g. `xxx.ns.cloudflare.com`.
+5. Go to the registrar where `vemians.com` is registered → the domain's nameserver settings →
+   replace the existing nameservers with Cloudflare's two. Remove the old ones entirely; a
+   mixed set fails intermittently, which is worse than failing.
+6. Back in Cloudflare, **Check nameservers now**. Propagation is usually minutes but the
+   registrar may take up to 24 hours. The zone shows **Active** when it is done.
+
+Confirm from a terminal:
+
+```sh
+dig +short NS vemians.com          # should return the two Cloudflare nameservers
+```
+
+Do not continue until the zone is Active. A Workers Custom Domain cannot be created on a zone
+Cloudflare does not hold, and `wrangler deploy` will fail with a fairly opaque error.
+
+## 2. Deploy the Worker
+
+From a clone, in `platform/storefront`:
+
+```sh
+npx wrangler login          # opens a browser, authorises this machine against your account
+npx wrangler deploy
+```
+
+That publishes `vemians-storefront` on its `*.workers.dev` URL. Open it and confirm the
+catalog renders before attaching any hostname — if something is wrong, it is much easier to
+see here than behind a domain and a gate.
+
+## 3. Attach the three Custom Domains
+
+Custom Domains, not Routes. A Custom Domain creates and manages the proxied DNS record for
+you, and it is what makes the hostname something Cloudflare Access can sit in front of.
+
+Dashboard path: **Workers & Pages → `vemians-storefront` → Settings → Domains & Routes →
+Add → Custom domain**. Add three, one at a time:
+
+- `vemians.com`
+- `www.vemians.com`
+- `ops.vemians.com`
+
+Each takes a minute or two to issue a certificate. Then in **DNS → Records** confirm each
+shows as an orange-cloud (proxied) record pointing at the Worker. If a stale `A` or `CNAME`
+for any of those three names survived the import, delete it — a leftover record and a Custom
+Domain on the same name is a fight you will lose confusingly.
+
+The equivalent lives in `wrangler.toml` as a commented `[[routes]]` block. Uncomment it if
+you would rather have the domains declared in the repo than clicked in the dashboard; either
+way, do it only after §1 is Active.
+
+At this point **both** hostnames are public. `ops.vemians.com` is not gated yet — the Worker
+still refuses it (401, no Access assertion), but do not leave it in this state longer than it
+takes to do §4–§6.
+
+## 4. Turn on Zero Trust and pick a team name
+
+1. Dashboard → **Zero Trust** (left sidebar). First visit walks you through creating an
+   organisation.
+2. Choose a **team name**, e.g. `vemians`. This becomes your team domain,
+   `vemians.cloudflareaccess.com`, and it is a nuisance to change later — it is the issuer in
+   every token and the hostname of every login page.
+3. Choose the **Free** plan. Card details are requested even on Free. See §8.
+
+## 5. Add Google Workspace as the identity provider
+
+Two dashboards, and the order matters because each one needs a value from the other.
+
+**In Google Cloud Console** (<https://console.cloud.google.com>), signed in as a Workspace
+**super administrator**:
+
+1. Create a project, or pick an existing one — e.g. `vemians-sso`.
+2. **APIs & Services → Library** → enable the **Admin SDK API**. This is what lets Cloudflare
+   read group membership; without it you get authentication but no groups, and the whole
+   "roles derive from Workspace groups" design (PRD `Test-PRD-P0-23-group_derived_roles`)
+   does not work.
+3. **APIs & Services → OAuth consent screen** → User type **Internal** → fill in app name and
+   support email → Save.
+4. **APIs & Services → Credentials → Create credentials → OAuth client ID**:
+   - Application type: **Web application**
+   - Name: `Cloudflare Access`
+   - **Authorised JavaScript origins**: `https://vemians.cloudflareaccess.com`
+   - **Authorised redirect URI**:
+     `https://vemians.cloudflareaccess.com/cdn-cgi/access/callback`
+     (substitute your own team name from §4 — Cloudflare also shows you this exact URI on the
+     login-method form in the next step, so copy it from there if in any doubt.)
+5. Save, and keep the **Client ID** and **Client secret**. The secret is shown once.
+
+**In Cloudflare Zero Trust** → **Settings → Authentication → Login methods → Add new →
+Google Workspace**:
+
+- **App ID** — the Client ID from step 5
+- **Client secret** — the Client secret from step 5
+- **Google Admin email** — a Workspace **super admin** address, e.g. `you@vemians.com`.
+  Cloudflare uses it to query the Admin SDK for groups.
+
+Save, then **Test**. A successful test opens a Google sign-in and returns a green result
+listing your email and groups. If groups come back empty, step 2 is the thing to check.
+
+> Cloudflare also offers a plain **Google** login method. Use **Google Workspace** — the plain
+> one authenticates but cannot read groups.
+
+## 6. Create the Access application for `ops.vemians.com`
+
+**Zero Trust → Access → Applications → Add an application → Self-hosted.**
+
+1. **Application name**: `Vemians ops`
+2. **Session duration**: 24 hours is a reasonable start.
+3. **Public hostname**: subdomain `ops`, domain `vemians.com`, path empty. This must match the
+   Custom Domain from §3 exactly.
+4. **Identity providers**: tick **Google Workspace**, and untick **Accept all available
+   identity providers** so nothing else can be used.
+5. Next → **Add policy**:
+   - **Policy name**: `Vemians staff`
+   - **Action**: **Allow**
+   - **Include** → selector **Emails ending in** → value **`@vemians.com`**
+
+   One rule, one Include. Leave Require and Exclude empty for now. Later, tighter surfaces —
+   `identity`, `people`, `finance` — get their **own applications and their own policies**
+   with a **Google Workspace group** Include rather than the whole domain
+   (PRD `Test-PRD-P0-24-binding_scoped_tools`).
+6. Save. Then open **Overview** on the finished application and copy the **Application
+   Audience (AUD) tag** — a 64-character hex string.
+
+**Now close the loop in the code.** In `platform/storefront/wrangler.toml`, uncomment and fill:
+
+```toml
+ACCESS_TEAM_DOMAIN = "vemians.cloudflareaccess.com"
+ACCESS_AUD         = "<the 64-char AUD tag>"
+```
+
+then `npx wrangler deploy`. Until you do this the Worker still fails closed on a missing
+assertion, but it accepts any well-formed one **without checking its signature**, and says so
+in a black banner across the top of the ops page. Access is the gate either way; this makes
+the Worker verify that the request really came through it.
+
+## 7. Test both surfaces — and test the refusal
+
+Testing that it works is half the job. Testing that it refuses is the other half, and it is
+the half people skip.
+
+**Public catalog — must be open to everyone:**
+
+```sh
+curl -sI https://vemians.com/            # HTTP/2 200
+curl -sI https://www.vemians.com/        # HTTP/2 200
+```
+
+Then open <https://vemians.com> in a **private window** with no Cloudflare cookies. The grid
+should render for an anonymous visitor with no login prompt of any kind. If you get redirected
+to a `cloudflareaccess.com` login page, your Access application's hostname in §6.3 is too
+broad — check it is `ops.vemians.com` and not `vemians.com` or `*.vemians.com`.
+
+**The employee area — must be gated:**
+
+```sh
+curl -sI https://ops.vemians.com/        # HTTP/2 302, location: https://vemians.cloudflareaccess.com/...
+```
+
+A `302` to your team domain is Access doing its job. A `200` means the request reached the
+Worker without passing Access, and the application is not the thing that will save you — go
+back to §6.3.
+
+Then in a browser: <https://ops.vemians.com> → Google sign-in → sign in with your
+`@vemians.com` account → the ops page loads, with your email shown at the top and the black
+"without signature verification" banner **gone** if you completed §6.
+
+**Prove the refusal — do all three:**
+
+1. **A non-Vemians account.** Open a private window, go to `https://ops.vemians.com`, sign in
+   with a personal Gmail or any other Google account. Access must show its own denial page —
+   *"That account does not have access"* — and you must never see the ops page. The refusal
+   comes from Cloudflare, before the Worker runs at all. That is the point.
+2. **Logged out.** `https://vemians.cloudflareaccess.com/cdn-cgi/access/logout` clears the
+   session; reload `ops.vemians.com` and you are back at the login page.
+3. **No unauthenticated twin.** `curl -sI https://vemians.com/ops` must return **404**. The
+   employee area exists only on the gated hostname; if this ever returns 200 there is a copy
+   of it outside the gate.
+
+**Prove offboarding works** (PRD §10, and worth doing once deliberately): suspend a test user
+in Google Workspace Admin, then have them reload `ops.vemians.com`. Access refuses on the next
+session check with no change on our side. Zero Trust → **My Team → Users → Revoke sessions**
+forces it immediately rather than at session expiry.
+
+## 8. What costs money, and where the limits bite
+
+| Thing | Free tier | When you pay |
+|---|---|---|
+| **Cloudflare zone** (DNS, proxy, TLS) | Free plan is enough for all of the above | Pro ($20+/mo) buys WAF rules, image optimisation, better analytics. Not needed to ship this |
+| **Workers** | 100,000 requests/day, 10 ms CPU per invocation | **Workers Paid, $5/mo**: 10 M requests, 30 s CPU, and it is also the plan that unlocks Durable Objects and higher D1 limits. Expect to need it at launch, not before |
+| **Cloudflare Access** | **50 users**, all features, all identity providers | **$7 per user per month beyond 50 seats.** Not a concern at shop scale, but it is a per-seat cost, so it is the line item that grows with headcount |
+| **Google Workspace as IdP** | No Cloudflare charge | You already pay Google per seat. The Admin SDK API is free |
+| **Custom Domains on Workers** | Included, any plan | — |
+| **D1** (not used by the prototype) | 5 GB, 5 M rows read/day | Workers Paid raises the ceilings substantially |
+| **R2, Cloudflare Images** (not used yet) | R2 has 10 GB storage and **no egress fee**; Images is paid from the first transform | Images is ~$5/mo per 100k transforms. Budget it with the media work, not now |
+
+Two limits worth knowing before they surprise you:
+
+- **Access is billed per user, not per application.** Splitting `identity`, `people` and
+  `finance` into their own applications and policies (§6.5) costs nothing extra.
+- **The Workers free tier is per-account per-day, not per-Worker.** One noisy crawler on the
+  public catalog can exhaust it, and the failure mode is a `1027` error page for everyone.
+  If the storefront is genuinely public, take the $5 plan.
+
+## 9. Order of operations, condensed
+
+1. Add zone, move nameservers, wait for **Active**.
+2. `npx wrangler login && npx wrangler deploy`; check the `workers.dev` URL renders.
+3. Add three Custom Domains: apex, `www`, `ops`.
+4. Zero Trust org + team name.
+5. Google Cloud: Admin SDK API, OAuth consent screen, OAuth client → id, secret, redirect URI.
+6. Cloudflare: Google Workspace login method → **Test** → groups come back.
+7. Access application on `ops.vemians.com`, policy **Allow / Include / Emails ending in
+   `@vemians.com`**, copy the AUD tag.
+8. Fill `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` in `wrangler.toml`, redeploy.
+9. Test the catalog anonymously, test the ops sign-in, then **test all three refusals**.

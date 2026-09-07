@@ -1,0 +1,182 @@
+/*
+ * Measured design tokens — docs/design-direction.md §3.
+ *
+ * Achromatic. Near-flat type scale: 16px does nearly all the work. Sentence
+ * case throughout; tracked caps are reserved for the wordmark alone. No
+ * borders, shadows, cards or rounded corners — the image edge is the card.
+ * Light only: the genre is committed to a white ground (§5).
+ */
+
+:root {
+  --ground:       #FFFFFF;
+  --image-ground: #EFF0F4;
+  --ink:          #000000;
+  --bar:          #000000;
+  --rule:         #E5E5E5;
+
+  --type:      16px;
+  --leading:   1.375;   /* 22/16 */
+  --wordmark:  32px;
+  --heading:   30px;    /* 1.9x body */
+  --eyebrow:   14px;
+
+  --face: "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--face);
+  font-size: var(--type);
+  line-height: var(--leading);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Announcement bar — black, white text, centred. */
+.bar {
+  background: var(--bar);
+  color: var(--ground);
+  text-align: center;
+  padding: 10px 16px;
+  font-size: var(--eyebrow);
+}
+
+/* Header — centred wordmark, the one tracked-caps element on the page. */
+.masthead {
+  border-bottom: 1px solid var(--rule);
+  padding: 28px 16px 16px;
+  text-align: center;
+}
+
+.wordmark {
+  font-size: var(--wordmark);
+  font-weight: 300;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  text-indent: 0.22em;   /* absorb the trailing letterspace so it stays centred */
+  margin: 0;
+}
+
+.nav {
+  margin-top: 18px;
+  overflow-x: auto;
+  white-space: nowrap;
+  font-size: var(--type);
+}
+
+.nav a { color: var(--ink); text-decoration: none; }
+.nav span { padding: 0 10px; color: var(--rule); }
+
+/* Editorial framing — bold centred heading, left-aligned standfirst. */
+.edit {
+  padding: 40px 16px 28px;
+  max-width: 46rem;
+  margin: 0 auto;
+}
+
+.edit h1 {
+  font-size: var(--heading);
+  font-weight: 700;
+  text-align: center;
+  margin: 0 0 16px;
+}
+
+.edit p { margin: 0; text-align: left; }
+
+/* Card anatomy — eyebrow + heart, image, brand, name, price. */
+.card { margin-bottom: 36px; }
+
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-bottom: 8px;
+}
+
+.eyebrow {
+  font-size: var(--eyebrow);
+  text-transform: lowercase;
+}
+
+.heart { font-size: var(--eyebrow); line-height: 1; }
+
+.card-media svg { width: 100%; height: 100%; display: block; }
+
+.brand, .name, .price { margin: 0; padding-top: 6px; font-weight: 400; }
+
+.name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.foot {
+  border-top: 1px solid var(--rule);
+  margin-top: 24px;
+  padding: 24px 16px 48px;
+  text-align: center;
+  font-size: var(--eyebrow);
+}
+
+/* ---- ops.vemians.com ----------------------------------------------------
+ * Same palette and type scale. No second design system for a second surface.
+ */
+
+.ops { max-width: 60rem; margin: 0 auto; padding: 24px 16px 64px; }
+
+.ops h2 { font-size: var(--type); font-weight: 700; margin: 40px 0 12px; }
+
+.ops table { border-collapse: collapse; width: 100%; font-size: var(--type); }
+.ops th, .ops td {
+  border-bottom: 1px solid var(--rule);
+  padding: 8px 12px 8px 0;
+  text-align: left;
+  font-weight: 400;
+  vertical-align: top;
+}
+.ops th { font-size: var(--eyebrow); }
+
+.who {
+  background: var(--image-ground);
+  padding: 12px 16px;
+  font-size: var(--eyebrow);
+}
+
+.warn {
+  background: var(--bar);
+  color: var(--ground);
+  padding: 12px 16px;
+  font-size: var(--eyebrow);
+}
+
+.note { font-size: var(--eyebrow); margin: 8px 0 0; }
+
+.week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; background: var(--rule); }
+.day { background: var(--ground); padding: 10px; min-height: 128px; }
+.day h3 { font-size: var(--eyebrow); font-weight: 400; margin: 0 0 8px; }
+.shift { background: var(--image-ground); padding: 6px 8px; margin-bottom: 6px; font-size: var(--eyebrow); }
+
+.chat { margin-top: 12px; }
+.chat input {
+  width: 100%;
+  font: inherit;
+  padding: 10px 12px;
+  border: 1px solid var(--rule);
+  background: var(--ground);
+  color: var(--ink);
+}
+.chat button {
+  font: inherit;
+  margin-top: 8px;
+  padding: 10px 20px;
+  border: 1px solid var(--ink);
+  background: var(--ground);
+  color: var(--ink);
+  cursor: pointer;
+}
+.log { margin-top: 16px; font-size: var(--type); }
+.log p { margin: 0 0 8px; }
+.log .agent { color: #666; }
