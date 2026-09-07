@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vemians</title>
+<style>/*
+ * Measured design tokens — docs/design-direction.md §3.
+ *
+ * Achromatic. Near-flat type scale: 16px does nearly all the work. Sentence
+ * case throughout; tracked caps are reserved for the wordmark alone. No
+ * borders, shadows, cards or rounded corners — the image edge is the card.
+ * Light only: the genre is committed to a white ground (§5).
+ */
+
+:root {
+  --ground:       #FFFFFF;
+  --image-ground: #EFF0F4;
+  --ink:          #000000;
+  --bar:          #000000;
+  --rule:         #E5E5E5;
+
+  --type:      16px;
+  --leading:   1.375;   /* 22/16 */
+  --wordmark:  32px;
+  --heading:   30px;    /* 1.9x body */
+  --eyebrow:   14px;
+
+  --face: "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--face);
+  font-size: var(--type);
+  line-height: var(--leading);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Announcement bar — black, white text, centred. */
+.bar {
+  background: var(--bar);
+  color: var(--ground);
+  text-align: center;
+  padding: 10px 16px;
+  font-size: var(--eyebrow);
+}
+
+/* Header — centred wordmark, the one tracked-caps element on the page. */
+.masthead {
+  border-bottom: 1px solid var(--rule);
+  padding: 28px 16px 16px;
+  text-align: center;
+}
+
+.wordmark {
+  font-size: var(--wordmark);
+  font-weight: 300;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  text-indent: 0.22em;   /* absorb the trailing letterspace so it stays centred */
+  margin: 0;
+}
+
+.nav {
+  margin-top: 18px;
+  overflow-x: auto;
+  white-space: nowrap;
+  font-size: var(--type);
+}
+
+.nav a { color: var(--ink); text-decoration: none; }
+.nav span { padding: 0 10px; color: var(--rule); }
+
+/* Editorial framing — bold centred heading, left-aligned standfirst. */
+.edit {
+  padding: 40px 16px 28px;
+  max-width: 46rem;
+  margin: 0 auto;
+}
+
+.edit h1 {
+  font-size: var(--heading);
+  font-weight: 700;
+  text-align: center;
+  margin: 0 0 16px;
+}
+
+.edit p { margin: 0; text-align: left; }
+
+/* Card anatomy — eyebrow + heart, image, brand, name, price. */
+.card { margin-bottom: 36px; }
+
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-bottom: 8px;
+}
+
+.eyebrow {
+  font-size: var(--eyebrow);
+  text-transform: lowercase;
+}
+
+.heart { font-size: var(--eyebrow); line-height: 1; }
+
+.card-media svg { width: 100%; height: 100%; display: block; }
+
+.brand, .name, .price { margin: 0; padding-top: 6px; font-weight: 400; }
+
+.name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.foot {
+  border-top: 1px solid var(--rule);
+  margin-top: 24px;
+  padding: 24px 16px 48px;
+  text-align: center;
+  font-size: var(--eyebrow);
+}
+
+/* ---- ops.vemians.com ----------------------------------------------------
+ * Same palette and type scale. No second design system for a second surface.
+ */
+
+.ops { max-width: 60rem; margin: 0 auto; padding: 24px 16px 64px; }
+
+.ops h2 { font-size: var(--type); font-weight: 700; margin: 40px 0 12px; }
+
+.ops table { border-collapse: collapse; width: 100%; font-size: var(--type); }
+.ops th, .ops td {
+  border-bottom: 1px solid var(--rule);
+  padding: 8px 12px 8px 0;
+  text-align: left;
+  font-weight: 400;
+  vertical-align: top;
+}
+.ops th { font-size: var(--eyebrow); }
+
+.who {
+  background: var(--image-ground);
+  padding: 12px 16px;
+  font-size: var(--eyebrow);
+}
+
+.warn {
+  background: var(--bar);
+  color: var(--ground);
+  padding: 12px 16px;
+  font-size: var(--eyebrow);
+}
+
+.note { font-size: var(--eyebrow); margin: 8px 0 0; }
+
+.week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; background: var(--rule); }
+.day { background: var(--ground); padding: 10px; min-height: 128px; }
+.day h3 { font-size: var(--eyebrow); font-weight: 400; margin: 0 0 8px; }
+.shift { background: var(--image-ground); padding: 6px 8px; margin-bottom: 6px; font-size: var(--eyebrow); }
+
+.chat { margin-top: 12px; }
+.chat input {
+  width: 100%;
+  font: inherit;
+  padding: 10px 12px;
+  border: 1px solid var(--rule);
+  background: var(--ground);
+  color: var(--ink);
+}
+.chat button {
+  font: inherit;
+  margin-top: 8px;
+  padding: 10px 20px;
+  border: 1px solid var(--ink);
+  background: var(--ground);
+  color: var(--ink);
+  cursor: pointer;
+}
+.log { margin-top: 16px; font-size: var(--type); }
+.log p { margin: 0 0 8px; }
+.log .agent { color: #666; }
+/*
+ * Catalog grid — resolution-adaptive, no breakpoints.
+ *
+ * The column count is derived from available width rather than declared at
+ * breakpoints, so the grid uses whatever resolution it is given. Measured in
+ * headless Chromium (see docs/design-direction.md §3.2):
+ *
+ *     390px -> 2 cols   1440px ->  5 cols
+ *     768px -> 3 cols   1920px ->  7 cols
+ *    1024px -> 3 cols   3840px -> 11 cols
+ *
+ * Card width stays inside 173-323px across that whole range.
+ *
+ * NOTE ON auto-fill VS auto-fit
+ * -----------------------------
+ * `auto-fit` collapses empty tracks, so with fewer items than tracks the
+ * remaining cards stretch to absorb the leftover space. On a full grid the two
+ * behave identically, but on a filtered result they diverge badly:
+ *
+ *     2 results at 3840px --  auto-fill: 312px cards   auto-fit: 1842px cards
+ *
+ * A 1842px-wide product image is not a design. `auto-fill` is therefore the
+ * correct keyword here despite the name reading backwards: it is what actually
+ * keeps the layout filling the viewport sensibly at every result count.
+ */
+
+.catalog {
+  /* Card floor grows with the viewport, so wide displays gain BOTH more columns
+     and slightly larger cards, rather than degrading into a contact sheet. */
+  --card-min: clamp(14rem, 11vw, 19rem);
+  --gutter:   clamp(0.75rem, 1.6vw, 1.75rem);
+  --margin:   clamp(1rem, 4vw, 4rem);
+
+  display: grid;
+  /* min(--card-min, 46%) floors the track below half the content width, which
+     guarantees two columns on the narrowest phones - never one. */
+  grid-template-columns: repeat(auto-fill, minmax(min(var(--card-min), 46%), 1fr));
+  gap: var(--gutter);
+  padding-inline: var(--margin);
+}
+
+/* Reserve the slot before the image loads. With a fixed ratio and a flat ground
+   colour, an unloaded card is visually identical to a loaded one, so the grid
+   never reflows. */
+.card-media {
+  aspect-ratio: 8 / 9;
+  background: var(--image-ground, #EFF0F4);
+  overflow: hidden;
+}
+
+.card-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/*
+ * REQUIRED on every catalog image, and easy to forget on a fluid grid:
+ *
+ *   sizes="(min-width: 1920px) 19rem, (min-width: 768px) 11vw, 46vw"
+ *
+ * The browser cannot infer the rendered slot width from a derived column count,
+ * so without `sizes` it assumes 100vw and ships desktop-sized files to phones -
+ * which loses PRD N1 on its own. Keep this mirroring --card-min.
+ */
+</style>
+</head>
+<body>
+<div class="bar">Complimentary shipping and returns on every order</div>
+<header class="masthead">
+  <p class="wordmark">Vemians</p>
+  <nav class="nav">
+    <a href="/">New in</a><span>|</span><a href="/">Clothing</a><span>|</span><a href="/">Shoes</a><span>|</span><a href="/">Bags</a><span>|</span><a href="/">Accessories</a><span>|</span><a href="/">Editorial</a>
+  </nav>
+</header>
+<section class="edit">
+  <h1>The autumn edit</h1>
+  <p>Outerwear cut for weight rather than volume, and the knitwear that sits under it. Photographed flat, on the ground the whole catalog is built on.</p>
+</section>
+<main class="catalog" id="catalog">
+<article class="card">
+  <div class="card-head"><span class="eyebrow">new season</span><span class="heart" aria-hidden="true">&#9825;</span></div>
+  <div class="card-media"><svg viewBox="0 0 800 900" width="800" height="900" role="img" aria-label="Shearling-trimmed wool-blend coat" preserveAspectRatio="xMidYMid slice">
+  <rect width="800" height="900" fill="#EFF0F4"/>
+  <rect x="219" y="248" width="362" height="592" fill="rgb(185,185,191)"/>
+  <rect x="219" y="248" width="362" height="107" fill="rgb(199,199,205)"/>
+</svg></div>
+  <p class="brand">Aurelien</p>
+  <p class="name">Shearling-trimmed wool-blend coat</p>
+  <p class="price">$ 5,600</p>
+</article>
+<article class="card">
+  <div class="card-head"><span class="eyebrow">new</span><span class="heart" aria-hidden="true">&#9825;</span></div>
+  <div class="card-media"><svg viewBox="0 0 800 900" width="800" height="900" role="img" aria-label="Cashmere crewneck sweater" preserveAspectRatio="xMidYMid slice">
+  <rect width="800" height="900" fill="#EFF0F4"/>
+  <rect x="191" y="152" width="418" height="688" fill="rgb(151,151,157)"/>
+  <rect x="191" y="152" width="418" height="124" fill="rgb(165,165,171)"/>
+</svg></div>
+  <p class="brand">Vestra</p>
+  <p class="name">Cashmere crewneck sweater</p>
+  <p class="price">$ 980</p>
+</article>
+<article class="card">
+  <div class="card-head"><span class="eyebrow">new season</span><span class="heart" aria-hidden="true">&#9825;</span></div>
+  <div class="card-media"><svg viewBox="0 0 800 900" width="800" height="900" role="img" aria-label="Silk crepe de chine midi dress" preserveAspectRatio="xMidYMid slice">
+  <rect width="800" height="900" fill="#EFF0F4"/>
+  <rect x="205" y="200" width="390" height="640" fill="rgb(168,168,174)"/>
+  <rect x="205" y="200" width="390" height="115" fill="rgb(182,182,188)"/>
+</svg></div>
+  <p class="brand">Marchetti</p>
+  <p class="name">Silk crepe de chine midi dress</p>
+  <p class="price">$ 2,340</p>
+</article>
+<article class="card">
+  <div class="card-head"><span class="eyebrow">new</span><span class="heart" aria-hidden="true">&#9825;</span></div>
+  <div class="card-media"><svg viewBox="0 0 800 900" width="800" height="900" role="img" aria-label="Polished-leather ankle boots" preserveAspectRatio="xMidYMid slice">
+  <rect width="800" height="900" fill="#EFF0F4"/>
+  <rect x="170" y="80" width="460" height="760" fill="rgb(126,126,132)"/>
+  <rect x="170" y="80" width="460" height="137" fill="rgb(140,140,146)"/>
+</svg></div>
+  <p class="brand">Corvino</p>
+  <p class="name">Polished-leather ankle boots</p>
+  <p class="price">$ 1,295</p>
+</article>
+<article class="card">
+  <div class="card-head"><span class="eyebrow">new season</span><span class="heart" aria-hidden="true">&#9825;</span></div>
+  <div class="card-media"><svg viewBox="0 0 800 900" width="800" height="900" role="img" aria-label="Wide-leg pressed wool trousers" preserveAspectRatio="xMidYMid slice">
+  <rect width="800" height="900" fill="#EFF0F4"/>
+  <rect x="212" y="224" width="376" height="616" fill="rgb(176,176,182)"/>
+  <rect x="212" y="224" width="376" height="111" fill="rgb(190,190,196)"/>
+</svg></div>
+  <p class="brand">Aurelien</p>
+  <p class="name">Wide-leg pressed wool trousers</p>
+  <p class="price">$ 870</p>
+</article>
+<article class="card">
+  <div class="card-head"><span class="eyebrow">new</span><span class="heart" aria-hidden="true">&#9825;</span></div>
+  <div class="card-media"><svg viewBox="0 0 800 900" width="800" height="900" role="img" aria-label="Quilted leather shoulder bag" preserveAspectRatio="xMidYMid slice">
+  <rect width="800" height="900" fill="#EFF0F4"/>
+  <rect x="180.5" y="116" width="439" height="724" fill="rgb(139,139,145)"/>
+  <rect x="180.5" y="116" width="439" height="130" fill="rgb(153,153,159)"/>
+</svg></div>
+  <p class="brand">Solene</p>
+  <p class="name">Quilted leather shoulder bag</p>
+  <p class="price">$ 3,120</p>
+</article>
+<article class="card">
+  <div class="card-head"><span class="eyebrow">new</span><span class="heart" aria-hidden="true">&#9825;</span></div>
+  <div class="card-media"><svg viewBox="0 0 800 900" width="800" height="900" role="img" aria-label="Double-face cashmere scarf" preserveAspectRatio="xMidYMid slice">
+  <rect width="800" height="900" fill="#EFF0F4"/>
+  <rect x="222.5" y="260" width="355" height="580" fill="rgb(189,189,195)"/>
+  <rect x="222.5" y="260" width="355" height="104" fill="rgb(203,203,209)"/>
+</svg></div>
+  <p class="brand">Vestra</p>
+  <p class="name">Double-face cashmere scarf</p>
+  <p class="price">$ 520</p>
+</article>
+<article class="card">
+  <div class="card-head"><span class="eyebrow">new season</span><span class="heart" aria-hidden="true">&#9825;</span></div>
+  <div class="card-media"><svg viewBox="0 0 800 900" width="800" height="900" role="img" aria-label="Cotton-poplin oversized shirt" preserveAspectRatio="xMidYMid slice">
+  <rect width="800" height="900" fill="#EFF0F4"/>
+  <rect x="229.5" y="284" width="341" height="556" fill="rgb(197,197,203)"/>
+  <rect x="229.5" y="284" width="341" height="100" fill="rgb(211,211,217)"/>
+</svg></div>
+  <p class="brand">Marchetti</p>
+  <p class="name">Cotton-poplin oversized shirt</p>
+  <p class="price">$ 610</p>
+</article>
+<article class="card">
+  <div class="card-head"><span class="eyebrow">new</span><span class="heart" aria-hidden="true">&#9825;</span></div>
+  <div class="card-media"><svg viewBox="0 0 800 900" width="800" height="900" role="img" aria-label="Suede penny loafers" preserveAspectRatio="xMidYMid slice">
+  <rect width="800" height="900" fill="#EFF0F4"/>
+  <rect x="163" y="56" width="474" height="784" fill="rgb(118,118,124)"/>
+  <rect x="163" y="56" width="474" height="141" fill="rgb(132,132,138)"/>
+</svg></div>
+  <p class="brand">Corvino</p>
+  <p class="name">Suede penny loafers</p>
+  <p class="price">$ 945</p>
+</article>
+<article class="card">
+  <div class="card-head"><span class="eyebrow">new season</span><span class="heart" aria-hidden="true">&#9825;</span></div>
+  <div class="card-media"><svg viewBox="0 0 800 900" width="800" height="900" role="img" aria-label="Wool-blend single-breasted jacket" preserveAspectRatio="xMidYMid slice">
+  <rect width="800" height="900" fill="#EFF0F4"/>
+  <rect x="201.5" y="188" width="397" height="652" fill="rgb(164,164,170)"/>
+  <rect x="201.5" y="188" width="397" height="117" fill="rgb(178,178,184)"/>
+</svg></div>
+  <p class="brand">Aurelien</p>
+  <p class="name">Wool-blend single-breasted jacket</p>
+  <p class="price">$ 1,980</p>
+</article>
+<article class="card">
+  <div class="card-head"><span class="eyebrow">new</span><span class="heart" aria-hidden="true">&#9825;</span></div>
+  <div class="card-media"><svg viewBox="0 0 800 900" width="800" height="900" role="img" aria-label="Pleated satin midi skirt" preserveAspectRatio="xMidYMid slice">
+  <rect width="800" height="900" fill="#EFF0F4"/>
+  <rect x="208.5" y="212" width="383" height="628" fill="rgb(172,172,178)"/>
+  <rect x="208.5" y="212" width="383" height="113" fill="rgb(186,186,192)"/>
+</svg></div>
+  <p class="brand">Solene</p>
+  <p class="name">Pleated satin midi skirt</p>
+  <p class="price">$ 1,450</p>
+</article>
+<article class="card">
+  <div class="card-head"><span class="eyebrow">new season</span><span class="heart" aria-hidden="true">&#9825;</span></div>
+  <div class="card-media"><svg viewBox="0 0 800 900" width="800" height="900" role="img" aria-label="Ribbed merino-wool polo shirt" preserveAspectRatio="xMidYMid slice">
+  <rect width="800" height="900" fill="#EFF0F4"/>
+  <rect x="187.5" y="140" width="425" height="700" fill="rgb(147,147,153)"/>
+  <rect x="187.5" y="140" width="425" height="126" fill="rgb(161,161,167)"/>
+</svg></div>
+  <p class="brand">Vestra</p>
+  <p class="name">Ribbed merino-wool polo shirt</p>
+  <p class="price">$ 720</p>
+</article>
+</main>
+<footer class="foot">Prototype &middot; seed data, no commerce provider attached</footer>
+</body>
+</html>
