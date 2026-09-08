@@ -5,7 +5,7 @@
   "type": "module",
   "description": "The agentic staff Worker: Access-gated employee area, agent tools and /mcp on ops.vemians.com.",
   "scripts": {
-    "dev": "wrangler dev --local --port 8788",
+    "dev": "wrangler dev --local --port 8788 --inspector-port 9230",
     "deploy": "wrangler deploy",
     "test": "node --test test/*.test.mjs",
     "db:local": "bash migrations/apply-local.sh"

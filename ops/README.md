@@ -15,10 +15,15 @@ Five steps from a fresh clone. Node 20+ (Node 22 for `npm test` — it uses
 ```sh
 git clone https://github.com/dloginowski/vemians.git
 cd vemians/ops
-npm ci                                  # wrangler + the MCP server, both pinned
-npm run db:local                        # load shared/db/*.sql into local D1
-npx wrangler dev --local --port 8788    # http://127.0.0.1:8788/
+npm ci                    # wrangler + the MCP server, both pinned
+npm run db:local          # load shared/db/*.sql into local D1
+npm run dev               # http://127.0.0.1:8788/
 ```
+
+`npm run dev` is `wrangler dev --local --port 8788 --inspector-port 9230`. The
+inspector port is spelled out because wrangler defaults every Worker to 9229, and
+the storefront in `../store` is usually running on it — two `wrangler dev`
+processes on the default kill the second one with `Address already in use`.
 
 `npm test` runs the tool-layer checks against the real schemas; `npx wrangler
 deploy` publishes it once the zone is on Cloudflare and the Access application

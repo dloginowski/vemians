@@ -43,10 +43,13 @@ account and no env vars.
 git clone https://github.com/dloginowski/vemians.git
 cd vemians
 
-( cd store && npm ci && npx wrangler dev --port 8787 )       # shop  :8787
-( cd ops   && npm ci && npm run db:local && \
-              npx wrangler dev --local --port 8788 )         # staff :8788
+( cd store && npm ci && npm run dev )                      # shop  :8787
+( cd ops   && npm ci && npm run db:local && npm run dev )  # staff :8788
 ```
+
+Use `npm run dev`, not a bare `wrangler dev`: wrangler puts every Worker's
+inspector on port 9229, so the second of the two would die with `Address already
+in use`. The ops script pins its inspector to 9230.
 
 Then:
 
