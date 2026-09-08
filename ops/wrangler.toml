@@ -58,8 +58,8 @@ SURFACE  = "ops"
 #   ACCESS_AUD          the Application Audience (AUD) tag from the Access
 #                       application's Overview page
 #
-# ACCESS_TEAM_DOMAIN = "vemians.cloudflareaccess.com"
-# ACCESS_AUD         = "0000000000000000000000000000000000000000000000000000000000000000"
+ACCESS_TEAM_DOMAIN = "vemians.cloudflareaccess.com"
+ACCESS_AUD         = "8bacd393c1fededc1d257745149eb6d0cc0797a762941d1421a5a8a3c108018f"
 
 # ---------------------------------------------------------------------------
 # Custom Domain. Commented out because `wrangler deploy` will try to create it,
