@@ -308,6 +308,13 @@ that does not trace to one of these is a process failure (see §12).
     The rule exists because an agentic surface pays for every row it reads, in context and in
     latency, so an unbounded default read is a cost, not just untidiness.
 
+41. **`Test-PRD-P0-41-unconfigured_fails_closed`** — A surface that cannot verify an Access
+    assertion serves nothing. Unverified assertions are a localhost convenience only: off
+    localhost, a Worker with `ACCESS_TEAM_DOMAIN`/`ACCESS_AUD` unset refuses every request with
+    503 and logs why. The staff Worker also has no `workers.dev` URL, so it is reachable only
+    through the hostname Access sits in front of. An unreachable ops surface is a nuisance; a
+    reachable one is an incident.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

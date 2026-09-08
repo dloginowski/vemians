@@ -16,6 +16,11 @@
 #
 name = "vemians-ops"
 main = "src/index.js"
+
+# No public workers.dev URL for the staff surface. It is reachable only through
+# the Custom Domain that Cloudflare Access sits in front of. A convenience URL
+# outside the gate is exactly the thing the gate exists to prevent.
+workers_dev = false
 compatibility_date = "2026-09-07"
 # The Square adapter derives uuids with node:crypto (shared/commerce/square/ids.js),
 # which the agent catalog-authoring tools reach through. nodejs_compat is what

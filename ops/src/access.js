@@ -98,6 +98,35 @@ export async function readAccessIdentity(request, env) {
 
   const configured = Boolean(env.ACCESS_TEAM_DOMAIN && env.ACCESS_AUD);
 
+  /*
+   * Unverified assertions are a LOCAL convenience, never a deployed state.
+   *
+   * Without ACCESS_TEAM_DOMAIN/ACCESS_AUD this decodes the token without
+   * checking its signature — fine against `wrangler dev`, and a hole anywhere
+   * reachable, because a forged header is then indistinguishable from a real
+   * one. The ops Worker has a public workers.dev URL and holds credentials for
+   * Square, so "nobody knows the URL" is not a control.
+   *
+   * Therefore: off localhost, an unconfigured Worker refuses everything. The
+   * failure is loud and it is the safe direction — an ops surface that is
+   * unreachable is a nuisance; one that is reachable by anyone is an incident.
+   */
+  const host = new URL(request.url).hostname.toLowerCase();
+  const isLocal = host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host === "0.0.0.0";
+  if (!configured && !isLocal) {
+    console.error(
+      `ERROR access: refusing all requests on ${host} — ACCESS_TEAM_DOMAIN/ACCESS_AUD are unset, ` +
+      "so assertions cannot be verified. Configure the Access application and set both.",
+    );
+    return {
+      ok: false,
+      status: 503,
+      reason:
+        "This surface is not configured. Cloudflare Access is not yet in front of it, so no " +
+        "assertion can be verified and nothing is served.",
+    };
+  }
+
   let claims;
   if (configured) {
     try {
