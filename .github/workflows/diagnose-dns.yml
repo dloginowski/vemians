@@ -1,0 +1,72 @@
+# Read-only. Compares the nameservers Cloudflare ASSIGNED to this zone against
+# what the internet actually answers, and reports what is serving the domain.
+#
+# A zone stuck on "pending" almost always means the nameservers at the registrar
+# are a Cloudflare pair, but not THIS zone's pair — which looks correct in every
+# propagation checker and is still wrong.
+
+name: diagnose-dns
+on:
+  workflow_dispatch:
+    inputs:
+      zone: { description: The domain, default: vemians.com }
+permissions: { contents: read }
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: What Cloudflare expects
+        id: cf
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ZONE: ${{ inputs.zone }}
+        run: |
+          resp=$(curl -sS "https://api.cloudflare.com/client/v4/zones?name=$ZONE" \
+                   -H "authorization: Bearer $CLOUDFLARE_API_TOKEN")
+          echo "$resp" | python3 -c '
+          import json,sys,os
+          d=json.load(sys.stdin)
+          if not d.get("success") or not d.get("result"):
+              print("::error::could not read the zone"); print(json.dumps(d)[:400]); sys.exit(1)
+          z=d["result"][0]
+          print(f"  status:   {z[\"status\"]}")
+          print(f"  paused:   {z.get(\"paused\")}")
+          print("  ASSIGNED nameservers (these exact two must be at the registrar):")
+          for n in sorted(z.get("name_servers") or []): print(f"    {n}")
+          print("  original nameservers Cloudflare saw at signup:")
+          for n in sorted(z.get("original_name_servers") or []): print(f"    {n}")
+          open(os.environ["GITHUB_OUTPUT"],"a").write("assigned="+",".join(sorted(z.get("name_servers") or []))+"\n")
+          '
+
+      - name: What the internet answers
+        env:
+          ZONE: ${{ inputs.zone }}
+          ASSIGNED: ${{ steps.cf.outputs.assigned }}
+        run: |
+          sudo apt-get install -y -q dnsutils >/dev/null 2>&1
+          echo "  NS at the registry (authoritative, not cached):"
+          actual=$(dig +short NS "$ZONE" @a.gtld-servers.net 2>/dev/null | sed 's/\.$//' | sort | tr '\n' ' ')
+          [ -z "$actual" ] && actual=$(dig +short NS "$ZONE" | sed 's/\.$//' | sort | tr '\n' ' ')
+          echo "    ${actual:-(none)}"
+          echo ""
+          want=$(echo "$ASSIGNED" | tr ',' '\n' | sort | tr '\n' ' ')
+          echo "  Cloudflare assigned: $want"
+          if [ "$(echo $actual)" = "$(echo $want)" ]; then
+            echo "  ✓ MATCH — the registrar has the right pair"
+          else
+            echo "  ✗ MISMATCH — this is why the zone is pending."
+            echo "    The pair at the registrar is not the pair Cloudflare assigned to this zone."
+            echo "    Set exactly these at Namecheap, remove everything else:"
+            echo "$ASSIGNED" | tr ',' '\n' | sed 's/^/      /'
+          fi
+          echo ""
+          echo "  A/CNAME for the apex and www:"
+          for h in "$ZONE" "www.$ZONE" "ops.$ZONE"; do
+            printf "    %-24s %s\n" "$h" "$(dig +short "$h" | tr '\n' ' ' | sed 's/ $//' || echo '(nothing)')"
+          done
+          echo ""
+          echo "  Does it serve?"
+          for h in "$ZONE" "www.$ZONE"; do
+            printf "    %-24s HTTP %s\n" "https://$h" "$(curl -sS -o /dev/null -w '%{http_code}' -m 12 "https://$h" 2>&1 || echo 'no response')"
+          done
