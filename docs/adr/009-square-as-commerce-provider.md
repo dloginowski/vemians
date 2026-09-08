@@ -93,6 +93,9 @@ gates a whole Worker, so the surfaces cannot share a deployment.
 1. **Do staff manage the catalog in Square, or in Git?** This ADR assumes Square, because of
    the till. If products are actually curated centrally and never added at the counter, the
    ADR-001 direction was right and should stand.
-2. **One location or several?** Square tracks stock per location; the storefront needs a rule
-   for which location's count it sells against.
+2. ~~One location or several?~~ **Answered: one.** Stock is a single number per variation, so
+   "in stock" is a lookup rather than a decision. `SQUARE_LOCATION_ID` is configuration, not a
+   dimension in the model. Worth revisiting only if a second location opens — at which point
+   the storefront needs an explicit rule for which count it sells against, and this stops being
+   a lookup.
 3. **Square Online** — if it is in use, it is a second storefront competing with this one.
