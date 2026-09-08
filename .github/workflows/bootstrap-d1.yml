@@ -1,14 +1,21 @@
 # One-time: create the D1 databases, apply the schemas, and write the real
-# database_ids back into ops/wrangler.toml.
+# database_ids back into the wrangler.toml files that bind them.
 #
-# The bindings live on the ops Worker and nowhere else, so this workflow only
-# ever touches ops/. The storefront package has no d1_databases block to fix.
+# TWO files bind D1, not one. ops/ binds the seven private stores; store/ binds
+# catalog-mirror and only catalog-mirror (see store/wrangler.toml for why that
+# allow-list replaced a zero-binding rule). A rewrite that touched only ops/
+# left the storefront pointing at a placeholder and failing with error 10181 —
+# the exact failure this workflow exists to prevent.
 #
-# ops/wrangler.toml ships with real ids for this account; a fresh account gets
-# placeholders, and a deploy against those fails with error 10181, which is what
-# this fixes. Safe to re-run: creating an existing database is treated as
-# success, and the schemas use CREATE TABLE, so a second run against a populated
-# database is a no-op that leaves data alone.
+# The loop variable IS the database-name suffix, deliberately. An earlier
+# version looped over schema keys and built the name from them, which created
+# "vemians-catalog_mirror" while both toml files asked for
+# "vemians-catalog-mirror" — a database that existed, was empty, and matched
+# nothing.
+#
+# Safe to re-run: creating an existing database is success, and a database that
+# already holds tables is left alone. The schemas are plain CREATE TABLE, so
+# re-applying them to a populated database is an error, not a no-op.
 
 name: bootstrap-d1
 
@@ -16,7 +23,7 @@ on:
   workflow_dispatch:
     inputs:
       apply_schemas:
-        description: Also apply the schemas to the remote databases
+        description: Apply the schemas to databases that are still empty
         type: boolean
         default: true
 
@@ -26,6 +33,10 @@ concurrency:
 
 permissions:
   contents: write          # needed to commit the resolved ids back
+
+env:
+  # The database-name suffixes, exactly as the wrangler.toml files spell them.
+  DBS: customers identity commerce people finance audit tickets catalog-mirror
 
 jobs:
   bootstrap:
@@ -48,61 +59,97 @@ jobs:
       - name: Create the databases
         working-directory: ops
         run: |
-          for s in customers identity commerce people finance audit tickets catalog_mirror; do
+          for s in $DBS; do
             echo "::group::vemians-$s"
-            # Already exists is success, not failure — this must be re-runnable.
-            npx wrangler d1 create "vemians-$s" 2>&1 | tee /tmp/create.log || \
-              grep -qiE 'already exists|already have a database' /tmp/create.log || {
-                echo "::error::could not create vemians-$s"; exit 1; }
+            # No pipe here: `cmd | tee` reports tee's status, so a failed
+            # create looked like a success and the "already exists" branch
+            # never ran.
+            if npx wrangler d1 create "vemians-$s" >/tmp/create.log 2>&1; then
+              cat /tmp/create.log
+            elif grep -qiE 'already exists|already have a database' /tmp/create.log; then
+              echo "vemians-$s already exists — nothing to do."
+            else
+              cat /tmp/create.log
+              echo "::error::could not create vemians-$s"; exit 1
+            fi
             echo "::endgroup::"
           done
 
-      - name: Write the real ids into wrangler.toml
-        working-directory: ops
+      - name: Write the real ids into both wrangler.toml files
         run: |
-          npx wrangler d1 list --json > /tmp/d1.json
+          (cd ops && npx wrangler d1 list --json) > /tmp/d1.json
           python3 - <<'PY'
           import json, pathlib, re, sys
+
+          UUID = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
           dbs = {d["name"]: d["uuid"] for d in json.load(open("/tmp/d1.json"))}
-          p = pathlib.Path("wrangler.toml"); s = p.read_text(); changed = 0
+          missing, changed = [], 0
 
           def fix(m):
               global changed
-              name = m.group("name")
+              name, cur = m.group("name"), m.group("id")
               real = dbs.get(name)
               if not real:
-                  print(f"::warning::no database found named {name}")
+                  missing.append(name)
                   return m.group(0)
-              if m.group("id") == real:
+              if cur == real:
                   return m.group(0)
               changed += 1
-              print(f"  {name}: {m.group('id')[:20]}… -> {real}")
-              return m.group(0).replace(m.group("id"), real)
+              print(f"  {name}: {cur[:24]}… -> {real}")
+              return m.group(0).replace(cur, real)
 
-          s = re.sub(
-              r'database_name\s*=\s*"(?P<name>[^"]+)"\s*\ndatabase_id\s*=\s*"(?P<id>[^"]+)"',
-              fix, s)
-          p.write_text(s)
+          pat = re.compile(
+              r'database_name\s*=\s*"(?P<name>[^"]+)"\s*\ndatabase_id\s*=\s*"(?P<id>[^"]+)"')
+
+          for f in ("ops/wrangler.toml", "store/wrangler.toml"):
+              p = pathlib.Path(f)
+              s = pat.sub(fix, p.read_text())
+              p.write_text(s)
+              # Any id that is not a UUID is a placeholder, whatever it spells.
+              # The old check matched only the all-zeros shape, so
+              # "PLACEHOLDER-run-wrangler-d1-create-…" passed it silently.
+              bad = [i for i in re.findall(r'database_id\s*=\s*"([^"]+)"', s)
+                     if not UUID.match(i)]
+              if bad:
+                  print(f"::error::{f} still holds unresolved id(s): {bad}")
+                  sys.exit(1)
+
           print(f"{changed} id(s) updated")
-          # Fail loudly rather than deploying against placeholders again.
-          left = re.findall(r'database_id\s*=\s*"(0{8}-0{4}-0{4}-0{4}-[0-9a-f]{12})"', s)
-          if left:
-              print(f"::error::{len(left)} placeholder id(s) remain: {left}"); sys.exit(1)
+          if missing:
+              # Every name in a toml must exist by now: the create step ran
+              # over the same list. A miss means the names disagree.
+              print(f"::error::no database found named: {sorted(set(missing))}")
+              sys.exit(1)
           PY
 
-      - name: Apply the schemas
+      - name: Apply the schemas to empty databases
         if: inputs.apply_schemas
         working-directory: ops
         run: |
-          # catalog_mirror's schema lives beside its adapter rather than in
-          # shared/db, because it is the Square adapter's own shape — so the
-          # path is looked up rather than assumed.
-          for s in customers identity commerce people finance audit tickets catalog_mirror; do
+          # catalog-mirror's schema lives beside its adapter rather than in
+          # shared/db, because it is the Square adapter's own shape.
+          for s in $DBS; do
             case "$s" in
-              catalog_mirror) f="../shared/commerce/square/schema.sql" ;;
+              catalog-mirror) f="../shared/commerce/square/schema.sql" ;;
               *)              f="../shared/db/$s.sql" ;;
             esac
             [ -f "$f" ] || { echo "::error::no schema at $f for vemians-$s"; exit 1; }
+
+            # Already populated? Leave it. These schemas are plain CREATE TABLE,
+            # so re-applying one aborts on "table … already exists" and takes
+            # the whole run down with it — which is how a re-run used to fail
+            # on the FIRST database and never reach the new one.
+            npx wrangler d1 execute "vemians-$s" --remote --yes --json \
+              --command "SELECT count(*) AS n FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'" \
+              > /tmp/count.json 2>/tmp/count.err || {
+                cat /tmp/count.err; echo "::error::could not read vemians-$s"; exit 1; }
+            n=$(python3 ../.github/scripts/d1-table-count.py /tmp/count.json)
+
+            if [ "$n" != "0" ]; then
+              echo "vemians-$s already holds $n table(s) — leaving it alone."
+              continue
+            fi
+
             echo "::group::schema -> vemians-$s  ($f)"
             npx wrangler d1 execute "vemians-$s" --remote --yes --file="$f" || {
               echo "::error::schema failed for vemians-$s"; exit 1; }
@@ -111,14 +158,17 @@ jobs:
 
       - name: Commit the ids
         run: |
-          if git diff --quiet -- ops/wrangler.toml; then
-            echo "wrangler.toml already correct — nothing to commit."; exit 0
+          if git diff --quiet -- ops/wrangler.toml store/wrangler.toml; then
+            echo "both wrangler.toml files already correct — nothing to commit."
+            exit 0
           fi
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add ops/wrangler.toml
+          git add ops/wrangler.toml store/wrangler.toml
           git commit -m "Resolve D1 database ids from the Cloudflare account
 
-          Replaces the placeholder ids ops/wrangler.toml ships with, which a
-          deploy rejects with error 10181, using the real ids for this account."
+          Replaces the placeholder ids the wrangler.toml files ship with, which
+          a deploy rejects with error 10181, using the real ids for this
+          account. Covers store/ as well as ops/ — the storefront binds
+          catalog-mirror and was left on a placeholder."
           git push
