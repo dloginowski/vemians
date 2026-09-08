@@ -53,6 +53,18 @@ def get(path):
     return body.get("result"), None
 
 
+def committed_team_domain():
+    """ACCESS_TEAM_DOMAIN as ops/wrangler.toml actually has it.
+
+    Read rather than restated. A hardcoded copy here would agree with itself
+    forever and stop being a check the moment the toml changed — which is the
+    exact failure this whole report exists to catch.
+    """
+    toml = pathlib.Path(__file__).resolve().parents[2] / "ops" / "wrangler.toml"
+    m = re.search(r'^ACCESS_TEAM_DOMAIN\s*=\s*"([^"]+)"', toml.read_text(), re.M)
+    return m.group(1) if m else None
+
+
 def section(title):
     print(f"\n───── {title} ─────")
 
@@ -69,7 +81,7 @@ else:
     auth = (org or {}).get("auth_domain")
     print(f"  name:        {(org or {}).get('name')!r}")
     print(f"  auth_domain: {auth}")
-    configured = "vemians.cloudflareaccess.com"
+    configured = committed_team_domain()
     if auth and auth != configured:
         print(f"  MISMATCH: ops/wrangler.toml has ACCESS_TEAM_DOMAIN = {configured!r}")
         print(f"            the account's real auth_domain is {auth!r}")
@@ -121,7 +133,14 @@ for a in apps:
 section("which team domain actually serves signing keys")
 # Settles the mismatch above by asking both hosts rather than trusting either
 # record. A team that exists answers /cdn-cgi/access/certs with a JWKS.
-for host in ("vemians.cloudflareaccess.com", "vonvemian.cloudflareaccess.com"):
+# The committed value, plus every *.cloudflareaccess.com host the account
+# itself mentions. Derived, so a renamed team or a corrected toml is still
+# compared against what exists rather than against a list written today.
+hosts = {committed_team_domain()}
+for a in apps or []:
+    for h in re.findall(r"([a-z0-9-]+\.cloudflareaccess\.com)", a.get("domain") or ""):
+        hosts.add(h)
+for host in sorted(h for h in hosts if h):
     url = f"https://{host}/cdn-cgi/access/certs"
     try:
         with urllib.request.urlopen(url, timeout=20) as r:
