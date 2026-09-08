@@ -44,7 +44,13 @@ jobs:
         working-directory: ops
         run: |
           npx wrangler d1 execute vemians-catalog-mirror --remote --yes \
-            --command "SELECT id, ran_at, ok, substr(note,1,180) AS note, CASE WHEN cursor IS NULL THEN 'none' ELSE 'set' END AS cursor FROM mirror_sync ORDER BY id"
+            --command "SELECT id, ran_at, ok, substr(note,1,180) AS note, CASE WHEN cursor IS NULL THEN 'none' ELSE 'set' END AS cursor FROM mirror_sync ORDER BY id" \
+            > /tmp/sync.json 2>&1 || { cat /tmp/sync.json; exit 1; }
+          cat /tmp/sync.json
+          # Repeated at the very END of the job too. GitHub's log API hands back
+          # a TAIL, so the first step's output is the first thing to fall off —
+          # and this is the one row that says whether the cron ran at all.
+          cp /tmp/sync.json /tmp/sync-echo.json
 
       - name: What the mirror holds
         working-directory: ops
@@ -63,3 +69,9 @@ jobs:
         run: |
           npx wrangler d1 execute vemians-catalog-mirror --remote --yes \
             --command "SELECT handle, substr(title,1,50) AS title, archived_at IS NULL AS live FROM mirror_product ORDER BY handle LIMIT 20"
+
+      - name: The last sync again, so it survives a tailed log
+        if: always()
+        run: |
+          echo "───────── mirror_sync ─────────"
+          cat /tmp/sync-echo.json 2>/dev/null || echo "(the first step did not get this far)"
