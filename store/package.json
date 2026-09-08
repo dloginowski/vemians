@@ -6,6 +6,7 @@
   "description": "The public storefront Worker: the catalog on vemians.com. No Access, no D1.",
   "scripts": {
     "dev": "wrangler dev --port 8787",
+    "test": "node --test test/*.test.mjs",
     "deploy": "wrangler deploy"
   },
   "devDependencies": {

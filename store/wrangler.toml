@@ -26,6 +26,16 @@ type = "Text"
 globs = ["**/*.css"]
 fallthrough = true
 
+# The browser-side enhancement layer, same idea. shared/view/enhance.client.js
+# is BROWSER code, not Worker code: it is imported as text and served verbatim
+# at /s.js. The `.client.js` extension exists so the bundler cannot mistake it
+# for a module this Worker executes — a `**/*.js` glob here would swallow the
+# Worker's own source.
+[[rules]]
+type = "Text"
+globs = ["**/*.client.js"]
+fallthrough = true
+
 [vars]
 # Pins this deployment to the public surface. This package contains no ops code
 # at all — access.js, agent.js, mcp.js and tools/ are in ../ops — so /ops is a

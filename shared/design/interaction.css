@@ -1,0 +1,330 @@
+/*
+ * Interaction and motion — the storefront's behaviour layer.
+ *
+ * docs/design-direction.md §1: luxury retail design is subtractive, and the
+ * motion follows the same rule. Everything here is 150-250ms, ease-out,
+ * transform/opacity only. No bounce, no parallax, no scroll-triggered reveal,
+ * nothing that competes with the photography. Where the choice was between an
+ * effect and no effect, the answer here is no effect.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * OBSERVED vs INFERRED  — read this before treating any value below as measured
+ * ─────────────────────────────────────────────────────────────────────────────
+ * The reference site (Mytheresa) is EGRESS-BLOCKED from this environment.
+ * design-direction.md §3 tokens come from one supplied mobile screenshot; §5
+ * lists hover behaviour, the filter and sort panels and the footer as still
+ * unobserved. Nobody here has watched the reference move.
+ *
+ *   OBSERVED  the palette, the 8:9 crop, the #EFF0F4 image ground, the type
+ *             scale, the card order. Those are §3, and this file does not
+ *             touch any of them.
+ *   INFERRED  every timing, easing, direction and threshold in this file, and
+ *             every behaviour it styles: the hover image swap, the fade-on-
+ *             decode, the hide-on-scroll header, the wishlist glyph, the
+ *             side panel and its scrim, the load-more control.
+ *
+ * Each inferred block below is marked INFERRED again at its own rule, so a
+ * later reader replacing one does not have to come back up here to find out
+ * whether they are contradicting a measurement or an assumption. They are all
+ * assumptions — genre convention, not observation.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * MOTION TOKENS — one source of truth, and the reduced-motion switch
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Every transition in this file spends --motion or --motion-slow. Nothing
+ * hard-codes a duration. That is what makes the reduced-motion rule a single
+ * variable remap rather than a pile of `transition: none !important`, and it is
+ * why the computed transition-duration under `prefers-reduced-motion: reduce`
+ * is exactly 0s on every animated element: the transition is REMOVED, not
+ * shortened, and the state change still happens — instantly.
+ */
+
+:root {
+  /* INFERRED. Genre convention is 150-250ms; these sit inside it. */
+  --motion:      180ms;  /* header, heart, control affordances */
+  --motion-slow: 220ms;  /* image cross-fade, panel travel */
+  --ease:        ease-out;
+
+  /* INFERRED. Panel geometry — unobserved (design-direction.md §5). */
+  --panel-w: min(22rem, 88vw);
+
+  --z-header: 20;
+  --z-scrim:  39;
+  --z-panel:  40;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion:      0s;
+    --motion-slow: 0s;
+  }
+}
+
+/* ── Keyboard parity ───────────────────────────────────────────────────────
+ * Anything reachable by pointer is reachable by keyboard, and the focus state
+ * is visible. Achromatic, like everything else: a black outline on the white
+ * ground, no accent colour (there is no accent colour on this site).
+ * :where() keeps the specificity at :focus-visible alone, so a component can
+ * override it without an !important war.
+ */
+:where(a, button, input, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* ── Header: sticky, hides on scroll down, reveals on scroll up ────────────
+ * INFERRED behaviour and thresholds.
+ *
+ * Transform only. The header does not change height, does not change the
+ * document flow, and does not grow a shadow on scroll — design-direction.md
+ * §3.1 says no shadows anywhere, and "except when scrolled" is not an
+ * exception the reference gives us. The 1px --rule underline it already had
+ * stays exactly as it was.
+ *
+ * data-head is one attribute with three values rather than three classes, so
+ * the states cannot be held simultaneously:
+ *   top     at the top of the document. Shown, and shown INSTANTLY - no
+ *           transition, because arriving at the top should not look animated.
+ *   shown   scrolled, moving up.
+ *   hidden  scrolled, moving down.
+ */
+.masthead {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-header);
+  background: var(--ground);
+  transform: translateY(0);
+  transition: transform var(--motion) var(--ease);
+}
+
+.masthead[data-head="hidden"] { transform: translateY(-100%); }
+.masthead[data-head="top"]    { transition: none; }
+
+/* ── Product imagery ───────────────────────────────────────────────────────
+ * The slot is already reserved by catalog-grid.css: 8:9 with the #EFF0F4
+ * ground. A card whose image has not arrived is indistinguishable from one
+ * whose image has, at the same ratio, so the grid never shifts.
+ *
+ * NOTHING HERE IS PARKED AT opacity: 0 WAITING ON A SCROLL OBSERVER. The
+ * default state of a shot is opacity 1 — with JavaScript off, or if the
+ * enhancement never runs, every image is visible. The fade is opt-IN: the
+ * script marks data-fade="wait" only on an image that has NOT yet decoded,
+ * and clears it on decode (or on error). The first still frame of the page is
+ * therefore always complete.
+ */
+.card-media { position: relative; }
+
+.card-media .shot {
+  transition: opacity var(--motion-slow) var(--ease);
+}
+
+/* INFERRED. Set by the script on an image that has not decoded yet. */
+.card-media .shot[data-fade="wait"] { opacity: 0; }
+
+/* ── Card hover: cross-fade to the second image ────────────────────────────
+ * INFERRED. design-direction.md §5 names the alternate-image swap as "a genre
+ * convention but unverified here". It is unverified here too.
+ *
+ * Gated on `pointer: fine`. There is NO hover behaviour on touch: a coarse
+ * pointer never matches this block, so a tap cannot leave a phone stuck
+ * showing the second image with no way back.
+ *
+ * The second image is not in the HTML. The script creates it on hover intent
+ * and it only becomes eligible to show once it has actually decoded (.ready) —
+ * so the cross-fade is a cross-fade, never a flash of empty slot.
+ *
+ * :focus-within gives a keyboard user the same preview a pointer user gets:
+ * focusing the card's wishlist control swaps the image the same way hovering
+ * the card does.
+ */
+.card-media .shot-alt {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+}
+
+@media (pointer: fine) {
+  .card:hover        .shot-alt.ready,
+  .card:focus-within .shot-alt.ready { opacity: 1; }
+}
+
+/* ── Wishlist heart ────────────────────────────────────────────────────────
+ * INFERRED glyph treatment; the heart's position and size are §4/§3 and are
+ * unchanged. The server renders a plain glyph; the script replaces it with a
+ * real <button aria-pressed>, because a control that only works with
+ * JavaScript should not be present as a dead button without it.
+ *
+ * Same font-size and line-height as the span it replaces, so the swap costs no
+ * layout. The glyph is a decorative ::after — the accessible name is the
+ * button's aria-label, which names the product.
+ */
+button.heart {
+  position: relative;
+  font: inherit;
+  font-size: var(--eyebrow);
+  line-height: 1;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  transition: opacity var(--motion) var(--ease);
+}
+
+button.heart::after                      { content: "\2661"; }  /* outline */
+button.heart[aria-pressed="true"]::after { content: "\2665"; }  /* filled  */
+
+/* A finger-sized hit area that costs no layout: the box grows, the flow does
+   not. Coarse pointers get more of it than fine ones. */
+button.heart::before { content: ""; position: absolute; inset: -8px; }
+@media (pointer: coarse) {
+  button.heart::before { inset: -13px; }
+}
+
+@media (pointer: fine) {
+  button.heart:hover { opacity: 0.6; }
+}
+
+/* ── Filter and sort ───────────────────────────────────────────────────────
+ * INFERRED entirely. design-direction.md §5: "the filter and sort panels" are
+ * unobserved.
+ *
+ * WITHOUT JAVASCRIPT this is a plain <form method="get"> in normal flow. It
+ * submits, the Worker filters and sorts, the page comes back. It is not a
+ * panel, it is not hidden, and it works.
+ *
+ * WITH JAVASCRIPT the .js class — set by a one-line inline script in <head>,
+ * BEFORE first paint, so the layout is decided once and never reflows — turns
+ * the same form into an off-canvas dialog and reveals its trigger. No markup
+ * moves; only the CSS the form is read under.
+ */
+.filter-open, .panel-close { display: none; }
+.js .filter-open, .js .panel-close { display: inline-block; }
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;          /* the count and the trigger stack rather than collide */
+  justify-content: flex-end;
+  align-items: baseline;
+  gap: 16px;
+  padding-inline: var(--margin);
+  padding-bottom: 12px;
+}
+
+.count { font-size: var(--eyebrow); margin: 0 auto 0 0; }
+
+.panel { padding: 0 var(--margin) 24px; }
+
+.panel fieldset { border: 0; margin: 0 0 20px; padding: 0; }
+.panel legend { font-size: var(--eyebrow); padding: 0 0 8px; }
+.panel label { display: block; padding: 5px 0; cursor: pointer; }
+.panel input { margin-right: 8px; }
+
+/* Neutral controls: border and text, never a filled colour. RULES.md. */
+.btn {
+  font: inherit;
+  display: inline-block;
+  background: none;
+  color: var(--ink);
+  border: 1px solid var(--ink);
+  padding: 10px 24px;
+  cursor: pointer;
+  text-decoration: none;
+  transition:
+    background-color var(--motion) var(--ease),
+    color var(--motion) var(--ease);
+}
+
+.btn-quiet { border-color: var(--rule); }
+
+@media (pointer: fine) {
+  .btn:hover { background: var(--ink); color: var(--ground); }
+  .btn-quiet:hover { border-color: var(--ink); }
+}
+
+/* INFERRED. Slides in from the inline end. A real dialog: modal, focus-
+   trapped and Escape-closable — the script owns that; this owns the travel.
+   visibility is transitioned with a delay rather than display, so the panel is
+   removed from the tab order when closed but the transform can still animate.
+   Under reduced motion --motion-slow is 0s, so the delay is 0s too and the
+   panel simply appears. */
+.js .panel {
+  position: fixed;
+  inset-block: 0;
+  inset-inline-end: 0;
+  width: var(--panel-w);
+  z-index: var(--z-panel);
+  background: var(--ground);
+  border-inline-start: 1px solid var(--rule);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 24px;
+  transform: translateX(100%);
+  visibility: hidden;
+  transition:
+    transform var(--motion-slow) var(--ease),
+    visibility 0s linear var(--motion-slow);
+}
+
+.js .panel[data-open="true"] {
+  transform: translateX(0);
+  visibility: visible;
+  transition:
+    transform var(--motion-slow) var(--ease),
+    visibility 0s;
+}
+
+/* INFERRED. The scrim is the only thing on this site that is not white, black
+   or #EFF0F4, and it exists to say "modal", not to decorate. Achromatic. */
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-scrim);
+  background: rgba(0, 0, 0, 0.28);
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity var(--motion) var(--ease),
+    visibility 0s linear var(--motion);
+}
+
+.scrim[data-open="true"] {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity var(--motion) var(--ease), visibility 0s;
+}
+
+/* Background scroll lock while the dialog is open. --sbw is measured by the
+   script and compensates for the scrollbar the lock removes, so locking costs
+   no layout shift. */
+.scroll-locked { overflow: hidden; }
+.scroll-locked body { padding-inline-end: var(--sbw, 0px); }
+
+/* ── Load more ─────────────────────────────────────────────────────────────
+ * INFERRED. NOT infinite scroll: infinite scroll puts an ever-receding wall
+ * between a keyboard user and the footer. This is one control, in the tab
+ * order, immediately after the grid and immediately before the footer.
+ *
+ * Without JavaScript it is an ordinary link to the same page with a larger
+ * count. With JavaScript the script fetches the next slice and appends it —
+ * appending to the end of a grid moves nothing that is already in it.
+ */
+.more-row {
+  display: flex;
+  justify-content: center;
+  padding: 12px var(--margin) 0;
+}
+
+/* Screen-reader status for the appended results, and the focus target when the
+   load-more control removes itself. */
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

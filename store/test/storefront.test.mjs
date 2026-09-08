@@ -1,0 +1,504 @@
+/*
+ * Storefront interaction and motion — PRD-backed regression checks.
+ *
+ *     Run: node --test test/            (from store/)
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * PRD / TEST CONTRACT — read before editing this file
+ * ─────────────────────────────────────────────────────────────────────────────
+ * `docs/PRD.md` is the driving design document. Every check here exists to
+ * enforce a NUMBERED PRD FEATURE as written there — not an implementation
+ * detail, and not "a thing the code happens to do".
+ *
+ *   * Each check is named  test_PRD_P0_NN_short_id__specific_behaviour  and so
+ *     carries the visible label  Test-PRD-P0-NN-short_id.
+ *   * That label MUST exist in docs/PRD.md. The last check in this file
+ *     (P0-30) parses THIS FILE's own check names and asserts it, so an invented
+ *     or renamed label fails the run instead of drifting silently.
+ *   * UNLABELED CHECKS ARE NOT ACCEPTABLE. A new guarantee needs a PRD feature
+ *     first; if there is no feature for it, write the feature. The interaction
+ *     layer had none, so Test-PRD-P0-42 through P0-46 were written into
+ *     docs/PRD.md §3.8.1 in the same change as the code below.
+ *   * When behaviour changes, the PRD feature and its labeled check move in the
+ *     SAME change as the code. An interaction edit with a stale PRD is a
+ *     process failure, not a follow-up.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * WHAT IS AND IS NOT PROVEN HERE
+ * ─────────────────────────────────────────────────────────────────────────────
+ * The REAL renderer runs. test/text-modules.mjs resolves the CSS and the
+ * browser script the way wrangler's Text rule does, so views.js, query.js and
+ * html.js are imported unmodified and the assertions are made against the
+ * actual bytes the Worker would return.
+ *
+ * WHAT THIS CANNOT PROVE, AND DOES NOT CLAIM TO: anything that needs a layout
+ * engine. Whether the header's transform is really -129px, whether CLS is
+ * really 0, whether Escape really returns focus to the trigger, whether the
+ * computed transition-duration is really 0s under prefers-reduced-motion — a
+ * string in a stylesheet is not a rendered box. Those are measured by driving
+ * `wrangler dev --local` with Playwright; see README §Verifying the interaction
+ * layer. What IS proven here is the contract those measurements depend on: that
+ * the markup is complete without a script, that every duration still resolves
+ * from the one pair of tokens the reduced-motion rule remaps, that no hover
+ * rule has escaped its pointer gate, and that nothing has been parked at
+ * opacity 0 behind a scroll observer.
+ *
+ * There is also NO reference site behind any of this. Mytheresa is
+ * egress-blocked from this environment; docs/design-direction.md §5 lists hover
+ * behaviour and the filter/sort panels as unobserved. The checks below enforce
+ * the SHAPE of the interaction layer, which is ours to decide, and deliberately
+ * do not assert any specific duration as correct — only that it sits inside the
+ * 150-250ms budget the PRD sets, and that it comes from one place.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import test from "node:test";
+import { register } from "node:module";
+import { fileURLToPath } from "node:url";
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const STORE = path.join(HERE, "..");
+const REPO = path.join(STORE, "..");
+const read = (...p) => fs.readFileSync(path.join(REPO, ...p), "utf8");
+
+/* Text modules, as the Worker sees them. Must run before anything under src/
+   is imported, hence register() plus dynamic import rather than a static one. */
+register("./text-modules.mjs", import.meta.url);
+
+const { catalogPage, catalogPartial, shotUrl } = await import("../src/views.js");
+const { brandsOf, href, PAGE, parseQuery, select, SORTS } = await import("../src/query.js");
+
+const INTERACTION = read("shared", "design", "interaction.css");
+const GRID = read("shared", "design", "catalog-grid.css");
+const PRD = read("docs", "PRD.md");
+
+/* Strip comments before pattern-matching source. Both files describe what they
+   must NOT do — "there is no IntersectionObserver in this file" — and a check
+   that reads prose as code passes and fails for the wrong reasons in both
+   directions. Neither file contains a regex literal or a string holding "//"
+   or a comment delimiter, so this stays a strip and never a parse. */
+const bare = (src) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|\s)\/\/[^\n]*/g, "$1");
+
+const CLIENT_SRC = read("shared", "view", "enhance.client.js");
+const CLIENT = bare(CLIENT_SRC);
+
+const products = (await import("../../shared/seed/catalog.js")).products;
+const BRANDS = brandsOf(products);
+
+/* Render the shop the way index.js does, so the assertions are about the bytes
+   that would actually go over the wire. */
+function render(search = "") {
+  const url = new URL("http://vemians.com/" + search);
+  const q = parseQuery(url);
+  const picked = select(products, q);
+  return { q, picked, html: catalogPage(BRANDS, q, picked), partial: catalogPartial(q, picked) };
+}
+
+/* ── labels, for the P0-30 traceability check ───────────────────────────── */
+const usedLabels = new Set();
+function labeled(name, fn) {
+  const m = /^test_PRD_(P\d)_(\d\d)_([a-z0-9_]+)__/.exec(name);
+  assert.ok(m, `check name is not PRD-labeled: ${name}`);
+  usedLabels.add(`Test-PRD-${m[1]}-${m[2]}-${m[3].replace(/_/g, "_")}`);
+  return test(name, fn);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Test-PRD-P0-42-progressive_storefront
+   Every function of the shop is a plain GET the Worker answers in HTML.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+labeled("test_PRD_P0_42_progressive_storefront__filter_and_sort_are_a_get_form", () => {
+  const { html } = render();
+  assert.match(html, /<form class="panel" id="filters" method="get" action="\/"/);
+  /* Named fields, and an id unique per rendered instance, or the browser can
+     neither submit them nor restore them. */
+  for (const b of BRANDS) {
+    const id = b.toLowerCase();
+    assert.match(html, new RegExp(`<input type="checkbox" id="f-brand-${id}" name="brand" value="${b}"`));
+  }
+  for (const s of Object.keys(SORTS)) {
+    assert.match(html, new RegExp(`<input type="radio" id="f-sort-${s}" name="sort" value="${s}"`));
+  }
+  assert.match(html, /<button class="btn" type="submit">Apply<\/button>/);
+});
+
+labeled("test_PRD_P0_42_progressive_storefront__server_filters_and_sorts", () => {
+  const cheapest = Math.min(...products.map((p) => p.minor));
+  const asc = select(products, parseQuery(new URL("http://x/?sort=price-asc&n=99")));
+  assert.equal(asc.shown[0].minor, cheapest);
+  assert.deepEqual(
+    asc.shown.map((p) => p.minor),
+    [...asc.shown.map((p) => p.minor)].sort((a, b) => a - b),
+  );
+
+  const one = select(products, parseQuery(new URL("http://x/?brand=Vestra")));
+  assert.ok(one.total > 0);
+  assert.ok(one.shown.every((p) => p.brand === "Vestra"));
+
+  /* A stale or hand-edited link shows the shop, not an error page. */
+  const junk = parseQuery(new URL("http://x/?brand=Nope&sort=sideways&n=banana"));
+  assert.equal(junk.sort, "featured");
+  assert.equal(junk.n, PAGE);
+  assert.equal(select(products, junk).total, 0);
+});
+
+labeled("test_PRD_P0_42_progressive_storefront__load_more_is_a_link_not_a_button", () => {
+  const { html } = render();
+  const link = /<a class="btn more" href="([^"]+)" rel="next">Show more<\/a>/.exec(html);
+  assert.ok(link, "load more must be an <a href>, so it works as a navigation");
+  assert.equal(link[1], `/?n=${PAGE * 2}`);
+
+  /* Following that link with no script shows everything the previous URL had,
+     plus more — it is not a pager that swaps one set for another. */
+  const next = render(link[1]);
+  const first = render().picked.shown.map((p) => p.handle);
+  assert.deepEqual(next.picked.shown.slice(0, first.length).map((p) => p.handle), first);
+  assert.ok(next.picked.shown.length > first.length);
+
+  /* And at the end of the catalog the control is gone, not disabled. */
+  assert.equal(next.picked.shown.length, products.length);
+  assert.doesNotMatch(next.html, /class="btn more"/);
+});
+
+labeled("test_PRD_P0_42_progressive_storefront__url_is_the_whole_contract", () => {
+  /* href() and parseQuery() are inverses, or the enhanced client and the plain
+     form would be describing different result sets with the same link. */
+  for (const search of ["", "?brand=Vestra", "?brand=Vestra&brand=Corvino&sort=price-desc", "?sort=name&n=16"]) {
+    const q = parseQuery(new URL("http://x/" + search));
+    const round = parseQuery(new URL("http://x" + href(q)));
+    assert.deepEqual(round, q, `round trip failed for ${search || "/"}`);
+  }
+  assert.equal(href({ brands: [], sort: "featured", n: PAGE }), "/", "the default query is the bare path");
+});
+
+labeled("test_PRD_P0_42_progressive_storefront__no_dead_wishlist_button_without_a_script", () => {
+  const { html } = render();
+  assert.doesNotMatch(html, /<button[^>]*class="[^"]*\bheart\b/, "the heart must not ship as an inert button");
+  assert.match(html, /<span class="heart" data-heart="[^"]+" data-name="[^"]+" aria-hidden="true">&#9825;<\/span>/);
+  /* The script is the thing that turns it into a control. */
+  assert.match(CLIENT, /span\.replaceWith\(btn\)/);
+  assert.match(CLIENT, /btn\.setAttribute\("aria-pressed"/);
+});
+
+labeled("test_PRD_P0_42_progressive_storefront__script_is_deferred_and_never_required", () => {
+  const { html } = render();
+  assert.match(html, /<script src="\/s\.js" defer><\/script>/, "the enhancement must not block the render");
+  /* Nothing the page needs is written by the script: the grid, the form and
+     the paging control are all in the served bytes. */
+  assert.equal((html.match(/<article class="card"/g) || []).length, PAGE);
+  assert.match(html, /<main class="catalog" id="catalog">/);
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Test-PRD-P0-43-restrained_motion
+   150-250ms, ease-out, one pair of tokens, removed under reduced motion.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+const CSS = bare(INTERACTION) + bare(GRID);
+
+labeled("test_PRD_P0_43_restrained_motion__every_duration_comes_from_one_pair_of_tokens", () => {
+  const declarations = [...CSS.matchAll(/transition:\s*([^;}]+)[;}]/g)].map((m) => m[1]);
+  assert.ok(declarations.length >= 5, "expected the interaction layer to declare transitions");
+  for (const d of declarations) {
+    if (/^\s*none\s*$/.test(d)) continue;
+    assert.ok(
+      /var\(--motion(-slow)?\)/.test(d),
+      `a transition spends a hard-coded duration instead of a token: "${d.trim()}"`,
+    );
+    /* Anything NOT expressed through the token would survive the reduced-motion
+       remap. The only literal allowed is the 0s on visibility, which is a
+       switch, not an animation. */
+    const literals = (d.match(/\b\d+(\.\d+)?m?s\b/g) || []).filter((v) => v !== "0s");
+    assert.deepEqual(literals, [], `literal duration outside the token system: "${d.trim()}"`);
+  }
+});
+
+labeled("test_PRD_P0_43_restrained_motion__budget_is_150_to_250ms_and_eases_out", () => {
+  const tokens = [...CSS.matchAll(/--motion(?:-slow)?:\s*(\d+)ms/g)].map((m) => Number(m[1]));
+  assert.ok(tokens.length >= 2, "both motion tokens must be declared");
+  for (const ms of tokens) {
+    assert.ok(ms >= 150 && ms <= 250, `${ms}ms is outside the 150-250ms budget`);
+  }
+  assert.match(CSS, /--ease:\s*ease-out;/);
+  /* No bounce: a cubic-bezier that overshoots is exactly what "no bounce"
+     forbids, and nothing here needs a custom curve at all. */
+  assert.doesNotMatch(CSS, /cubic-bezier/);
+  assert.doesNotMatch(CSS, /\bease-in-out\b|\bease-in\b(?!-out)/);
+});
+
+labeled("test_PRD_P0_43_restrained_motion__reduced_motion_removes_rather_than_shortens", () => {
+  const block = /@media \(prefers-reduced-motion: reduce\) \{\s*:root \{([^}]+)\}/.exec(bare(INTERACTION));
+  assert.ok(block, "there must be exactly one reduced-motion remap, on :root");
+  assert.match(block[1], /--motion:\s*0s;/);
+  assert.match(block[1], /--motion-slow:\s*0s;/);
+  /* Remapped, not overridden: no blanket `transition: none !important` sweep,
+     which would also stop the state from changing on some engines and is the
+     thing this design is meant to avoid. */
+  assert.doesNotMatch(CSS, /!important/, "the interaction layer must not need !important");
+});
+
+labeled("test_PRD_P0_43_restrained_motion__nothing_animates_that_should_not", () => {
+  assert.doesNotMatch(CSS, /@keyframes|animation-name|animation:/, "no keyframe animation on the storefront");
+  assert.doesNotMatch(CSS, /scroll-behavior:\s*smooth/, "no hijacked scrolling");
+  assert.doesNotMatch(CSS, /background-attachment:\s*fixed/, "no parallax");
+  assert.doesNotMatch(CSS, /perspective|rotate3d|translateZ/, "no 3d flourish");
+  /* No shadow appears anywhere, on scroll or otherwise (design-direction §3.1).
+     The scrim is a modal ground, not a shadow, and is the one non-achromatic
+     value on the page. */
+  const shadows = [...bare(INTERACTION).matchAll(/box-shadow:\s*([^;]+);/g)].map((m) => m[1].trim());
+  assert.deepEqual(shadows.filter((s) => s !== "none"), []);
+  /* Transform and opacity only: no transition that would trigger layout. */
+  for (const d of [...CSS.matchAll(/transition:\s*([^;}]+)[;}]/g)].map((m) => m[1])) {
+    const props = d.split(",").map((s) => s.trim().split(/\s+/)[0]).filter((p) => p && p !== "none");
+    for (const p of props) {
+      assert.ok(
+        ["transform", "opacity", "visibility", "background-color", "color", "outline-color", "border-color"].includes(p),
+        `${p} is not a compositor-or-paint-only property to transition`,
+      );
+    }
+  }
+});
+
+labeled("test_PRD_P0_43_restrained_motion__no_scroll_triggered_reveal", () => {
+  assert.doesNotMatch(CLIENT, /IntersectionObserver/, "a scroll observer is exactly what must not be here");
+  /* The header is the only thing that reacts to scroll, and all it does is set
+     an attribute; it neither reveals content nor fetches any. */
+  const scrollHandlers = [...CLIENT.matchAll(/addEventListener\("scroll"/g)];
+  assert.equal(scrollHandlers.length, 1, "one scroll listener, for the header, and no other");
+  assert.doesNotMatch(CLIENT, /addEventListener\("scroll"[\s\S]{0,400}fetch\(/, "no infinite scroll");
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Test-PRD-P0-44-pointer_and_keyboard_parity
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+labeled("test_PRD_P0_44_pointer_and_keyboard_parity__every_hover_rule_is_gated_on_a_fine_pointer", () => {
+  /* Walk the stylesheet tracking @media nesting, and assert that no :hover
+     selector is reachable outside a `pointer: fine` block. A hover style that
+     leaks to touch is a phone stuck in a state it has no gesture to leave. */
+  const css = bare(INTERACTION);
+  let depth = 0;
+  const stack = [];
+  let ungated = [];
+  const re = /@media([^{]*)\{|\{|\}|([^{}]*):hover/g;
+  let m;
+  while ((m = re.exec(css))) {
+    if (m[0].startsWith("@media")) { stack.push({ depth, fine: /pointer:\s*fine/.test(m[1]) }); depth++; }
+    else if (m[0] === "{") depth++;
+    else if (m[0] === "}") { depth--; if (stack.length && stack[stack.length - 1].depth === depth) stack.pop(); }
+    else if (m[2] !== undefined) { if (!stack.some((s) => s.fine)) ungated.push(m[2].trim()); }
+  }
+  assert.deepEqual(ungated, [], "hover styles outside @media (pointer: fine)");
+});
+
+labeled("test_PRD_P0_44_pointer_and_keyboard_parity__the_hover_swap_does_nothing_on_touch", () => {
+  /* Two independent gates, because either alone leaks. The media query stops
+     the swap being SEEN on touch; the FINE.matches guard in arm() stops the
+     second image being FETCHED there. A phone must pay nothing for a feature
+     it cannot use. */
+  assert.match(INTERACTION, /@media \(pointer: fine\) \{\s*\.card:hover[\s\S]{0,200}\.shot-alt\.ready/);
+  assert.match(CLIENT, /if \(armed \|\| !FINE\.matches\) return;/);
+  assert.match(CLIENT, /matchMedia\("\(pointer: fine\)"\)/);
+  /* And the alternate shot is not in the served markup at all, so nothing can
+     fetch it before the gate is consulted. The <style> block legitimately names
+     .shot-alt, so this looks at the document body. */
+  const { html } = render();
+  const body = html.slice(html.indexOf("<body>"));
+  assert.doesNotMatch(body, /shot-alt/, "no alternate <img> may be served");
+  assert.doesNotMatch(html, /rel="preload"|rel="prefetch"/);
+  assert.match(body, /data-alt="\/img\/[^"]+-1\.svg"/, "the URL rides as a string, not as an element");
+});
+
+labeled("test_PRD_P0_44_pointer_and_keyboard_parity__keyboard_reaches_what_the_pointer_reaches", () => {
+  /* The hover preview has a keyboard route. */
+  assert.match(INTERACTION, /\.card:focus-within\s+\.shot-alt\.ready/);
+  assert.match(CLIENT, /card\.addEventListener\("focusin", arm\)/);
+  /* Every enhancement-only control is a native button, so Enter and Space work
+     without a keydown handler of our own. */
+  assert.match(CLIENT, /btn\.type = "button"/);
+  const { html } = render();
+  assert.match(html, /<button class="btn filter-open" type="button">/);
+  /* And there is a visible focus state, achromatic like everything else. */
+  assert.match(INTERACTION, /:focus-visible \{\s*outline: 2px solid var\(--ink\);/);
+});
+
+labeled("test_PRD_P0_44_pointer_and_keyboard_parity__the_filter_surface_is_a_real_dialog", () => {
+  assert.match(CLIENT, /panel\.setAttribute\("role", "dialog"\)/);
+  assert.match(CLIENT, /panel\.setAttribute\("aria-modal", "true"\)/);
+  assert.match(CLIENT, /ev\.key === "Escape"/, "Escape must close it");
+  assert.match(CLIENT, /ev\.key !== "Tab"/, "Tab must be trapped");
+  assert.match(CLIENT, /returnTo\.focus\(\)/, "focus must return to the trigger");
+  assert.match(CLIENT, /classList\.add\("scroll-locked"\)/, "the background must not scroll");
+  assert.match(INTERACTION, /\.scroll-locked \{ overflow: hidden; \}/);
+  /* The trigger describes the relationship for assistive tech. */
+  assert.match(CLIENT, /trigger\.setAttribute\("aria-controls", "filters"\)/);
+  assert.match(CLIENT, /trigger\.setAttribute\("aria-expanded", "true"\)/);
+});
+
+labeled("test_PRD_P0_44_pointer_and_keyboard_parity__paging_never_traps_a_keyboard_user", () => {
+  const { html } = render();
+  /* The control sits between the grid and the footer, in the tab order, and the
+     footer is reachable because the grid stops growing when it is asked to. */
+  const grid = html.indexOf('id="catalog"');
+  const more = html.indexOf('id="more-row"');
+  const foot = html.indexOf('class="foot"');
+  assert.ok(grid < more && more < foot, "the paging control belongs between the grid and the footer");
+  assert.doesNotMatch(CLIENT, /IntersectionObserver|scrollTop >|innerHeight \+ scrollY/);
+  /* Losing focus into <body> when the control removes itself is the other way
+     to strand a keyboard user. */
+  assert.match(CLIENT, /status\.tabIndex = -1;\s*\n\s*status\.focus\(\);/);
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Test-PRD-P0-45-stable_layout
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+labeled("test_PRD_P0_45_stable_layout__nothing_is_parked_at_opacity_zero_by_default", () => {
+  /* The ONLY opacity:0 on a product shot is behind the data-fade attribute the
+     script sets on an image that has not loaded — never a bare `.shot { opacity:
+     0 }` waiting for something to happen. With no script, or a broken one, every
+     image is visible. */
+  const zeroed = [...bare(INTERACTION).matchAll(/([^{}]+)\{[^}]*opacity:\s*0;[^}]*\}/g)].map((m) => m[1].trim());
+  const allowed = ['.card-media .shot[data-fade="wait"]', ".card-media .shot-alt", ".scrim"];
+  assert.deepEqual(zeroed.filter((s) => !allowed.includes(s)), [], `unexpected opacity:0 on ${zeroed}`);
+  /* And the script only ever parks an image that is genuinely still loading. */
+  assert.match(CLIENT, /if \(img\.complete\) return;\s*\n\s*img\.dataset\.fade = "wait";/);
+  assert.match(CLIENT, /addEventListener\("error", show/, "a failed image must not stay invisible");
+});
+
+labeled("test_PRD_P0_45_stable_layout__the_slot_reserves_the_space_before_the_image_arrives", () => {
+  assert.match(GRID, /\.card-media \{[\s\S]*?aspect-ratio: 8 \/ 9;[\s\S]*?background: var\(--image-ground, #EFF0F4\);/);
+  /* Explicit dimensions on every image, matching that ratio (PRD P0-28). */
+  const { html } = render();
+  const imgs = [...html.matchAll(/<img class="shot"[^>]*>/g)].map((m) => m[0]);
+  assert.equal(imgs.length, PAGE);
+  for (const img of imgs) {
+    assert.match(img, /width="800"/);
+    assert.match(img, /height="900"/);
+    assert.match(img, /src="\/img\/[^"]+-0\.svg"/);
+    assert.match(img, /alt="[^"]+"/);
+    assert.match(img, /decoding="async"/);
+  }
+  assert.equal(800 / 900, 8 / 9);
+  /* The first row is the LCP candidate and is not lazy; the rest is. */
+  assert.equal(imgs.filter((i) => i.includes('fetchpriority="high"')).length, 4);
+  assert.equal(imgs.filter((i) => i.includes('loading="lazy"')).length, PAGE - 4);
+  assert.ok(imgs.slice(0, 4).every((i) => !i.includes("lazy")));
+});
+
+labeled("test_PRD_P0_45_stable_layout__the_script_layout_decision_is_made_before_first_paint", () => {
+  const { html } = render();
+  const head = html.slice(0, html.indexOf("</head>"));
+  assert.match(head, /<script>document\.documentElement\.className="js"<\/script>/);
+  assert.ok(head.indexOf("className=\"js\"") < html.indexOf("<body>"), "the class must be set in <head>");
+  /* Which is what lets the filter form be laid out as a panel from the first
+     frame, instead of as a form that jumps into one. */
+  assert.match(bare(INTERACTION), /\.js \.panel \{[\s\S]*?position: fixed;/);
+  assert.match(bare(INTERACTION), /\.filter-open, \.panel-close \{ display: none; \}/);
+});
+
+labeled("test_PRD_P0_45_stable_layout__load_more_appends_and_never_re_renders", () => {
+  /* The fragment contains ONLY what the previous URL did not have. Re-sending
+     cards the client already has is how an append turns into a re-render, and a
+     re-render is how a grid jumps. */
+  const first = render();
+  const second = render(`?n=${PAGE * 2}`);
+  const fresh = [...second.partial.matchAll(/data-handle="([^"]+)"/g)].map((m) => m[1]);
+  const had = first.picked.shown.map((p) => p.handle);
+  assert.equal(fresh.length, second.picked.shown.length - had.length);
+  assert.deepEqual(fresh.filter((h) => had.includes(h)), [], "the fragment re-sent a card the client already had");
+  assert.deepEqual([...had, ...fresh], second.picked.shown.map((p) => p.handle));
+  /* And the client appends rather than replacing the grid. */
+  assert.match(CLIENT, /catalog\.appendChild\(card\)/);
+  assert.doesNotMatch(CLIENT, /catalog\.innerHTML/);
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Test-PRD-P0-46-viewer_local_wishlist
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+labeled("test_PRD_P0_46_viewer_local_wishlist__every_storage_access_is_wrapped", () => {
+  /* localStorage THROWS rather than returning null with site data blocked, in
+     some private windows and at quota — so an unguarded access takes the whole
+     enhancement layer down, not just the wishlist. */
+  const accesses = [...CLIENT.matchAll(/localStorage/g)];
+  assert.ok(accesses.length >= 2, "expected a read and a write");
+  for (const fn of [/function readWishlist\(\) \{([\s\S]*?)\n  \}/, /function writeWishlist\(set\) \{([\s\S]*?)\n  \}/]) {
+    const body = fn.exec(CLIENT);
+    assert.ok(body, "both storage helpers must exist");
+    assert.match(body[1], /try \{[\s\S]*localStorage[\s\S]*\} catch \(err\) \{/);
+  }
+  /* Every access goes through those two helpers and nowhere else. */
+  const stray = CLIENT.split("\n").filter((l) => l.includes("localStorage") && !l.includes("window.localStorage"));
+  assert.deepEqual(stray, [], `localStorage touched outside the guarded helpers: ${stray}`);
+});
+
+labeled("test_PRD_P0_46_viewer_local_wishlist__a_set_is_serialised_as_a_set", () => {
+  /* Regression guard, and the reason this check is written the way it is: a Set
+     has no length and no indices, so Array.prototype.slice.call(set) silently
+     yields [] and the wishlist never persists — with no error anywhere. Caught
+     by driving the real page, not by reading the code. */
+  assert.match(CLIENT, /JSON\.stringify\(Array\.from\(set\)\)/);
+  assert.doesNotMatch(CLIENT, /slice\.call\(set\)/);
+});
+
+labeled("test_PRD_P0_46_viewer_local_wishlist__no_network_and_no_binding", () => {
+  /* The wishlist is per-viewer state, not customer data. It never leaves the
+     browser, and this Worker has nowhere to put it if it did. */
+  const fetches = [...CLIENT.matchAll(/\bfetch\(|sendBeacon|XMLHttpRequest|WebSocket/g)].map((m) => m[0]);
+  assert.deepEqual(fetches, ["fetch("], "the only network call in the client is load-more");
+  assert.doesNotMatch(CLIENT, /fetch\([\s\S]{0,200}wish/i);
+
+  const toml = read("store", "wrangler.toml");
+  assert.doesNotMatch(toml, /^\s*\[\[d1_databases\]\]/m, "the storefront must carry zero D1 bindings");
+  assert.doesNotMatch(toml, /^\s*\[\[kv_namespaces\]\]/m);
+  assert.match(toml, /NO D1 BINDINGS ON THIS WORKER/);
+});
+
+labeled("test_PRD_P0_46_viewer_local_wishlist__storage_failure_is_debug_not_error", () => {
+  /* RULES.md: localStorage quirks are a benign fallback. The failure mode is
+     "the heart does not persist", not "the shop is broken", so it must not page
+     anyone — but it must not be swallowed in silence either. */
+  const helpers = /function readWishlist[\s\S]*?function writeWishlist[\s\S]*?\n  \}/.exec(CLIENT)[0];
+  assert.match(helpers, /console\.debug\(/);
+  assert.doesNotMatch(helpers, /console\.error\(/);
+  /* Whereas a load-more that cannot reach the Worker IS a service-boundary
+     failure, and is logged as one before falling back to a navigation. */
+  assert.match(CLIENT, /console\.error\("ERROR store: load-more fetch failed/);
+  assert.match(CLIENT, /window\.location\.href = href;/);
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Test-PRD-P0-28-image_contract — the storefront half of it
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+labeled("test_PRD_P0_28_image_contract__imagery_is_ours_and_addressable", () => {
+  /* Every shot has its own URL, so it can load, decode, fade in and be
+     preloaded on intent — an inline <svg> can do none of those. */
+  assert.equal(shotUrl(products[0], 0), `/img/${products[0].handle}-0.svg`);
+  assert.equal(shotUrl(products[0], 1), `/img/${products[0].handle}-1.svg`);
+  const { html } = render();
+  /* On the measured #EFF0F4 ground, and hotlinking nobody. */
+  assert.doesNotMatch(html, /https?:\/\/(?!vemians)/);
+  assert.match(read("shared", "design", "theme.css"), /--image-ground: #EFF0F4;/);
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Test-PRD-P0-30-prd_traceability
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+test("test_PRD_P0_30_prd_traceability__every_label_here_exists_in_the_prd", () => {
+  const source = fs.readFileSync(fileURLToPath(import.meta.url), "utf8");
+  const labels = new Set();
+  for (const m of source.matchAll(/\btest_PRD_(P\d)_(\d\d)_([a-z0-9_]+?)__/g)) {
+    labels.add(`Test-PRD-${m[1]}-${m[2]}-${m[3]}`);
+  }
+  assert.ok(labels.size >= 5, "expected this file to carry labeled checks");
+  assert.deepEqual([...labels].filter((l) => !PRD.includes(l)), [], "labels absent from docs/PRD.md");
+  /* And every label collected at run time was one of them — a check that was
+     renamed but not re-registered fails here rather than drifting. */
+  assert.deepEqual([...usedLabels].filter((l) => !labels.has(l)), []);
+});
