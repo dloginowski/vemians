@@ -237,16 +237,24 @@ that does not trace to one of these is a process failure (see §12).
 
 ### 3.7 Access and authorisation
 
-22. **`Test-PRD-P0-22-access_gated_ops`** — All `ops.vemians.com` access authenticates through
-    **Cloudflare Access with Google Workspace** as the identity provider. Swapping provider stays
-    a dashboard change requiring no code change: the Worker verifies the Access JWT, which is
-    identical whichever provider issued it. The application has no login form, no password, no
-    session cookie of its own and no reset path; identity is terminated before a request reaches
-    application code.
-23. **`Test-PRD-P0-23-group_derived_roles`** — Authorisation derives from **Google Workspace group
-    membership** mapped to Access policies. No role is assigned inside the app, and offboarding in
-    the Access Group revokes platform access with no application-side action. The verified Access identity
-    is the `actor` on every audit row.
+22. **`Test-PRD-P0-22-access_gated_ops`** — All `ops.vemians.com` **and
+    `admin.vemians.com`** access authenticates through **Cloudflare Access with Google Workspace**
+    as the identity provider. Swapping provider stays a dashboard change requiring no code change:
+    the Worker verifies the Access JWT, which is identical whichever provider issued it. Neither
+    application has a login form, a password, a session cookie of its own or a reset path; identity
+    is terminated before a request reaches application code. **The two are separate Access
+    applications with separate AUD tags**, so a token minted for one is refused by the other.
+23. **`Test-PRD-P0-23-group_derived_roles`** — **Admission to `admin.vemians.com` derives from
+    the Cloudflare Access policy**, which is edited in the Cloudflare dashboard and nowhere else.
+    No admin is assigned inside the app, and removing someone from the policy revokes admin with no
+    application-side action. The verified Access identity is the `actor` on every audit row, on both
+    surfaces.
+
+    **Scope narrowed by ADR-011.** This originally governed ops as well. Requiring a Google
+    Workspace administrator to add a new hire to a group does not survive contact with retail
+    staffing, and the workaround for a gate that is too slow is always a shared login — so ops
+    admission moved to P0-51. Admin keeps the heavyweight gate precisely because it changes almost
+    never and its mistakes are not recoverable from inside the system.
 24. **`Test-PRD-P0-24-binding_scoped_tools`** — Tool scope is **structural**: each store is a
     separate Access policy and a separate binding, so a knowledge tool *cannot* read finance. This
     is enforced by binding, not by query filter and not by prompt. `people` and finance views sit
@@ -264,6 +272,25 @@ that does not trace to one of these is a process failure (see §12).
     human approval before execution** — a reviewable pull request for the Git stores, an in-session
     approval for the D1 stores. Rate and monetary caps are enforced in code, never in the prompt.
     Refunds, payroll changes and record deletion are not gated — they are **absent**.
+
+28. **`Test-PRD-P0-50-admin_surface_isolated`** — `admin.vemians.com` is a **separate Worker**
+    with its own Access application, its own AUD and its own hostname. The ops Worker holds **no
+    binding to the access store** and no code path that reaches it — not a filtered query, not a
+    convention, no binding at all. Enforced the way P0-24 is: a check names the binding and fails
+    the build if it appears in `ops/wrangler.toml`.
+29. **`Test-PRD-P0-51-ops_allowlist_authority`** — Who may use ops is a **row in the access store,
+    written only through the admin surface**. Cloudflare Access still proves *who you are* at the
+    perimeter; this decides *whether you may work here and as what*. Ops asks the admin Worker over
+    a **service binding** — Worker to Worker, never over the internet, never through Access — and
+    **denies when that call fails**. An authorisation service that fails open is worse than none,
+    because it is trusted. Decisions are cached in-isolate for a short TTL, so a revocation takes
+    effect in seconds rather than at the next deploy.
+30. **`Test-PRD-P0-52-no_self_granted_admin`** — **No Worker holds a Cloudflare API token**, and no
+    Worker calls the Cloudflare API. The admin surface can therefore edit the ops allow-list and
+    **cannot create, modify or delete an Access policy** — admin is granted in the Cloudflare
+    dashboard or not at all. An attacker who fully owns the admin Worker gets the ops allow-list
+    and still cannot make themselves an admin. Enforced structurally: no `api.cloudflare.com` in
+    any Worker source, and no API-token binding or secret in any `wrangler.toml`.
 
 ### 3.8 Storefront
 
@@ -600,6 +627,7 @@ Where each feature is enforced today:
 | P0-01, P0-05 – P0-21, P0-30 | `shared/db/verify.py` |
 | P0-02 – P0-04 | Build-time catalog/knowledge/report checks (M1) |
 | P0-22 – P0-25 | Access policy review + `ops` integration tests (M5) |
+| P0-50, P0-51, P0-52 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
 | P0-26 – P0-28 | Storefront build checks and the CI image-weight budget (M2) |
 | P0-42 – P0-46 | `store/test/storefront.test.mjs`, plus a Playwright run against `wrangler dev --local` for the measured browser behaviour (CLS, computed transforms and durations, focus order) |
 | P0-49, and the storefront half of P0-24, P0-37 and P0-47 | `store/test/storefront.test.mjs` |
