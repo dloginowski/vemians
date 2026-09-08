@@ -108,6 +108,25 @@ ACCESS_AUD         = "8bacd393c1fededc1d257745149eb6d0cc0797a762941d1421a5a8a3c1
 #
 #   npx wrangler secret put MEDIA_SIGNING_KEY
 
+# ---------------------------------------------------------------------------
+# The scheduled mirror sync (Test-PRD-P0-48-scheduled_mirror_sync).
+#
+# src/sync.js pulls Square's catalog and inventory through the adapter and
+# writes the CATALOG_MIRROR store below. Without this trigger the adapter is
+# code nothing runs, and the mirror the storefront reads stays empty.
+#
+# EVERY FIFTEEN MINUTES IS A STARTING VALUE, NOT THE INTENDED ONE. It is here
+# because a sync nobody can watch is a sync nobody trusts: at this rate a
+# `wrangler tail` shows a run within a coffee, and a wrong token or an unbound
+# store is found the same afternoon rather than the next morning. Once it has
+# run clean for a few days, DROP IT TO NIGHTLY — "0 3 * * *" — which is the
+# reconcile cadence ADR-009 actually describes; the webhook is what keeps the
+# mirror current between reconciles, and re-listing a whole catalog four times
+# an hour to catch a price change that arrives by webhook anyway is paying
+# Square's rate limiter for nothing.
+[triggers]
+crons = ["*/15 * * * *"]
+
 [observability]
 enabled = true
 
@@ -124,14 +143,22 @@ enabled = true
 # bucket_name = "vemians-media"
 
 # ---------------------------------------------------------------------------
-# D1 bindings — ON THIS WORKER ONLY.
+# D1 bindings.
 #
 # These blocks are the enforcement behind Test-PRD-P0-24-binding_scoped_tools.
-# ../store/wrangler.toml holds NONE of them: the storefront renders the
-# versioned catalog and our own media, and a customer profile is not reachable
-# from it by any code path, because the binding does not exist there — and now
-# neither does the code. That is the whole reason the two surfaces are two
-# Workers: scope is structural, not a query filter.
+# The seven stores below — customers, identity, commerce, people, finance,
+# audit, tickets — are bound HERE AND NOWHERE ELSE: a customer profile is not
+# reachable from the storefront by any code path, because the binding does not
+# exist there and neither does the code. That is the whole reason the two
+# surfaces are two Workers: scope is structural, not a query filter.
+#
+# The ONE store that is bound on both is CATALOG_MIRROR, at the foot of this
+# file. It holds products, prices and categories — public facts that are already
+# on the page — and the storefront reads it to render the shop
+# (Test-PRD-P0-37-mirror_is_ours). The rule the invariant enforces is "the shop
+# cannot reach customer data", and ../store/wrangler.toml states the allow-list
+# with the other seven named, so adding one there fails a check rather than
+# passing a review.
 #
 # Inside this Worker the scoping continues in src/tools/index.js: a tool
 # declares the stores it needs and `scopedStores()` hands its `run` exactly
@@ -186,10 +213,15 @@ database_id   = "9addc2c1-7f22-44be-bf93-f8e831905ce7"
 #
 #   npx wrangler d1 create vemians-catalog-mirror
 #
-# [[d1_databases]]
-# binding       = "CATALOG_MIRROR"
-# database_name = "vemians-catalog-mirror"
-# database_id   = "<id>"
+# The id below is a PLACEHOLDER: this database does not exist on the account
+# yet. `wrangler dev --local` and `wrangler deploy --dry-run` are happy with it;
+# a real `wrangler deploy` is not, and should not be. Replace it before the
+# first deploy, and note that the storefront binds this SAME database read-only
+# (../store/wrangler.toml) — both ids move together.
+[[d1_databases]]
+binding       = "CATALOG_MIRROR"
+database_name = "vemians-catalog-mirror"
+database_id   = "PLACEHOLDER-run-wrangler-d1-create-vemians-catalog-mirror"
 
 # The vault. Bound here so the erasure and clienteling workflows have somewhere
 # to land when they are built (identity-skills says build them LAST), and

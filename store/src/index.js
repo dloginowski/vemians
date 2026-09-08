@@ -33,16 +33,39 @@
  *                  actually load, decode and be preloaded on hover intent.
  *   /healthz       liveness.
  *
- * No POST, no cookie, no session, no D1. Nothing on this Worker writes.
+ * No POST, no cookie, no session. Nothing on this Worker writes — to D1 or to
+ * anything else.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * THE ONE BINDING, AND WHY THE INVARIANT CHANGED
+ * ─────────────────────────────────────────────────────────────────────────────
+ * This Worker used to carry NO D1 binding at all, and the test asserted zero.
+ * That stated the mechanism where it meant the intent: the shop must not be
+ * able to reach customer data. It now binds `CATALOG_MIRROR` — READ ONLY, and
+ * nothing else — because that store holds products, prices and categories,
+ * which are the page. ADR-009 requires exactly this: the storefront reads OUR
+ * MIRROR of Square, never Square per request, so a provider outage costs
+ * checkout and not browsing. src/catalog.js is the whole of that read and holds
+ * no HTTP client, no token and no Square identifier.
+ *
+ * The invariant is now an ALLOW-LIST: `catalog_mirror` and nothing else, with
+ * customers, identity, commerce, people, finance, audit and tickets named
+ * explicitly in the check, so adding one here fails the suite
+ * (Test-PRD-P0-24-binding_scoped_tools).
+ *
+ * With no mirror bound, or an empty one, the shop serves the seed catalog and
+ * says which at INFO (Test-PRD-P0-49-mirror_or_seed) — a failed sync must not
+ * blank the shop, and `wrangler dev --local` must work with no Square account.
  *
  * PRD: Test-PRD-P0-26-owned_storefront, Test-PRD-P0-27-adaptive_grid,
- *      Test-PRD-P0-28-image_contract, Test-PRD-P0-42-progressive_storefront,
- *      Test-PRD-P0-46-viewer_local_wishlist.
+ *      Test-PRD-P0-28-image_contract, Test-PRD-P0-37-mirror_is_ours,
+ *      Test-PRD-P0-42-progressive_storefront, Test-PRD-P0-46-viewer_local_wishlist,
+ *      Test-PRD-P0-47-category_navigation, Test-PRD-P0-49-mirror_or_seed.
  */
 
 import { notFoundPage } from "../../shared/view/html.js";
-import { products } from "../../shared/seed/catalog.js";
 import script from "../../shared/view/enhance.client.js";
+import { loadCatalog } from "./catalog.js";
 import { brandsOf, categoriesOf, parseQuery, select } from "./query.js";
 import { catalogPage, catalogPartial, shotSvg } from "./views.js";
 
@@ -73,8 +96,12 @@ export default {
 
     if (url.pathname === "/s.js") return asset(script, "text/javascript; charset=utf-8");
 
+    /* Both remaining routes render the catalog, so both resolve it the same
+       way — the shot for a mirrored product must exist for the card that
+       points at it, which it cannot if the two paths read different sources. */
     const shot = SHOT.exec(url.pathname);
     if (shot) {
+      const { products } = await loadCatalog(env);
       const product = products.find((p) => p.handle === shot[1]);
       const variant = Number(shot[2]);
       if (!product || variant > 1) return html(notFoundPage(), 404);
@@ -82,13 +109,19 @@ export default {
     }
 
     if (url.pathname === "/") {
-      const q = parseQuery(url, categoriesOf(products));
+      const { products, source } = await loadCatalog(env);
+      /* Categories are whatever the SERVED catalog holds — Square's taxonomy
+         when the mirror is serving, the seed's when it is not. Derived, never
+         listed, so the nav rebuilds from a re-categorised catalog with no code
+         change at all (Test-PRD-P0-47-category_navigation). */
+      const categories = categoriesOf(products);
+      const q = parseQuery(url, categories);
       const picked = select(products, q);
       /* The fragment and the page are the same selection rendered two ways.
          There is no second query path for the enhanced client. */
       return url.searchParams.get("partial") === "1"
         ? html(catalogPartial(q, picked))
-        : html(catalogPage(brandsOf(products), categoriesOf(products), q, picked));
+        : html(catalogPage(brandsOf(products), categories, q, picked, source));
     }
 
     /* Including /ops. The employee area has no unauthenticated twin on this

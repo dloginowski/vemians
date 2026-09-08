@@ -37,13 +37,26 @@ const COMPARE = {
 
 /* Every distinct brand in the catalog, for the filter form. Derived, never
    listed: a brand cannot be missing from the filter because someone forgot to
-   add it in a second place. */
-export const brandsOf = (products) => [...new Set(products.map((p) => p.brand))].sort();
+   add it in a second place.
 
-/* The closed set of categories, derived from the catalog rather than listed.
-   A category cannot go missing from the nav because someone forgot to add it,
-   and one cannot be navigated to that holds nothing. ADR-010 requires the
-   agent to choose from an existing set; this is that set. */
+   Empties are dropped rather than rendered blank. The catalog mirror carries no
+   brand — Square's ITEM has no such field, and store/src/catalog.js refuses to
+   guess one from a title — so on a mirror-backed shop this returns [] and the
+   Brand fieldset is simply not drawn. A filter offering an unnamed brand is
+   worse than no filter. */
+export const brandsOf = (products) =>
+  [...new Set(products.map((p) => p.brand).filter(Boolean))].sort();
+
+/* The closed set of categories, derived FROM WHATEVER CATALOG IS SERVING rather
+   than listed. A category cannot go missing from the nav because someone forgot
+   to add it, and one cannot be navigated to that holds nothing. ADR-010 requires
+   the agent to choose from an existing set; this is that set.
+
+   Deriving rather than listing is what makes the nav rebuild from Square's real
+   taxonomy the moment the mirror has one: the categories on the page are the
+   categories the products carry, whether those products came from the mirror or
+   from the seed, and no code changes in between
+   (Test-PRD-P0-47-category_navigation, Test-PRD-P0-49-mirror_or_seed). */
 export const categoriesOf = (products) =>
   [...new Set(products.map((p) => p.category).filter(Boolean))].sort();
 
@@ -100,6 +113,12 @@ export function select(products, q) {
 export function href(q, over = {}) {
   const merged = { ...q, ...over };
   const params = new URLSearchParams();
+  /* The category is carried, and it was not before: "show more" inside Shoes
+     was a link back out to the whole catalog, which reads as the filter
+     silently giving up. The nav is the ONE place a category is deliberately
+     dropped, and it builds its links itself rather than through here
+     (Test-PRD-P0-47-category_navigation). */
+  if (merged.category) params.set("category", merged.category);
   merged.brands.forEach((b) => params.append("brand", b));
   if (merged.sort && merged.sort !== "featured") params.set("sort", merged.sort);
   if (merged.n && merged.n !== PAGE) params.set("n", String(merged.n));

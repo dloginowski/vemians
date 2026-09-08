@@ -1,5 +1,5 @@
 /*
- * Storefront interaction and motion — PRD-backed regression checks.
+ * The storefront — PRD-backed regression checks.
  *
  *     Run: node --test test/            (from store/)
  *
@@ -18,7 +18,9 @@
  *   * UNLABELED CHECKS ARE NOT ACCEPTABLE. A new guarantee needs a PRD feature
  *     first; if there is no feature for it, write the feature. The interaction
  *     layer had none, so Test-PRD-P0-42 through P0-46 were written into
- *     docs/PRD.md §3.8.1 in the same change as the code below.
+ *     docs/PRD.md §3.8.1 in the same change as the code below. The mirror-or-seed
+ *     fallback had none either, so Test-PRD-P0-49 was written into §3.8 in the
+ *     same change as store/src/catalog.js.
  *   * When behaviour changes, the PRD feature and its labeled check move in the
  *     SAME change as the code. An interaction edit with a stale PRD is a
  *     process failure, not a follow-up.
@@ -26,7 +28,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  * WHAT IS AND IS NOT PROVEN HERE
  * ─────────────────────────────────────────────────────────────────────────────
- * The REAL renderer runs. test/text-modules.mjs resolves the CSS and the
+ * The REAL renderer runs. shared/test/text-modules.mjs resolves the CSS and the
  * browser script the way wrangler's Text rule does, so views.js, query.js and
  * html.js are imported unmodified and the assertions are made against the
  * actual bytes the Worker would return.
@@ -42,6 +44,24 @@
  * from the one pair of tokens the reduced-motion rule remaps, that no hover
  * rule has escaped its pointer gate, and that nothing has been parked at
  * opacity 0 behind a scroll observer.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * AN INVARIANT THAT CHANGED ON PURPOSE
+ * ─────────────────────────────────────────────────────────────────────────────
+ * This file used to assert that store/wrangler.toml carried ZERO D1 bindings.
+ * It now asserts an ALLOW-LIST: `CATALOG_MIRROR` and nothing else, with
+ * customers, identity, commerce, people, finance, audit and tickets named one
+ * by one so a future addition trips the check. The rule the old assertion was
+ * protecting — the shop cannot reach customer data — is unchanged and is now
+ * stated directly instead of through a mechanism that also forbade reading our
+ * own catalog. It is under Test-PRD-P0-24-binding_scoped_tools, which is where
+ * binding scope belongs; P0-46 keeps the half of it that is about the wishlist.
+ *
+ * The mirror-backed checks load shared/commerce/square/schema.sql into
+ * node:sqlite (shared/test/d1.mjs) and insert rows directly. NO SQUARE ACCOUNT,
+ * TOKEN OR NETWORK CALL IS INVOLVED and none is claimed — what they prove is
+ * what the shop renders from a mirror in a given state, not that Square would
+ * ever put it in that state.
  *
  * There is also NO reference site behind any of this. Mytheresa is
  * egress-blocked from this environment; docs/design-direction.md §5 lists hover
@@ -65,9 +85,10 @@ const read = (...p) => fs.readFileSync(path.join(REPO, ...p), "utf8");
 
 /* Text modules, as the Worker sees them. Must run before anything under src/
    is imported, hence register() plus dynamic import rather than a static one. */
-register("./text-modules.mjs", import.meta.url);
+register("../../shared/test/text-modules.mjs", import.meta.url);
 
 const { catalogPage, catalogPartial, shotUrl } = await import("../src/views.js");
+const { money } = await import("../../shared/view/html.js");
 const { brandsOf, categoriesOf, href, PAGE, parseQuery, select, SORTS } = await import("../src/query.js");
 
 const INTERACTION = read("shared", "design", "interaction.css");
@@ -87,6 +108,74 @@ const CLIENT = bare(CLIENT_SRC);
 const products = (await import("../../shared/seed/catalog.js")).products;
 const BRANDS = brandsOf(products);
 const CATEGORIES = categoriesOf(products);
+
+/* ── the catalog mirror, over its REAL schema ─────────────────────────────
+ *
+ * D1 is SQLite and the mirror's whole read contract is a pair of INDEX VIEWS
+ * that hide archived rows, so a hand-rolled fake store would prove nothing
+ * about what the shop will actually render. shared/test/d1.mjs loads
+ * shared/commerce/square/schema.sql into node:sqlite and hands back something
+ * shaped like a D1 binding. No Square account, token or network call is
+ * involved anywhere in this file, and none is claimed: rows are inserted
+ * directly, exactly as a completed sync would have left them.
+ */
+const { d1FromSql } = await import("../../shared/test/d1.mjs");
+const { loadCatalog, toneFor } = await import("../src/catalog.js");
+
+const MIRROR_SQL = read("shared", "commerce", "square", "schema.sql");
+
+/* A mirror holding `items`, each { handle, title, category, minor }. */
+function mirrorWith(items) {
+  const db = d1FromSql(MIRROR_SQL);
+  const cats = new Map();
+  for (const it of items) {
+    if (!it.category || cats.has(it.category)) continue;
+    const id = `cat-${cats.size + 1}`;
+    cats.set(it.category, id);
+    db._raw
+      .prepare("INSERT INTO mirror_category (id, external_ref, name) VALUES (?, ?, ?)")
+      .run(id, `SQ_CAT_${cats.size}`, it.category);
+  }
+  items.forEach((it, i) => {
+    db._raw
+      .prepare(
+        "INSERT INTO mirror_product (id, external_ref, handle, title, status, category_id) VALUES (?, ?, ?, ?, 'active', ?)",
+      )
+      .run(`prod-${i}`, `SQ_ITEM_${i}`, it.handle, it.title, it.category ? cats.get(it.category) : null);
+    if (it.minor === null) return;
+    db._raw
+      .prepare(
+        "INSERT INTO mirror_variant (id, external_ref, product_id, sku, title, ordinal, price_minor, currency) VALUES (?, ?, ?, ?, ?, 0, ?, 'USD')",
+      )
+      .run(`var-${i}`, `SQ_VAR_${i}`, `prod-${i}`, `SKU-${i}`, "One size", it.minor);
+  });
+  return db;
+}
+
+/* Square's taxonomy, deliberately nothing like the seed's four invented
+   categories — the nav must rebuild from whatever is actually there. */
+const SQUARE_STOCK = [
+  { handle: "hand-thrown-vase", title: "Hand-thrown stoneware vase", category: "Homeware", minor: 18000 },
+  { handle: "linen-apron", title: "Washed linen apron", category: "Homeware", minor: 9500 },
+  { handle: "olive-wood-board", title: "Olive wood serving board", category: "Kitchen", minor: 14000 },
+  { handle: "beeswax-candle", title: "Beeswax dinner candles", category: "Kitchen", minor: 3200 },
+];
+
+/* Console capture: "log at INFO which one served" is behaviour, not decoration,
+   and the only way to assert it is to read what was said. */
+async function saying(fn) {
+  const lines = { error: [], warn: [], info: [] };
+  const real = { error: console.error, warn: console.warn, info: console.info };
+  console.error = (...a) => lines.error.push(a.join(" "));
+  console.warn = (...a) => lines.warn.push(a.join(" "));
+  console.info = (...a) => lines.info.push(a.join(" "));
+  try {
+    lines.value = await fn();
+  } finally {
+    Object.assign(console, real);
+  }
+  return lines;
+}
 
 /* Render the shop the way index.js does, so the assertions are about the bytes
    that would actually go over the wire. */
@@ -453,10 +542,15 @@ labeled("test_PRD_P0_46_viewer_local_wishlist__no_network_and_no_binding", () =>
   assert.deepEqual(fetches, ["fetch("], "the only network call in the client is load-more");
   assert.doesNotMatch(CLIENT, /fetch\([\s\S]{0,200}wish/i);
 
+  /* The wishlist has nowhere on the server to go, because the only store this
+     Worker binds is a read-only catalog mirror and nothing writes to it. The
+     allow-list itself is asserted under P0-24 below, which is where binding
+     scope belongs. */
   const toml = read("store", "wrangler.toml");
-  assert.doesNotMatch(toml, /^\s*\[\[d1_databases\]\]/m, "the storefront must carry zero D1 bindings");
-  assert.doesNotMatch(toml, /^\s*\[\[kv_namespaces\]\]/m);
-  assert.match(toml, /NO D1 BINDINGS ON THIS WORKER/);
+  assert.doesNotMatch(toml, /^\s*\[\[kv_namespaces\]\]/m, "no KV on the storefront: nowhere to put a wishlist");
+  assert.doesNotMatch(toml, /^\s*\[\[r2_buckets\]\]/m);
+  const src = bare(read("store", "src", "catalog.js")) + bare(read("store", "src", "index.js"));
+  assert.doesNotMatch(src, /\b(INSERT|UPDATE|DELETE)\b/i, "the storefront must hold no write of any kind");
 });
 
 labeled("test_PRD_P0_46_viewer_local_wishlist__storage_failure_is_debug_not_error", () => {
@@ -560,4 +654,263 @@ labeled("test_PRD_P0_47_category_navigation__the_current_category_is_marked", ()
   const html = catalogPage(brandsOf(products), known, q, select(products, q));
   assert.match(html, new RegExp(`href="/\\?category=${known[0]}"[^>]*aria-current="page"`),
     "the selected category is not marked aria-current");
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Test-PRD-P0-37-mirror_is_ours — the storefront half
+   The shop renders OUR MIRROR of the provider, never the provider.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+labeled("test_PRD_P0_37_mirror_is_ours__a_stocked_mirror_serves_its_own_products", async () => {
+  const got = await saying(() => loadCatalog({ CATALOG_MIRROR: mirrorWith(SQUARE_STOCK) }));
+  const { source, products: served } = got.value;
+
+  assert.equal(source, "mirror");
+  assert.deepEqual(
+    served.map((p) => p.handle).sort(),
+    SQUARE_STOCK.map((p) => p.handle).sort(),
+    "the shop served something other than what the mirror holds",
+  );
+  /* Not one seed product survives — the twelve invented ones are gone the
+     moment there is a real catalog to render. */
+  const seedHandles = new Set(products.map((p) => p.handle));
+  assert.deepEqual(served.filter((p) => seedHandles.has(p.handle)), []);
+
+  /* And it renders: price and title from the mirror, on the page. */
+  const q = parseQuery(new URL("http://vemians.com/"), categoriesOf(served));
+  const html = catalogPage(brandsOf(served), categoriesOf(served), q, select(served, q), source);
+  assert.match(html, /Hand-thrown stoneware vase/);
+  /* 18000 minor units, formatted by the one money() everything shares — not
+     divided by 100 anywhere in this Worker. */
+  assert.ok(html.includes(money(18000, "USD")), "a mirrored price must render through money()");
+  assert.match(html, /\$\s?180\b/, "a mirrored price must render from minor units");
+  assert.match(html, /served from our catalog mirror/, "the page must not claim seed data while serving the mirror");
+});
+
+labeled("test_PRD_P0_37_mirror_is_ours__an_archived_product_leaves_the_shop", async () => {
+  /* ADR-008: withdrawn is a marker, not a missing row. The shop reads the index
+     view, so archiving is all it takes — nothing here knows the word. */
+  const db = mirrorWith(SQUARE_STOCK);
+  db._raw.prepare("UPDATE mirror_product SET archived_at = '2026-09-08' WHERE handle = 'linen-apron'").run();
+
+  const { products: served } = (await saying(() => loadCatalog({ CATALOG_MIRROR: db }))).value;
+  assert.ok(!served.some((p) => p.handle === "linen-apron"), "an archived product is still on sale");
+  assert.equal(served.length, SQUARE_STOCK.length - 1);
+  /* The row is still there. Nothing was deleted. */
+  assert.equal(db._raw.prepare("SELECT COUNT(*) c FROM mirror_product").get().c, SQUARE_STOCK.length);
+});
+
+labeled("test_PRD_P0_37_mirror_is_ours__the_storefront_cannot_call_a_provider", () => {
+  /* ADR-009 anti-pattern: "storefront reading Square live per request". The
+     guarantee is structural — there is no client, no token and no vendor URL in
+     this bundle, so it is a property of the import list rather than of a
+     promise not to. */
+  const src =
+    bare(read("store", "src", "catalog.js")) +
+    bare(read("store", "src", "index.js")) +
+    bare(read("store", "src", "views.js"));
+  assert.doesNotMatch(src, /squareup|connect\.square|SQUARE_ACCESS_TOKEN/i);
+  /* `fetch(request, env)` is this Worker's own handler; what must not exist is
+     a CALL to fetch, which is the only way a request could leave. */
+  assert.doesNotMatch(src, /(await|return|=)\s*fetch\(/, "the storefront must make no outbound request at all");
+  assert.doesNotMatch(src, /globalThis\.fetch|new Request\(/);
+  assert.doesNotMatch(src, /commerce\/square/, "the adapter is not in the storefront bundle");
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Test-PRD-P0-49-mirror_or_seed
+   Prefer the mirror; serve the seed when it is empty; say which.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+labeled("test_PRD_P0_49_mirror_or_seed__an_empty_mirror_serves_the_seed_rather_than_nothing", async () => {
+  /* The state of the world before the first cron fires. It must be a shop. */
+  const got = await saying(() => loadCatalog({ CATALOG_MIRROR: mirrorWith([]) }));
+  assert.equal(got.value.source, "seed");
+  assert.deepEqual(got.value.products, products, "an empty mirror must fall back to the seed catalog");
+  assert.ok(got.value.products.length > 0, "the shop is blank, which is the failure this exists to prevent");
+});
+
+labeled("test_PRD_P0_49_mirror_or_seed__no_binding_at_all_still_serves_a_shop", async () => {
+  /* `wrangler dev --local` with no Square account and no database. */
+  const got = await saying(() => loadCatalog({}));
+  assert.equal(got.value.source, "seed");
+  assert.deepEqual(got.value.products, products);
+  assert.equal(got.error.length, 0, "an absent binding in local dev is not an error");
+});
+
+labeled("test_PRD_P0_49_mirror_or_seed__the_log_says_which_source_served", async () => {
+  const seeded = await saying(() => loadCatalog({}));
+  assert.ok(
+    seeded.info.some((l) => /^INFO store:/.test(l) && /seed catalog/.test(l)),
+    `no INFO line naming the seed: ${JSON.stringify(seeded.info)}`,
+  );
+
+  const mirrored = await saying(() => loadCatalog({ CATALOG_MIRROR: mirrorWith(SQUARE_STOCK) }));
+  assert.ok(
+    mirrored.info.some((l) => /^INFO store:/.test(l) && /catalog mirror/.test(l)),
+    `no INFO line naming the mirror: ${JSON.stringify(mirrored.info)}`,
+  );
+  /* One source per render, named once. A log that says both is worse than one
+     that says neither. */
+  assert.equal(mirrored.info.filter((l) => /seed catalog/.test(l)).length, 0);
+});
+
+labeled("test_PRD_P0_49_mirror_or_seed__an_unreadable_mirror_is_an_error_and_still_a_shop", async () => {
+  /* A read that fails for any reason other than "not migrated yet" is a
+     service-boundary failure (RULES.md §14): logged as ERROR, never swallowed —
+     and never allowed to blank the shop either. */
+  const broken = {
+    prepare: () => ({
+      all: async () => {
+        throw new Error("D1_ERROR: connection lost");
+      },
+    }),
+  };
+  const got = await saying(() => loadCatalog({ CATALOG_MIRROR: broken }));
+  assert.equal(got.value.source, "seed");
+  assert.ok(got.error.some((l) => /^ERROR store: reading the catalog mirror failed/.test(l)));
+
+  /* Whereas a bound-but-unmigrated database is the ordinary state of a fresh
+     machine, so it is a WARNING with the repair in it, not an ERROR. */
+  const fresh = {
+    prepare: () => ({
+      all: async () => {
+        throw new Error("no such table: mirror_product_index");
+      },
+    }),
+  };
+  const dev = await saying(() => loadCatalog({ CATALOG_MIRROR: fresh }));
+  assert.equal(dev.value.source, "seed");
+  assert.equal(dev.error.length, 0, "an unmigrated local database is not an incident");
+  assert.ok(dev.warn.some((l) => /npm run db:local/.test(l)), "the warning must carry its own repair");
+});
+
+labeled("test_PRD_P0_49_mirror_or_seed__an_unpriced_product_is_not_put_on_sale", async () => {
+  /* A Square ITEM with no variation cannot be priced, and a card reading $0.00
+     is worse than a card that is not there. */
+  const stock = [...SQUARE_STOCK, { handle: "no-price", title: "Unpriced thing", category: "Kitchen", minor: null }];
+  const got = await saying(() => loadCatalog({ CATALOG_MIRROR: mirrorWith(stock) }));
+  assert.ok(!got.value.products.some((p) => p.handle === "no-price"));
+  assert.ok(got.warn.some((l) => /no priced variation/.test(l)), "and it is said out loud");
+});
+
+labeled("test_PRD_P0_49_mirror_or_seed__every_mirrored_product_still_has_a_picture", async () => {
+  /* `tone` is the placeholder shot's only parameter and the mirror has no such
+     column, so it is derived from the handle — deterministically, or the
+     picture changes under a visitor on a reload. */
+  const { products: served } = (await saying(() => loadCatalog({ CATALOG_MIRROR: mirrorWith(SQUARE_STOCK) }))).value;
+  for (const p of served) {
+    assert.equal(typeof p.tone, "number");
+    assert.ok(p.tone >= 0 && p.tone < 0.25, `tone out of the seed's range: ${p.tone}`);
+    assert.equal(p.tone, toneFor(p.handle), "tone must be a function of the handle and nothing else");
+  }
+  assert.notEqual(toneFor("hand-thrown-vase"), toneFor("olive-wood-board"), "every product cannot be the same picture");
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Test-PRD-P0-47-category_navigation — from the mirror's taxonomy
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+labeled("test_PRD_P0_47_category_navigation__the_nav_rebuilds_from_the_mirrors_categories", async () => {
+  const { products: served, source } = (await saying(() => loadCatalog({ CATALOG_MIRROR: mirrorWith(SQUARE_STOCK) }))).value;
+  assert.equal(source, "mirror");
+
+  const cats = categoriesOf(served);
+  assert.deepEqual(cats, ["Homeware", "Kitchen"], "the nav did not derive from the mirror's own categories");
+  /* And not one of the seed's invented four survives. */
+  for (const invented of CATEGORIES) {
+    assert.ok(!cats.includes(invented), `seed category '${invented}' leaked into a mirror-backed nav`);
+  }
+
+  const q = parseQuery(new URL("http://vemians.com/"), cats);
+  const html = catalogPage(brandsOf(served), cats, q, select(served, q), source);
+  const nav = html.slice(html.indexOf('<nav class="nav">'), html.indexOf("</nav>"));
+  for (const c of cats) assert.match(nav, new RegExp(`href="/\\?category=${c}"`), `no nav link for '${c}'`);
+  for (const invented of CATEGORIES) assert.doesNotMatch(nav, new RegExp(`category=${invented}`));
+});
+
+labeled("test_PRD_P0_47_category_navigation__a_mirror_category_filters_the_grid", async () => {
+  const { products: served } = (await saying(() => loadCatalog({ CATALOG_MIRROR: mirrorWith(SQUARE_STOCK) }))).value;
+  const cats = categoriesOf(served);
+  for (const c of cats) {
+    const q = parseQuery(new URL(`http://vemians.com/?category=${encodeURIComponent(c)}`), cats);
+    const got = select(served, q);
+    assert.equal(q.category, c);
+    assert.ok(got.total > 0, `category '${c}' selected nothing`);
+    assert.ok(got.shown.every((p) => p.category === c), `category '${c}' leaked another category`);
+  }
+});
+
+labeled("test_PRD_P0_47_category_navigation__paging_stays_inside_the_category", () => {
+  /* Regression: `href()` dropped the category, so "show more" inside Shoes was a
+     link back out to the whole catalog — the filter appearing to give up on
+     its own. The nav is the one place a category is deliberately dropped, and
+     it builds its links itself. */
+  const known = categoriesOf(products);
+  const q = parseQuery(new URL(`http://x/?category=${known[0]}&sort=name`), known);
+  const next = href(q, { n: 16 });
+  assert.match(next, new RegExp(`category=${known[0]}`), "show-more left the category behind");
+  assert.match(next, /sort=name/);
+
+  /* The same for a filter submitted with JavaScript off: the form's action is
+     "/", so the category rides as a hidden field or it is lost. */
+  const html = catalogPage(brandsOf(products), known, q, select(products, q), "seed");
+  const form = html.slice(html.indexOf('<form class="panel"'), html.indexOf("</form>"));
+  assert.match(form, new RegExp(`<input type="hidden" name="category" value="${known[0]}">`));
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Test-PRD-P0-24-binding_scoped_tools — the storefront half
+   The invariant changed, deliberately: an ALLOW-LIST of exactly one store.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* The seven stores that live on the ops Worker and must never appear here. Named
+   one by one, so a future addition trips this check rather than passing review. */
+const OPS_ONLY_STORES = ["CUSTOMERS", "IDENTITY", "COMMERCE", "PEOPLE", "FINANCE", "AUDIT", "TICKETS"];
+
+labeled("test_PRD_P0_24_binding_scoped_tools__the_storefront_binds_the_mirror_and_nothing_else", () => {
+  const toml = read("store", "wrangler.toml");
+  const bindings = [...toml.matchAll(/^\s*binding\s*=\s*"([^"]+)"/gm)].map((m) => m[1]);
+  assert.deepEqual(bindings, ["CATALOG_MIRROR"], `the storefront binds more than the catalog mirror: ${bindings}`);
+
+  for (const store of OPS_ONLY_STORES) {
+    assert.ok(!bindings.includes(store), `${store} must never be bound on the public Worker`);
+    assert.doesNotMatch(
+      toml,
+      new RegExp(`^\\s*database_name\\s*=\\s*"vemians-${store.toLowerCase()}"`, "m"),
+      `the ${store} database is named in the storefront's config`,
+    );
+  }
+
+  /* And the change is explained where the next person will look, rather than
+     left as a diff nobody reads twice. */
+  assert.match(toml, /ONE D1 BINDING ON THIS WORKER/);
+  assert.match(toml, /THIS BLOCK USED TO SAY "no D1 bindings/);
+});
+
+labeled("test_PRD_P0_24_binding_scoped_tools__the_seven_ops_stores_are_bound_on_ops", () => {
+  /* The other half of the same invariant: they did not go missing, they are
+     over there. A check that only asserts absence passes when a store is
+     deleted from both files. */
+  const ops = read("ops", "wrangler.toml");
+  const bound = [...ops.matchAll(/^\s*binding\s*=\s*"([^"]+)"/gm)].map((m) => m[1]);
+  for (const store of OPS_ONLY_STORES) {
+    assert.ok(bound.includes(store), `${store} is bound on neither Worker`);
+  }
+  /* The mirror is bound on BOTH, and that is the one deliberate overlap: ops
+     writes it from the scheduled sync, the storefront reads it. */
+  assert.ok(bound.includes("CATALOG_MIRROR"));
+});
+
+labeled("test_PRD_P0_24_binding_scoped_tools__the_storefront_reads_only_the_mirrors_index_views", () => {
+  /* Scope is structural, but the query still has to stay inside the working set
+     (ADR-008): the shop reads the *_index views, never the base tables, so an
+     archived product cannot reach the page through a forgotten WHERE clause. */
+  const src = read("store", "src", "catalog.js");
+  const sql = /const MIRROR_SQL = `([\s\S]*?)`;/.exec(src);
+  assert.ok(sql, "the mirror read is not where this check expects it");
+  const tables = [...sql[1].matchAll(/\b(?:FROM|JOIN)\s+(\w+)/gi)].map((m) => m[1]);
+  assert.ok(tables.length >= 2, "expected the product and variant reads");
+  for (const t of tables) assert.match(t, /_index$/, `the storefront reads the base table ${t}, not its index view`);
+  assert.doesNotMatch(sql[1], /\bmirror_inventory_change\b/, "stock history is not the shop's to read");
 });

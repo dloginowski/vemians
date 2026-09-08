@@ -78,13 +78,21 @@ export const shotUrl = (product, variant = 0) => `/img/${product.handle}-${varia
  */
 function card(product, index) {
   const eager = index < 4;
+  /* Brand and eyebrow are the catalog's to have or not have. A mirrored product
+     has neither — Square's ITEM carries no brand and no editorial eyebrow, and
+     store/src/catalog.js refuses to invent them — so the elements are OMITTED
+     rather than rendered empty: an empty <p class="brand"> is a blank line of
+     reserved space above every name, and an alt text reading " — Silk dress"
+     announces a dash to a screen reader. */
+  const brand = product.brand || "";
+  const eyebrow = product.eyebrow || "";
+  const label = brand ? `${esc(brand)} &mdash; ${esc(product.name)}` : esc(product.name);
   return `<article class="card" data-handle="${esc(product.handle)}">
-  <div class="card-head"><span class="eyebrow">${esc(product.eyebrow)}</span><span class="heart" data-heart="${esc(product.handle)}" data-name="${esc(product.brand)} ${esc(product.name)}" aria-hidden="true">&#9825;</span></div>
+  <div class="card-head"><span class="eyebrow">${esc(eyebrow)}</span><span class="heart" data-heart="${esc(product.handle)}" data-name="${brand ? `${esc(brand)} ` : ""}${esc(product.name)}" aria-hidden="true">&#9825;</span></div>
   <div class="card-media" data-alt="${esc(shotUrl(product, 1))}">
-    <img class="shot" src="${esc(shotUrl(product, 0))}" alt="${esc(product.brand)} &mdash; ${esc(product.name)}" width="800" height="900" decoding="async"${eager ? ' fetchpriority="high"' : ' loading="lazy"'}>
+    <img class="shot" src="${esc(shotUrl(product, 0))}" alt="${label}" width="800" height="900" decoding="async"${eager ? ' fetchpriority="high"' : ' loading="lazy"'}>
   </div>
-  <p class="brand">${esc(product.brand)}</p>
-  <p class="name">${esc(product.name)}</p>
+${brand ? `  <p class="brand">${esc(brand)}</p>\n` : ""}  <p class="name">${esc(product.name)}</p>
   <p class="price">${esc(money(product.minor, product.currency))}</p>
 </article>`;
 }
@@ -133,18 +141,32 @@ function filterPanel(brands, q) {
     )
     .join("\n");
 
-  return `<form class="panel" id="filters" method="get" action="/">
-  <button class="btn btn-quiet panel-close" type="button">Close</button>
-  <fieldset>
+  /* No brands in the serving catalog (the mirror holds none) means no Brand
+     fieldset — a legend over nothing is a control that looks broken. */
+  const brandSet = brands.length
+    ? `  <fieldset>
     <legend>Brand</legend>
 ${brandBoxes}
   </fieldset>
-  <fieldset>
+`
+    : "";
+
+  /* The category is carried ACROSS a filter submit, as a hidden field, because
+     the form's action is "/" and a filter applied inside Shoes must stay inside
+     Shoes. Without it, ticking a brand silently navigates out of the category
+     the visitor is standing in. */
+  const carried = q.category
+    ? `  <input type="hidden" name="category" value="${esc(q.category)}">\n`
+    : "";
+
+  return `<form class="panel" id="filters" method="get" action="/">
+  <button class="btn btn-quiet panel-close" type="button">Close</button>
+${carried}${brandSet}  <fieldset>
     <legend>Sort</legend>
 ${sortRadios}
   </fieldset>
   <button class="btn" type="submit">Apply</button>
-  <a class="btn btn-quiet" href="/">Clear</a>
+  <a class="btn btn-quiet" href="${esc(q.category ? `/?category=${encodeURIComponent(q.category)}` : "/")}">Clear</a>
 </form>`;
 }
 
@@ -172,7 +194,15 @@ function navLinks(categories, q) {
     .join('<span>|</span>');
 }
 
-export function catalogPage(brands, categories, q, picked) {
+/*
+ * `source` is "mirror" or "seed" — which catalog actually served this render
+ * (store/src/catalog.js, Test-PRD-P0-49-mirror_or_seed). It reaches exactly one
+ * place, the footer line, because a prototype that says "seed data" while
+ * serving the real mirror is a lie in the only place anyone looks to check.
+ * It defaults to "seed" so a caller that has not resolved a source cannot
+ * accidentally claim the mirror.
+ */
+export function catalogPage(brands, categories, q, picked, source = "seed") {
   return page(
     "Vemians",
     `<div class="bar">Complimentary shipping and returns on every order</div>
@@ -196,7 +226,7 @@ ${filterPanel(brands, q)}
 ${cards(picked.shown)}
 </main>
 <div class="more-row" id="more-row">${moreRow(q, picked.shown.length, picked.total)}</div>
-<footer class="foot">Prototype &middot; seed data, no commerce provider attached</footer>`,
+<footer class="foot">Prototype &middot; ${source === "mirror" ? "served from our catalog mirror" : "seed data, no commerce provider attached"}</footer>`,
     CSS,
     "/s.js",
   );

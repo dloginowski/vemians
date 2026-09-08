@@ -120,6 +120,40 @@ Two things about it are load-bearing:
   and "Coats & Jackets" and the storefront navigation stops meaning anything
   (Test-PRD-P0-40-closed_category_set).
 
+## The scheduled mirror sync
+
+`src/sync.js`, fired by the `[triggers] crons` in `wrangler.toml`
+(Test-PRD-P0-48-scheduled_mirror_sync). It pulls Square's catalog and inventory
+through the adapter in `../shared/commerce/square` and writes `catalog_mirror` —
+which is the catalog the storefront renders, so **nothing running this is a shop
+serving nothing**.
+
+It lives on THIS Worker and not on the storefront because it holds the Square
+credential and writes the stock ledger, and neither belongs on a Worker the
+public can reach. It holds no mapping logic of its own: the first run is a full
+`ListCatalog` (the only sweep that can archive on absence), every run after is a
+search since the recorded cursor, and re-running is a no-op because the adapter's
+upserts key on `external_ref`.
+
+Failure says which failure it was — the credential is **unset**, the credential
+was **rejected**, or Square was **unreachable** — because those are three
+different repairs and "sync failed" distinguishes none of them. Every run,
+failed ones included, lands in `mirror_sync`, so "it has not succeeded since
+Tuesday" is a query. A failed run leaves the last good mirror standing.
+
+```bash
+npm run db:local                                  # includes catalog_mirror
+npx wrangler dev --local --test-scheduled         # then, in another shell:
+curl "http://localhost:8788/cdn-cgi/handler/scheduled?cron=*/15+*+*+*+*"
+```
+
+With no `SQUARE_ACCESS_TOKEN` set that prints the unset-credential ERROR and
+records the failed run, which is the intended behaviour rather than a crash.
+
+The cron starts at every fifteen minutes so a wrong token or an unbound store is
+found the same afternoon; `wrangler.toml` says to drop it to nightly once it is
+trusted, which is the reconcile cadence ADR-009 actually describes.
+
 **Photographs.** MCP tool arguments are JSON, so image bytes in an argument mean
 base64 that the MODEL has to emit — roughly one to two million output tokens for
 a 12 MP phone photo, which no model can produce at any price. So
@@ -133,7 +167,8 @@ secret the tool refuses to issue a link rather than issuing an unsigned one.
 ## What is here
 
 ```
-src/index.js    routing, and the fail-closed ops handler
+src/index.js    routing, the fail-closed ops handler, and the scheduled() cron entry
+src/sync.js     the scheduled mirror sync: Square -> catalog_mirror, on a cron
 src/access.js   Cloudflare Access assertion: fail closed, then RS256 + aud + exp + iss
 src/agent.js    the turn loop: tool selection, T2 approval, audit
 src/mcp.js      POST /mcp — the ops tools over MCP, for staff AI clients (ADR-007)
@@ -144,7 +179,8 @@ src/tools/      the tool registry. Tiers, roles, caps, scoped stores, audit
 src/views.js    the ops page and the refusal page
 src/seed.js     hardcoded customers and schedule. Ops-only; the catalog is shared
 test/           PRD-labeled regression checks, run against the real schemas
-migrations/     apply-local.sh — loads shared/db/*.sql into the local D1 state
+migrations/     apply-local.sh — loads shared/db/*.sql plus the catalog mirror's
+                schema into the local D1 state
 ```
 
 and from [`../shared`](../shared):
