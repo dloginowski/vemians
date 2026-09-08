@@ -21,6 +21,22 @@ export const T3_ABSENT = Object.freeze([
   { name: "catalog.bulk_price", why: "one approval covering unbounded money" },
   { name: "catalog.commit_to_main", why: "removes the review that is the entire safety model" },
   { name: "catalog.write_index", why: "the index is derived; rebuild it, do not write it" },
+  {
+    name: "catalog.write_mirror",
+    why: "our copy of Square's catalog has one writer, the sync; a second one diverges silently",
+  },
+  {
+    name: "catalog.bulk_create",
+    why: "one approval covering an unbounded number of new commercial facts",
+  },
+  {
+    name: "catalog.delete_category",
+    why: "a category with products in it cannot be removed without moving them; withdraw it at Square",
+  },
+  {
+    name: "catalog.delete_image",
+    why: "an original is evidence of what was sold; nothing in this repository deletes from R2",
+  },
   { name: "customer.delete", why: "erasure is identity.erase — owner-gated and cascade-driven" },
   { name: "customer.bulk_export", why: "an unbounded read of pseudonymous personal data" },
   { name: "customer.search_by_name", why: "encrypted fields cannot be searched; exact HMAC only" },

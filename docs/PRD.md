@@ -176,6 +176,27 @@ that does not trace to one of these is a process failure (see §12).
     adapter and a new `channel` value, with **no schema change**. Card data is never stored; a
     channel token and last four digits only, so the platform stays out of PCI scope.
 
+21. **`Test-PRD-P0-40-closed_category_set`** — Staff author products by talking to their own AI
+    client, and an agent authoring a product chooses a category from the set that **already
+    exists** in the provider. The choice is a **suggestion carrying its reasoning**, never a
+    silent assignment, and a category id outside the existing set is refused in code — by
+    reading the set — rather than discouraged in a prompt. Creating a category is a **separate,
+    explicitly gated action** that refuses a near-duplicate and says in its own description that
+    it is rarely the right tool.
+
+    The rule exists because the failure is silent and cumulative. An agent that may mint a
+    category will mint one whenever the existing name is not the phrase it had in mind, and a
+    month of that leaves "Coats", "Outerwear", "Jackets" and "Coats & Jackets" side by side —
+    at which point the storefront navigation tells a customer nothing, and no human ever took
+    the decision that made it so.
+
+    Authoring is also where the **direction of authority** in P0-16 becomes operational: the
+    agent writes to the provider, which the till also writes to, and our mirror follows by sync.
+    An agent writing into the mirror directly would make two writers of one copy and they would
+    diverge from the provider silently. Media is the exception in the other direction — the
+    original is ours in R2 and the provider gets a copy, so losing the provider loses a
+    thumbnail and not our photography.
+
 ### 3.4 People and scheduling
 
 21. **`Test-PRD-P0-18-no_double_booking`** — An employee cannot hold two overlapping active
