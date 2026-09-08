@@ -54,11 +54,18 @@ SURFACE  = "ops"
 # decodes the assertion without checking the signature and says so on screen.
 # Fill both in before ops.vemians.com is reachable from the internet.
 #
-#   ACCESS_TEAM_DOMAIN  your Zero Trust team domain, e.g. "vemians.cloudflareaccess.com"
+#   ACCESS_TEAM_DOMAIN  your Zero Trust team domain
 #   ACCESS_AUD          the Application Audience (AUD) tag from the Access
 #                       application's Overview page
 #
-ACCESS_TEAM_DOMAIN = "vemians.cloudflareaccess.com"
+# IT IS "vonvemian", NOT "vemians". The team name is chosen once when Zero
+# Trust is set up and has nothing to do with the zone; this was assumed to
+# match the domain and did not. The consequence was total and silent: the
+# Worker fetched signing keys from vemians.cloudflareaccess.com, which 404s
+# because no such team exists, and so rejected EVERY genuine login as an
+# assertion that failed verification. Confirmed by asking both hosts —
+# vemians 404, vonvemian answers with 2 keys.
+ACCESS_TEAM_DOMAIN = "vonvemian.cloudflareaccess.com"
 ACCESS_AUD         = "8bacd393c1fededc1d257745149eb6d0cc0797a762941d1421a5a8a3c108018f"
 
 # ---------------------------------------------------------------------------

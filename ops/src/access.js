@@ -40,7 +40,17 @@ async function jwks(teamDomain) {
     return jwksCache.keys;
   }
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`JWKS fetch failed: ${res.status}`);
+  /* Name the URL. A 404 here means ACCESS_TEAM_DOMAIN points at a team that
+     does not exist, which rejects every login for a reason that reads like a
+     bad token — and cost a long evening once, because "assertion failed
+     verification" is what a wrong team domain and a forged token both say. */
+  if (!res.ok) {
+    throw new Error(
+      res.status === 404
+        ? `JWKS 404 at ${url} — ACCESS_TEAM_DOMAIN names no such Zero Trust team`
+        : `JWKS fetch failed: ${res.status} from ${url}`,
+    );
+  }
   const body = await res.json();
   jwksCache = { url, at: Date.now(), keys: body.keys || [] };
   return jwksCache.keys;
