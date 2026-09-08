@@ -60,6 +60,12 @@ jobs:
         run: npm test
         working-directory: ops
 
+      # The storefront has its own PRD-backed suite now that it has behaviour to
+      # regress: PRD §3.8.1, Test-PRD-P0-42 .. P0-46.
+      - name: Storefront tests
+        run: npm test
+        working-directory: store
+
       # The adapter suite has no package.json of its own — it is library code under
       # shared/, not a deployable. Run it explicitly, or it silently never gates a deploy.
       - name: Commerce adapter tests

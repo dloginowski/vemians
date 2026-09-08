@@ -259,6 +259,47 @@ that does not trace to one of these is a process failure (see §12).
     to actual grid widths, every image carrying explicit dimensions, under an **image-weight budget
     enforced in CI**. N1 is not otherwise reachable.
 
+### 3.8.1 Storefront interaction and motion
+
+> **Provenance.** §3.8 above is measured. This section is not. The reference is egress-blocked and
+> nobody has observed its behaviour, so every value and every gesture here is **genre convention**.
+> `shared/design/interaction.css` and `shared/view/enhance.client.js` mark each one INFERRED at the
+> rule that implements it. What is *not* inferred is the shape of the guarantees: they hold whether
+> or not the specific timings turn out to be right.
+
+36. **`Test-PRD-P0-42-progressive_storefront`** — Every function of the storefront is a plain GET the
+    Worker answers in HTML. Filter, sort and page size are the **query string** (`/?brand=…&sort=…&n=…`),
+    filtering happens server-side, "show more" is an `<a href>` to that URL, and product imagery is
+    `<img src>` with explicit dimensions. JavaScript adds **only** enhancements over that markup and
+    supplies none of it. The one control that cannot work without a script — the wishlist — is
+    therefore not rendered as a control without one: the server ships an `aria-hidden` glyph and the
+    script replaces it with a button, because a dead button is worse than no button. With scripting
+    off the page renders in full and every link resolves.
+37. **`Test-PRD-P0-43-restrained_motion`** — Motion is a budget, not a feature: **150–250ms, ease-out,
+    transform and opacity only**. No parallax, no bounce, no scroll-triggered reveal, no shadow that
+    appears on scroll, no `!important`. Every duration in the storefront resolves from **one pair of
+    custom properties**, and `prefers-reduced-motion: reduce` remaps that pair to `0s` — so the
+    computed `transition-duration` on every animated element is `0s` and the transition is **removed,
+    not shortened**, while every state change still happens, instantly.
+38. **`Test-PRD-P0-44-pointer_and_keyboard_parity`** — Hover affordances are gated on `pointer: fine`
+    and do **nothing at all** on touch: no node created, no byte fetched, so a tap cannot strand a
+    phone in a hover state. Everything a pointer can reach, a keyboard can reach, with a visible focus
+    state. The filter and sort surface is a **real modal dialog** — focus-trapped, Escape-closes,
+    focus returned to the trigger it came from, background scroll locked — not a dropdown. Paging is a
+    single control between the grid and the footer; **infinite scroll is forbidden**, because it puts
+    a receding wall between a keyboard user and the end of the page.
+39. **`Test-PRD-P0-45-stable_layout`** — The grid never moves. Measured **CLS 0** with images held and
+    then released. Every image has explicit dimensions inside the 8:9 `#EFF0F4` slot (§3.8), so an
+    undecoded card is indistinguishable from a decoded one; **no element is parked at `opacity: 0`
+    waiting on a scroll observer**, and the first still frame is a complete page. Where a script
+    changes how something is laid out, the decision is made in `<head>` before first paint rather
+    than corrected afterwards. Load-more **appends**, so nothing already on screen can be pushed.
+40. **`Test-PRD-P0-46-viewer_local_wishlist`** — The wishlist is per-viewer state in `localStorage`,
+    every access wrapped in `try`/`catch`, with **no network call and no store binding**. localStorage
+    throws — not returns null — with site data blocked, in some private windows and at quota; that
+    degrades to an in-memory wishlist, never to a broken page, and is logged at DEBUG because it is a
+    benign fallback rather than a failure.
+
 ### 3.9 Provider independence and traceability
 
 29. **`Test-PRD-P0-29-exit_test`** — Provider independence is a **CI check** (§7), not a claim.
@@ -523,6 +564,7 @@ Where each feature is enforced today:
 | P0-02 – P0-04 | Build-time catalog/knowledge/report checks (M1) |
 | P0-22 – P0-25 | Access policy review + `ops` integration tests (M5) |
 | P0-26 – P0-28 | Storefront build checks and the CI image-weight budget (M2) |
+| P0-42 – P0-46 | `store/test/storefront.test.mjs`, plus a Playwright run against `wrangler dev --local` for the measured browser behaviour (CLS, computed transforms and durations, focus order) |
 | P0-29 | The Exit Test in CI |
 
 ---

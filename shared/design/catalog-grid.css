@@ -24,13 +24,20 @@
  * keeps the layout filling the viewport sensibly at every result count.
  */
 
-.catalog {
+/* Declared on :root, not on .catalog, so that everything which has to line up
+   with the grid's outer edge — the controls row above it, the load-more row
+   below it — reads the SAME --margin rather than restating the clamp. The
+   values are unchanged and so are the measured column counts in §3.2; only the
+   scope moved, and vw/rem resolve identically at :root. */
+:root {
   /* Card floor grows with the viewport, so wide displays gain BOTH more columns
      and slightly larger cards, rather than degrading into a contact sheet. */
   --card-min: clamp(14rem, 11vw, 19rem);
   --gutter:   clamp(0.75rem, 1.6vw, 1.75rem);
   --margin:   clamp(1rem, 4vw, 4rem);
+}
 
+.catalog {
   display: grid;
   /* min(--card-min, 46%) floors the track below half the content width, which
      guarantees two columns on the narrowest phones - never one. */
