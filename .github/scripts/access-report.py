@@ -57,6 +57,24 @@ def section(title):
     print(f"\n───── {title} ─────")
 
 
+section("the Zero Trust organization")
+# THE team domain. Every JWT this Worker verifies is checked against
+# https://<auth_domain>/cdn-cgi/access/certs — so if ops/wrangler.toml's
+# ACCESS_TEAM_DOMAIN disagrees with this value, the Worker fetches the wrong
+# signing keys and rejects every genuine login.
+org, err = get(f"accounts/{ACCOUNT}/access/organizations")
+if err:
+    print(f"could not read: {err}")
+else:
+    auth = (org or {}).get("auth_domain")
+    print(f"  name:        {(org or {}).get('name')!r}")
+    print(f"  auth_domain: {auth}")
+    configured = "vemians.cloudflareaccess.com"
+    if auth and auth != configured:
+        print(f"  MISMATCH: ops/wrangler.toml has ACCESS_TEAM_DOMAIN = {configured!r}")
+        print(f"            the account's real auth_domain is {auth!r}")
+        print("            -> the Worker fetches JWKS from the wrong team and rejects every real login")
+
 section("identity providers")
 idps, err = get(f"accounts/{ACCOUNT}/access/identity_providers")
 if err:
@@ -77,8 +95,10 @@ else:
 section("access applications")
 apps, err = get(f"accounts/{ACCOUNT}/access/apps")
 if err:
+    # Not fatal: the JWKS probe below needs no credential at all, and it is
+    # the check that settles the team-domain mismatch.
     print(f"could not read: {err}")
-    sys.exit(0)
+    apps = []
 
 for a in apps:
     dom = a.get("domain") or ""
@@ -96,3 +116,18 @@ for a in apps:
             rules = p.get(bucket) or []
             if rules:
                 print(f"        {bucket}: {json.dumps(redact(rules))}")
+
+
+section("which team domain actually serves signing keys")
+# Settles the mismatch above by asking both hosts rather than trusting either
+# record. A team that exists answers /cdn-cgi/access/certs with a JWKS.
+for host in ("vemians.cloudflareaccess.com", "vonvemian.cloudflareaccess.com"):
+    url = f"https://{host}/cdn-cgi/access/certs"
+    try:
+        with urllib.request.urlopen(url, timeout=20) as r:
+            keys = json.load(r).get("keys") or []
+            print(f"  {host}: HTTP {r.status}, {len(keys)} signing key(s)")
+    except urllib.error.HTTPError as e:
+        print(f"  {host}: HTTP {e.code}")
+    except Exception as e:
+        print(f"  {host}: unreachable — {type(e).__name__}")
