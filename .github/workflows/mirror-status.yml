@@ -76,6 +76,26 @@ jobs:
           echo "───────── mirror_sync ─────────"
           cat /tmp/sync-echo.json 2>/dev/null || echo "(the first step did not get this far)"
 
+      - name: Do the deployed Workers actually answer
+        if: always()
+        run: |
+          # Never checked from here: this sandbox's proxy refuses both hosts,
+          # a GitHub runner has open egress. It bears on the cron question —
+          # if fetch works, the module loads and the isolate starts, so a
+          # scheduled handler that never records anything is not a Worker
+          # that fails at startup.
+          for u in https://vemians.com/ https://www.vemians.com/ https://ops.vemians.com/; do
+            code=$(curl -s -o /tmp/body.html -w '%{http_code}' --max-time 25 "$u" || echo 000)
+            echo "$code  $u"
+          done
+
+          echo "───── what the shop is serving ─────"
+          curl -s --max-time 25 https://vemians.com/ > /tmp/shop.html || true
+          echo "bytes: $(wc -c < /tmp/shop.html)"
+          # The seed's twelve invented products carry handles the real catalog
+          # will not. Grep for the nav instead of guessing from the byte count.
+          grep -o 'href="/?category=[^"]*"' /tmp/shop.html | sort -u || echo "(no category links found)"
+
       - name: Is the cron registered, and which secrets exist
         if: always()
         run: |
