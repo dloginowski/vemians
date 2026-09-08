@@ -1,0 +1,65 @@
+# Read-only: what does the Square mirror actually hold, and what did the last
+# sync say?
+#
+# The cron runs on the ops Worker and writes mirror_sync whether it succeeded
+# or failed. Nothing else surfaces that: the Worker's logs are not retained,
+# the storefront falls back to the seed silently on purpose, and nobody here
+# can reach the Cloudflare API. So this is the only way to answer "is the shop
+# selling Square's catalog or the seed, and why".
+#
+# SELECT only. It cannot change anything, including by accident: --remote with
+# a read query is the whole of it.
+
+name: mirror-status
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: mirror-status
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ops/package-lock.json
+
+      - run: npm ci
+        working-directory: ops
+
+      - name: Last sync of each kind
+        working-directory: ops
+        run: |
+          npx wrangler d1 execute vemians-catalog-mirror --remote --yes \
+            --command "SELECT id, ran_at, ok, substr(note,1,180) AS note, CASE WHEN cursor IS NULL THEN 'none' ELSE 'set' END AS cursor FROM mirror_sync ORDER BY id"
+
+      - name: What the mirror holds
+        working-directory: ops
+        run: |
+          npx wrangler d1 execute vemians-catalog-mirror --remote --yes \
+            --command "SELECT (SELECT count(*) FROM mirror_product) AS products, (SELECT count(*) FROM mirror_product WHERE archived_at IS NULL) AS live_products, (SELECT count(*) FROM mirror_variant) AS variants, (SELECT count(*) FROM mirror_category) AS categories, (SELECT count(*) FROM mirror_image) AS images"
+
+      - name: The categories, which is what the nav is built from
+        working-directory: ops
+        run: |
+          npx wrangler d1 execute vemians-catalog-mirror --remote --yes \
+            --command "SELECT name, (SELECT count(*) FROM mirror_product p WHERE p.category_id = c.id AND p.archived_at IS NULL) AS live_products FROM mirror_category c ORDER BY name"
+
+      - name: A sample of the products
+        working-directory: ops
+        run: |
+          npx wrangler d1 execute vemians-catalog-mirror --remote --yes \
+            --command "SELECT handle, substr(title,1,50) AS title, archived_at IS NULL AS live FROM mirror_product ORDER BY handle LIMIT 20"
