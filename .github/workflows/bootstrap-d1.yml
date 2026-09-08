@@ -48,7 +48,7 @@ jobs:
       - name: Create the databases
         working-directory: ops
         run: |
-          for s in customers identity commerce people finance audit tickets; do
+          for s in customers identity commerce people finance audit tickets catalog_mirror; do
             echo "::group::vemians-$s"
             # Already exists is success, not failure — this must be re-runnable.
             npx wrangler d1 create "vemians-$s" 2>&1 | tee /tmp/create.log || \
@@ -94,11 +94,18 @@ jobs:
         if: inputs.apply_schemas
         working-directory: ops
         run: |
-          for s in customers identity commerce people finance audit tickets; do
-            echo "::group::schema -> vemians-$s"
-            npx wrangler d1 execute "vemians-$s" --remote --yes \
-              --file="../shared/db/$s.sql" || {
-                echo "::error::schema failed for vemians-$s"; exit 1; }
+          # catalog_mirror's schema lives beside its adapter rather than in
+          # shared/db, because it is the Square adapter's own shape — so the
+          # path is looked up rather than assumed.
+          for s in customers identity commerce people finance audit tickets catalog_mirror; do
+            case "$s" in
+              catalog_mirror) f="../shared/commerce/square/schema.sql" ;;
+              *)              f="../shared/db/$s.sql" ;;
+            esac
+            [ -f "$f" ] || { echo "::error::no schema at $f for vemians-$s"; exit 1; }
+            echo "::group::schema -> vemians-$s  ($f)"
+            npx wrangler d1 execute "vemians-$s" --remote --yes --file="$f" || {
+              echo "::error::schema failed for vemians-$s"; exit 1; }
             echo "::endgroup::"
           done
 
