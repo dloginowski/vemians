@@ -75,3 +75,23 @@ jobs:
         run: |
           echo "───────── mirror_sync ─────────"
           cat /tmp/sync-echo.json 2>/dev/null || echo "(the first step did not get this far)"
+
+      - name: Is the cron registered, and which secrets exist
+        if: always()
+        run: |
+          # Two questions that an empty mirror_sync cannot tell apart:
+          #   - the cron is not firing at all          -> no row, ever
+          #   - the cron fires and Square refuses us   -> a row saying so
+          # Both endpoints are read-only. The secrets endpoint returns NAMES
+          # ONLY — Cloudflare will not hand back a secret's value to anyone,
+          # this workflow included — and the token is passed in a header and
+          # never printed.
+          api="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/vemians-ops"
+
+          echo "───── cron triggers on vemians-ops ─────"
+          curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$api/schedules" \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps(d.get("result") if d.get("success") else d.get("errors"), indent=2))'
+
+          echo "───── secret NAMES on vemians-ops (no values) ─────"
+          curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$api/secrets" \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps([s.get("name") for s in d["result"]] if d.get("success") else d.get("errors"), indent=2))'
