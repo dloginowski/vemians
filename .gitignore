@@ -1,5 +1,4 @@
-# OS generated files #
-######################
+# OS generated files
 .DS_Store
 .DS_Store?
 ._*
@@ -7,8 +6,10 @@
 .Trashes
 ehthumbs.db
 Thumbs.db
-.shopify
+
+# Node and Wrangler, in both packages
 node_modules
-*.zip
+.wrangler/
+
 # Claude Code agent worktrees and local harness state
 .claude/

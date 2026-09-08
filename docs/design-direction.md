@@ -89,7 +89,7 @@ These hold at every viewport and are what actually make it feel like this:
 
 The grid has **no breakpoints**. Column count is derived from available width, so the
 catalog uses whatever resolution it is given. Measured in headless Chromium against
-`platform/design/catalog-grid.css`:
+`shared/design/catalog-grid.css`:
 
 | Viewport | Columns | Card width |
 |---|---|---|

@@ -1,0 +1,142 @@
+#
+# The agentic staff Worker.
+#
+#   ops.vemians.com  employee area, behind Cloudflare Access
+#
+# The storefront is a separate package and a separate Worker: ../store, name
+# `vemians-storefront`. Cloudflare Access attaches to a WHOLE Worker, not to a
+# route inside one, so the two surfaces cannot share a deployment — gating a
+# shared Worker would put a login page in front of the shop. Attach
+# ops.vemians.com as a Custom Domain on THIS Worker, and put the Access
+# application on this Worker only.
+#
+# Custom Domains, not Routes: a Custom Domain creates and manages the proxied
+# DNS record for you, which is what lets Access sit in front of the hostname.
+# The click-path is docs/deploy-cloudflare.md.
+#
+name = "vemians-ops"
+main = "src/index.js"
+compatibility_date = "2026-09-07"
+
+# Serve shared/design/*.css as text modules, so the tokens are imported
+# byte-for-byte from where they are maintained rather than copied into a
+# template and left to drift.
+[[rules]]
+type = "Text"
+globs = ["**/*.css"]
+fallthrough = true
+
+[vars]
+# Hostname routing. SURFACE pins this deployment to the employee area; unset it
+# and src/index.js falls back to OPS_HOST plus localhost, which is what
+# `wrangler dev` uses. Set to "public" and this Worker serves nothing at all.
+OPS_HOST = "ops.vemians.com"
+SURFACE  = "ops"
+
+# Cloudflare Access group -> role (P0-23). Defaults are these exact names, so
+# set them only if the Workspace groups are called something else. Roles are
+# never assigned in the application; renaming a group is a var change here.
+# OWNER_GROUP   = "vemians-owner"
+# MANAGER_GROUP = "vemians-manager"
+# STAFF_GROUP   = "vemians-staff"
+
+# Cloudflare Access assertion verification. Unset in the prototype: the Worker
+# still FAILS CLOSED when the Cf-Access-Jwt-Assertion header is absent, but it
+# decodes the assertion without checking the signature and says so on screen.
+# Fill both in before ops.vemians.com is reachable from the internet.
+#
+#   ACCESS_TEAM_DOMAIN  your Zero Trust team domain, e.g. "vemians.cloudflareaccess.com"
+#   ACCESS_AUD          the Application Audience (AUD) tag from the Access
+#                       application's Overview page
+#
+# ACCESS_TEAM_DOMAIN = "vemians.cloudflareaccess.com"
+# ACCESS_AUD         = "0000000000000000000000000000000000000000000000000000000000000000"
+
+# ---------------------------------------------------------------------------
+# Custom Domain. Commented out because `wrangler deploy` will try to create it,
+# which fails until the zone is on Cloudflare (deploy-cloudflare.md §1).
+# Uncomment once the nameservers have moved, then deploy.
+#
+# [[routes]]
+# pattern      = "ops.vemians.com"
+# custom_domain = true
+
+# ---------------------------------------------------------------------------
+# Pending T2 approvals for POST /mcp (ADR-007). A T2 tool called over MCP parks
+# its intent here and returns a link; the write happens when a human approves it
+# in a browser. WITHOUT this binding the intents live in a per-isolate Map and an
+# approval link dies with its isolate — fine for `wrangler dev`, a launch blocker
+# for ops.vemians.com. The Worker logs a WARNING on every T2 call until it exists.
+#
+#   npx wrangler kv namespace create vemians-approvals
+#
+# [[kv_namespaces]]
+# binding = "APPROVALS"
+# id      = "<id>"
+
+[observability]
+enabled = true
+
+# ---------------------------------------------------------------------------
+# D1 bindings — ON THIS WORKER ONLY.
+#
+# These blocks are the enforcement behind Test-PRD-P0-24-binding_scoped_tools.
+# ../store/wrangler.toml holds NONE of them: the storefront renders the
+# versioned catalog and our own media, and a customer profile is not reachable
+# from it by any code path, because the binding does not exist there — and now
+# neither does the code. That is the whole reason the two surfaces are two
+# Workers: scope is structural, not a query filter.
+#
+# Inside this Worker the scoping continues in src/tools/index.js: a tool
+# declares the stores it needs and `scopedStores()` hands its `run` exactly
+# those handles. STORE_BINDINGS there has no `identity` entry, so no tool in the
+# registry can reach the vault even though IDENTITY is bound below — binding it
+# here is a deployment decision, reaching it is a registry decision, and both
+# have to be taken deliberately.
+#
+# The ids below are the real ones for this account, resolved by the
+# bootstrap-d1 workflow. Load the schemas into the LOCAL databases with:
+#
+#   npm run db:local            (migrations/apply-local.sh)
+#
+# which uses --local throughout and never touches a real database.
+
+[[d1_databases]]
+binding       = "CUSTOMERS"          # profile, fit, consent, version log. No identifiers.
+database_name = "vemians-customers"
+database_id   = "78b8dd1b-86b1-4e3c-98d8-57a3cfa59720"
+
+[[d1_databases]]
+binding       = "COMMERCE"           # orders, lines, inventory
+database_name = "vemians-commerce"
+database_id   = "05c238a1-a580-435c-999c-e3c63bf82571"
+
+[[d1_databases]]
+binding       = "PEOPLE"             # employees, shifts. Tightest Access policy of the seven.
+database_name = "vemians-people"
+database_id   = "b8fca30d-3a95-4962-b5cd-981df4636496"
+
+[[d1_databases]]
+binding       = "FINANCE"            # expenses, budgets, vendors
+database_name = "vemians-finance"
+database_id   = "335e217f-4080-4dca-ac29-22cf6461628f"
+
+[[d1_databases]]
+binding       = "AUDIT"              # append-only agent record; insert-only credentials
+database_name = "vemians-audit"
+database_id   = "178ae750-75b0-479b-bbed-14ddb2e5035a"
+
+[[d1_databases]]
+binding       = "TICKETS"            # company-wide issues; closed, never deleted
+database_name = "vemians-tickets"
+database_id   = "9addc2c1-7f22-44be-bf93-f8e831905ce7"
+
+# The vault. Bound here so the erasure and clienteling workflows have somewhere
+# to land when they are built (identity-skills says build them LAST), and
+# reachable by no tool until STORE_BINDINGS in src/tools/index.js gains an
+# `identity` entry. Its own Cloudflare Access policy gates the routes that use
+# it, separately from general staff access.
+[[d1_databases]]
+binding       = "IDENTITY"           # ciphertext name/email/phone under an external KEK
+database_name = "vemians-identity"
+database_id   = "ad42f20e-f3af-47c9-9022-09c318ec68ec"
