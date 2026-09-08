@@ -91,11 +91,21 @@ ACCESS_AUD         = "8bacd393c1fededc1d257745149eb6d0cc0797a762941d1421a5a8a3c1
 #   npx wrangler secret put SQUARE_ACCESS_TOKEN
 #
 # SQUARE_ENV is "sandbox" or "production"; client.js refuses anything else.
+#
+# IT IS SET EXPLICITLY, and that is the point. client.js defaults it to
+# "sandbox" when unset, so an unset SQUARE_ENV sent a PRODUCTION token to
+# connect.squareupsandbox.com, where Square rejected it — a wrong-credential
+# error for a right credential, pointing at the token rather than at the two
+# words of configuration actually missing. A live shop is production; flip this
+# to "sandbox" to test, and remember the TOKEN has to be the matching one.
+SQUARE_ENV = "production"
+#
 # SQUARE_LOCATION_ID is Square's single location (ADR-009 open question 2,
 # answered: one). LOCATION_ID is OURS, the uuid on a stock ledger row — the two
 # are different identifiers and swapping them writes a vendor id into a row.
+# Neither is set yet: the catalog sweep does not need them, the stock half and
+# checkout do, and both say so by name rather than failing vaguely.
 #
-# SQUARE_ENV         = "sandbox"
 # SQUARE_LOCATION_ID = "<Square location id>"
 # LOCATION_ID        = "<our location uuid>"
 
