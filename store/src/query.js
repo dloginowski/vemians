@@ -4,7 +4,7 @@
  *
  * The whole filter/sort/paging contract is a GET query string and nothing else:
  *
- *   /?brand=Aurelien&brand=Vestra&sort=price-asc&n=16
+ *   /?category=shoes&brand=Aurelien&brand=Vestra&sort=price-asc&n=16
  *
  * That is the point. The panel in the browser is an enhancement over this URL,
  * not a replacement for it — with JavaScript off the same form submits to the
@@ -37,16 +37,45 @@ const COMPARE = {
 
 /* Every distinct brand in the catalog, for the filter form. Derived, never
    listed: a brand cannot be missing from the filter because someone forgot to
-   add it in a second place. */
-export const brandsOf = (products) => [...new Set(products.map((p) => p.brand))].sort();
+   add it in a second place.
 
-export function parseQuery(url) {
+   Empties are dropped rather than rendered blank. The catalog mirror carries no
+   brand — Square's ITEM has no such field, and store/src/catalog.js refuses to
+   guess one from a title — so on a mirror-backed shop this returns [] and the
+   Brand fieldset is simply not drawn. A filter offering an unnamed brand is
+   worse than no filter. */
+export const brandsOf = (products) =>
+  [...new Set(products.map((p) => p.brand).filter(Boolean))].sort();
+
+/* The closed set of categories, derived FROM WHATEVER CATALOG IS SERVING rather
+   than listed. A category cannot go missing from the nav because someone forgot
+   to add it, and one cannot be navigated to that holds nothing. ADR-010 requires
+   the agent to choose from an existing set; this is that set.
+
+   Deriving rather than listing is what makes the nav rebuild from Square's real
+   taxonomy the moment the mirror has one: the categories on the page are the
+   categories the products carry, whether those products came from the mirror or
+   from the seed, and no code changes in between
+   (Test-PRD-P0-47-category_navigation, Test-PRD-P0-49-mirror_or_seed). */
+export const categoriesOf = (products) =>
+  [...new Set(products.map((p) => p.category).filter(Boolean))].sort();
+
+export function parseQuery(url, known = null) {
   const params = url.searchParams;
   const sort = params.get("sort");
   const n = Number.parseInt(params.get("n") ?? "", 10);
   return {
     /* Unknown brands and unknown sorts are dropped rather than 400'd: a stale
        or hand-edited link should show the shop, not an error page. */
+    /* An unknown category is DROPPED, not filtered on. A stale bookmark or a
+       hand-typed link then shows the whole catalog rather than an empty grid
+       with no explanation — which reads as a broken shop, not a bad link.
+       Callers that pass the known set get this; ones that do not are trusted. */
+    category: (() => {
+      const c = params.get("category") || null;
+      if (!c) return null;
+      return !known || known.includes(c) ? c : null;
+    })(),
     brands: params.getAll("brand").filter(Boolean),
     sort: Object.prototype.hasOwnProperty.call(SORTS, sort) ? sort : "featured",
     n: Number.isFinite(n) ? n : PAGE,
@@ -65,7 +94,9 @@ const clamp = (n, total) => Math.min(Math.max(n, PAGE), Math.max(total, PAGE));
  *          renders, so an append adds each card exactly once.
  */
 export function select(products, q) {
-  const matched = q.brands.length ? products.filter((p) => q.brands.includes(p.brand)) : products.slice();
+  let matched = products.slice();
+  if (q.category) matched = matched.filter((p) => p.category === q.category);
+  if (q.brands.length) matched = matched.filter((p) => q.brands.includes(p.brand));
   const cmp = COMPARE[q.sort];
   if (cmp) matched.sort(cmp);
 
@@ -82,6 +113,12 @@ export function select(products, q) {
 export function href(q, over = {}) {
   const merged = { ...q, ...over };
   const params = new URLSearchParams();
+  /* The category is carried, and it was not before: "show more" inside Shoes
+     was a link back out to the whole catalog, which reads as the filter
+     silently giving up. The nav is the ONE place a category is deliberately
+     dropped, and it builds its links itself rather than through here
+     (Test-PRD-P0-47-category_navigation). */
+  if (merged.category) params.set("category", merged.category);
   merged.brands.forEach((b) => params.append("brand", b));
   if (merged.sort && merged.sort !== "featured") params.set("sort", merged.sort);
   if (merged.n && merged.n !== PAGE) params.set("n", String(merged.n));

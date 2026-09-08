@@ -32,6 +32,7 @@ import { handleMcp, isMcpPath } from "./mcp.js";
 import { customers, week } from "./seed.js";
 import { CAPS } from "./tools/caps.js";
 import { contentTypeFor, createMediaStore, verifyUploadTicket } from "./tools/media.js";
+import { syncFromSquare } from "./sync.js";
 import { opsPage, refusalPage } from "./views.js";
 
 const html = (body, status = 200) =>
@@ -229,5 +230,33 @@ export default {
     /* Whole host is the employee area; /ops is accepted as an alias. */
     const path = url.pathname.startsWith("/ops") ? url.pathname.slice(4) : url.pathname;
     return ops(request, env, path);
+  },
+
+  /*
+   * The cron (Test-PRD-P0-48-scheduled_mirror_sync). Square's catalog and stock
+   * into our mirror, on a schedule, through the adapter — see src/sync.js for
+   * why the orchestration is there and the mapping is not.
+   *
+   * IT IS ON THE OPS WORKER AND NOT THE STOREFRONT, and that is the same split
+   * everything else here follows: the sync holds the Square credential and
+   * writes the stock ledger, and neither belongs on a Worker the public can
+   * reach. The storefront only READS the mirror this fills.
+   *
+   * No Access check, because a cron has no Access assertion to check — the
+   * trigger is Cloudflare's, the credential is a Worker secret, and no request
+   * from the internet can reach this entry point.
+   *
+   * The promise is returned rather than fired and forgotten: a scheduled
+   * handler that returns early has its isolate torn down mid-sweep, which shows
+   * up as a mirror that is mysteriously half-synced.
+   */
+  async scheduled(event, env, ctx) {
+    const run = syncFromSquare(env, { cron: event?.cron ?? null });
+    ctx?.waitUntil?.(run);
+    const out = await run;
+    /* Already logged in detail, with the reason named, inside syncFromSquare.
+       This line is the one a `wrangler tail` filtered to "scheduled" sees. */
+    console.info(`INFO ops/scheduled: ${event?.cron ?? "manual"} -> ${out.ok ? "ok" : out.reason}`);
+    return out;
   },
 };

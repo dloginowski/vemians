@@ -28,7 +28,7 @@ binding and no tool (`Test-PRD-P0-24-binding_scoped_tools`).
 store/     the public storefront Worker
 ops/       the agentic staff Worker — Access, agent, /mcp, the tool registry
 shared/    what both use: db schemas, design tokens, the page shell, the
-           commerce port, the seed catalog
+           commerce port, the Square adapter, the seed catalog
 docs/      PRD, ADRs, architecture, deploy runbooks, design direction
 skills/    the reasoning behind the tool contract, per domain
 tools/     one-off operator scripts (DNS preflight, data branches)

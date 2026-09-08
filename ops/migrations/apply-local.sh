@@ -2,9 +2,10 @@
 #
 # Load shared/db/*.sql into the LOCAL D1 databases for development.
 #
-#   npm run db:local              apply every store
-#   npm run db:local -- audit     apply one store
-#   npm run db:local -- --reset   drop the local D1 state first, then apply
+#   npm run db:local                      apply every store
+#   npm run db:local -- audit             apply one store
+#   npm run db:local -- catalog_mirror    the Square mirror the cron writes
+#   npm run db:local -- --reset           drop the local D1 state first, then apply
 #
 # Local only, by construction: every wrangler call below carries --local, which
 # targets the miniflare SQLite files under .wrangler/state and never touches a
@@ -27,9 +28,20 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "${HERE}/.." && pwd)"          # ops/
 DB_DIR="$(cd "${ROOT}/../shared/db" && pwd)"  # shared/db
 
-# The six stores, in dependency-free order — they have none, by design. The
-# order below is the one PRD §3.1 lists them in.
-STORES=(customers identity commerce people finance audit)
+# The six D1 stores, in dependency-free order — they have none, by design. The
+# order below is the one PRD §3.1 lists them in. `catalog_mirror` is the seventh
+# and is handled separately below: its schema is not in shared/db, it lives with
+# the adapter that fills it (shared/commerce/square/schema.sql), because it is a
+# copy of a vendor's data rather than a store of our own record.
+STORES=(customers identity commerce people finance audit catalog_mirror)
+
+# store -> schema file, for the ones that are not shared/db/<store>.sql.
+schema_for() {
+  case "$1" in
+    catalog_mirror) echo "$(cd "${DB_DIR}/../commerce/square" && pwd)/schema.sql" ;;
+    *) echo "${DB_DIR}/$1.sql" ;;
+  esac
+}
 
 RESET=0
 WANTED=()
@@ -58,7 +70,7 @@ fi
 
 cd "${ROOT}"
 for store in "${STORES[@]}"; do
-  schema="${DB_DIR}/${store}.sql"
+  schema="$(schema_for "${store}")"
   if [ ! -f "${schema}" ]; then
     echo "ERROR migrations: no schema at ${schema}" >&2
     exit 1

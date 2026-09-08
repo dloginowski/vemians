@@ -90,9 +90,38 @@ unreachable is that `access.js`, `agent.js`, `mcp.js` and `tools/` are not in
 this package, so they are not in this bundle. Scope is structural, not a
 condition — the same argument `wrangler.toml` makes about the D1 bindings.
 
-This Worker holds **no D1 binding, and none is coming**. The seven stores
-(PRD §3.1) are bound in `../ops/wrangler.toml` and nowhere else
+This Worker holds **exactly one D1 binding — `CATALOG_MIRROR`, read only — and
+never a second**. The seven stores that hold our own records (customers,
+identity, commerce, people, finance, audit, tickets) are bound in
+`../ops/wrangler.toml` and nowhere else, and `test/storefront.test.mjs` names
+all seven so adding one here fails the suite rather than passing review
 (Test-PRD-P0-24-binding_scoped_tools).
+
+The invariant used to be "zero bindings", which stated the mechanism where it
+meant the intent: *the shop cannot reach customer data*. `catalog_mirror` holds
+products, prices and categories — the page itself — and ADR-009 requires the
+storefront to read that mirror rather than call Square per request, so a
+provider outage costs checkout and not browsing. `src/catalog.js` is the whole
+of that read: one `SELECT` over the index views, no client, no token, no write.
+
+## Where the catalog comes from
+
+`src/catalog.js` prefers the mirror and falls back to `../shared/seed/catalog.js`
+when the mirror holds no rows, logging at INFO which one served
+(Test-PRD-P0-49-mirror_or_seed). A sync that has never run or has failed leaves
+the shop stocked rather than blank — and it is why `npm run dev` is a working
+shop on a fresh clone with no Square account.
+
+The mirror is filled by the scheduled sync on the ops Worker
+(`../ops/src/sync.js`), never from here. To develop against a mirror locally:
+
+```bash
+npm run db:local     # apply ../shared/commerce/square/schema.sql to the local D1
+npm run dev
+```
+
+An empty or unmigrated local database is not an error — the shop serves the seed
+and says so.
 
 ## Why no framework
 

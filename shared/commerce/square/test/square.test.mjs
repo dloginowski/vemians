@@ -52,6 +52,8 @@ import { createHmac } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 
+import { d1FromSql } from "../../../test/d1.mjs";
+
 import { createSquareClient, SQUARE_VERSION, SquareError } from "../client.js";
 import { normaliseCatalog, isWithdrawn } from "../catalog.js";
 import { normaliseChanges, normaliseCounts, reasonForTransition } from "../inventory.js";
@@ -85,41 +87,7 @@ function check(name, fn) {
   return test(name, fn);
 }
 
-/* ── a D1 binding, over the real schemas ────────────────────────────────── */
-
-function d1FromSql(sql) {
-  const db = new DatabaseSync(":memory:");
-  db.exec("PRAGMA foreign_keys=ON;");
-  db.exec(sql);
-
-  const wrap = (text) => {
-    let bound = [];
-    const stmt = {
-      bind(...args) {
-        bound = args;
-        return stmt;
-      },
-      async all() {
-        return { success: true, results: db.prepare(text).all(...bound) };
-      },
-      async first(column) {
-        const row = db.prepare(text).get(...bound);
-        if (row === undefined) return null;
-        return column === undefined ? row : row[column];
-      },
-      async run() {
-        const r = db.prepare(text).run(...bound);
-        return {
-          success: true,
-          meta: { last_row_id: Number(r.lastInsertRowid), changes: Number(r.changes) },
-        };
-      },
-    };
-    return stmt;
-  };
-
-  return { prepare: wrap, _raw: db };
-}
+/* A D1 binding over the REAL schemas, loaded into node:sqlite (shared/test/d1.mjs). */
 
 const MIRROR_SQL = fs.readFileSync(path.join(SQUARE_DIR, "schema.sql"), "utf8");
 const COMMERCE_SQL = fs.readFileSync(path.join(DB_DIR, "commerce.sql"), "utf8");

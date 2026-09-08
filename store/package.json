@@ -3,11 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "The public storefront Worker: the catalog on vemians.com. No Access, no D1.",
+  "description": "The public storefront Worker: the catalog on vemians.com. No Access, and one read-only D1 binding: the catalog mirror.",
   "scripts": {
-    "dev": "wrangler dev --port 8787",
+    "dev": "wrangler dev --local --port 8787",
     "test": "node --test test/*.test.mjs",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "db:local": "wrangler d1 execute CATALOG_MIRROR --local --file ../shared/commerce/square/schema.sql --yes"
   },
   "devDependencies": {
     "wrangler": "4.129.0"

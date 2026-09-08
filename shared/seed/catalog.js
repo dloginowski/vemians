@@ -14,16 +14,16 @@
 
 /* catalog — Git store. One object here per catalog/products/<handle>.json. */
 export const products = [
-  { handle: "shearling-trimmed-wool-coat", brand: "Aurelien",  name: "Shearling-trimmed wool-blend coat",   minor: 560000, currency: "USD", eyebrow: "new season", tone: 0.06 },
-  { handle: "cashmere-crewneck",           brand: "Vestra",    name: "Cashmere crewneck sweater",           minor:  98000, currency: "USD", eyebrow: "new",        tone: 0.14 },
-  { handle: "silk-crepe-midi-dress",       brand: "Marchetti", name: "Silk crepe de chine midi dress",      minor: 234000, currency: "USD", eyebrow: "new season", tone: 0.10 },
-  { handle: "leather-ankle-boot",          brand: "Corvino",   name: "Polished-leather ankle boots",        minor: 129500, currency: "USD", eyebrow: "new",        tone: 0.20 },
-  { handle: "wide-leg-wool-trouser",       brand: "Aurelien",  name: "Wide-leg pressed wool trousers",      minor:  87000, currency: "USD", eyebrow: "new season", tone: 0.08 },
-  { handle: "quilted-shoulder-bag",        brand: "Solene",    name: "Quilted leather shoulder bag",        minor: 312000, currency: "USD", eyebrow: "new",        tone: 0.17 },
-  { handle: "double-face-scarf",           brand: "Vestra",    name: "Double-face cashmere scarf",          minor:  52000, currency: "USD", eyebrow: "new",        tone: 0.05 },
-  { handle: "cotton-poplin-shirt",         brand: "Marchetti", name: "Cotton-poplin oversized shirt",       minor:  61000, currency: "USD", eyebrow: "new season", tone: 0.03 },
-  { handle: "suede-loafer",                brand: "Corvino",   name: "Suede penny loafers",                 minor:  94500, currency: "USD", eyebrow: "new",        tone: 0.22 },
-  { handle: "wool-blend-tailored-jacket",  brand: "Aurelien",  name: "Wool-blend single-breasted jacket",   minor: 198000, currency: "USD", eyebrow: "new season", tone: 0.11 },
-  { handle: "pleated-satin-skirt",         brand: "Solene",    name: "Pleated satin midi skirt",            minor: 145000, currency: "USD", eyebrow: "new",        tone: 0.09 },
-  { handle: "ribbed-merino-polo",          brand: "Vestra",    name: "Ribbed merino-wool polo shirt",       minor:  72000, currency: "USD", eyebrow: "new season", tone: 0.15 },
+  { handle: "shearling-trimmed-wool-coat", brand: "Aurelien",  name: "Shearling-trimmed wool-blend coat",   minor: 560000, currency: "USD", category: "clothing",     eyebrow: "new season", tone: 0.06 },
+  { handle: "cashmere-crewneck",           brand: "Vestra",    name: "Cashmere crewneck sweater",           minor:  98000, currency: "USD", category: "clothing",     eyebrow: "new",        tone: 0.14 },
+  { handle: "silk-crepe-midi-dress",       brand: "Marchetti", name: "Silk crepe de chine midi dress",      minor: 234000, currency: "USD", category: "clothing",     eyebrow: "new season", tone: 0.10 },
+  { handle: "leather-ankle-boot",          brand: "Corvino",   name: "Polished-leather ankle boots",        minor: 129500, currency: "USD", category: "shoes",        eyebrow: "new",        tone: 0.20 },
+  { handle: "wide-leg-wool-trouser",       brand: "Aurelien",  name: "Wide-leg pressed wool trousers",      minor:  87000, currency: "USD", category: "clothing",     eyebrow: "new season", tone: 0.08 },
+  { handle: "quilted-shoulder-bag",        brand: "Solene",    name: "Quilted leather shoulder bag",        minor: 312000, currency: "USD", category: "bags",         eyebrow: "new",        tone: 0.17 },
+  { handle: "double-face-scarf",           brand: "Vestra",    name: "Double-face cashmere scarf",          minor:  52000, currency: "USD", category: "accessories",  eyebrow: "new",        tone: 0.05 },
+  { handle: "cotton-poplin-shirt",         brand: "Marchetti", name: "Cotton-poplin oversized shirt",       minor:  61000, currency: "USD", category: "clothing",     eyebrow: "new season", tone: 0.03 },
+  { handle: "suede-loafer",                brand: "Corvino",   name: "Suede penny loafers",                 minor:  94500, currency: "USD", category: "shoes",        eyebrow: "new",        tone: 0.22 },
+  { handle: "wool-blend-tailored-jacket",  brand: "Aurelien",  name: "Wool-blend single-breasted jacket",   minor: 198000, currency: "USD", category: "clothing",     eyebrow: "new season", tone: 0.11 },
+  { handle: "pleated-satin-skirt",         brand: "Solene",    name: "Pleated satin midi skirt",            minor: 145000, currency: "USD", category: "clothing",     eyebrow: "new",        tone: 0.09 },
+  { handle: "ribbed-merino-polo",          brand: "Vestra",    name: "Ribbed merino-wool polo shirt",       minor:  72000, currency: "USD", category: "clothing",     eyebrow: "new season", tone: 0.15 },
 ];

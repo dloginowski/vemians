@@ -8,8 +8,11 @@
  * the files as text and asserting about substrings. With it, the tests call the
  * REAL renderer and assert about the REAL HTML it produces.
  *
- * Registered from storefront.test.mjs via module.register() before the dynamic
- * import of anything under src/.
+ * Registered via module.register() before the dynamic import of anything under
+ * a Worker's src/ — store/test/storefront.test.mjs for the shop, and
+ * ops/test/sync.test.mjs for the ops Worker, whose views.js imports the same
+ * stylesheets. Shared rather than copied: two loaders drifting apart would mean
+ * two suites disagreeing about what wrangler does.
  */
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";

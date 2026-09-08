@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Last updated** | 2026-09-07 |
+| **Last updated** | 2026-09-08 |
 | **Owner** | dimitri@handsome.la |
 | **Supersedes** | the single-Postgres / Shopify-hosted-storefront draft |
 | **Decided in** | [ADR-001](./adr/001-catalog-storage.md) · [ADR-002](./adr/002-data-domains.md) · [ADR-003](./adr/003-sharding-and-customer-data.md) · [ADR-004](./adr/004-customer-data-protection.md) · [ADR-006](./adr/006-encrypted-storage-vendor.md) |
@@ -164,19 +164,31 @@ that does not trace to one of these is a process failure (see §12).
     Mirroring is idempotent: replaying a sync changes no row counts and double-counts no stock.
     A withdrawn product is archived, never deleted (ADR-008).
 
-18. **`Test-PRD-P0-38-webhook_authenticity`** — Provider webhooks are verified before their
+18. **`Test-PRD-P0-48-scheduled_mirror_sync`** — The mirror is kept current by a **scheduled
+    handler on the ops Worker**, not by a person remembering. A cron trigger pulls the
+    provider's catalog and inventory through the commerce adapter and writes the mirror; the
+    handler holds no mapping logic of its own, so what runs on a schedule is exactly what runs
+    on a webhook. Every run records its outcome in `mirror_sync` — a failed one included, so
+    "the sync has not run since Tuesday" is a query rather than a guess. A service-boundary
+    failure is logged as **one ERROR that says plainly which failure it was**: the credential is
+    unset, the credential was rejected, or the provider was unreachable. Those are three
+    different repairs and a single "sync failed" line distinguishes none of them. The credential
+    itself never appears in a log line. A failed run changes nothing: the last good mirror
+    stands, and the shop keeps selling what it last knew to be true.
+
+19. **`Test-PRD-P0-38-webhook_authenticity`** — Provider webhooks are verified before their
     contents reach any code that trusts them: signature checked over the notification URL and
     raw body with a constant-time comparison, and an unrecognised event normalised to `null`
     rather than guessed at. An unverified payload is not a slow path, it is refused.
 
-19. **`Test-PRD-P0-39-provider_rate_limits`** — The adapter treats a provider's rate limit as an
+20. **`Test-PRD-P0-39-provider_rate_limits`** — The adapter treats a provider's rate limit as an
     expected condition rather than a failure: 429 is backed off and retried, and a
     service-boundary failure is logged with no credential in the message.
-20. **`Test-PRD-P0-17-channel_agnostic_orders`** — A new sales channel — POS included — is a new
+21. **`Test-PRD-P0-17-channel_agnostic_orders`** — A new sales channel — POS included — is a new
     adapter and a new `channel` value, with **no schema change**. Card data is never stored; a
     channel token and last four digits only, so the platform stays out of PCI scope.
 
-21. **`Test-PRD-P0-40-closed_category_set`** — Staff author products by talking to their own AI
+22. **`Test-PRD-P0-40-closed_category_set`** — Staff author products by talking to their own AI
     client, and an agent authoring a product chooses a category from the set that **already
     exists** in the provider. The choice is a **suggestion carrying its reasoning**, never a
     silent assignment, and a category id outside the existing set is refused in code — by
@@ -239,6 +251,15 @@ that does not trace to one of these is a process failure (see §12).
     separate Access policy and a separate binding, so a knowledge tool *cannot* read finance. This
     is enforced by binding, not by query filter and not by prompt. `people` and finance views sit
     behind their own policy, tighter than general staff access.
+
+    **The same rule scopes the storefront, and it is an allow-list rather than a ban.** The
+    public Worker may bind `catalog_mirror` — products, prices and categories, which are already
+    on the page — and **nothing else**. `customers`, `identity`, `commerce`, `people`,
+    `finance`, `audit` and `tickets` are bound on the ops Worker and nowhere else, and a check
+    names all seven so that adding one to the storefront fails the build rather than passing
+    review. The invariant was originally "the storefront carries zero bindings"; that stated the
+    mechanism instead of the intent, and the intent is that **the shop cannot reach customer
+    data** — which a read-only mirror of public catalog facts does not.
 25. **`Test-PRD-P0-25-write_approval_gate`** — Reads execute directly; **writes require explicit
     human approval before execution** — a reviewable pull request for the Git stores, an in-session
     approval for the D1 stores. Rate and monetary caps are enforced in code, never in the prompt.
@@ -250,11 +271,18 @@ that does not trace to one of these is a process failure (see §12).
     tokens and components, no vendor theming layer. It renders products, collections and content
     from the Git catalog and our own R2 media, makes **zero** calls to any commerce provider except
     to mint a checkout URL, and keeps our handles as stable URLs across a provider switch.
-27. **`Test-PRD-P0-27-adaptive_grid`** — The catalog grid is **resolution-adaptive with no
+27. **`Test-PRD-P0-49-mirror_or_seed`** — The storefront **prefers the mirror and falls back to
+    the seed catalog when the mirror holds no rows**, and logs at INFO which of the two served
+    the request. A sync that has never run, or that failed, must leave the shop stocked rather
+    than blank — an empty grid reads as a broken shop, and blanking the catalog is a worse
+    failure than serving a stale one. The same fallback is what lets `wrangler dev --local`
+    serve a real shop with no provider account and no mirror attached. The page says which
+    source it is rendering rather than claiming one and serving the other.
+28. **`Test-PRD-P0-27-adaptive_grid`** — The catalog grid is **resolution-adaptive with no
     breakpoints**: column count derives from available width (2 columns at 390px through 11 at
     3840px) with card width held between 173px and 323px. `auto-fill`, never `auto-fit` — a
     filtered result must not stretch two cards across a 4K viewport.
-28. **`Test-PRD-P0-28-image_contract`** — The design is image-led, so imagery is a contract:
+29. **`Test-PRD-P0-28-image_contract`** — The design is image-led, so imagery is a contract:
     **8:9 (1:1.125)** product images on the `#EFF0F4` ground, served as AVIF/WebP with `srcset` cut
     to actual grid widths, every image carrying explicit dimensions, under an **image-weight budget
     enforced in CI**. N1 is not otherwise reachable.
@@ -295,7 +323,8 @@ that does not trace to one of these is a process failure (see §12).
     changes how something is laid out, the decision is made in `<head>` before first paint rather
     than corrected afterwards. Load-more **appends**, so nothing already on screen can be pushed.
 40. **`Test-PRD-P0-46-viewer_local_wishlist`** — The wishlist is per-viewer state in `localStorage`,
-    every access wrapped in `try`/`catch`, with **no network call and no store binding**. localStorage
+    every access wrapped in `try`/`catch`, with **no network call and nowhere on the server to put
+    it**: the only binding the storefront carries is the read-only catalog mirror (P0-24). localStorage
     throws — not returns null — with site data blocked, in some private windows and at quota; that
     degrades to an in-memory wishlist, never to a broken page, and is logged at DEBUG because it is a
     benign fallback rather than a failure.
@@ -355,6 +384,14 @@ that does not trace to one of these is a process failure (see §12).
     503 and logs why. The staff Worker also has no `workers.dev` URL, so it is reachable only
     through the hostname Access sits in front of. An unreachable ops surface is a nuisance; a
     reachable one is an incident.
+
+47. **`Test-PRD-P0-47-category_navigation`** — The category nav is **derived from the catalog**,
+    not hand-written: every link resolves to a category that holds products, and a new category
+    appears without anyone editing a template. Selecting one filters the grid server-side via
+    `?category=`, so it works with JavaScript off and is linkable and bookmarkable. An unknown
+    or stale category is **dropped rather than filtered on**, so a bad link shows the whole
+    catalog rather than an empty grid — which reads as a broken shop, not a bad link. The
+    current category carries `aria-current="page"`.
 
 ## 4. P1 features
 
@@ -565,6 +602,9 @@ Where each feature is enforced today:
 | P0-22 – P0-25 | Access policy review + `ops` integration tests (M5) |
 | P0-26 – P0-28 | Storefront build checks and the CI image-weight budget (M2) |
 | P0-42 – P0-46 | `store/test/storefront.test.mjs`, plus a Playwright run against `wrangler dev --local` for the measured browser behaviour (CLS, computed transforms and durations, focus order) |
+| P0-49, and the storefront half of P0-24, P0-37 and P0-47 | `store/test/storefront.test.mjs` |
+| P0-48 | `ops/test/sync.test.mjs`, over the real mirror schema with a stubbed provider client |
+| P0-37, P0-39 | `shared/commerce/square/test/square.test.mjs` |
 | P0-29 | The Exit Test in CI |
 
 ---

@@ -7,8 +7,9 @@
 # `vemians-ops`. Cloudflare Access attaches to a WHOLE Worker, not to a route
 # inside one, so the two surfaces cannot share a deployment — gating this one
 # would put a login page in front of the shop. What the two DO share lives in
-# ../shared: the design tokens, the seed catalog and the page shell. Nothing
-# else crosses.
+# ../shared: the design tokens, the seed catalog, the page shell and the commerce
+# adapter. Nothing else crosses — and see the binding note at the foot of this
+# file for the one store both Workers touch.
 #
 # Custom Domains, not Routes: a Custom Domain creates and manages the proxied
 # DNS record for you, which is what lets Access sit in front of the ops
@@ -59,17 +60,56 @@ SURFACE     = "public"
 # custom_domain = true
 
 # ---------------------------------------------------------------------------
-# NO D1 BINDINGS ON THIS WORKER, and none coming.
+# ONE D1 BINDING ON THIS WORKER: `catalog_mirror`, AND NOTHING ELSE EVER.
 #
-# The seven stores (PRD §3.1) are bound in ../ops/wrangler.toml and nowhere
-# else. The storefront renders the versioned catalog and our own R2 media; it
-# has no reason to reach customer, order, staff or finance data, and the way to
-# guarantee that is to leave the binding out rather than to write a rule about
-# not using it (Test-PRD-P0-24-binding_scoped_tools). A d1_databases block here
-# would be the moment the storefront could read a customer profile with one typo.
+# THIS BLOCK USED TO SAY "no D1 bindings, and none coming", and the test
+# asserted zero. That was the right instinct stated as the wrong rule. The
+# invariant's PURPOSE is that the shop cannot reach customer data; "zero
+# bindings" was the mechanism that happened to deliver it, and mechanisms
+# stated as rules eventually block the thing they were protecting. This is that
+# moment.
 #
-# Schemas live in ../shared/db/*.sql. They are applied from ../ops, which is
-# where the bindings are: `npm run db:local` there.
+# What changed: the storefront now renders OUR MIRROR of Square's catalog
+# (../shared/commerce/square/schema.sql, ADR-009) instead of a hardcoded seed
+# list of invented products. That store holds products, prices, categories and
+# image references — public facts, already on the page, printed on a receipt at
+# the counter. Reading them is not a widening of what the shop can see. And it
+# is the ONLY way to satisfy ADR-009's anti-pattern table, which forbids the
+# storefront calling Square per request: a read path can only be local if there
+# is something local to read.
+#
+# What did NOT change, and is now stated as an ALLOW-LIST rather than a ban:
+#
+#   allowed here:  CATALOG_MIRROR                     (this file, read only)
+#   ops ONLY:      CUSTOMERS, IDENTITY, COMMERCE, PEOPLE, FINANCE, AUDIT, TICKETS
+#
+# store/test/storefront.test.mjs names all seven of those explicitly and fails
+# if any appears in this file, so adding one is a red suite rather than a review
+# someone skims (Test-PRD-P0-24-binding_scoped_tools). The storefront also holds
+# no write: src/catalog.js issues one SELECT against the index views and there
+# is no INSERT, UPDATE or DELETE anywhere in this package.
+#
+# The database_id below is a PLACEHOLDER — the database does not exist on the
+# account yet. `wrangler dev --local` and `wrangler deploy --dry-run` accept it;
+# a real deploy will not, and should not. Create it once and paste the SAME id
+# here and in ../ops/wrangler.toml, which is where it is written:
+#
+#   npx wrangler d1 create vemians-catalog-mirror
+#
+# With the mirror empty, unmigrated or absent, the shop serves ../shared/seed
+# and says so at INFO (Test-PRD-P0-49-mirror_or_seed) — which is also why
+# `wrangler dev --local` needs no Square account and no local database.
+#
+# The other schemas live in ../shared/db/*.sql and are applied from ../ops,
+# which is where their bindings are: `npm run db:local` there. The mirror's
+# schema is applied HERE, against this package's own local state:
+#
+#   npm run db:local            (in store/)
+
+[[d1_databases]]
+binding       = "CATALOG_MIRROR"
+database_name = "vemians-catalog-mirror"
+database_id   = "PLACEHOLDER-run-wrangler-d1-create-vemians-catalog-mirror"
 
 [observability]
 enabled = true
