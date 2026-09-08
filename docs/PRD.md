@@ -356,6 +356,14 @@ that does not trace to one of these is a process failure (see §12).
     through the hostname Access sits in front of. An unreachable ops surface is a nuisance; a
     reachable one is an incident.
 
+47. **`Test-PRD-P0-47-category_navigation`** — The category nav is **derived from the catalog**,
+    not hand-written: every link resolves to a category that holds products, and a new category
+    appears without anyone editing a template. Selecting one filters the grid server-side via
+    `?category=`, so it works with JavaScript off and is linkable and bookmarkable. An unknown
+    or stale category is **dropped rather than filtered on**, so a bad link shows the whole
+    catalog rather than an empty grid — which reads as a broken shop, not a bad link. The
+    current category carries `aria-current="page"`.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

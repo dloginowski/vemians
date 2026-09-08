@@ -43,7 +43,7 @@
 import { notFoundPage } from "../../shared/view/html.js";
 import { products } from "../../shared/seed/catalog.js";
 import script from "../../shared/view/enhance.client.js";
-import { brandsOf, parseQuery, select } from "./query.js";
+import { brandsOf, categoriesOf, parseQuery, select } from "./query.js";
 import { catalogPage, catalogPartial, shotSvg } from "./views.js";
 
 const html = (body, status = 200) =>
@@ -82,13 +82,13 @@ export default {
     }
 
     if (url.pathname === "/") {
-      const q = parseQuery(url);
+      const q = parseQuery(url, categoriesOf(products));
       const picked = select(products, q);
       /* The fragment and the page are the same selection rendered two ways.
          There is no second query path for the enhanced client. */
       return url.searchParams.get("partial") === "1"
         ? html(catalogPartial(q, picked))
-        : html(catalogPage(brandsOf(products), q, picked));
+        : html(catalogPage(brandsOf(products), categoriesOf(products), q, picked));
     }
 
     /* Including /ops. The employee area has no unauthenticated twin on this

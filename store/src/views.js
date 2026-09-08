@@ -148,14 +148,38 @@ ${sortRadios}
 </form>`;
 }
 
-export function catalogPage(brands, q, picked) {
+/* The nav is BUILT FROM THE CATALOG, not typed out. Every link goes somewhere
+   that holds something, and a new category appears without anyone editing this
+   file. The previous version was six <a href="/"> — every one of them a link
+   that looked navigable and did nothing.
+
+   Sort and paging are deliberately dropped when changing category: carrying a
+   brand filter across into a category that brand does not stock lands the
+   visitor on an empty grid they did not ask for. */
+const label = (c) => c.charAt(0).toUpperCase() + c.slice(1);
+
+function navLinks(categories, q) {
+  const items = [
+    { href: "/", text: "New in", on: !q.category },
+    ...categories.map((c) => ({
+      href: `/?category=${encodeURIComponent(c)}`,
+      text: label(c),
+      on: q.category === c,
+    })),
+  ];
+  return items
+    .map((i) => `<a href="${i.href}"${i.on ? ' aria-current="page"' : ""}>${esc(i.text)}</a>`)
+    .join('<span>|</span>');
+}
+
+export function catalogPage(brands, categories, q, picked) {
   return page(
     "Vemians",
     `<div class="bar">Complimentary shipping and returns on every order</div>
 <header class="masthead" data-head="top">
   <p class="wordmark">Vemians</p>
   <nav class="nav">
-    <a href="/">New in</a><span>|</span><a href="/">Clothing</a><span>|</span><a href="/">Shoes</a><span>|</span><a href="/">Bags</a><span>|</span><a href="/">Accessories</a><span>|</span><a href="/">Editorial</a>
+    ${navLinks(categories, q)}
   </nav>
 </header>
 <section class="edit">

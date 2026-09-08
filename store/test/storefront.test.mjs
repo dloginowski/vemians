@@ -68,7 +68,7 @@ const read = (...p) => fs.readFileSync(path.join(REPO, ...p), "utf8");
 register("./text-modules.mjs", import.meta.url);
 
 const { catalogPage, catalogPartial, shotUrl } = await import("../src/views.js");
-const { brandsOf, href, PAGE, parseQuery, select, SORTS } = await import("../src/query.js");
+const { brandsOf, categoriesOf, href, PAGE, parseQuery, select, SORTS } = await import("../src/query.js");
 
 const INTERACTION = read("shared", "design", "interaction.css");
 const GRID = read("shared", "design", "catalog-grid.css");
@@ -86,6 +86,7 @@ const CLIENT = bare(CLIENT_SRC);
 
 const products = (await import("../../shared/seed/catalog.js")).products;
 const BRANDS = brandsOf(products);
+const CATEGORIES = categoriesOf(products);
 
 /* Render the shop the way index.js does, so the assertions are about the bytes
    that would actually go over the wire. */
@@ -93,7 +94,7 @@ function render(search = "") {
   const url = new URL("http://vemians.com/" + search);
   const q = parseQuery(url);
   const picked = select(products, q);
-  return { q, picked, html: catalogPage(BRANDS, q, picked), partial: catalogPartial(q, picked) };
+  return { q, picked, html: catalogPage(BRANDS, CATEGORIES, q, picked), partial: catalogPartial(q, picked) };
 }
 
 /* ── labels, for the P0-30 traceability check ───────────────────────────── */
@@ -501,4 +502,62 @@ test("test_PRD_P0_30_prd_traceability__every_label_here_exists_in_the_prd", () =
   /* And every label collected at run time was one of them — a check that was
      renamed but not re-registered fails here rather than drifting. */
   assert.deepEqual([...usedLabels].filter((l) => !labels.has(l)), []);
+});
+
+/* ── P0-47 category navigation ─────────────────────────────────────────────
+   Added after every nav link shipped as href="/" — six links that looked
+   navigable and did nothing. The nav is now built from the catalog, so these
+   assert the derivation rather than a hard-coded list. */
+
+labeled("test_PRD_P0_47_category_navigation__every_category_is_derived_from_the_catalog", () => {
+  const cats = categoriesOf(products);
+  assert.ok(cats.length > 0, "no categories derived from the catalog");
+  for (const c of cats) {
+    const held = products.filter((p) => p.category === c).length;
+    assert.ok(held > 0, `category '${c}' is offered but holds nothing`);
+  }
+});
+
+labeled("test_PRD_P0_47_category_navigation__every_product_carries_a_category", () => {
+  const orphans = products.filter((p) => !p.category).map((p) => p.handle);
+  assert.deepEqual(orphans, [], `products with no category: ${orphans.join(", ")}`);
+});
+
+labeled("test_PRD_P0_47_category_navigation__selecting_a_category_filters_the_grid", () => {
+  const known = categoriesOf(products);
+  for (const c of known) {
+    const q = parseQuery(new URL(`https://x/?category=${c}`), known);
+    const got = select(products, q);
+    assert.equal(q.category, c);
+    assert.ok(got.total > 0, `category '${c}' selected nothing`);
+    assert.ok(got.shown.every((p) => p.category === c), `category '${c}' leaked another category`);
+  }
+});
+
+labeled("test_PRD_P0_47_category_navigation__an_unknown_category_shows_everything_not_nothing", () => {
+  const known = categoriesOf(products);
+  for (const bad of ["nonsense", "SHOES", "", "../etc"]) {
+    const q = parseQuery(new URL(`https://x/?category=${encodeURIComponent(bad)}`), known);
+    assert.equal(q.category, null, `'${bad}' should be dropped, not filtered on`);
+    assert.equal(select(products, q).total, products.length,
+      `'${bad}' produced a filtered grid instead of the whole catalog`);
+  }
+});
+
+labeled("test_PRD_P0_47_category_navigation__no_nav_link_is_a_dead_href", () => {
+  const html = catalogPage(brandsOf(products), categoriesOf(products),
+    parseQuery(new URL("https://x/"), categoriesOf(products)), select(products, parseQuery(new URL("https://x/"))));
+  const nav = html.slice(html.indexOf('<nav class="nav">'), html.indexOf("</nav>"));
+  const hrefs = [...nav.matchAll(/href="([^"]*)"/g)].map((m) => m[1]);
+  assert.ok(hrefs.length >= 2, "nav has too few links to be meaningful");
+  const dead = hrefs.filter((h) => h === "/").length;
+  assert.equal(dead, 1, `expected exactly one "/" link (New in), found ${dead} — the rest must go somewhere`);
+});
+
+labeled("test_PRD_P0_47_category_navigation__the_current_category_is_marked", () => {
+  const known = categoriesOf(products);
+  const q = parseQuery(new URL(`https://x/?category=${known[0]}`), known);
+  const html = catalogPage(brandsOf(products), known, q, select(products, q));
+  assert.match(html, new RegExp(`href="/\\?category=${known[0]}"[^>]*aria-current="page"`),
+    "the selected category is not marked aria-current");
 });

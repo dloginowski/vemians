@@ -4,7 +4,7 @@
  *
  * The whole filter/sort/paging contract is a GET query string and nothing else:
  *
- *   /?brand=Aurelien&brand=Vestra&sort=price-asc&n=16
+ *   /?category=shoes&brand=Aurelien&brand=Vestra&sort=price-asc&n=16
  *
  * That is the point. The panel in the browser is an enhancement over this URL,
  * not a replacement for it — with JavaScript off the same form submits to the
@@ -40,13 +40,29 @@ const COMPARE = {
    add it in a second place. */
 export const brandsOf = (products) => [...new Set(products.map((p) => p.brand))].sort();
 
-export function parseQuery(url) {
+/* The closed set of categories, derived from the catalog rather than listed.
+   A category cannot go missing from the nav because someone forgot to add it,
+   and one cannot be navigated to that holds nothing. ADR-010 requires the
+   agent to choose from an existing set; this is that set. */
+export const categoriesOf = (products) =>
+  [...new Set(products.map((p) => p.category).filter(Boolean))].sort();
+
+export function parseQuery(url, known = null) {
   const params = url.searchParams;
   const sort = params.get("sort");
   const n = Number.parseInt(params.get("n") ?? "", 10);
   return {
     /* Unknown brands and unknown sorts are dropped rather than 400'd: a stale
        or hand-edited link should show the shop, not an error page. */
+    /* An unknown category is DROPPED, not filtered on. A stale bookmark or a
+       hand-typed link then shows the whole catalog rather than an empty grid
+       with no explanation — which reads as a broken shop, not a bad link.
+       Callers that pass the known set get this; ones that do not are trusted. */
+    category: (() => {
+      const c = params.get("category") || null;
+      if (!c) return null;
+      return !known || known.includes(c) ? c : null;
+    })(),
     brands: params.getAll("brand").filter(Boolean),
     sort: Object.prototype.hasOwnProperty.call(SORTS, sort) ? sort : "featured",
     n: Number.isFinite(n) ? n : PAGE,
@@ -65,7 +81,9 @@ const clamp = (n, total) => Math.min(Math.max(n, PAGE), Math.max(total, PAGE));
  *          renders, so an append adds each card exactly once.
  */
 export function select(products, q) {
-  const matched = q.brands.length ? products.filter((p) => q.brands.includes(p.brand)) : products.slice();
+  let matched = products.slice();
+  if (q.category) matched = matched.filter((p) => p.category === q.category);
+  if (q.brands.length) matched = matched.filter((p) => q.brands.includes(p.brand));
   const cmp = COMPARE[q.sort];
   if (cmp) matched.sort(cmp);
 
