@@ -149,16 +149,36 @@ that does not trace to one of these is a process failure (see §12).
     explicit currency**, everywhere, in every store. No floats, no implied currency.
 16. **`Test-PRD-P0-16-commerce_port`** — All provider interaction passes through a single adapter
     interface (`shared/commerce/port.ts`). No vendor SDK or vendor identifier appears outside an
-    adapter; in the database the vendor's id is the single `external_id` field alongside `channel`,
-    and nothing else. Catalog and inventory project **outbound**; the provider is never
-    authoritative.
-17. **`Test-PRD-P0-17-channel_agnostic_orders`** — A new sales channel — POS included — is a new
+    adapter; vendor ids live in `external_ref` and nowhere else, and never as a primary key.
+
+    **Direction of authority is the adapter's to declare, not the platform's.** This feature
+    originally required catalog and inventory to project *outbound*, with the provider never
+    authoritative. ADR-009 reversed that for Square: a till changes stock without asking us, so
+    a competing count of ours is silently wrong in the direction that oversells. What survives
+    the reversal, and is what this feature now asserts, is that the *boundary* holds — a
+    provider swap is a new adapter and a re-key, never a change to our stores.
+
+17. **`Test-PRD-P0-37-mirror_is_ours`** — Provider data is mirrored into stores we own, in our
+    own shape, with our uuids as primary keys. The storefront reads the **mirror**, never the
+    provider per request, so a provider outage degrades checkout and leaves browsing intact.
+    Mirroring is idempotent: replaying a sync changes no row counts and double-counts no stock.
+    A withdrawn product is archived, never deleted (ADR-008).
+
+18. **`Test-PRD-P0-38-webhook_authenticity`** — Provider webhooks are verified before their
+    contents reach any code that trusts them: signature checked over the notification URL and
+    raw body with a constant-time comparison, and an unrecognised event normalised to `null`
+    rather than guessed at. An unverified payload is not a slow path, it is refused.
+
+19. **`Test-PRD-P0-39-provider_rate_limits`** — The adapter treats a provider's rate limit as an
+    expected condition rather than a failure: 429 is backed off and retried, and a
+    service-boundary failure is logged with no credential in the message.
+20. **`Test-PRD-P0-17-channel_agnostic_orders`** — A new sales channel — POS included — is a new
     adapter and a new `channel` value, with **no schema change**. Card data is never stored; a
     channel token and last four digits only, so the platform stays out of PCI scope.
 
 ### 3.4 People and scheduling
 
-18. **`Test-PRD-P0-18-no_double_booking`** — An employee cannot hold two overlapping active
+21. **`Test-PRD-P0-18-no_double_booking`** — An employee cannot hold two overlapping active
     shifts. This is enforced **in the database** — D1 serialises writes to a single writer, so the
     trigger check is race-free where an application read-then-write is not — on insert *and* on
     update. Intervals are half-open, so back-to-back shifts are legal; cancelling a shift frees its
@@ -166,17 +186,17 @@ that does not trace to one of these is a process failure (see §12).
 
 ### 3.5 Finance
 
-19. **`Test-PRD-P0-19-approved_expense_immutable`** — An approved or reimbursed expense is a
+22. **`Test-PRD-P0-19-approved_expense_immutable`** — An approved or reimbursed expense is a
     financial record and cannot be edited in place; it is reversed instead. Progressing its state
     (approved → reimbursed) remains legal.
-20. **`Test-PRD-P0-20-cross_store_snapshot`** — An expense references an employee by
+23. **`Test-PRD-P0-20-cross_store_snapshot`** — An expense references an employee by
     `employee_id` **plus an `employee_name` snapshot**, because `people` is a different database.
     The record stays readable when the other store is unavailable or the referenced row has
     changed. Receipts live in R2, never inline.
 
 ### 3.6 Audit
 
-21. **`Test-PRD-P0-21-append_only_audit`** — Every agent action — actor, on-behalf-of, domain,
+24. **`Test-PRD-P0-21-append_only_audit`** — Every agent action — actor, on-behalf-of, domain,
     tool, arguments, result, timestamp — is written to an audit store that **no application role
     can update or delete**, enforced by trigger. The domain must be one of the known stores.
     Audit is its own store so it survives a mistake in any other one, and the application holds

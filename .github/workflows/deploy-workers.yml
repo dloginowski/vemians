@@ -60,6 +60,12 @@ jobs:
         run: npm test
         working-directory: ops
 
+      # The adapter suite has no package.json of its own — it is library code under
+      # shared/, not a deployable. Run it explicitly, or it silently never gates a deploy.
+      - name: Commerce adapter tests
+        working-directory: .
+        run: node --test shared/commerce/square/test/*.test.mjs
+
       - name: Schema checks
         run: python3 shared/db/verify.py
 

@@ -350,7 +350,7 @@ check("test_PRD_P0_16_commerce_port__square_ids_appear_only_in_external_ref_colu
   assert.deepEqual(ledger.map((r) => r.location_id), [OUR_LOCATION]);
 });
 
-check("test_PRD_P0_16_commerce_port__every_primary_key_in_the_mirror_is_our_own_uuid", async () => {
+check("test_PRD_P0_37_mirror_is_ours__every_primary_key_in_the_mirror_is_our_own_uuid", async () => {
   const { mirrorDb, commerceDb, mirror } = await seededCatalog();
   await mirror.syncInventoryChanges(
     normaliseChanges(fixture("inventory-changes.json").changes, { locationId: SQUARE_LOCATION }),
@@ -367,7 +367,7 @@ check("test_PRD_P0_16_commerce_port__every_primary_key_in_the_mirror_is_our_own_
   }
 });
 
-check("test_PRD_P0_16_commerce_port__a_tampered_webhook_body_fails_signature_verification", async () => {
+check("test_PRD_P0_38_webhook_authenticity__a_tampered_webhook_body_fails_signature_verification", async () => {
   const body = JSON.stringify(fixture("webhooks.json").inventoryCountUpdated);
   const signature = createHmac("sha256", SIGNING_KEY)
     .update(NOTIFICATION_URL + body, "utf8")
@@ -416,7 +416,7 @@ check("test_PRD_P0_16_commerce_port__a_tampered_webhook_body_fails_signature_ver
   assert.equal(await verifyWebhook({ [LEGACY_SIGNATURE_HEADER]: signature }, body, opts), false);
 });
 
-check("test_PRD_P0_16_commerce_port__an_unhandled_event_normalises_to_null_rather_than_a_guess", () => {
+check("test_PRD_P0_38_webhook_authenticity__an_unhandled_event_normalises_to_null_rather_than_a_guess", () => {
   const w = fixture("webhooks.json");
   assert.equal(normaliseWebhook(w.unhandledEvent), null, "an unhandled type returns null");
   assert.equal(normaliseWebhook(null), null);
@@ -458,7 +458,7 @@ check("test_PRD_P0_16_commerce_port__the_pinned_api_version_and_bearer_token_go_
   assert.throws(() => createSquareClient({ SQUARE_ENV: "sandbox" }, { fetchImpl: f }), SquareError);
 });
 
-check("test_PRD_P0_16_commerce_port__a_rate_limited_request_backs_off_and_then_succeeds", async () => {
+check("test_PRD_P0_39_provider_rate_limits__a_rate_limited_request_backs_off_and_then_succeeds", async () => {
   const waits = [];
   let n = 0;
   const impl = async () => {
@@ -522,7 +522,7 @@ check("test_PRD_P0_16_commerce_port__the_adapter_provides_every_method_the_port_
   assert.equal(adapter.channelKind, "square", "a new channel is a new `channel` value");
 });
 
-check("test_PRD_P0_16_commerce_port__a_paginated_sync_follows_every_cursor_and_stays_idempotent", async () => {
+check("test_PRD_P0_37_mirror_is_ours__a_paginated_sync_follows_every_cursor_and_stays_idempotent", async () => {
   /* The checks above exercise the pure normalisers. This one drives the whole
      adapter through the CLIENT, because Square paginates everything and it
      paginates in two different shapes — ListCatalog carries the cursor in the
@@ -863,7 +863,7 @@ check("test_PRD_P0_36_working_set_index__re_running_the_catalog_sync_does_not_du
  * P0-26 — the storefront is ours, and calls a provider only for checkout
  * ───────────────────────────────────────────────────────────────────────── */
 
-check("test_PRD_P0_26_owned_storefront__browsing_reads_the_mirror_and_makes_zero_square_calls", async () => {
+check("test_PRD_P0_37_mirror_is_ours__browsing_reads_the_mirror_and_makes_zero_square_calls", async () => {
   const { mirrorDb, commerceDb, mirror } = await seededCatalog();
   await mirror.syncInventoryChanges(
     normaliseChanges(fixture("inventory-changes.json").changes, { locationId: SQUARE_LOCATION }),
@@ -898,7 +898,7 @@ check("test_PRD_P0_26_owned_storefront__browsing_reads_the_mirror_and_makes_zero
   );
 });
 
-check("test_PRD_P0_26_owned_storefront__minting_a_checkout_url_is_the_only_live_square_call", async () => {
+check("test_PRD_P0_37_mirror_is_ours__minting_a_checkout_url_is_the_only_live_square_call", async () => {
   const { mirrorDb, commerceDb, mirror } = await seededCatalog();
   const f = fakeFetch({ "/v2/online-checkout/payment-links": fixture("payment-link.json") });
   const adapter = createSquareAdapter(squareEnv(), {
@@ -930,7 +930,7 @@ check("test_PRD_P0_26_owned_storefront__minting_a_checkout_url_is_the_only_live_
   assert.match(it40.id, /^[0-9a-f-]{36}$/, "the caller passed one of OUR uuids");
 });
 
-check("test_PRD_P0_26_owned_storefront__a_handle_is_stable_when_the_title_is_retyped_in_square", async () => {
+check("test_PRD_P0_37_mirror_is_ours__a_handle_is_stable_when_the_title_is_retyped_in_square", async () => {
   const { mirrorDb, mirror } = await seededCatalog();
   const before = one(mirrorDb, "SELECT id, handle, title FROM mirror_product WHERE external_ref = 'ITEM_COAT'");
   assert.equal(before.handle, "shearling-trimmed-wool-blend-coat");
