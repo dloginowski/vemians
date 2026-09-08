@@ -108,7 +108,7 @@ Two rules, and one table, are what actually deliver the promise:
    identifier in the system lives in that one table. Dropping a channel is a `DELETE` on one
    table, not a schema migration.
 
-See `platform/db/schema.sql` for the model and `platform/commerce-port.ts` for the interface.
+See `shared/db/*.sql` for the model and `shared/commerce/port.ts` for the interface.
 
 ## 6. Guardrails
 
@@ -126,12 +126,21 @@ group, not the general employee login.
 
 ## 7. This repository
 
-`vemians` is currently a fork of Shopify's **Dawn** theme. In this design the Dawn theme is
-**not used** — the storefront is ours. Dawn stays in place for now as a fallback and is safe
-to delete once the Astro storefront is live. New work lives under `platform/`.
+`vemians` began as a fork of Shopify's **Dawn** theme. The theme is gone: the storefront is
+ours, and Dawn's `assets/ config/ layout/ locales/ sections/ snippets/ templates/`, its
+`.theme-check.yml` and its inherited CI (`ci.yml`, Lighthouse + theme-check against a Shopify
+store, which tested nothing here) were removed once the Worker storefront replaced it.
 
-Note that `.github/workflows/ci.yml` is Dawn's inherited CI (Lighthouse + theme-check
-against a Shopify store) and will need replacing when the theme goes.
+Three top-level directories now hold the code:
+
+```
+store/   the public storefront Worker   (vemians-storefront)
+ops/     the agentic staff Worker       (vemians-ops)
+shared/  db schemas, design tokens, the page shell, the commerce port, the seed catalog
+```
+
+Two packages rather than one deployed twice, because Cloudflare Access attaches to a whole
+Worker: the employee area is not switched off on the public host, its code is not there.
 
 ## 8. Order of work
 

@@ -1,0 +1,96 @@
+{
+  "_fixture": "BatchRetrieveInventoryChanges / POST v2/inventory/changes/batch-retrieve for the one location. A receipt of 6 coats, two sold at the counter, and a physical count that finds 3 on the shelf.",
+  "_provenance": "HANDWRITTEN against Square's documented InventoryChange / InventoryPhysicalCount / InventoryAdjustment shape for Square-Version 2026-08-19. Quantities are decimal STRINGS, as Square sends them. No Square account, token or request was involved.",
+  "changes": [
+    {
+      "type": "ADJUSTMENT",
+      "adjustment": {
+        "id": "ADJ_RECEIPT_COAT40",
+        "reference_id": "po-2026-0041",
+        "from_state": "NONE",
+        "to_state": "IN_STOCK",
+        "location_id": "LOC_SQUARE_MAIN",
+        "catalog_object_id": "VAR_COAT_IT40",
+        "catalog_object_type": "ITEM_VARIATION",
+        "quantity": "6",
+        "occurred_at": "2026-09-04T09:00:00.000Z",
+        "created_at": "2026-09-04T09:00:01.000Z",
+        "source": { "product": "SQUARE_POS", "application_id": "sq0idp-fixture" }
+      }
+    },
+    {
+      "type": "ADJUSTMENT",
+      "adjustment": {
+        "id": "ADJ_SALE_COAT40_A",
+        "from_state": "IN_STOCK",
+        "to_state": "SOLD",
+        "location_id": "LOC_SQUARE_MAIN",
+        "catalog_object_id": "VAR_COAT_IT40",
+        "catalog_object_type": "ITEM_VARIATION",
+        "quantity": "1",
+        "occurred_at": "2026-09-04T14:20:00.000Z",
+        "created_at": "2026-09-04T14:20:01.000Z",
+        "source": { "product": "SQUARE_POS" }
+      }
+    },
+    {
+      "type": "ADJUSTMENT",
+      "adjustment": {
+        "id": "ADJ_SALE_COAT40_B",
+        "from_state": "IN_STOCK",
+        "to_state": "SOLD",
+        "location_id": "LOC_SQUARE_MAIN",
+        "catalog_object_id": "VAR_COAT_IT40",
+        "catalog_object_type": "ITEM_VARIATION",
+        "quantity": "2",
+        "occurred_at": "2026-09-05T10:05:00.000Z",
+        "created_at": "2026-09-05T10:05:01.000Z",
+        "source": { "product": "SQUARE_POS" }
+      }
+    },
+    {
+      "type": "ADJUSTMENT",
+      "adjustment": {
+        "id": "ADJ_TIDY_SOLD_TO_NONE",
+        "from_state": "SOLD",
+        "to_state": "NONE",
+        "location_id": "LOC_SQUARE_MAIN",
+        "catalog_object_id": "VAR_COAT_IT40",
+        "catalog_object_type": "ITEM_VARIATION",
+        "quantity": "1",
+        "occurred_at": "2026-09-05T10:06:00.000Z",
+        "created_at": "2026-09-05T10:06:01.000Z"
+      }
+    },
+    {
+      "type": "ADJUSTMENT",
+      "adjustment": {
+        "id": "ADJ_OTHER_LOCATION",
+        "from_state": "NONE",
+        "to_state": "IN_STOCK",
+        "location_id": "LOC_SQUARE_SOMEWHERE_ELSE",
+        "catalog_object_id": "VAR_COAT_IT40",
+        "catalog_object_type": "ITEM_VARIATION",
+        "quantity": "99",
+        "occurred_at": "2026-09-05T10:07:00.000Z",
+        "created_at": "2026-09-05T10:07:01.000Z"
+      }
+    },
+    {
+      "type": "PHYSICAL_COUNT",
+      "physical_count": {
+        "id": "PC_COAT42_STOCKTAKE",
+        "reference_id": "stocktake-2026-09",
+        "catalog_object_id": "VAR_COAT_IT42",
+        "catalog_object_type": "ITEM_VARIATION",
+        "state": "IN_STOCK",
+        "location_id": "LOC_SQUARE_MAIN",
+        "quantity": "3",
+        "source": { "product": "SQUARE_POS" },
+        "employee_id": "EMP_FIXTURE",
+        "occurred_at": "2026-09-05T18:00:00.000Z",
+        "created_at": "2026-09-05T18:00:01.000Z"
+      }
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "_fixture": "BatchRetrieveInventoryCounts / POST v2/inventory/counts/batch-retrieve. Square's COMPUTED counts for the one location: what the till believes right now. The reconcile diffs these against our derived inventory_level view.",
+  "_provenance": "HANDWRITTEN against Square's documented InventoryCount shape for Square-Version 2026-08-19. No Square account, token or request was involved.",
+  "counts": [
+    {
+      "catalog_object_id": "VAR_COAT_IT40",
+      "catalog_object_type": "ITEM_VARIATION",
+      "state": "IN_STOCK",
+      "location_id": "LOC_SQUARE_MAIN",
+      "quantity": "2",
+      "calculated_at": "2026-09-06T02:00:00.000Z"
+    },
+    {
+      "catalog_object_id": "VAR_COAT_IT42",
+      "catalog_object_type": "ITEM_VARIATION",
+      "state": "IN_STOCK",
+      "location_id": "LOC_SQUARE_MAIN",
+      "quantity": "3",
+      "calculated_at": "2026-09-06T02:00:00.000Z"
+    },
+    {
+      "catalog_object_id": "VAR_COAT_IT40",
+      "catalog_object_type": "ITEM_VARIATION",
+      "state": "SOLD",
+      "location_id": "LOC_SQUARE_MAIN",
+      "quantity": "3",
+      "calculated_at": "2026-09-06T02:00:00.000Z"
+    }
+  ]
+}

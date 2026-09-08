@@ -2,7 +2,7 @@
 
 Everything here happens in **your** Cloudflare and Google dashboards. None of it can be done
 from the repository, so this is written as an ordered click-path rather than as prose. The
-code being deployed is [`platform/storefront`](../platform/storefront/README.md).
+code being deployed is [`store/`](../store/README.md) and [`ops/`](../ops/README.md).
 
 End state:
 
@@ -132,7 +132,7 @@ before you go to bed on the day you switch.
 
 ## 2. Deploy the Worker
 
-From a clone, in `platform/storefront`:
+From a clone, in `store/`:
 
 ```sh
 npx wrangler login          # opens a browser, authorises this machine against your account
@@ -150,13 +150,13 @@ it to one route inside it. A single Worker serving both surfaces therefore canno
 the employee area and open on the shop — switching Access on would put a login page in front of
 customers.
 
-`wrangler.toml` handles this with a second environment. `SURFACE` pins each deployment so the
-other surface is unreachable in that build, whatever `Host` header arrives:
+Each surface is its own package with its own `wrangler.toml`, so the ops code is not in the
+storefront bundle at all. `SURFACE` pins each deployment on top of that, and either Worker
+refuses to serve if it is pinned to the other surface, whatever `Host` header arrives:
 
 ```sh
-cd platform/storefront
-npx wrangler deploy              # vemians-storefront   SURFACE=public   no Access
-npx wrangler deploy --env ops    # vemians-ops          SURFACE=ops      Access on
+( cd store && npx wrangler deploy )   # vemians-storefront   SURFACE=public   no Access
+( cd ops   && npx wrangler deploy )   # vemians-ops          SURFACE=ops      Access on
 ```
 
 Then attach Custom Domains — **Custom Domains, not Routes**; a Custom Domain creates and
@@ -282,7 +282,7 @@ machine-to-machine.)*
 6. Save. Then open **Overview** on the finished application and copy the **Application
    Audience (AUD) tag** — a 64-character hex string.
 
-**Now close the loop in the code.** In `platform/storefront/wrangler.toml`, uncomment and fill:
+**Now close the loop in the code.** In `ops/wrangler.toml`, uncomment and fill:
 
 ```toml
 ACCESS_TEAM_DOMAIN = "vemians.cloudflareaccess.com"

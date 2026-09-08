@@ -1,43 +1,37 @@
-### PR Summary: 
+### What changed
 
-<!-- Please include a short description (using non-technical terms, 1-2 sentences) about the changes you are introducing, what problem is being fixed and/or describe the benefit to merchants. This content will be used in our release notes for Dawn on [themes.shopify.com](https://themes.shopify.com/themes/dawn/styles/default#ReleaseNotes). -->
+<!-- One or two sentences. What is different after this merges? -->
 
+### Why
 
-### Why are these changes introduced?
-
-Fixes #0.
-
-### What approach did you take?
-
-### Other considerations
+<!-- The problem, not the patch. If this reverses an earlier decision, say which and why. -->
 
 ### Decision log
+
+<!-- Only for choices a reader would otherwise have to reconstruct. Delete if none. -->
 
 | # | Decision | Alternatives | Rationale | Downsides |
 |---|---|---|---|---|
 | 1 |   |   |   |   |
 
+### PRD
 
-### Visual impact on existing themes
-<!-- How will this visually affect merchants who upgrade to a new theme version with this change? -->
+<!-- Behaviour changes move the PRD feature and its labelled test in the SAME change (RULES.md
+     rule 13). Name the Test-PRD-* features touched, or state the non-behavioural reason. -->
 
+- Features:
+- Non-behavioural bypass reason:
 
-### Testing steps/scenarios
-<!-- List all the testing tasks that applies to your fix to help peers review your work. -->
-- [ ] Step 1
+### Verification
 
-### Demo links
-<!-- Please include a link to a demo store that includes preconfigured sections and settings to allow reviewers to easily test the features you are working on. -->
+<!-- What you RAN, with the result. Not what you intend to run. A syntax check is not
+     sufficient — exercise the real path. -->
 
-- [Store](url)
-- [Editor](url)
+- [ ] `python3 shared/db/verify.py`
+- [ ] `npm test` in `ops/`
+- [ ] `wrangler dev` on the affected surface, with the behaviour actually exercised
+- [ ] Storefront still carries zero D1 bindings
 
-### Checklist
-- [ ] Added PR summary for [release notes](https://themes.shopify.com/themes/dawn/styles/default#ReleaseNotes)
-- [ ] Requested review from UX (Only for changes that are affecting the experience or perceivable visual details)
-- [ ] Created a ticket for the [help.shopify.com](https://help.shopify.com) documentation team about updates to theme settings. (Internal-only task)
-- [ ] Followed [theme code principles](https://github.com/Shopify/dawn/blob/main/.github/CONTRIBUTING.md#theme-code-principles)
-- [ ] Linted with [Theme Check](https://github.com/Shopify/theme-check)
-- [ ] Tested on [mobile](https://shopify.dev/themes/store/requirements#mobile-browser-requirements)
-- [ ] Tested on [multiple browsers](https://shopify.dev/themes/store/requirements#desktop-browser-requirements)
-- [ ] Tested for [accessibility](https://shopify.dev/themes/best-practices/accessibility)
+### Risk
+
+<!-- What breaks if this is wrong, and how it would be noticed. -->

@@ -148,17 +148,58 @@ that does not trace to one of these is a process failure (see §12).
 15. **`Test-PRD-P0-15-money_minor_units`** — Money is stored as an **integer minor amount plus an
     explicit currency**, everywhere, in every store. No floats, no implied currency.
 16. **`Test-PRD-P0-16-commerce_port`** — All provider interaction passes through a single adapter
-    interface (`platform/commerce-port.ts`). No vendor SDK or vendor identifier appears outside an
-    adapter; in the database the vendor's id is the single `external_id` field alongside `channel`,
-    and nothing else. Catalog and inventory project **outbound**; the provider is never
-    authoritative.
-17. **`Test-PRD-P0-17-channel_agnostic_orders`** — A new sales channel — POS included — is a new
+    interface (`shared/commerce/port.ts`). No vendor SDK or vendor identifier appears outside an
+    adapter; vendor ids live in `external_ref` and nowhere else, and never as a primary key.
+
+    **Direction of authority is the adapter's to declare, not the platform's.** This feature
+    originally required catalog and inventory to project *outbound*, with the provider never
+    authoritative. ADR-009 reversed that for Square: a till changes stock without asking us, so
+    a competing count of ours is silently wrong in the direction that oversells. What survives
+    the reversal, and is what this feature now asserts, is that the *boundary* holds — a
+    provider swap is a new adapter and a re-key, never a change to our stores.
+
+17. **`Test-PRD-P0-37-mirror_is_ours`** — Provider data is mirrored into stores we own, in our
+    own shape, with our uuids as primary keys. The storefront reads the **mirror**, never the
+    provider per request, so a provider outage degrades checkout and leaves browsing intact.
+    Mirroring is idempotent: replaying a sync changes no row counts and double-counts no stock.
+    A withdrawn product is archived, never deleted (ADR-008).
+
+18. **`Test-PRD-P0-38-webhook_authenticity`** — Provider webhooks are verified before their
+    contents reach any code that trusts them: signature checked over the notification URL and
+    raw body with a constant-time comparison, and an unrecognised event normalised to `null`
+    rather than guessed at. An unverified payload is not a slow path, it is refused.
+
+19. **`Test-PRD-P0-39-provider_rate_limits`** — The adapter treats a provider's rate limit as an
+    expected condition rather than a failure: 429 is backed off and retried, and a
+    service-boundary failure is logged with no credential in the message.
+20. **`Test-PRD-P0-17-channel_agnostic_orders`** — A new sales channel — POS included — is a new
     adapter and a new `channel` value, with **no schema change**. Card data is never stored; a
     channel token and last four digits only, so the platform stays out of PCI scope.
 
+21. **`Test-PRD-P0-40-closed_category_set`** — Staff author products by talking to their own AI
+    client, and an agent authoring a product chooses a category from the set that **already
+    exists** in the provider. The choice is a **suggestion carrying its reasoning**, never a
+    silent assignment, and a category id outside the existing set is refused in code — by
+    reading the set — rather than discouraged in a prompt. Creating a category is a **separate,
+    explicitly gated action** that refuses a near-duplicate and says in its own description that
+    it is rarely the right tool.
+
+    The rule exists because the failure is silent and cumulative. An agent that may mint a
+    category will mint one whenever the existing name is not the phrase it had in mind, and a
+    month of that leaves "Coats", "Outerwear", "Jackets" and "Coats & Jackets" side by side —
+    at which point the storefront navigation tells a customer nothing, and no human ever took
+    the decision that made it so.
+
+    Authoring is also where the **direction of authority** in P0-16 becomes operational: the
+    agent writes to the provider, which the till also writes to, and our mirror follows by sync.
+    An agent writing into the mirror directly would make two writers of one copy and they would
+    diverge from the provider silently. Media is the exception in the other direction — the
+    original is ours in R2 and the provider gets a copy, so losing the provider loses a
+    thumbnail and not our photography.
+
 ### 3.4 People and scheduling
 
-18. **`Test-PRD-P0-18-no_double_booking`** — An employee cannot hold two overlapping active
+21. **`Test-PRD-P0-18-no_double_booking`** — An employee cannot hold two overlapping active
     shifts. This is enforced **in the database** — D1 serialises writes to a single writer, so the
     trigger check is race-free where an application read-then-write is not — on insert *and* on
     update. Intervals are half-open, so back-to-back shifts are legal; cancelling a shift frees its
@@ -166,17 +207,17 @@ that does not trace to one of these is a process failure (see §12).
 
 ### 3.5 Finance
 
-19. **`Test-PRD-P0-19-approved_expense_immutable`** — An approved or reimbursed expense is a
+22. **`Test-PRD-P0-19-approved_expense_immutable`** — An approved or reimbursed expense is a
     financial record and cannot be edited in place; it is reversed instead. Progressing its state
     (approved → reimbursed) remains legal.
-20. **`Test-PRD-P0-20-cross_store_snapshot`** — An expense references an employee by
+23. **`Test-PRD-P0-20-cross_store_snapshot`** — An expense references an employee by
     `employee_id` **plus an `employee_name` snapshot**, because `people` is a different database.
     The record stays readable when the other store is unavailable or the referenced row has
     changed. Receipts live in R2, never inline.
 
 ### 3.6 Audit
 
-21. **`Test-PRD-P0-21-append_only_audit`** — Every agent action — actor, on-behalf-of, domain,
+24. **`Test-PRD-P0-21-append_only_audit`** — Every agent action — actor, on-behalf-of, domain,
     tool, arguments, result, timestamp — is written to an audit store that **no application role
     can update or delete**, enforced by trigger. The domain must be one of the known stores.
     Audit is its own store so it survives a mistake in any other one, and the application holds
@@ -266,6 +307,13 @@ that does not trace to one of these is a process failure (see §12).
     call. Only settled data may be rolled off: an open ticket or a future shift is refused.
     The rule exists because an agentic surface pays for every row it reads, in context and in
     latency, so an unbounded default read is a cost, not just untidiness.
+
+41. **`Test-PRD-P0-41-unconfigured_fails_closed`** — A surface that cannot verify an Access
+    assertion serves nothing. Unverified assertions are a localhost convenience only: off
+    localhost, a Worker with `ACCESS_TEAM_DOMAIN`/`ACCESS_AUD` unset refuses every request with
+    503 and logs why. The staff Worker also has no `workers.dev` URL, so it is reachable only
+    through the hostname Access sits in front of. An unreachable ops surface is a nuisance; a
+    reachable one is an incident.
 
 ## 4. P1 features
 
@@ -374,7 +422,7 @@ run on every change to the data layer and reviewed quarterly:
 A failing Exit Test blocks merge. If we cannot delete the provider in CI, we cannot delete it in
 production either.
 
-The store-level half of this drill is implemented in `platform/db/verify.py` and passes today.
+The store-level half of this drill is implemented in `shared/db/verify.py` and passes today.
 
 ---
 
@@ -430,7 +478,7 @@ trigger, race-free because D1 serialises writes to a single writer (P0-18).
 - [ ] The storefront renders the full catalog with the provider API unreachable.
 - [ ] A customer completes a purchase; the order lands in `commerce`, normalised, once, even if
       the webhook is replayed.
-- [ ] `python3 platform/db/verify.py` and the Exit Test both pass in CI.
+- [ ] `python3 shared/db/verify.py` and the Exit Test both pass in CI.
 
 ---
 
@@ -471,7 +519,7 @@ Where each feature is enforced today:
 
 | Features | Enforced by |
 |---|---|
-| P0-01, P0-05 – P0-21, P0-30 | `platform/db/verify.py` |
+| P0-01, P0-05 – P0-21, P0-30 | `shared/db/verify.py` |
 | P0-02 – P0-04 | Build-time catalog/knowledge/report checks (M1) |
 | P0-22 – P0-25 | Access policy review + `ops` integration tests (M5) |
 | P0-26 – P0-28 | Storefront build checks and the CI image-weight budget (M2) |
