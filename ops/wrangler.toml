@@ -17,6 +17,10 @@
 name = "vemians-ops"
 main = "src/index.js"
 compatibility_date = "2026-09-07"
+# The Square adapter derives uuids with node:crypto (shared/commerce/square/ids.js),
+# which the agent catalog-authoring tools reach through. nodejs_compat is what
+# makes that import resolve on Workers rather than at the first request.
+compatibility_flags = ["nodejs_compat"]
 
 # Serve shared/design/*.css as text modules, so the tokens are imported
 # byte-for-byte from where they are maintained rather than copied into a
@@ -74,8 +78,45 @@ SURFACE  = "ops"
 # binding = "APPROVALS"
 # id      = "<id>"
 
+# ---------------------------------------------------------------------------
+# Square, for agentic catalog authoring (ADR-009). The agent writes to SQUARE —
+# the same target the till writes to — and our mirror follows by sync. Set the
+# token as a SECRET, never as a var:
+#
+#   npx wrangler secret put SQUARE_ACCESS_TOKEN
+#
+# SQUARE_ENV is "sandbox" or "production"; client.js refuses anything else.
+# SQUARE_LOCATION_ID is Square's single location (ADR-009 open question 2,
+# answered: one). LOCATION_ID is OURS, the uuid on a stock ledger row — the two
+# are different identifiers and swapping them writes a vendor id into a row.
+#
+# SQUARE_ENV         = "sandbox"
+# SQUARE_LOCATION_ID = "<Square location id>"
+# LOCATION_ID        = "<our location uuid>"
+
+# ---------------------------------------------------------------------------
+# Signing key for media upload tickets (ops/src/tools/media.js). A tool argument
+# cannot carry a phone photograph — the base64 would have to be emitted by the
+# model — so catalog.upload_image mints a key, signs it, and hands the human a
+# link to open in the browser. Without this secret the tool refuses to issue a
+# link rather than issuing an unsigned one:
+#
+#   npx wrangler secret put MEDIA_SIGNING_KEY
+
 [observability]
 enabled = true
+
+# ---------------------------------------------------------------------------
+# R2 — our photographic originals, and the authoritative copy of them
+# (Test-PRD-P0-28-image_contract, Test-PRD-P0-29-exit_test). Square gets a copy
+# so the item looks right on the till; losing Square must not lose our
+# photography, which is only true while the original never lived only there.
+#
+#   npx wrangler r2 bucket create vemians-media
+#
+# [[r2_buckets]]
+# binding     = "MEDIA"
+# bucket_name = "vemians-media"
 
 # ---------------------------------------------------------------------------
 # D1 bindings — ON THIS WORKER ONLY.
@@ -130,6 +171,20 @@ database_id   = "178ae750-75b0-479b-bbed-14ddb2e5035a"
 binding       = "TICKETS"            # company-wide issues; closed, never deleted
 database_name = "vemians-tickets"
 database_id   = "9addc2c1-7f22-44be-bf93-f8e831905ce7"
+
+# Our copy of Square's authoritative catalog (shared/commerce/square/schema.sql,
+# ADR-009). READ by the agent tools — the closed set of categories, the price
+# band a suggestion is measured against, a product by handle. NOT written by
+# them: a catalog write goes to Square, and this store follows by sync and
+# webhook, because the till writes here too and two writers into one copy
+# diverge silently. Create it with:
+#
+#   npx wrangler d1 create vemians-catalog-mirror
+#
+# [[d1_databases]]
+# binding       = "CATALOG_MIRROR"
+# database_name = "vemians-catalog-mirror"
+# database_id   = "<id>"
 
 # The vault. Bound here so the erasure and clienteling workflows have somewhere
 # to land when they are built (identity-skills says build them LAST), and

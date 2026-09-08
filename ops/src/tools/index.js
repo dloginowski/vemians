@@ -7,8 +7,11 @@
  *   TOOLS                     name -> { tier, domain, stores, describe, schema, run }
  *   runTool(name, args, ctx)  -> { ok, data?, error?, tier, needsApproval?, auditId }
  *
- * ctx is { actor, role, env, approvalToken?, onBehalfOf?, approvals?, rate?, catalog? }.
+ * ctx is { actor, role, env, approvalToken?, onBehalfOf?, approvals?, rate?,
+ *          catalog?, square?, media? }.
  * `actor` is the verified Access email from ops/src/access.js and NOTHING ELSE.
+ * `square` and `media` are injection seams for tests; in the Worker they are
+ * built from `env` by `scopedResources`, and only for a tool that declared them.
  *
  * ─── what a call goes through, in order ────────────────────────────────────
  *   1. the tool exists                                   -> else audit denied
@@ -47,8 +50,11 @@ import { writeAudit } from "./audit.js";
 import { approvals as defaultApprovals } from "./approval.js";
 import { CAPS } from "./caps.js";
 import { createSeedCatalogSource } from "./catalog-source.js";
+import { createSquareCatalogWriter } from "./catalog-writer.js";
 import { catalogTools } from "./catalog.js";
+import { catalogWriteTools } from "./catalog-write.js";
 import { commerceTools } from "./commerce.js";
+import { createMediaStore } from "./media.js";
 import { customerTools } from "./customers.js";
 import { financeTools } from "./finance.js";
 import { peopleTools } from "./people.js";
@@ -70,7 +76,30 @@ export const STORE_BINDINGS = Object.freeze({
   commerce: "COMMERCE",
   people: "PEOPLE",
   finance: "FINANCE",
+  /* Our copy of Square's authoritative catalog (ADR-009, shared/commerce/square/
+     schema.sql). READ from here; a catalog write goes to Square and the mirror
+     follows by sync — see catalog-writer.js. */
+  catalog_mirror: "CATALOG_MIRROR",
 });
+
+/*
+ * Resources that are not a D1 store, declared and scoped by the same rule.
+ *
+ * A tool receives `t.square` or `t.media` only if it names the resource, and
+ * nothing else in this file adds one. That is what makes "catalog.draft_product
+ * writes nothing" a structural fact rather than a promise about its body: the
+ * tool holds no object with a Square write on it, so there is no line of code
+ * that could be added later to change that without also adding the declaration
+ * (Test-PRD-P0-24-binding_scoped_tools).
+ *
+ *   square  the catalog WRITE path — an authenticated Square client plus the
+ *           mirror sync that follows a write. Constructed from env; a tool
+ *           never sees a raw client and never sees a Square identifier.
+ *   media   OUR R2 bucket for photographic originals, through the narrow view
+ *           in media.js — which has no `delete`, because nothing here removes a
+ *           photograph.
+ */
+export const RESOURCES = Object.freeze(["square", "media"]);
 
 const AUDIT_BINDING = "AUDIT";
 
@@ -86,6 +115,15 @@ function buildRegistry(groups) {
           throw new Error(`tool ${name} declares store '${store}', which has no binding`);
         }
       }
+      for (const resource of tool.resources ?? []) {
+        if (!RESOURCES.includes(resource)) {
+          throw new Error(`tool ${name} declares resource '${resource}', which does not exist`);
+        }
+      }
+      /* A T0 read that can reach a write path is a T0 read in name only. */
+      if (tool.tier === "T0" && (tool.resources ?? []).includes("square")) {
+        throw new Error(`tool ${name} is T0 and declares the square write path`);
+      }
       if (!["T0", "T1", "T2"].includes(tool.tier)) {
         throw new Error(`tool ${name} has tier '${tool.tier}'; T3 means absent, not declared`);
       }
@@ -98,6 +136,7 @@ function buildRegistry(groups) {
 
 export const TOOLS = buildRegistry([
   catalogTools,
+  catalogWriteTools,
   customerTools,
   commerceTools,
   peopleTools,
@@ -114,6 +153,7 @@ export function describeTools(role) {
       domain: t.domain,
       stores: t.stores,
       min_role: t.minRole,
+      resources: t.resources ?? [],
       describe: t.describe,
       schema: t.schema,
       undo: t.undo ?? null,
@@ -132,6 +172,27 @@ function scopedStores(tool, env) {
     db[store] = handle;
   }
   return Object.freeze(db);
+}
+
+/*
+ * The same rule, one level out. Built LAZILY and only for what the tool
+ * declared: constructing the Square client throws when SQUARE_ACCESS_TOKEN is
+ * unset (client.js refuses rather than 401-ing per request later), and a tool
+ * that never asked for Square must not be refused because of a var it does not
+ * use. A missing resource is a hard failure, never a silent undefined that the
+ * tool body then dereferences halfway through a write.
+ */
+function scopedResources(tool, ctx) {
+  const out = {};
+  for (const resource of tool.resources ?? []) {
+    if (resource === "square") {
+      out.square = ctx.square ?? createSquareCatalogWriter(ctx.env, { commerceDb: ctx.env?.COMMERCE ?? null });
+    } else if (resource === "media") {
+      out.media = ctx.media ?? createMediaStore(ctx.env?.MEDIA, ctx.env ?? {});
+    }
+    if (!out[resource]) throw new Error(`resource '${resource}' is not available on this Worker`);
+  }
+  return out;
 }
 
 export async function runTool(name, args = {}, ctx = {}) {
@@ -228,8 +289,10 @@ export async function runTool(name, args = {}, ctx = {}) {
   }
 
   let db;
+  let resources;
   try {
     db = scopedStores(tool, env);
+    resources = scopedResources(tool, ctx);
   } catch (err) {
     console.error(`ERROR tools: ${name} — ${err.message}`);
     return terminal({ result: "error", error: err.message, detail: { reason: "missing_binding" } });
@@ -240,6 +303,9 @@ export async function runTool(name, args = {}, ctx = {}) {
     role,
     db,
     catalog,
+    /* Only what the tool declared. Undeclared resources are absent properties,
+       not disabled ones (Test-PRD-P0-24-binding_scoped_tools). */
+    ...resources,
     approved: false,
     preflight: null,
     now: ctx.now ?? (() => new Date()),

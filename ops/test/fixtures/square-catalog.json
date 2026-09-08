@@ -1,0 +1,70 @@
+{
+  "_comment": "A handwritten Square ListCatalog response, written against Square's published CatalogObject shapes. No Square account, token or network call is involved in producing it — connect.squareup.com is unreachable from this environment. It is the shop as it stands BEFORE any agentic authoring: three categories that already exist, and one product in one of them for a price band to be read from.",
+  "objects": [
+    {
+      "type": "CATEGORY",
+      "id": "CAT_OUTERWEAR",
+      "version": 1,
+      "present_at_all_locations": true,
+      "category_data": { "name": "Outerwear" }
+    },
+    {
+      "type": "CATEGORY",
+      "id": "CAT_KNITWEAR",
+      "version": 1,
+      "present_at_all_locations": true,
+      "category_data": { "name": "Knitwear" }
+    },
+    {
+      "type": "CATEGORY",
+      "id": "CAT_ACCESSORIES",
+      "version": 1,
+      "present_at_all_locations": true,
+      "category_data": { "name": "Accessories" }
+    },
+    {
+      "type": "ITEM",
+      "id": "ITEM_COAT",
+      "version": 3,
+      "present_at_all_locations": true,
+      "item_data": {
+        "name": "Shearling-trimmed wool-blend coat",
+        "description": "Double-faced wool with a detachable shearling collar.",
+        "reporting_category": { "id": "CAT_OUTERWEAR" },
+        "categories": [{ "id": "CAT_OUTERWEAR", "ordinal": 0 }],
+        "variations": [
+          {
+            "type": "ITEM_VARIATION",
+            "id": "VAR_COAT_S",
+            "version": 3,
+            "present_at_all_locations": true,
+            "item_variation_data": {
+              "item_id": "ITEM_COAT",
+              "name": "IT 38",
+              "sku": "VEM-0001-38",
+              "ordinal": 0,
+              "pricing_type": "FIXED_PRICING",
+              "price_money": { "amount": 560000, "currency": "USD" },
+              "track_inventory": true
+            }
+          },
+          {
+            "type": "ITEM_VARIATION",
+            "id": "VAR_COAT_M",
+            "version": 3,
+            "present_at_all_locations": true,
+            "item_variation_data": {
+              "item_id": "ITEM_COAT",
+              "name": "IT 42",
+              "sku": "VEM-0001-42",
+              "ordinal": 1,
+              "pricing_type": "FIXED_PRICING",
+              "price_money": { "amount": 560000, "currency": "USD" },
+              "track_inventory": true
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -95,6 +95,41 @@ so no tool in the registry can reach the vault even though `IDENTITY` is bound �
 binding it is a deployment decision, reaching it is a registry decision, and both
 have to be taken deliberately.
 
+The same rule covers what is not a D1 store. A tool declares `resources` —
+`square` (the catalog write path) or `media` (our R2 originals) — and
+`scopedResources()` attaches only those. `catalog.draft_product` does not declare
+`square`, so it holds no object that could write to Square; that is why "the draft
+writes nothing" is a property of the registry rather than a promise about the
+tool's body.
+
+## Agentic catalog authoring
+
+Staff create and edit products by talking to their own AI client. The flow is
+`catalog.categories` → `catalog.upload_image` → `catalog.draft_product` (T1, a
+diff) → `catalog.create_product` (T2, approved in a browser).
+
+Two things about it are load-bearing:
+
+- **The agent writes to SQUARE, never to our mirror.** Square is authoritative
+  for the commercial facts of the catalog (ADR-009) and the till writes there
+  too. Our `catalog_mirror` follows by sync; a second writer into it would
+  diverge from Square silently, in the direction that oversells.
+- **The category comes from a set that already exists.** Creating one is a
+  separate T2, manager-only tool that refuses a near-duplicate. Without that
+  split, a month of agentic authoring produces "Coats", "Outerwear", "Jackets"
+  and "Coats & Jackets" and the storefront navigation stops meaning anything
+  (Test-PRD-P0-40-closed_category_set).
+
+**Photographs.** MCP tool arguments are JSON, so image bytes in an argument mean
+base64 that the MODEL has to emit — roughly one to two million output tokens for
+a 12 MP phone photo, which no model can produce at any price. So
+`catalog.upload_image` caps the inline path at 192 KiB and otherwise mints our R2
+key, signs it, and returns a link the human opens at `/media/upload`; the bytes
+go browser → Worker → R2 and never enter a model's context. The original is ours
+and authoritative; Square gets a copy so the item looks right on the till.
+Needs the `MEDIA` R2 binding and the `MEDIA_SIGNING_KEY` secret — without the
+secret the tool refuses to issue a link rather than issuing an unsigned one.
+
 ## What is here
 
 ```
@@ -103,6 +138,9 @@ src/access.js   Cloudflare Access assertion: fail closed, then RS256 + aud + exp
 src/agent.js    the turn loop: tool selection, T2 approval, audit
 src/mcp.js      POST /mcp — the ops tools over MCP, for staff AI clients (ADR-007)
 src/tools/      the tool registry. Tiers, roles, caps, scoped stores, audit
+                catalog-write.js  agentic authoring: draft, create, update, categories
+                catalog-writer.js the Square write path and the mirror sync after it
+                media.js          our R2 originals and the signed upload ticket
 src/views.js    the ops page and the refusal page
 src/seed.js     hardcoded customers and schedule. Ops-only; the catalog is shared
 test/           PRD-labeled regression checks, run against the real schemas
@@ -116,6 +154,8 @@ shared/db/*.sql           the seven store schemas, and verify.py
 shared/view/html.js       page shell, escaper, money format — both surfaces
 shared/design/theme.css   the measured tokens from docs/design-direction.md §3
 shared/seed/catalog.js    the seed products, read by the shop and by ops tools
+shared/commerce/square/   the commerce adapter. images.js is the multipart
+                          CreateCatalogImage the JSON client cannot carry
 ```
 
 ## Tests

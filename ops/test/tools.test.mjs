@@ -956,7 +956,10 @@ check("test_PRD_P0_01_store_topology__each_store_is_its_own_database_in_the_tool
   /* Six separate connections; a statement prepared on one cannot see another. */
   assert.throws(() => f.env.FINANCE._raw.prepare('SELECT * FROM "order"').all(), /no such table/);
   assert.throws(() => f.env.CUSTOMERS._raw.prepare("SELECT * FROM expense").all(), /no such table/);
-  assert.equal(Object.keys(STORE_BINDINGS).length, 4, "the registry reaches four of the six stores");
+  /* Four of the six D1 stores, plus the catalog mirror the agent authoring
+     tools READ (they write to Square; ADR-009). Still not `identity`. */
+  assert.equal(Object.keys(STORE_BINDINGS).length, 5, "the registry reaches five stores and no more");
+  assert.ok(!Object.keys(STORE_BINDINGS).includes("identity"), "the vault is unreachable from the registry");
   assert.ok(!Object.keys(STORE_BINDINGS).includes("audit"), "audit is written by the registry, not by a tool");
 });
 
