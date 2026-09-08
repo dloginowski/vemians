@@ -16,28 +16,17 @@ jobs:
   diagnose:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
       - name: What Cloudflare expects
         id: cf
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           ZONE: ${{ inputs.zone }}
         run: |
-          resp=$(curl -sS "https://api.cloudflare.com/client/v4/zones?name=$ZONE" \
-                   -H "authorization: Bearer $CLOUDFLARE_API_TOKEN")
-          echo "$resp" | python3 -c '
-          import json,sys,os
-          d=json.load(sys.stdin)
-          if not d.get("success") or not d.get("result"):
-              print("::error::could not read the zone"); print(json.dumps(d)[:400]); sys.exit(1)
-          z=d["result"][0]
-          print(f"  status:   {z[\"status\"]}")
-          print(f"  paused:   {z.get(\"paused\")}")
-          print("  ASSIGNED nameservers (these exact two must be at the registrar):")
-          for n in sorted(z.get("name_servers") or []): print(f"    {n}")
-          print("  original nameservers Cloudflare saw at signup:")
-          for n in sorted(z.get("original_name_servers") or []): print(f"    {n}")
-          open(os.environ["GITHUB_OUTPUT"],"a").write("assigned="+",".join(sorted(z.get("name_servers") or []))+"\n")
-          '
+          curl -sS "https://api.cloudflare.com/client/v4/zones?name=$ZONE" \
+            -H "authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            | python3 .github/scripts/zone-report.py
 
       - name: What the internet answers
         env:
