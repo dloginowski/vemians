@@ -1,6 +1,11 @@
 # ADR-011 — Two surfaces, two authorities
 
 **Status:** Proposed · **Date:** 2026-09-08 · **Amends:** ADR-002 · **Reverses part of** P0-23
+· **Partly superseded by** ADR-012
+
+> **ADR-012 supersedes the per-person allow-list below.** The ops roster is Square's team list;
+> the admin panel owns only the job-title → role map. The two-authorities split, the service
+> binding, fail-closed, and *the admin panel cannot grant admin* all stand unchanged.
 
 ## Decision
 

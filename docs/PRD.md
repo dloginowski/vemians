@@ -278,14 +278,32 @@ that does not trace to one of these is a process failure (see §12).
     binding to the access store** and no code path that reaches it — not a filtered query, not a
     convention, no binding at all. Enforced the way P0-24 is: a check names the binding and fails
     the build if it appears in `ops/wrangler.toml`.
-29. **`Test-PRD-P0-51-ops_allowlist_authority`** — Who may use ops is a **row in the access store,
-    written only through the admin surface**. Cloudflare Access still proves *who you are* at the
-    perimeter; this decides *whether you may work here and as what*. Ops asks the admin Worker over
-    a **service binding** — Worker to Worker, never over the internet, never through Access — and
-    **denies when that call fails**. An authorisation service that fails open is worse than none,
-    because it is trusted. Decisions are cached in-isolate for a short TTL, so a revocation takes
-    effect in seconds rather than at the next deploy.
-30. **`Test-PRD-P0-52-no_self_granted_admin`** — **No Worker holds a Cloudflare API token**, and no
+29. **`Test-PRD-P0-51-ops_roster_is_square`** — Who may use ops is **Square's team list**, not a
+    roster of ours. A team member who is `INACTIVE` in Square is refused, with no application-side
+    action — offboarding happens where hiring happens. Cloudflare Access still proves *who you are*
+    at the perimeter; Square decides *whether you work here*; the admin surface owns only the
+    **job-title → role map**, a handful of rows and none of them per-person. Ops reaches that map
+    over a **service binding** — Worker to Worker, never over the internet, never through Access —
+    and **denies when the call fails**. An authorisation service that fails open is worse than
+    none, because it is trusted. Decisions are cached in-isolate for a short TTL, so a revocation
+    takes effect in seconds rather than at the next deploy.
+
+    **Superseded ADR-011's per-person allow-list** (ADR-012). A second place that records
+    employment is a second roster, and two rosters disagree the first week somebody leaves.
+30. **`Test-PRD-P0-53-ops_grants_nothing`** — **Ops never offers a capability the person's Square
+    job could not already perform by hand.** Not gated behind an approval — **absent from the tool
+    list they are handed**, the way P0-25 already treats refunds, payroll and deletion. Ops is a
+    delegate: it accelerates Square work and confers no Square rights.
+
+    **This is honoured, not enforced, and the difference is written down rather than discovered.**
+    Square's API exposes no permission data — verified against Square's own OpenAPI specification:
+    `TeamMember` and `Job` carry none, and no schema in the specification is named for permissions.
+    So a job title stands in for a permission set, and a title is not one. Two structural
+    mitigations: each role's tool list is chosen to sit **below the plausible floor** of that title,
+    with anything uncertain absent rather than gated; and every ops action **writes through Square**,
+    so it lands in the history a manager already reads. A delegate that leaves no trace in the
+    principal's records is not a delegate.
+31. **`Test-PRD-P0-52-no_self_granted_admin`** — **No Worker holds a Cloudflare API token**, and no
     Worker calls the Cloudflare API. The admin surface can therefore edit the ops allow-list and
     **cannot create, modify or delete an Access policy** — admin is granted in the Cloudflare
     dashboard or not at all. An attacker who fully owns the admin Worker gets the ops allow-list
@@ -627,7 +645,7 @@ Where each feature is enforced today:
 | P0-01, P0-05 – P0-21, P0-30 | `shared/db/verify.py` |
 | P0-02 – P0-04 | Build-time catalog/knowledge/report checks (M1) |
 | P0-22 – P0-25 | Access policy review + `ops` integration tests (M5) |
-| P0-50, P0-51, P0-52 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
+| P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
 | P0-26 – P0-28 | Storefront build checks and the CI image-weight budget (M2) |
 | P0-42 – P0-46 | `store/test/storefront.test.mjs`, plus a Playwright run against `wrangler dev --local` for the measured browser behaviour (CLS, computed transforms and durations, focus order) |
 | P0-49, and the storefront half of P0-24, P0-37 and P0-47 | `store/test/storefront.test.mjs` |
