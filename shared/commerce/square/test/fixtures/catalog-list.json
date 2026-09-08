@@ -1,0 +1,132 @@
+{
+  "_fixture": "ListCatalog / v2/catalog/list, types=ITEM,ITEM_VARIATION,IMAGE,CATEGORY.",
+  "_provenance": "HANDWRITTEN against Square's documented CatalogObject shape for Square-Version 2026-08-19. No Square account or access token was used to produce it, and no request was made: developer.squareup.com and connect.squareup.com are both blocked by this environment's egress proxy. Field names, nesting and the money shape ({amount, currency} in minor units) follow the published CatalogObject / CatalogItem / CatalogItemVariation / CatalogImage / CatalogCategory definitions.",
+  "objects": [
+    {
+      "type": "CATEGORY",
+      "id": "CAT_OUTERWEAR",
+      "updated_at": "2026-09-01T09:15:00.000Z",
+      "version": 1756719300000,
+      "is_deleted": false,
+      "present_at_all_locations": true,
+      "category_data": { "name": "Outerwear" }
+    },
+    {
+      "type": "IMAGE",
+      "id": "IMG_COAT_FRONT",
+      "updated_at": "2026-09-01T09:16:00.000Z",
+      "version": 1756719360000,
+      "is_deleted": false,
+      "image_data": {
+        "name": "coat front",
+        "url": "https://items-images-production.s3.us-west-2.amazonaws.com/files/coat-front/original.jpeg",
+        "caption": "Shearling-trimmed wool-blend coat, front"
+      }
+    },
+    {
+      "type": "ITEM_OPTION",
+      "id": "OPT_SIZE",
+      "updated_at": "2026-09-01T09:10:00.000Z",
+      "version": 1756719000000,
+      "is_deleted": false,
+      "item_option_data": {
+        "name": "Size",
+        "display_name": "Size",
+        "values": [
+          { "type": "ITEM_OPTION_VAL", "id": "OPTVAL_IT40", "item_option_value_data": { "item_option_id": "OPT_SIZE", "name": "IT 40" } },
+          { "type": "ITEM_OPTION_VAL", "id": "OPTVAL_IT42", "item_option_value_data": { "item_option_id": "OPT_SIZE", "name": "IT 42" } }
+        ]
+      }
+    },
+    {
+      "type": "ITEM",
+      "id": "ITEM_COAT",
+      "updated_at": "2026-09-02T11:02:00.000Z",
+      "version": 1756810920000,
+      "is_deleted": false,
+      "present_at_all_locations": true,
+      "item_data": {
+        "name": "Shearling-trimmed wool-blend coat",
+        "description_plaintext": "Square's own copy. Editorial lives in Git.",
+        "product_type": "REGULAR",
+        "image_ids": ["IMG_COAT_FRONT"],
+        "reporting_category": { "id": "CAT_OUTERWEAR", "ordinal": 0 },
+        "item_options": [{ "item_option_id": "OPT_SIZE" }],
+        "variations": [
+          {
+            "type": "ITEM_VARIATION",
+            "id": "VAR_COAT_IT40",
+            "updated_at": "2026-09-02T11:02:00.000Z",
+            "version": 1756810920000,
+            "is_deleted": false,
+            "present_at_all_locations": true,
+            "item_variation_data": {
+              "item_id": "ITEM_COAT",
+              "name": "IT 40",
+              "sku": "VEM-COAT-40",
+              "ordinal": 0,
+              "pricing_type": "FIXED_PRICING",
+              "price_money": { "amount": 560000, "currency": "USD" },
+              "track_inventory": true,
+              "item_option_values": [
+                { "item_option_id": "OPT_SIZE", "item_option_value_id": "OPTVAL_IT40" }
+              ]
+            }
+          },
+          {
+            "type": "ITEM_VARIATION",
+            "id": "VAR_COAT_IT42",
+            "updated_at": "2026-09-02T11:02:00.000Z",
+            "version": 1756810920000,
+            "is_deleted": false,
+            "present_at_all_locations": true,
+            "item_variation_data": {
+              "item_id": "ITEM_COAT",
+              "name": "IT 42",
+              "sku": "VEM-COAT-42",
+              "ordinal": 1,
+              "pricing_type": "FIXED_PRICING",
+              "price_money": { "amount": 560000, "currency": "USD" },
+              "track_inventory": true,
+              "item_option_values": [
+                { "item_option_id": "OPT_SIZE", "item_option_value_id": "OPTVAL_IT42" }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "ITEM",
+      "id": "ITEM_SCARF",
+      "updated_at": "2026-09-02T11:04:00.000Z",
+      "version": 1756811040000,
+      "is_deleted": false,
+      "present_at_all_locations": true,
+      "item_data": {
+        "name": "Double-face cashmere scarf",
+        "description_plaintext": "",
+        "product_type": "REGULAR",
+        "variations": [
+          {
+            "type": "ITEM_VARIATION",
+            "id": "VAR_SCARF_ONE",
+            "updated_at": "2026-09-02T11:04:00.000Z",
+            "version": 1756811040000,
+            "is_deleted": false,
+            "present_at_all_locations": true,
+            "item_variation_data": {
+              "item_id": "ITEM_SCARF",
+              "name": "One size",
+              "sku": "VEM-SCARF-OS",
+              "ordinal": 0,
+              "pricing_type": "FIXED_PRICING",
+              "price_money": { "amount": 52000, "currency": "USD" },
+              "track_inventory": true
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

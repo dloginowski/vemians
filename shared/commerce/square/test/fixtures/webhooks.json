@@ -1,0 +1,109 @@
+{
+  "_fixture": "The three webhook event bodies this adapter handles, plus one it does not, plus the Square Order body a RetrieveOrder returns.",
+  "_provenance": "HANDWRITTEN against Square's documented webhook event envelope (merchant_id, type, event_id, created_at, data.{type,id,object}) for Square-Version 2026-08-19. Signatures are NOT recorded: the tests compute them with node:crypto from a fixture signature key, which is the only way to prove verification actually verifies rather than to prove a stored string matches itself. No Square account, token or request was involved.",
+
+  "catalogVersionUpdated": {
+    "merchant_id": "MERCHANT_FIXTURE",
+    "type": "catalog.version.updated",
+    "event_id": "EVT_CATALOG_1",
+    "created_at": "2026-09-03T08:31:04.000Z",
+    "data": {
+      "type": "catalog_version",
+      "id": "CATALOG_VERSION",
+      "object": {
+        "catalog_version": { "updated_at": "2026-09-03T08:31:02.000Z" }
+      }
+    }
+  },
+
+  "inventoryCountUpdated": {
+    "merchant_id": "MERCHANT_FIXTURE",
+    "type": "inventory.count.updated",
+    "event_id": "EVT_INVENTORY_1",
+    "created_at": "2026-09-05T10:05:03.000Z",
+    "data": {
+      "type": "inventory.count",
+      "id": "VAR_COAT_IT40",
+      "object": {
+        "inventory_counts": [
+          {
+            "catalog_object_id": "VAR_COAT_IT40",
+            "catalog_object_type": "ITEM_VARIATION",
+            "location_id": "LOC_SQUARE_MAIN",
+            "state": "IN_STOCK",
+            "quantity": "3",
+            "calculated_at": "2026-09-05T10:05:02.000Z"
+          },
+          {
+            "catalog_object_id": "VAR_COAT_IT40",
+            "catalog_object_type": "ITEM_VARIATION",
+            "location_id": "LOC_SQUARE_SOMEWHERE_ELSE",
+            "state": "IN_STOCK",
+            "quantity": "99",
+            "calculated_at": "2026-09-05T10:05:02.000Z"
+          }
+        ]
+      }
+    }
+  },
+
+  "orderCreatedEnvelope": {
+    "merchant_id": "MERCHANT_FIXTURE",
+    "type": "order.created",
+    "event_id": "EVT_ORDER_1",
+    "created_at": "2026-09-06T12:00:04.000Z",
+    "data": {
+      "type": "order_created",
+      "id": "ORDER_FIXTURE_1",
+      "object": {
+        "order_created": {
+          "order_id": "ORDER_FIXTURE_1",
+          "version": 1,
+          "location_id": "LOC_SQUARE_MAIN",
+          "state": "OPEN",
+          "created_at": "2026-09-06T12:00:03.000Z"
+        }
+      }
+    }
+  },
+
+  "unhandledEvent": {
+    "merchant_id": "MERCHANT_FIXTURE",
+    "type": "payout.paid",
+    "event_id": "EVT_PAYOUT_1",
+    "created_at": "2026-09-06T13:00:00.000Z",
+    "data": { "type": "payout", "id": "PAYOUT_1", "object": { "payout": { "id": "PAYOUT_1" } } }
+  },
+
+  "retrievedOrder": {
+    "order": {
+      "id": "ORDER_FIXTURE_1",
+      "location_id": "LOC_SQUARE_MAIN",
+      "state": "COMPLETED",
+      "version": 3,
+      "created_at": "2026-09-06T12:00:03.000Z",
+      "line_items": [
+        {
+          "uid": "LI_1",
+          "catalog_object_id": "VAR_COAT_IT40",
+          "name": "Shearling-trimmed wool-blend coat",
+          "variation_name": "IT 40",
+          "quantity": "1",
+          "base_price_money": { "amount": 560000, "currency": "USD" },
+          "total_money": { "amount": 560000, "currency": "USD" }
+        },
+        {
+          "uid": "LI_2",
+          "catalog_object_id": "VAR_SCARF_ONE",
+          "name": "Double-face cashmere scarf",
+          "variation_name": "One size",
+          "quantity": "2",
+          "base_price_money": { "amount": 52000, "currency": "USD" },
+          "total_money": { "amount": 104000, "currency": "USD" }
+        }
+      ],
+      "total_money": { "amount": 664000, "currency": "USD" },
+      "total_tax_money": { "amount": 0, "currency": "USD" }
+    }
+  }
+}
