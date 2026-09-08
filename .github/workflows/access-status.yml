@@ -1,0 +1,33 @@
+# Read-only: what does Cloudflare Access actually think, for ops.vemians.com?
+#
+# Written because "go to the dashboard and look" has a poor record here — the
+# Zero Trust navigation moved, and several settings this repository depends on
+# were not where the docs put them. This asks the API instead, so the answer is
+# the configuration rather than a recollection of it.
+#
+# GET only. Emails are redacted to their domain before printing: a staff
+# address identifies a person, a workflow log is readable by anyone with the
+# repo, and the DOMAIN is the part that answers "is this pointed at the
+# Workspace or at a personal account".
+
+name: access-status
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: access-status
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - run: python3 .github/scripts/access-report.py
