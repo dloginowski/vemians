@@ -13,3 +13,9 @@ node_modules
 
 # Claude Code agent worktrees and local harness state
 .claude/
+
+# Python bytecode. shared/db/verify.py and .github/scripts/*.py are run
+# directly, so anything that imports or compiles one leaves a __pycache__
+# beside the source.
+__pycache__/
+*.pyc
