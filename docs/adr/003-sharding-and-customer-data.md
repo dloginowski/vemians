@@ -63,7 +63,7 @@ Splitting them resolves it. Erasing a customer deletes the row in `customers`; o
 `customer_id` that now points at nothing, and carry no PII of their own. The financial record
 survives, de-identified.
 
-Verified in `platform/db/verify.py`:
+Verified in `shared/db/verify.py`:
 
 - erasing a profile cascades to fit data and consent,
 - the order survives the erasure,

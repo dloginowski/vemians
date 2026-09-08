@@ -148,7 +148,7 @@ that does not trace to one of these is a process failure (see §12).
 15. **`Test-PRD-P0-15-money_minor_units`** — Money is stored as an **integer minor amount plus an
     explicit currency**, everywhere, in every store. No floats, no implied currency.
 16. **`Test-PRD-P0-16-commerce_port`** — All provider interaction passes through a single adapter
-    interface (`platform/commerce-port.ts`). No vendor SDK or vendor identifier appears outside an
+    interface (`shared/commerce/port.ts`). No vendor SDK or vendor identifier appears outside an
     adapter; in the database the vendor's id is the single `external_id` field alongside `channel`,
     and nothing else. Catalog and inventory project **outbound**; the provider is never
     authoritative.
@@ -374,7 +374,7 @@ run on every change to the data layer and reviewed quarterly:
 A failing Exit Test blocks merge. If we cannot delete the provider in CI, we cannot delete it in
 production either.
 
-The store-level half of this drill is implemented in `platform/db/verify.py` and passes today.
+The store-level half of this drill is implemented in `shared/db/verify.py` and passes today.
 
 ---
 
@@ -430,7 +430,7 @@ trigger, race-free because D1 serialises writes to a single writer (P0-18).
 - [ ] The storefront renders the full catalog with the provider API unreachable.
 - [ ] A customer completes a purchase; the order lands in `commerce`, normalised, once, even if
       the webhook is replayed.
-- [ ] `python3 platform/db/verify.py` and the Exit Test both pass in CI.
+- [ ] `python3 shared/db/verify.py` and the Exit Test both pass in CI.
 
 ---
 
@@ -471,7 +471,7 @@ Where each feature is enforced today:
 
 | Features | Enforced by |
 |---|---|
-| P0-01, P0-05 – P0-21, P0-30 | `platform/db/verify.py` |
+| P0-01, P0-05 – P0-21, P0-30 | `shared/db/verify.py` |
 | P0-02 – P0-04 | Build-time catalog/knowledge/report checks (M1) |
 | P0-22 – P0-25 | Access policy review + `ops` integration tests (M5) |
 | P0-26 – P0-28 | Storefront build checks and the CI image-weight budget (M2) |

@@ -48,7 +48,7 @@ than a red test, because by the time you find out it is already live.
 On success both Workers are on their `*.workers.dev` URLs immediately — no DNS, no zone, no
 Custom Domain. That is the fastest way to see the site on real Cloudflare infrastructure.
 
-It also runs automatically on every push to `main` that touches `platform/storefront/**`.
+It also runs automatically on every push to `main` that touches `store/**`, `ops/**` or `shared/**`.
 
 ## What this does not do
 

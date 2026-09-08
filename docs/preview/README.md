@@ -7,9 +7,9 @@ scripts.
 Regenerate after any storefront change:
 
 ```sh
-cd platform/storefront
+cd store
 npx wrangler dev --local --port 8801 &
-curl -s localhost:8801/ > ../../docs/preview/index.html
+curl -s localhost:8801/ > ../docs/preview/index.html
 ```
 
 ## Serving it publicly
@@ -24,7 +24,7 @@ routes below.
 **Cloudflare `workers.dev`** — the real thing rather than a snapshot, and no DNS required:
 
 ```sh
-cd platform/storefront && npx wrangler deploy
+cd store && npx wrangler deploy
 ```
 
 **A published Artifact** — no machine needed, but private until shared from the page's share

@@ -1,0 +1,19 @@
+{
+  "name": "vemians-ops",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The agentic staff Worker: Access-gated employee area, agent tools and /mcp on ops.vemians.com.",
+  "scripts": {
+    "dev": "wrangler dev --local --port 8788",
+    "deploy": "wrangler deploy",
+    "test": "node --test test/*.test.mjs",
+    "db:local": "bash migrations/apply-local.sh"
+  },
+  "devDependencies": {
+    "wrangler": "4.129.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.0.0"
+  }
+}

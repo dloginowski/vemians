@@ -89,7 +89,7 @@ is enforced by binding, not by prompt.
 
 ## Verification
 
-`platform/db/verify.py` loads each schema into SQLite and asserts the guarantees. All 15 pass:
+`shared/db/verify.py` loads each schema into SQLite and asserts the guarantees. All 15 pass:
 
 - **commerce** — webhook replay cannot duplicate an order; order lines survive with no catalog FK.
 - **people** — the agent cannot double-book; back-to-back shifts are legal; moving a shift into

@@ -1,11 +1,14 @@
 # One-time: create the D1 databases, apply the schemas, and write the real
-# database_ids back into wrangler.toml.
+# database_ids back into ops/wrangler.toml.
 #
-# wrangler.toml ships with placeholder ids so the file is readable before any
-# Cloudflare account exists. A deploy fails against those with error 10181,
-# which is what this fixes. Safe to re-run: creating an existing database is
-# treated as success, and the schemas use CREATE TABLE, so a second run against
-# a populated database is a no-op that leaves data alone.
+# The bindings live on the ops Worker and nowhere else, so this workflow only
+# ever touches ops/. The storefront package has no d1_databases block to fix.
+#
+# ops/wrangler.toml ships with real ids for this account; a fresh account gets
+# placeholders, and a deploy against those fails with error 10181, which is what
+# this fixes. Safe to re-run: creating an existing database is treated as
+# success, and the schemas use CREATE TABLE, so a second run against a populated
+# database is a no-op that leaves data alone.
 
 name: bootstrap-d1
 
@@ -37,13 +40,13 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: platform/storefront/package-lock.json
+          cache-dependency-path: ops/package-lock.json
 
       - run: npm ci
-        working-directory: platform/storefront
+        working-directory: ops
 
       - name: Create the databases
-        working-directory: platform/storefront
+        working-directory: ops
         run: |
           for s in customers identity commerce people finance audit tickets; do
             echo "::group::vemians-$s"
@@ -55,7 +58,7 @@ jobs:
           done
 
       - name: Write the real ids into wrangler.toml
-        working-directory: platform/storefront
+        working-directory: ops
         run: |
           npx wrangler d1 list --json > /tmp/d1.json
           python3 - <<'PY'
@@ -89,26 +92,26 @@ jobs:
 
       - name: Apply the schemas
         if: inputs.apply_schemas
-        working-directory: platform/storefront
+        working-directory: ops
         run: |
           for s in customers identity commerce people finance audit tickets; do
             echo "::group::schema -> vemians-$s"
             npx wrangler d1 execute "vemians-$s" --remote --yes \
-              --file="../db/$s.sql" || {
+              --file="../shared/db/$s.sql" || {
                 echo "::error::schema failed for vemians-$s"; exit 1; }
             echo "::endgroup::"
           done
 
       - name: Commit the ids
         run: |
-          if git diff --quiet -- platform/storefront/wrangler.toml; then
+          if git diff --quiet -- ops/wrangler.toml; then
             echo "wrangler.toml already correct — nothing to commit."; exit 0
           fi
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add platform/storefront/wrangler.toml
+          git add ops/wrangler.toml
           git commit -m "Resolve D1 database ids from the Cloudflare account
 
-          Replaces the placeholder ids wrangler.toml ships with, which a deploy
-          rejects with error 10181, using the real ids for this account."
+          Replaces the placeholder ids ops/wrangler.toml ships with, which a
+          deploy rejects with error 10181, using the real ids for this account."
           git push

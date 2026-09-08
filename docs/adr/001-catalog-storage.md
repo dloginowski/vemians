@@ -107,7 +107,7 @@ otherwise we oversell.
   the database requirement narrows to operational data.
 - **§8 architecture diagram** — the system of record is now Git *plus* a small database.
 - **R3.4** (vendor ids in one mapping table) — becomes a mapping *field* in product JSON.
-- **M0** — the schema in `platform/db/schema.sql` should drop its catalog tables and keep
+- **M0** — the schema in `shared/db/*.sql` should drop its catalog tables and keep
   orders, customers, employees, shifts and the audit log.
 
 ## Alternatives rejected

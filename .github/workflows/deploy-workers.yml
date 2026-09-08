@@ -1,5 +1,9 @@
 # Deploy the storefront and ops Workers to Cloudflare.
 #
+# Two packages, two Workers, two deploys: `store/` is vemians-storefront and
+# `ops/` is vemians-ops. Neither has an --env; each package's wrangler.toml is
+# the whole configuration for its own Worker.
+#
 # Runs on GitHub's infrastructure using CLOUDFLARE_API_TOKEN from repository
 # secrets. Nothing here needs a local machine, and the token is never exposed
 # to a pull request from a fork (see `pull_request` absence below — this only
@@ -18,7 +22,9 @@ on:
   push:
     branches: [main]
     paths:
-      - "platform/storefront/**"
+      - "store/**"
+      - "ops/**"
+      - "shared/**"
       - ".github/workflows/deploy-workers.yml"
 
 concurrency:
@@ -31,9 +37,6 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: platform/storefront
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
@@ -41,29 +44,37 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: platform/storefront/package-lock.json
+          cache-dependency-path: |
+            store/package-lock.json
+            ops/package-lock.json
 
       - run: npm ci
+        working-directory: store
+
+      - run: npm ci
+        working-directory: ops
 
       # Fail before touching Cloudflare, not after. A red deploy is worse than
       # a red test because it is already live when you find out.
       - name: Tests
         run: npm test
+        working-directory: ops
 
       - name: Schema checks
-        working-directory: .
-        run: python3 platform/db/verify.py
+        run: python3 shared/db/verify.py
 
       - name: Deploy storefront
         if: inputs.target == 'storefront' || inputs.target == 'both' || github.event_name == 'push'
         run: npx wrangler deploy
+        working-directory: store
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Deploy ops
         if: inputs.target == 'ops' || inputs.target == 'both' || github.event_name == 'push'
-        run: npx wrangler deploy --env ops
+        run: npx wrangler deploy
+        working-directory: ops
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

@@ -1,0 +1,65 @@
+#
+# The public storefront Worker.
+#
+#   vemians.com  public catalog, no Cloudflare Access, anyone can view
+#
+# The employee area is a separate package and a separate Worker: ../ops, name
+# `vemians-ops`. Cloudflare Access attaches to a WHOLE Worker, not to a route
+# inside one, so the two surfaces cannot share a deployment — gating this one
+# would put a login page in front of the shop. What the two DO share lives in
+# ../shared: the design tokens, the seed catalog and the page shell. Nothing
+# else crosses.
+#
+# Custom Domains, not Routes: a Custom Domain creates and manages the proxied
+# DNS record for you, which is what lets Access sit in front of the ops
+# hostname. The click-path is docs/deploy-cloudflare.md.
+#
+name = "vemians-storefront"
+main = "src/index.js"
+compatibility_date = "2026-09-07"
+
+# Serve shared/design/*.css as text modules, so the grid and the tokens are
+# imported byte-for-byte from where they are maintained rather than copied into
+# a template and left to drift.
+[[rules]]
+type = "Text"
+globs = ["**/*.css"]
+fallthrough = true
+
+[vars]
+# Pins this deployment to the public surface. This package contains no ops code
+# at all — access.js, agent.js, mcp.js and tools/ are in ../ops — so /ops is a
+# 404 here by construction. SURFACE stays as the declared identity of the
+# deployment, and src/index.js refuses to serve anything if it is ever set to
+# "ops": a build meant for the employee area must not answer as the shop.
+PUBLIC_HOST = "vemians.com"
+SURFACE     = "public"
+
+# ---------------------------------------------------------------------------
+# Custom Domains. Commented out because `wrangler deploy` will try to create
+# them, which fails until the zone is on Cloudflare (deploy-cloudflare.md §1).
+# Uncomment once the nameservers have moved, then deploy.
+#
+# [[routes]]
+# pattern      = "vemians.com"
+# custom_domain = true
+#
+# [[routes]]
+# pattern      = "www.vemians.com"
+# custom_domain = true
+
+# ---------------------------------------------------------------------------
+# NO D1 BINDINGS ON THIS WORKER, and none coming.
+#
+# The seven stores (PRD §3.1) are bound in ../ops/wrangler.toml and nowhere
+# else. The storefront renders the versioned catalog and our own R2 media; it
+# has no reason to reach customer, order, staff or finance data, and the way to
+# guarantee that is to leave the binding out rather than to write a rule about
+# not using it (Test-PRD-P0-24-binding_scoped_tools). A d1_databases block here
+# would be the moment the storefront could read a customer profile with one typo.
+#
+# Schemas live in ../shared/db/*.sql. They are applied from ../ops, which is
+# where the bindings are: `npm run db:local` there.
+
+[observability]
+enabled = true
