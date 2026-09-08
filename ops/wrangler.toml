@@ -221,7 +221,7 @@ database_id   = "9addc2c1-7f22-44be-bf93-f8e831905ce7"
 [[d1_databases]]
 binding       = "CATALOG_MIRROR"
 database_name = "vemians-catalog-mirror"
-database_id   = "PLACEHOLDER-run-wrangler-d1-create-vemians-catalog-mirror"
+database_id   = "53ecdc0e-6726-40fe-bf9a-1a3be8b2506e"
 
 # The vault. Bound here so the erasure and clienteling workflows have somewhere
 # to land when they are built (identity-skills says build them LAST), and

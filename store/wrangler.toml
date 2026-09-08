@@ -109,7 +109,7 @@ SURFACE     = "public"
 [[d1_databases]]
 binding       = "CATALOG_MIRROR"
 database_name = "vemians-catalog-mirror"
-database_id   = "PLACEHOLDER-run-wrangler-d1-create-vemians-catalog-mirror"
+database_id   = "53ecdc0e-6726-40fe-bf9a-1a3be8b2506e"
 
 [observability]
 enabled = true
