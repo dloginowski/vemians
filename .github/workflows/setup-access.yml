@@ -1,0 +1,78 @@
+# Attach the Custom Domains and create the Access application, then write the
+# AUD tag into ops/wrangler.toml and commit it.
+#
+# This needs a WIDER token than deploying does. If it fails on permissions the
+# log names the exact scope to add — that is the expected first outcome if the
+# token was scoped for deploys only.
+
+name: setup-access
+
+on:
+  workflow_dispatch:
+    inputs:
+      team_name:
+        description: Zero Trust team name (becomes <team>.cloudflareaccess.com)
+        default: vemians
+      zone:
+        description: The domain
+        default: vemians.com
+      staff_email_domain:
+        description: Only these addresses may reach ops
+        default: "@vemians.com"
+
+concurrency: { group: setup-access }
+permissions: { contents: write }
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with: { node-version: 22 }
+
+      - name: Configure Cloudflare
+        id: cf
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ACCESS_TEAM_NAME: ${{ inputs.team_name }}
+          ZONE_NAME: ${{ inputs.zone }}
+          STAFF_EMAIL_DOMAIN: ${{ inputs.staff_email_domain }}
+        run: node .github/scripts/setup-access.mjs
+
+      - name: Write the AUD into ops/wrangler.toml
+        if: steps.cf.outputs.aud != ''
+        env:
+          AUD: ${{ steps.cf.outputs.aud }}
+          TEAM_DOMAIN: ${{ steps.cf.outputs.team_domain }}
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, re
+          aud, team = os.environ["AUD"], os.environ["TEAM_DOMAIN"]
+          p = pathlib.Path("ops/wrangler.toml"); s = p.read_text()
+          for key, val in (("ACCESS_TEAM_DOMAIN", team), ("ACCESS_AUD", aud)):
+              live = f'{key:<18} = "{val}"'
+              if re.search(rf'^\s*#?\s*{key}\s*=', s, re.M):
+                  s = re.sub(rf'^\s*#?\s*{key}\s*=.*$', live, s, count=1, flags=re.M)
+              else:
+                  s = s.replace('SURFACE     = "ops"', f'SURFACE     = "ops"\n{live}', 1)
+              print(f"  {key} set")
+          p.write_text(s)
+          PY
+          grep -E 'ACCESS_(TEAM_DOMAIN|AUD)' ops/wrangler.toml
+
+      - name: Commit
+        if: steps.cf.outputs.aud != ''
+        run: |
+          git diff --quiet -- ops/wrangler.toml && { echo "already correct"; exit 0; }
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ops/wrangler.toml
+          git commit -m "Wire the Access application into the ops Worker
+
+          ACCESS_TEAM_DOMAIN and ACCESS_AUD were unset, so the Worker refused
+          every request off localhost rather than trust an assertion it could
+          not verify. With both set the same code path becomes a real RS256 and
+          audience check."
+          git push
