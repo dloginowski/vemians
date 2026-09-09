@@ -217,3 +217,41 @@ check("test_PRD_P0_23_group_derived_roles__explain_says_which_rule_granted_the_r
     }
   }
 });
+
+check("test_PRD_P0_23_group_derived_roles__policy_id_grants_the_role_the_token_actually_carries", () => {
+  const { explainRole } = accessMod;
+  const env = { OWNER_POLICY_ID: "OWNER-UUID", STAFF_POLICY_ID: "STAFF-UUID" };
+
+  /* This is the real shape: no groups anywhere, just policy_id — exactly what
+     /whoami showed on a live assertion. */
+  const owner = explainRole({ claims: { email: "d@vemians.com", policy_id: "owner-uuid" } }, env);
+  assert.equal(owner.role, "owner", "case must not decide who is an owner");
+  assert.equal(owner.via, "policy");
+
+  const staff = explainRole({ claims: { email: "s@vemians.com", policy_id: "STAFF-UUID" } }, env);
+  assert.equal(staff.role, "staff");
+
+  /* Admitted by the catch-all, which maps to no role: nothing, not staff. */
+  const other = explainRole({ claims: { email: "x@vemians.com", policy_id: "685682ec-catchall" } }, env);
+  assert.equal(other.role, null, "an unmapped policy grants nothing rather than the lowest role");
+});
+
+check("test_PRD_P0_23_group_derived_roles__a_group_still_wins_over_a_policy", () => {
+  const { explainRole } = accessMod;
+  const both = explainRole(
+    { claims: { email: "d@vemians.com", groups: ["vemians-owner"], policy_id: "STAFF-UUID" } },
+    { OWNER_POLICY_ID: "OWNER-UUID", STAFF_POLICY_ID: "STAFF-UUID" },
+  );
+  assert.equal(both.role, "owner", "a provider that does pass groups through must not be overridden");
+  assert.equal(both.via, "group");
+});
+
+check("test_PRD_P0_23_group_derived_roles__an_unset_policy_var_never_matches_an_empty_claim", () => {
+  /* The dangerous case: with OWNER_POLICY_ID unset, "" === "" must NOT make
+     everyone an owner. */
+  const { explainRole } = accessMod;
+  const out = explainRole({ claims: { email: "x@vemians.com" } }, { STAFF_POLICY_ID: "S" });
+  assert.equal(out.role, null);
+  const out2 = explainRole({ claims: { email: "x@vemians.com", policy_id: "" } }, {});
+  assert.equal(out2.role, null);
+});

@@ -229,9 +229,49 @@ export function explainRole(identity, env = {}) {
     }
   }
 
+  /*
+   * POLICY ID, which is what Cloudflare actually sends.
+   *
+   * Access Groups gate which POLICY admits you; they are not claims. The token
+   * carries `policy_id` and nothing group-shaped — verified by asking a real
+   * assertion what it held, after a dashboard full of roles produced
+   * groups_seen: []. So the group check above stays for a provider that does
+   * pass groups through, and this is the rule that fires here.
+   *
+   * It reads the FIRST matching policy, because Access evaluates by precedence
+   * and stops. That is why setup-policies puts owner at 1: a catch-all ahead of
+   * it would win, and the owner would arrive holding staff tools.
+   */
+  const policy = String(claims.policy_id || "").toLowerCase();
+  const byPolicy = {
+    owner: String(env.OWNER_POLICY_ID || "").toLowerCase(),
+    manager: String(env.MANAGER_POLICY_ID || "").toLowerCase(),
+    staff: String(env.STAFF_POLICY_ID || "").toLowerCase(),
+  };
+  if (policy) {
+    for (const role of ["owner", "manager", "staff"]) {
+      if (byPolicy[role] && byPolicy[role] === policy) {
+        return { role, via: "policy", matched: policy, groups: found, expects: wanted };
+      }
+    }
+  }
+
   const fallback = String(env.DEFAULT_ROLE || "").toLowerCase();
   if (fallback && ROLE_ORDER.includes(fallback)) {
+    /* Lives here rather than in roleFor because roleFor now delegates, and a
+       warning that only fired on one of two paths would stop being a record of
+       anything. A role nobody granted should be visible in the log. */
+    console.warn(
+      `WARNING access: ${claims.email ?? "unknown"} matched no group and no policy; ` +
+        `granting DEFAULT_ROLE=${fallback}. Remove it from ops/wrangler.toml once ` +
+        "OWNER_POLICY_ID and STAFF_POLICY_ID are set — it grants that role to everyone Access admits.",
+    );
     return { role: fallback, via: "DEFAULT_ROLE", matched: null, groups: found, expects: wanted };
+  }
+  if (fallback) {
+    console.error(
+      `ERROR access: DEFAULT_ROLE=${JSON.stringify(env.DEFAULT_ROLE)} is not one of ${ROLE_ORDER.join(", ")} — granting nothing`,
+    );
   }
   return {
     role: null,
@@ -243,50 +283,8 @@ export function explainRole(identity, env = {}) {
 }
 
 export function roleFor(identity, env = {}) {
-  const claims = identity?.claims || identity || {};
-  const groups = new Set(groupsFrom(claims));
-  const named = (v, fallback) => String(v || fallback).toLowerCase();
-  if (groups.has(named(env.OWNER_GROUP, "vemians-owner"))) return "owner";
-  if (groups.has(named(env.MANAGER_GROUP, "vemians-manager"))) return "manager";
-  if (groups.has(named(env.STAFF_GROUP, "vemians-staff"))) return "staff";
-
-  /*
-   * NO GROUP MATCHED. Before ADR-012's Square roster exists, that is the normal
-   * case rather than the exceptional one: a one-time PIN carries no groups at
-   * all, and plain Google carries none unless a Workspace administrator has
-   * built them. Without this the first real person to sign in gets a null role,
-   * which means an empty ops page and ZERO tools over MCP — a working login
-   * that looks like a broken product.
-   *
-   * DEFAULT_ROLE is the bridge, and it is deliberately narrow:
-   *
-   *   - Unset means null, so this fails closed exactly as before. Nothing
-   *     changes for a deployment that does not opt in.
-   *   - It is only reached when NO group matched, so a real group mapping
-   *     always wins and adding groups later needs no code change.
-   *   - It must name a real role; a typo grants nothing rather than
-   *     everything.
-   *   - Every use logs a WARNING naming the person, because a role nobody
-   *     granted should be visible in the record rather than silent.
-   *
-   * What it costs, stated: everyone Cloudflare Access admits gets this role.
-   * Access admits `email_domain: vemians.com`, so today that is the owner and
-   * nobody else — but the day a shop assistant joins the Workspace, they get it
-   * too. That is why this is a bridge and not a design, and why P0-51 replaces
-   * it with Square's team list.
-   */
-  const fallback = String(env.DEFAULT_ROLE || "").toLowerCase();
-  if (fallback && ROLE_ORDER.includes(fallback)) {
-    console.warn(
-      `WARNING access: ${claims.email ?? "unknown"} matched no group; granting DEFAULT_ROLE=${fallback}. ` +
-        "This is a bridge until the Square roster lands (ADR-012); it grants that role to everyone Access admits.",
-    );
-    return fallback;
-  }
-  if (fallback) {
-    console.error(
-      `ERROR access: DEFAULT_ROLE=${JSON.stringify(env.DEFAULT_ROLE)} is not one of ${ROLE_ORDER.join(", ")} — granting nothing`,
-    );
-  }
-  return null;
+  /* One rule, one implementation. This used to restate explainRole's checks and
+     the two would have drifted the moment policy_id was added to only one of
+     them — the failure this repository has produced three times. */
+  return explainRole(identity, env).role;
 }

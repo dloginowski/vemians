@@ -47,21 +47,24 @@ fallthrough = true
 OPS_HOST = "ops.vemians.com"
 SURFACE  = "ops"
 
-# TEMPORARY, and it grants a real role — read this before leaving it alone.
+# Cloudflare Access POLICY -> role. This is what the token actually carries:
+# Access Groups gate which policy admits you and are NOT claims, so `policy_id`
+# is the only thing to key on. Verified by asking a real assertion what it held.
 #
-# A one-time PIN carries no group claims, and plain Google carries none unless
-# a Workspace administrator has built them. So the first real sign-in matched no
-# group, got a null role, and would have seen an empty ops page and zero tools
-# over MCP: a working login that looks like a broken product.
+# Access evaluates by precedence and stops at the first match, so the ORDER of
+# the policies matters more than these ids do — owner sits at precedence 1
+# ahead of the staff catch-all. .github/workflows/setup-policies.yml owns that
+# ordering and prints it before and after.
 #
-# DEFAULT_ROLE applies ONLY when no group matched, so a real group mapping
-# always wins. What it costs: EVERYONE Cloudflare Access admits gets this role.
-# Access admits email_domain vemians.com, so today that is the owner alone —
-# but a shop assistant added to the Workspace tomorrow becomes an owner here.
-#
-# Delete this line the moment either exists: Workspace groups, or ADR-012's
-# Square team roster (P0-51). Every use logs a WARNING naming the person.
-DEFAULT_ROLE = "owner"
+# Not secrets: a policy id identifies a rule, not a person, and grants nothing
+# on its own.
+OWNER_POLICY_ID = "56e4eee0-443b-4d80-ae5d-8ce00ee037b5"
+STAFF_POLICY_ID = "f6e1649c-68af-4152-b93b-29341f7024f4"
+
+# DEFAULT_ROLE IS GONE, and that is the point of the two lines above. It granted
+# owner to everyone Cloudflare Access admitted — fine while one person had an
+# account, wrong the day a second did. Roles are now granted by the policy that
+# let you in, and someone in no role-bearing policy gets nothing.
 
 # Cloudflare Access group -> role (P0-23). Defaults are these exact names, so
 # set them only if the Workspace groups are called something else. Roles are
