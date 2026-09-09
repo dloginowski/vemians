@@ -1,5 +1,10 @@
-# Create the R2 bucket and the KV namespace the ops Worker binds, and write the
-# KV id back into ops/wrangler.toml.
+# Create the KV namespace the ops Worker binds, and write its id back into
+# ops/wrangler.toml.
+#
+# R2 WAS HERE AND IS NOT ANY MORE. ADR-013 dropped the bucket: Square holds the
+# photographs. Leaving the bucket step in place meant a permission we no longer
+# need could fail the run BEFORE it reached the namespace we do need — which is
+# exactly what happened, twice.
 #
 # Everything for agentic catalog authoring was written and none of it was
 # wired: `catalog.upload_image` had no bucket to put a photograph in, and every
@@ -26,7 +31,6 @@ permissions:
   contents: write
 
 env:
-  BUCKET: vemians-media
   KV_TITLE: vemians-approvals
 
 jobs:
@@ -47,18 +51,6 @@ jobs:
       - run: npm ci
         working-directory: ops
 
-      - name: Create the R2 bucket
-        working-directory: ops
-        run: |
-          if npx wrangler r2 bucket create "$BUCKET" >/tmp/r2.log 2>&1; then
-            cat /tmp/r2.log
-          elif grep -qiE 'already (exists|owned)|10004' /tmp/r2.log; then
-            echo "$BUCKET already exists — nothing to do."
-          else
-            cat /tmp/r2.log
-            echo "::error::could not create $BUCKET"; exit 1
-          fi
-
       - name: Create the KV namespace
         working-directory: ops
         run: |
@@ -71,7 +63,7 @@ jobs:
             echo "::error::could not create $KV_TITLE"; exit 1
           fi
 
-      - name: Activate the APPROVALS and MEDIA bindings
+      - name: Activate the APPROVALS binding
         run: |
           (cd ops && npx wrangler kv namespace list) > /tmp/kv.json
           python3 .github/scripts/resolve-kv-id.py /tmp/kv.json ops/wrangler.toml "$KV_TITLE"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Activate the APPROVALS and MEDIA bindings in a wrangler.toml.
+"""Activate the APPROVALS binding in a wrangler.toml.
 
 Usage: resolve-kv-id.py <kv-list-json> <wrangler.toml> <namespace title>
 
@@ -53,13 +53,6 @@ def main(list_path, toml_path, title):
     live_kv = ('[[kv_namespaces]]\n'
                'binding = "APPROVALS"\n'
                f'id      = "{real}"')
-    commented_r2 = ('# [[r2_buckets]]\n'
-                    '# binding     = "MEDIA"\n'
-                    '# bucket_name = "vemians-media"')
-    live_r2 = ('[[r2_buckets]]\n'
-               'binding     = "MEDIA"\n'
-               'bucket_name = "vemians-media"')
-
     if commented_kv in s:
         print(f"  APPROVALS: activating with id {real}")
         s = s.replace(commented_kv, live_kv, 1)
@@ -74,11 +67,9 @@ def main(list_path, toml_path, title):
             print(f"  APPROVALS: {m.group(2)[:28]}… -> {real}")
             s = pat.sub(lambda _: m.group(1) + real + m.group(3), s, count=1)
 
-    if commented_r2 in s:
-        print("  MEDIA: activating (R2 binds by name, so there is no id)")
-        s = s.replace(commented_r2, live_r2, 1)
-    else:
-        print("  MEDIA: already active.")
+    # MEDIA is deliberately NOT activated. ADR-013 dropped the bucket, and a
+    # binding to a bucket that does not exist fails the whole ops deploy — the
+    # outage this script was rewritten to prevent.
 
     p.write_text(s)
 
@@ -86,7 +77,7 @@ def main(list_path, toml_path, title):
     for found in re.findall(r'^id\s*=\s*"([^"]+)"', s, re.M):
         if not UUID_ISH.match(found):
             raise SystemExit(f"::error::a kv id is still not real: {found!r}")
-    print("APPROVALS and MEDIA are live.")
+    print("APPROVALS is live.")
 
 
 if __name__ == "__main__":
