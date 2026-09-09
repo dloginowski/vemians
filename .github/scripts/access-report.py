@@ -153,6 +153,24 @@ for a in apps:
                 print(f"        {bucket}: {json.dumps(redact(rules))}")
 
 
+section("access groups, and who they actually hold")
+# A policy that includes a GROUP admits nobody the group does not hold, and the
+# group's membership is not visible from the policy. When the owner policy is
+# group-based — ours is — an empty or wrong group is indistinguishable, from
+# outside, from a person having no role: they fall through to the catch-all,
+# whose id no var names, and the Worker grants nothing.
+_groups, _gerr = get(f"accounts/{ACCOUNT}/access/groups")
+if _gerr:
+    print(f"  could not read groups — {_gerr}")
+else:
+    for _g in _groups or []:
+        print(f"  {_g.get('name')!r}  id={_g.get('id')}")
+        for _bucket in ("include", "exclude", "require"):
+            _rules = _g.get(_bucket) or []
+            if _rules:
+                print(f"      {_bucket}: {json.dumps(redact(_rules))}")
+
+
 section("do the Worker's policy vars match the live policies")
 # The comparison nobody could make from a dashboard: the ids committed in
 # ops/wrangler.toml against the ids the account is actually serving. A stale id
