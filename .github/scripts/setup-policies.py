@@ -89,19 +89,36 @@ print("\nstep 2 — the role policies")
 ids = {}
 failed = False
 for name, precedence, include in WANTED:
-    body = {"name": name, "decision": "allow", "include": include, "precedence": precedence}
+    # CREATE WITHOUT A PRECEDENCE, THEN SET IT. Creating with precedence 1 was
+    # rejected as "must be unique" even with slot 1 demonstrably free a moment
+    # earlier — the uniqueness check evidently sees a view that has not caught
+    # up with the move. Letting Cloudflare place it and then moving it is two
+    # calls and no race.
     if name in existing:
-        out, err = call("PUT", f"accounts/{ACCOUNT}/access/apps/{APP}/policies/{existing[name]['id']}", body)
+        pid = existing[name]["id"]
         verb = "updated"
     else:
-        out, err = call("POST", f"accounts/{ACCOUNT}/access/apps/{APP}/policies", body)
+        out, err = call(
+            "POST", f"accounts/{ACCOUNT}/access/apps/{APP}/policies",
+            {"name": name, "decision": "allow", "include": include},
+        )
+        if err:
+            failed = True
+            print(f"::error::{name}: could not create — {err}")
+            continue
+        pid = out["result"]["id"]
         verb = "created"
+
+    out, err = call(
+        "PUT", f"accounts/{ACCOUNT}/access/apps/{APP}/policies/{pid}",
+        {"name": name, "decision": "allow", "include": include, "precedence": precedence},
+    )
     if err:
         failed = True
-        print(f"::error::{name}: {err}")
+        print(f"::error::{name}: {verb}, but could not set precedence {precedence} — {err}")
         continue
-    ids[name] = out["result"]["id"]
-    print(f"  {name}: {verb}, precedence {precedence}, id={ids[name]}")
+    ids[name] = pid
+    print(f"  {name}: {verb}, precedence {precedence}, id={pid}")
 
 after, _ = call("GET", f"accounts/{ACCOUNT}/access/apps/{APP}/policies")
 print("\nafter:")
