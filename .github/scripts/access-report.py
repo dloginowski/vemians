@@ -82,6 +82,19 @@ else:
     auth = (org or {}).get("auth_domain")
     print(f"  name:        {(org or {}).get('name')!r}")
     print(f"  auth_domain: {auth}")
+
+    # is_ui_read_only LOCKS the whole Zero Trust dashboard. If it is on, every
+    # "why can't I add this" has one answer and it is not the thing being
+    # added. Worth printing before anyone hunts for a menu again.
+    locked = (org or {}).get("is_ui_read_only")
+    print(f"  is_ui_read_only: {locked}")
+    if locked:
+        print("  -> THE DASHBOARD IS LOCKED. Nothing in Zero Trust can be changed by anyone")
+        print("     until this is turned off. It is not the setting you are trying to add.")
+    for k in ("created_at", "updated_at", "session_duration", "ui_read_only_toggle_reason",
+              "user_seat_expiration_inactive_time", "auto_redirect_to_identity"):
+        if k in (org or {}):
+            print(f"  {k}: {org[k]}")
     configured = committed_team_domain()
     if auth and auth != configured:
         print(f"  MISMATCH: ops/wrangler.toml has ACCESS_TEAM_DOMAIN = {configured!r}")
