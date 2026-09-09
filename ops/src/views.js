@@ -148,7 +148,42 @@ const CLIPBOARD = `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="
   `<rect x="4.5" y="2.5" width="7" height="2.5" rx="0.6" fill="none" stroke="currentColor"/>` +
   `<path d="M4.5 3.75H3.5v9.75h9V3.75h-1" fill="none" stroke="currentColor"/></svg>`;
 
-function copyLine(text, { wrap = false } = {}) {
+/* The behaviour half of copyLine, as a string, so the front page and the
+   identity page share one implementation rather than two that drift. */
+export const COPY_JS = `/* One delegated listener for every copy button on the page. The button reads
+   the <pre> beside it, so a button can never copy something other than the
+   text shown above it, and adding a copyable line adds no script. */
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-copy]");
+  if (!b) return;
+  const src = b.parentElement.querySelector("pre");
+  if (!src) return;
+  try {
+    await navigator.clipboard.writeText(src.textContent);
+    b.dataset.state = "ok";
+    b.title = "Copied";
+  } catch (err) {
+    /* Clipboard is refused without a secure context or a user gesture the
+       browser believes in. Select the text so the person can copy it by hand
+       rather than leaving a button that silently did nothing — and say so,
+       rather than showing a tick for something that did not happen. */
+    console.error("clipboard write failed", err);
+    const r = document.createRange();
+    r.selectNodeContents(src);
+    const sel = getSelection();
+    sel.removeAllRanges();
+    sel.addRange(r);
+    b.dataset.state = "manual";
+    b.title = "Selected — copy it yourself";
+  }
+  setTimeout(() => {
+    delete b.dataset.state;
+    b.title = "Copy";
+  }, 2000);
+});
+`;
+
+export function copyLine(text, { wrap = false } = {}) {
   /* The button says nothing. Its label is a clipboard and an aria-label, so it
      stays a tap target rather than a word competing with the line it copies —
      and the confirmation is a state on the same button, not a layout shift. */
@@ -222,7 +257,7 @@ ${id}
     <h1>Connect your assistant</h1>
     <p class="hint">Paste this into your Claude or ChatGPT to get started.</p>
     ${copyLine(mcpUrl)}
-    <p class="hint">Then ask it for something.</p>
+    <p class="hint">Then say this, so it learns how we do things.</p>
     ${copyLine("Read the vemians skills, then tell me what you can do here.", { wrap: true })}
     ${copyLine("Find every black boot in the catalog and show me what is out of stock.", { wrap: true })}
     ${copyLine("Here is a photo. Draft a product from it: brand, name, description, price.", { wrap: true })}
@@ -241,9 +276,8 @@ ${rosterRows(roster, identity, role, roleVia)}
         </table>
       </div>
       ${rosterNote ? `<p>${esc(rosterNote)}</p>` : ""}
-      <p>Roles are granted in Cloudflare Access and read from your sign-in. This page cannot change
-         one, and neither can any assistant connected to it — the employee area holds no key that
-         could.</p>
+      <p>Jobs are set when someone is given access, and read from your sign-in. Nothing on this
+         page can change one, and neither can any assistant you connect &mdash; not even yours.</p>
       <div class="scroll">
         <table>
           <thead><tr><th>Role</th><th>Tools</th><th>Can reach</th></tr></thead>
@@ -261,41 +295,36 @@ ${perRole
 
     <details>
       <summary>How this works</summary>
+      <p>You are talking to your own assistant. It is talking to the shop.</p>
       <ul>
-        <li>Cloudflare Access checks who you are before this page or your assistant answers at all.</li>
-        <li>The first thing to ask for is the skills. ${skills.length} of them are readable at your
-            role — the closed category set, the two gates on price and publish, how a photograph
-            gets in. Your assistant guesses less once it has read them.</li>
-        <li>Your role decides which tools exist. A tool your role may not use is not offered to the
-            assistant, so it cannot try it and cannot tell you it was refused.</li>
-        <li>Reads happen immediately. Anything that writes stops: your assistant hands you a link,
-            you read what is about to happen, and you press the button. It runs under your name,
-            never the assistant's.</li>
-        <li>Every call is recorded against the person who made it.</li>
+        <li><strong>You sign in with your Vemians email.</strong> No second password. If you can
+            read this page, you are already signed in.</li>
+        <li><strong>Ask it to read the rules first.</strong> That is the line in step two above. It
+            is a short manual on how we do things here, and your assistant is much better once it
+            has read it.</li>
+        <li><strong>Looking things up is instant.</strong> What is in stock, what something costs,
+            what sold last week. Just ask.</li>
+        <li><strong>Changing things stops and waits for you.</strong> Ask it to add a product or set
+            a price and it does not just do it. It sends you a link. You open the link, read what is
+            about to happen, and press a button. Nothing changes until you press it.</li>
+        <li><strong>Everything is filed under your name</strong>, not the assistant's.</li>
+        <li><strong>You only get the parts of the shop your job needs.</strong> Anything else is
+            simply not there for you, so you cannot break it by accident.</li>
       </ul>
     </details>
 
     <details>
       <summary>Something is not working</summary>
-      <p><strong>Your assistant says 401.</strong> The sign-in did not finish. Open this page in the
-         same browser, then reconnect.</p>
-      <p><strong>Wrong account.</strong> <a href="/whoami">/whoami</a> says exactly what the sign-in
-         handed us and where your role came from.</p>
-      <p><strong>It says it has no tools.</strong> Your identity reached the door but matched no
-         role. Ask whoever set up Access to add you to a policy.</p>
-    </details>
-
-    <details>
-      <summary>Ask here instead</summary>
-      <p>Posts to <code>/ops/agent</code> with the same role filter. Fine for a quick look; the
-         connected path above is the real one.</p>
-      ${bindingsLine(bindings, hasKey)}
-      <div class="log" id="log"></div>
-      <div id="gate"></div>
-      <form class="chat" id="chat" method="post" action="/ops/agent">
-        <input name="q" id="q" placeholder="Ask about the catalog, orders, stock or the schedule" autocomplete="off">
-        <button type="submit">Send</button>
-      </form>
+      <p><strong>Your assistant asks you to sign in and nothing happens.</strong> Open this page
+         first in the same browser, sign in here, then try connecting again.</p>
+      <p><strong>It says it cannot do anything, or you see "role: none" at the top of this
+         page.</strong> Sign out and sign back in &mdash; that usually fixes it, because your
+         browser can be holding an old sign-in from before you were added.
+         <a href="/cdn-cgi/access/logout">Sign out now</a>, then come back here.</p>
+      <p><strong>Still stuck?</strong> Open <a href="/whoami">the check-me page</a>. It says in
+         plain words what is wrong, and gives you something to send on.</p>
+      <p><strong>Wrong email.</strong> Sign out, and pick your Vemians address when the Google
+         chooser appears.</p>
     </details>
 
     <details class="aside" id="for-assistants">
@@ -322,6 +351,19 @@ ${perRole
          }</p>
       <p><strong>Identity.</strong> The actor and the role come from the Access assertion on every
          request. They are never arguments; a call whose arguments mention either is refused.</p>
+    </details>
+
+    <details class="aside">
+      <summary>Ask here instead</summary>
+      <p>A box for a quick question without connecting anything. Your own assistant, set up at the
+         top of this page, is the one worth using.</p>
+      ${bindingsLine(bindings, hasKey)}
+      <div class="log" id="log"></div>
+      <div id="gate"></div>
+      <form class="chat" id="chat" method="post" action="/ops/agent">
+        <input name="q" id="q" placeholder="Ask about the catalog, orders, stock or the schedule" autocomplete="off">
+        <button type="submit">Send</button>
+      </form>
     </details>
 
     <details class="aside">
@@ -354,37 +396,7 @@ ${customers
   </div>
 </main>
 <script>
-/* One delegated listener for every copy button on the page. The button reads
-   the <pre> beside it, so a button can never copy something other than the
-   text shown above it, and adding a copyable line adds no script. */
-document.addEventListener("click", async (e) => {
-  const b = e.target.closest("[data-copy]");
-  if (!b) return;
-  const src = b.parentElement.querySelector("pre");
-  if (!src) return;
-  try {
-    await navigator.clipboard.writeText(src.textContent);
-    b.dataset.state = "ok";
-    b.title = "Copied";
-  } catch (err) {
-    /* Clipboard is refused without a secure context or a user gesture the
-       browser believes in. Select the text so the person can copy it by hand
-       rather than leaving a button that silently did nothing — and say so,
-       rather than showing a tick for something that did not happen. */
-    console.error("clipboard write failed", err);
-    const r = document.createRange();
-    r.selectNodeContents(src);
-    const sel = getSelection();
-    sel.removeAllRanges();
-    sel.addRange(r);
-    b.dataset.state = "manual";
-    b.title = "Selected — copy it yourself";
-  }
-  setTimeout(() => {
-    delete b.dataset.state;
-    b.title = "Copy";
-  }, 2000);
-});
+${COPY_JS}
 
 const log = document.getElementById("log");
 const gate = document.getElementById("gate");
@@ -476,6 +488,90 @@ document.getElementById("chat").addEventListener("submit", async (e) => {
   );
 }
 
+/*
+ * /whoami, for a person.
+ *
+ * The endpoint answered JSON, which is the right answer for a tool and the
+ * wrong one for the shopkeeper who has been told to open it: "role": null is a
+ * fact, not an explanation, and nobody reading it learns that signing out and
+ * back in is what fixes it. So a browser gets this page and everything else
+ * still gets the JSON.
+ *
+ * It says the one thing that is true and useful in each case, and hands over a
+ * copyable block for the case where it is neither.
+ */
+export function whoamiPage(detail) {
+  const ok = Boolean(detail.role);
+  const source =
+    detail.role_from === "policy"
+      ? "the rule that let you in"
+      : detail.role_from === "group"
+        ? "your group"
+        : detail.role_from || "nothing yet";
+
+  /* The whole answer, for sending on when the page cannot resolve it. Pretty
+     printed, because it is going into a message to a person. */
+  const dump = JSON.stringify(detail, null, 2);
+
+  const verdict = ok
+    ? `<p class="lead">You are set up. Your assistant can use everything an
+         <strong>${esc(detail.role)}</strong> is allowed to use.</p>
+       <p><a href="/">Back to the start page</a></p>`
+    : `<p class="lead">You are signed in, but you have not been given a job here yet, so your
+         assistant cannot do anything useful.</p>
+       <h2>Try this first</h2>
+       <p>Sign out and sign back in. Your browser can hold on to an old sign-in from before you
+          were added, and that old sign-in is what this page is reading.</p>
+       ${copyLine("Sign out, then open ops.vemians.com again", { wrap: true })}
+       <p><a class="signout" href="/cdn-cgi/access/logout">Sign out now</a></p>
+       <h2>If that did not work</h2>
+       <p>Send this to whoever set up access for you. It is everything they need and none of it
+          is secret.</p>`;
+
+  return page(
+    "Who you are",
+    `<div class="bar">ops.vemians.com &middot; employees only</div>
+<main class="ops">
+  <p class="eyebrow">check me</p>
+  <h1>${ok ? "You are good to go" : "Not quite set up yet"}</h1>
+
+  <table class="me">
+    <tbody>
+      <tr><th scope="row">Signed in as</th><td>${esc(detail.email ?? "unknown")}</td></tr>
+      <tr><th scope="row">Your job here</th><td>${esc(detail.role ?? "none yet")}</td></tr>
+      <tr><th scope="row">Set by</th><td>${esc(source)}</td></tr>
+      <tr><th scope="row">Sign-in checked</th><td>${detail.verified ? "yes" : "no"}</td></tr>
+    </tbody>
+  </table>
+
+  ${verdict}
+
+  ${ok ? "" : copyLine(dump, { wrap: true })}
+
+  <details class="aside">
+    <summary>The full detail</summary>
+    ${ok ? copyLine(dump, { wrap: true }) : ""}
+    <p>Same thing as JSON, for anything that is not a person:
+       add <code>?format=json</code> to this address.</p>
+  </details>
+</main>
+<script>
+${COPY_JS}
+</script>`,
+    OPS_CSS + WHOAMI_CSS,
+  );
+}
+
+const WHOAMI_CSS = `
+h1 { font-size: var(--type); font-weight: 700; margin: 4px 0 16px; }
+h2 { font-size: var(--type); font-weight: 700; margin: 24px 0 8px; }
+.lead { margin: 0 0 16px; max-width: 34rem; }
+.me { border-collapse: collapse; width: 100%; max-width: 34rem; margin-bottom: 20px; }
+.me th, .me td { text-align: left; padding: 8px 16px 8px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+.me th { font-weight: 400; color: #666; font-size: var(--eyebrow); width: 40%; }
+.signout { display: inline-block; border: 1px solid var(--ink); padding: 10px 20px; text-decoration: none; color: var(--ink); margin-top: 4px; }
+`;
+
 export function refusalPage(status, reason) {
   return page(
     "Refused",
@@ -483,7 +579,8 @@ export function refusalPage(status, reason) {
 <main class="ops">
   <h2>${status} &mdash; refused</h2>
   <p>${esc(reason)}</p>
-  <p class="note">This surface is served only behind Cloudflare Access. The Worker fails closed when no verified Access assertion is present.</p>
+  <p class="note">This page is for Vemians staff and asks you to sign in first. If you are staff and
+     landed here, sign in with your Vemians email and try again.</p>
 </main>`,
   );
 }

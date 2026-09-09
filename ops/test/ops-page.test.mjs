@@ -215,6 +215,85 @@ check("test_PRD_P0_35_approval_out_of_band__the_page_tells_a_person_a_write_stop
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
+ * P0-23 — /whoami is the page a person is sent to when their role is wrong,
+ *         so it has to answer them, not only a terminal
+ * ───────────────────────────────────────────────────────────────────────── */
+
+const UNMAPPED = { email: "someone@example.test", policy_id: "a-policy-no-var-names" };
+
+async function whoami(claims, { accept = "text/html", query = "" } = {}) {
+  const res = await worker.fetch(
+    new Request(`http://localhost/whoami${query}`, {
+      headers: { "Cf-Access-Jwt-Assertion": assertion(claims), accept },
+    }),
+    ENV,
+  );
+  return { status: res.status, type: res.headers.get("content-type"), body: await res.text() };
+}
+
+check("test_PRD_P0_23_group_derived_roles__whoami_answers_a_person_in_a_browser", async () => {
+  /* It answered JSON to everyone, and was then handed to the shopkeeper as the
+     thing to open when their role reads none. `"role": null` is a fact, not an
+     explanation. */
+  const { type, body } = await whoami(UNMAPPED);
+  assert.match(type, /text\/html/);
+  assert.match(body, /<h1>/, "a person gets a page, not a payload");
+  assert.doesNotMatch(body.slice(0, 200), /^\s*\{/, "the page must not open with raw JSON");
+});
+
+check("test_PRD_P0_23_group_derived_roles__whoami_still_answers_json_to_everything_else", async () => {
+  /* The diagnostic that made the role bug findable must not be taken away from
+     the terminal to give a page to the browser. */
+  const asked = await whoami(UNMAPPED, { accept: "application/json" });
+  assert.match(asked.type, /application\/json/);
+  assert.equal(JSON.parse(asked.body).role, null);
+
+  const forced = await whoami(UNMAPPED, { query: "?format=json" });
+  assert.match(forced.type, /application\/json/, "?format=json wins over an HTML Accept");
+  assert.equal(JSON.parse(forced.body).policy_seen, UNMAPPED.policy_id);
+});
+
+check("test_PRD_P0_23_group_derived_roles__a_person_with_no_role_is_told_what_to_do", async () => {
+  const { body } = await whoami(UNMAPPED);
+  /* The usual cause is a browser holding a sign-in minted before the person was
+     added, and the fix is signing out. Naming the cause without the fix is what
+     the JSON already did. */
+  assert.match(body, /Sign out/i, "the page must name the fix");
+  assert.match(body, /\/cdn-cgi\/access\/logout/, "and link to it");
+  /* And it hands over something to send on, in one piece, copyable. */
+  assert.match(body, /policy_seen/, "the full answer must be on the page for forwarding");
+  assert.match(body, /data-copy/, "and it must be copyable rather than selected by hand");
+});
+
+check("test_PRD_P0_23_group_derived_roles__a_person_with_a_role_is_not_shown_a_problem", async () => {
+  const { body } = await whoami(OWNER);
+  assert.match(body, /owner/);
+  assert.doesNotMatch(body, /Sign out now/, "nothing to fix, so nothing that looks like a fix");
+});
+
+check("test_PRD_P0_54_skill_discovery__the_page_explains_itself_without_jargon", async () => {
+  /* The audience is a shopkeeper, not an engineer. These words all appeared in
+     the visible copy and every one of them is ours, not theirs. The folded
+     developer block is exempt — that IS written for a machine. */
+  const { body } = await frontPage(OWNER);
+  const visible = body.slice(0, body.indexOf('<details class="aside" id="for-assistants">'));
+  /* PROSE only. The inlined stylesheet is full of class names a person never
+     sees, and the address itself is the one piece of our vocabulary that has to
+     stay — it is what they paste. Strip both before reading. */
+  const text = visible
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\S*:\/\/\S+/g, " ");
+  for (const jargon of ["Cloudflare Access", "tier", "T0", "T1", "T2", "MCP", "endpoint", "tool"]) {
+    assert.ok(
+      !new RegExp(`\\b${jargon}\\b`, "i").test(text),
+      `"${jargon}" is our vocabulary, not the reader's — it belongs in the folded block`,
+    );
+  }
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
  * P0-22 — the surface is Access-gated, and the onboarding page is no
  *         exception to it
  * ───────────────────────────────────────────────────────────────────────── */

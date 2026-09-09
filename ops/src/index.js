@@ -36,7 +36,7 @@ import { ROLES } from "./tools/roles.js";
 import { contentTypeFor, verifyUploadTicket } from "./tools/media.js";
 import { mediaStoreFor } from "./tools/index.js";
 import { syncFromSquare } from "./sync.js";
-import { approvalPage, approvalResultPage, opsPage, refusalPage } from "./views.js";
+import { approvalPage, approvalResultPage, opsPage, refusalPage, whoamiPage } from "./views.js";
 
 const html = (body, status = 200) =>
   new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8" } });
@@ -296,7 +296,7 @@ async function ops(request, env, path) {
   if (path === "/whoami") {
     const detail = explainRole(identity, env);
     const claims = identity?.claims ?? {};
-    return json({
+    const body = {
       email: claims.email ?? null,
       verified: Boolean(identity.verified),
       role: detail.role,
@@ -338,7 +338,22 @@ async function ops(request, env, path) {
               : claims.policy_id
                 ? "No role. The policy that admitted you is in policy_seen and matches none of policies_expected — compare them: if policy_seen is not among them, the ids in ops/wrangler.toml are stale and need replacing with the live ones."
                 : "No role, and the token carries no policy_id at all. This identity reached the door under something this Worker cannot read.",
-    });
+    };
+
+    /*
+     * A PERSON GETS A PAGE. Everything else gets the JSON.
+     *
+     * This endpoint was written for me, reading a terminal, and then handed to
+     * the shopkeeper as the thing to open when their role reads none. `"role":
+     * null` is a fact and not an explanation: nobody learns from it that a
+     * browser holding a sign-in from before they were added is the usual cause,
+     * or that signing out fixes it. The page says that. `?format=json` and any
+     * client that does not ask for HTML still get exactly what they got before.
+     */
+    const wantsJson =
+      new URL(request.url).searchParams.get("format") === "json" ||
+      !(request.headers.get("accept") || "").includes("text/html");
+    return wantsJson ? json(body) : html(whoamiPage(body));
   }
 
   if (path === "" || path === "/") {
