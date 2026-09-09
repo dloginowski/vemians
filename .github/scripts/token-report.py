@@ -35,6 +35,12 @@ PROBES = [
      "Workers KV Storage", "bootstrap-resources -> durable T2 approvals"),
     ("Access apps", f"accounts/{ACCOUNT}/access/apps",
      "Access: Apps and Policies", "access-status"),
+    # The roles live here. Creating one policy per role means naming the groups
+    # in the include rules by ID, so this read is not optional — it is the
+    # difference between doing the job and guessing at it.
+    ("Access groups (the roles)", f"accounts/{ACCOUNT}/access/groups",
+     "Access: Organizations, Identity Providers, and Groups",
+     "reading the roles, to reference them in per-role policies"),
     ("Access identity providers", f"accounts/{ACCOUNT}/access/identity_providers",
      "Access: Organizations, Identity Providers, and Groups",
      "access-status — telling whether an IdP exists at all"),
