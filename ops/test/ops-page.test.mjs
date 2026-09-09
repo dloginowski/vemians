@@ -149,20 +149,38 @@ check("test_PRD_P0_54_skill_discovery__the_copyable_command_is_the_whole_command
   assert.equal(parts.length, 7, "name and URL, nothing missing and nothing extra");
 });
 
-check("test_PRD_P0_54_skill_discovery__only_the_connect_command_is_open_at_rest", async () => {
-  /* The page has one job for almost everyone: hand over the command, once.
-     Everything else — roster, tier rules, the machine contract, the seed data —
-     is a closed row. A fold that ships open puts a wall of text in front of the
-     one thing the reader came for, so assert both halves: nothing is open, and
-     the command is above the first fold. */
+check("test_PRD_P0_54_skill_discovery__only_the_address_and_the_prompts_are_open_at_rest", async () => {
+  /* The page has one job for almost everyone: hand over the address to paste
+     into their own assistant, and show them what to say next. Everything else —
+     roster, tier rules, the machine contract, the seed data — is a closed row.
+
+     The `claude mcp add` invocation is NOT that job. It is a terminal command
+     for the few people who have one, so it belongs in the developer fold; a
+     person told to paste a shell line into a chat window is being asked to
+     debug our vocabulary before they can start. */
   const { body } = await frontPage(OWNER);
   assert.doesNotMatch(body, /<details[^>]*\sopen/, "no accordion row may ship expanded");
 
   const main = body.slice(body.indexOf("<main"));
-  const command = main.indexOf("claude mcp add");
   const firstFold = main.indexOf("<details");
-  assert.ok(command > -1 && firstFold > -1);
-  assert.ok(command < firstFold, "the connect command must sit above the accordion, not inside it");
+  assert.ok(firstFold > -1);
+
+  const open = main.slice(0, firstFold);
+  assert.ok(open.includes("/mcp"), "the address must be above the accordion");
+  assert.ok(open.includes("Read the vemians skills"), "and so must the first thing to say");
+  assert.ok(!open.includes("claude mcp add"), "a shell command is not what a chat user pastes");
+  assert.ok(main.slice(firstFold).includes("claude mcp add"), "but it must still be on the page");
+});
+
+check("test_PRD_P0_54_skill_discovery__the_copy_control_is_an_icon_with_a_reachable_label", async () => {
+  /* An icon-only control is a control with no name unless it carries one. */
+  const { body } = await frontPage(OWNER);
+  const buttons = body.match(/<button type="button" data-copy[^>]*>/g) ?? [];
+  assert.ok(buttons.length >= 4, `expected a copy control per line, saw ${buttons.length}`);
+  for (const b of buttons) {
+    assert.match(b, /aria-label="Copy"/, "an icon button must be named for anything not looking at it");
+  }
+  assert.doesNotMatch(body, /data-copy[^>]*>Copy</, "the label is the aria-label, not visible text");
 });
 
 check("test_PRD_P0_54_skill_discovery__folding_hides_nothing_from_a_machine_reader", async () => {

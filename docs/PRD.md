@@ -449,8 +449,11 @@ that does not trace to one of these is a process failure (see §12).
 
     **The front page is part of the discovery surface.** `ops.vemians.com/` is what a new coworker
     is sent, and what someone pastes into an assistant, so it carries both audiences in one
-    document. **One thing is open at rest** — the identity line and the copyable `claude mcp add`
-    command — because connecting an assistant is what nearly everyone is there to do, once. The
+    document. **One thing is open at rest** — the address to paste into an assistant, and the
+    first few things to say to it — because that is what nearly everyone is there to do, once. The
+    `claude mcp add` invocation is not that: it is a terminal command for the few people who have
+    one, and it lives in the developer fold, because a person told to paste a shell line into a chat
+    window is being asked to debug our vocabulary before they can start. The
     roster, the tier rules, the troubleshooting, the machine-readable contract and the seed data are
     **closed accordion rows in small print**, ordered by how many people will ever open them. The
     whole page fits a phone screen without scrolling. Folding costs the machine reader nothing: a

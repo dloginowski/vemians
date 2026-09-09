@@ -52,15 +52,25 @@ const OPS_CSS = `
   font-family: ui-monospace, Menlo, Consolas, monospace;
 }
 .copy.wrap { align-items: flex-start; }
-.copy.wrap pre { overflow-x: visible; white-space: pre-wrap; word-break: break-word; }
-/* A button stretched down the side of a three-line prompt reads as a column,
-   not a control. Fixed height, top-aligned with the first line of the text. */
-.copy.wrap button { min-height: 36px; }
+/* A sentence you say to an assistant is not code. It wraps, and it wears the
+   body face — monospace here would make three plain requests look like config. */
+.copy.wrap pre {
+  overflow-x: visible; white-space: pre-wrap; word-break: break-word;
+  font-family: var(--face); font-size: var(--type);
+}
+/* Top-aligned with the first line of a prompt that wraps to three. */
 .copy button {
   flex: 0 0 auto; font: inherit; font-size: var(--eyebrow);
-  padding: 0 10px; cursor: pointer;
-  border: 1px solid var(--ink); background: var(--ground); color: var(--ink);
+  width: 34px; height: 34px; padding: 0; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--rule); background: var(--ground); color: var(--ink);
 }
+.copy button:hover { border-color: var(--ink); }
+/* The confirmation replaces the icon in place — same box, same width, so the
+   line beside it does not move when someone taps. */
+.copy button[data-state] svg { display: none; }
+.copy button[data-state="ok"]::after { content: "\\2713"; }
+.copy button[data-state="manual"]::after { content: "\\2715"; }
 
 /* The accordion. Every row is one line at rest; everything inside one is small
    print, because a person who opened a fold is reading, not scanning. */
@@ -134,8 +144,16 @@ function opsShifts(week) {
  * wraps, because it is a sentence and a sentence clipped at the right edge of a
  * 390px screen cannot be read at all.
  */
+const CLIPBOARD = `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">` +
+  `<rect x="4.5" y="2.5" width="7" height="2.5" rx="0.6" fill="none" stroke="currentColor"/>` +
+  `<path d="M4.5 3.75H3.5v9.75h9V3.75h-1" fill="none" stroke="currentColor"/></svg>`;
+
 function copyLine(text, { wrap = false } = {}) {
-  return `<div class="copy${wrap ? " wrap" : ""}"><pre>${esc(text)}</pre><button type="button" data-copy>Copy</button></div>`;
+  /* The button says nothing. Its label is a clipboard and an aria-label, so it
+     stays a tap target rather than a word competing with the line it copies —
+     and the confirmation is a state on the same button, not a layout shift. */
+  return `<div class="copy${wrap ? " wrap" : ""}"><pre>${esc(text)}</pre>` +
+    `<button type="button" data-copy aria-label="Copy" title="Copy">${CLIPBOARD}</button></div>`;
 }
 
 function bindingsLine(bindings, hasKey) {
@@ -202,24 +220,15 @@ ${id}
 
   <section class="key">
     <h1>Connect your assistant</h1>
-    <p class="hint">Paste into Claude Code. Once per machine.</p>
-    ${copyLine(`claude mcp add --transport http vemians ${mcpUrl}`)}
-    <p class="hint">No terminal? Add this as a connector in Claude or ChatGPT.</p>
+    <p class="hint">Paste this into your Claude or ChatGPT to get started.</p>
     ${copyLine(mcpUrl)}
+    <p class="hint">Then ask it for something.</p>
+    ${copyLine("Read the vemians skills, then tell me what you can do here.", { wrap: true })}
+    ${copyLine("Find every black boot in the catalog and show me what is out of stock.", { wrap: true })}
+    ${copyLine("Here is a photo. Draft a product from it: brand, name, description, price.", { wrap: true })}
   </section>
 
   <div class="acc">
-
-    <details>
-      <summary>What to say to it first</summary>
-      ${copyLine("Read the vemians skills, then tell me what you can do here.", { wrap: true })}
-      <p>${skills.length} skill${skills.length === 1 ? "" : "s"} are readable at your role. They are the
-         house rules — the closed category set, the two gates on price and publish, how a photograph
-         gets in. It guesses less once it has read them.</p>
-      <p>After that, plain sentences:</p>
-      ${copyLine("Find every black boot in the catalog and show me what is out of stock.", { wrap: true })}
-      ${copyLine("Here is a photo. Draft a product from it: brand, name, description, price.", { wrap: true })}
-    </details>
 
     <details>
       <summary>Who has what</summary>
@@ -253,7 +262,10 @@ ${perRole
     <details>
       <summary>How this works</summary>
       <ul>
-        <li>Cloudflare Access checks who you are before this page or the endpoint answers at all.</li>
+        <li>Cloudflare Access checks who you are before this page or your assistant answers at all.</li>
+        <li>The first thing to ask for is the skills. ${skills.length} of them are readable at your
+            role — the closed category set, the two gates on price and publish, how a photograph
+            gets in. Your assistant guesses less once it has read them.</li>
         <li>Your role decides which tools exist. A tool your role may not use is not offered to the
             assistant, so it cannot try it and cannot tell you it was refused.</li>
         <li>Reads happen immediately. Anything that writes stops: your assistant hands you a link,
@@ -293,6 +305,8 @@ ${perRole
       <p><strong>Endpoint.</strong> <code>${esc(mcpUrl)}</code>, MCP over HTTP, behind Cloudflare
          Access. Unauthenticated requests get 401 with a <code>WWW-Authenticate</code> challenge and
          the protected-resource metadata.</p>
+      <p><strong>Claude Code.</strong> One line, once per machine:</p>
+      ${copyLine(`claude mcp add --transport http vemians ${mcpUrl}`)}
       <p><strong>Start by reading the skills.</strong> Call <code>skills_list</code>, then
          <code>skills_read</code> for each one, before calling anything else. They carry the argument
          shapes, the refusal rules and the house conventions that are not inferable from the tool
@@ -350,20 +364,26 @@ document.addEventListener("click", async (e) => {
   if (!src) return;
   try {
     await navigator.clipboard.writeText(src.textContent);
-    b.textContent = "Copied";
+    b.dataset.state = "ok";
+    b.title = "Copied";
   } catch (err) {
     /* Clipboard is refused without a secure context or a user gesture the
        browser believes in. Select the text so the person can copy it by hand
-       rather than leaving a button that silently did nothing. */
+       rather than leaving a button that silently did nothing — and say so,
+       rather than showing a tick for something that did not happen. */
     console.error("clipboard write failed", err);
     const r = document.createRange();
     r.selectNodeContents(src);
     const sel = getSelection();
     sel.removeAllRanges();
     sel.addRange(r);
-    b.textContent = "Press copy";
+    b.dataset.state = "manual";
+    b.title = "Selected — copy it yourself";
   }
-  setTimeout(() => (b.textContent = "Copy"), 2000);
+  setTimeout(() => {
+    delete b.dataset.state;
+    b.title = "Copy";
+  }, 2000);
 });
 
 const log = document.getElementById("log");
