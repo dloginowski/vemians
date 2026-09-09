@@ -1,0 +1,21 @@
+# Which Cloudflare permissions does CLOUDFLARE_API_TOKEN actually carry?
+#
+# Read-only. Every probe is a LIST — the cheapest read in each product — and
+# the report names the exact permission to add for each one that is refused.
+name: token-report
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - run: python3 .github/scripts/token-report.py
