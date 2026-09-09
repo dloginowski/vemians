@@ -32,8 +32,13 @@ compatibility_flags = ["nodejs_compat"]
 # template and left to drift.
 [[rules]]
 type = "Text"
-globs = ["**/*.css"]
+globs = ["**/*.css", "**/*.md"]
 fallthrough = true
+
+# *.md is here for skills/<name>/SKILL.md (Test-PRD-P0-54-skill_discovery).
+# A connecting agent reads the skill text from the bundle, so what it reads is
+# byte-for-byte what is in the repository at deploy time — there is no second
+# copy to drift, which is the same reason the design tokens are imported.
 
 [vars]
 # Hostname routing. SURFACE pins this deployment to the employee area; unset it
