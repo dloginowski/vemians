@@ -162,7 +162,8 @@ test("test_PRD_P0_30_prd_traceability__every_label_used_here_exists_in_the_prd",
  * P0-23 — DEFAULT_ROLE, the bridge until a roster exists
  * ───────────────────────────────────────────────────────────────────────── */
 
-const { roleFor } = await import("../src/access.js");
+const accessMod = await import("../src/access.js");
+const { roleFor } = accessMod;
 
 check("test_PRD_P0_23_group_derived_roles__a_group_always_beats_the_default", () => {
   const staffIdentity = { claims: { email: "a@vemians.com", groups: ["vemians-staff"] } };
@@ -190,4 +191,29 @@ check("test_PRD_P0_23_group_derived_roles__a_misspelled_default_grants_nothing",
   const identity = { claims: { email: "a@vemians.com" } };
   assert.equal(roleFor(identity, { DEFAULT_ROLE: "admin" }), null);
   assert.equal(roleFor(identity, { DEFAULT_ROLE: "superuser" }), null);
+});
+
+check("test_PRD_P0_23_group_derived_roles__explain_says_which_rule_granted_the_role", () => {
+  const { explainRole } = accessMod;
+
+  const byGroup = explainRole({ claims: { email: "a@vemians.com", groups: ["Vemians-Manager"] } }, {});
+  assert.equal(byGroup.role, "manager");
+  assert.equal(byGroup.via, "group", "a group match must be distinguishable from a fallback");
+  assert.equal(byGroup.matched, "vemians-manager");
+
+  const byDefault = explainRole({ claims: { email: "a@vemians.com" } }, { DEFAULT_ROLE: "owner" });
+  assert.equal(byDefault.role, "owner");
+  assert.equal(byDefault.via, "DEFAULT_ROLE", "so 'my roles are not arriving' is answerable, not guessable");
+  assert.deepEqual(byDefault.groups, [], "and the empty group list is the evidence");
+
+  const nothing = explainRole({ claims: { email: "a@vemians.com" } }, {});
+  assert.equal(nothing.role, null);
+
+  /* explainRole and roleFor must never disagree — one rule, two callers. */
+  for (const env of [{}, { DEFAULT_ROLE: "owner" }, { DEFAULT_ROLE: "nonsense" }]) {
+    for (const groups of [[], ["vemians-staff"], ["vemians-owner"], ["unrelated"]]) {
+      const id = { claims: { email: "a@vemians.com", groups } };
+      assert.equal(explainRole(id, env).role, roleFor(id, env), `disagreed for ${JSON.stringify({ env, groups })}`);
+    }
+  }
 });
