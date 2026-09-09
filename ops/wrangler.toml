@@ -69,28 +69,6 @@ ACCESS_TEAM_DOMAIN = "vonvemian.cloudflareaccess.com"
 ACCESS_AUD         = "8bacd393c1fededc1d257745149eb6d0cc0797a762941d1421a5a8a3c108018f"
 
 # ---------------------------------------------------------------------------
-# Custom Domain. Commented out because `wrangler deploy` will try to create it,
-# which fails until the zone is on Cloudflare (deploy-cloudflare.md §1).
-# Uncomment once the nameservers have moved, then deploy.
-#
-# [[routes]]
-# pattern      = "ops.vemians.com"
-# custom_domain = true
-
-# ---------------------------------------------------------------------------
-# Pending T2 approvals for POST /mcp (ADR-007). A T2 tool called over MCP parks
-# its intent here and returns a link; the write happens when a human approves it
-# in a browser. WITHOUT this binding the intents live in a per-isolate Map and an
-# approval link dies with its isolate — fine for `wrangler dev`, a launch blocker
-# for ops.vemians.com. The Worker logs a WARNING on every T2 call until it exists.
-#
-#   npx wrangler kv namespace create vemians-approvals
-#
-# [[kv_namespaces]]
-# binding = "APPROVALS"
-# id      = "<id>"
-
-# ---------------------------------------------------------------------------
 # Square, for agentic catalog authoring (ADR-009). The agent writes to SQUARE —
 # the same target the till writes to — and our mirror follows by sync. Set the
 # token as a SECRET, never as a var:
@@ -106,6 +84,31 @@ ACCESS_AUD         = "8bacd393c1fededc1d257745149eb6d0cc0797a762941d1421a5a8a3c1
 # words of configuration actually missing. A live shop is production; flip this
 # to "sandbox" to test, and remember the TOKEN has to be the matching one.
 SQUARE_ENV = "production"
+
+# ---------------------------------------------------------------------------
+# Custom Domain. Commented out because `wrangler deploy` will try to create it,
+# which fails until the zone is on Cloudflare (deploy-cloudflare.md §1).
+# Uncomment once the nameservers have moved, then deploy.
+#
+# [[routes]]
+# pattern      = "ops.vemians.com"
+# custom_domain = true
+
+# ---------------------------------------------------------------------------
+# Pending T2 approvals for POST /mcp (ADR-007). A T2 tool called over MCP parks
+# its intent here and returns a link; the write happens when a human approves it
+# in a browser. WITHOUT this binding the intents live in a per-isolate Map and an
+# approval link dies with its isolate — fine for `wrangler dev`, a launch blocker
+# for ops.vemians.com. The Worker logs a WARNING on every T2 call until it exists.
+#
+# Created and resolved by .github/workflows/bootstrap-resources.yml, the same
+# way the D1 ids are — the placeholder below is not a UUID, so that workflow's
+# check refuses to deploy against it.
+
+[[kv_namespaces]]
+binding = "APPROVALS"
+id      = "PLACEHOLDER-run-bootstrap-resources-for-vemians-approvals"
+
 #
 # SQUARE_LOCATION_ID is Square's single location (ADR-009 open question 2,
 # answered: one). LOCATION_ID is OURS, the uuid on a stock ledger row — the two
@@ -153,11 +156,13 @@ enabled = true
 # so the item looks right on the till; losing Square must not lose our
 # photography, which is only true while the original never lived only there.
 #
-#   npx wrangler r2 bucket create vemians-media
-#
-# [[r2_buckets]]
-# binding     = "MEDIA"
-# bucket_name = "vemians-media"
+# Created by .github/workflows/bootstrap-resources.yml. An R2 binding is by
+# NAME, not by id, so there is nothing to resolve afterwards — the bucket
+# either exists or the deploy says so.
+
+[[r2_buckets]]
+binding     = "MEDIA"
+bucket_name = "vemians-media"
 
 # ---------------------------------------------------------------------------
 # D1 bindings.
