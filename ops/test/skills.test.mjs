@@ -157,3 +157,37 @@ test("test_PRD_P0_30_prd_traceability__every_label_used_here_exists_in_the_prd",
     assert.ok(prd.includes(label), `${label} is used here but is not a PRD feature`);
   }
 });
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-23 — DEFAULT_ROLE, the bridge until a roster exists
+ * ───────────────────────────────────────────────────────────────────────── */
+
+const { roleFor } = await import("../src/access.js");
+
+check("test_PRD_P0_23_group_derived_roles__a_group_always_beats_the_default", () => {
+  const staffIdentity = { claims: { email: "a@vemians.com", groups: ["vemians-staff"] } };
+  assert.equal(
+    roleFor(staffIdentity, { DEFAULT_ROLE: "owner" }),
+    "staff",
+    "a real group mapping must win, or adding groups later would silently do nothing",
+  );
+});
+
+check("test_PRD_P0_23_group_derived_roles__no_group_and_no_default_is_still_null", () => {
+  const identity = { claims: { email: "a@vemians.com" } };
+  assert.equal(roleFor(identity, {}), null, "unset DEFAULT_ROLE must fail closed exactly as before");
+});
+
+check("test_PRD_P0_23_group_derived_roles__the_default_applies_only_when_no_group_matched", () => {
+  const identity = { claims: { email: "a@vemians.com" } };
+  assert.equal(roleFor(identity, { DEFAULT_ROLE: "manager" }), "manager");
+  assert.equal(roleFor(identity, { DEFAULT_ROLE: "OWNER" }), "owner", "case is not the user's problem");
+});
+
+check("test_PRD_P0_23_group_derived_roles__a_misspelled_default_grants_nothing", () => {
+  /* A typo must not become an escalation, and must not become a silent
+     downgrade either — it grants NOTHING, loudly. */
+  const identity = { claims: { email: "a@vemians.com" } };
+  assert.equal(roleFor(identity, { DEFAULT_ROLE: "admin" }), null);
+  assert.equal(roleFor(identity, { DEFAULT_ROLE: "superuser" }), null);
+});
