@@ -623,7 +623,10 @@ export const catalogWriteTools = {
     async run(args, t) {
       const images = [];
       for (const key of args.images ?? []) {
-        const original = await t.media.bytes(key);
+        /* attachable(), not bytes(): with no bucket the photograph is already
+           in Square and comes back as an image ref, and re-sending the pixels
+           would make a second CatalogImage for one photograph. */
+        const original = await t.media.attachable(key);
         if (!original) return { error: `the original at '${key}' disappeared between the check and the write` };
         images.push({ ...original, caption: args.title });
       }
@@ -722,7 +725,8 @@ export const catalogWriteTools = {
     async run(args, t) {
       const images = [];
       for (const key of args.images ?? []) {
-        const original = await t.media.bytes(key);
+        /* attachable(), for the same reason as create_product above. */
+        const original = await t.media.attachable(key);
         if (!original) return { error: `the original at '${key}' disappeared between the check and the write` };
         images.push({ ...original, caption: args.title ?? t.preflight.existing.title });
       }

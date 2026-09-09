@@ -377,9 +377,27 @@ that does not trace to one of these is a process failure (see §12).
 ### 3.9 Provider independence and traceability
 
 29. **`Test-PRD-P0-29-exit_test`** — Provider independence is a **CI check** (§7), not a claim.
-    Deleting a provider must leave catalog, media, orders, schedule and finance intact, remove every
+    Deleting a provider must leave catalog, orders, schedule and finance intact, remove every
     vendor identifier, and leave the storefront building and rendering. A failing Exit Test blocks
     merge.
+
+    **Media is excluded, deliberately (ADR-013).** With no R2 bucket bound, Square holds the only
+    copy of a photograph and the exit is an export taken *before* the account closes. This clause
+    used to say media survived provider deletion; that stopped being true when the bucket was
+    dropped, and a requirement that quietly reads as satisfied is worse than one that admits its
+    scope. Binding `MEDIA` restores it with no code change.
+29a. **`Test-PRD-P0-55-square_held_media`** — Where no bucket is bound, photographs are uploaded
+    **directly to Square** and Square holds the only copy. The key is minted before the bytes
+    arrive, so the mapping from our key to Square's image id is carried by Square's own searchable
+    `CatalogImage.name` rather than by a table here: the store is the index.
+
+    The two stores present **one surface** and `mediaStoreFor(env)` chooses between them, with the
+    signed upload link minted by a single shared function — the browser that posts the bytes and the
+    agent that minted the ticket must reach the same store, and two implementations that re-derive
+    a route or a date format do not stay in agreement. Originals are never overwritten on either
+    path. `bytes()` on the Square path **refuses by name** rather than returning empty, so a caller
+    cannot read "we hold no pixels" as "there is no image".
+
 30. **`Test-PRD-P0-30-prd_traceability`** — Every check in a PRD-backed test file carries a
     `Test-PRD-*` label, and every label used must exist in this PRD. The test files enforce this
     themselves, so a renamed or invented label fails the run rather than drifting silently.
@@ -664,6 +682,7 @@ Where each feature is enforced today:
 | P0-02 – P0-04 | Build-time catalog/knowledge/report checks (M1) |
 | P0-22 – P0-25 | Access policy review + `ops` integration tests (M5) |
 | P0-54 | `ops/test/skills.test.mjs` |
+| P0-55 | `ops/test/media-square.test.mjs`, over a stubbed Square uploader |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
 | P0-26 – P0-28 | Storefront build checks and the CI image-weight budget (M2) |
 | P0-42 – P0-46 | `store/test/storefront.test.mjs`, plus a Playwright run against `wrangler dev --local` for the measured browser behaviour (CLS, computed transforms and durations, focus order) |

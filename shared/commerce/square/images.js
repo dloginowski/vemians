@@ -111,25 +111,77 @@ export function createImageUploader(env, opts = {}) {
     idempotencySeed,
   }) {
     if (!objectId) throw new SquareError("attach: no catalog object id");
+    return postImage({
+      objectId,
+      bytes,
+      contentType,
+      filename,
+      caption,
+      idempotencySeed: idempotencySeed ?? objectId,
+      label: "attach",
+    });
+  }
+
+  /**
+   * Upload a photograph that belongs to NO item yet, tagged with a name we
+   * choose.
+   *
+   * This is the path that exists because we hold no bucket. `name` is a
+   * searchable attribute on Square's CatalogImage, so the name IS the index:
+   * findByName() gets the image back without us keeping a table mapping our
+   * keys to Square's ids. Square stores the photograph and remembers what we
+   * called it, which is the whole of the arrangement.
+   *
+   * @param name  our media key. Becomes CatalogImage.image_data.name.
+   */
+  async function upload({ name, bytes, contentType, filename = "image.jpg", caption = "" }) {
+    if (!name) throw new SquareError("upload: no name to tag the image with");
+    return postImage({
+      objectId: null,
+      name,
+      bytes,
+      contentType,
+      filename,
+      caption,
+      idempotencySeed: name,
+      label: "upload",
+    });
+  }
+
+  async function postImage({
+    objectId,
+    name = null,
+    bytes,
+    contentType,
+    filename,
+    caption,
+    idempotencySeed,
+    label,
+  }) {
     const body = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes ?? []);
-    if (body.byteLength === 0) throw new SquareError("attach: no image bytes");
+    if (body.byteLength === 0) throw new SquareError(`${label}: no image bytes`);
     if (body.byteLength > SQUARE_IMAGE_MAX_BYTES) {
       throw new SquareError(
-        `attach: ${body.byteLength} bytes exceeds Square's ${SQUARE_IMAGE_MAX_BYTES}-byte catalog image limit`,
+        `${label}: ${body.byteLength} bytes exceeds Square's ${SQUARE_IMAGE_MAX_BYTES}-byte catalog image limit`,
       );
     }
     if (!squareAcceptsType(contentType)) {
-      throw new SquareError(`attach: Square does not accept ${contentType} as a catalog image`);
+      throw new SquareError(`${label}: Square does not accept ${contentType} as a catalog image`);
     }
 
     const request = {
-      idempotency_key: idempotencyKey(`image:${idempotencySeed ?? objectId}`),
-      object_id: objectId,
+      idempotency_key: idempotencyKey(`image:${idempotencySeed}`),
+      /* Omitted entirely when there is no item yet — Square reads a present
+         null as an object it cannot find. */
+      ...(objectId ? { object_id: objectId } : {}),
       image: {
         type: "IMAGE",
         /* A client-supplied temp id; Square answers with the real one. */
         id: "#new-image",
-        image_data: { caption: String(caption ?? "").slice(0, 255) },
+        image_data: {
+          caption: String(caption ?? "").slice(0, 255),
+          ...(name ? { name: String(name) } : {}),
+        },
       },
     };
 
@@ -191,7 +243,11 @@ export function createImageUploader(env, opts = {}) {
             requestPath: "/v2/catalog/images",
           });
         }
-        return { imageRef: image.id, url: image.image_data?.url ?? "" };
+        return {
+          imageRef: image.id,
+          url: image.image_data?.url ?? "",
+          name: image.image_data?.name ?? name ?? "",
+        };
       }
 
       const errors = Array.isArray(payload.errors) ? payload.errors : [];
@@ -216,5 +272,61 @@ export function createImageUploader(env, opts = {}) {
     }
   }
 
-  return { attach, baseUrl, version: SQUARE_VERSION };
+  /**
+   * Find an image we uploaded, by the name we gave it.
+   *
+   * SearchCatalogObjects with an exact_query on `name`, restricted to IMAGE.
+   * This is what replaces a local table: the question "did that upload land,
+   * and what is its Square id" is answered by Square, which is also the only
+   * place the photograph exists.
+   *
+   * @returns {Promise<{imageRef, url, name}|null>} null when there is no such image
+   */
+  async function findByName(name) {
+    if (!name) return null;
+    const url = new URL("/v2/catalog/search", baseUrl).toString();
+    const res = await fetchImpl(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Square-Version": SQUARE_VERSION,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        object_types: ["IMAGE"],
+        query: { exact_query: { attribute_name: "name", attribute_value: String(name) } },
+        limit: 1,
+      }),
+    });
+
+    const text = await res.text();
+    let payload = {};
+    try {
+      payload = text ? JSON.parse(text) : {};
+    } catch {
+      payload = {};
+    }
+
+    if (!res.ok) {
+      console.error(
+        `ERROR square/images: POST /v2/catalog/search failed ${res.status} — ${describeErrors(payload.errors ?? [])}`,
+      );
+      throw new SquareError(`Square image lookup failed with ${res.status}`, {
+        status: res.status,
+        errors: payload.errors ?? [],
+        requestPath: "/v2/catalog/search",
+      });
+    }
+
+    const found = (payload.objects ?? [])[0];
+    if (!found?.id) return null;
+    return {
+      imageRef: found.id,
+      url: found.image_data?.url ?? "",
+      name: found.image_data?.name ?? String(name),
+    };
+  }
+
+  return { attach, upload, findByName, baseUrl, version: SQUARE_VERSION };
 }

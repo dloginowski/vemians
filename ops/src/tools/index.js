@@ -54,7 +54,8 @@ import { createSquareCatalogWriter } from "./catalog-writer.js";
 import { catalogTools } from "./catalog.js";
 import { catalogWriteTools } from "./catalog-write.js";
 import { commerceTools } from "./commerce.js";
-import { createMediaStore } from "./media.js";
+import { createMediaStore, createSquareMediaStore } from "./media.js";
+import { createImageUploader } from "../../../shared/commerce/square/images.js";
 import { customerTools } from "./customers.js";
 import { financeTools } from "./finance.js";
 import { peopleTools } from "./people.js";
@@ -182,13 +183,30 @@ function scopedStores(tool, env) {
  * use. A missing resource is a hard failure, never a silent undefined that the
  * tool body then dereferences halfway through a write.
  */
+/*
+ * Which media store this deployment has.
+ *
+ * R2 when the bucket is bound; Square when it is not. Not a fallback so much
+ * as a choice already made (ADR-013): with no bucket, Square holds the only
+ * copy of a photograph, and the exit plan is to export from Square before
+ * leaving rather than to keep a mirror as you go.
+ *
+ * Both are announced at INFO, because "where did that photograph go" should be
+ * answerable from a log rather than by reading wrangler.toml.
+ */
+export function mediaStoreFor(env) {
+  if (env?.MEDIA) return createMediaStore(env.MEDIA, env);
+  console.info("INFO media: no MEDIA bucket bound — photographs go to Square, which holds the only copy");
+  return createSquareMediaStore(createImageUploader(env), env);
+}
+
 function scopedResources(tool, ctx) {
   const out = {};
   for (const resource of tool.resources ?? []) {
     if (resource === "square") {
       out.square = ctx.square ?? createSquareCatalogWriter(ctx.env, { commerceDb: ctx.env?.COMMERCE ?? null });
     } else if (resource === "media") {
-      out.media = ctx.media ?? createMediaStore(ctx.env?.MEDIA, ctx.env ?? {});
+      out.media = ctx.media ?? mediaStoreFor(ctx.env ?? {});
     }
     if (!out[resource]) throw new Error(`resource '${resource}' is not available on this Worker`);
   }

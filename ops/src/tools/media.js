@@ -163,6 +163,125 @@ export async function verifyUploadTicket({ secret, key, actor, expiresAt, signat
  * @param bucket  the R2 binding (env.MEDIA)
  * @param env     read for MEDIA_SIGNING_KEY and OPS_HOST
  */
+/*
+ * The signed link the human opens, minted identically whichever store is
+ * behind it. Shared rather than written twice: the two stores must agree on
+ * the route, the parameter names and the date format, and the only way to
+ * guarantee that is for there to be one of them.
+ */
+function ticketUrl(env, opsOrigin) {
+  return async function uploadUrl({ key, actor, now = Date.now() }) {
+    const ticket = await mintUploadTicket({ secret: env.MEDIA_SIGNING_KEY, key, actor, now });
+    const url = new URL("/media/upload", opsOrigin());
+    url.searchParams.set("key", ticket.key);
+    url.searchParams.set("exp", String(ticket.expiresAt));
+    url.searchParams.set("sig", ticket.signature);
+    return { url: url.toString(), expires_at: new Date(ticket.expiresAt).toISOString() };
+  };
+}
+
+/*
+ * The same surface, backed by SQUARE instead of a bucket.
+ *
+ * Built after a deliberate decision to drop R2: "If we leave Square, we will
+ * just download them when we're leaving." That trade is real and it is theirs
+ * to make — what it costs is written down in ADR-013 rather than discovered.
+ *
+ * The trick that removes the need for a local mapping table: Square's
+ * CatalogImage carries a searchable `name`, so we upload with `name` set to
+ * OUR key and ask Square for it back later. Square is the store AND the index.
+ * A table mapping our keys to Square ids would be a second thing to keep
+ * correct, and the only place the bytes exist is Square either way.
+ *
+ * `bytes()` is deliberately absent-by-refusal rather than faked. R2 could hand
+ * back the original; Square hands back a URL. Anything needing the actual
+ * pixels must fetch that URL, and pretending otherwise would make a caller
+ * think it held something it does not.
+ */
+export function createSquareMediaStore(uploader, env = {}) {
+  if (!uploader || typeof uploader.upload !== "function") {
+    console.error("ERROR media: no Square image uploader — refusing to construct a media store");
+    throw new Error("no Square uploader available for media storage");
+  }
+
+  const opsOrigin = () => `https://${env.OPS_HOST || "ops.vemians.com"}`;
+
+  return {
+    kind: "square",
+
+    /** Did that upload land? Asks Square, because Square is where it went. */
+    async head(key) {
+      if (!isOurMediaKey(key)) return null;
+      const found = await uploader.findByName(key);
+      if (!found) return null;
+      return { key, image_ref: found.imageRef, url: found.url, kind: "square" };
+    },
+
+    /*
+     * What the catalog writer needs to put this photograph on an item.
+     *
+     * The R2 store answers with BYTES, because Square has never seen them. This
+     * one answers with an IMAGE REF, because the upload already went to Square
+     * and re-sending the same pixels would create a second CatalogImage for one
+     * photograph. The writer branches on which it got.
+     */
+    async attachable(key) {
+      const found = await this.head(key);
+      if (!found) return null;
+      return { key, imageRef: found.image_ref, url: found.url, source: "square" };
+    },
+
+    async bytes(_key) {
+      /* Named, not silent. A caller that wanted pixels gets told where they
+         are rather than an empty result it might treat as "no image". */
+      throw new Error(
+        "this deployment stores photographs in Square, which returns a URL and not bytes — " +
+          "fetch the url from head(key)",
+      );
+    },
+
+    async put(key, bytes, { contentType, actor, caption = "" } = {}) {
+      if (!isOurMediaKey(key)) throw new Error(`${key} is not a key this application mints`);
+      if (!STORABLE_IMAGE_TYPES.includes(contentType)) {
+        throw new Error(`${contentType} is not an image type this application stores`);
+      }
+      const body = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes ?? []);
+      if (body.byteLength === 0) throw new Error("refusing to store zero bytes as a photograph");
+      if (body.byteLength > CAPS.ORIGINAL_IMAGE_MAX_BYTES) {
+        throw new Error(
+          `${body.byteLength} bytes exceeds the ${CAPS.ORIGINAL_IMAGE_MAX_BYTES}-byte original limit`,
+        );
+      }
+      /* Originals are never overwritten — the same rule the bucket enforces,
+         asked of Square instead. */
+      if (await uploader.findByName(key)) {
+        console.error(`ERROR media: ${key} already exists in Square — refusing to overwrite an original`);
+        throw new Error(`${key} already exists; originals are never overwritten`);
+      }
+
+      const { imageRef, url } = await uploader.upload({
+        name: key,
+        bytes: body,
+        contentType,
+        filename: key.split("/").pop() || "image.jpg",
+        caption,
+      });
+      console.info(
+        `INFO media: ${key} -> Square image ${imageRef} by ${actor ?? "unknown"}. ` +
+          "No local original is kept on this deployment (ADR-013).",
+      );
+      return { key, bytes: body.byteLength, content_type: contentType, image_ref: imageRef, url };
+    },
+
+    /* Byte-for-byte the bucket's, deliberately. The browser posts to the same
+       route with the same ticket; only what the Worker does with the bytes
+       afterwards differs. Two implementations of one contract that disagree on
+       a path or a date format is the failure mode this repository has hit three
+       times today, so this one is not re-derived. */
+    uploadUrl: ticketUrl(env, opsOrigin),
+  };
+}
+
 export function createMediaStore(bucket, env = {}) {
   if (!bucket || typeof bucket.put !== "function") {
     console.error("ERROR media: no MEDIA (R2) binding — refusing to construct a media store");
@@ -204,6 +323,13 @@ export function createMediaStore(bucket, env = {}) {
      * Store an original. Refuses an occupied key rather than replacing what is
      * there: keys carry a uuid, so a collision means a bug, not a re-upload.
      */
+    /* See the Square store's note: this side hands over the bytes, because
+       Square has not seen this photograph yet. */
+    async attachable(key) {
+      const original = await this.bytes(key);
+      return original ? { ...original, source: "r2" } : null;
+    },
+
     async put(key, bytes, { contentType, actor, caption = "" } = {}) {
       if (!isOurMediaKey(key)) throw new Error(`${key} is not a key this application mints`);
       if (!STORABLE_IMAGE_TYPES.includes(contentType)) {
@@ -228,13 +354,6 @@ export function createMediaStore(bucket, env = {}) {
     },
 
     /** The link the human opens. Access gates the route; the ticket binds it. */
-    async uploadUrl({ key, actor, now = Date.now() }) {
-      const ticket = await mintUploadTicket({ secret: env.MEDIA_SIGNING_KEY, key, actor, now });
-      const url = new URL("/media/upload", opsOrigin());
-      url.searchParams.set("key", ticket.key);
-      url.searchParams.set("exp", String(ticket.expiresAt));
-      url.searchParams.set("sig", ticket.signature);
-      return { url: url.toString(), expires_at: new Date(ticket.expiresAt).toISOString() };
-    },
+    uploadUrl: ticketUrl(env, opsOrigin),
   };
 }

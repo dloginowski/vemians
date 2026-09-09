@@ -206,9 +206,14 @@ export function createSquareCatalogWriter(env, opts = {}) {
     return row;
   }
 
-  function itemData({ title, description, catRef, variations, itemRef }) {
+  function itemData({ title, description, catRef, variations, itemRef, imageIds }) {
     return {
       name: title,
+      /* Photographs already in Square are LINKED here at creation rather than
+         re-uploaded afterwards: the bytes went to Square when the human
+         uploaded them, and sending them again makes a second CatalogImage
+         for one photograph (ADR-013). */
+      ...(imageIds?.length ? { image_ids: imageIds } : {}),
       ...(description ? { description } : {}),
       ...(catRef
         ? { categories: [{ id: catRef, ordinal: 0 }], reporting_category: { id: catRef } }
@@ -260,6 +265,14 @@ export function createSquareCatalogWriter(env, opts = {}) {
     const attached = [];
     const skipped = [];
     for (const img of images ?? []) {
+      /* Already in Square — linked via item_data.image_ids at upsert time, so
+         there is nothing to send. Reported as attached because it IS on the
+         item; a caller must not be told a photograph was skipped when it is
+         visible on the till. */
+      if (img.imageRef) {
+        attached.push(img.key);
+        continue;
+      }
       if (!squareAcceptsType(img.contentType)) {
         skipped.push({ key: img.key, why: `Square does not accept ${img.contentType}; the original is ours and kept` });
         continue;
@@ -305,13 +318,24 @@ export function createSquareCatalogWriter(env, opts = {}) {
     async createProduct({ title, description = "", categoryId, variations, images = [] }) {
       const cat = categoryId ? await categoryRef(categoryId) : null;
       const itemRef = tempId("item", 0);
+      /* Photographs that are already Square objects are linked on the item
+         itself; the rest are uploaded afterwards, which is the only order
+         possible for bytes Square has not seen. */
+      const imageIds = images.map((i) => i.imageRef).filter(Boolean);
       const body = {
         idempotency_key: idempotencyKey(`catalog.create:${title}:${JSON.stringify(variations)}`),
         object: {
           type: "ITEM",
           id: itemRef,
           present_at_all_locations: true,
-          item_data: itemData({ title, description, catRef: cat?.external_ref ?? null, variations, itemRef }),
+          item_data: itemData({
+            title,
+            description,
+            catRef: cat?.external_ref ?? null,
+            variations,
+            itemRef,
+            imageIds,
+          }),
         },
       };
 
