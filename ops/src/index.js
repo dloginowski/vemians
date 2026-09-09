@@ -28,9 +28,11 @@
 import { notFoundPage } from "../../shared/view/html.js";
 import { explainRole, readAccessIdentity } from "./access.js";
 import { agentTurn, approve, roleFor, sessionBindings } from "./agent.js";
-import { approvePending, handleMcp, isMcpPath, peekPending } from "./mcp.js";
+import { approvePending, canUseDomain, handleMcp, isMcpPath, peekPending } from "./mcp.js";
 import { customers, week } from "./seed.js";
+import { skillsFor } from "./skills.js";
 import { CAPS } from "./tools/caps.js";
+import { ROLES } from "./tools/roles.js";
 import { contentTypeFor, verifyUploadTicket } from "./tools/media.js";
 import { mediaStoreFor } from "./tools/index.js";
 import { syncFromSquare } from "./sync.js";
@@ -140,6 +142,37 @@ async function mediaUpload(request, env, identity, actor) {
   } catch (err) {
     console.error(`ERROR ops/media: storing ${key} failed — ${err.message}`);
     return json({ error: err.message }, 409);
+  }
+}
+
+/*
+ * The roster shown on the front page.
+ *
+ * It is a record of INTENT, not of authorisation. What actually grants a role
+ * is the Cloudflare Access policy that admitted the request, and this Worker
+ * cannot read those: ADR-011 says no Worker holds a Cloudflare API token, which
+ * is precisely what stops the employee area granting itself admin. So the page
+ * labels this column "people store" and labels the reader's own row with where
+ * their live assertion came from.
+ *
+ * Fails soft and says why. The `people` store is bound before its schema is
+ * applied, so "no such table" is the expected state on a fresh environment and
+ * is not an error worth a 500 on a page whose job is to orient someone.
+ */
+async function readRoster(env) {
+  if (!env.PEOPLE) return { rows: [], note: "No people store is bound to this deployment, so only your own sign-in is shown." };
+  try {
+    const { results } = await env.PEOPLE.prepare(
+      "SELECT email, name, role, is_active FROM employee ORDER BY is_active DESC, role, name",
+    ).all();
+    const rows = results ?? [];
+    return {
+      rows,
+      note: rows.length ? "" : "The people store is empty. Add employees and they appear here.",
+    };
+  } catch (err) {
+    console.warn(`WARNING ops/roster: people store unreadable — ${err.message}`);
+    return { rows: [], note: "The people store has no employee table yet, so only your own sign-in is shown." };
   }
 }
 
@@ -277,12 +310,39 @@ async function ops(request, env, path) {
           ? "No group matched, so DEFAULT_ROLE granted this. If you have created roles, they are not reaching this token — compare groups_seen with groups_expected, and check claim_keys for where they landed instead."
           : detail.via === "group"
             ? "A group claim granted this role. DEFAULT_ROLE can be removed from ops/wrangler.toml."
-            : "No role. This identity can reach the door and nothing behind it.",
+            : detail.via === "policy"
+              ? "The Access policy that admitted you granted this role. This is the normal path: Cloudflare sends policy_id, never a group claim."
+              : "No role. This identity can reach the door and nothing behind it.",
     });
   }
 
   if (path === "" || path === "/") {
-    return html(opsPage(identity, { customers, week, bindings: sessionBindings(roleFor(identity)), hasKey: Boolean(env.ANTHROPIC_API_KEY) }));
+    /*
+     * `env` was missing from this call, and from the two in agent.js. roleFor
+     * defaults it to {}, so OWNER_POLICY_ID and its siblings read as undefined
+     * and the policy branch could never match — which is the ONLY branch that
+     * fires here, because Access Groups are not claims. Every signed-in person
+     * saw role `null` and an empty tool list on the page that is supposed to
+     * tell them what they can do. The argument, not the rule, was wrong.
+     * Test-PRD-P0-23-group_derived_roles.
+     */
+    const detail = explainRole(identity, env);
+    const roster = await readRoster(env);
+    return html(
+      opsPage(identity, {
+        customers,
+        week,
+        role: detail.role,
+        roleVia: detail.via,
+        bindings: sessionBindings(detail.role),
+        perRole: ROLES.map((r) => sessionBindings(r)),
+        skills: skillsFor(detail.role, canUseDomain),
+        roster: roster.rows,
+        rosterNote: roster.note,
+        mcpUrl: `${new URL(request.url).origin}/mcp`,
+        hasKey: Boolean(env.ANTHROPIC_API_KEY),
+      }),
+    );
   }
 
   return html(notFoundPage(), 404);

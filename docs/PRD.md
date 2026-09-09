@@ -447,6 +447,17 @@ that does not trace to one of these is a process failure (see §12).
     that domain. An out-of-role skill reads as **absent, not forbidden**: a distinguishable refusal
     would leak which documents exist for other roles.
 
+    **The front page is part of the discovery surface.** `ops.vemians.com/` is what a new coworker
+    is sent, and what someone pastes into an assistant, so it carries both audiences in one
+    document: a person gets their identity, their role, the source of that role, the roster and one
+    copyable `claude mcp add` line; an assistant that fetches the same page finds the endpoint, the
+    skill names readable at that role, the tier rules and the tools bound to it, in a folded block
+    at the foot. The endpoint is **derived from the request host**, never typed, so a preview
+    deployment cannot hand a visitor a command pointing at production. The tool counts shown come
+    from the same registry that filters the calls, so the page cannot advertise a capability the
+    tool layer would refuse. Checked by `ops/test/ops-page.test.mjs`, which fetches the real page
+    from the real Worker rather than asserting over the template.
+
 35. **`Test-PRD-P0-35-approval_never_in_band`** — A T2 action requested through MCP does not
     execute in the model's context. It returns an approval URL on `ops.vemians.com`; the token is
     minted server-side from the human's browser action and is never returned to, nor accepted
@@ -681,7 +692,7 @@ Where each feature is enforced today:
 | P0-01, P0-05 – P0-21, P0-30 | `shared/db/verify.py` |
 | P0-02 – P0-04 | Build-time catalog/knowledge/report checks (M1) |
 | P0-22 – P0-25 | Access policy review + `ops` integration tests (M5) |
-| P0-54 | `ops/test/skills.test.mjs` |
+| P0-54 | `ops/test/skills.test.mjs`, `ops/test/ops-page.test.mjs` |
 | P0-55 | `ops/test/media-square.test.mjs`, over a stubbed Square uploader |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
 | P0-26 – P0-28 | Storefront build checks and the CI image-weight budget (M2) |

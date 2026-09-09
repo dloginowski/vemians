@@ -264,7 +264,11 @@ async function dispatch(name, args, { actor, role, env, allowed }) {
  */
 export async function agentTurn({ q, identity, env }) {
   const actor = identity.email;
-  const role = roleFor(identity);
+  /* `env` is not optional here even though roleFor defaults it. Roles arrive as
+     `policy_id`, matched against OWNER_POLICY_ID and its siblings, which live
+     in env — without it every caller resolved to no role and the model was
+     handed an empty tool list. */
+  const role = roleFor(identity, env);
 
   if (!env.ANTHROPIC_API_KEY) {
     /* Benign, configured fallback: no key, no model. Quiet, per RULES.md. */
@@ -364,7 +368,7 @@ export async function agentTurn({ q, identity, env }) {
  */
 export async function approve({ id, identity, env }) {
   const actor = identity.email;
-  const role = roleFor(identity);
+  const role = roleFor(identity, env);
 
   sweepPending(Date.now());
   const rec = PENDING.get(id);
