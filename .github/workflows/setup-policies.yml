@@ -1,0 +1,18 @@
+# One policy per role group, ordered so the owner matches before the catch-all.
+# Nothing is deleted; the existing domain-wide policy is kept as the fallback,
+# which is what makes a mistake here recoverable rather than a lockout.
+name: setup-policies
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  policies:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      APP_ID: 3e897852-ea13-4f28-ae71-594f73ca9c4e
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - run: python3 .github/scripts/setup-policies.py
