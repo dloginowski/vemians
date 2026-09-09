@@ -1,0 +1,91 @@
+# Create the R2 bucket and the KV namespace the ops Worker binds, and write the
+# KV id back into ops/wrangler.toml.
+#
+# Everything for agentic catalog authoring was written and none of it was
+# wired: `catalog.upload_image` had no bucket to put a photograph in, and every
+# T2 approval lived in isolate memory, so an approval link minted by one
+# request could be gone by the next.
+#
+# Same shape as bootstrap-d1, and the same lessons already paid for there:
+# the loop variable IS the resource name, a create that fails is not allowed to
+# read as success, and anything left that is not a real id fails the step.
+#
+# An R2 binding is by NAME, so there is nothing to resolve for the bucket. KV
+# binds by id, so that one is looked up and committed.
+
+name: bootstrap-resources
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: bootstrap-resources
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  BUCKET: vemians-media
+  KV_TITLE: vemians-approvals
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ops/package-lock.json
+
+      - run: npm ci
+        working-directory: ops
+
+      - name: Create the R2 bucket
+        working-directory: ops
+        run: |
+          if npx wrangler r2 bucket create "$BUCKET" >/tmp/r2.log 2>&1; then
+            cat /tmp/r2.log
+          elif grep -qiE 'already (exists|owned)|10004' /tmp/r2.log; then
+            echo "$BUCKET already exists — nothing to do."
+          else
+            cat /tmp/r2.log
+            echo "::error::could not create $BUCKET"; exit 1
+          fi
+
+      - name: Create the KV namespace
+        working-directory: ops
+        run: |
+          if npx wrangler kv namespace create "$KV_TITLE" >/tmp/kv.log 2>&1; then
+            cat /tmp/kv.log
+          elif grep -qiE 'already exists|10014' /tmp/kv.log; then
+            echo "$KV_TITLE already exists — nothing to do."
+          else
+            cat /tmp/kv.log
+            echo "::error::could not create $KV_TITLE"; exit 1
+          fi
+
+      - name: Write the KV id into ops/wrangler.toml
+        run: |
+          (cd ops && npx wrangler kv namespace list) > /tmp/kv.json
+          python3 .github/scripts/resolve-kv-id.py /tmp/kv.json ops/wrangler.toml "$KV_TITLE"
+
+      - name: Commit the id
+        run: |
+          if git diff --quiet -- ops/wrangler.toml; then
+            echo "ops/wrangler.toml already correct — nothing to commit."; exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ops/wrangler.toml
+          git commit -m "Resolve the APPROVALS KV id from the Cloudflare account
+
+          Replaces the placeholder ops/wrangler.toml ships with, so a T2
+          approval survives the isolate that minted it."
+          git push
