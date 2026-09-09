@@ -449,10 +449,14 @@ that does not trace to one of these is a process failure (see §12).
 
     **The front page is part of the discovery surface.** `ops.vemians.com/` is what a new coworker
     is sent, and what someone pastes into an assistant, so it carries both audiences in one
-    document: a person gets their identity, their role, the source of that role, the roster and one
-    copyable `claude mcp add` line; an assistant that fetches the same page finds the endpoint, the
-    skill names readable at that role, the tier rules and the tools bound to it, in a folded block
-    at the foot. The endpoint is **derived from the request host**, never typed, so a preview
+    document. **One thing is open at rest** — the identity line and the copyable `claude mcp add`
+    command — because connecting an assistant is what nearly everyone is there to do, once. The
+    roster, the tier rules, the troubleshooting, the machine-readable contract and the seed data are
+    **closed accordion rows in small print**, ordered by how many people will ever open them. The
+    whole page fits a phone screen without scrolling. Folding costs the machine reader nothing: a
+    `<details>` is in the DOM whether or not a person opened it, so an assistant that fetches the
+    URL still gets the endpoint, the skill names readable at that role, the tier rules and the
+    tools bound to it. The endpoint is **derived from the request host**, never typed, so a preview
     deployment cannot hand a visitor a command pointing at production. The tool counts shown come
     from the same registry that filters the calls, so the page cannot advertise a capability the
     tool layer would refuse. Checked by `ops/test/ops-page.test.mjs`, which fetches the real page

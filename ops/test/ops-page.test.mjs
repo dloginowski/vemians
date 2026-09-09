@@ -149,6 +149,32 @@ check("test_PRD_P0_54_skill_discovery__the_copyable_command_is_the_whole_command
   assert.equal(parts.length, 7, "name and URL, nothing missing and nothing extra");
 });
 
+check("test_PRD_P0_54_skill_discovery__only_the_connect_command_is_open_at_rest", async () => {
+  /* The page has one job for almost everyone: hand over the command, once.
+     Everything else — roster, tier rules, the machine contract, the seed data —
+     is a closed row. A fold that ships open puts a wall of text in front of the
+     one thing the reader came for, so assert both halves: nothing is open, and
+     the command is above the first fold. */
+  const { body } = await frontPage(OWNER);
+  assert.doesNotMatch(body, /<details[^>]*\sopen/, "no accordion row may ship expanded");
+
+  const main = body.slice(body.indexOf("<main"));
+  const command = main.indexOf("claude mcp add");
+  const firstFold = main.indexOf("<details");
+  assert.ok(command > -1 && firstFold > -1);
+  assert.ok(command < firstFold, "the connect command must sit above the accordion, not inside it");
+});
+
+check("test_PRD_P0_54_skill_discovery__folding_hides_nothing_from_a_machine_reader", async () => {
+  /* Compaction is for the eye. A <details> is in the DOM whether or not anyone
+     opened it, so an assistant that fetches this URL must still get the whole
+     contract — that is what makes folding safe here rather than a second page. */
+  const { body } = await frontPage(OWNER);
+  for (const needed of ["skills_list", "/approvals/", "catalog.draft_product", "WWW-Authenticate"]) {
+    assert.ok(body.includes(needed), `${needed} must survive being folded away`);
+  }
+});
+
 check("test_PRD_P0_54_skill_discovery__an_assistant_fetching_the_page_is_told_to_read_the_skills_first", async () => {
   const { body } = await frontPage(OWNER);
   const { skillsFor } = await import("../src/skills.js");

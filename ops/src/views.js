@@ -14,75 +14,98 @@ import { esc, money, page } from "../../shared/view/html.js";
 /*
  * ---- the front page -------------------------------------------------------
  *
- * This surface is read by two kinds of visitor and it has to serve both from
- * one document.
+ * One screen. A phone should show the whole thing without scrolling, and the
+ * only thing above the fold that asks anything of the reader is the command
+ * that connects their assistant — because that is what almost everyone is here
+ * to do, once, and then never again.
  *
- *   A PERSON arrives having been told "you have access now" and needs to know,
- *   in under a minute: who they are signed in as, what their role lets them do,
- *   and the one command that connects their own assistant. That is the visible
- *   page — hero, three steps, a roster, a short explanation.
+ * EVERYTHING ELSE IS A CLOSED ROW. Short label, no preamble, opened by the few
+ * people who want it: the roster, the tier rules, the machine-readable contract
+ * for a developer, the seed data. Out of sight, not out of mind. Nothing is
+ * removed and nothing is a second page.
  *
- *   AN ASSISTANT arrives because someone pasted the URL into it. It needs the
- *   endpoint, the skill URIs, the tool names bound to this role and the tier
- *   rules. That is `<details>` at the foot: present in the DOM, so anything
- *   that fetches the page reads it, and folded away so a person does not have
- *   to scroll past it.
+ * An assistant that fetches this URL still reads all of it — `<details>` folds
+ * are in the DOM whether or not a person opened them — so the compaction costs
+ * the machine reader nothing.
  *
  * Nothing here is a second design system. The tokens are theme.css; the rules
  * below are layout only, integer px, no new colour and no new type size.
  */
 const OPS_CSS = `
-.lede { padding: 32px 0 8px; }
-.lede h1 { font-size: var(--heading); font-weight: 700; margin: 4px 0 12px; }
-.lede p { margin: 0; max-width: 34rem; }
-.eyebrow { font-size: var(--eyebrow); text-transform: lowercase; }
+.ops { max-width: 34rem; padding: 12px 16px 32px; }
 
-.step { border-top: 1px solid var(--rule); padding-top: 16px; margin-top: 28px; }
-.step h2 { margin: 0 0 8px; }
-.step p { margin: 0 0 12px; max-width: 34rem; }
-.num { font-size: var(--eyebrow); }
+.id { font-size: var(--eyebrow); margin: 0 0 16px; color: #666; }
+.ops .warn { margin: 0 0 14px; }
+.id strong { color: var(--ink); }
+
+.key h1 { font-size: var(--type); font-weight: 700; margin: 0 0 4px; }
+.hint { font-size: var(--eyebrow); color: #666; margin: 0 0 8px; }
+.hint a { color: var(--ink); }
 
 /* One copyable line. The <pre> scrolls rather than wrapping, so a long command
-   never reflows the page on a phone; the button is full width under it below
-   480px because a 44px target beside a scrolling box leaves neither room. */
-.copy { display: flex; gap: 8px; align-items: stretch; margin: 0 0 12px; }
-.copy.wrap pre { overflow-x: visible; white-space: pre-wrap; word-break: break-word; }
+   never reflows the page on a phone; the button stays beside it at every width
+   because a full-width button under every line is most of a screen. */
+.copy { display: flex; gap: 6px; align-items: stretch; margin: 0 0 8px; }
 .copy pre {
   flex: 1 1 auto; min-width: 0; margin: 0; overflow-x: auto;
-  background: var(--image-ground); padding: 12px; font-size: var(--eyebrow);
+  background: var(--image-ground); padding: 8px 10px; font-size: var(--eyebrow);
   font-family: ui-monospace, Menlo, Consolas, monospace;
 }
+.copy.wrap { align-items: flex-start; }
+.copy.wrap pre { overflow-x: visible; white-space: pre-wrap; word-break: break-word; }
+/* A button stretched down the side of a three-line prompt reads as a column,
+   not a control. Fixed height, top-aligned with the first line of the text. */
+.copy.wrap button { min-height: 36px; }
 .copy button {
   flex: 0 0 auto; font: inherit; font-size: var(--eyebrow);
-  padding: 0 14px; min-height: 44px; cursor: pointer;
+  padding: 0 10px; cursor: pointer;
   border: 1px solid var(--ink); background: var(--ground); color: var(--ink);
 }
-@media (max-width: 480px) {
-  .copy { flex-wrap: wrap; }
-  .copy button { width: 100%; }
+
+/* The accordion. Every row is one line at rest; everything inside one is small
+   print, because a person who opened a fold is reading, not scanning. */
+.acc { margin-top: 20px; border-top: 1px solid var(--rule); }
+.acc > details { border-bottom: 1px solid var(--rule); }
+.acc > details > summary {
+  cursor: pointer; list-style-position: inside;
+  padding: 10px 0; font-size: var(--type);
 }
+.acc > details > *:not(summary) { font-size: var(--eyebrow); }
+.acc > details > *:last-child { margin-bottom: 12px; }
+.acc p { margin: 0 0 8px; }
+.acc ul { margin: 0 0 8px; padding-left: 18px; }
+.acc li { margin-bottom: 4px; }
+.acc h3 { font-size: var(--eyebrow); font-weight: 700; margin: 12px 0 6px; }
+.acc table { font-size: var(--eyebrow); }
+.acc th, .acc td { padding: 6px 10px 6px 0; }
+.acc details { margin: 0 0 8px; }
+.acc details summary { cursor: pointer; }
+
+/* The last two rows are for nobody in particular — a developer once, and the
+   seed data almost never. Quieter than the rest, still one tap away. */
+.acc > details.aside > summary { font-size: var(--eyebrow); color: #666; padding: 8px 0; }
 
 .scroll { overflow-x: auto; }
-.tag { font-size: var(--eyebrow); }
 .you td { font-weight: 700; }
 
-details { border-top: 1px solid var(--rule); margin-top: 28px; padding-top: 12px; }
-details summary { cursor: pointer; font-size: var(--type); font-weight: 700; }
-details > *:not(summary) { margin-top: 12px; }
-details .note { max-width: 34rem; }
-
-.bind { background: var(--image-ground); padding: 10px 12px; font-size: var(--eyebrow); margin-top: 12px; }
-.log .tool { color: #666; font-size: var(--eyebrow); }
+.bind { background: var(--image-ground); padding: 8px 10px; margin: 0 0 8px; }
+.log { margin-top: 8px; }
+.log p { margin: 0 0 6px; }
+.log .agent { color: #666; }
+.log .tool { color: #666; }
 .gate { border: 1px solid var(--ink); padding: 12px; margin: 12px 0; }
-.gate h3 { font-size: var(--type); font-weight: 700; margin: 0 0 8px; }
-.gate dl { margin: 0; font-size: var(--eyebrow); }
+.gate h3 { margin: 0 0 8px; }
+.gate dl { margin: 0; }
 .gate dt { font-weight: 700; margin-top: 8px; }
 .gate dd { margin: 0; white-space: pre-wrap; word-break: break-word; }
 .gate .row { display: flex; gap: 8px; }
 .gate button[disabled] { color: #666; border-color: var(--rule); cursor: default; }
+.chat input { padding: 8px 10px; }
+.chat button { margin-top: 6px; padding: 8px 16px; font-size: var(--eyebrow); }
 
 /* The seven-day grid is unreadable under about 640px — two columns there, one
    per day, in the same order. Nothing is hidden, the wrap point is the width. */
+.week { font-size: var(--eyebrow); }
 @media (max-width: 640px) {
   .week { grid-template-columns: repeat(2, 1fr); }
   .day { min-height: 0; }
@@ -161,172 +184,160 @@ function rosterRows(roster, identity, role, roleVia) {
  * cannot claim a capability the tool layer would refuse.
  */
 export function opsPage(identity, { customers, week, bindings, hasKey, role, roleVia, skills = [], roster = [], rosterNote = "", perRole = [], mcpUrl = "https://ops.vemians.com/mcp" }) {
-  const banner = identity.verified
-    ? `<div class="who">Signed in via Cloudflare Access as <strong>${esc(identity.email)}</strong> &middot; role <strong>${esc(role || "none")}</strong> &middot; assertion signature verified against the team JWKS.</div>`
-    : `<div class="warn">Assertion accepted <strong>without signature verification</strong> — ACCESS_TEAM_DOMAIN and ACCESS_AUD are unset, so this is prototype mode. Set both in wrangler.toml before this is reachable from the internet. Claimed identity: <strong>${esc(identity.email)}</strong> &middot; role <strong>${esc(role || "none")}</strong>.</div>`;
-
+  const source = roleVia === "policy" ? "Access policy" : roleVia === "group" ? "Access group" : roleVia || "no role granted";
   const b = bindings || { role, tools: [], stores: [], hidden: 0 };
+
+  /* One line, not a banner. The unverified case is the exception and keeps the
+     black bar, because a Worker accepting unsigned assertions is not a detail
+     to fold away. */
+  const id = identity.verified
+    ? `<p class="id"><strong>${esc(identity.email)}</strong> &middot; role <strong>${esc(role || "none")}</strong> &middot; ${esc(source)}</p>`
+    : `<div class="warn">Unsigned assertion accepted — ACCESS_TEAM_DOMAIN and ACCESS_AUD are unset. Prototype mode only. Claimed: <strong>${esc(identity.email)}</strong> &middot; role <strong>${esc(role || "none")}</strong>.</div>`;
 
   return page(
     "Vemians ops",
     `<div class="bar">ops.vemians.com &middot; employees only</div>
-${banner}
 <main class="ops">
+${id}
 
-  <section class="lede">
-    <p class="eyebrow">vemians ops</p>
-    <h1>Bring your own assistant.</h1>
-    <p>This page is a doorway, not an app. Connect your own Claude or ChatGPT to it and
-       it picks up the house rules and the tools your role is allowed to use. Then you
-       talk to your assistant, not to us.</p>
-  </section>
-
-  <section class="step">
-    <p class="num">Step 1</p>
-    <h2>Connect it</h2>
-    <p>Paste this into Claude Code, in a terminal. One line, once per machine.</p>
+  <section class="key">
+    <h1>Connect your assistant</h1>
+    <p class="hint">Paste into Claude Code. Once per machine.</p>
     ${copyLine(`claude mcp add --transport http vemians ${mcpUrl}`)}
+    <p class="hint">No terminal? Add this as a connector in Claude or ChatGPT.</p>
+    ${copyLine(mcpUrl)}
+  </section>
+
+  <div class="acc">
+
     <details>
-      <summary>Using something else?</summary>
-      <p class="note">Claude Desktop, ChatGPT and anything else that speaks MCP over HTTP want
-         the bare address. Add it as a custom connector:</p>
-      ${copyLine(mcpUrl)}
-      <p class="note">You will be asked to sign in with the same account you used to open this
-         page. If your assistant reports 401, that sign-in did not finish.</p>
+      <summary>What to say to it first</summary>
+      ${copyLine("Read the vemians skills, then tell me what you can do here.", { wrap: true })}
+      <p>${skills.length} skill${skills.length === 1 ? "" : "s"} are readable at your role. They are the
+         house rules — the closed category set, the two gates on price and publish, how a photograph
+         gets in. It guesses less once it has read them.</p>
+      <p>After that, plain sentences:</p>
+      ${copyLine("Find every black boot in the catalog and show me what is out of stock.", { wrap: true })}
+      ${copyLine("Here is a photo. Draft a product from it: brand, name, description, price.", { wrap: true })}
     </details>
-  </section>
 
-  <section class="step">
-    <p class="num">Step 2</p>
-    <h2>Tell it to read the rules</h2>
-    <p>Everything it needs to know is published as skills. Ask for them first and it will
-       stop guessing at how this place works.</p>
-    ${copyLine("Read the vemians skills, then tell me what you can do here.", { wrap: true })}
-    <p class="note">${skills.length} skill${skills.length === 1 ? "" : "s"} are readable at your role.</p>
-  </section>
-
-  <section class="step">
-    <p class="num">Step 3</p>
-    <h2>Ask for something</h2>
-    <p>Plain sentences. It picks the tool.</p>
-    ${copyLine("Find every black boot in the catalog and show me what is out of stock.", { wrap: true })}
-    ${copyLine("Here is a photo. Draft a product from it: brand, name, description, price.", { wrap: true })}
-    ${copyLine("Now create it.", { wrap: true })}
-    <p class="note">That last one writes. It will not just happen: your assistant hands you a
-       link, you open it, you read what is about to be written, and you press the button.
-       The write runs under your name, never the assistant's.</p>
-  </section>
-
-  <section class="step">
-    <h2>Who has what</h2>
-    <div class="scroll">
-      <table>
-        <thead><tr><th>Person</th><th>Role</th><th>Granted by</th><th>Status</th></tr></thead>
-        <tbody>
+    <details>
+      <summary>Who has what</summary>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Person</th><th>Role</th><th>Granted by</th><th>Status</th></tr></thead>
+          <tbody>
 ${rosterRows(roster, identity, role, roleVia)}
-        </tbody>
-      </table>
-    </div>
-    ${rosterNote ? `<p class="note">${esc(rosterNote)}</p>` : ""}
-    <p class="note">Roles are granted in Cloudflare Access and read from your sign-in. This page
-       cannot change one, and neither can any assistant connected to it &mdash; the employee
-       area holds no key that could.</p>
-
-    <div class="scroll">
-      <table>
-        <thead><tr><th>Role</th><th>Tools</th><th>Can reach</th></tr></thead>
-        <tbody>
+          </tbody>
+        </table>
+      </div>
+      ${rosterNote ? `<p>${esc(rosterNote)}</p>` : ""}
+      <p>Roles are granted in Cloudflare Access and read from your sign-in. This page cannot change
+         one, and neither can any assistant connected to it — the employee area holds no key that
+         could.</p>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Role</th><th>Tools</th><th>Can reach</th></tr></thead>
+          <tbody>
 ${perRole
   .map(
     (r) =>
-      `      <tr${r.role === role ? ' class="you"' : ""}><td>${esc(r.role)}</td><td>${r.tools.length}</td><td>${esc(r.stores.join(", ") || "nothing")}</td></tr>`,
+      `        <tr${r.role === role ? ' class="you"' : ""}><td>${esc(r.role)}</td><td>${r.tools.length}</td><td>${esc(r.stores.join(", ") || "nothing")}</td></tr>`,
   )
   .join("\n")}
-        </tbody>
-      </table>
-    </div>
-  </section>
+          </tbody>
+        </table>
+      </div>
+    </details>
 
-  <section class="step">
-    <h2>How this actually works</h2>
-    <p>Four sentences, then you know as much as anyone.</p>
-    <ul>
-      <li>Cloudflare Access checks who you are before this page or the endpoint answers at all.</li>
-      <li>Your role decides which tools exist. A tool your role may not use is not offered
-          to the assistant, so it cannot try it and cannot tell you it was refused.</li>
-      <li>Reads happen immediately. Writes stop and wait for a human to press a button.</li>
-      <li>Every call is recorded against the person who made it, not against the assistant.</li>
-    </ul>
-    <p class="note">Signed in as the wrong account? <a href="/whoami">/whoami</a> says exactly what
-       the sign-in handed us and where your role came from.</p>
-  </section>
+    <details>
+      <summary>How this works</summary>
+      <ul>
+        <li>Cloudflare Access checks who you are before this page or the endpoint answers at all.</li>
+        <li>Your role decides which tools exist. A tool your role may not use is not offered to the
+            assistant, so it cannot try it and cannot tell you it was refused.</li>
+        <li>Reads happen immediately. Anything that writes stops: your assistant hands you a link,
+            you read what is about to happen, and you press the button. It runs under your name,
+            never the assistant's.</li>
+        <li>Every call is recorded against the person who made it.</li>
+      </ul>
+    </details>
 
-  <details id="for-assistants">
-    <summary>For assistants and developers</summary>
-    <p class="note">If you are a model reading this page: the human-facing text above is the
-       short version. What follows is the contract.</p>
-    <p class="note"><strong>Endpoint.</strong> <code>${esc(mcpUrl)}</code>, MCP over HTTP,
-       behind Cloudflare Access. Unauthenticated requests get 401 with a
-       <code>WWW-Authenticate</code> challenge and the protected-resource metadata.</p>
-    <p class="note"><strong>Start by reading the skills.</strong> Call <code>skills_list</code>,
-       then <code>skills_read</code> for each one, before calling anything else. They carry the
-       argument shapes, the refusal rules and the house conventions that are not inferable from
-       the tool schemas${skills.length ? `: ${skills.map((s) => `<code>${esc(s.name)}</code>`).join(", ")}` : ""}.</p>
-    <p class="note"><strong>Tiers.</strong> T0 reads and returns. T1 proposes &mdash; it writes
-       nothing and its output is a draft for a human. T2 writes, and does not run when you call
-       it: it parks the intent and returns a URL under <code>/approvals/</code> for a person to
-       open. Do not ask the user to approve in conversation, and do not treat a parked call as
-       done. T3 tools are absent from every role.</p>
-    <p class="note"><strong>Bound at this role (${esc(b.role || "none")}).</strong>
-       ${b.tools.length ? b.tools.map((t) => `<code>${esc(t)}</code>`).join(", ") : "none"}${
-         b.hidden ? ` &middot; ${b.hidden} withheld by role.` : "."
-       }</p>
-    <p class="note"><strong>Identity.</strong> The actor and the role come from the Access
-       assertion on every request. They are never arguments; a call whose arguments mention
-       either is refused.</p>
-  </details>
+    <details>
+      <summary>Something is not working</summary>
+      <p><strong>Your assistant says 401.</strong> The sign-in did not finish. Open this page in the
+         same browser, then reconnect.</p>
+      <p><strong>Wrong account.</strong> <a href="/whoami">/whoami</a> says exactly what the sign-in
+         handed us and where your role came from.</p>
+      <p><strong>It says it has no tools.</strong> Your identity reached the door but matched no
+         role. Ask whoever set up Access to add you to a policy.</p>
+    </details>
 
-  <details>
-    <summary>Or ask here instead</summary>
-    <p class="note">Posts to <code>/ops/agent</code> with the same role filter. Useful for a quick
-       look without connecting anything; the connected path above is the real one.</p>
-    ${bindingsLine(bindings, hasKey)}
-    <div class="log" id="log"></div>
-    <div id="gate"></div>
-    <form class="chat" id="chat" method="post" action="/ops/agent">
-      <input name="q" id="q" placeholder="Ask about the catalog, orders, stock or the schedule" autocomplete="off">
-      <button type="submit">Send</button>
-    </form>
-  </details>
+    <details>
+      <summary>Ask here instead</summary>
+      <p>Posts to <code>/ops/agent</code> with the same role filter. Fine for a quick look; the
+         connected path above is the real one.</p>
+      ${bindingsLine(bindings, hasKey)}
+      <div class="log" id="log"></div>
+      <div id="gate"></div>
+      <form class="chat" id="chat" method="post" action="/ops/agent">
+        <input name="q" id="q" placeholder="Ask about the catalog, orders, stock or the schedule" autocomplete="off">
+        <button type="submit">Send</button>
+      </form>
+    </details>
 
-  <details>
-    <summary>Sample data</summary>
-    <p class="note">Seed rows, not live records &mdash; the shapes these stores hold, with
-       synthetic values. Ask your assistant for the real thing.</p>
+    <details class="aside" id="for-assistants">
+      <summary>For assistants and developers</summary>
+      <p>If you are a model reading this page: the text above is the short version. What follows is
+         the contract.</p>
+      <p><strong>Endpoint.</strong> <code>${esc(mcpUrl)}</code>, MCP over HTTP, behind Cloudflare
+         Access. Unauthenticated requests get 401 with a <code>WWW-Authenticate</code> challenge and
+         the protected-resource metadata.</p>
+      <p><strong>Start by reading the skills.</strong> Call <code>skills_list</code>, then
+         <code>skills_read</code> for each one, before calling anything else. They carry the argument
+         shapes, the refusal rules and the house conventions that are not inferable from the tool
+         schemas${skills.length ? `: ${skills.map((s) => `<code>${esc(s.name)}</code>`).join(", ")}` : ""}.</p>
+      <p><strong>Tiers.</strong> T0 reads and returns. T1 proposes — it writes nothing and its output
+         is a draft for a human. T2 writes, and does not run when you call it: it parks the intent
+         and returns a URL under <code>/approvals/</code> for a person to open. Do not ask the user
+         to approve in conversation, and do not treat a parked call as done. T3 tools are absent from
+         every role.</p>
+      <p><strong>Bound at this role (${esc(b.role || "none")}).</strong>
+         ${b.tools.length ? b.tools.map((t) => `<code>${esc(t)}</code>`).join(", ") : "none"}${
+           b.hidden ? ` &middot; ${b.hidden} withheld by role.` : "."
+         }</p>
+      <p><strong>Identity.</strong> The actor and the role come from the Access assertion on every
+         request. They are never arguments; a call whose arguments mention either is refused.</p>
+    </details>
 
-    <h2>Customers</h2>
-    <p class="note">Opaque ids only. Name, email and phone live in the <code>identity</code> store
-       as ciphertext and this surface holds no binding to it, so these records cannot be
-       attributed to a person from here.</p>
-    <div class="scroll">
-      <table>
-        <thead><tr><th>Customer id</th><th>Birth year</th><th>Fit</th><th>Segment</th><th>Orders</th><th>Lifetime</th><th>Consent</th></tr></thead>
-        <tbody>
+    <details class="aside">
+      <summary>Sample data</summary>
+      <p>Seed rows, not live records — the shapes these stores hold, with synthetic values. Ask your
+         assistant for the real thing.</p>
+
+      <h3>Customers</h3>
+      <p>Opaque ids only. Name, email and phone live in the <code>identity</code> store as ciphertext
+         and this surface holds no binding to it, so these records cannot be attributed to a person
+         from here.</p>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Customer id</th><th>Birth year</th><th>Fit</th><th>Segment</th><th>Orders</th><th>Lifetime</th><th>Consent</th></tr></thead>
+          <tbody>
 ${customers
   .map(
-    (c) => `      <tr><td>${esc(c.id)}</td><td>${esc(c.birthYear)}</td><td>${esc(c.fit)}</td><td>${esc(c.segment)}</td><td>${esc(c.orders)}</td><td>${esc(money(c.lifetimeMinor, c.currency))}</td><td>${esc(c.consent.join(", ") || "none")}</td></tr>`,
+    (c) => `        <tr><td>${esc(c.id)}</td><td>${esc(c.birthYear)}</td><td>${esc(c.fit)}</td><td>${esc(c.segment)}</td><td>${esc(c.orders)}</td><td>${esc(money(c.lifetimeMinor, c.currency))}</td><td>${esc(c.consent.join(", ") || "none")}</td></tr>`,
   )
   .join("\n")}
-        </tbody>
-      </table>
-    </div>
+          </tbody>
+        </table>
+      </div>
 
-    <h2>Week of ${esc(week.starting)}</h2>
-    <div class="week">${opsShifts(week)}</div>
-    <p class="note">Read-only. Overlapping shifts are refused by a database trigger, not by
-       this view.</p>
-  </details>
+      <h3>Week of ${esc(week.starting)}</h3>
+      <div class="week">${opsShifts(week)}</div>
+      <p>Read-only. Overlapping shifts are refused by a database trigger, not by this view.</p>
+    </details>
 
+  </div>
 </main>
 <script>
 /* One delegated listener for every copy button on the page. The button reads
