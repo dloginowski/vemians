@@ -137,11 +137,46 @@ for a in apps:
         print(f"      policies: could not read — {perr}")
         continue
     for p in pol or []:
-        print(f"      policy {p.get('name')!r}  decision={p.get('decision')}")
+        # The ID and the PRECEDENCE, not just the name. policy_id is the only
+        # role-bearing claim the Worker receives, so a policy id here that is
+        # absent from ops/wrangler.toml is the whole explanation for a signed-in
+        # person whose role reads "none" — and precedence decides which of these
+        # ids a given person's token ends up carrying, because Access stops at
+        # the first Allow. Neither was printed, so neither could be checked.
+        print(
+            f"      policy {p.get('name')!r}  decision={p.get('decision')}"
+            f"  precedence={p.get('precedence')}  id={p.get('id')}"
+        )
         for bucket in ("include", "exclude", "require"):
             rules = p.get(bucket) or []
             if rules:
                 print(f"        {bucket}: {json.dumps(redact(rules))}")
+
+
+section("do the Worker's policy vars match the live policies")
+# The comparison nobody could make from a dashboard: the ids committed in
+# ops/wrangler.toml against the ids the account is actually serving. A stale id
+# here grants nobody a role and looks exactly like a person with no access.
+_toml = pathlib.Path("ops/wrangler.toml").read_text(encoding="utf-8")
+_wanted = {}
+for _role in ("OWNER", "MANAGER", "STAFF"):
+    _m = re.search(rf'^{_role}_POLICY_ID\s*=\s*"([^"]*)"', _toml, re.M)
+    if _m and _m.group(1):
+        _wanted[_role] = _m.group(1)
+
+_live = set()
+for a in apps or []:
+    _pol, _e = get(f"accounts/{ACCOUNT}/access/apps/{a['id']}/policies")
+    for _p in _pol or []:
+        if _p.get("id"):
+            _live.add(_p["id"])
+
+if not _wanted:
+    print("  ops/wrangler.toml names no policy ids at all — every role resolves to none.")
+for _role, _id in _wanted.items():
+    print(f"  {_role}_POLICY_ID = {_id}  ->  {'LIVE' if _id in _live else 'NOT A LIVE POLICY (stale)'}")
+for _id in sorted(_live - set(_wanted.values())):
+    print(f"  live policy not named by any var: {_id}")
 
 
 section("which team domain actually serves signing keys")
