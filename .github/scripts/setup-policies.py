@@ -66,7 +66,26 @@ WANTED = [
     ("Vemians owner", 1, [{"group": {"id": gid["vemians-owner"]}}]),
     ("Vemians staff by group", 2, [{"group": {"id": gid["vemians-staff"]}}]),
 ]
+NAMES = [w[0] for w in WANTED]
 
+# ORDER OF OPERATIONS, and it is not cosmetic: Cloudflare requires precedences
+# to be UNIQUE, so anything sitting on 1 or 2 has to move BEFORE the policies
+# that want those slots are written. Creating first fails with
+# "policy precedences must be unique", which is exactly what happened.
+print("\nstep 1 — move everything else out of the way")
+spare = 10
+for pol in (pols.get("result") or []):
+    if pol.get("name") in NAMES:
+        continue
+    body = {"name": pol["name"], "decision": pol["decision"],
+            "include": pol["include"], "precedence": spare}
+    _, err = call("PUT", f"accounts/{ACCOUNT}/access/apps/{APP}/policies/{pol['id']}", body)
+    print(f"  {pol['name']!r}: -> precedence {spare}" if not err else f"::error::{pol['name']}: {err}")
+    if err:
+        raise SystemExit("::error::could not clear the precedence slots; nothing else attempted")
+    spare += 1
+
+print("\nstep 2 — the role policies")
 ids = {}
 failed = False
 for name, precedence, include in WANTED:
@@ -83,14 +102,6 @@ for name, precedence, include in WANTED:
         continue
     ids[name] = out["result"]["id"]
     print(f"  {name}: {verb}, precedence {precedence}, id={ids[name]}")
-
-# The catch-all stays, demoted. It is the reason a mistake here is recoverable.
-for p in (pols.get("result") or []):
-    if p.get("name") in dict(WANTED[:2]).keys() or p.get("name") in [w[0] for w in WANTED]:
-        continue
-    body = {"name": p["name"], "decision": p["decision"], "include": p["include"], "precedence": 10}
-    out, err = call("PUT", f"accounts/{ACCOUNT}/access/apps/{APP}/policies/{p['id']}", body)
-    print(f"  {p['name']}: kept as the fallback at precedence 10" if not err else f"::warning::{p['name']}: {err}")
 
 after, _ = call("GET", f"accounts/{ACCOUNT}/access/apps/{APP}/policies")
 print("\nafter:")
