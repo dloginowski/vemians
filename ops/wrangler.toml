@@ -83,12 +83,20 @@ ACCESS_AUD         = "8bacd393c1fededc1d257745149eb6d0cc0797a762941d1421a5a8a3c1
 # SQUARE_ENV is "sandbox" or "production"; client.js refuses anything else.
 #
 # IT IS SET EXPLICITLY, and that is the point. client.js defaults it to
-# "sandbox" when unset, so an unset SQUARE_ENV sent a PRODUCTION token to
-# connect.squareupsandbox.com, where Square rejected it — a wrong-credential
-# error for a right credential, pointing at the token rather than at the two
-# words of configuration actually missing. A live shop is production; flip this
-# to "sandbox" to test, and remember the TOKEN has to be the matching one.
-SQUARE_ENV = "production"
+# "sandbox" when unset, and an unset value is indistinguishable from a chosen
+# one — so it is chosen here, out loud.
+#
+# CURRENTLY SANDBOX, deliberately. The token on the Worker is a sandbox token;
+# with this set to "production" Square answered 401 and the sync recorded
+# `credential_rejected` every fifteen minutes. The token and this value must
+# name the SAME Square, and when they disagree the error blames the credential.
+#
+# Sandbox is a separate account: its own catalog, its own locations, test cards,
+# no real money. So the mirror this fills holds TEST products, and the storefront
+# serves them. Before the shop is real, this becomes "production" AND the secret
+# is replaced with a production token — one without the other reproduces the
+# same 401 in the other direction.
+SQUARE_ENV = "sandbox"
 
 # ---------------------------------------------------------------------------
 # Custom Domain. Commented out because `wrangler deploy` will try to create it,
