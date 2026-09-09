@@ -31,7 +31,8 @@ import { agentTurn, approve, roleFor, sessionBindings } from "./agent.js";
 import { handleMcp, isMcpPath } from "./mcp.js";
 import { customers, week } from "./seed.js";
 import { CAPS } from "./tools/caps.js";
-import { contentTypeFor, createMediaStore, verifyUploadTicket } from "./tools/media.js";
+import { contentTypeFor, verifyUploadTicket } from "./tools/media.js";
+import { mediaStoreFor } from "./tools/index.js";
 import { syncFromSquare } from "./sync.js";
 import { opsPage, refusalPage } from "./views.js";
 
@@ -114,9 +115,12 @@ async function mediaUpload(request, env, identity, actor) {
     return json({ error: ticket.reason }, 403);
   }
 
+  /* The SAME choice the tools make, through the same function. The browser
+     posting here and the agent that minted the ticket must land in the same
+     store, and the only way to be sure of that is to ask once. */
   let media;
   try {
-    media = createMediaStore(env.MEDIA, env);
+    media = mediaStoreFor(env);
   } catch (err) {
     console.error(`ERROR ops/media: ${err.message}`);
     return json({ error: "media storage is not configured on this deployment" }, 503);

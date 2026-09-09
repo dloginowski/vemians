@@ -59,7 +59,13 @@ import { createApprovalStore } from "../src/tools/approval.js";
 import { createRateLimiter } from "../src/tools/rate.js";
 import { CAPS } from "../src/tools/caps.js";
 import { createSquareCatalogWriter } from "../src/tools/catalog-writer.js";
-import { createMediaStore, mediaKey, mintUploadTicket, verifyUploadTicket } from "../src/tools/media.js";
+import {
+  createMediaStore,
+  createSquareMediaStore,
+  mediaKey,
+  mintUploadTicket,
+  verifyUploadTicket,
+} from "../src/tools/media.js";
 import { nearestCategory, suggestCategory, validateProposal } from "../src/tools/catalog-write.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -153,6 +159,7 @@ function fakeSquare(seed = SEED) {
 
     if (p === "/v2/catalog/object") {
       const body = JSON.parse(init.body);
+      record.body = body;
       const obj = structuredClone(body.object);
       record.upsert = obj.type;
       const mappings = [];
@@ -1288,4 +1295,64 @@ check("test_PRD_P0_40_closed_category_set__the_suggestion_is_scored_against_the_
   assert.match(miss.reasoning, /ask the human/);
   assert.match(miss.reasoning, /do not create a category/);
   assert.equal(miss.closed_set_size, 3);
+});
+
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-55 — with no bucket, a photograph already in Square is LINKED, not
+ *         uploaded a second time
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_55_square_held_media__an_image_already_in_square_is_linked_not_reuploaded", async () => {
+  const f = await fixture();
+
+  /* The deployment with no MEDIA bucket: the human's upload already went to
+     Square, so the store hands back an image ref rather than bytes. */
+  const uploads = [];
+  const squareStore = createSquareMediaStore(
+    {
+      async upload(a) {
+        uploads.push(a);
+        return { imageRef: "SQIMG_EXISTING", url: "https://items.sq/x.jpg", name: a.name };
+      },
+      async findByName(name) {
+        return { imageRef: "SQIMG_EXISTING", url: "https://items.sq/x.jpg", name };
+      },
+    },
+    { MEDIA_SIGNING_KEY: "k", OPS_HOST: "ops.vemians.com" },
+  );
+
+  /* A real minted key: the store refuses anything it did not mint, which is
+     the guard that rejected a hand-written path on the first run of this test. */
+  const key = mediaKey("image/jpeg");
+  const attachable = await squareStore.attachable(key);
+  assert.equal(attachable.imageRef, "SQIMG_EXISTING", "the store hands over a ref, not bytes");
+
+  const out = await f.writer.createProduct({
+    title: "Linked Photograph Coat",
+    description: "",
+    categoryId: null,
+    variations: [{ title: "One size", sku: "LPC-1", price_minor: 12000, currency: "USD" }],
+    images: [{ ...attachable, caption: "Linked Photograph Coat" }],
+  });
+
+  /* 1. The item carries the image id, set at creation. */
+  const upsert = f.calls().find((c) => c.path === "/v2/catalog/object" && c.body?.object?.type === "ITEM");
+  assert.ok(upsert, "the item was upserted");
+  assert.deepEqual(
+    upsert.body.object.item_data.image_ids,
+    ["SQIMG_EXISTING"],
+    "the photograph is linked on the item itself",
+  );
+
+  /* 2. And nothing was sent to the image endpoint — one photograph, one
+        CatalogImage. Re-uploading is the bug this guards. */
+  assert.equal(
+    f.calls().filter((c) => c.path === "/v2/catalog/images").length,
+    0,
+    "an image already in Square must not be uploaded again",
+  );
+  assert.equal(uploads.length, 0, "and the media store must not be asked to upload either");
+
+  assert.deepEqual(out.images.attached, [key], "reported as attached, because it is");
 });
