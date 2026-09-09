@@ -328,3 +328,337 @@ button.heart::before { content: ""; position: absolute; inset: -8px; }
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+/* ── The navigation drawer ─────────────────────────────────────────────────
+ * INFERRED behaviour; the arrangement is OBSERVED from supplied screenshots of
+ * the reference (menu left, wordmark centre, bag right; the drawer covering
+ * most of the width with the rest dimmed; a category opening a second pane that
+ * arrives from the right with a back control at its head).
+ *
+ * WITHOUT JAVASCRIPT everything below is inert: `.menu` is a <nav> of nested
+ * lists in normal flow, every link real, nothing hidden — a sitemap at the top
+ * of the document. The trigger is not shown, because it would do nothing.
+ *
+ * WITH JAVASCRIPT the same markup is read as an off-canvas dialog. Travel is
+ * transform only; visibility is delayed rather than display switched, so the
+ * pane leaves the tab order when closed and can still animate. Under
+ * prefers-reduced-motion --motion-slow is 0s, the delay is 0s with it, and the
+ * drawer simply appears.
+ */
+.menu-open, .menu-close { display: none; }
+.js .menu-open, .js .menu-close { display: inline-flex; }
+
+.menu-open {
+  align-items: center;
+  justify-content: flex-start;
+  background: none;
+  border: 0;
+  padding: 0;
+  height: 44px;
+  cursor: pointer;
+  color: var(--ink);
+}
+
+/* Three rules, drawn rather than typed, so the icon cannot arrive as a glyph
+   the font does not have. */
+.bars, .bars::before, .bars::after {
+  display: block;
+  width: 20px;
+  height: 1px;
+  background: currentColor;
+}
+.bars { position: relative; }
+.bars::before, .bars::after { content: ""; position: absolute; left: 0; }
+.bars::before { top: -6px; }
+.bars::after  { top:  6px; }
+
+.bag-link {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  height: 44px;
+  color: inherit;
+  text-decoration: none;
+  font-size: var(--eyebrow);
+}
+
+/* The bag, drawn: a body and a handle, in currentColor, at the same weight as
+   the menu rules. */
+.bag-glyph {
+  position: relative;
+  display: block;
+  width: 16px;
+  height: 17px;
+  border: 1px solid currentColor;
+  border-top-width: 1px;
+}
+.bag-glyph::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  left: 3px;
+  width: 8px;
+  height: 8px;
+  border: 1px solid currentColor;
+  border-bottom: 0;
+  border-radius: 4px 4px 0 0;
+}
+
+/* Empty until the script reads this device. Never a zero — a bag badge showing
+   0 is worse than no badge. */
+.bag-count:empty { display: none; }
+
+.menu { padding: 0 var(--margin) 32px; }
+
+.menu-head { display: none; }
+.js .menu-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.menu-title { margin: 0; font-size: var(--eyebrow); }
+
+.menu-close {
+  font: inherit;
+  font-size: 22px;
+  line-height: 1;
+  background: none;
+  border: 0;
+  padding: 0 4px;
+  cursor: pointer;
+  color: var(--ink);
+}
+
+.menu-root { list-style: none; margin: 0; padding: 0; }
+.menu-root li { border-bottom: 1px solid var(--rule); }
+.menu-root a {
+  display: block;
+  padding: 14px 0;
+  color: var(--ink);
+  text-decoration: none;
+}
+.menu-rest { margin-top: 24px; }
+.menu-rest a { font-size: var(--eyebrow); }
+
+/* NOT position: relative. The sub-pane is a child of this <li>, and a
+   positioned <li> would become its containing block — the pane would then be
+   as tall as one row instead of covering the drawer. The chevron is placed by
+   flex below rather than by absolute positioning, so nothing here needs to be
+   a containing block at all. */
+.menu-into { display: none; }
+
+/* The sub-list, without JavaScript: a plain indented list under its category.
+   Everything is reachable and nothing is a mystery. */
+.menu-sub { list-style: none; margin: 0 0 8px; padding: 0 0 0 16px; }
+.menu-sub li { border-bottom: 0; }
+.menu-sub a { padding: 8px 0; font-size: var(--eyebrow); }
+.menu-back { display: none; }
+
+.js .has-sub { display: flex; align-items: center; }
+.js .has-sub > a { flex: 1 1 auto; }
+
+.js .menu-into {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 44px;
+  height: 44px;
+  font: inherit;
+  font-size: 20px;
+  line-height: 1;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  color: var(--ink);
+}
+
+/* The second pane. Same box as the drawer, arriving from the inline end, over
+   the root list rather than beside it — which is why the root does not have to
+   move and the drill-down costs one transform. */
+.js .menu-sub {
+  /* ABSOLUTE, not fixed. The drawer is a transformed element, which makes it
+     the containing block for a fixed descendant — and a fixed box inside a
+     transformed, scrolling ancestor resolves its offsets against a box the
+     engine has already moved, which put this pane one full width to the left of
+     where the rule asks for it. Absolute against the positioned drawer is what
+     was meant: the pane covers the drawer, exactly. */
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: 100%;
+  z-index: 1;
+  background: var(--ground);
+  padding: 0 var(--margin) 32px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  transform: translateX(100%);
+  visibility: hidden;
+  transition:
+    transform var(--motion-slow) var(--ease),
+    visibility 0s linear var(--motion-slow);
+}
+
+.js .menu-sub[data-open="true"] {
+  transform: translateX(0);
+  visibility: visible;
+  transition: transform var(--motion-slow) var(--ease), visibility 0s;
+}
+
+.js .menu-back { display: block; border-bottom: 1px solid var(--rule); }
+
+.menu-out {
+  font: inherit;
+  font-size: var(--eyebrow);
+  background: none;
+  border: 0;
+  padding: 14px 0;
+  cursor: pointer;
+  color: var(--ink);
+  width: 100%;
+  text-align: start;
+}
+
+/* The drawer itself. Same mechanism as the filter panel, mirrored: that one
+   arrives from the inline end, this one from the inline start. */
+.js .menu {
+  position: fixed;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: var(--panel-w);
+  /* The sub-pane is absolutely positioned against this box and starts one
+     width to the right of it; without this it would be visible over the page
+     while the drawer is open. */
+  overflow-x: hidden;
+  z-index: var(--z-panel);
+  background: var(--ground);
+  border-inline-end: 1px solid var(--rule);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  transform: translateX(-100%);
+  visibility: hidden;
+  transition:
+    transform var(--motion-slow) var(--ease),
+    visibility 0s linear var(--motion-slow);
+}
+
+.js .menu[data-open="true"] {
+  transform: translateX(0);
+  visibility: visible;
+  transition: transform var(--motion-slow) var(--ease), visibility 0s;
+}
+
+/* ── Arrive-on-scroll ──────────────────────────────────────────────────────
+ * INFERRED, and a DELIBERATE REVERSAL of what the top of this file says.
+ *
+ * The original rule here was "no scroll-triggered reveal", on the reasoning
+ * that motion must not compete with the photography. The shop's owner has since
+ * asked for the opposite in as many words — sections that fade up as you reach
+ * them, easing in and out, a fluid feel — and that is a call about the house's
+ * own voice rather than a technical constraint, so it is theirs to make.
+ *
+ * What does NOT change is the floor underneath it:
+ *
+ *   NOTHING IS PARKED INVISIBLE.  The rule below is gated on `.js` AND on the
+ *   attribute the SCRIPT has confirmed it is observing. A browser with no
+ *   JavaScript, a failed script, or an observer that never fires all leave the
+ *   section at its normal opacity. The first still frame of the page is always
+ *   complete — the same contract the image fade already keeps.
+ *
+ *   IT COSTS NO LAYOUT.  transform and opacity only, and the transform is 12px,
+ *   so a reveal cannot move a neighbour or shift the page (P0-45).
+ *
+ *   REDUCED MOTION REMOVES IT.  --motion-slow is 0s there, so the section
+ *   arrives instantly rather than slowly.
+ *
+ * --ease-inout is a new token because this is the one motion on the site that
+ * is watched from start to finish; ease-out alone begins abruptly at the point
+ * where the eye is already on the block.
+ */
+:root { --ease-inout: cubic-bezier(0.33, 0, 0.2, 1); }
+
+.js [data-reveal="wait"] {
+  opacity: 0;
+  transform: translateY(12px);
+}
+
+.js [data-reveal] {
+  transition:
+    opacity var(--motion-slow) var(--ease-inout),
+    transform var(--motion-slow) var(--ease-inout);
+}
+
+/* ── The pages that are not the catalog ────────────────────────────────── */
+
+.page { max-width: 46rem; margin: 0 auto; padding: 0 var(--margin); }
+
+/* Achromatic, like everything else. An in-content link keeps its underline —
+   it is the only thing distinguishing it once the colour is gone. */
+.page a { color: var(--ink); }
+.page .links a, .tile { text-decoration: none; }
+@media (pointer: fine) { .page .links a:hover { text-decoration: underline; } }
+
+.block { padding: 28px 0; border-top: 1px solid var(--rule); }
+.block h2 { font-size: var(--type); font-weight: 700; margin: 0 0 12px; }
+.block p { margin: 0 0 10px; max-width: 34rem; }
+.block .links a { display: inline-block; margin-inline-end: 20px; }
+
+.hours { border-collapse: collapse; }
+.hours th, .hours td { text-align: start; font-weight: 400; padding: 6px 24px 6px 0; }
+.hours th { color: #666; }
+
+.address { font-size: var(--type); }
+
+/* Tiles — the four ways out of an empty bag. The image ground stands in for
+   photography at the same 8:9 the cards use, so the page does not change shape
+   when real pictures arrive. */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  padding: 8px 0 24px;
+}
+.tile { text-decoration: none; color: var(--ink); }
+.tile-media { display: block; aspect-ratio: 8 / 9; background: var(--image-ground); }
+.tile-name { display: block; padding-top: 8px; font-size: var(--eyebrow); }
+
+/* Contact. One column, labels above fields, full-width targets — a form filled
+   in on a phone, standing outside the shop. */
+.contact { max-width: 34rem; }
+.contact label { display: block; padding: 12px 0 4px; font-size: var(--eyebrow); }
+.contact input, .contact textarea {
+  font: inherit;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--rule);
+  background: var(--ground);
+  color: var(--ink);
+}
+.contact textarea { resize: vertical; }
+.contact .btn { margin-top: 16px; }
+.trap { position: absolute; left: -9999px; }
+
+/* Footer columns and the social row. */
+.foot-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 24px 32px;
+  max-width: 60rem;
+  margin: 0 auto;
+}
+.foot-col h2 { font-size: var(--eyebrow); font-weight: 700; margin: 0 0 10px; }
+.foot-col ul { list-style: none; margin: 0; padding: 0; }
+.foot-col li { margin-bottom: 8px; }
+.foot-col p { margin: 0 0 8px; }
+.foot a { color: var(--ink); text-decoration: none; }
+@media (pointer: fine) { .foot a:hover { text-decoration: underline; } }
+
+.foot-social { max-width: 60rem; margin: 32px auto 0; padding-top: 20px; border-top: 1px solid var(--rule); }
+.foot-social h2 { font-size: var(--eyebrow); font-weight: 400; margin: 0 0 10px; color: #666; }
+.social { display: flex; flex-wrap: wrap; gap: 20px; }
+
+.foot-note { max-width: 60rem; margin: 24px auto 0; color: #666; }

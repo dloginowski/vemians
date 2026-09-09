@@ -44,12 +44,20 @@ body {
   font-size: var(--eyebrow);
 }
 
-/* Header — centred wordmark, the one tracked-caps element on the page. */
+/* Header — three slots: menu, wordmark, bag. The wordmark stays optically
+   centred because the two outer slots are given the same fixed width, not
+   because it is centred inside whatever space is left over. */
 .masthead {
   border-bottom: 1px solid var(--rule);
-  padding: 28px 16px 16px;
-  text-align: center;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
+
+.masthead > .menu-open,
+.masthead > .bag-link { flex: 0 0 44px; }
+.masthead > .wordmark-link { flex: 1 1 auto; text-align: center; text-decoration: none; color: inherit; min-width: 0; }
 
 .wordmark {
   font-size: var(--wordmark);
@@ -59,16 +67,6 @@ body {
   text-indent: 0.22em;   /* absorb the trailing letterspace so it stays centred */
   margin: 0;
 }
-
-.nav {
-  margin-top: 18px;
-  overflow-x: auto;
-  white-space: nowrap;
-  font-size: var(--type);
-}
-
-.nav a { color: var(--ink); text-decoration: none; }
-.nav span { padding: 0 10px; color: var(--rule); }
 
 /* Editorial framing — bold centred heading, left-aligned standfirst. */
 .edit {
@@ -115,9 +113,8 @@ body {
 
 .foot {
   border-top: 1px solid var(--rule);
-  margin-top: 24px;
-  padding: 24px 16px 48px;
-  text-align: center;
+  margin-top: 48px;
+  padding: 32px 16px 48px;
   font-size: var(--eyebrow);
 }
 

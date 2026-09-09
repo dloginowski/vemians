@@ -313,10 +313,25 @@ labeled("test_PRD_P0_43_restrained_motion__budget_is_150_to_250ms_and_eases_out"
     assert.ok(ms >= 150 && ms <= 250, `${ms}ms is outside the 150-250ms budget`);
   }
   assert.match(CSS, /--ease:\s*ease-out;/);
-  /* No bounce: a cubic-bezier that overshoots is exactly what "no bounce"
-     forbids, and nothing here needs a custom curve at all. */
-  assert.doesNotMatch(CSS, /cubic-bezier/);
-  assert.doesNotMatch(CSS, /\bease-in-out\b|\bease-in\b(?!-out)/);
+
+  /* NO BOUNCE, which is the rule that has not moved. A curve is now allowed —
+     the arrive-on-scroll is the one motion watched from start to finish and
+     ease-out alone starts it abruptly — but only one that stays inside the
+     unit square. A control point outside [0,1] on Y is an overshoot, and an
+     overshoot is the bounce this design forbids. */
+  const curves = [...CSS.matchAll(/cubic-bezier\(([^)]+)\)/g)].map((m) =>
+    m[1].split(",").map((n) => Number(n.trim())),
+  );
+  for (const [, y1, , y2] of curves) {
+    assert.ok(y1 >= 0 && y1 <= 1 && y2 >= 0 && y2 <= 1, `cubic-bezier overshoots: ${curves}`);
+  }
+  /* And every curve is a token, so reduced motion still removes it wholesale
+     rather than leaving one rule easing on its own. */
+  assert.equal(
+    [...CSS.matchAll(/cubic-bezier/g)].length,
+    [...CSS.matchAll(/--ease-inout:\s*cubic-bezier/g)].length,
+    "a curve outside the token system",
+  );
 });
 
 labeled("test_PRD_P0_43_restrained_motion__reduced_motion_removes_rather_than_shortens", () => {
@@ -352,10 +367,30 @@ labeled("test_PRD_P0_43_restrained_motion__nothing_animates_that_should_not", ()
   }
 });
 
-labeled("test_PRD_P0_43_restrained_motion__no_scroll_triggered_reveal", () => {
-  assert.doesNotMatch(CLIENT, /IntersectionObserver/, "a scroll observer is exactly what must not be here");
-  /* The header is the only thing that reacts to scroll, and all it does is set
-     an attribute; it neither reveals content nor fetches any. */
+labeled("test_PRD_P0_43_restrained_motion__the_reveal_cannot_leave_content_hidden", () => {
+  /* THIS CHECK REPLACES "no scroll-triggered reveal", which the shop's owner
+     reversed in as many words: sections that arrive as you reach them, easing
+     in and out. That is a decision about the house's voice, and theirs to make.
+     What survives the reversal is the floor underneath it, which is what this
+     asserts instead — a reveal may not be able to leave anything invisible.
+
+     1. The hiding rule is gated on BOTH `.js` and the "wait" value, so only an
+        element a running script has marked is ever hidden. */
+  assert.match(INTERACTION, /\.js \[data-reveal="wait"\] \{[^}]*opacity: 0;/);
+  assert.doesNotMatch(INTERACTION, /^\[data-reveal/m, "the reveal must never apply without .js");
+
+  /* 2. No observer, no marking. The guard returns BEFORE anything is hidden,
+        so an engine without IntersectionObserver leaves every section as the
+        server sent it. Asserted as an ordering, because the bug this prevents
+        is exactly the two lines being written the other way round. */
+  const fn = /function armReveal\(\)[\s\S]*?\n  \}/.exec(CLIENT);
+  assert.ok(fn, "armReveal must exist to be checked");
+  const guard = fn[0].indexOf("if (!window.IntersectionObserver) return;");
+  const hide = fn[0].indexOf('setAttribute("data-reveal", "wait")');
+  assert.ok(guard > -1 && hide > guard, "the observer guard must precede anything being hidden");
+
+  /* 3. It reveals; it never fetches. Infinite scroll is still refused. */
+  assert.doesNotMatch(fn[0], /fetch\(/, "a scroll observer must not load anything");
   const scrollHandlers = [...CLIENT.matchAll(/addEventListener\("scroll"/g)];
   assert.equal(scrollHandlers.length, 1, "one scroll listener, for the header, and no other");
   assert.doesNotMatch(CLIENT, /addEventListener\("scroll"[\s\S]{0,400}fetch\(/, "no infinite scroll");
@@ -424,7 +459,12 @@ labeled("test_PRD_P0_44_pointer_and_keyboard_parity__the_filter_surface_is_a_rea
   assert.match(CLIENT, /classList\.add\("scroll-locked"\)/, "the background must not scroll");
   assert.match(INTERACTION, /\.scroll-locked \{ overflow: hidden; \}/);
   /* The trigger describes the relationship for assistive tech. */
-  assert.match(CLIENT, /trigger\.setAttribute\("aria-controls", "filters"\)/);
+  /* One implementation, two dialogs — the filter panel and the nav drawer —
+     so the relationship is described from the panel's own id rather than from
+     a string that only happens to be right for one of them. */
+  assert.match(CLIENT, /trigger\.setAttribute\("aria-controls", panel\.id\)/);
+  assert.match(CLIENT, /armDialog\(doc\.getElementById\("filters"\)/, "the filter panel uses the shared dialog");
+  assert.match(CLIENT, /armDialog\(menu, trigger, "Menu"/, "and so does the drawer");
   assert.match(CLIENT, /trigger\.setAttribute\("aria-expanded", "true"\)/);
 });
 
@@ -436,7 +476,12 @@ labeled("test_PRD_P0_44_pointer_and_keyboard_parity__paging_never_traps_a_keyboa
   const more = html.indexOf('id="more-row"');
   const foot = html.indexOf('class="foot"');
   assert.ok(grid < more && more < foot, "the paging control belongs between the grid and the footer");
-  assert.doesNotMatch(CLIENT, /IntersectionObserver|scrollTop >|innerHeight \+ scrollY/);
+  /* An observer exists now, for the arrive-on-scroll, so the check is what it
+     always meant: nothing LOADS on scroll. Paging stays one control in the tab
+     order between the grid and the footer. */
+  assert.doesNotMatch(CLIENT, /scrollTop >|innerHeight \+ scrollY/);
+  const reveal = /function armReveal\(\)[\s\S]*?\n  \}/.exec(CLIENT);
+  assert.ok(reveal && !/fetch\(/.test(reveal[0]), "the only observer on the page must not fetch");
   /* Losing focus into <body> when the control removes itself is the other way
      to strand a keyboard user. */
   assert.match(CLIENT, /status\.tabIndex = -1;\s*\n\s*status\.focus\(\);/);
@@ -452,7 +497,15 @@ labeled("test_PRD_P0_45_stable_layout__nothing_is_parked_at_opacity_zero_by_defa
      0 }` waiting for something to happen. With no script, or a broken one, every
      image is visible. */
   const zeroed = [...bare(INTERACTION).matchAll(/([^{}]+)\{[^}]*opacity:\s*0;[^}]*\}/g)].map((m) => m[1].trim());
-  const allowed = ['.card-media .shot[data-fade="wait"]', ".card-media .shot-alt", ".scrim"];
+  /* `.js [data-reveal="wait"]` joins the list on the same terms as the image
+     fade: BOTH a running script and an attribute that script has set. Neither
+     hides anything on its own, so a page with no JavaScript has none of them. */
+  const allowed = [
+    '.card-media .shot[data-fade="wait"]',
+    ".card-media .shot-alt",
+    ".scrim",
+    '.js [data-reveal="wait"]',
+  ];
   assert.deepEqual(zeroed.filter((s) => !allowed.includes(s)), [], `unexpected opacity:0 on ${zeroed}`);
   /* And the script only ever parks an image that is genuinely still loading. */
   assert.match(CLIENT, /if \(img\.complete\) return;\s*\n\s*img\.dataset\.fade = "wait";/);
@@ -576,8 +629,20 @@ labeled("test_PRD_P0_28_image_contract__imagery_is_ours_and_addressable", () => 
   assert.equal(shotUrl(products[0], 0), `/img/${products[0].handle}-0.svg`);
   assert.equal(shotUrl(products[0], 1), `/img/${products[0].handle}-1.svg`);
   const { html } = render();
-  /* On the measured #EFF0F4 ground, and hotlinking nobody. */
-  assert.doesNotMatch(html, /https?:\/\/(?!vemians)/);
+  /* On the measured #EFF0F4 ground, and hotlinking nobody.
+     HOTLINKING is loading somebody else's bytes into our page; an <a href> to
+     Google Maps or to our own Instagram is a LINK, which a shop with a door
+     needs and which loads nothing. So the check is what it always meant: no
+     external URL in anything that fetches. */
+  const fetching = [...html.matchAll(/(?:src|srcset|href)="([^"]*)"|url\((['"]?)([^)'"]*)\2\)/g)]
+    .map((m) => m[1] ?? m[3])
+    .filter(Boolean);
+  const external = fetching.filter((u) => /^https?:\/\//.test(u) && !/^https?:\/\/[^/]*vemians\.com/.test(u));
+  const inAnchor = (u) => new RegExp(`<a [^>]*href="${u.replace(/[.*+?^$()|[\]\\]/g, "\\$&")}"`).test(html);
+  for (const u of external) {
+    assert.ok(inAnchor(u), `${u} is fetched by this page rather than linked from it`);
+  }
+  assert.doesNotMatch(html, /<img[^>]+src="https?:\/\/(?!vemians)/, "no image is loaded from anybody else");
   assert.match(read("shared", "design", "theme.css"), /--image-ground: #EFF0F4;/);
 });
 
@@ -641,11 +706,18 @@ labeled("test_PRD_P0_47_category_navigation__an_unknown_category_shows_everythin
 labeled("test_PRD_P0_47_category_navigation__no_nav_link_is_a_dead_href", () => {
   const html = catalogPage(brandsOf(products), categoriesOf(products),
     parseQuery(new URL("https://x/"), categoriesOf(products)), select(products, parseQuery(new URL("https://x/"))));
-  const nav = html.slice(html.indexOf('<nav class="nav">'), html.indexOf("</nav>"));
+  /* The nav moved into the drawer and gained a second level; the property did
+     not move with it. Every link still goes somewhere that holds something. */
+  const nav = html.slice(html.indexOf('<nav class="menu"'), html.indexOf("</nav>"));
   const hrefs = [...nav.matchAll(/href="([^"]*)"/g)].map((m) => m[1]);
   assert.ok(hrefs.length >= 2, "nav has too few links to be meaningful");
   const dead = hrefs.filter((h) => h === "/").length;
   assert.equal(dead, 1, `expected exactly one "/" link (New in), found ${dead} — the rest must go somewhere`);
+  /* Every sub-category link names both levels, so tapping one cannot land the
+     visitor in the parent category with the sub silently dropped. */
+  for (const h of hrefs.filter((x) => x.includes("sub="))) {
+    assert.match(h, /^\/\?category=[^&]+&sub=[^&]+$/, `malformed sub-category link: ${h}`);
+  }
 });
 
 labeled("test_PRD_P0_47_category_navigation__the_current_category_is_marked", () => {
@@ -824,7 +896,7 @@ labeled("test_PRD_P0_47_category_navigation__the_nav_rebuilds_from_the_mirrors_c
 
   const q = parseQuery(new URL("http://vemians.com/"), cats);
   const html = catalogPage(brandsOf(served), cats, q, select(served, q), source);
-  const nav = html.slice(html.indexOf('<nav class="nav">'), html.indexOf("</nav>"));
+  const nav = html.slice(html.indexOf('<nav class="menu"'), html.indexOf("</nav>"));
   for (const c of cats) assert.match(nav, new RegExp(`href="/\\?category=${c}"`), `no nav link for '${c}'`);
   for (const invented of CATEGORIES) assert.doesNotMatch(nav, new RegExp(`category=${invented}`));
 });

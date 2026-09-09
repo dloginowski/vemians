@@ -31,10 +31,22 @@
  *                  shared/view/enhance.client.js.
  *   /img/<h>-<v>.svg  placeholder photography, one shot per URL, so images can
  *                  actually load, decode and be preloaded on hover intent.
+ *   /bag           the bag. Held on the viewer's device, never here.
+ *   /visit         hours, appointments, directions, how to reach a person.
+ *   /collaborations  editorial.
  *   /healthz       liveness.
  *
  * No POST, no cookie, no session. Nothing on this Worker writes — to D1 or to
- * anything else.
+ * anything else — and nothing leaves it: there is no call to fetch in this
+ * bundle at all, which is what makes "the shop cannot read the provider live"
+ * a property of the import list rather than a promise
+ * (Test-PRD-P0-37-mirror_is_ours).
+ *
+ * A CONTACT FORM WOULD BREAK THAT, and so it is not here yet. Delivering a
+ * message means one outbound request, and where that request goes is a decision
+ * about where a stranger's name and email address land — not something to pick
+ * by default. The visit page carries the phone number and the address instead,
+ * both of which work today.
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * THE ONE BINDING, AND WHY THE INVARIANT CHANGED
@@ -66,7 +78,8 @@
 import { notFoundPage } from "../../shared/view/html.js";
 import script from "../../shared/view/enhance.client.js";
 import { loadCatalog } from "./catalog.js";
-import { brandsOf, categoriesOf, parseQuery, select } from "./query.js";
+import { brandsOf, categoriesOf, parseQuery, select, subsOf } from "./query.js";
+import { bagPage, collaborationsPage, visitPage } from "./pages.js";
 import { catalogPage, catalogPartial, shotSvg } from "./views.js";
 
 const html = (body, status = 200) =>
@@ -81,6 +94,15 @@ const asset = (body, type) =>
 /* /img/<handle>-<variant>.svg. The handle must be one we actually ship: the
    URL is not a template that renders whatever it is handed. */
 const SHOT = /^\/img\/(.+)-(\d+)\.svg$/;
+
+/* The second level of the nav, per category, derived exactly as the first is.
+   One shape, built once per request and handed to every page, so the drawer is
+   the same drawer everywhere. */
+function subsFor(products, categories) {
+  const out = {};
+  for (const c of categories) out[c] = subsOf(products, c);
+  return out;
+}
 
 export default {
   async fetch(request, env) {
@@ -108,6 +130,21 @@ export default {
       return asset(shotSvg(product, variant), "image/svg+xml; charset=utf-8");
     }
 
+    /*
+     * The pages that are not the catalog. Each is handed the derived taxonomy
+     * because each renders the same drawer — a menu that lists different
+     * categories depending on which page you opened it from would be a bug
+     * nobody would think to look for.
+     */
+    if (url.pathname === "/bag" || url.pathname === "/visit" || url.pathname === "/collaborations") {
+      const { products } = await loadCatalog(env);
+      const categories = categoriesOf(products);
+      const subs = subsFor(products, categories);
+      if (url.pathname === "/bag") return html(bagPage(categories, subs));
+      if (url.pathname === "/collaborations") return html(collaborationsPage(categories, subs));
+      return html(visitPage(categories, subs));
+    }
+
     if (url.pathname === "/") {
       const { products, source } = await loadCatalog(env);
       /* Categories are whatever the SERVED catalog holds — Square's taxonomy
@@ -121,7 +158,7 @@ export default {
          There is no second query path for the enhanced client. */
       return url.searchParams.get("partial") === "1"
         ? html(catalogPartial(q, picked))
-        : html(catalogPage(brandsOf(products), categories, q, picked, source));
+        : html(catalogPage(brandsOf(products), categories, q, picked, source, subsFor(products, categories)));
     }
 
     /* Including /ops. The employee area has no unauthenticated twin on this

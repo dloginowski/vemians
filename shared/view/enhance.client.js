@@ -257,23 +257,38 @@
    */
   var FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
 
-  function armPanel() {
-    var panel = doc.getElementById("filters");
-    var trigger = doc.querySelector(".filter-open");
-    if (!panel || !trigger) return;
+  /* ONE dialog implementation, two dialogs.
+   *
+   * The filter panel arrives from the inline end and the navigation drawer from
+   * the inline start, and that is the whole of the difference: both are modal,
+   * both trap focus, both close on Escape and on the scrim, both lock the
+   * background and both give focus back where they took it from. Written twice
+   * they would have diverged on the third of those within a week — the second
+   * copy is always the one that forgets to return focus.
+   *
+   * `onClose` is the one hook, used by the drawer to collapse whichever
+   * sub-pane was open so that reopening it starts at the root.
+   */
+  function armDialog(panel, trigger, name, onClose) {
+    if (!panel || !trigger) return null;
 
     panel.setAttribute("role", "dialog");
     panel.setAttribute("aria-modal", "true");
-    panel.setAttribute("aria-label", "Filter and sort");
+    panel.setAttribute("aria-label", name);
     panel.setAttribute("data-open", "false");
 
-    var scrim = doc.createElement("div");
-    scrim.className = "scrim";
-    scrim.setAttribute("data-open", "false");
-    doc.body.appendChild(scrim);
+    /* One scrim for the page, not one per dialog: two would stack their
+       translucency and the second dialog would darken the room twice. */
+    var scrim = doc.querySelector(".scrim");
+    if (!scrim) {
+      scrim = doc.createElement("div");
+      scrim.className = "scrim";
+      scrim.setAttribute("data-open", "false");
+      doc.body.appendChild(scrim);
+    }
 
     trigger.setAttribute("aria-expanded", "false");
-    trigger.setAttribute("aria-controls", "filters");
+    if (panel.id) trigger.setAttribute("aria-controls", panel.id);
 
     var returnTo = null;
 
@@ -310,6 +325,7 @@
 
     function close() {
       if (!isOpen()) return;
+      if (onClose) onClose();
       panel.setAttribute("data-open", "false");
       scrim.setAttribute("data-open", "false");
       trigger.setAttribute("aria-expanded", "false");
@@ -353,6 +369,8 @@
         first.focus();
       }
     });
+
+    return { open: open, close: close, isOpen: isOpen };
   }
 
   /* ── 6. Load more ────────────────────────────────────────────────────────
@@ -439,11 +457,155 @@
     Array.prototype.forEach.call(scope.querySelectorAll("span.heart[data-heart]"), buildHeart);
   }
 
+  /* ── 7. The navigation drawer ────────────────────────────────────────────
+   * INFERRED behaviour; the arrangement is observed from supplied screenshots.
+   *
+   * The markup is already a working nested list. This turns it into the drawer:
+   * the same dialog as the filter panel, plus a drill-down where a category's
+   * chevron slides its sub-list in over the root and a back control returns.
+   *
+   * One pane open at a time, by construction — opening one closes whatever was
+   * open first — so there is no state in which two panes are both visible and
+   * no way to reach a pane you cannot get back out of.
+   */
+  function armDrawer() {
+    var menu = doc.getElementById("menu");
+    var trigger = doc.querySelector(".menu-open");
+    if (!menu || !trigger) return;
+
+    var open = null;                     // the sub-pane currently shown, if any
+
+    function collapse() {
+      if (!open) return;
+      var into = menu.querySelector('[aria-controls="' + open.id + '"]');
+      open.setAttribute("data-open", "false");
+      if (into) into.setAttribute("aria-expanded", "false");
+      open = null;
+    }
+
+    var dialog = armDialog(menu, trigger, "Menu", collapse);
+    if (!dialog) return;
+
+    Array.prototype.forEach.call(menu.querySelectorAll(".menu-into"), function (btn) {
+      var pane = doc.getElementById(btn.getAttribute("aria-controls"));
+      if (!pane) return;
+      pane.setAttribute("data-open", "false");
+
+      btn.addEventListener("click", function () {
+        collapse();
+        pane.setAttribute("data-open", "true");
+        btn.setAttribute("aria-expanded", "true");
+        open = pane;
+        /* Focus moves into the pane that just arrived. Leaving it on the
+           chevron behind the pane is how a keyboard user ends up tabbing
+           through a list they cannot see.
+     
+           preventScroll is LOAD-BEARING, not a nicety. The pane is parked one
+           width to the right by a transform, which counts as scrollable
+           overflow inside the drawer; focusing anything in it makes the browser
+           scroll the drawer across to "reveal" it, and the whole menu slides
+           off to the left. overflow-x: hidden stops a finger doing that and
+           does not stop focus() doing it. */
+        var first = pane.querySelector(FOCUSABLE);
+        if (first) first.focus({ preventScroll: true });
+        menu.scrollLeft = 0;
+      });
+    });
+
+    Array.prototype.forEach.call(menu.querySelectorAll(".menu-out"), function (btn) {
+      btn.addEventListener("click", function () {
+        var pane = btn.closest ? btn.closest(".menu-sub") : null;
+        var into = pane && menu.querySelector('[aria-controls="' + pane.id + '"]');
+        collapse();
+        if (into) into.focus({ preventScroll: true });
+        menu.scrollLeft = 0;
+      });
+    });
+
+    /* Escape inside a sub-pane goes back one level rather than closing the
+       whole drawer — the same thing the back control does, which is what the
+       key is expected to mean when a second surface is on top of a first.
+       Registered in the capture phase so it runs before armDialog's own
+       Escape handler and can stop it. */
+    doc.addEventListener("keydown", function (ev) {
+      if (ev.key !== "Escape" || !open) return;
+      ev.stopPropagation();
+      ev.preventDefault();
+      var into = menu.querySelector('[aria-controls="' + open.id + '"]');
+      collapse();
+      if (into) into.focus({ preventScroll: true });
+      menu.scrollLeft = 0;
+    }, true);
+  }
+
+  /* ── 8. Arrive-on-scroll ─────────────────────────────────────────────────
+   * INFERRED, and a reversal of this file's original "no scroll-triggered
+   * reveal" — asked for by the shop's owner, which makes it a decision about
+   * the house's voice rather than a technical one. interaction.css carries the
+   * same note next to the rule.
+   *
+   * THE ORDER OF THESE TWO LINES IS THE WHOLE SAFETY PROPERTY. The section is
+   * marked "wait" (which is what hides it) only after an observer exists to
+   * unmark it. No IntersectionObserver — an old browser, a disabled script,
+   * a thrown constructor — means nothing is ever marked, and every section
+   * stays exactly as the server sent it: visible.
+   *
+   * Each element is unobserved as it arrives, so this costs nothing after the
+   * first pass and a section cannot fade a second time on the way back up.
+   */
+  function armReveal() {
+    if (!window.IntersectionObserver) return;
+
+    var seen = new window.IntersectionObserver(function (entries, obs) {
+      entries.forEach(function (entry) {
+        if (!entry.isIntersecting) return;
+        entry.target.setAttribute("data-reveal", "");
+        obs.unobserve(entry.target);
+      });
+    }, { rootMargin: "0px 0px -8% 0px", threshold: 0.05 });
+
+    Array.prototype.forEach.call(doc.querySelectorAll("[data-reveal]"), function (el) {
+      /* Anything already on screen when the page loads is never hidden: fading
+         in what the visitor is already looking at is a flicker, not an
+         arrival. */
+      var box = el.getBoundingClientRect();
+      if (box.top < window.innerHeight) return;
+      el.setAttribute("data-reveal", "wait");
+      seen.observe(el);
+    });
+  }
+
+  /* ── 9. The bag count ────────────────────────────────────────────────────
+   * The bag is this device's, exactly like the wishlist: no cookie, no session,
+   * and no request to the Worker, which holds no cart and could not answer one.
+   * The server renders the badge empty; if this device has nothing in it, it
+   * stays empty rather than showing a zero.
+   */
+  var BAG_KEY = "vemians:bag";
+
+  function armBagCount() {
+    var badge = doc.querySelector("[data-bag-count]");
+    if (!badge) return;
+    var n = 0;
+    try {
+      var raw = window.localStorage.getItem(BAG_KEY);
+      var list = raw ? JSON.parse(raw) : [];
+      n = Array.isArray(list) ? list.length : 0;
+    } catch (err) {
+      console.debug("store: bag unreadable:", err && err.message);
+      return;
+    }
+    if (n > 0) badge.textContent = String(n);
+  }
+
   function start() {
     var catalog = doc.getElementById("catalog");
     if (catalog) hydrate(catalog);
     armHeader(doc.querySelector(".masthead"));
-    armPanel();
+    armDialog(doc.getElementById("filters"), doc.querySelector(".filter-open"), "Filter and sort");
+    armDrawer();
+    armReveal();
+    armBagCount();
     armMore(catalog, doc.getElementById("more-row"), doc.getElementById("catalog-status"));
     root.setAttribute("data-enhanced", "true");   // a handle for tests and for CSS
   }

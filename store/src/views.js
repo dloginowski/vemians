@@ -26,13 +26,10 @@
  *      Test-PRD-P0-42-progressive_storefront, Test-PRD-P0-45-stable_layout.
  */
 
-import { esc, lean, money, page } from "../../shared/view/html.js";
-import gridSource from "../../shared/design/catalog-grid.css";
-import interactionSource from "../../shared/design/interaction.css";
+import { esc, money, page } from "../../shared/view/html.js";
+import { addressLine } from "../../shared/site.js";
+import { CSS, drawer, footer, header, label } from "./shell.js";
 import { href, PAGE, SORTS } from "./query.js";
-
-/* Stripped of comments once per isolate, not once per request. See lean(). */
-const CSS = lean(gridSource + "\n" + interactionSource);
 
 /*
  * Placeholder imagery. SVG on the #EFF0F4 ground at the 8:9 contract ratio,
@@ -155,9 +152,11 @@ ${brandBoxes}
      the form's action is "/" and a filter applied inside Shoes must stay inside
      Shoes. Without it, ticking a brand silently navigates out of the category
      the visitor is standing in. */
-  const carried = q.category
-    ? `  <input type="hidden" name="category" value="${esc(q.category)}">\n`
-    : "";
+  const carried =
+    (q.category ? `  <input type="hidden" name="category" value="${esc(q.category)}">\n` : "") +
+    /* And the sub with it, for the same reason: a filter applied inside Dresses
+       must stay inside Dresses rather than surfacing to the whole of Clothing. */
+    (q.category && q.sub ? `  <input type="hidden" name="sub" value="${esc(q.sub)}">\n` : "");
 
   return `<form class="panel" id="filters" method="get" action="/">
   <button class="btn btn-quiet panel-close" type="button">Close</button>
@@ -170,29 +169,14 @@ ${sortRadios}
 </form>`;
 }
 
-/* The nav is BUILT FROM THE CATALOG, not typed out. Every link goes somewhere
-   that holds something, and a new category appears without anyone editing this
-   file. The previous version was six <a href="/"> — every one of them a link
-   that looked navigable and did nothing.
-
-   Sort and paging are deliberately dropped when changing category: carrying a
-   brand filter across into a category that brand does not stock lands the
-   visitor on an empty grid they did not ask for. */
-const label = (c) => c.charAt(0).toUpperCase() + c.slice(1);
-
-function navLinks(categories, q) {
-  const items = [
-    { href: "/", text: "New in", on: !q.category },
-    ...categories.map((c) => ({
-      href: `/?category=${encodeURIComponent(c)}`,
-      text: label(c),
-      on: q.category === c,
-    })),
-  ];
-  return items
-    .map((i) => `<a href="${i.href}"${i.on ? ' aria-current="page"' : ""}>${esc(i.text)}</a>`)
-    .join('<span>|</span>');
-}
+/*
+ * The category navigation moved into the drawer (src/shell.js), which builds it
+ * from the same derived category list this page is handed and adds the second
+ * level. It is still BUILT FROM THE CATALOG, not typed: every link goes
+ * somewhere that holds something, and a new category appears without anyone
+ * editing a template. That property is the whole of P0-47 and it did not move
+ * when the markup did.
+ */
 
 /*
  * `source` is "mirror" or "seed" — which catalog actually served this render
@@ -202,19 +186,23 @@ function navLinks(categories, q) {
  * It defaults to "seed" so a caller that has not resolved a source cannot
  * accidentally claim the mirror.
  */
-export function catalogPage(brands, categories, q, picked, source = "seed") {
+export function catalogPage(brands, categories, q, picked, source = "seed", subsByCategory = {}) {
+  /* The heading names where you are standing. A grid filtered to Dresses under
+     a headline reading "The autumn edit" is a page that has quietly lost the
+     visitor's place. */
+  const heading = q.sub ? label(q.sub) : q.category ? label(q.category) : "The autumn edit";
+  const standfirst = q.category
+    ? "Everything here is in the shop now, in one room, on one rail."
+    : "Outerwear cut for weight rather than volume, and the knitwear that sits under it. Photographed flat, on the ground the whole catalog is built on.";
+
   return page(
     "Vemians",
-    `<div class="bar">Complimentary shipping and returns on every order</div>
-<header class="masthead" data-head="top">
-  <p class="wordmark">Vemians</p>
-  <nav class="nav">
-    ${navLinks(categories, q)}
-  </nav>
-</header>
+    `<div class="bar">Open Monday to Saturday &middot; ${esc(addressLine())}</div>
+${header()}
+${drawer(categories, subsByCategory, q)}
 <section class="edit">
-  <h1>The autumn edit</h1>
-  <p>Outerwear cut for weight rather than volume, and the knitwear that sits under it. Photographed flat, on the ground the whole catalog is built on.</p>
+  <h1>${esc(heading)}</h1>
+  <p>${esc(standfirst)}</p>
 </section>
 <div class="controls">
   <p class="count">${esc(said(picked.shown.length, picked.total))}</p>
@@ -226,7 +214,7 @@ ${filterPanel(brands, q)}
 ${cards(picked.shown)}
 </main>
 <div class="more-row" id="more-row">${moreRow(q, picked.shown.length, picked.total)}</div>
-<footer class="foot">Prototype &middot; ${source === "mirror" ? "served from our catalog mirror" : "seed data, no commerce provider attached"}</footer>`,
+${footer(source === "mirror" ? "Prototype · served from our catalog mirror" : "Prototype · seed data, no commerce provider attached")}`,
     CSS,
     "/s.js",
   );

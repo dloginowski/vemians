@@ -60,6 +60,20 @@ export const brandsOf = (products) =>
 export const categoriesOf = (products) =>
   [...new Set(products.map((p) => p.category).filter(Boolean))].sort();
 
+/* The second level, derived the same way and for the same reason. A category
+   whose products carry no `sub` returns [] and the drawer shows it as a single
+   destination rather than as a heading over nothing — which is what a
+   mirror-backed shop gets until Square's taxonomy has two levels. */
+export const subsOf = (products, category) =>
+  [
+    ...new Set(
+      products
+        .filter((p) => !category || p.category === category)
+        .map((p) => p.sub)
+        .filter(Boolean),
+    ),
+  ].sort();
+
 export function parseQuery(url, known = null) {
   const params = url.searchParams;
   const sort = params.get("sort");
@@ -75,6 +89,19 @@ export function parseQuery(url, known = null) {
       const c = params.get("category") || null;
       if (!c) return null;
       return !known || known.includes(c) ? c : null;
+    })(),
+    /* A sub-category outside the chosen category is dropped for the same
+       reason an unknown category is: it would filter the grid down to nothing
+       and read as a broken shop rather than as a stale link. It is validated
+       against the subs of the category that survived the line above, not
+       against every sub in the catalog. */
+    sub: (() => {
+      const c = params.get("category") || null;
+      const s = params.get("sub") || null;
+      if (!s) return null;
+      if (!known) return s;
+      if (!c || !known.includes(c)) return null;
+      return s;
     })(),
     brands: params.getAll("brand").filter(Boolean),
     sort: Object.prototype.hasOwnProperty.call(SORTS, sort) ? sort : "featured",
@@ -96,6 +123,7 @@ const clamp = (n, total) => Math.min(Math.max(n, PAGE), Math.max(total, PAGE));
 export function select(products, q) {
   let matched = products.slice();
   if (q.category) matched = matched.filter((p) => p.category === q.category);
+  if (q.sub) matched = matched.filter((p) => p.sub === q.sub);
   if (q.brands.length) matched = matched.filter((p) => q.brands.includes(p.brand));
   const cmp = COMPARE[q.sort];
   if (cmp) matched.sort(cmp);
@@ -119,6 +147,10 @@ export function href(q, over = {}) {
      dropped, and it builds its links itself rather than through here
      (Test-PRD-P0-47-category_navigation). */
   if (merged.category) params.set("category", merged.category);
+  /* Carried for the same reason the category is: "show more" inside Dresses
+     must stay inside Dresses. A sub without a category is meaningless, so it
+     rides only when one is set. */
+  if (merged.category && merged.sub) params.set("sub", merged.sub);
   merged.brands.forEach((b) => params.append("brand", b));
   if (merged.sort && merged.sort !== "featured") params.set("sort", merged.sort);
   if (merged.n && merged.n !== PAGE) params.set("n", String(merged.n));

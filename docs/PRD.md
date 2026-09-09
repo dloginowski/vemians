@@ -348,12 +348,22 @@ that does not trace to one of these is a process failure (see §12).
     therefore not rendered as a control without one: the server ships an `aria-hidden` glyph and the
     script replaces it with a button, because a dead button is worse than no button. With scripting
     off the page renders in full and every link resolves.
-37. **`Test-PRD-P0-43-restrained_motion`** — Motion is a budget, not a feature: **150–250ms, ease-out,
-    transform and opacity only**. No parallax, no bounce, no scroll-triggered reveal, no shadow that
-    appears on scroll, no `!important`. Every duration in the storefront resolves from **one pair of
-    custom properties**, and `prefers-reduced-motion: reduce` remaps that pair to `0s` — so the
-    computed `transition-duration` on every animated element is `0s` and the transition is **removed,
-    not shortened**, while every state change still happens, instantly.
+37. **`Test-PRD-P0-43-restrained_motion`** — Motion is a budget, not a feature: **150–250ms,
+    transform and opacity only**. No parallax, no bounce, no shadow that appears on scroll, no
+    `!important`. Every duration in the storefront resolves from **one pair of custom properties**,
+    and `prefers-reduced-motion: reduce` remaps that pair to `0s` — so the computed
+    `transition-duration` on every animated element is `0s` and the transition is **removed, not
+    shortened**, while every state change still happens, instantly.
+
+    **Sections arrive as you reach them.** This clause used to forbid scroll-triggered reveal
+    outright; the shop's owner asked for the opposite — blocks that fade up as you scroll, easing in
+    and out, a fluid feel — and how the house moves is theirs to decide. What did **not** move is the
+    floor underneath it, and that is what is checked: the hiding rule is gated on **both** a running
+    script and an attribute that script has set, the observer guard runs **before** anything is
+    hidden (so no observer means nothing is ever hidden), the reveal is 12px of transform and opacity
+    so it cannot shift a neighbour, reduced motion removes it, and the observer **never fetches** —
+    infinite scroll stays forbidden. Easing may use a curve, and a curve must stay inside the unit
+    square: an overshoot is the bounce this design refuses.
 38. **`Test-PRD-P0-44-pointer_and_keyboard_parity`** — Hover affordances are gated on `pointer: fine`
     and do **nothing at all** on touch: no node created, no byte fetched, so a tap cannot strand a
     phone in a hover state. Everything a pointer can reach, a keyboard can reach, with a visible focus
@@ -373,6 +383,37 @@ that does not trace to one of these is a process failure (see §12).
     throws — not returns null — with site data blocked, in some private windows and at quota; that
     degrades to an in-memory wishlist, never to a broken page, and is logged at DEBUG because it is a
     benign fallback rather than a failure.
+
+41. **`Test-PRD-P0-56-shop_with_a_door`** — We are a shop with a door before we are a shop with a
+    checkout, so the address, the opening hours, how to book an appointment and how to reach a
+    person are **first-class pages**, not footer text. Hours are **structured data** — a weekday
+    index and two times, `null` for closed — rendered with consecutive identical days collapsed, so
+    "are you open now" is answerable by code rather than by reading a paragraph. The address, phone,
+    email and social accounts live in **one module** and every page renders from it: a phone number
+    that is right in the footer and wrong on the visit page is worse than one that is missing.
+
+    Directions are **two plain links** to Google Maps — one that opens the place, one that opens
+    directions from wherever the visitor is standing — built from the documented query parameters
+    with the address encoded. **No embedded map**, no third-party script, no API key on the page:
+    an `<a href>` loads nothing, and this Worker makes no outbound request at all (P0-37).
+
+    **A contact form ships only when it has somewhere to go.** A form that posts into nothing lets a
+    person believe they have been in touch when they have not, so until a destination is chosen the
+    page carries the phone number and the email, both of which work. Anything not yet real — the
+    address, the booking link — is marked as a placeholder in the source rather than presented as
+    fact.
+42. **`Test-PRD-P0-57-two_level_navigation`** — The menu is a **drawer**: it slides in from the
+    inline start over a scrim, and a category with sub-categories opens a second pane that arrives
+    from the inline end with a back control at its head. **Both levels are derived from the serving
+    catalog** exactly as the single level was (P0-47) — a category with no sub-categories is a single
+    destination rather than a heading over nothing, which is what a mirror-backed shop gets until
+    Square's taxonomy has two levels. A sub-category link names **both** levels, and both are carried
+    across filtering and paging, so a filter applied inside Dresses stays inside Dresses.
+
+    **With JavaScript off it is a nested list in normal flow** — the whole taxonomy, every link real,
+    nothing hidden — and the trigger is not rendered at all, because a control that cannot work must
+    not be on the page. The drawer and the filter panel are **one dialog implementation** used twice:
+    written separately, the second copy is always the one that forgets to return focus.
 
 ### 3.9 Provider independence and traceability
 
@@ -701,6 +742,7 @@ Where each feature is enforced today:
 | P0-22 – P0-25 | Access policy review + `ops` integration tests (M5) |
 | P0-54 | `ops/test/skills.test.mjs`, `ops/test/ops-page.test.mjs` |
 | P0-55 | `ops/test/media-square.test.mjs`, over a stubbed Square uploader |
+| P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
 | P0-26 – P0-28 | Storefront build checks and the CI image-weight budget (M2) |
 | P0-42 – P0-46 | `store/test/storefront.test.mjs`, plus a Playwright run against `wrangler dev --local` for the measured browser behaviour (CLS, computed transforms and durations, focus order) |
