@@ -47,6 +47,22 @@ fallthrough = true
 OPS_HOST = "ops.vemians.com"
 SURFACE  = "ops"
 
+# TEMPORARY, and it grants a real role — read this before leaving it alone.
+#
+# A one-time PIN carries no group claims, and plain Google carries none unless
+# a Workspace administrator has built them. So the first real sign-in matched no
+# group, got a null role, and would have seen an empty ops page and zero tools
+# over MCP: a working login that looks like a broken product.
+#
+# DEFAULT_ROLE applies ONLY when no group matched, so a real group mapping
+# always wins. What it costs: EVERYONE Cloudflare Access admits gets this role.
+# Access admits email_domain vemians.com, so today that is the owner alone —
+# but a shop assistant added to the Workspace tomorrow becomes an owner here.
+#
+# Delete this line the moment either exists: Workspace groups, or ADR-012's
+# Square team roster (P0-51). Every use logs a WARNING naming the person.
+DEFAULT_ROLE = "owner"
+
 # Cloudflare Access group -> role (P0-23). Defaults are these exact names, so
 # set them only if the Workspace groups are called something else. Roles are
 # never assigned in the application; renaming a group is a var change here.

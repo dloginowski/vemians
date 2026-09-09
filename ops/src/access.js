@@ -210,5 +210,44 @@ export function roleFor(identity, env = {}) {
   if (groups.has(named(env.OWNER_GROUP, "vemians-owner"))) return "owner";
   if (groups.has(named(env.MANAGER_GROUP, "vemians-manager"))) return "manager";
   if (groups.has(named(env.STAFF_GROUP, "vemians-staff"))) return "staff";
+
+  /*
+   * NO GROUP MATCHED. Before ADR-012's Square roster exists, that is the normal
+   * case rather than the exceptional one: a one-time PIN carries no groups at
+   * all, and plain Google carries none unless a Workspace administrator has
+   * built them. Without this the first real person to sign in gets a null role,
+   * which means an empty ops page and ZERO tools over MCP — a working login
+   * that looks like a broken product.
+   *
+   * DEFAULT_ROLE is the bridge, and it is deliberately narrow:
+   *
+   *   - Unset means null, so this fails closed exactly as before. Nothing
+   *     changes for a deployment that does not opt in.
+   *   - It is only reached when NO group matched, so a real group mapping
+   *     always wins and adding groups later needs no code change.
+   *   - It must name a real role; a typo grants nothing rather than
+   *     everything.
+   *   - Every use logs a WARNING naming the person, because a role nobody
+   *     granted should be visible in the record rather than silent.
+   *
+   * What it costs, stated: everyone Cloudflare Access admits gets this role.
+   * Access admits `email_domain: vemians.com`, so today that is the owner and
+   * nobody else — but the day a shop assistant joins the Workspace, they get it
+   * too. That is why this is a bridge and not a design, and why P0-51 replaces
+   * it with Square's team list.
+   */
+  const fallback = String(env.DEFAULT_ROLE || "").toLowerCase();
+  if (fallback && ROLE_ORDER.includes(fallback)) {
+    console.warn(
+      `WARNING access: ${claims.email ?? "unknown"} matched no group; granting DEFAULT_ROLE=${fallback}. ` +
+        "This is a bridge until the Square roster lands (ADR-012); it grants that role to everyone Access admits.",
+    );
+    return fallback;
+  }
+  if (fallback) {
+    console.error(
+      `ERROR access: DEFAULT_ROLE=${JSON.stringify(env.DEFAULT_ROLE)} is not one of ${ROLE_ORDER.join(", ")} — granting nothing`,
+    );
+  }
   return null;
 }
