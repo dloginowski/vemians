@@ -304,6 +304,29 @@ async function ops(request, env, path) {
       matched_group: detail.matched,
       groups_seen: detail.groups,
       groups_expected: detail.expects,
+      /*
+       * THE POLICY ID, AND WHY IT IS PRINTED.
+       *
+       * `policy_id` is the only role-bearing claim Cloudflare sends, and until
+       * now this endpoint reported which policy MATCHED and never which policy
+       * the token actually carried. When nothing matched — the exact case
+       * someone opens /whoami to debug — it printed null and said nothing else,
+       * so "my role is none and I do not know why" had no answer from the
+       * outside. It does now: the id in the token, and the three the Worker is
+       * comparing it against. Policies are recreated during setup and their ids
+       * change; a var left holding a stale one looks identical to a person
+       * having no role at all.
+       *
+       * A policy id identifies a RULE, not a person, and grants nothing on its
+       * own — this is the reader's own token, and the assertion itself is still
+       * never echoed.
+       */
+      policy_seen: claims.policy_id ?? null,
+      policies_expected: {
+        owner: env.OWNER_POLICY_ID ?? null,
+        manager: env.MANAGER_POLICY_ID ?? null,
+        staff: env.STAFF_POLICY_ID ?? null,
+      },
       claim_keys: Object.keys(claims).sort(),
       note:
         detail.via === "DEFAULT_ROLE"
@@ -312,7 +335,9 @@ async function ops(request, env, path) {
             ? "A group claim granted this role. DEFAULT_ROLE can be removed from ops/wrangler.toml."
             : detail.via === "policy"
               ? "The Access policy that admitted you granted this role. This is the normal path: Cloudflare sends policy_id, never a group claim."
-              : "No role. This identity can reach the door and nothing behind it.",
+              : claims.policy_id
+                ? "No role. The policy that admitted you is in policy_seen and matches none of policies_expected — compare them: if policy_seen is not among them, the ids in ops/wrangler.toml are stale and need replacing with the live ones."
+                : "No role, and the token carries no policy_id at all. This identity reached the door under something this Worker cannot read.",
     });
   }
 
