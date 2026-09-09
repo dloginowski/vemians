@@ -26,7 +26,7 @@
  */
 
 import { notFoundPage } from "../../shared/view/html.js";
-import { readAccessIdentity } from "./access.js";
+import { explainRole, readAccessIdentity } from "./access.js";
 import { agentTurn, approve, roleFor, sessionBindings } from "./agent.js";
 import { handleMcp, isMcpPath } from "./mcp.js";
 import { customers, week } from "./seed.js";
@@ -211,6 +211,40 @@ async function ops(request, env, path) {
        the approval token all come from the server side — see agent.js. */
     const out = await approve({ id, identity, env });
     return json({ verified: identity.verified, ...out }, out.status);
+  }
+
+  /*
+   * /whoami — the caller's OWN verified identity, and how their role was
+   * derived. Added the night a real person first signed in and the question
+   * "are my roles reaching the Worker" could not be answered from outside:
+   * Cloudflare Access Groups and Google Workspace groups arrive by different
+   * routes, and a role that exists in a dashboard is not the same as a claim
+   * in a token.
+   *
+   * It returns claim KEYS but only the group-bearing VALUES, so a role landing
+   * under an unexpected claim name is visible without dumping whatever else an
+   * identity provider chose to attach. Nothing here is a secret to the person
+   * asking: it is their own identity, and the assertion itself is never echoed.
+   */
+  if (path === "/whoami") {
+    const detail = explainRole(identity, env);
+    const claims = identity?.claims ?? {};
+    return json({
+      email: claims.email ?? null,
+      verified: Boolean(identity.verified),
+      role: detail.role,
+      role_from: detail.via,
+      matched_group: detail.matched,
+      groups_seen: detail.groups,
+      groups_expected: detail.expects,
+      claim_keys: Object.keys(claims).sort(),
+      note:
+        detail.via === "DEFAULT_ROLE"
+          ? "No group matched, so DEFAULT_ROLE granted this. If you have created roles, they are not reaching this token — compare groups_seen with groups_expected, and check claim_keys for where they landed instead."
+          : detail.via === "group"
+            ? "A group claim granted this role. DEFAULT_ROLE can be removed from ops/wrangler.toml."
+            : "No role. This identity can reach the door and nothing behind it.",
+    });
   }
 
   if (path === "" || path === "/") {

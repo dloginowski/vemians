@@ -203,6 +203,45 @@ export function groupsFrom(claims = {}) {
     .map((g) => String(g).toLowerCase());
 }
 
+/*
+ * The role, AND how it was arrived at.
+ *
+ * roleFor() delegates here so there is one implementation of the rule rather
+ * than two that agree until they do not — the failure this repository has
+ * produced three times in as many days. `via` exists because "no tools" and
+ * "the wrong tools" have the same symptom and different causes, and the only
+ * way to tell them apart from outside is to ask what matched.
+ */
+export function explainRole(identity, env = {}) {
+  const claims = identity?.claims || identity || {};
+  const found = groupsFrom(claims);
+  const groups = new Set(found);
+  const named = (v, fallback) => String(v || fallback).toLowerCase();
+
+  const wanted = {
+    owner: named(env.OWNER_GROUP, "vemians-owner"),
+    manager: named(env.MANAGER_GROUP, "vemians-manager"),
+    staff: named(env.STAFF_GROUP, "vemians-staff"),
+  };
+  for (const role of ["owner", "manager", "staff"]) {
+    if (groups.has(wanted[role])) {
+      return { role, via: "group", matched: wanted[role], groups: found, expects: wanted };
+    }
+  }
+
+  const fallback = String(env.DEFAULT_ROLE || "").toLowerCase();
+  if (fallback && ROLE_ORDER.includes(fallback)) {
+    return { role: fallback, via: "DEFAULT_ROLE", matched: null, groups: found, expects: wanted };
+  }
+  return {
+    role: null,
+    via: fallback ? "DEFAULT_ROLE_invalid" : "nothing matched",
+    matched: null,
+    groups: found,
+    expects: wanted,
+  };
+}
+
 export function roleFor(identity, env = {}) {
   const claims = identity?.claims || identity || {};
   const groups = new Set(groupsFrom(claims));
