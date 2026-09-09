@@ -110,9 +110,15 @@ SQUARE_ENV = "production"
 # way the D1 ids are — the placeholder below is not a UUID, so that workflow's
 # check refuses to deploy against it.
 
-[[kv_namespaces]]
-binding = "APPROVALS"
-id      = "PLACEHOLDER-run-bootstrap-resources-for-vemians-approvals"
+# LIVE FORM, written in by bootstrap-resources.yml once the namespace exists.
+# It is commented here on purpose: wrangler rejects a binding whose namespace
+# id is not real (code 10042) and takes the WHOLE ops deploy down with it, so a
+# placeholder here is not a harmless marker — it is an outage. The Worker
+# already degrades without this binding, loudly, to a per-isolate Map.
+#
+# [[kv_namespaces]]
+# binding = "APPROVALS"
+# id      = "<id>"
 
 #
 # SQUARE_LOCATION_ID is Square's single location (ADR-009 open question 2,
@@ -165,9 +171,13 @@ enabled = true
 # NAME, not by id, so there is nothing to resolve afterwards — the bucket
 # either exists or the deploy says so.
 
-[[r2_buckets]]
-binding     = "MEDIA"
-bucket_name = "vemians-media"
+# LIVE FORM, written in by bootstrap-resources.yml once the bucket exists.
+# Same reason as APPROVALS above: a binding to a bucket that does not exist
+# fails the deploy rather than degrading.
+#
+# [[r2_buckets]]
+# binding     = "MEDIA"
+# bucket_name = "vemians-media"
 
 # ---------------------------------------------------------------------------
 # D1 bindings.
