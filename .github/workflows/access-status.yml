@@ -31,3 +31,10 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - run: python3 .github/scripts/access-report.py
+
+      - name: What the login page offers a person
+        if: always()
+        run: |
+          echo "───── login methods on ops.vemians.com ─────"
+          python3 .github/scripts/login-methods.py https://ops.vemians.com/
+
