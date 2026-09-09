@@ -1,0 +1,45 @@
+# Create the Access Groups the role mapping expects.
+#
+# PURELY ADDITIVE, and that is the point. A group changes nothing until a
+# policy references it: no policy here does, so running this cannot alter who
+# reaches ops.vemians.com. The risky half — pointing policies at these groups in
+# the right precedence order — is deliberately NOT here, because getting that
+# order wrong silently demotes the owner to staff, and the existing catch-all
+# policy is the only thing standing between a mistake and a lockout.
+#
+# The owner's address is a workflow INPUT, not a committed value: RULES.md keeps
+# personal information out of the repository.
+
+name: setup-roles
+
+on:
+  workflow_dispatch:
+    inputs:
+      owner_email:
+        description: The address that should hold the owner role
+        required: true
+        type: string
+      staff_domain:
+        description: Everyone at this domain is staff
+        required: true
+        default: vemians.com
+        type: string
+
+concurrency:
+  group: setup-roles
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  roles:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      OWNER_EMAIL: ${{ inputs.owner_email }}
+      STAFF_DOMAIN: ${{ inputs.staff_domain }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - run: python3 .github/scripts/setup-roles.py
