@@ -191,3 +191,104 @@ export function refusalPage(status, reason) {
   );
 }
 
+
+
+/*
+ * The approval page — the half of the T2 design that was missing.
+ *
+ * Every T2 tool call over MCP parks its intent and hands the model a link to
+ * /approvals/<id>. There was no such route, so every one of those links 404d
+ * and NOTHING that writes could ever complete. An agent could draft a product
+ * and never create one, which is a product that does not work rather than a
+ * feature that is not finished.
+ *
+ * P0-35: the model never holds authorisation. It holds a LINK. What executes
+ * the write is a human's POST from this page, under their own verified Access
+ * identity — which is why the button is a form and not a fetch, and why the id
+ * alone is not enough to run anything.
+ */
+export function approvalPage(id, pending, { durable = true } = {}) {
+  if (!pending) {
+    return page(
+      "Nothing to approve",
+      `<main class="wrap">
+         <h1>Nothing to approve</h1>
+         <p>This approval has expired, was already used, or never existed.</p>
+         ${
+           durable
+             ? ""
+             : `<p class="warn"><strong>This deployment keeps approvals in memory.</strong>
+                 A link minted by one request can be invisible to the next, which looks
+                 exactly like an expired link. Ask again and approve promptly, or bind
+                 KV so they outlive the isolate that made them.</p>`
+         }
+         <p><a href="/">Back to ops</a></p>
+       </main>`,
+      APPROVAL_CSS,
+    );
+  }
+
+  const args = Object.entries(pending.args ?? {});
+  return page(
+    `Approve ${esc(pending.tool)}`,
+    `<main class="wrap">
+       <p class="eyebrow">Approval required</p>
+       <h1>${esc(pending.tool)}</h1>
+       <p class="who">Proposed by <strong>${esc(pending.actor ?? "unknown")}</strong>
+          as <strong>${esc(pending.role ?? "?")}</strong>.</p>
+
+       <h2>What will happen</h2>
+       ${
+         args.length
+           ? `<dl>${args
+               .map(
+                 ([k, v]) =>
+                   `<dt>${esc(k)}</dt><dd><pre>${esc(
+                     typeof v === "string" ? v : JSON.stringify(v, null, 2),
+                   )}</pre></dd>`,
+               )
+               .join("")}</dl>`
+           : "<p>No arguments.</p>"
+       }
+
+       <form method="POST" action="/approvals/${esc(id)}">
+         <button type="submit">Approve and run</button>
+       </form>
+       <p class="fine">Nothing has been written yet. This runs under <em>your</em> identity,
+          not the assistant's, and is recorded against your name.</p>
+       ${
+         durable
+           ? ""
+           : `<p class="warn">Approvals are held in memory on this deployment — approve promptly.</p>`
+       }
+     </main>`,
+    APPROVAL_CSS,
+  );
+}
+
+export function approvalResultPage(ok, detail) {
+  return page(
+    ok ? "Approved" : "Not approved",
+    `<main class="wrap">
+       <h1>${ok ? "Done" : "Not approved"}</h1>
+       <pre>${esc(typeof detail === "string" ? detail : JSON.stringify(detail, null, 2))}</pre>
+       <p><a href="/">Back to ops</a></p>
+     </main>`,
+    APPROVAL_CSS,
+  );
+}
+
+const APPROVAL_CSS = `
+.wrap{max-width:44rem;margin:0 auto;padding:2rem 1.25rem}
+.eyebrow{text-transform:uppercase;letter-spacing:.08em;font-size:.75rem;opacity:.7;margin:0}
+h1{margin:.25rem 0 1rem;font-size:1.5rem;word-break:break-word}
+h2{font-size:.9rem;text-transform:uppercase;letter-spacing:.06em;opacity:.7;margin-top:2rem}
+.who{margin:0 0 1rem}
+dl{margin:0}
+dt{font-weight:600;margin-top:.75rem}
+dd{margin:.25rem 0 0}
+pre{white-space:pre-wrap;word-break:break-word;background:rgba(127,127,127,.12);padding:.6rem .7rem;border-radius:.4rem;margin:0;font-size:.85rem}
+button{margin-top:1.5rem;padding:.85rem 1.4rem;font-size:1rem;border-radius:.5rem;border:0;background:#111;color:#fff;width:100%;max-width:20rem}
+.fine{font-size:.85rem;opacity:.75;margin-top:.75rem}
+.warn{font-size:.85rem;border-left:3px solid #c60;padding-left:.75rem;margin-top:1.25rem}
+`;

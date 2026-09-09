@@ -196,7 +196,10 @@ function pendingStore(env) {
 
 const opsOrigin = (env) => `https://${env.OPS_HOST || "ops.vemians.com"}`;
 
-async function parkForApproval(env, { name, args, actor, role, tier }) {
+/* Exported so a test can assert the URL this ACTUALLY emits has a route. It
+   was not, and the 404 that followed shipped unnoticed for exactly that
+   reason: every test asked the code what it meant, none asked what it sent. */
+export async function parkForApproval(env, { name, args, actor, role, tier }) {
   const id = crypto.randomUUID();
   const store = pendingStore(env);
   if (!store.durable) {
@@ -229,6 +232,17 @@ async function parkForApproval(env, { name, args, actor, role, tier }) {
  * Exported so the approvals view can call it; it takes an already-verified
  * identity rather than a request, so it cannot be reached without one.
  */
+/*
+ * Read one parked approval without executing it. The page needs to SHOW the
+ * human what they are about to authorise, and showing is not approving.
+ * `durable` comes back too, because "expired" and "a different isolate held
+ * it" look identical from a browser and need different advice.
+ */
+export async function peekPending(env, id) {
+  const store = pendingStore(env);
+  return { pending: await store.get(id), durable: store.durable };
+}
+
 export async function approvePending(env, id, approver) {
   if (!approver?.email || !approver?.role) {
     console.error("ERROR mcp/approve: called without a verified approver identity");

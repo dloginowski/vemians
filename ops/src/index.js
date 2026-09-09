@@ -28,13 +28,13 @@
 import { notFoundPage } from "../../shared/view/html.js";
 import { explainRole, readAccessIdentity } from "./access.js";
 import { agentTurn, approve, roleFor, sessionBindings } from "./agent.js";
-import { handleMcp, isMcpPath } from "./mcp.js";
+import { approvePending, handleMcp, isMcpPath, peekPending } from "./mcp.js";
 import { customers, week } from "./seed.js";
 import { CAPS } from "./tools/caps.js";
 import { contentTypeFor, verifyUploadTicket } from "./tools/media.js";
 import { mediaStoreFor } from "./tools/index.js";
 import { syncFromSquare } from "./sync.js";
-import { opsPage, refusalPage } from "./views.js";
+import { approvalPage, approvalResultPage, opsPage, refusalPage } from "./views.js";
 
 const html = (body, status = 200) =>
   new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8" } });
@@ -226,6 +226,40 @@ async function ops(request, env, path) {
    * identity provider chose to attach. Nothing here is a secret to the person
    * asking: it is their own identity, and the assertion itself is never echoed.
    */
+  /*
+   * /approvals/<id> — a T2 write, shown to a human and run by them.
+   *
+   * Every T2 call over MCP parks its intent and hands the model this link.
+   * There was no route here, so every one of those links 404d and nothing that
+   * writes could ever complete: an agent could draft a product and never
+   * create one.
+   *
+   * GET shows. POST runs. The split is P0-35: a model holds a LINK, never
+   * authorisation, and the write executes under the approver's own verified
+   * identity rather than the assistant's.
+   */
+  if (path.startsWith("/approvals/")) {
+    const id = path.slice("/approvals/".length);
+    const role = roleFor(identity, env);
+    if (!role) {
+      return html(refusalPage(403, "Your Access identity is in no group this application maps to a role."), 403);
+    }
+
+    if (request.method === "POST") {
+      const out = await approvePending(env, id, { email, role });
+      if (!out.ok) console.error(`ERROR ops/approvals: ${email} could not approve ${id} — ${out.error}`);
+      return html(approvalResultPage(Boolean(out.ok), out.ok ? out.result ?? out : out.error), out.ok ? 200 : 403);
+    }
+
+    const { pending, durable } = await peekPending(env, id);
+    if (!durable) {
+      console.warn(
+        "WARNING ops/approvals: approvals are held per-isolate on this deployment — bind APPROVALS (KV) to make an approval link outlive the request that minted it",
+      );
+    }
+    return html(approvalPage(id, pending, { durable }), pending ? 200 : 404);
+  }
+
   if (path === "/whoami") {
     const detail = explainRole(identity, env);
     const claims = identity?.claims ?? {};
