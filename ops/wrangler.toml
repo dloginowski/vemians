@@ -140,9 +140,9 @@ SQUARE_ENV = "sandbox"
 # placeholder here is not a harmless marker — it is an outage. The Worker
 # already degrades without this binding, loudly, to a per-isolate Map.
 #
-# [[kv_namespaces]]
-# binding = "APPROVALS"
-# id      = "<id>"
+[[kv_namespaces]]
+binding = "APPROVALS"
+id      = "29ad4b3d8fb340ab960cd248fa5df609"
 
 #
 # SQUARE_LOCATION_ID is Square's single location (ADR-009 open question 2,
