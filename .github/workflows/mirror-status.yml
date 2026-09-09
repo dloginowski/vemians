@@ -112,6 +112,10 @@ jobs:
           curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$api/schedules" \
             | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps(d.get("result") if d.get("success") else d.get("errors"), indent=2))'
 
+          echo "───── WHICH SQUARE the mirror came from ─────"
+          curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$api/settings" > /tmp/settings.json
+          python3 .github/scripts/worker-env.py /tmp/settings.json
+
           echo "───── secret NAMES on vemians-ops (no values) ─────"
           curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$api/secrets" \
             | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps([s.get("name") for s in d["result"]] if d.get("success") else d.get("errors"), indent=2))'
