@@ -411,12 +411,30 @@ that does not trace to one of these is a process failure (see §12).
     filtering, caps and the audit row cannot differ per client. A tool a role may not use is
     absent from that client's tool list rather than present and refused.
 
-34. **`Test-PRD-P0-35-approval_never_in_band`** — A T2 action requested through MCP does not
+34. **`Test-PRD-P0-54-skill_discovery`** — A connecting agent is served the **skills**, not just
+    the tool names. Tool descriptions say what a tool is called; the skills say that the category
+    set is closed, that price and publish are two gates rather than one, and that a photograph goes
+    through an upload ticket — the knowledge a coworker's own Claude or ChatGPT needs to use this
+    correctly on its first attempt rather than by being refused into it.
+
+    Each `skills/<name>/SKILL.md` is **bundled as a text module**, so the bytes an agent reads are
+    the bytes in the repository at deploy time: there is no second copy to drift. They are exposed
+    **both** as MCP resources (`skill://<name>`) and as the `skills.list` / `skills.read` tools,
+    because resource support across MCP clients is uneven while tool support is universal — and the
+    point of this endpoint is that we do not control which client connects. The server's
+    `instructions` name the skills first, so an agent reads before it writes.
+
+    Skills are **filtered by role exactly as tools are**, by asking the tool registry rather than by
+    a second table of domains — a skill is listed only when the role can call at least one tool in
+    that domain. An out-of-role skill reads as **absent, not forbidden**: a distinguishable refusal
+    would leak which documents exist for other roles.
+
+35. **`Test-PRD-P0-35-approval_never_in_band`** — A T2 action requested through MCP does not
     execute in the model's context. It returns an approval URL on `ops.vemians.com`; the token is
     minted server-side from the human's browser action and is never returned to, nor accepted
     from, a model. This holds identically for every client.
 
-35. **`Test-PRD-P0-36-working_set_index`** — Every store exposes an **index** — the working set
+36. **`Test-PRD-P0-36-working_set_index`** — Every store exposes an **index** — the working set
     — and that is what a read returns by default. Rolling data off the index sets an
     `archived_at` marker; **nothing is deleted**, and archived rows stay queryable by an explicit
     call. Only settled data may be rolled off: an open ticket or a future shift is refused.
@@ -645,6 +663,7 @@ Where each feature is enforced today:
 | P0-01, P0-05 – P0-21, P0-30 | `shared/db/verify.py` |
 | P0-02 – P0-04 | Build-time catalog/knowledge/report checks (M1) |
 | P0-22 – P0-25 | Access policy review + `ops` integration tests (M5) |
+| P0-54 | `ops/test/skills.test.mjs` |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
 | P0-26 – P0-28 | Storefront build checks and the CI image-weight budget (M2) |
 | P0-42 – P0-46 | `store/test/storefront.test.mjs`, plus a Playwright run against `wrangler dev --local` for the measured browser behaviour (CLS, computed transforms and durations, focus order) |

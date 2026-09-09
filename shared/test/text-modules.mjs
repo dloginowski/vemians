@@ -1,6 +1,7 @@
 /*
  * A node module loader that does what wrangler's `[[rules]] type = "Text"` does:
- * resolves *.css and *.client.js to their source as a default-exported string.
+ * resolves *.css, *.client.js and *.md to their source as a default-exported
+ * string.
  *
  * Without it the view layer is untestable outside the Worker runtime — views.js
  * imports two stylesheets and index.js imports the browser script, so a plain
@@ -17,7 +18,9 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
-const TEXT = /\.(?:css|client\.js)$/;
+/* Kept in step with ops/wrangler.toml's [[rules]] globs. *.md is there for
+   skills/<name>/SKILL.md, which the MCP endpoint serves from the bundle. */
+const TEXT = /\.(?:css|md|client\.js)$/;
 
 export async function load(url, context, next) {
   if (url.startsWith("file:") && TEXT.test(new URL(url).pathname)) {

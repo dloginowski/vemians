@@ -26,6 +26,8 @@ import { TOOLS, runTool } from "./tools/index.js";
 /* Isolate warm-up, not first-request latency. See the SDK's own note. */
 preloadSchemas();
 
+import { SKILLS, skillByName, skillsFor } from "./skills.js";
+
 const SERVER_NAME = "vemians-ops";
 const SERVER_VERSION = "0.1.0";
 
@@ -125,6 +127,18 @@ export function roleCanUse(role, tool) {
     ROLE_RANK[DOMAIN_FLOOR[String(tool.domain || "").toLowerCase()] || "staff"],
   );
   return (ROLE_RANK[role] || 0) >= floor;
+}
+
+/*
+ * Can this role use ANYTHING in this domain? The skill list is filtered with
+ * exactly the rule the tool list is filtered with, by asking the tool list —
+ * not by a second table of domains, which is how the two come to disagree.
+ */
+export function canUseDomain(role, domain) {
+  const d = String(domain || "").toLowerCase();
+  return Object.values(TOOLS).some(
+    (t) => String(t.domain || "").toLowerCase() === d && roleCanUse(role, t),
+  );
 }
 
 /*
@@ -293,7 +307,123 @@ function buildServer(identity, env) {
         `Vemians ops tools for ${identity.actor} (${identity.role}).` +
         ` Only the tools this role may use are listed.` +
         ` T2 writes are never executed by this endpoint: they return a link a human approves in a browser.` +
+        /* The whole reason skills are served. A tool name says what it is
+           called; the skill says that the category set is closed, that price
+           and publish are two gates, that a photograph goes through an upload
+           ticket. Point at it in the first thing the model reads, or it will
+           learn those rules by being refused. */
+        ` START BY READING THE SKILLS: call skills_list, then skills_read on` +
+        ` "agent-tool-contract" plus whichever domain you are about to touch.` +
+        ` They are also exposed as MCP resources under skill://<name>.` +
         (identity.verified ? "" : " WARNING: the Access assertion was decoded but NOT signature-verified on this deployment."),
+    },
+  );
+
+  /*
+   * Skills, twice over, and the duplication is deliberate.
+   *
+   * MCP resources are the correct home for reference documents, and a client
+   * that supports them gets `skill://<name>` in its resource picker. But
+   * resource support across MCP clients is uneven, and the whole point of this
+   * endpoint is that a COWORKER'S OWN assistant connects — Claude, ChatGPT,
+   * something else next year. Tools are the one capability every client
+   * implements. So the same eight documents are reachable either way, and a
+   * connecting agent never has to be told which kind of client it is.
+   */
+  const visibleSkills = skillsFor(identity.role, canUseDomain);
+
+  for (const skill of visibleSkills) {
+    server.registerResource(
+      skill.name,
+      skill.uri,
+      { title: skill.title, description: skill.description, mimeType: "text/markdown" },
+      async () => ({
+        contents: [{ uri: skill.uri, mimeType: "text/markdown", text: skill.text }],
+      }),
+    );
+  }
+
+  server.registerTool(
+    "skills_list",
+    {
+      title: "skills.list",
+      description:
+        "List the skill documents for this role — how the tools here are meant to be used, " +
+        "not just what they are called. Read these before your first write. " +
+        "Returns name, description and size; skills_read returns the text.",
+      inputSchema: {},
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    async () => ({
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              skills: visibleSkills.map(({ name, title, description, version, bytes, uri }) => ({
+                name,
+                title,
+                description,
+                version,
+                bytes,
+                uri,
+              })),
+              start_with: "agent-tool-contract",
+              note:
+                "Filtered to this role. A skill for tools you cannot call is not listed, " +
+                "for the same reason those tools are not listed.",
+            },
+            null,
+            2,
+          ),
+        },
+      ],
+    }),
+  );
+
+  server.registerTool(
+    "skills_read",
+    {
+      title: "skills.read",
+      description:
+        "Return one skill document in full, by the name skills_list gave. " +
+        "Markdown, exactly as it is maintained in the repository.",
+      /* fromJsonSchema, like every other tool here — zod is not a dependency of
+         this Worker and one schema dialect is enough. */
+      inputSchema: fromJsonSchema({
+        type: "object",
+        properties: {
+          name: {
+            type: "string",
+            description: "A name from skills_list, e.g. catalog-skills",
+            maxLength: 60,
+          },
+        },
+        required: ["name"],
+        additionalProperties: false,
+      }),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    async ({ name }) => {
+      const skill = skillByName(name);
+      /* Refuse an out-of-role skill the same way an absent one is refused, and
+         say so identically: which documents exist for OTHER roles is not this
+         caller's business, and a different message would leak it. */
+      const visible = skill && visibleSkills.some((s) => s.name === skill.name);
+      if (!visible) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text:
+                `No skill named ${JSON.stringify(name)} is available to you. ` +
+                `Call skills_list for the ones that are.`,
+            },
+          ],
+        };
+      }
+      return { content: [{ type: "text", text: skill.text }] };
     },
   );
 
