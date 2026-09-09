@@ -71,7 +71,7 @@ jobs:
             echo "::error::could not create $KV_TITLE"; exit 1
           fi
 
-      - name: Write the KV id into ops/wrangler.toml
+      - name: Activate the APPROVALS and MEDIA bindings
         run: |
           (cd ops && npx wrangler kv namespace list) > /tmp/kv.json
           python3 .github/scripts/resolve-kv-id.py /tmp/kv.json ops/wrangler.toml "$KV_TITLE"
@@ -84,8 +84,9 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add ops/wrangler.toml
-          git commit -m "Resolve the APPROVALS KV id from the Cloudflare account
+          git commit -m "Activate the APPROVALS and MEDIA bindings
 
-          Replaces the placeholder ops/wrangler.toml ships with, so a T2
-          approval survives the isolate that minted it."
+          Both ship COMMENTED, because wrangler rejects a binding to a
+          namespace or bucket that does not exist and fails the whole deploy
+          with it. They are written live here, after the resources exist."
           git push

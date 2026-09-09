@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Write the real KV namespace id into a wrangler.toml.
+"""Activate the APPROVALS and MEDIA bindings in a wrangler.toml.
 
 Usage: resolve-kv-id.py <kv-list-json> <wrangler.toml> <namespace title>
 
@@ -41,22 +41,52 @@ def main(list_path, toml_path, title):
 
     p = pathlib.Path(toml_path)
     s = p.read_text()
-    # Anchor on the APPROVALS binding so this can never rewrite another id.
-    pat = re.compile(r'(\[\[kv_namespaces\]\]\s*\nbinding\s*=\s*"APPROVALS"\s*\nid\s*=\s*")([^"]+)(")')
-    m = pat.search(s)
-    if not m:
-        raise SystemExit("::error::no [[kv_namespaces]] APPROVALS block in " + toml_path)
-    if m.group(2) == real:
-        print("KV id already correct — nothing to change.")
-    else:
-        print(f"  APPROVALS: {m.group(2)[:28]}… -> {real}")
-        s = pat.sub(lambda _: m.group(1) + real + m.group(3), s, count=1)
-        p.write_text(s)
 
-    left = pat.search(p.read_text()).group(2)
-    if not UUID_ISH.match(left):
-        raise SystemExit(f"::error::APPROVALS id is still not a real id: {left!r}")
-    print("APPROVALS id resolved.")
+    # The bindings ship COMMENTED. wrangler rejects a binding whose namespace id
+    # is not real (code 10042) and fails the entire deploy, so a placeholder in
+    # the repository is an outage rather than a marker — which is exactly what
+    # it caused. They are written live only here, only after the resources have
+    # been created, and only in this order.
+    commented_kv = ('# [[kv_namespaces]]\n'
+                    '# binding = "APPROVALS"\n'
+                    '# id      = "<id>"')
+    live_kv = ('[[kv_namespaces]]\n'
+               'binding = "APPROVALS"\n'
+               f'id      = "{real}"')
+    commented_r2 = ('# [[r2_buckets]]\n'
+                    '# binding     = "MEDIA"\n'
+                    '# bucket_name = "vemians-media"')
+    live_r2 = ('[[r2_buckets]]\n'
+               'binding     = "MEDIA"\n'
+               'bucket_name = "vemians-media"')
+
+    if commented_kv in s:
+        print(f"  APPROVALS: activating with id {real}")
+        s = s.replace(commented_kv, live_kv, 1)
+    else:
+        pat = re.compile(r'(\[\[kv_namespaces\]\]\s*\nbinding\s*=\s*"APPROVALS"\s*\nid\s*=\s*")([^"]+)(")')
+        m = pat.search(s)
+        if not m:
+            raise SystemExit("::error::no APPROVALS block, live or commented, in " + toml_path)
+        if m.group(2) == real:
+            print("  APPROVALS: already correct.")
+        else:
+            print(f"  APPROVALS: {m.group(2)[:28]}… -> {real}")
+            s = pat.sub(lambda _: m.group(1) + real + m.group(3), s, count=1)
+
+    if commented_r2 in s:
+        print("  MEDIA: activating (R2 binds by name, so there is no id)")
+        s = s.replace(commented_r2, live_r2, 1)
+    else:
+        print("  MEDIA: already active.")
+
+    p.write_text(s)
+
+    # Refuse to leave anything that is not a real id behind.
+    for found in re.findall(r'^id\s*=\s*"([^"]+)"', s, re.M):
+        if not UUID_ISH.match(found):
+            raise SystemExit(f"::error::a kv id is still not real: {found!r}")
+    print("APPROVALS and MEDIA are live.")
 
 
 if __name__ == "__main__":
