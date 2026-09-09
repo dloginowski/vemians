@@ -500,7 +500,18 @@ that does not trace to one of these is a process failure (see §12).
     whole page fits a phone screen without scrolling. Folding costs the machine reader nothing: a
     `<details>` is in the DOM whether or not a person opened it, so an assistant that fetches the
     URL still gets the endpoint, the skill names readable at that role, the tier rules and the
-    tools bound to it. The endpoint is **derived from the request host**, never typed, so a preview
+    tools bound to it. **The visible half is written for a shopkeeper, not an engineer** — no tier
+    numbers, no product names, no vocabulary of ours a reader would have to learn before they can
+    start; a labeled check reads the prose and fails on the words we keep reaching for. Everything
+    technical sits inside the folded block, which is the one part written for a machine.
+
+    **`/whoami` answers a person too.** It is where someone is sent when their role reads none, so a
+    browser gets a page naming the usual cause — a sign-in the browser minted before they were added
+    — with a link to sign out and the whole answer in one copyable block to forward. Any client that
+    does not ask for HTML, and `?format=json`, still get exactly the JSON they got before: the
+    diagnostic that made the role bug findable is not taken away to make room for the page.
+
+    The endpoint is **derived from the request host**, never typed, so a preview
     deployment cannot hand a visitor a command pointing at production. The tool counts shown come
     from the same registry that filters the calls, so the page cannot advertise a capability the
     tool layer would refuse. Checked by `ops/test/ops-page.test.mjs`, which fetches the real page
