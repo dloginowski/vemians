@@ -167,14 +167,28 @@ labeled("test_PRD_P0_56_shop_with_a_door__shelving_removes_the_link_everywhere_i
   }
 });
 
-labeled("test_PRD_P0_56_shop_with_a_door__no_form_is_shown_that_has_nowhere_to_send", async () => {
+labeled("test_PRD_P0_56_shop_with_a_door__every_form_on_the_site_posts_somewhere_real", async () => {
+  /* The contact form is now real (ADR-015; the specifics of what it does are
+     Test-PRD-P0-58's business, in store/test/contact.test.mjs). What stays
+     this file's business is the general rule the old, narrower version of
+     this check enforced: no page on this site may ever show a form whose
+     action does not answer. */
+  for (const p of ["/", "/visit", "/bag", "/collaborations"]) {
+    const { html } = await get(p);
+    for (const m of html.matchAll(/<form[^>]*\baction="([^"]*)"/gi)) {
+      const action = m[1];
+      /* A GET-method search/filter form (the catalog's own) resolves against
+         itself; only the POST forms are this check's concern, since a GET
+         "posting nowhere" just re-renders the same page. */
+      const isPost = /method="post"/i.test(html.slice(m.index, m.index + 200));
+      if (!isPost) continue;
+      assert.notEqual(action, "", `a form on ${p} has no action at all`);
+    }
+  }
+  /* And the one that does exist actually accepts a POST rather than 404ing —
+     the failure mode the old version of this check was written to catch. */
   const { html } = await get("/visit");
-  const posts = [...html.matchAll(/<form[^>]*method="post"[^>]*>/gi)];
-  assert.deepEqual(posts, [], "a form that posts into nothing lets a person believe they were in touch");
-  /* And the Worker answers honestly rather than accepting a message it cannot
-     deliver: there is no POST route at all. */
-  const { status } = await get("/contact", "POST");
-  assert.equal(status, 404);
+  assert.match(html, /<form class="contact" method="post" action="\/contact">/, "the contact form must exist");
 });
 
 labeled("test_PRD_P0_56_shop_with_a_door__no_third_party_is_loaded_onto_the_page", async () => {

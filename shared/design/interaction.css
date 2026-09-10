@@ -630,6 +630,7 @@ button.heart::before { content: ""; position: absolute; inset: -8px; }
    in on a phone, standing outside the shop. */
 .contact { max-width: 34rem; }
 .contact label { display: block; padding: 12px 0 4px; font-size: var(--eyebrow); }
+.contact .optional { color: #666; font-weight: 400; }
 .contact input, .contact textarea {
   font: inherit;
   width: 100%;

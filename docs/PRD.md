@@ -315,7 +315,9 @@ that does not trace to one of these is a process failure (see §12).
 26. **`Test-PRD-P0-26-owned_storefront`** — `vemians.com` is ours: Astro on Workers, our design
     tokens and components, no vendor theming layer. It renders products, collections and content
     from the Git catalog and our own R2 media, makes **zero** calls to any commerce provider except
-    to mint a checkout URL, and keeps our handles as stable URLs across a provider switch.
+    to mint a checkout URL and to submit the contact form (P0-58, ADR-015 — one file, one scoped
+    credential, everything else on the browsing path exactly as pure as before), and keeps our
+    handles as stable URLs across a provider switch.
 27. **`Test-PRD-P0-49-mirror_or_seed`** — The storefront **prefers the mirror and falls back to
     the seed catalog when the mirror holds no rows**, and logs at INFO which of the two served
     the request. A sync that has never run, or that failed, must leave the shop stocked rather
@@ -424,6 +426,25 @@ that does not trace to one of these is a process failure (see §12).
     nothing hidden — and the trigger is not rendered at all, because a control that cannot work must
     not be on the page. The drawer and the filter panel are **one dialog implementation** used twice:
     written separately, the second copy is always the one that forgets to return focus.
+43. **`Test-PRD-P0-58-square_contact_form`** (ADR-015) — The visit page's contact form — full
+    name, email and a message required, phone the one optional field — does not write to a store of
+    ours. It calls Square's `CreateCustomer` endpoint and the submission lands as a customer record
+    in the merchant's own Square Customer Directory, message included in the record's `note` field,
+    the same directory the counter iPad already writes to. **This is the storefront's second
+    deliberate exception** to "no calls to a commerce provider" (P0-26/P0-37; the first is minting a
+    checkout URL) and **the first secret the public, unauthenticated storefront Worker has ever
+    held** — scoped to exactly one file (`store/src/contact.js`) and one credential name
+    (`SQUARE_ACCESS_TOKEN_CONTACT`, never the name ops's catalog sync uses), so a compromise of the
+    public surface cannot widen into whatever that other token can do.
+
+    Every failure is answered honestly, never a quiet success: an unreadable form, a missing
+    required field or a malformed email is refused before Square is ever called; a Square failure or
+    a missing credential returns a plain sentence and a working fallback (the phone number, the
+    email), never a 500 or a page claiming the message arrived when it did not. A GET on `/contact`
+    reads as 404, not 405 — the same route must not confirm its own existence to a method probe. A
+    honeypot field is answered with the same success page a real sender gets and is never sent to
+    Square, and the token itself never appears in a log line, matching the rule `client.js` already
+    holds for every other Square credential in this codebase.
 
 ### 3.9 Provider independence and traceability
 
@@ -764,6 +785,7 @@ Where each feature is enforced today:
 | P0-54 | `ops/test/skills.test.mjs`, `ops/test/ops-page.test.mjs` |
 | P0-55 | `ops/test/media-square.test.mjs`, over a stubbed Square uploader |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
+| P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
 | P0-26 – P0-28 | Storefront build checks and the CI image-weight budget (M2) |
 | P0-42 – P0-46 | `store/test/storefront.test.mjs`, plus a Playwright run against `wrangler dev --local` for the measured browser behaviour (CLS, computed transforms and durations, focus order) |

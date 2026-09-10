@@ -19,7 +19,7 @@
  * on the strength of a wrong var.
  *
  * ─────────────────────────────────────────────────────────────────────────────
- * THE ROUTE TABLE, AND WHY EVERY ONE OF THEM IS A PLAIN GET
+ * THE ROUTE TABLE — EVERY ONE A PLAIN GET, EXCEPT ONE
  * ─────────────────────────────────────────────────────────────────────────────
  *   /              the catalog. Filter, sort and page size are the query
  *                  string (query.js) — so the filter form, the load-more link
@@ -34,19 +34,18 @@
  *   /bag           the bag. Held on the viewer's device, never here.
  *   /visit         hours, directions, how to reach a person, how to join the list.
  *   /collaborations  editorial.
+ *   /contact       POST only. See below.
  *   /healthz       liveness.
  *
- * No POST, no cookie, no session. Nothing on this Worker writes — to D1 or to
- * anything else — and nothing leaves it: there is no call to fetch in this
- * bundle at all, which is what makes "the shop cannot read the provider live"
- * a property of the import list rather than a promise
- * (Test-PRD-P0-37-mirror_is_ours).
- *
- * A CONTACT FORM WOULD BREAK THAT, and so it is not here yet. Delivering a
- * message means one outbound request, and where that request goes is a decision
- * about where a stranger's name and email address land — not something to pick
- * by default. The visit page carries the phone number and the address instead,
- * both of which work today.
+ * No cookie, no session — and no D1 write anywhere in this Worker; `/contact`
+ * is the one exception to "nothing leaves it", and it is answered in full at
+ * the top of store/src/contact.js and in ADR-015: a submission becomes a
+ * Square customer record, through a credential scoped to that one file, under
+ * a name (`SQUARE_ACCESS_TOKEN_CONTACT`) that cannot be confused with any
+ * other token this codebase holds. store/src/catalog.js and
+ * store/src/views.js are untouched by this and remain exactly what
+ * Test-PRD-P0-37-mirror_is_ours already required: no client, no token, no
+ * call to fetch, a property of the import list rather than a promise.
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * THE ONE BINDING, AND WHY THE INVARIANT CHANGED
@@ -72,7 +71,8 @@
  * PRD: Test-PRD-P0-26-owned_storefront, Test-PRD-P0-27-adaptive_grid,
  *      Test-PRD-P0-28-image_contract, Test-PRD-P0-37-mirror_is_ours,
  *      Test-PRD-P0-42-progressive_storefront, Test-PRD-P0-46-viewer_local_wishlist,
- *      Test-PRD-P0-47-category_navigation, Test-PRD-P0-49-mirror_or_seed.
+ *      Test-PRD-P0-47-category_navigation, Test-PRD-P0-49-mirror_or_seed,
+ *      Test-PRD-P0-56-shop_with_a_door, Test-PRD-P0-58-square_contact_form.
  */
 
 import { notFoundPage } from "../../shared/view/html.js";
@@ -81,6 +81,7 @@ import { loadCatalog } from "./catalog.js";
 import { brandsOf, categoriesOf, parseQuery, select, subsOf } from "./query.js";
 import { bagPage, collaborationsPage, visitPage } from "./pages.js";
 import { catalogPage, catalogPartial, shotSvg } from "./views.js";
+import { handleContact } from "./contact.js";
 
 const html = (body, status = 200) =>
   new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8" } });
@@ -143,6 +144,22 @@ export default {
       if (url.pathname === "/bag") return html(bagPage(categories, subs));
       if (url.pathname === "/collaborations") return html(collaborationsPage(categories, subs));
       return html(visitPage(categories, subs));
+    }
+
+    /*
+     * The one write on this Worker (ADR-015): a contact form submission
+     * becomes a Square customer record. Handed the same derived taxonomy as
+     * every other page, because the result page renders inside the same
+     * drawer and footer as everything else. GET here is a 404 like any other
+     * unknown route — the form is reached at /visit#contact, never by
+     * visiting /contact directly.
+     */
+    if (url.pathname === "/contact") {
+      if (request.method !== "POST") return html(notFoundPage(), 404);
+      const { products } = await loadCatalog(env);
+      const categories = categoriesOf(products);
+      const subs = subsFor(products, categories);
+      return handleContact(request, env, { categories, subs });
     }
 
     if (url.pathname === "/") {

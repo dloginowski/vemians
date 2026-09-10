@@ -85,21 +85,41 @@ const hoursTable = () =>
     .join("\n");
 
 /*
- * Contact, and why there is no form yet.
+ * The contact form (ADR-015).
  *
- * A form that posts into nothing is worse than a phone number: the person
- * believes they have been in touch and they have not. Delivering a message
- * needs one outbound request from this Worker, and this Worker deliberately
- * makes none — see the header of src/index.js — so where that request should go
- * is a decision to take rather than a default to pick.
+ * A form that posts into nothing is worse than no form (P0-56) — this one has
+ * somewhere real to go: store/src/contact.js turns a submission into a Square
+ * customer record, in the same directory the counter iPad already writes to.
  *
- * Until it is taken, this block is the phone number, the address and the email,
- * all of which work today.
+ * Every field but phone is required, matched by both the browser (`required`)
+ * and the handler, because a person with JavaScript off, or a client that
+ * skips HTML validation, must be refused the same way a person typing too
+ * fast is. Phone is the one optional field — plenty of people write in who
+ * would rather not be called.
+ *
+ * The honeypot (`company`) is a field a person never sees and a robot fills
+ * in; hidden with `.trap` off-canvas rather than `display:none`, because a
+ * screen reader and most bots both skip a field that is actually hidden from
+ * assistive tech, which would defeat the point.
  */
-function contactBlock() {
-  return `    <p>Call <a href="tel:${esc(SITE.phone.replace(/[^+\d]/g, ""))}">${esc(SITE.phone)}</a>
-       or write to <a href="mailto:${esc(SITE.email)}">${esc(SITE.email)}</a>. We answer both.</p>
-    <p>Or come in and ask &mdash; <a href="#directions">we are here</a>, ${openDaysCount()} day${openDaysCount() === 1 ? "" : "s"} a week.</p>`;
+function contactForm() {
+  return `    <form class="contact" method="post" action="/contact">
+      <label for="c-name">Full name</label>
+      <input id="c-name" name="name" autocomplete="name" required>
+
+      <label for="c-phone">Phone <span class="optional">(optional)</span></label>
+      <input id="c-phone" name="phone" type="tel" autocomplete="tel">
+
+      <label for="c-email">Email</label>
+      <input id="c-email" name="email" type="email" autocomplete="email" required>
+
+      <label for="c-message">Message</label>
+      <textarea id="c-message" name="message" rows="5" required></textarea>
+
+      <p class="trap" aria-hidden="true"><label>Leave this empty<input name="company" tabindex="-1" autocomplete="off"></label></p>
+
+      <button class="btn" type="submit">Send</button>
+    </form>`;
 }
 
 export function visitPage(categories, subsByCategory) {
@@ -159,17 +179,41 @@ ${appointments}  <section class="block" id="directions"${reveal}>
       <a href="${esc(mapsDirectionsUrl())}" rel="noopener" target="_blank">Directions on Google Maps</a>
       <a href="${esc(mapsSearchUrl())}" rel="noopener" target="_blank">Open the map</a>
     </p>
+    <p>We are here ${openDaysCount()} day${openDaysCount() === 1 ? "" : "s"} a week — see <a href="#hours">hours</a> above.</p>
   </section>
 
   <section class="block" id="contact"${reveal}>
     <h2>Contact</h2>
-${contactBlock()}
+    <p>Tell us what's on your mind and we will get back to you.</p>
+${contactForm()}
   </section>
 
   <section class="block" id="join"${reveal}>
     <h2>Join our list</h2>
     <p>${esc(SITE.signup.lead)}</p>
     <p><a class="btn" href="${esc(SITE.signup.url)}" rel="noopener" target="_blank">Sign up</a></p>
+  </section>
+</main>`,
+    { categories, subsByCategory },
+  );
+}
+
+/*
+ * The page after a submission — success or failure, same shell, same shape as
+ * every other page on this Worker, because a bare "thank you" with no header
+ * or footer reads as a different, broken site the moment something goes
+ * wrong. `detail` is written by store/src/contact.js and is always a plain,
+ * pre-decided sentence — never a raw error, which would either leak nothing
+ * useful to the visitor or, worse, leak something that was.
+ */
+export function contactResultPage(categories, subsByCategory, ok, detail) {
+  return shell(
+    ok ? "Message sent" : "Not sent",
+    `<main class="page">
+  <section class="edit"${reveal}>
+    <h1>${ok ? "Thank you" : "That did not send"}</h1>
+    <p>${esc(detail)}</p>
+    <p><a href="/visit#contact">Back to contact</a></p>
   </section>
 </main>`,
     { categories, subsByCategory },

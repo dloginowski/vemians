@@ -46,6 +46,31 @@ fallthrough = true
 PUBLIC_HOST = "vemians.com"
 SURFACE     = "public"
 
+# Which Square host the contact form's one outbound call goes to (ADR-015).
+# Same var name and same two values ops/wrangler.toml uses, sandbox first —
+# switch this only together with a production SQUARE_ACCESS_TOKEN_CONTACT
+# secret, never one without the other.
+SQUARE_ENV = "sandbox"
+
+# ---------------------------------------------------------------------------
+# SQUARE_ACCESS_TOKEN_CONTACT — a SECRET, set with `wrangler secret put
+# SQUARE_ACCESS_TOKEN_CONTACT` (or the Cloudflare dashboard), never written
+# here or anywhere else committed. RULES.md: no credential in a committed file.
+#
+# THIS MUST NOT BE THE SAME TOKEN ops/wrangler.toml's SQUARE_ACCESS_TOKEN
+# NAMES. This Worker is public and unauthenticated; ops sits behind Cloudflare
+# Access. A single shared token means a compromise of the public surface is
+# also a compromise of everything the ops token can do. See ADR-015 for the
+# full reasoning and the scoping checklist — the short version: generate or
+# restrict this token to the narrowest Square permission that can create a
+# customer (ideally Customers only, nothing else), before this goes live with
+# a real credential.
+#
+# Absent, the contact form answers "messages are not connected yet" rather
+# than a 500 — src/contact.js treats a missing token as a configuration state
+# to report honestly, not a crash (Test-PRD-P0-58-square_contact_form).
+# ---------------------------------------------------------------------------
+
 # ---------------------------------------------------------------------------
 # Custom Domains. Commented out because `wrangler deploy` will try to create
 # them, which fails until the zone is on Cloudflare (deploy-cloudflare.md §1).
