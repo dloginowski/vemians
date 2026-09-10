@@ -39,13 +39,13 @@ export const SITE = {
    * `null` is closed. Times are 24h local strings.
    */
   hours: [
-    { day: 1, from: "11:00", to: "18:00" },
-    { day: 2, from: "11:00", to: "18:00" },
-    { day: 3, from: "11:00", to: "18:00" },
-    { day: 4, from: "11:00", to: "19:00" },
-    { day: 5, from: "11:00", to: "19:00" },
-    { day: 6, from: "11:00", to: "18:00" },
-    { day: 0, from: null, to: null },
+    { day: 0, from: null, to: null },        // Sunday — closed
+    { day: 1, from: null, to: null },        // Monday — closed
+    { day: 2, from: "12:00", to: "19:00" },  // Tuesday
+    { day: 3, from: "12:00", to: "19:00" },  // Wednesday
+    { day: 4, from: "12:00", to: "19:00" },  // Thursday
+    { day: 5, from: "12:00", to: "19:00" },  // Friday
+    { day: 6, from: "12:00", to: "19:00" },  // Saturday
   ],
 
   /*
@@ -156,6 +156,32 @@ export function hoursRows(hours = SITE.hours) {
     text: r.text,
   }));
 }
+
+/*
+ * The one-line summary in the top bar and the visit heading — "Open Tuesday to
+ * Saturday" — derived from the same SITE.hours the table beneath it reads, so a
+ * new closing day changes both or neither instead of one of them silently going
+ * stale. This was a hardcoded string in two files ("Open Monday to Saturday")
+ * and stayed correct only by luck the day Monday stopped being a trading day.
+ *
+ * Assumes one contiguous run of open days in the Monday-first week, which is
+ * every schedule a shop like this actually runs; a run split by a closed day
+ * in the middle (Tue–Wed, Fri–Sat) is not a shape this needs to describe yet.
+ */
+export function openDaysLabel(hours = SITE.hours) {
+  const order = [1, 2, 3, 4, 5, 6, 0];
+  const byDay = new Map(hours.map((h) => [h.day, h]));
+  const open = order.filter((d) => byDay.get(d)?.from && byDay.get(d)?.to);
+  if (!open.length) return "Closed";
+  const first = DAY[open[0]];
+  const last = DAY[open[open.length - 1]];
+  return first === last ? `Open ${first}` : `Open ${first} to ${last}`;
+}
+
+/* How many days a week the door is open — the count behind "come in six days a
+   week", which was typed as a literal and went stale the moment the schedule
+   changed to five. Counted, not stated. */
+export const openDaysCount = (hours = SITE.hours) => hours.filter((h) => h.from && h.to).length;
 
 /*
  * The footer's link columns. Two lists, named, so the footer renders from data

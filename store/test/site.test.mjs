@@ -28,7 +28,8 @@ const read = (...p) => fs.readFileSync(path.join(REPO, ...p), "utf8");
 register("../../shared/test/text-modules.mjs", import.meta.url);
 
 const worker = (await import("../src/index.js")).default;
-const { SITE, addressLine, hoursRows, mapsDirectionsUrl, mapsSearchUrl } = await import("../../shared/site.js");
+const { SITE, addressLine, hoursRows, mapsDirectionsUrl, mapsSearchUrl, openDaysCount, openDaysLabel } =
+  await import("../../shared/site.js");
 const { categoriesOf, subsOf } = await import("../src/query.js");
 const products = (await import("../../shared/seed/catalog.js")).products;
 
@@ -88,6 +89,25 @@ labeled("test_PRD_P0_56_shop_with_a_door__identical_days_collapse_into_one_row",
   }
   const closed = rows.filter((r) => r.text === "Closed");
   assert.ok(closed.length >= 1, "a closed day is stated, not omitted");
+});
+
+labeled("test_PRD_P0_56_shop_with_a_door__the_open_days_summary_is_derived_not_typed", async () => {
+  /* "Open Monday to Saturday" was a literal string in two files and it went
+     stale the day the schedule changed to Tuesday–Saturday — nobody touched
+     either copy of it because neither file's diff had anything to do with
+     hours. It has to come from the same SITE.hours the table renders, or it
+     will drift again the next time the schedule changes. */
+  assert.equal(openDaysLabel(), "Open Tuesday to Saturday");
+  assert.equal(openDaysCount(), 5, "five open days in the current schedule");
+
+  const { html } = await get("/visit");
+  assert.match(html, /<div class="bar">Open Tuesday to Saturday/);
+  assert.match(html, new RegExp(`${openDaysCount()} days? a week`), "the day count in the copy must match the schedule");
+  assert.doesNotMatch(html, /six days a week/i, "a stale literal must not survive the switch to five days");
+
+  /* A single open day reads as a day, not "1 days". */
+  assert.equal(openDaysLabel([{ day: 3, from: "10:00", to: "16:00" }]), "Open Wednesday");
+  assert.equal(openDaysCount([{ day: 3, from: "10:00", to: "16:00" }]), 1);
 });
 
 labeled("test_PRD_P0_56_shop_with_a_door__the_map_links_carry_the_real_address", () => {

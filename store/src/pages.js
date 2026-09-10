@@ -9,7 +9,7 @@
  */
 
 import { esc, money, page } from "../../shared/view/html.js";
-import { SITE, addressLine, hoursRows, mapsDirectionsUrl, mapsSearchUrl } from "../../shared/site.js";
+import { SITE, addressLine, hoursRows, mapsDirectionsUrl, mapsSearchUrl, openDaysCount, openDaysLabel } from "../../shared/site.js";
 import { CSS, footer, header, drawer, label } from "./shell.js";
 
 /*
@@ -24,7 +24,7 @@ const reveal = ' data-reveal';
 function shell(title, body, { categories = [], subsByCategory = {}, q = null, note = "" }) {
   return page(
     title,
-    `<div class="bar">Open Monday to Saturday &middot; <a href="${esc(mapsSearchUrl())}" rel="noopener" target="_blank">${esc(addressLine())}</a></div>
+    `<div class="bar">${esc(openDaysLabel())} &middot; <a href="${esc(mapsSearchUrl())}" rel="noopener" target="_blank">${esc(addressLine())}</a></div>
 ${header()}
 ${drawer(categories, subsByCategory, q)}
 ${body}
@@ -99,7 +99,7 @@ const hoursTable = () =>
 function contactBlock() {
   return `    <p>Call <a href="tel:${esc(SITE.phone.replace(/[^+\d]/g, ""))}">${esc(SITE.phone)}</a>
        or write to <a href="mailto:${esc(SITE.email)}">${esc(SITE.email)}</a>. We answer both.</p>
-    <p>Or come in and ask &mdash; <a href="#directions">we are here</a>, six days a week.</p>`;
+    <p>Or come in and ask &mdash; <a href="#directions">we are here</a>, ${openDaysCount()} day${openDaysCount() === 1 ? "" : "s"} a week.</p>`;
 }
 
 export function visitPage(categories, subsByCategory) {
