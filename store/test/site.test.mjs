@@ -157,8 +157,10 @@ labeled("test_PRD_P0_56_shop_with_a_door__the_visit_page_answers_all_four_questi
     assert.ok(html.includes(`id="${id}"`), `the visit page has no ${id} section to link to`);
   }
   assert.ok(html.includes(inPage(mapsDirectionsUrl())), "directions must be reachable");
-  assert.ok(html.includes(`tel:${SITE.phone.replace(/[^+\d]/g, "")}`), "the phone number must be tappable");
-  assert.ok(html.includes(`mailto:${SITE.email}`));
+  /* Reaching a person is now the contact form's job (ADR-015), not a raw
+     tel:/mailto: link — the "Find us" footer block that used to carry those
+     was removed deliberately, so their absence here is not an oversight. */
+  assert.match(html, /<form class="contact" method="post" action="\/contact">/, "the way to reach a person is the form");
   assert.ok(html.includes(inPage(SITE.signup.url)), "the sign-up link must be reachable");
   for (const row of hoursRows()) assert.ok(html.includes(row.text), `hours row '${row.text}' is not rendered`);
 });
@@ -280,14 +282,26 @@ labeled("test_PRD_P0_56_shop_with_a_door__what_is_not_real_yet_says_so", () => {
   }
 });
 
-labeled("test_PRD_P0_56_shop_with_a_door__the_footer_is_the_same_facts_everywhere", async () => {
+labeled("test_PRD_P0_56_shop_with_a_door__the_same_facts_appear_everywhere", async () => {
+  /* The address lives in the top bar on every page, not in a "Find us" footer
+     block — that block was removed deliberately, so its absence is not an
+     oversight to flag here. Social links are still the footer's job. */
   const pages = await Promise.all(["/", "/visit", "/bag", "/collaborations"].map((p) => get(p)));
   for (const { html } of pages) {
     assert.ok(html.includes(addressLine()), "the address is not on every page");
-    assert.ok(html.includes(SITE.phone), "the phone number is not on every page");
+    assert.match(html, /<div class="bar">/, "the address must come from the top bar");
     for (const s of SITE.social) {
       assert.ok(html.includes(inPage(s.href)), `${s.name} is missing from the footer`);
     }
+  }
+});
+
+labeled("test_PRD_P0_56_shop_with_a_door__find_us_is_gone", async () => {
+  /* A deliberate removal, not a regression — pinned so a future footer edit
+     cannot silently bring it back. */
+  for (const p of ["/", "/visit", "/bag", "/collaborations"]) {
+    const { html } = await get(p);
+    assert.doesNotMatch(html, />Find us</, `${p} still shows a "Find us" section`);
   }
 });
 

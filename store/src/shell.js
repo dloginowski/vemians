@@ -28,7 +28,7 @@
 import { esc, lean } from "../../shared/view/html.js";
 import gridSource from "../../shared/design/catalog-grid.css";
 import interactionSource from "../../shared/design/interaction.css";
-import { SITE, addressLine, footerColumns, mapsDirectionsUrl } from "../../shared/site.js";
+import { SITE, footerColumns } from "../../shared/site.js";
 
 /*
  * The stylesheet every page on this Worker is served with, stripped of comments
@@ -145,12 +145,6 @@ ${col.links.map((l) => `        <li><a href="${esc(l.href)}">${esc(l.text)}</a><
   return `<footer class="foot">
   <div class="foot-cols">
 ${columns}
-    <div class="foot-col">
-      <h2>Find us</h2>
-      <p><a href="${esc(mapsDirectionsUrl())}" rel="noopener" target="_blank">${esc(addressLine())}</a></p>
-      <p><a href="tel:${esc(SITE.phone.replace(/[^+\d]/g, ""))}">${esc(SITE.phone)}</a></p>
-      <p><a href="mailto:${esc(SITE.email)}">${esc(SITE.email)}</a></p>
-    </div>
   </div>
   <div class="foot-social">
     <h2>Follow us on</h2>
