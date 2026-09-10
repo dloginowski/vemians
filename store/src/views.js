@@ -27,7 +27,7 @@
  */
 
 import { esc, money, page } from "../../shared/view/html.js";
-import { addressLine } from "../../shared/site.js";
+import { addressLine, mapsSearchUrl } from "../../shared/site.js";
 import { CSS, drawer, footer, header, label } from "./shell.js";
 import { href, PAGE, SORTS } from "./query.js";
 
@@ -197,7 +197,7 @@ export function catalogPage(brands, categories, q, picked, source = "seed", subs
 
   return page(
     "Vemians",
-    `<div class="bar">Open Monday to Saturday &middot; ${esc(addressLine())}</div>
+    `<div class="bar">Open Monday to Saturday &middot; <a href="${esc(mapsSearchUrl())}" rel="noopener" target="_blank">${esc(addressLine())}</a></div>
 ${header()}
 ${drawer(categories, subsByCategory, q)}
 <section class="edit">

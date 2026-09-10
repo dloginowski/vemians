@@ -24,7 +24,7 @@ const reveal = ' data-reveal';
 function shell(title, body, { categories = [], subsByCategory = {}, q = null, note = "" }) {
   return page(
     title,
-    `<div class="bar">Open Monday to Saturday &middot; ${esc(addressLine())}</div>
+    `<div class="bar">Open Monday to Saturday &middot; <a href="${esc(mapsSearchUrl())}" rel="noopener" target="_blank">${esc(addressLine())}</a></div>
 ${header()}
 ${drawer(categories, subsByCategory, q)}
 ${body}
@@ -135,7 +135,7 @@ ${booking}
 
   <section class="block" id="directions"${reveal}>
     <h2>Directions</h2>
-    <p class="address">${esc(addressLine())}</p>
+    <p class="address"><a href="${esc(mapsSearchUrl())}" rel="noopener" target="_blank">${esc(addressLine())}</a></p>
     <p class="links">
       <a href="${esc(mapsDirectionsUrl())}" rel="noopener" target="_blank">Directions on Google Maps</a>
       <a href="${esc(mapsSearchUrl())}" rel="noopener" target="_blank">Open the map</a>

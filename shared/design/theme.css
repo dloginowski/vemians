@@ -1,14 +1,18 @@
 /*
  * Measured design tokens — docs/design-direction.md §3.
  *
- * Achromatic. Near-flat type scale: 16px does nearly all the work. Sentence
- * case throughout; tracked caps are reserved for the wordmark alone. No
- * borders, shadows, cards or rounded corners — the image edge is the card.
- * Light only: the genre is committed to a white ground (§5).
+ * Near-flat type scale: 16px does nearly all the work. Sentence case
+ * throughout; tracked caps are reserved for the wordmark alone. No borders,
+ * shadows, cards or rounded corners — the image edge is the card.
+ * Light only: the genre is committed to a light ground (§5).
+ *
+ * --ground is the wall color from the shop's own space, sampled from a photo
+ * rather than picked from a swatch — a warm, near-neutral off-white instead
+ * of paper white.
  */
 
 :root {
-  --ground:       #FFFFFF;
+  --ground:       #D2CCBD;
   --image-ground: #EFF0F4;
   --ink:          #000000;
   --bar:          #000000;
@@ -35,7 +39,9 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Announcement bar — black, white text, centred. */
+/* Announcement bar — black, white text, centred. The address is a Google Maps
+   link, but it reads as the same white text as the rest of the bar rather than
+   a stray blue link on a black ground. */
 .bar {
   background: var(--bar);
   color: var(--ground);
@@ -43,6 +49,7 @@ body {
   padding: 10px 16px;
   font-size: var(--eyebrow);
 }
+.bar a { color: inherit; text-decoration: underline; }
 
 /* Header — three slots: menu, wordmark, bag. The wordmark stays optically
    centred because the two outer slots are given the same fixed width, not
