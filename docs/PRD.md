@@ -394,13 +394,16 @@ that does not trace to one of these is a process failure (see §12).
 
     Directions are **two plain links** to Google Maps — one that opens the place, one that opens
     directions from wherever the visitor is standing — built from the documented query parameters
-    with the address encoded. **No embedded map**, no third-party script, no API key on the page:
-    an `<a href>` loads nothing, and this Worker makes no outbound request at all (P0-37).
+    with the address encoded. **No embedded map**, no API key on the page: an `<a href>` loads
+    nothing, and this Worker makes no outbound request at all (P0-37). The one deliberate
+    exception to "no third-party script" is Square's own Appointments booking widget, scoped to
+    exactly the `#appointments` section on `/visit` (ADR-014) — everywhere else, the guarantee
+    holds as written.
 
     **A contact form ships only when it has somewhere to go.** A form that posts into nothing lets a
     person believe they have been in touch when they have not, so until a destination is chosen the
     page carries the phone number and the email, both of which work. Anything not yet real — the
-    address, the booking link — is marked as a placeholder in the source rather than presented as
+    address, the booking widget or link — is marked as a placeholder in the source rather than presented as
     fact.
 42. **`Test-PRD-P0-57-two_level_navigation`** — The menu is a **drawer**: it slides in from the
     inline start over a scrim, and a category with sub-categories opens a second pane that arrives

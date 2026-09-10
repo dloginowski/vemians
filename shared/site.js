@@ -51,11 +51,29 @@ export const SITE = {
   /*
    * Appointments. A private hour with a stylist, which for a shop this size is
    * the thing worth booking rather than a slot machine of fifteen-minute
-   * windows. `bookingUrl` is set once a booking provider is chosen; until then
-   * the page asks people to call, which is true, rather than showing a button
-   * that goes nowhere.
+   * windows. Until a booking provider is chosen, the page asks people to
+   * call, which is true, rather than showing a control that goes nowhere.
+   *
+   * Two ways a provider can be wired in, in order of preference:
+   *
+   *   `widgetEmbed` — the exact snippet Square's dashboard gives you at
+   *   Appointments → Online Booking → Share → Add to your website (a
+   *   <script> tag, sometimes with a companion <div>). Pasted in VERBATIM,
+   *   unescaped, by design: this is trusted operator config, never visitor
+   *   input, and Square's own markup is not this codebase's to guess at or
+   *   reconstruct — see ADR-014. It renders inline in the #appointments
+   *   section, which is what makes it "interactive" rather than a link out.
+   *
+   *   `bookingUrl` — a plain link to Square's hosted booking page, opened in
+   *   a new tab. Lighter than the widget, no script loaded, and works as a
+   *   fallback if the widget snippet is ever pulled without a replacement.
+   *
+   * `widgetEmbed` wins when both are set. Neither is real until the owner has
+   * actually turned on Square Appointments (ADR-014) — until then both stay
+   * PLACEHOLDER, and the page keeps telling people to call, which is true.
    */
   appointments: {
+    widgetEmbed: "",          // PLACEHOLDER — Square Appointments not yet configured
     bookingUrl: "",           // PLACEHOLDER — no booking provider connected yet
     lead: "Private appointments run an hour and are complimentary.",
   },

@@ -104,7 +104,18 @@ function contactBlock() {
 }
 
 export function visitPage(categories, subsByCategory) {
-  const booking = SITE.appointments.bookingUrl
+  /*
+   * Three tiers, most-real first. `widgetEmbed` is Square's own snippet,
+   * inserted VERBATIM (unescaped) — see the comment on SITE.appointments and
+   * ADR-014: it is trusted operator config, not visitor input, and it is the
+   * one deliberate exception to "no third party loads onto this page"
+   * (Test-PRD-P0-56), scoped to exactly this section on this page. Falling
+   * back to a link, and then to a phone number, keeps the page honest about
+   * what is actually wired up rather than showing a control that does nothing.
+   */
+  const booking = SITE.appointments.widgetEmbed
+    ? SITE.appointments.widgetEmbed
+    : SITE.appointments.bookingUrl
     ? `    <p><a class="btn" href="${esc(SITE.appointments.bookingUrl)}" rel="noopener" target="_blank">Book an appointment</a></p>`
     : `    <p>Appointments are booked by phone for now: <a href="tel:${esc(SITE.phone.replace(/[^+\d]/g, ""))}">${esc(SITE.phone)}</a>.</p>`;
 

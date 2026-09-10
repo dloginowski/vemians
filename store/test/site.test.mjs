@@ -126,6 +126,10 @@ labeled("test_PRD_P0_56_shop_with_a_door__no_form_is_shown_that_has_nowhere_to_s
 });
 
 labeled("test_PRD_P0_56_shop_with_a_door__no_third_party_is_loaded_onto_the_page", async () => {
+  /* Unconfigured — the default state today — the guarantee holds with no
+     carve-out at all. ADR-014's exception only exists once an owner has
+     actually pasted a widget snippet in; that branch is exercised below. */
+  assert.equal(SITE.appointments.widgetEmbed, "", "a configured widget would change what this test may see");
   for (const p of ["/", "/visit", "/bag", "/collaborations"]) {
     const { html } = await get(p);
     assert.doesNotMatch(html, /<iframe/i, `${p} embeds a third party`);
@@ -137,6 +141,32 @@ labeled("test_PRD_P0_56_shop_with_a_door__no_third_party_is_loaded_onto_the_page
       const before = html.slice(Math.max(0, m.index - 120), m.index);
       assert.match(before, /<a [^>]*href="$/, `${m[0]} on ${p} is not a link the visitor chose`);
     }
+  }
+});
+
+labeled("test_PRD_P0_56_shop_with_a_door__the_appointments_widget_is_the_only_sanctioned_exception", async () => {
+  /* ADR-014: once an owner pastes Square's own booking snippet into
+     SITE.appointments.widgetEmbed, it is the one third party allowed onto
+     the page — scoped to exactly the #appointments section on /visit, and
+     to exactly the snippet configured, not to "anything Square-shaped". */
+  const snippet =
+    '<div id="sq-appointments-test"></div>\n' +
+    '<script src="https://square.site/appointments/buyer/widget/test-fixture.js"></script>';
+  SITE.appointments.widgetEmbed = snippet;
+  try {
+    const visit = await get("/visit");
+    const appointmentsSection = visit.html.split('id="appointments"')[1].split('id="directions"')[0];
+    assert.ok(appointmentsSection.includes(snippet), "the snippet must render verbatim, unescaped, in its section");
+    assert.doesNotMatch(appointmentsSection, /<iframe/i, "the widget is a script, not an iframe");
+
+    for (const p of ["/", "/bag", "/collaborations"]) {
+      const { html } = await get(p);
+      assert.doesNotMatch(html, /square\.site/i, `${p} must never carry the appointments widget`);
+      assert.doesNotMatch(html, /<script[^>]+src="https?:/i, `${p} loads somebody else's script`);
+      assert.doesNotMatch(html, /<iframe/i, `${p} embeds a third party`);
+    }
+  } finally {
+    SITE.appointments.widgetEmbed = "";
   }
 });
 
