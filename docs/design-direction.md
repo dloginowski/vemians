@@ -50,7 +50,7 @@ headings. Restraint comes from the palette and the whitespace, not from shrinkin
 
 | Token | Value | Use |
 |---|---|---|
-| `--ground` | `#FFFFFF` | Page |
+| `--ground` | `#D2CCBD` | Page. Warm off-white, sampled from the shop's own wall — a deliberate departure from the reference's pure white |
 | `--image-ground` | `#EFF0F4` | Behind product photography. Cool, not warm |
 | `--ink` | `#000000` | Text — effectively pure black |
 | `--bar` | `#000000` | Announcement bar, white text, centred |
@@ -151,7 +151,8 @@ sort panels. Screenshots of a desktop grid and a product page would close most o
 bold in the heading. I am not going to guess the exact face from one screenshot — and it is a
 brand decision regardless, and the single largest lever on how this feels.
 
-**Light only.** I would not build dark mode. The genre is committed to a white ground.
+**Light only.** I would not build dark mode. The genre is committed to a light ground — ours is
+a warm off-white rather than pure white (§3, `--ground`), not a neutral grey and not dark.
 
 ## 6. The tension with N1
 
