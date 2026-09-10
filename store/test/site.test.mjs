@@ -146,7 +146,10 @@ labeled("test_PRD_P0_56_shop_with_a_door__what_is_not_real_yet_says_so", () => {
   const src = read("shared", "site.js");
   assert.match(src, /PLACEHOLDER/, "the unresolved values must be marked in the source");
   const marked = [...src.matchAll(/PLACEHOLDER/g)].length;
-  assert.ok(marked >= 3, `expected the address, the contact details and the socials marked, saw ${marked}`);
+  assert.ok(marked >= 2, `expected the contact details and the socials marked, saw ${marked}`);
+  /* The address is real now and must not still be labelled a guess — a marker
+     left on a resolved value trains everyone to ignore the markers. */
+  assert.doesNotMatch(src, /PLACEHOLDER[^\n]*\n\s*address:/, "the address is supplied; drop its marker");
   /* And nothing claims a booking provider that is not connected. */
   if (!SITE.appointments.bookingUrl) {
     assert.equal(SITE.appointments.bookingUrl, "", "an unset booking URL is empty, never a guess");

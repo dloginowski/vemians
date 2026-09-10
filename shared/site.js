@@ -18,13 +18,14 @@
 export const SITE = {
   name: "Vemians",
 
-  /* PLACEHOLDER — the real address has not been supplied yet. */
+  /* The real one. Supplied by the owner, and the only address in the codebase —
+     the footer, the visit page and both map links all read it from here. */
   address: {
-    line1: "1 Example Street",
-    line2: "Suite 100",
-    city: "Los Angeles",
+    line1: "719 S San Fernando Blvd",
+    line2: "",
+    city: "Burbank",
     region: "CA",
-    postal: "90013",
+    postal: "91502",
     country: "USA",
   },
 
