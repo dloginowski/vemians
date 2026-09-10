@@ -91,6 +91,29 @@ labeled("test_PRD_P0_56_shop_with_a_door__identical_days_collapse_into_one_row",
   assert.ok(closed.length >= 1, "a closed day is stated, not omitted");
 });
 
+labeled("test_PRD_P0_56_shop_with_a_door__hours_display_in_12_hour_clock", () => {
+  /* Stored 24-hour ("12:00", "19:00") because that shape is unambiguous and
+     sortable; a bare "12:00" is exactly the kind of thing a door sign must
+     not say, so the 12-hour conversion — with AM/PM, never a bare "12:00" —
+     happens once, on the way out, for every reader of hoursRows(). */
+  const open = hoursRows().find((r) => r.text !== "Closed");
+  assert.ok(open, "the fixture needs at least one open row to check");
+  assert.match(open.text, /^\d{1,2}:\d{2} (AM|PM)–\d{1,2}:\d{2} (AM|PM)$/, `not 12-hour: "${open.text}"`);
+  assert.doesNotMatch(open.text, /^0\d:/, "no leading zero on the hour");
+
+  /* Noon and midnight are the one place a naive %12 conversion breaks —
+     0 % 12 and 12 % 12 both equal 0, and "0:00" is not a time anyone reads on
+     a door. Checked directly against a synthetic schedule so this does not
+     depend on which hours the shop happens to keep today. */
+  const synthetic = hoursRows([
+    { day: 1, from: "00:00", to: "12:00" },
+    { day: 2, from: "12:00", to: "23:30" },
+  ]);
+  const [midnightToNoon, noonToNight] = synthetic;
+  assert.equal(midnightToNoon.text, "12:00 AM–12:00 PM");
+  assert.equal(noonToNight.text, "12:00 PM–11:30 PM");
+});
+
 labeled("test_PRD_P0_56_shop_with_a_door__the_open_days_summary_is_derived_not_typed", async () => {
   /* "Open Monday to Saturday" was a literal string in two files and it went
      stale the day the schedule changed to Tuesday–Saturday — nobody touched

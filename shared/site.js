@@ -137,8 +137,25 @@ export const mapsDirectionsUrl = (a = SITE.address) =>
 
 const DAY = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
+/*
+ * SITE.hours stays 24-hour internally — "12:00", "19:00" — because that is the
+ * unambiguous, sortable shape a schedule should be stored in; "12:00" alone is
+ * genuinely ambiguous to a reader (noon or midnight?) which is exactly the
+ * confusion a door sign must not have. This is the one place that ambiguity
+ * gets resolved, on the way OUT to a person: noon becomes "12:00 PM", midnight
+ * "12:00 AM", never a bare "12:00". No leading zero on the hour ("9:00 AM",
+ * not "09:00 AM") — a receipt-shaped time, not a 24-hour one with the letters
+ * added on.
+ */
+function to12Hour(time) {
+  const [h, m] = time.split(":").map(Number);
+  const period = h < 12 ? "AM" : "PM";
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return `${hour12}:${String(m).padStart(2, "0")} ${period}`;
+}
+
 /* Monday first, the way a shop's door sign reads, with consecutive identical
-   days collapsed into one row — "Mon – Wed 11:00–18:00" rather than three
+   days collapsed into one row — "Mon – Wed 11:00 AM–6:00 PM" rather than three
    lines saying the same thing. */
 export function hoursRows(hours = SITE.hours) {
   const order = [1, 2, 3, 4, 5, 6, 0];
@@ -146,7 +163,7 @@ export function hoursRows(hours = SITE.hours) {
   const rows = [];
   for (const day of order) {
     const h = byDay.get(day) || { day, from: null, to: null };
-    const text = h.from && h.to ? `${h.from}–${h.to}` : "Closed";
+    const text = h.from && h.to ? `${to12Hour(h.from)}–${to12Hour(h.to)}` : "Closed";
     const last = rows[rows.length - 1];
     if (last && last.text === text) last.days.push(day);
     else rows.push({ days: [day], text });
