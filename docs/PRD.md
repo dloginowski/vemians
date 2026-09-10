@@ -385,7 +385,7 @@ that does not trace to one of these is a process failure (see §12).
     benign fallback rather than a failure.
 
 41. **`Test-PRD-P0-56-shop_with_a_door`** — We are a shop with a door before we are a shop with a
-    checkout, so the address, the opening hours, how to book an appointment and how to reach a
+    checkout, so the address, the opening hours, how to join the mailing list and how to reach a
     person are **first-class pages**, not footer text. Hours are **structured data** — a weekday
     index and two times, `null` for closed — rendered with consecutive identical days collapsed, so
     "are you open now" is answerable by code rather than by reading a paragraph. The address, phone,
@@ -398,13 +398,20 @@ that does not trace to one of these is a process failure (see §12).
     nothing, and this Worker makes no outbound request at all (P0-37). The one deliberate
     exception to "no third-party script" is Square's own Appointments booking widget, scoped to
     exactly the `#appointments` section on `/visit` (ADR-014) — everywhere else, the guarantee
-    holds as written.
+    holds as written. **Appointments is shelved** (`SITE.appointments.shelved`, the owner's own
+    call): the section is absent from the page entirely rather than shown with a phone-number
+    fallback, because a section for something we are actively not offering is worse than no
+    section. The wiring underneath is untouched and un-shelving it is a one-line flip.
+
+    **Joining the mailing list is a plain link out**, the same trust level and the same "link,
+    don't rebuild" call ADR-009 already made for checkout: Square's own hosted enrolment page
+    (Customer Directory → Customer programs), never a form this codebase collects or stores.
 
     **A contact form ships only when it has somewhere to go.** A form that posts into nothing lets a
     person believe they have been in touch when they have not, so until a destination is chosen the
     page carries the phone number and the email, both of which work. Anything not yet real — the
     address, the booking widget or link — is marked as a placeholder in the source rather than presented as
-    fact.
+    fact. The sign-up link is not a placeholder: it is the real, owner-supplied URL.
 42. **`Test-PRD-P0-57-two_level_navigation`** — The menu is a **drawer**: it slides in from the
     inline start over a scrim, and a category with sub-categories opens a second pane that arrives
     from the inline end with a back control at its head. **Both levels are derived from the serving

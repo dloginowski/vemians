@@ -32,7 +32,7 @@
  *   /img/<h>-<v>.svg  placeholder photography, one shot per URL, so images can
  *                  actually load, decode and be preloaded on hover intent.
  *   /bag           the bag. Held on the viewer's device, never here.
- *   /visit         hours, appointments, directions, how to reach a person.
+ *   /visit         hours, directions, how to reach a person, how to join the list.
  *   /collaborations  editorial.
  *   /healthz       liveness.
  *

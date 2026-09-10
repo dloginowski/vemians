@@ -106,13 +106,45 @@ labeled("test_PRD_P0_56_shop_with_a_door__the_map_links_carry_the_real_address",
 labeled("test_PRD_P0_56_shop_with_a_door__the_visit_page_answers_all_four_questions", async () => {
   const { status, html } = await get("/visit");
   assert.equal(status, 200);
-  for (const id of ["hours", "appointments", "directions", "contact"]) {
+  /* "Appointments" is shelved (see SITE.appointments.shelved) and its section
+     is checked separately below, in both states. What must always be present
+     is the rest of the four: when you're open, how to get here, how to reach
+     a person, and now how to stay in touch. */
+  for (const id of ["hours", "directions", "contact", "join"]) {
     assert.ok(html.includes(`id="${id}"`), `the visit page has no ${id} section to link to`);
   }
   assert.ok(html.includes(inPage(mapsDirectionsUrl())), "directions must be reachable");
   assert.ok(html.includes(`tel:${SITE.phone.replace(/[^+\d]/g, "")}`), "the phone number must be tappable");
   assert.ok(html.includes(`mailto:${SITE.email}`));
+  assert.ok(html.includes(inPage(SITE.signup.url)), "the sign-up link must be reachable");
   for (const row of hoursRows()) assert.ok(html.includes(row.text), `hours row '${row.text}' is not rendered`);
+});
+
+labeled("test_PRD_P0_56_shop_with_a_door__a_shelved_section_is_absent_not_a_dead_end", async () => {
+  /* Shelved means the SECTION IS ABSENT, not present with a fallback control —
+     a section for a thing we are actively not offering right now is worse
+     than no section at all. Checked in both states, restored after, exactly
+     like the widgetEmbed exception test below: this is the owner's call to
+     make, not a permanent deletion, so flipping it back has to actually work. */
+  assert.equal(SITE.appointments.shelved, true, "appointments are shelved today — this test documents that default");
+  const shelved = await get("/visit");
+  assert.doesNotMatch(shelved.html, /id="appointments"/, "a shelved section must not render at all");
+  assert.doesNotMatch(shelved.html, /Book an appointment/i, "nor any link into it, anywhere on the page");
+
+  SITE.appointments.shelved = false;
+  try {
+    const live = await get("/visit");
+    assert.match(live.html, /id="appointments"/, "un-shelving must bring the section back with no code change");
+  } finally {
+    SITE.appointments.shelved = true;
+  }
+});
+
+labeled("test_PRD_P0_56_shop_with_a_door__shelving_removes_the_link_everywhere_it_appeared", async () => {
+  for (const p of ["/", "/visit", "/bag", "/collaborations"]) {
+    const { html } = await get(p);
+    assert.doesNotMatch(html, /appointments/i, `${p} still mentions the shelved feature`);
+  }
 });
 
 labeled("test_PRD_P0_56_shop_with_a_door__no_form_is_shown_that_has_nowhere_to_send", async () => {
@@ -152,6 +184,10 @@ labeled("test_PRD_P0_56_shop_with_a_door__the_appointments_widget_is_the_only_sa
   const snippet =
     '<div id="sq-appointments-test"></div>\n' +
     '<script src="https://square.site/appointments/buyer/widget/test-fixture.js"></script>';
+  /* The section itself is shelved today (see the tests above) — exercising
+     the widget also means picking the feature back up for the duration of
+     this test, exactly as a real un-shelving would. */
+  SITE.appointments.shelved = false;
   SITE.appointments.widgetEmbed = snippet;
   try {
     const visit = await get("/visit");
@@ -167,6 +203,7 @@ labeled("test_PRD_P0_56_shop_with_a_door__the_appointments_widget_is_the_only_sa
     }
   } finally {
     SITE.appointments.widgetEmbed = "";
+    SITE.appointments.shelved = true;
   }
 });
 

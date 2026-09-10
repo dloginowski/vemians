@@ -70,8 +70,7 @@ export function bagPage(categories, subsByCategory) {
 ${tiles}
   </div>
   <section class="edit"${reveal}>
-    <p>Prefer to be looked after? <a href="/visit#appointments">Book an appointment</a> and
-       we will have your size ready.</p>
+    <p>Want first look at what comes in next? <a href="/visit#join">Join our list</a>.</p>
   </section>
 </main>`,
     { categories, subsByCategory },
@@ -112,12 +111,28 @@ export function visitPage(categories, subsByCategory) {
    * (Test-PRD-P0-56), scoped to exactly this section on this page. Falling
    * back to a link, and then to a phone number, keeps the page honest about
    * what is actually wired up rather than showing a control that does nothing.
+   *
+   * Rendered only when the owner is featuring it at all — see the comment on
+   * `SITE.appointments.shelved`. Shelved means the SECTION IS ABSENT, not
+   * present with a phone-number fallback: a section for a thing we are
+   * actively not offering right now is worse than no section.
    */
   const booking = SITE.appointments.widgetEmbed
     ? SITE.appointments.widgetEmbed
     : SITE.appointments.bookingUrl
     ? `    <p><a class="btn" href="${esc(SITE.appointments.bookingUrl)}" rel="noopener" target="_blank">Book an appointment</a></p>`
     : `    <p>Appointments are booked by phone for now: <a href="tel:${esc(SITE.phone.replace(/[^+\d]/g, ""))}">${esc(SITE.phone)}</a>.</p>`;
+
+  const appointments = SITE.appointments.shelved
+    ? ""
+    : `  <section class="block" id="appointments"${reveal}>
+    <h2>Appointments</h2>
+    <p>${esc(SITE.appointments.lead)} Tell us what you are looking for and it will be
+       waiting, in your size, in a room with a door.</p>
+${booking}
+  </section>
+
+`;
 
   return shell(
     "Visit the store",
@@ -137,14 +152,7 @@ ${hoursTable()}
     </table>
   </section>
 
-  <section class="block" id="appointments"${reveal}>
-    <h2>Appointments</h2>
-    <p>${esc(SITE.appointments.lead)} Tell us what you are looking for and it will be
-       waiting, in your size, in a room with a door.</p>
-${booking}
-  </section>
-
-  <section class="block" id="directions"${reveal}>
+${appointments}  <section class="block" id="directions"${reveal}>
     <h2>Directions</h2>
     <p class="address"><a href="${esc(mapsSearchUrl())}" rel="noopener" target="_blank">${esc(addressLine())}</a></p>
     <p class="links">
@@ -156,6 +164,12 @@ ${booking}
   <section class="block" id="contact"${reveal}>
     <h2>Contact</h2>
 ${contactBlock()}
+  </section>
+
+  <section class="block" id="join"${reveal}>
+    <h2>Join our list</h2>
+    <p>${esc(SITE.signup.lead)}</p>
+    <p><a class="btn" href="${esc(SITE.signup.url)}" rel="noopener" target="_blank">Sign up</a></p>
   </section>
 </main>`,
     { categories, subsByCategory },

@@ -71,11 +71,38 @@ export const SITE = {
    * `widgetEmbed` wins when both are set. Neither is real until the owner has
    * actually turned on Square Appointments (ADR-014) — until then both stay
    * PLACEHOLDER, and the page keeps telling people to call, which is true.
+   *
+   * `shelved` is a separate, deliberate decision from "not configured yet":
+   * the owner's call to stop featuring appointments on the site for now,
+   * regardless of whether a widget or link is ever set. `true` here means the
+   * whole section is absent from the visit page, the footer and the drawer —
+   * not shown with a phone-number fallback, not shown at all — because a
+   * section for a thing we are actively not offering is worse than no
+   * section. The wiring underneath (this comment, ADR-014, the widget/link
+   * fallback chain) stays exactly as built: flipping this back to `false` is
+   * the whole of picking the feature back up.
    */
   appointments: {
+    shelved: true,             // the owner's call — see the paragraph above
     widgetEmbed: "",          // PLACEHOLDER — Square Appointments not yet configured
     bookingUrl: "",           // PLACEHOLDER — no booking provider connected yet
     lead: "Private appointments run an hour and are complimentary.",
+  },
+
+  /*
+   * Join the list — a hosted Square page (Customer Directory → Customer
+   * programs), not a form this codebase renders or a mailing address this
+   * codebase collects. Same call ADR-009 made for checkout and ADR-014 for
+   * booking: enrolment fields, consent language and where the data actually
+   * lands are Square's to keep current, so this is a plain link out, exactly
+   * like `appointments.bookingUrl`, opened in a new tab, nothing embedded.
+   *
+   * Real from the day it was handed over — no PLACEHOLDER marker, unlike the
+   * fields above it, because this URL is not a guess.
+   */
+  signup: {
+    url: "https://squareup.com/customer-programs/enroll/nEi7fZrMYRDM?utm_medium=copied-link&utm_source=online",
+    lead: "First word on new arrivals, restocks and private sales.",
   },
 
   /* Social. `handle` is what a person reads; `href` is where it goes. An
@@ -136,22 +163,32 @@ export function hoursRows(hours = SITE.hours) {
  * Every href points at a route this Worker actually serves — a footer full of
  * dead links is the fastest way to make a small shop look abandoned.
  */
-export const FOOTER = [
-  {
-    heading: "Visit",
-    links: [
-      { text: "Store hours", href: "/visit" },
-      { text: "Book an appointment", href: "/visit#appointments" },
-      { text: "Directions", href: "/visit#directions" },
-      { text: "Contact us", href: "/visit#contact" },
-    ],
-  },
-  {
-    heading: "The shop",
-    links: [
-      { text: "New in", href: "/" },
-      { text: "Collaborations", href: "/collaborations" },
-      { text: "Your bag", href: "/bag" },
-    ],
-  },
-];
+/*
+ * A FUNCTION, not a static list, because "Book an appointment" has to come
+ * and go with `SITE.appointments.shelved` — a footer link straight into a
+ * section the visit page no longer renders is a dead link, and P0-56 already
+ * has a labeled check that every footer link goes somewhere
+ * (`no_footer_link_goes_nowhere`).
+ */
+export function footerColumns() {
+  return [
+    {
+      heading: "Visit",
+      links: [
+        { text: "Store hours", href: "/visit" },
+        ...(SITE.appointments.shelved ? [] : [{ text: "Book an appointment", href: "/visit#appointments" }]),
+        { text: "Directions", href: "/visit#directions" },
+        { text: "Contact us", href: "/visit#contact" },
+      ],
+    },
+    {
+      heading: "The shop",
+      links: [
+        { text: "New in", href: "/" },
+        { text: "Collaborations", href: "/collaborations" },
+        { text: "Your bag", href: "/bag" },
+        { text: "Join our list", href: "/visit#join" },
+      ],
+    },
+  ];
+}

@@ -28,7 +28,7 @@
 import { esc, lean } from "../../shared/view/html.js";
 import gridSource from "../../shared/design/catalog-grid.css";
 import interactionSource from "../../shared/design/interaction.css";
-import { FOOTER, SITE, addressLine, mapsDirectionsUrl } from "../../shared/site.js";
+import { SITE, addressLine, footerColumns, mapsDirectionsUrl } from "../../shared/site.js";
 
 /*
  * The stylesheet every page on this Worker is served with, stripped of comments
@@ -98,7 +98,7 @@ ${rows}
   <ul class="menu-root menu-rest">
     <li><a href="/collaborations">Collaborations</a></li>
     <li><a href="/visit">Visit the store</a></li>
-    <li><a href="/visit#appointments">Book an appointment</a></li>
+    <li><a href="/visit#join">Join our list</a></li>
   </ul>
 </nav>`;
 }
@@ -133,7 +133,7 @@ const socialRow = () =>
     .join("");
 
 export function footer(note = "") {
-  const columns = FOOTER.map(
+  const columns = footerColumns().map(
     (col) => `    <div class="foot-col">
       <h2>${esc(col.heading)}</h2>
       <ul>

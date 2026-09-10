@@ -1,6 +1,13 @@
 # ADR-014 — Square Appointments' own widget is the one third party this page loads
 
-**Status:** Accepted · **Date:** 2026-09-10 · **Amends:** ADR-009 · **Narrows:** P0-56
+**Status:** Accepted, feature shelved · **Date:** 2026-09-10 · **Amends:** ADR-009 · **Narrows:** P0-56
+
+> **Shelved 2026-09-10.** The owner's call to stop featuring appointments on the site for now —
+> `SITE.appointments.shelved = true` — separate from "not configured yet." The whole
+> `#appointments` section is absent from `/visit` while this holds, not present with the
+> phone-number fallback below. Nothing in this decision changed: the widget-vs-custom-build
+> reasoning, the P0-56 carve-out and its scoping all stand exactly as written, waiting for the
+> flag to flip back.
 
 ## Decision
 
