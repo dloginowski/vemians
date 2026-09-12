@@ -42,6 +42,15 @@ const OPS_CSS = `
 .hint { font-size: var(--eyebrow); color: #666; margin: 0 0 8px; }
 .hint a { color: var(--ink); }
 
+/* Neutral: border and text, never a filled colour (the same rule
+   shared/design/interaction.css states for the storefront's own .btn). */
+.key .btn {
+  display: inline-block; font: inherit; font-size: var(--eyebrow);
+  padding: 10px 16px; border: 1px solid var(--ink); color: var(--ink);
+  text-decoration: none;
+}
+.key .btn:hover { background: var(--ink); color: var(--ground); }
+
 /* One copyable line. The <pre> scrolls rather than wrapping, so a long command
    never reflows the page on a phone; the button stays beside it at every width
    because a full-width button under every line is most of a screen. */
@@ -252,6 +261,12 @@ export function opsPage(identity, { customers, week, bindings, hasKey, role, rol
     `<div class="bar">ops.vemians.com &middot; employees only</div>
 <main class="ops">
 ${id}
+
+  <section class="key">
+    <h1>Add a photo</h1>
+    <p class="hint">One photo per click. No assistant needed.</p>
+    <p><a class="btn" href="/media/new">Add a photo</a></p>
+  </section>
 
   <section class="key">
     <h1>Connect your assistant</h1>

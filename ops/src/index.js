@@ -33,7 +33,7 @@ import { customers, week } from "./seed.js";
 import { skillsFor } from "./skills.js";
 import { CAPS } from "./tools/caps.js";
 import { ROLES } from "./tools/roles.js";
-import { contentTypeFor, verifyUploadTicket } from "./tools/media.js";
+import { contentTypeFor, mediaKey, mintUploadTicket, verifyUploadTicket } from "./tools/media.js";
 import { mediaStoreFor } from "./tools/index.js";
 import { syncFromSquare } from "./sync.js";
 import { approvalPage, approvalResultPage, opsPage, refusalPage, whoamiPage } from "./views.js";
@@ -196,6 +196,38 @@ async function ops(request, env, path) {
     return AGENT_PATHS.has(path)
       ? json({ error: identity.reason }, identity.status)
       : html(refusalPage(identity.status, identity.reason), identity.status);
+  }
+
+  /*
+   * /media/new — a one-click way to add a photo, for a coworker who is not
+   * talking to an assistant at all. It mints exactly ONE ticket for exactly
+   * ONE photo and sends the browser straight to the picker below, so "add a
+   * photo" is a single link on the front page rather than something that
+   * only exists as a step inside catalog.upload_image.
+   *
+   * The extension in the minted key is cosmetic (a bucket listing is easier
+   * to read with one): the real type is decided from what the browser
+   * actually uploads, in mediaUpload() below, so guessing "jpeg" here before
+   * a file is even chosen costs nothing if the photo turns out to be a PNG.
+   */
+  if (path === "/media/new") {
+    const email = identity.claims?.email;
+    if (typeof email !== "string" || !email.includes("@")) {
+      return html(refusalPage(403, "Your Access identity is in no group this application maps to a role."), 403);
+    }
+    if (!roleFor(identity, env)) {
+      return html(refusalPage(403, "Your Access identity is in no group this application maps to a role."), 403);
+    }
+    if (!env.MEDIA_SIGNING_KEY) {
+      return html(refusalPage(503, "Photo uploads are not configured on this deployment yet."), 503);
+    }
+    const key = mediaKey("image/jpeg");
+    const ticket = await mintUploadTicket({ secret: env.MEDIA_SIGNING_KEY, key, actor: email });
+    const dest = new URL("/media/upload", request.url);
+    dest.searchParams.set("key", ticket.key);
+    dest.searchParams.set("exp", String(ticket.expiresAt));
+    dest.searchParams.set("sig", ticket.signature);
+    return new Response(null, { status: 302, headers: { Location: dest.pathname + dest.search } });
   }
 
   if (path === "/media/upload") {

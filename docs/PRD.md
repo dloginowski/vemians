@@ -470,6 +470,14 @@ that does not trace to one of these is a process failure (see §12).
     path. `bytes()` on the Square path **refuses by name** rather than returning empty, so a caller
     cannot read "we hold no pixels" as "there is no image".
 
+29b. **`Test-PRD-P0-59-one_click_photo`** — Adding a photo does not require an assistant.
+    `/media/new` on the front page mints one signed upload ticket and sends the browser straight
+    to the picker `catalog.upload_image` already uses — same key shape, same signature, same
+    `MEDIA_SIGNING_KEY`, one shared path rather than a second one to keep in agreement. Each click
+    is its own ticket for its own R2 key: two clicks are never the same slot, and a slot is never
+    reused for a second photo. No Access role, or no `MEDIA_SIGNING_KEY` configured, refuses with a
+    plain page rather than a link that would 403 or 503 further down.
+
 30. **`Test-PRD-P0-30-prd_traceability`** — Every check in a PRD-backed test file carries a
     `Test-PRD-*` label, and every label used must exist in this PRD. The test files enforce this
     themselves, so a renamed or invented label fails the run rather than drifting silently.
@@ -784,6 +792,7 @@ Where each feature is enforced today:
 | P0-22 – P0-25 | Access policy review + `ops` integration tests (M5) |
 | P0-54 | `ops/test/skills.test.mjs`, `ops/test/ops-page.test.mjs` |
 | P0-55 | `ops/test/media-square.test.mjs`, over a stubbed Square uploader |
+| P0-59 | `ops/test/media-new.test.mjs`, over the real Worker |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
