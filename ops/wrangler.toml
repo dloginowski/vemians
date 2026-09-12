@@ -118,10 +118,9 @@ ACCESS_AUD         = "8bacd393c1fededc1d257745149eb6d0cc0797a762941d1421a5a8a3c1
 SQUARE_ENV = "production"
 
 # SQUARE_LOCATION_ID is Square's single location (ADR-009 open question 2,
-# answered: one) — get it from the Square Seller Dashboard (Account & Settings
-# -> Business -> Locations) or Square's own API Explorer (GET /v2/locations
-# with your production access token; the id looks like "L1JC53TFB9223").
-#
+# answered: one) — confirmed from the Square Seller Dashboard.
+SQUARE_LOCATION_ID = "L846PQNSM9TF4"
+
 # LOCATION_ID is OURS, not Square's: the id of the one row you insert into
 # COMMERCE's own `location` table (shared/db/commerce.sql) — nothing creates
 # that row automatically yet, so it has to be done once, by hand:
@@ -131,12 +130,10 @@ SQUARE_ENV = "production"
 #
 # then LOCATION_ID below is whatever id you chose ('main' above). Swapping
 # the two writes a Square vendor id into a stock ledger row, which is why
-# they are named apart rather than sharing one var.
+# they are named apart rather than sharing one var. Plain var, not a secret —
+# it is not a credential on its own.
 #
-# Both are plain vars, not secrets — neither is a credential on its own.
-#
-# SQUARE_LOCATION_ID = "<Square location id>"
-# LOCATION_ID        = "main"
+# LOCATION_ID = "main"
 
 # ---------------------------------------------------------------------------
 # Custom Domain. Commented out because `wrangler deploy` will try to create it,
