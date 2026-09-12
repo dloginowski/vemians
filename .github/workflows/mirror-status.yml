@@ -119,3 +119,17 @@ jobs:
           echo "───── secret NAMES on vemians-ops (no values) ─────"
           curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$api/secrets" \
             | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps([s.get("name") for s in d["result"]] if d.get("success") else d.get("errors"), indent=2))'
+
+      - name: Which secrets exist on the two storefront Workers (no values)
+        if: always()
+        run: |
+          # ADR-015: the contact form's token must be named SQUARE_ACCESS_TOKEN_CONTACT
+          # on EACH storefront Worker separately — it does not inherit between
+          # them, and it must never be the same value as vemians-ops's own
+          # SQUARE_ACCESS_TOKEN. This only reports names, same as the ops step above.
+          for w in vemians-storefront vemians-storefront-staging; do
+            echo "───── secret NAMES on $w (no values) ─────"
+            curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$w/secrets" \
+              | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps([s.get("name") for s in d["result"]] if d.get("success") else d.get("errors"), indent=2))'
+          done
