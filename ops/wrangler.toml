@@ -121,19 +121,14 @@ SQUARE_ENV = "production"
 # answered: one) — confirmed from the Square Seller Dashboard.
 SQUARE_LOCATION_ID = "L846PQNSM9TF4"
 
-# LOCATION_ID is OURS, not Square's: the id of the one row you insert into
-# COMMERCE's own `location` table (shared/db/commerce.sql) — nothing creates
-# that row automatically yet, so it has to be done once, by hand:
-#
-#   npx wrangler d1 execute vemians-commerce --remote \
-#     --command "INSERT INTO location(id,name) VALUES('main','<your store name>')"
-#
-# then LOCATION_ID below is whatever id you chose ('main' above). Swapping
-# the two writes a Square vendor id into a stock ledger row, which is why
-# they are named apart rather than sharing one var. Plain var, not a secret —
-# it is not a credential on its own.
-#
-# LOCATION_ID = "main"
+# LOCATION_ID is OURS, not Square's: the id of the one row in COMMERCE's own
+# `location` table (shared/db/commerce.sql). That row does not create itself —
+# seeded once by the seed-location workflow (.github/workflows/seed-location.yml),
+# not by this file. Swapping this with SQUARE_LOCATION_ID above writes a Square
+# vendor id into a stock ledger row, which is why they are named apart rather
+# than sharing one var. Plain var, not a secret — it is not a credential on
+# its own.
+LOCATION_ID = "main"
 
 # ---------------------------------------------------------------------------
 # Custom Domain. Commented out because `wrangler deploy` will try to create it,
