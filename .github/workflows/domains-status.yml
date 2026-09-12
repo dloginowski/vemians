@@ -1,0 +1,35 @@
+# Read-only: which hostnames are attached to which Worker, and what DNS
+# records exist in the zone.
+#
+# Written before adding staging.vemians.com, for the same reason
+# access-status.yml exists for Access policies — measure what is actually
+# live before changing it, rather than trusting what wrangler.toml commits
+# say (a Custom Domain is a dashboard/API action, not a commit).
+
+name: domains-status
+
+on:
+  workflow_dispatch:
+    inputs:
+      zone:
+        description: The zone to inspect
+        default: vemians.com
+        type: string
+
+concurrency:
+  group: domains-status
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      ZONE_NAME: ${{ inputs.zone }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - run: python3 .github/scripts/domains-report.py
