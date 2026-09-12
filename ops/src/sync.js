@@ -108,7 +108,10 @@ export function describeFailure(env, err) {
   const detail =
     Array.isArray(err?.errors) && err.errors.length > 0
       ? err.errors
-          .map((e) => `${e.category ?? "?"}/${e.code ?? "?"}${e.detail ? `: ${e.detail}` : ""}`)
+          .map(
+            (e) =>
+              `${e.category ?? "?"}/${e.code ?? "?"}${e.field ? ` (field: ${e.field})` : ""}${e.detail ? `: ${e.detail}` : ""}`,
+          )
           .join("; ")
       : (err?.message ?? "no detail");
   return {
