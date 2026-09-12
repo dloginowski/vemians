@@ -117,6 +117,27 @@ ACCESS_AUD         = "8bacd393c1fededc1d257745149eb6d0cc0797a762941d1421a5a8a3c1
 # This line is what makes the dashboard change permanent.
 SQUARE_ENV = "production"
 
+# SQUARE_LOCATION_ID is Square's single location (ADR-009 open question 2,
+# answered: one) — get it from the Square Seller Dashboard (Account & Settings
+# -> Business -> Locations) or Square's own API Explorer (GET /v2/locations
+# with your production access token; the id looks like "L1JC53TFB9223").
+#
+# LOCATION_ID is OURS, not Square's: the id of the one row you insert into
+# COMMERCE's own `location` table (shared/db/commerce.sql) — nothing creates
+# that row automatically yet, so it has to be done once, by hand:
+#
+#   npx wrangler d1 execute vemians-commerce --remote \
+#     --command "INSERT INTO location(id,name) VALUES('main','<your store name>')"
+#
+# then LOCATION_ID below is whatever id you chose ('main' above). Swapping
+# the two writes a Square vendor id into a stock ledger row, which is why
+# they are named apart rather than sharing one var.
+#
+# Both are plain vars, not secrets — neither is a credential on its own.
+#
+# SQUARE_LOCATION_ID = "<Square location id>"
+# LOCATION_ID        = "main"
+
 # ---------------------------------------------------------------------------
 # Custom Domain. Commented out because `wrangler deploy` will try to create it,
 # which fails until the zone is on Cloudflare (deploy-cloudflare.md §1).
@@ -146,16 +167,6 @@ SQUARE_ENV = "production"
 [[kv_namespaces]]
 binding = "APPROVALS"
 id      = "29ad4b3d8fb340ab960cd248fa5df609"
-
-#
-# SQUARE_LOCATION_ID is Square's single location (ADR-009 open question 2,
-# answered: one). LOCATION_ID is OURS, the uuid on a stock ledger row — the two
-# are different identifiers and swapping them writes a vendor id into a row.
-# Neither is set yet: the catalog sweep does not need them, the stock half and
-# checkout do, and both say so by name rather than failing vaguely.
-#
-# SQUARE_LOCATION_ID = "<Square location id>"
-# LOCATION_ID        = "<our location uuid>"
 
 # ---------------------------------------------------------------------------
 # Signing key for media upload tickets (ops/src/tools/media.js). A tool argument
