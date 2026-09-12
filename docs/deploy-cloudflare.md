@@ -9,7 +9,17 @@ End state:
 | Hostname | Serves | Gate |
 |---|---|---|
 | `vemians.com`, `www.vemians.com` | The Worker's public catalog | none |
+| `staging.vemians.com` | **The same Worker, the same deploy, the same catalog mirror** — not a second environment | none |
 | `ops.vemians.com` | The Worker's employee area | Cloudflare Access → Google Workspace |
+
+> **`staging.vemians.com` is not a separate site.** It is `vemians-storefront` under a second
+> Custom Domain, attached automatically by `.github/scripts/setup-domains.py` as a step in
+> `deploy-workers.yml` — no manual dashboard click, and no second codebase to keep in sync.
+> Whatever `vemians.com` shows, `staging.vemians.com` shows, because they are the same running
+> Worker reading the same `CATALOG_MIRROR`. What it buys is a name to hand people before the
+> apex feels "official" — the code and the data are already real, only the audience is smaller.
+> `vemians.com` and `www.vemians.com` stay the manual, by-hand attachments described in §3 below;
+> only `staging.vemians.com` is provisioned by the script.
 
 > **The apex points at our Worker, not at Shopify.** `cloudflare-architecture.md` §3 carries a
 > superseded note about grey-clouding `A @ 23.227.38.65` and `CNAME www shops.myshopify.com`
@@ -170,6 +180,10 @@ manages the proxied DNS record, and it is what Access can sit in front of.
 **Workers & Pages → `vemians-ops` → … → Add → Custom domain**
 
 - `ops.vemians.com`
+
+`staging.vemians.com` is **not** added here — leave it out. It attaches itself the first time
+`deploy-workers.yml` runs against this zone (`.github/scripts/setup-domains.py`), pointed at
+`vemians-storefront`, the same Worker as the two above.
 
 Each takes a minute or two to issue a certificate. In **DNS → Records** confirm all three show
 as orange-cloud (proxied). Delete any stale `A` or `CNAME` for those names that survived the

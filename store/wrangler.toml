@@ -74,7 +74,9 @@ SQUARE_ENV = "sandbox"
 # ---------------------------------------------------------------------------
 # Custom Domains. Commented out because `wrangler deploy` will try to create
 # them, which fails until the zone is on Cloudflare (deploy-cloudflare.md §1).
-# Uncomment once the nameservers have moved, then deploy.
+# The zone moved; vemians.com and www.vemians.com are attached by hand instead
+# (deploy-cloudflare.md §3) and this block is left as a record of the
+# alternate path, not the one actually used.
 #
 # [[routes]]
 # pattern      = "vemians.com"
@@ -83,6 +85,11 @@ SQUARE_ENV = "sandbox"
 # [[routes]]
 # pattern      = "www.vemians.com"
 # custom_domain = true
+#
+# staging.vemians.com is NOT listed here either — it is attached by
+# .github/scripts/setup-domains.py, run automatically on every deploy
+# (deploy-workers.yml). Same Worker, same CATALOG_MIRROR binding below, same
+# everything: it is vemians.com under a second name, not a second deployment.
 
 # ---------------------------------------------------------------------------
 # ONE D1 BINDING ON THIS WORKER: `catalog_mirror`, AND NOTHING ELSE EVER.
