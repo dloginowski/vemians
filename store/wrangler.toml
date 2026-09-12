@@ -47,10 +47,17 @@ PUBLIC_HOST = "vemians.com"
 SURFACE     = "public"
 
 # Which Square host the contact form's one outbound call goes to (ADR-015).
-# Same var name and same two values ops/wrangler.toml uses, sandbox first —
-# switch this only together with a production SQUARE_ACCESS_TOKEN_CONTACT
-# secret, never one without the other.
-SQUARE_ENV = "sandbox"
+# Same var name ops/wrangler.toml uses, but this is a SEPARATE choice — the two
+# files are allowed to disagree, and there is no rule that says they move
+# together, only that each one's SQUARE_ENV must name the same Square as its
+# OWN token secret.
+#
+# NOW PRODUCTION, switched together with a production SQUARE_ACCESS_TOKEN_CONTACT
+# secret (never one without the other) — set that secret's VALUE before or in
+# the same breath as this line changes, or the contact form starts sending
+# customer submissions at Square's production API using whatever token
+# happens to be sitting in SQUARE_ACCESS_TOKEN_CONTACT, sandbox or absent.
+SQUARE_ENV = "production"
 
 # ---------------------------------------------------------------------------
 # SQUARE_ACCESS_TOKEN_CONTACT — a SECRET, set with `wrangler secret put

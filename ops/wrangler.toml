@@ -105,17 +105,17 @@ ACCESS_AUD         = "8bacd393c1fededc1d257745149eb6d0cc0797a762941d1421a5a8a3c1
 # "sandbox" when unset, and an unset value is indistinguishable from a chosen
 # one — so it is chosen here, out loud.
 #
-# CURRENTLY SANDBOX, deliberately. The token on the Worker is a sandbox token;
-# with this set to "production" Square answered 401 and the sync recorded
-# `credential_rejected` every fifteen minutes. The token and this value must
-# name the SAME Square, and when they disagree the error blames the credential.
+# NOW PRODUCTION — the owner's real Square account, real catalog, real money.
+# This value and the SQUARE_ACCESS_TOKEN secret's own value MUST name the same
+# Square, or the error that comes back blames the credential when the mismatch
+# is actually here (or vice versa) — this file already earned that lesson once
+# (commit "SQUARE_ENV = sandbox, to match the token that is actually set").
 #
-# Sandbox is a separate account: its own catalog, its own locations, test cards,
-# no real money. So the mirror this fills holds TEST products, and the storefront
-# serves them. Before the shop is real, this becomes "production" AND the secret
-# is replaced with a production token — one without the other reproduces the
-# same 401 in the other direction.
-SQUARE_ENV = "sandbox"
+# THIS WAS SET IN THE CLOUDFLARE DASHBOARD BEFORE IT WAS SET HERE. `wrangler
+# deploy` overwrites `[vars]` on every deploy to match this file — a dashboard
+# edit that never reaches the repo is undone by the next ops deploy, silently.
+# This line is what makes the dashboard change permanent.
+SQUARE_ENV = "production"
 
 # ---------------------------------------------------------------------------
 # Custom Domain. Commented out because `wrangler deploy` will try to create it,
