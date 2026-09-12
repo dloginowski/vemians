@@ -199,7 +199,7 @@ const opsOrigin = (env) => `https://${env.OPS_HOST || "ops.vemians.com"}`;
 /* Exported so a test can assert the URL this ACTUALLY emits has a route. It
    was not, and the 404 that followed shipped unnoticed for exactly that
    reason: every test asked the code what it meant, none asked what it sent. */
-export async function parkForApproval(env, { name, args, actor, role, tier }) {
+export async function parkForApproval(env, { name, args, actor, role, tier, summary }) {
   const id = crypto.randomUUID();
   const store = pendingStore(env);
   if (!store.durable) {
@@ -211,6 +211,11 @@ export async function parkForApproval(env, { name, args, actor, role, tier }) {
     id,
     tool: name,
     args,
+    /* The one-line plain-English description the tool's own check() already
+       wrote (e.g. `create "Necklace" in Jewellery — 1 variation(s): ...`) —
+       carried through so the approval page can lead with that instead of a
+       raw argument dump only a developer would parse on sight. */
+    summary: summary ?? null,
     /* Who asked. The approver is a different person on a different request, and
        the audit row for the execution names both. */
     requestedBy: actor,
@@ -496,6 +501,7 @@ function buildServer(identity, env) {
             actor: identity.actor,
             role: identity.role,
             tier,
+            summary: result?.data?.would ?? null,
           });
           return {
             /* A markdown link, not a bare URL on its own line: most chat clients

@@ -601,6 +601,16 @@ export function refusalPage(status, reason) {
  * identity — which is why the button is a form and not a fetch, and why the id
  * alone is not enough to run anything.
  */
+/* Plain words for a non-technical coworker, not the tool's own dotted name.
+   Falls back to the raw name for anything not listed rather than guessing at
+   one — an unlabeled tool is rare enough that it should look unfamiliar, not
+   be papered over with a wrong-sounding guess. */
+const PLAIN_ACTION = Object.freeze({
+  "catalog.create_product": "Add a new product",
+  "catalog.update_product": "Change a product",
+  "catalog.create_category": "Add a new category",
+});
+
 export function approvalPage(id, pending, { durable = true } = {}) {
   if (!pending) {
     return page(
@@ -623,37 +633,46 @@ export function approvalPage(id, pending, { durable = true } = {}) {
   }
 
   const args = Object.entries(pending.args ?? {});
+  const label = PLAIN_ACTION[pending.tool] ?? pending.tool;
   return page(
     `Approve ${esc(pending.tool)}`,
     `<main class="wrap">
-       <p class="eyebrow">Approval required</p>
-       <h1>${esc(pending.tool)}</h1>
-       <p class="who">Proposed by <strong>${esc(pending.actor ?? "unknown")}</strong>
-          as <strong>${esc(pending.role ?? "?")}</strong>.</p>
+       <p class="eyebrow">Someone is asking you to say yes</p>
+       <h1>${esc(label)}</h1>
+       <p class="who">Asked by <strong>${esc(pending.actor ?? "unknown")}</strong>.</p>
 
-       <h2>What will happen</h2>
        ${
-         args.length
-           ? `<dl>${args
-               .map(
-                 ([k, v]) =>
-                   `<dt>${esc(k)}</dt><dd><pre>${esc(
-                     typeof v === "string" ? v : JSON.stringify(v, null, 2),
-                   )}</pre></dd>`,
-               )
-               .join("")}</dl>`
-           : "<p>No arguments.</p>"
+         pending.summary
+           ? `<p class="summary"><strong>In short:</strong> ${esc(pending.summary)}</p>`
+           : ""
        }
 
+       <details${pending.summary ? "" : " open"}>
+         <summary>Full details (${esc(pending.tool)})</summary>
+         ${
+           args.length
+             ? `<dl>${args
+                 .map(
+                   ([k, v]) =>
+                     `<dt>${esc(k)}</dt><dd><pre>${esc(
+                       typeof v === "string" ? v : JSON.stringify(v, null, 2),
+                     )}</pre></dd>`,
+                 )
+                 .join("")}</dl>`
+             : "<p>No arguments.</p>"
+         }
+       </details>
+
        <form method="POST" action="/approvals/${esc(id)}">
-         <button type="submit">Approve and run</button>
+         <button type="submit">Yes, do this</button>
        </form>
-       <p class="fine">Nothing has been written yet. This runs under <em>your</em> identity,
-          not the assistant's, and is recorded against your name.</p>
+       <p><a href="/">No, do nothing</a></p>
+       <p class="fine">Nothing has been written yet. Clicking "Yes" does it as <em>you</em>,
+          not the assistant, and saves your name with it.</p>
        ${
          durable
            ? ""
-           : `<p class="warn">Approvals are held in memory on this deployment — approve promptly.</p>`
+           : `<p class="warn">This link can go stale fast on this setup — click "Yes" soon after opening it.</p>`
        }
      </main>`,
     APPROVAL_CSS,
