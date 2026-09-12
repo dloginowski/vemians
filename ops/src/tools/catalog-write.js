@@ -117,6 +117,13 @@ function coverage(catTokens, textTokens) {
  * set; the lexical score is a CROSS-CHECK reported beside it, loud when the two
  * disagree, and the fallback when the model offers no pick at all.
  */
+/* A-B-C-D-E instead of prose. `alternatives` already carries everything a
+   caller needs; `choices` is the same top five, shaped so an agent can put
+   the question to a human as a multiple-choice list rather than composing
+   one out of a sentence. */
+const lettered = (ranked) =>
+  ranked.slice(0, 5).map((c, i) => ({ letter: String.fromCharCode(65 + i), id: c.id, name: c.name }));
+
 export function suggestCategory({ hint, title, description, categories, chosenId = null }) {
   const hintT = tokens(hint);
   const textT = tokens(`${title ?? ""} ${description ?? ""}`);
@@ -157,6 +164,7 @@ export function suggestCategory({ hint, title, description, categories, chosenId
         `(${ranked.map((c) => c.name).join(", ") || "none yet"}). catalog.create_product will refuse it. ` +
         "Call catalog.categories and choose from that list.",
       alternatives: ranked.slice(0, 5),
+      choices: lettered(ranked),
       closed_set_size: ranked.length,
       note,
     };
@@ -180,6 +188,7 @@ export function suggestCategory({ hint, title, description, categories, chosenId
           ? ` NOTE: on wording alone "${best.name}" scored higher (${best.score}); if that reads better to the human, say so.`
           : ""),
       alternatives: ranked.slice(0, 5),
+      choices: lettered(ranked),
       closed_set_size: ranked.length,
       note,
     };
@@ -209,6 +218,7 @@ export function suggestCategory({ hint, title, description, categories, chosenId
     confidence,
     reasoning,
     alternatives: ranked.slice(0, 5),
+    choices: lettered(ranked),
     closed_set_size: ranked.length,
     note,
   };
@@ -450,10 +460,9 @@ export const catalogWriteTools = {
           upload_url: link.url,
           expires_at: link.expires_at,
           square_will_accept: squareAcceptsType(contentType),
-          how:
-            "Give this link to the human. They open it in the browser they are already signed into on " +
-            "ops.vemians.com and choose the file; the bytes go straight to our bucket and never pass " +
-            "through this conversation. The key above is where it lands.",
+          /* A markdown link the human can click straight from chat, not a
+             paragraph explaining what a link is. */
+          how: `[Upload the photo](${link.url}) — opens already signed into ops.vemians.com.`,
         };
       }
 

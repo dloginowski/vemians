@@ -498,7 +498,10 @@ function buildServer(identity, env) {
             tier,
           });
           return {
-            content: [text(`Requires human approval, which happens in a browser:\n${url}`)],
+            /* A markdown link, not a bare URL on its own line: most chat clients
+               render `[text](url)` as one clickable element, which is what
+               makes this the shortest possible prompt AND the clickable one. */
+            content: [text(`[Approve and run](${url})`)],
             _meta: { "vemians.com/needs_approval": true, "vemians.com/approval_url": url },
           };
         }
