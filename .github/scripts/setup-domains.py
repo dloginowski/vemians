@@ -101,7 +101,8 @@ for host, service in WANTED:
         print(f"::error::could not attach {host} -> {service} — {err}")
         failed = True
         continue
-    print(f"  {host}  ->  {service}  (attached just now)")
+    print(f"  {host}  ->  {service}  (attached just now — certificate issuance can take a minute or two;")
+    print(f"  the deploy workflow's own 'Does staging actually answer' step checks that separately)")
 
 if failed:
     sys.exit(1)
