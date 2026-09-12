@@ -53,7 +53,11 @@ def call(method, path, body=None):
     )
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
-            return json.load(r), None
+            # DELETE answers 204 with an empty body — not "no error", but
+            # genuinely nothing to parse. Only GET/PUT here ever return a
+            # payload worth reading.
+            raw = r.read()
+            return (json.loads(raw) if raw else {"success": True, "result": None}), None
     except urllib.error.HTTPError as e:
         try:
             payload = json.load(e)
