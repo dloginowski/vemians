@@ -99,9 +99,21 @@ export function describeFailure(env, err) {
   if (status >= 500) {
     return { reason: "provider_error", says: `Square answered HTTP ${status}` };
   }
+  /* err.errors carries Square's own category/code/detail — the actual reason a
+     400 was a 400 — but it never reaches err.message (client.js only puts the
+     status there). Without this, every "provider_unreachable" note reads the
+     same regardless of what Square actually objected to, and diagnosing one
+     means reproducing it under `wrangler tail`, which this Worker's own logs
+     do not retain. */
+  const detail =
+    Array.isArray(err?.errors) && err.errors.length > 0
+      ? err.errors
+          .map((e) => `${e.category ?? "?"}/${e.code ?? "?"}${e.detail ? `: ${e.detail}` : ""}`)
+          .join("; ")
+      : (err?.message ?? "no detail");
   return {
     reason: "provider_unreachable",
-    says: `Square was unreachable or answered unusably — ${err?.message ?? "no detail"}`,
+    says: `Square was unreachable or answered unusably — ${detail}`,
   };
 }
 
