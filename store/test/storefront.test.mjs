@@ -960,6 +960,51 @@ labeled("test_PRD_P0_24_binding_scoped_tools__the_storefront_binds_the_mirror_an
   assert.match(toml, /THIS BLOCK USED TO SAY "no D1 bindings/);
 });
 
+labeled("test_PRD_P0_24_binding_scoped_tools__staging_binds_the_mirror_and_nothing_else", () => {
+  /* wrangler.staging.toml is a second file precisely so it has no inheritance
+     from wrangler.toml to trust — which means it also gets NONE of that
+     file's checks for free. Same assertion, same file-not-found risk this
+     test exists to catch if wrangler.staging.toml is ever deleted or renamed. */
+  const toml = read("store", "wrangler.staging.toml");
+  const bindings = [...toml.matchAll(/^\s*binding\s*=\s*"([^"]+)"/gm)].map((m) => m[1]);
+  assert.deepEqual(bindings, ["CATALOG_MIRROR"], `staging binds more than the catalog mirror: ${bindings}`);
+  for (const store of OPS_ONLY_STORES) {
+    assert.ok(!bindings.includes(store), `${store} must never be bound on the staging Worker either`);
+  }
+});
+
+labeled("test_PRD_P0_37_mirror_is_ours__staging_reads_the_same_mirror_as_production_never_a_second_copy", () => {
+  /* One real catalog. Staging is allowed to run different CODE than
+     production (that is the entire point of it existing) — never a different
+     or forked D1 database, which would let it show products production never
+     will and defeat "test before it's official" in the other direction. */
+  const prod = read("store", "wrangler.toml");
+  const staging = read("store", "wrangler.staging.toml");
+  const idOf = (toml) => /database_id\s*=\s*"([^"]+)"/.exec(toml)?.[1];
+  assert.ok(idOf(prod), "production names no database id to compare against");
+  assert.equal(idOf(staging), idOf(prod), "staging must read the exact same CATALOG_MIRROR database as production");
+});
+
+labeled("test_PRD_P0_26_owned_storefront__staging_is_a_different_worker_with_a_different_credential", () => {
+  /* The two files must disagree on exactly these two things, or staging is
+     not actually isolated from production: same Worker name would mean
+     `wrangler deploy` from either file deploys over the other; same secret
+     NAME (not value — no value is ever committed) would let one Worker's
+     compromise expose the other's credential the moment both happen to hold
+     the same string, which is precisely the mistake ADR-015 was written to
+     rule out for ops vs. the public storefront and must not reappear between
+     the storefront's own two environments. */
+  const prod = read("store", "wrangler.toml");
+  const staging = read("store", "wrangler.staging.toml");
+  const nameOf = (toml) => /^name\s*=\s*"([^"]+)"/m.exec(toml)?.[1];
+  assert.ok(nameOf(prod) && nameOf(staging), "both files must name a Worker");
+  assert.notEqual(nameOf(staging), nameOf(prod), "staging must be a different Worker, not the same one twice");
+
+  for (const toml of [prod, staging]) {
+    assert.match(toml, /SQUARE_ACCESS_TOKEN_CONTACT/, "each environment documents its own contact-form credential");
+  }
+});
+
 labeled("test_PRD_P0_24_binding_scoped_tools__the_seven_ops_stores_are_bound_on_ops", () => {
   /* The other half of the same invariant: they did not go missing, they are
      over there. A check that only asserts absence passes when a store is

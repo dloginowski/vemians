@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
-"""Attach staging.vemians.com to vemians-storefront, and nothing else.
+"""Attach the hostnames in WANTED to the Worker each one is supposed to serve,
+and nothing else.
 
 Idempotent by HOSTNAME, the same discipline setup-roles.py already uses for
-Access Groups: an existing attachment is read and left alone, never recreated,
-because this script does not know what else has touched it since. It creates
-exactly the one hostname it is told to want and refuses to touch any hostname
-already attached to a DIFFERENT service — a script that "ensures domains" is
-not allowed to silently repoint someone else's.
+Access Groups: reads the current attachment and converges it to what WANTED
+says, never blindly recreating something already correct. Anything in WANTED
+is, by definition, this script's to manage — if it is attached to the wrong
+service (staging.vemians.com moved Worker names once already, while this
+script was still being built), it is DETACHED and reattached correctly rather
+than left wrong or refused.
 
-vemians.com, www.vemians.com and ops.vemians.com are NOT managed here. They
-already exist (attached by hand, per docs/deploy-cloudflare.md §3) and this
-script only reports their current state for confirmation; touching them is
-out of scope for "add a staging subdomain".
+vemians.com, www.vemians.com and ops.vemians.com are NOT in WANTED and never
+will be — they are attached by hand (docs/deploy-cloudflare.md §3), and this
+script only reports their state, in EXISTING_ONLY, for confirmation. A
+hostname outside WANTED is never touched, no matter what it is attached to:
+that is the actual safety property here, not "nothing is ever repointed".
 
 A create that fails is not allowed to read as success (bootstrap-resources.py
 already earned that rule twice) — a non-2xx from Cloudflare here fails the
@@ -29,9 +32,9 @@ ACCOUNT = os.environ["CLOUDFLARE_ACCOUNT_ID"]
 ZONE_NAME = os.environ.get("ZONE_NAME", "vemians.com")
 
 # (hostname, the Worker it must serve). Adding a row here is the whole of
-# wanting one more staging-shaped subdomain later.
+# wanting one more environment-shaped subdomain later.
 WANTED = [
-    ("staging.vemians.com", "vemians-storefront"),
+    ("staging.vemians.com", "vemians-storefront-staging"),
 ]
 
 # Reported, never created or altered by this script.
@@ -61,6 +64,14 @@ def call(method, path, body=None):
         return None, msg
 
 
+def attach(zone_id, host, service):
+    return call(
+        "PUT",
+        f"accounts/{ACCOUNT}/workers/domains",
+        {"zone_id": zone_id, "hostname": host, "service": service, "environment": "production"},
+    )
+
+
 zones, err = call("GET", f"zones?name={ZONE_NAME}")
 if err or not zones.get("result"):
     print(f"::error::could not read zone '{ZONE_NAME}' — {err}")
@@ -83,20 +94,22 @@ print("\n───── what this script wants ─────")
 failed = False
 for host, service in WANTED:
     current = by_hostname.get(host)
-    if current:
-        if current.get("service") == service:
-            print(f"  {host}  already -> {service}. Nothing to do.")
-        else:
-            # Never silently repoint a hostname someone else attached elsewhere.
-            print(f"::error::{host} is already attached to '{current.get('service')}', not '{service}' — refusing to change it")
-            failed = True
+
+    if current and current.get("service") == service:
+        print(f"  {host}  already -> {service}. Nothing to do.")
         continue
 
-    result, err = call(
-        "PUT",
-        f"accounts/{ACCOUNT}/workers/domains",
-        {"zone_id": zone_id, "hostname": host, "service": service, "environment": "production"},
-    )
+    if current:
+        # Ours to converge, not ours to leave wrong: detach the stale
+        # attachment before reattaching to the right service.
+        print(f"  {host}  is attached to '{current.get('service')}', not '{service}' — correcting it")
+        _, err = call("DELETE", f"accounts/{ACCOUNT}/workers/domains/{current['id']}")
+        if err:
+            print(f"::error::could not detach {host} from '{current.get('service')}' — {err}")
+            failed = True
+            continue
+
+    result, err = attach(zone_id, host, service)
     if err:
         print(f"::error::could not attach {host} -> {service} — {err}")
         failed = True

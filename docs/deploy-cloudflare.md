@@ -6,20 +6,22 @@ code being deployed is [`store/`](../store/README.md) and [`ops/`](../ops/README
 
 End state:
 
-| Hostname | Serves | Gate |
-|---|---|---|
-| `vemians.com`, `www.vemians.com` | The Worker's public catalog | none |
-| `staging.vemians.com` | **The same Worker, the same deploy, the same catalog mirror** — not a second environment | none |
-| `ops.vemians.com` | The Worker's employee area | Cloudflare Access → Google Workspace |
+| Hostname | Serves | Deployed from | Gate |
+|---|---|---|---|
+| `vemians.com`, `www.vemians.com` | `vemians-storefront` — the real catalog | pushes to `main` | none |
+| `staging.vemians.com` | `vemians-storefront-staging` — a SEPARATE Worker running whatever is on the `staging` branch | pushes to `staging` | none |
+| `ops.vemians.com` | The Worker's employee area | pushes to `main` | Cloudflare Access → Google Workspace |
 
-> **`staging.vemians.com` is not a separate site.** It is `vemians-storefront` under a second
-> Custom Domain, attached automatically by `.github/scripts/setup-domains.py` as a step in
-> `deploy-workers.yml` — no manual dashboard click, and no second codebase to keep in sync.
-> Whatever `vemians.com` shows, `staging.vemians.com` shows, because they are the same running
-> Worker reading the same `CATALOG_MIRROR`. What it buys is a name to hand people before the
-> apex feels "official" — the code and the data are already real, only the audience is smaller.
-> `vemians.com` and `www.vemians.com` stay the manual, by-hand attachments described in §3 below;
-> only `staging.vemians.com` is provisioned by the script.
+> **`staging.vemians.com` is a separate Worker, deliberately**, not a second Custom Domain on
+> `vemians-storefront`. The whole point of a staging branch is that a change under test cannot
+> reach the domain customers see; two Custom Domains on one running Worker cannot promise that —
+> whatever code is deployed answers both names identically. So `store/wrangler.staging.toml`
+> deploys its own Worker (`vemians-storefront-staging`), attached to `staging.vemians.com` by
+> `.github/scripts/setup-domains.py` automatically on every push to `staging`. It binds the SAME
+> `CATALOG_MIRROR` D1 database as production — there is one real catalog, mirrored once, and
+> both Workers only ever read it — so staging differs from production in **code**, never in a
+> second copy of the data. `vemians.com` and `www.vemians.com` stay the manual, by-hand
+> attachments described in §3 below.
 
 > **The apex points at our Worker, not at Shopify.** `cloudflare-architecture.md` §3 carries a
 > superseded note about grey-clouding `A @ 23.227.38.65` and `CNAME www shops.myshopify.com`
@@ -182,8 +184,8 @@ manages the proxied DNS record, and it is what Access can sit in front of.
 - `ops.vemians.com`
 
 `staging.vemians.com` is **not** added here — leave it out. It attaches itself the first time
-`deploy-workers.yml` runs against this zone (`.github/scripts/setup-domains.py`), pointed at
-`vemians-storefront`, the same Worker as the two above.
+`deploy-workers.yml` runs on a push to the `staging` branch (`.github/scripts/setup-domains.py`),
+pointed at `vemians-storefront-staging`, a Worker of its own — not either one above.
 
 Each takes a minute or two to issue a certificate. In **DNS → Records** confirm all three show
 as orange-cloud (proxied). Delete any stale `A` or `CNAME` for those names that survived the

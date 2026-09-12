@@ -1,0 +1,88 @@
+#
+# The staging storefront Worker — deployed only from the `staging` branch,
+# only by deploy-workers.yml, and only ever with this file:
+#
+#   ( cd store && npx wrangler deploy --config wrangler.staging.toml )
+#
+# WHY A SEPARATE FILE, NOT A SECOND CUSTOM DOMAIN ON wrangler.toml's WORKER
+#
+# The point of a staging branch is that a change under test cannot reach the
+# domain customers see. One Worker answering two Custom Domains cannot promise
+# that — vemians.com and staging.vemians.com would always run the identical
+# deployed code, so "test on staging first" would test nothing that production
+# does not already have. This file deploys a SEPARATE Worker,
+# `vemians-storefront-staging`, so the two domains can genuinely disagree
+# while `staging` is ahead of `main`.
+#
+# WHY A SECOND FILE, NOT A [env.staging] BLOCK IN wrangler.toml
+#
+# Wrangler's named-environment inheritance rules for D1/KV bindings have
+# changed across versions and were not something this environment's egress
+# could check against current docs (client.js's SQUARE_VERSION comment hits
+# the same wall). A second, fully explicit file has no inheritance to get
+# wrong — every binding below is written out, the same way STORE_BINDINGS in
+# ops/src/tools/index.js is an explicit allow-list rather than a rule stated
+# once and assumed to propagate.
+#
+# WHAT IS SHARED WITH PRODUCTION, AND WHY
+#
+# The application source (src/) is identical — that is the whole point, it is
+# the CODE under test, not a fork of it. The CATALOG_MIRROR binding below
+# points at the SAME D1 database wrangler.toml does: there is one real
+# catalog, mirrored once by ops's cron, and both Workers only ever read it.
+# Forking the mirror would mean staging could show products production never
+# will, which defeats "test before it's official" in the other direction.
+#
+# WHAT IS NOT SHARED
+#
+# The Worker name, the Custom Domain, and — separately, in the Cloudflare
+# dashboard — the SQUARE_ACCESS_TOKEN_CONTACT secret, which must be set on
+# THIS Worker under THIS name if the contact form is to be exercised here too;
+# it does not inherit from vemians-storefront's own secret.
+#
+name = "vemians-storefront-staging"
+main = "src/index.js"
+compatibility_date = "2026-09-07"
+
+[[rules]]
+type = "Text"
+globs = ["**/*.css"]
+fallthrough = true
+
+[[rules]]
+type = "Text"
+globs = ["**/*.client.js"]
+fallthrough = true
+
+[vars]
+# Not customer-facing as a claim of identity — nothing in src/ currently reads
+# PUBLIC_HOST (see the note on it in wrangler.toml) — but kept accurate on
+# both files regardless, since the day something does read it is the wrong day
+# to discover only one of the two was ever updated.
+PUBLIC_HOST = "staging.vemians.com"
+SURFACE     = "public"
+
+# Same value as wrangler.toml today. Independent of it going forward — staging
+# can move to production data ahead of the apex, or stay behind it, as a
+# deliberate choice each time either file changes, never by accident because
+# the two files happened to agree.
+SQUARE_ENV = "sandbox"
+
+# SQUARE_ACCESS_TOKEN_CONTACT — a SECRET on THIS Worker specifically:
+#   wrangler secret put SQUARE_ACCESS_TOKEN_CONTACT --config wrangler.staging.toml
+# Never committed, never the same value as any other Worker's token — see the
+# full reasoning in wrangler.toml's own copy of this note and in ADR-015.
+# Absent, the contact form here answers "messages are not connected yet",
+# exactly as it does in production with nothing configured.
+
+# THE SAME MIRROR PRODUCTION READS. Not a second copy, not a second sync — one
+# catalog, one D1 database, two Workers reading it. See wrangler.toml's own
+# long comment on this binding for the full invariant (P0-24); nothing about
+# that invariant changes by a second Worker reading the same store.
+[[d1_databases]]
+binding       = "CATALOG_MIRROR"
+database_name = "vemians-catalog-mirror"
+database_id   = "53ecdc0e-6726-40fe-bf9a-1a3be8b2506e"
+
+[observability]
+enabled = true

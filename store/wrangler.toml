@@ -86,10 +86,14 @@ SQUARE_ENV = "sandbox"
 # pattern      = "www.vemians.com"
 # custom_domain = true
 #
-# staging.vemians.com is NOT listed here either — it is attached by
-# .github/scripts/setup-domains.py, run automatically on every deploy
-# (deploy-workers.yml). Same Worker, same CATALOG_MIRROR binding below, same
-# everything: it is vemians.com under a second name, not a second deployment.
+# staging.vemians.com is NOT listed here either — it belongs to a DIFFERENT
+# Worker, vemians-storefront-staging, deployed from wrangler.staging.toml in
+# this same directory. See that file's own header for why staging is a
+# separate Worker rather than a second Custom Domain on this one: a branch you
+# are testing must not be able to reach the domain customers see, which one
+# Worker behind two domains cannot promise. .github/scripts/setup-domains.py
+# attaches staging.vemians.com to the staging Worker automatically, on every
+# push to the `staging` branch.
 
 # ---------------------------------------------------------------------------
 # ONE D1 BINDING ON THIS WORKER: `catalog_mirror`, AND NOTHING ELSE EVER.

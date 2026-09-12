@@ -1,13 +1,26 @@
 # Deploy the storefront and ops Workers to Cloudflare.
 #
-# Two packages, two Workers, two deploys: `store/` is vemians-storefront and
-# `ops/` is vemians-ops. Neither has an --env; each package's wrangler.toml is
-# the whole configuration for its own Worker.
+# THREE WORKERS, TWO BRANCHES:
+#
+#   push to `staging`  ->  vemians-storefront-staging   (store/wrangler.staging.toml)
+#                           staging.vemians.com. ops is NOT touched by this
+#                           branch — there is no staging ops surface.
+#
+#   push to `main`      ->  vemians-storefront            (store/wrangler.toml)
+#                            vemians.com, www.vemians.com
+#                        ->  vemians-ops                   (ops/wrangler.toml)
+#                            ops.vemians.com
+#
+# The whole point of the staging branch is that code under test cannot reach
+# the domain customers see — which is why staging is a SEPARATE Worker, not a
+# second Custom Domain on the production one; two domains on one deployed
+# Worker would always show identical code, testing nothing main does not
+# already have.
 #
 # Runs on GitHub's infrastructure using CLOUDFLARE_API_TOKEN from repository
 # secrets. Nothing here needs a local machine, and the token is never exposed
 # to a pull request from a fork (see `pull_request` absence below — this only
-# runs on push to main and on manual dispatch).
+# runs on push to main/staging and on manual dispatch).
 
 name: deploy-workers
 
@@ -18,9 +31,9 @@ on:
         description: Which Worker to deploy
         type: choice
         default: both
-        options: [both, storefront, ops]
+        options: [both, storefront, ops, staging]
   push:
-    branches: [main]
+    branches: [main, staging]
     paths:
       - "store/**"
       - "ops/**"
@@ -55,7 +68,9 @@ jobs:
         working-directory: ops
 
       # Fail before touching Cloudflare, not after. A red deploy is worse than
-      # a red test because it is already live when you find out.
+      # a red test because it is already live when you find out. Runs
+      # unconditionally — a staging-only push still gates on the whole suite,
+      # because staging shares ops's cron-fed catalog mirror and shared/ code.
       - name: Tests
         run: npm test
         working-directory: ops
@@ -75,8 +90,10 @@ jobs:
       - name: Schema checks
         run: python3 shared/db/verify.py
 
-      - name: Deploy storefront
-        if: inputs.target == 'storefront' || inputs.target == 'both' || github.event_name == 'push'
+      # ── production ──────────────────────────────────────────────────────
+
+      - name: Deploy storefront (production)
+        if: inputs.target == 'storefront' || inputs.target == 'both' || (github.event_name == 'push' && github.ref_name == 'main')
         run: npx wrangler deploy
         working-directory: store
         env:
@@ -84,36 +101,50 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Deploy ops
-        if: inputs.target == 'ops' || inputs.target == 'both' || github.event_name == 'push'
+        if: inputs.target == 'ops' || inputs.target == 'both' || (github.event_name == 'push' && github.ref_name == 'main')
         run: npx wrangler deploy
         working-directory: ops
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      # Idempotent: ensures staging.vemians.com -> vemians-storefront exists,
-      # creates it the first time, and is a safe no-op on every deploy after
-      # that. vemians.com, www.vemians.com and ops.vemians.com are attached by
-      # hand (docs/deploy-cloudflare.md §3) and this step only reports them —
-      # see .github/scripts/setup-domains.py for why it refuses to touch them.
+      # ── staging ──────────────────────────────────────────────────────────
+      # A DIFFERENT Worker (store/wrangler.staging.toml's own name), not a
+      # second deploy of the one above. ops has no staging counterpart — a
+      # push to `staging` never touches vemians-ops.
+
+      - name: Deploy storefront (staging)
+        if: inputs.target == 'staging' || (github.event_name == 'push' && github.ref_name == 'staging')
+        run: npx wrangler deploy --config wrangler.staging.toml
+        working-directory: store
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      # Idempotent: ensures staging.vemians.com -> vemians-storefront-staging
+      # exists, creates or corrects it the first time, and is a safe no-op on
+      # every staging deploy after that. vemians.com, www.vemians.com and
+      # ops.vemians.com are attached by hand (docs/deploy-cloudflare.md §3)
+      # and this step only reports them — see setup-domains.py for why it
+      # never touches those three.
       - name: Ensure the staging domain is attached
-        if: inputs.target == 'storefront' || inputs.target == 'both' || github.event_name == 'push'
+        if: inputs.target == 'staging' || (github.event_name == 'push' && github.ref_name == 'staging')
         run: python3 .github/scripts/setup-domains.py
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Does staging actually answer
-        if: inputs.target == 'storefront' || inputs.target == 'both' || github.event_name == 'push'
+        if: inputs.target == 'staging' || (github.event_name == 'push' && github.ref_name == 'staging')
         run: |
           code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 https://staging.vemians.com/healthz || echo 000)
           echo "staging.vemians.com/healthz -> $code"
 
       - name: Where it landed
         run: |
-          echo "Storefront and ops deployed."
-          echo "Each Worker is live on its *.workers.dev URL immediately."
-          echo "Custom Domains (vemians.com, ops.vemians.com) are attached in the"
-          echo "dashboard once and persist across deploys — see docs/deploy-cloudflare.md."
-          echo "staging.vemians.com is attached automatically by the step above —"
-          echo "same Worker, same catalog mirror, as vemians.com."
+          echo "Each Worker deployed above is live on its *.workers.dev URL immediately."
+          echo "vemians.com, www.vemians.com, ops.vemians.com: Custom Domains attached by"
+          echo "hand once — see docs/deploy-cloudflare.md §3. staging.vemians.com attaches"
+          echo "itself, to its own Worker, on every push to the staging branch."
+          echo "Workflow: branch off staging, push, check staging.vemians.com, then merge"
+          echo "staging into main to reach the real domain."
