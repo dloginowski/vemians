@@ -324,14 +324,28 @@ check("test_PRD_P0_89_batch_preview_confirm__the_table_matches_a_plain_rendered_
 check("test_PRD_P0_89_batch_preview_confirm__the_compact_card_fits_a_header_and_two_rows_not_a_flat_guess", async () => {
   /* The owner's own words: "make it fit to content vertically. I only
      need to see 2 rows. The header and the content cells when in chat
-     preview." 118px is a specific target (one header row + two data
-     rows at this card's own font/padding), not the old 240px flat guess.
-     Full screen must still drop the cap entirely so it shows the WHOLE
-     table, not just a bit more of it. */
+     preview." — then, once smaller fonts/padding shrank the actual row
+     height: "Make the table with less padding and smaller fonts. Make
+     it as space efficient as possible." 84px is the SAME specific target
+     (one header row + two data rows), recomputed for the smaller font
+     and cell padding — not the old, bigger-font 118px carried over
+     unchanged. Full screen must still drop the cap entirely so it shows
+     the WHOLE table, not just a bit more of it. */
   const { body } = await frontPage(OWNER);
-  assert.match(body, /\.table-card\s*\{[^}]*max-height:\s*118px/s, "the compact card must be sized to roughly a header plus two rows");
-  assert.doesNotMatch(body, /\.table-card\s*\{[^}]*max-height:\s*240px/s, "the old flat 240px guess must not still be set");
+  assert.match(body, /\.table-card\s*\{[^}]*max-height:\s*84px/s, "the compact card must be sized to roughly a header plus two rows at the smaller font");
+  assert.doesNotMatch(body, /\.table-card\s*\{[^}]*max-height:\s*118px/s, "the old, bigger-font 118px target must not still be set");
   assert.match(body, /\.table-card\.full\s*\{[^}]*max-height:\s*none/s, "full screen must remove the height cap entirely");
+});
+
+check("test_PRD_P0_89_batch_preview_confirm__the_table_is_as_space_efficient_as_possible", async () => {
+  /* The owner's own words: "Make the table with less padding and
+     smaller fonts. Make it as space efficient as possible." Every size
+     in the card — its own box, the title bar, every cell — must be
+     smaller than the previous round, not just one of them. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.table-card\s*\{[^}]*font-size:\s*10px/s, "the card's own base font must be smaller than the previous 12px");
+  assert.match(body, /\.table-card\s*\{[^}]*padding:\s*5px 6px/s, "the card's own padding must be tighter than the previous 8px 10px");
+  assert.match(body, /\.table-card th, \.table-card td\s*\{[^}]*padding:\s*2px 6px/s, "cell padding must be tighter than the previous 4px 10px");
 });
 
 check("test_PRD_P0_89_batch_preview_confirm__the_table_renders_right_under_its_own_tool_step_not_after_the_reply", async () => {

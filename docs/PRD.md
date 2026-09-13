@@ -1454,6 +1454,18 @@ that does not trace to one of these is a process failure (see §12).
     to run right after the tool-step loop instead of after `entry("agent", ...)` — the table used
     to land at the very end of a turn, visually disconnected from the tool call that produced it
     once the reply had any real length; it now renders immediately under the step that named it.
+
+    **Every size in the card shrank, not just one of them.** The owner's own words, once the
+    header-plus-two-rows sizing was actually in front of them: "Make the table with less padding
+    and smaller fonts. Make it as space efficient as possible." The card's own base font drops
+    from `12px` to `10px`; its own padding from `8px 10px` to `5px 6px`; the title bar's font from
+    `11px` to `9px` with its bottom margin from `6px` to `3px`; every cell's own padding from `4px
+    10px` to `2px 6px`; the "Full screen" button's own font from `11px` to `9px` and padding from
+    `2px 8px` to `1px 6px`. `max-height` is recomputed for the row height this smaller font/padding
+    actually produces — `84px`, down from `118px` — still the same specific target (a header row
+    plus two data rows), not the bigger-font number simply carried over unchanged.
+
+34a''''''''''''''''''''. **`Test-PRD-P0-90-daylight_contrast`** — The owner's own words: "Bump up
     the contrast of the dimmer elements on ops page. Its a little hard to see on a mobile device
     in broad daylight." Direct sun washes out exactly the mid-tones a "dim, secondary" colour is
     built from — a ratio that reads comfortably indoors can still disappear outside, which a ratio

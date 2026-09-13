@@ -120,36 +120,35 @@ a:hover { opacity: 0.82; }
    being changed — "still use a scrolling frame so I can see the entire
    table if cropped" — only the table's own visual grammar is. */
 const TABLE_CARD_CSS = `
-/* max-height sized to fit its own content in the compact/inline chat
-   view — the owner's own words: "make it fit to content vertically. I
-   only need to see 2 rows. The header and the content cells." ~118px is
-   one header row plus two data rows at this card's own 12px font/padding
-   (~25.5px per row including its own border, plus the title bar and the
-   card's own padding) — not a guess at "enough space," a specific target
-   row count. Anything past 2 data rows scrolls within this same box
-   (overflow: auto, unchanged); .table-card.full below still drops the
-   cap entirely so "Full screen" shows the whole table, not just more of
-   it. */
+/* As space-efficient as this can be made — the owner's own words: "Make
+   the table with less padding and smaller fonts. Make it as space
+   efficient as possible." Font sizes and padding across the whole card
+   (its own box, the title bar, every cell, the Full-screen button) are
+   all reduced from the previous round, not just one of them. max-height
+   is recomputed for the smaller row height it now actually produces —
+   still a header row plus two data rows (~84px at this card's own 10px
+   font/2px cell padding), the same specific target as before, not the
+   old, bigger-font 118px carried over unchanged. */
 .table-card {
   align-self: stretch; max-width: 100%; box-sizing: border-box;
-  border: 1px solid var(--rule); border-radius: 0; padding: 8px 10px;
-  background: var(--image-ground); font-size: 12px;
-  max-height: 118px; overflow: auto;
+  border: 1px solid var(--rule); border-radius: 0; padding: 5px 6px;
+  background: var(--image-ground); font-size: 10px;
+  max-height: 84px; overflow: auto;
 }
 .table-card h4 {
-  margin: 0 0 6px; padding: 0; font-size: 11px; font-weight: 700;
+  margin: 0 0 3px; padding: 0; font-size: 9px; font-weight: 700;
   color: var(--muted); display: flex; justify-content: space-between;
-  align-items: center; gap: 8px; position: sticky; left: 0;
+  align-items: center; gap: 6px; position: sticky; left: 0;
 }
 .table-card table { width: max-content; min-width: 100%; border-collapse: collapse; }
 .table-card th, .table-card td {
-  text-align: left; padding: 4px 10px; border: 1px solid var(--rule);
+  text-align: left; padding: 2px 6px; border: 1px solid var(--rule);
   white-space: nowrap; vertical-align: top;
 }
 .table-card th { color: var(--ink); font-weight: 700; background: var(--ground); }
 .table-card a { color: var(--accent); }
 .table-card button {
-  flex: 0 0 auto; font: inherit; font-size: 11px; padding: 2px 8px; cursor: pointer;
+  flex: 0 0 auto; font: inherit; font-size: 9px; padding: 1px 6px; cursor: pointer;
   border: 1px solid var(--rule); border-radius: 12px; background: var(--ground); color: var(--ink);
 }
 .table-card button:hover { border-color: var(--accent); color: var(--accent); }
