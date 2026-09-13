@@ -123,24 +123,30 @@ ${OPS_DARK_CSS}
    accent colour tying the widget to the shortcuts that feed it, rather than
    the plain neutral --rule every other box on the page uses.
  *
- * Sides and bottom are tight (3px, tightened once more from 4px, both
- * together) so the composer pill nested inside sits close against this
- * frame; top stays roomier (14px) since the hint/log stack sits there,
- * not the pill.
+ * All FOUR sides are the same 14px again, matching top — the direction
+ * this kept getting corrected in was backwards. The owner's own words:
+ * "I didn't ask you to make bottom gap smaller I asked the side padding
+ * to be bigger to match the bottom padding." The bottom visibly looked
+ * bigger in the original screenshot for a real reason (P0-96's own bug,
+ * an uncollapsed empty .attach-name span) — but fixing that bug shrank
+ * the bottom to match the sides' small 3px, when what was actually asked
+ * was the reverse: grow the sides to match how roomy the bottom used to
+ * look. Rather than guess a value trying to reproduce a look that came
+ * from a bug now removed, this returns to 14px on every side — the
+ * original, generous value this padding carried before any tightening
+ * request in this whole thread ever touched it, and trivially "sides
+ * match bottom" since there is now only one number.
  *
- * A smaller top radius (20px) than bottom (24px) — deliberately kept, on
- * the owner's own preference — but no longer the source of the earlier
- * "uneven gap" bug: THAT bug was using the wrong number for "bottom",
- * not the mere fact of top and bottom differing. The pill below declares
- * 24px but actually renders at ~21px (explained on .chat .chat-bar); the
- * earlier per-corner attempts computed bottom against the wrong, nominal
- * 24, not the pill's true rendered radius — this recomputes it correctly
- * (pillRadius 21 + thisGap 3 = 24) while leaving the TOP corner as its
- * own independent, purely aesthetic choice, since nothing rounded is
- * nested against the top at all. */
+ * A smaller top radius (20px) than bottom — the owner's own separate,
+ * standing preference, unrelated to the padding value: nothing rounded
+ * is nested against the top corners regardless of what the gap is. The
+ * bottom corners still have to stay concentric with the pill below,
+ * whose TRUE rendered radius is ~21px (explained on .chat .chat-bar) —
+ * pillRadius (21) + thisGap (14, now that sides/bottom are 14px again) =
+ * 35px, recomputed for the new, bigger gap the same way it was for 3px. */
 .chat-top {
-  border: 1px solid var(--accent); border-radius: 20px 20px 24px 24px;
-  padding: 14px 3px 3px; margin-bottom: 16px;
+  border: 1px solid var(--accent); border-radius: 20px 20px 35px 35px;
+  padding: 14px; margin-bottom: 16px;
 }
 
 /* Centred and quiet on purpose — a name check, not the thing on the page

@@ -413,13 +413,20 @@ check("test_PRD_P0_93_nested_chat_frame__focus_stays_gray_rather_than_doubling_u
   );
 });
 
-check("test_PRD_P0_93_nested_chat_frame__the_outer_frame_has_tight_even_padding_on_sides_and_bottom", async () => {
+check("test_PRD_P0_93_nested_chat_frame__the_outer_frame_padding_is_the_same_on_every_side_again", async () => {
+  /* This padding was tightened three times (8px, then 4px, then 3px on
+     sides/bottom) before the owner's own correction: "I didn't ask you
+     to make bottom gap smaller I asked the side padding to be bigger to
+     match the bottom padding." The bottom had looked bigger for a real
+     bug (P0-96's own uncollapsed empty .attach-name span) — fixing that
+     bug shrank the bottom to match the sides' small 3px, the opposite of
+     what was actually asked. Rather than guess a value chasing a look
+     that came from a bug now removed, every side returns to 14px — the
+     original value this padding carried before any tightening request
+     in this whole thread touched it, and trivially "sides match bottom"
+     since there is only one number now. */
   const { body } = await frontPage(OWNER);
-  /* Top keeps its own room for the hint/log stack; sides and bottom match
-     each other and have been tightened twice more since — 8px, then 4px
-     ("I would even reduce the padding from 8 to 4px"), then 3px ("chat
-     radius could use a bit of tightening too"). */
-  assert.match(body, /\.chat-top\s*\{[^}]*padding:\s*14px 3px 3px/s, "sides and bottom must be tight and equal to each other");
+  assert.match(body, /\.chat-top\s*\{[^}]*padding:\s*14px;/s, "every side must be the same, generous 14px again");
 });
 
 check("test_PRD_P0_93_nested_chat_frame__the_pills_own_radius_never_changes__only_the_outer_frame_matches_it", async () => {
@@ -440,12 +447,13 @@ check("test_PRD_P0_93_nested_chat_frame__the_pills_own_radius_never_changes__onl
      confirmed the asymmetry was never the bug; the WRONG NUMBER for the
      bottom corner was. Top and bottom differ again (20px top, a plainly
      aesthetic choice since nothing rounded sits there; the bottom
-     recomputed correctly this time: pillRadius 21 + thisGap 3 = 24). */
+     recomputed correctly for whatever the current gap is: pillRadius 21
+     + thisGap — 24 at a 3px gap, now 35 at the restored 14px gap). */
   const { body } = await frontPage(OWNER);
   assert.match(body, /\.chat \.chat-bar\s*\{[^}]*border-radius:\s*24px/s, "the composer pill's own declared radius must never change");
   assert.match(
     body,
-    /\.chat-top\s*\{[^}]*border-radius:\s*20px 20px 24px 24px/s,
+    /\.chat-top\s*\{[^}]*border-radius:\s*20px 20px 35px 35px/s,
     "top corners stay smaller (aesthetic, unrelated to the pill), bottom corners recomputed against the pill's TRUE rendered radius plus the current gap",
   );
 });

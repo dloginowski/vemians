@@ -1552,6 +1552,20 @@ that does not trace to one of these is a process failure (see §12).
     time, for the reason the owner's own screenshot actually showed, not a guess about how CSS
     handles nested rounded corners.
 
+    **Fixing the bug still pointed the padding value the wrong direction.** Removing the phantom
+    height made the bottom gap match the sides' `3px` — technically even, but the owner's own
+    correction named exactly what went wrong anyway: "I didn't ask you to make bottom gap smaller
+    I asked the side padding to be bigger to match the bottom padding." The bottom had genuinely
+    looked bigger and roomier in the original screenshot; shrinking it to match the sides' small
+    value satisfied "even" while losing the look that was actually liked. Rather than guess a new
+    number chasing a look that came from a bug now removed, `.chat-top`'s padding returns to
+    `14px` on every side — the original, generous value it carried before any tightening request
+    in this entire thread ever touched it. `.chat-top`'s bottom-corner radius is recomputed for
+    this bigger gap using the same formula as every round before it — pillRadius (`21`, the
+    pill's true rendered shape) + thisGap (`14`, now that sides/bottom match top) = `35px` — while
+    the top corner keeps its own independently-liked `20px`, since nothing rounded is nested
+    against it regardless of what the gap itself is.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
