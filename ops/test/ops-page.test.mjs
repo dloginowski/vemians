@@ -175,23 +175,41 @@ check("test_PRD_P0_71_items_tab__the_tabs_have_visibly_rounded_corners_without_b
   assert.doesNotMatch(body, /\.shell-nav button\s*\{[^}]*border-radius:\s*20px/s, "the pill-inducing 20px must be gone");
 });
 
-check("test_PRD_P0_71_items_tab__a_cut_out_tab_has_no_merge_seam_with_the_panel", async () => {
-  /* A real cut-paper tab is its own separate piece — the merge trick
-     (border-bottom: none, a negative margin pulling the active tab onto
-     the panel's own border) was for the OLD tabbed-pane shape and reads
-     as a visible notch now that every corner is rounded. */
+check("test_PRD_P0_71_items_tab__a_cut_out_tab_keeps_its_own_full_border_on_every_side", async () => {
+  /* The OLD tabbed-pane merge trick removed the tab's own bottom border
+     entirely (border-bottom: none) so the panel's own line could show
+     through in its place — wrong for a "cut out" tab, which is its own
+     complete shape, border on every side. */
   const { body } = await shell(OWNER);
   assert.doesNotMatch(body, /\.shell-nav button\s*\{[^}]*border-bottom:\s*none/s);
-  assert.doesNotMatch(body, /\.shell-nav button\.active\s*\{[^}]*margin-bottom/s);
 });
 
-check("test_PRD_P0_71_items_tab__the_tab_rows_own_side_padding_is_doubled_again", async () => {
-  /* First matched to .ops's own 8px side padding; then "Double tabs side
-     padding" — the owner's own words, doubling that 8px to 16px, a
-     deliberate departure from matching .ops exactly in favour of more
-     visible separation from the screen edge. */
+check("test_PRD_P0_71_items_tab__the_active_tabs_own_border_fuses_with_the_panels_accent_line", async () => {
+  /* The owner's own words: "imagine the bottom orange edge, smoothly
+     curves up the tab. Over the tab and smoothly transitions down and
+     keeps going right." The active tab keeps its own full, all-corners-
+     rounded border (the check above) — pulling it down by exactly the
+     shared 1px border width makes its own bottom edge and the panel's
+     own top border occupy the same pixel row across the tab's width,
+     reading as one continuous accent stroke rather than two lines that
+     merely touch. */
   const { body } = await shell(OWNER);
-  assert.match(body, /\.shell-header\s*\{[^}]*padding:\s*10px 16px 0/s);
+  assert.match(body, /\.shell-nav button\.active\s*\{[^}]*margin-bottom:\s*-1px/s);
+  assert.match(body, /\.shell-panel\s*\{[^}]*border-top:\s*1px solid var\(--accent\)/s, "the panel's own line the active tab fuses with must still be there");
+});
+
+check("test_PRD_P0_71_items_tab__the_first_tab_lines_up_with_the_inner_chat_content_not_ops_own_edge", async () => {
+  /* .ops's own 8px, doubled to 16px, then the owner's own words, more
+     precisely: "First tab on left matches the inner chat left extent."
+     That is not .ops's own edge — it is past .chat-top's own frame too:
+     8px (.ops) + 1px (.chat-top's own border) + 14px (.chat-top's own
+     padding) = 23px, where actual chat content (the log, the composer)
+     starts. */
+  const { body } = await shell(OWNER);
+  assert.match(body, /\.shell-header\s*\{[^}]*padding:\s*10px 23px 0/s);
+
+  const { body: chatBody } = await frontPage(OWNER);
+  assert.match(chatBody, /\.chat-top\s*\{[^}]*padding:\s*14px/s, "sanity check: .chat-top's own padding is really 14px");
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
