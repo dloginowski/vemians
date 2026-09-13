@@ -1204,6 +1204,44 @@ that does not trace to one of these is a process failure (see §12).
     exactly this purpose, points at a local HTTP server shaped like Anthropic's real error
     responses, no live network call or API key involved.
 
+    **Superseded within the same session by P0-87**, which found and fixed the actual cause this
+    entry called unknown: every tool name in this registry has a dot, and Anthropic's own tool
+    name grammar has never allowed one.
+
+34a'''''''''''''''''. **`Test-PRD-P0-87-wire_safe_tool_names`** — P0-86's own fix worked exactly
+    as designed: the very next 400 was self-diagnosing. The owner pasted back Anthropic's own
+    message — `tools.2.custom.name: String should match pattern '^[a-zA-Z0-9_-]{1,128}$'` — and
+    it named the real, confirmed cause of "still getting 400" directly. Every tool in this
+    registry is named `domain.verb` (`catalog.create_product`, `customer.profile`, …), a
+    convention baked in from the very first commit, and Anthropic's grammar has never permitted
+    the dot. **Every single real tool call had been 400ing since the day a live key was first
+    configured** — P0-76's schema-shape fix was necessary but not sufficient; nothing in this
+    codebase had ever driven `agentTurn()` against a live Anthropic call to notice the name
+    itself was equally illegal, because nothing mocked the Messages API at all until P0-86.
+
+    **The fix touches only the API boundary, deliberately.** `agent.js` exports `wireName(id) =>
+    id.replace(/[^a-zA-Z0-9_-]/g, "_")` — `catalog.create_product` → `catalog_create_product`.
+    `toolDefinitions()` itself is UNCHANGED and still returns the real, dotted names: every other
+    caller in this codebase (tests, `TOOLS` lookups, the old bindings footnote) depends on that,
+    and MCP's own now-deleted `wireName` (`ops/src/mcp.js`, ADR-017) already established the
+    precedent of converting only at the wire and mapping back on the way in — its comment even
+    named this exact grammar for OpenAI's function names, without anyone having verified
+    Anthropic's own tool names needed the identical treatment until this bug forced the check.
+    `agentTurn()` builds a `nameForWire` reverse-lookup alongside the wire-renamed `tools` array
+    it actually sends, and translates a `tool_use` block's name back to the real one before
+    `dispatch()`, `TOOLS` lookups, the pending-approval record, or an audit step ever see it — the
+    person only ever sees `catalog.create_product` in what this page or a log shows them; only
+    the literal bytes on the wire to Anthropic are ever `catalog_create_product`.
+
+    No two tool names collide once converted (checked directly, not merely assumed) — true today
+    because every domain prefix is a single word with no underscore of its own, so `.` is always
+    the sole character `wireName` touches. Checked by driving `agentTurn()` against a fake HTTP
+    server shaped like Anthropic (P0-86's own technique, extended to inspect the REQUEST body
+    rather than only a canned response): every tool name actually sent matches Anthropic's
+    pattern, and a `tool_use` reply naming a tool by its wire form dispatches and reports the
+    real, dotted name in `steps` — not a "no such tool" refusal, which is what an untranslated
+    wire name would have produced.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -1441,6 +1479,7 @@ Where each feature is enforced today:
 | P0-84 | `ops/test/catalog-write.test.mjs` |
 | P0-85 | `ops/test/agent-skills.test.mjs` |
 | P0-86 | `ops/test/agent-model-errors.test.mjs` |
+| P0-87 | `ops/test/agent-tool-wire-names.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
