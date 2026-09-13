@@ -205,7 +205,7 @@ check("test_PRD_P0_71_items_tab__the_header_background_differs_from_the_active_t
      boundary against --ground instead. */
   const { body } = await shell(OWNER);
   assert.match(body, /\.shell-header\s*\{[^}]*background:\s*var\(--bar\)/s);
-  assert.match(body, /\.shell-nav button\.active\s*\{[^}]*background:\s*var\(--ground\)/s);
+  assert.match(body, /\.shell-nav button\.active\s*\{[^}]*background:[^}]*var\(--ground\)/s);
 });
 
 check("test_PRD_P0_71_items_tab__the_active_tab_structurally_merges_into_the_panel_not_just_matches_its_colour", async () => {
@@ -213,33 +213,30 @@ check("test_PRD_P0_71_items_tab__the_active_tab_structurally_merges_into_the_pan
      curves up the tab. Over the tab and smoothly transitions down and
      keeps going right." A genuine merge, not two colour-matched lines
      standing in for one: the active tab's own bottom border is removed
-     entirely (border-bottom: none) and its background matches the
-     panel's, so it structurally opens into what it fronts rather than
-     floating above it as an independent, fully-bordered piece. */
+     entirely (border-top only, no bottom) and its background matches
+     the panel's, so it structurally opens into what it fronts rather
+     than floating above it as an independent, fully-bordered piece. */
   const { body } = await shell(OWNER);
-  assert.match(body, /\.shell-nav button\.active\s*\{[^}]*border:\s*1px solid var\(--accent\); border-bottom:\s*none/s);
+  assert.match(body, /\.shell-nav button\.active\s*\{[^}]*border-top:\s*1px solid var\(--accent\)/s);
   assert.match(body, /\.shell-nav button\.active\s*\{[^}]*margin-bottom:\s*-1px/s);
   assert.match(body, /\.shell-panel\s*\{[^}]*border-top:\s*1px solid var\(--accent\)/s, "the panel's own line the active tab merges into must still be there");
 });
 
-check("test_PRD_P0_71_items_tab__the_notch_carries_its_own_accent_outline_so_the_side_border_keeps_going", async () => {
-  /* Dropping the side border entirely (an earlier round's fix for a
-     black smudge where it crossed the notch) also hid the tab's own
-     outline — "hid the side edges," the owner's own words. The border
-     is back on all three sides; instead the notch's own shadow list
-     grew a second layer: the tab's fill colour (--ground) at zero
-     spread, exactly the reference's own shape, with a 1px-wider --accent
-     copy behind it so a thin outline traces the curve — a continuation
-     of the border, not a border stopping dead into a flood of colour. */
+check("test_PRD_P0_71_items_tab__the_side_accent_lines_stop_short_of_the_curve_instead_of_tracing_it", async () => {
+  /* Three straight rounds tried to make the accent border trace THROUGH
+     the round-out curve itself (a spread-based second shadow layer,
+     then chasing the geometry bugs that layer produced) — each one
+     made the shape worse, ending in "looks like a fucking mushroom,"
+     the owner's own words. Abandoned entirely: the curve below is a
+     single plain colour again, and the side "border" is two short
+     background-gradient lines, sized to stop before the curve's own
+     reach (--tab-radius) even begins, so they can never touch or
+     distort it. */
   const { body } = await shell(OWNER);
-  assert.match(
-    body,
-    /\.shell-nav button\.active::before\s*\{[^}]*box-shadow:\s*calc\(var\(--tab-radius\) \/ 2\) 0 0 0 var\(--ground\),\s*calc\(var\(--tab-radius\) \/ 2\) 0 0 1px var\(--accent\)/s,
-  );
-  assert.match(
-    body,
-    /\.shell-nav button\.active::after\s*\{[^}]*box-shadow:\s*calc\(var\(--tab-radius\) \/ -2\) 0 0 0 var\(--ground\),\s*calc\(var\(--tab-radius\) \/ -2\) 0 0 1px var\(--accent\)/s,
-  );
+  const activeRule = body.match(/\.shell-nav button\.active\s*\{[^}]*\}/s)[0];
+  assert.doesNotMatch(activeRule, /border:\s*1px solid var\(--accent\); border-bottom/, "no full-sides border may return");
+  assert.match(activeRule, /linear-gradient\(var\(--accent\), var\(--accent\)\) left top \/ 1px\s+calc\(100% - var\(--tab-radius\) - 1px\) no-repeat/);
+  assert.match(activeRule, /linear-gradient\(var\(--accent\), var\(--accent\)\) right top \/ 1px\s+calc\(100% - var\(--tab-radius\) - 1px\) no-repeat/);
 });
 
 check("test_PRD_P0_71_items_tab__the_active_tab_has_round_out_notches_at_its_own_base", async () => {
@@ -252,10 +249,11 @@ check("test_PRD_P0_71_items_tab__the_active_tab_has_round_out_notches_at_its_own
      flood-filled spread. */
   const { body } = await shell(OWNER);
   assert.match(body, /\.shell-nav\s*\{[^}]*--tab-radius:\s*14px/s);
-  assert.match(body, /\.shell-nav button\.active::before\s*\{[^}]*left:\s*calc\(var\(--tab-radius\) \* -1 - 1px\)/s);
+  assert.match(body, /\.shell-nav button\.active::before\s*\{[^}]*left:\s*calc\(var\(--tab-radius\) \* -1\)/s);
   assert.match(body, /\.shell-nav button\.active::before\s*\{[^}]*border-bottom-right-radius:\s*var\(--tab-radius\)/s);
   assert.match(body, /\.shell-nav button\.active::before\s*\{[^}]*box-shadow:\s*calc\(var\(--tab-radius\) \/ 2\) 0 0 0 var\(--ground\)/s);
-  assert.match(body, /\.shell-nav button\.active::after\s*\{[^}]*right:\s*calc\(var\(--tab-radius\) \* -1 - 1px\)/s);
+  assert.doesNotMatch(body, /\.shell-nav button\.active::before\s*\{[^}]*box-shadow:[^}]*var\(--accent\)/s, "the curve must be a single plain colour, not a decorated outline");
+  assert.match(body, /\.shell-nav button\.active::after\s*\{[^}]*right:\s*calc\(var\(--tab-radius\) \* -1\)/s);
   assert.match(body, /\.shell-nav button\.active::after\s*\{[^}]*border-bottom-left-radius:\s*var\(--tab-radius\)/s);
   assert.match(body, /\.shell-nav button\.active::after\s*\{[^}]*box-shadow:\s*calc\(var\(--tab-radius\) \/ -2\) 0 0 0 var\(--ground\)/s);
 });
@@ -291,20 +289,6 @@ check("test_PRD_P0_71_items_tab__the_notch_radius_matches_its_own_taller_box_not
     body,
     /\.shell-nav button\.active::after\s*\{[^}]*border-bottom-left-radius:\s*var\(--tab-radius\) calc\(var\(--tab-radius\) \+ 1px\)/s,
   );
-});
-
-check("test_PRD_P0_71_items_tab__the_notch_starts_flush_with_the_border_not_one_px_inside_it", async () => {
-  /* "The right one has to have its left edge aligned and vice versa" —
-     an absolutely positioned element's offsets are measured from its
-     containing block's PADDING edge, one border-width INSIDE the
-     button's own visible border (box-sizing: border-box draws that 1px
-     border OUTSIDE the padding box). Left at just --tab-radius, the
-     curve's own inner edge started 1px short of the border's outer
-     edge instead of flush against it. The extra "- 1px" pushes both
-     pseudo-elements out to start exactly on the border line. */
-  const { body } = await shell(OWNER);
-  assert.match(body, /\.shell-nav button\.active::before\s*\{[^}]*left:\s*calc\(var\(--tab-radius\) \* -1 - 1px\)/s);
-  assert.match(body, /\.shell-nav button\.active::after\s*\{[^}]*right:\s*calc\(var\(--tab-radius\) \* -1 - 1px\)/s);
 });
 
 check("test_PRD_P0_71_items_tab__the_gap_between_tabs_is_wide_enough_the_notches_never_bite_a_neighbour", async () => {
