@@ -1341,6 +1341,30 @@ that does not trace to one of these is a process failure (see §12).
     count, with the title and "Full screen" button pinned in place (`position: sticky; left: 0`)
     so they stay reachable while scrolled right.
 
+34a''''''''''''''''''''. **`Test-PRD-P0-90-daylight_contrast`** — The owner's own words: "Bump up
+    the contrast of the dimmer elements on ops page. Its a little hard to see on a mobile device
+    in broad daylight." Direct sun washes out exactly the mid-tones a "dim, secondary" colour is
+    built from — a ratio that reads comfortably indoors can still disappear outside, which a ratio
+    computed against an indoor assumption never catches.
+
+    **`--muted` and `--rule` (P0-75's own dark-reskin tokens) were both raised, nothing else.**
+    `--muted` (secondary text — the chat log's tool-step asides, the composer hint, table headers
+    and labels, the attach-file name, a disabled gate button) went from `#9C978C` — already a
+    passing 6.1:1 against `--ground` but only 5.4:1 against `--image-ground`, the panel background
+    it also sits on (`.table-card`, `.who`) — to `#B8B3A8`, which clears 7:1 (WCAG AAA for normal
+    text) against BOTH. `--rule` (every border and divider — the chat bar's own outline, a table's
+    row lines, the approval gate's box, a copy button's outline) went from `#3A3733`, a bare 1.5:1
+    against `--ground` and effectively invisible as a boundary, to `#7B7369`, clearing 3:1 (WCAG's
+    own non-text/UI-component minimum) against both backgrounds it appears on. `--ink`, `--ground`,
+    `--image-ground` and `--accent` were already comfortably above their own thresholds (15.3:1,
+    5.7:1 respectively) and are untouched — the report was about the DIM elements specifically, not
+    the whole palette.
+
+    Checked by computing the same relative-luminance contrast formula the WCAG spec itself defines
+    (not a hardcoded "looks fine" assertion) against both `--ground` and `--image-ground` for each
+    token, so a future edit that quietly drifts a colour back under its floor fails the same way a
+    missed feature would.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -1581,6 +1605,7 @@ Where each feature is enforced today:
 | P0-87 | `ops/test/agent-tool-wire-names.test.mjs` |
 | P0-88 | `ops/test/catalog-write.test.mjs` |
 | P0-89 | `ops/test/catalog-write.test.mjs`; no test yet drives the `views.js` client script's `tableCard()` rendering directly — this file has no browser/DOM harness for any client-side script, not only this one |
+| P0-90 | `ops/test/ops-page.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

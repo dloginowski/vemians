@@ -236,7 +236,7 @@ check("test_PRD_P0_75_ops_dark_theme__the_front_page_carries_the_dark_palette", 
   assert.match(body, /--ground:\s*#191817/, "the near-black ground must be set");
   assert.match(body, /--ink:\s*#F1EEE6/, "the warm off-white ink must be set");
   assert.match(body, /--accent:\s*#D97757/, "the one accent colour must be set");
-  assert.match(body, /--muted:\s*#9C978C/);
+  assert.match(body, /--muted:\s*#B8B3A8/);
 });
 
 check("test_PRD_P0_75_ops_dark_theme__the_storefront_never_loads_this_palette", async () => {
@@ -289,6 +289,71 @@ check("test_PRD_P0_75_ops_dark_theme__no_hardcoded_grey_survives_the_reskin", as
   const src = fs.readFileSync(path.join(HERE, "..", "src", "views.js"), "utf8");
   const styleOnly = src.replace(/\/\*[\s\S]*?\*\//g, "");
   assert.doesNotMatch(styleOnly, /#666/, "a hardcoded grey survived the dark reskin");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-90 — the dim tokens read in broad daylight, not just indoors
+ * ───────────────────────────────────────────────────────────────────────── */
+
+/* The same relative-luminance formula WCAG itself defines — not a stand-in,
+   so a real ratio is what fails when a colour drifts back under its floor. */
+function relLuminance(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((c) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function contrastRatio(hexA, hexB) {
+  const [l1, l2] = [relLuminance(hexA), relLuminance(hexB)].sort((a, b) => b - a);
+  return (l1 + 0.05) / (l2 + 0.05);
+}
+
+/* theme.css's own light-palette :root block renders FIRST in the page, with
+   OPS_DARK_CSS's override :root block second in the same <style> tag — the
+   cascade takes the LAST declaration, exactly as the real browser would, so
+   this must too rather than grabbing theme.css's untouched light value. */
+function cssVar(body, name) {
+  const matches = [...body.matchAll(new RegExp(`--${name}:\\s*(#[0-9A-Fa-f]{6})`, "g"))];
+  assert.ok(matches.length, `--${name} not found in the rendered page`);
+  return matches[matches.length - 1][1];
+}
+
+check("test_PRD_P0_90_daylight_contrast__muted_text_clears_aaa_against_both_backgrounds_it_sits_on", async () => {
+  /* --muted carries secondary text (hints, tool-step asides, table headers,
+     the attach-file name) over both a plain bubble/page background
+     (--ground) and a panel background (--image-ground, .table-card/.who) —
+     both have to clear the bar, not just whichever one a spot check picks. */
+  const { body } = await frontPage(OWNER);
+  const muted = cssVar(body, "muted");
+  const ground = cssVar(body, "ground");
+  const imageGround = cssVar(body, "image-ground");
+  assert.ok(contrastRatio(muted, ground) >= 7, `muted vs ground must clear WCAG AAA (7:1) for daylight readability`);
+  assert.ok(contrastRatio(muted, imageGround) >= 7, `muted vs image-ground must clear WCAG AAA (7:1) too`);
+});
+
+check("test_PRD_P0_90_daylight_contrast__rule_borders_clear_the_ui_component_minimum", async () => {
+  /* --rule is every border and divider on the page — the chat bar's own
+     outline, a table's row lines, the approval gate's box — which WCAG
+     treats as a UI component boundary (3:1), not body text (4.5:1/7:1). */
+  const { body } = await frontPage(OWNER);
+  const rule = cssVar(body, "rule");
+  const ground = cssVar(body, "ground");
+  const imageGround = cssVar(body, "image-ground");
+  assert.ok(contrastRatio(rule, ground) >= 3, `rule vs ground must clear WCAG's 3:1 non-text/UI-component minimum`);
+  assert.ok(contrastRatio(rule, imageGround) >= 3, `rule vs image-ground must clear it too`);
+});
+
+check("test_PRD_P0_90_daylight_contrast__the_already_strong_tokens_were_left_alone", async () => {
+  /* The report was about the DIM elements specifically — ink, ground and
+     accent were already comfortably above their own thresholds, and a fix
+     that also drifted those would be touching more than was asked. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /--ground:\s*#191817/);
+  assert.match(body, /--ink:\s*#F1EEE6/);
+  assert.match(body, /--accent:\s*#D97757/);
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
