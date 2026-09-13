@@ -52,6 +52,22 @@ export const CAPS = Object.freeze({
   CATALOG_MAX_IMAGES: 8,
 
   /*
+   * custom_fields (mirror_product) — whatever a spreadsheet import or an
+   * agent edit carries that Square has no field for at all. Capped the same
+   * way every other free-text store field is: a warning in a tool
+   * description is not a cap, a rejected write is. A spreadsheet with more
+   * distinct extra columns than this, or a single cell this long, was not a
+   * product row.
+   */
+  CATALOG_CUSTOM_FIELDS_MAX_KEYS: 20,
+  CATALOG_CUSTOM_FIELD_KEY_MAX: 60,
+  CATALOG_CUSTOM_FIELD_VALUE_MAX: 500,
+  /* The employee-only /items grid (ops/src/index.js) — a shop this size
+     fits comfortably under this in one page; past it, the honest answer is
+     pagination, not a page that silently gets slower to render. */
+  CATALOG_ITEMS_PAGE_MAX_ROWS: 1000,
+
+  /*
    * INLINE image bytes, base64, in a tool ARGUMENT.
    *
    * This is not a transport limit, it is a MODEL limit, and it is the reason

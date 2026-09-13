@@ -59,7 +59,8 @@ export async function listCategories(db) {
 export async function productByHandle(db, handle) {
   return db
     .prepare(
-      "SELECT id, handle, title, source_description, status, channel, category_id FROM mirror_product_index WHERE handle = ?",
+      "SELECT id, handle, title, source_description, status, channel, custom_fields, category_id " +
+        "FROM mirror_product_index WHERE handle = ?",
     )
     .bind(handle)
     .first();
@@ -73,6 +74,58 @@ export async function variantsOf(db, productId) {
     .bind(productId)
     .all();
   return res.results ?? [];
+}
+
+/*
+ * The read path for the ops Items tab (a server-rendered page, not an agent
+ * tool call) — every mirrored product, its category name, every variation,
+ * and custom_fields already parsed rather than left as a JSON string for
+ * every caller to re-parse. One query for products, one for every variant
+ * (grouped here rather than N+1 queries per product), the same trade every
+ * other list view in this codebase makes at this scale.
+ */
+export async function listAllProducts(db, { limit } = {}) {
+  const products = await db
+    .prepare(
+      `SELECT p.id, p.handle, p.title, p.status, p.channel, p.custom_fields, p.category_id, c.name AS category_name
+         FROM mirror_product_index p
+         LEFT JOIN mirror_category_index c ON c.id = p.category_id
+        ORDER BY p.title COLLATE NOCASE
+        LIMIT ?`,
+    )
+    .bind(limit ?? 1000)
+    .all();
+
+  const variants = await db
+    .prepare(
+      "SELECT product_id, sku, title, ordinal, price_minor, currency FROM mirror_variant_index ORDER BY product_id, ordinal",
+    )
+    .bind()
+    .all();
+  const byProduct = new Map();
+  for (const v of variants.results ?? []) {
+    if (!byProduct.has(v.product_id)) byProduct.set(v.product_id, []);
+    byProduct.get(v.product_id).push(v);
+  }
+
+  return (products.results ?? []).map((p) => {
+    let custom_fields = {};
+    try {
+      custom_fields = JSON.parse(p.custom_fields || "{}");
+    } catch {
+      custom_fields = {};
+    }
+    return {
+      id: p.id,
+      handle: p.handle,
+      title: p.title,
+      status: p.status,
+      channel: p.channel,
+      category_name: p.category_name,
+      custom_fields,
+      variations: byProduct.get(p.id) ?? [],
+    };
+  });
 }
 
 /**

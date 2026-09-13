@@ -321,6 +321,75 @@ check("test_PRD_P0_89_batch_preview_confirm__the_table_matches_a_plain_rendered_
   assert.match(body, /\.table-card th\s*\{[^}]*background:\s*var\(--ground\)/s, "the header row must be visually shaded, matching an ordinary rendered table");
 });
 
+check("test_PRD_P0_89_batch_preview_confirm__the_compact_card_fits_a_header_and_two_rows_not_a_flat_guess", async () => {
+  /* The owner's own words: "make it fit to content vertically. I only
+     need to see 2 rows. The header and the content cells when in chat
+     preview." — recomputed through several rounds of smaller fonts and
+     padding since: 118px, then 84px, then 70px, now 58px at this
+     round's 9px font and 1px 2px cell padding. Still the SAME specific
+     target (one header row + two data rows), not an earlier round's
+     bigger-font number carried over. Full screen must still drop the
+     cap entirely so it shows the WHOLE table, not just a bit more of it. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.table-card\s*\{[^}]*max-height:\s*58px/s, "the compact card must be sized to roughly a header plus two rows at the smaller font");
+  assert.doesNotMatch(body, /\.table-card\s*\{[^}]*max-height:\s*70px/s, "the previous round's 70px target must not still be set");
+  assert.doesNotMatch(body, /\.table-card\s*\{[^}]*max-height:\s*84px/s, "the previous round's 84px target must not still be set");
+  assert.doesNotMatch(body, /\.table-card\s*\{[^}]*max-height:\s*118px/s, "the old, bigger-font 118px target must not still be set");
+  assert.match(body, /\.table-card\.full\s*\{[^}]*max-height:\s*none/s, "full screen must remove the height cap entirely");
+});
+
+check("test_PRD_P0_89_batch_preview_confirm__the_table_is_as_space_efficient_as_possible", async () => {
+  /* The owner's own words: "Make padding half and font size to 9" — the
+     latest of several rounds asking for less padding and smaller fonts.
+     Every size in the card — its own box, every cell — must be tighter
+     than the previous round, not just one of them. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.table-card\s*\{[^}]*padding:\s*2px/s, "the card's own padding must be half the previous flat 4px");
+  assert.match(body, /\.table-card\s*\{[^}]*font-size:\s*9px/s, "the card's own base font must be 9px");
+  assert.match(body, /\.table-card th, \.table-card td\s*\{[^}]*padding:\s*1px 2px/s, "cell padding must be half the previous 1px 4px");
+  assert.match(body, /\.table-card th, \.table-card td\s*\{[^}]*font-size:\s*9px/s, "cell font-size must be 9px");
+});
+
+check("test_PRD_P0_89_batch_preview_confirm__the_table_scales_to_full_width_instead_of_cropping", async () => {
+  /* The owner's own words: "You can scale the table to fit full width
+     if possible! The goal is to avoid cropping as much as possible while
+     retaining readability." A previous round deliberately sized the
+     table to its own natural content width (no forced stretch); this
+     reverses that on purpose, now for the opposite reason — a table
+     wider than the card used to need sideways scrolling to see the
+     cropped-off columns, which reads as "cropped" even though the rest
+     is one scroll away. "width: 100%" with "table-layout: fixed"
+     guarantees the table never exceeds the card's own width regardless
+     of column count, and "overflow-wrap: anywhere" lets long content
+     (a full URL, a long title) wrap onto more lines instead of being
+     cut off or forcing the table wider — readability kept via wrapping,
+     not via truncation or a horizontal scrollbar. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.table-card table\s*\{[^}]*width:\s*100%/s, "the table must stretch to the card's own full width");
+  assert.match(body, /\.table-card table\s*\{[^}]*table-layout:\s*fixed/s, "fixed layout keeps the table from ever exceeding the card's width");
+  assert.doesNotMatch(body, /\.table-card table\s*\{[^}]*width:\s*max-content/s, "the old natural-width sizing must be gone");
+  assert.match(body, /\.table-card th, \.table-card td\s*\{[^}]*overflow-wrap:\s*anywhere/s, "long content must wrap instead of overflowing or getting cropped");
+  assert.doesNotMatch(body, /\.table-card th, \.table-card td\s*\{[^}]*white-space:\s*nowrap/s, "cells must no longer be forced onto a single line");
+});
+
+check("test_PRD_P0_89_batch_preview_confirm__the_table_renders_right_under_its_own_tool_step_not_after_the_reply", async () => {
+  /* The owner's own words: "Insert table right under 'ran
+     catalog_preview_product_batch' text." Before this, the table was
+     appended AFTER the agent's own text reply, which left it looking
+     disconnected from the tool call that actually produced it once the
+     reply had any real length. Checked by source order in the actual
+     client script — the tool-step loop and the table call must both run
+     before entry("agent", ...). */
+  const { body } = await frontPage(OWNER);
+  const script = body.slice(body.indexOf("<script>"), body.indexOf("</script>"));
+  const stepsAt = script.indexOf('data.steps || []).forEach');
+  const tableAt = script.indexOf("if (data.table) tableCard(data.table)");
+  const replyAt = script.indexOf('entry("agent", data.reply');
+  assert.ok(stepsAt > -1 && tableAt > -1 && replyAt > -1, "all three must be present in the real submit handler");
+  assert.ok(stepsAt < tableAt, "tool steps must render before the table");
+  assert.ok(tableAt < replyAt, "the table must render before the agent's own text reply, not after it");
+});
+
 check("test_PRD_P0_75_ops_dark_theme__the_employees_only_bar_is_readable_on_the_black_bar", async () => {
   /* theme.css's .bar sets color: var(--ground) — a light warm off-white on
      the storefront, but --ground is redefined to a near-black #191817 for
@@ -674,6 +743,46 @@ check("test_PRD_P0_98_cancellable_attachment__the_icon_and_accessible_name_swap_
   assert.match(clearFn, /attachBtn\.setAttribute\("aria-label", "Attach a photo or file"\)/, "clearing must restore the original accessible name");
 });
 
+check("test_PRD_P0_98_voice_input__the_mic_button_sits_between_the_input_and_send_using_the_same_icon_btn_class", async () => {
+  /* The owner's own words: "Add the same kind of microphone input button
+     as claude next to the submit chat button same style as the + button
+     as far as colors." Sharing .icon-btn with the attach button is what
+     gives it the same colours for free, without a second set of button
+     rules. */
+  const { body } = await frontPage(OWNER);
+  const bar = body.slice(body.indexOf('<div class="chat-bar">'), body.indexOf("</div>", body.indexOf('<div class="chat-bar">')) + 1000);
+  assert.match(bar, /id="attach-btn"[\s\S]*id="mic-btn"[\s\S]*id="q"[\s\S]*class="send-btn"|id="attach-btn"[\s\S]*id="q"[\s\S]*id="mic-btn"[\s\S]*class="send-btn"/, "the mic button must sit next to Send, after attach and the input");
+  assert.match(bar, /id="mic-btn"[^>]*class="icon-btn"|class="icon-btn"[^>]*id="mic-btn"/, "the mic button must share the attach button's own icon-btn class");
+});
+
+check("test_PRD_P0_98_voice_input__unsupported_browsers_get_the_button_removed_not_a_dead_control", async () => {
+  /* Speech recognition support is inconsistent (notably patchy on iOS
+     Safari) — a button that silently does nothing when pressed is worse
+     than no button at all. */
+  const { body } = await frontPage(OWNER);
+  const script = body.slice(body.indexOf("attach-input"));
+  assert.match(script, /SpeechRecognitionCtor\s*=\s*window\.SpeechRecognition\s*\|\|\s*window\.webkitSpeechRecognition/, "must feature-detect both the standard and webkit-prefixed API");
+  assert.match(script, /if \(!SpeechRecognitionCtor\) \{\s*micBtn\.remove\(\);/, "an unsupported browser must remove the button outright, not leave it inert");
+});
+
+check("test_PRD_P0_98_voice_input__a_recognized_result_appends_to_the_existing_input_value_not_replacing_it", async () => {
+  const { body } = await frontPage(OWNER);
+  const script = body.slice(body.indexOf("attach-input"));
+  const resultHandler = script.slice(script.indexOf('addEventListener("result"'), script.indexOf('addEventListener("result"') + 300);
+  assert.match(resultHandler, /qInput\.value\s*\?\s*qInput\.value\s*\+\s*" "\s*\+\s*transcript\s*:\s*transcript/, "a transcript must be appended after any text already typed, not overwrite it");
+});
+
+check("test_PRD_P0_98_voice_input__the_icon_swaps_to_a_stop_glyph_while_recording_and_back_when_it_ends", async () => {
+  /* Same swap-in-place technique the attach/cancel button already uses —
+     the icon itself communicates the current state. */
+  const { body } = await frontPage(OWNER);
+  const script = body.slice(body.indexOf("attach-input"));
+  const clickHandler = script.slice(script.indexOf('micBtn.addEventListener("click"'), script.indexOf('micBtn.addEventListener("click"') + 300);
+  assert.match(clickHandler, /micBtn\.innerHTML = MIC_STOP_ICON_HTML/, "starting to record must swap to the stop glyph");
+  const stopFn = script.slice(script.indexOf("function stopListening"), script.indexOf("function stopListening") + 200);
+  assert.match(stopFn, /micBtn\.innerHTML = MIC_ICON_HTML/, "ending (naturally or on error) must swap back to the mic glyph");
+});
+
 /* ─────────────────────────────────────────────────────────────────────────
  * P0-99 — the composer form's own inherited top margin is zeroed
  * ───────────────────────────────────────────────────────────────────────── */
@@ -747,6 +856,21 @@ check("test_PRD_P0_78_chat_widget__the_inline_client_script_is_valid_javascript"
   const script = body.slice(start, end);
   assert.ok(script.length > 1000, "sanity check: the script block must actually contain the real client code");
   assert.doesNotThrow(() => new Function(script), "the inline client script must be syntactically valid JavaScript");
+});
+
+check("test_PRD_P0_78_chat_widget__the_first_bubble_sits_the_same_distance_from_top_as_from_the_sides", async () => {
+  /* THE SAME CLASS OF BUG AGAIN (.attach-name, the inherited .chat margin)
+     — .log's own margin-top (8px) plus padding-top (4px) was 12px of
+     unrelated extra space with no side equivalent (side margin 0, side
+     padding 2px), stacking on top of .chat-top's own uniform 14px padding.
+     The owner's own words, pointing at a real screenshot: "Its too far
+     from top edge of outer chat box. Needs to match [the] side." margin
+     now carries only the bottom gap before the composer form; padding is
+     a uniform 2px matching the side value exactly. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.log\s*\{[^}]*padding:\s*2px;/s, "padding must be uniform, matching the side value on every edge");
+  assert.match(body, /\.log\s*\{[^}]*margin:\s*0 0 8px;/s, "margin must carry only the bottom gap, none on top");
+  assert.doesNotMatch(body, /\.log\s*\{[^}]*margin:\s*8px 0/s, "the old top-heavy margin must not still be set");
 });
 
 check("test_PRD_P0_78_chat_widget__mine_agent_and_tool_are_three_distinct_bubble_styles", async () => {

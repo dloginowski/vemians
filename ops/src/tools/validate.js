@@ -125,6 +125,31 @@ function checkOne(field, spec, v) {
       return null;
     case "boolean":
       return typeof v === "boolean" ? null : `'${field}' must be a boolean`;
+    /* A flat field-name -> string-value map, of arbitrary and unpredictable
+       keys — custom_fields is the one caller. Every other object-shaped
+       argument in this file (VARIATION and friends) has a fixed, known set
+       of properties and is validated as "array of object" instead; a record
+       is for exactly the case a fixed schema cannot express, a caller-named
+       set of keys nobody here decided in advance. */
+    case "record": {
+      if (typeof v !== "object" || v === null || Array.isArray(v)) {
+        return `'${field}' must be an object of field name -> value`;
+      }
+      const keys = Object.keys(v);
+      if (spec.maxKeys !== undefined && keys.length > spec.maxKeys) {
+        return `'${field}' holds more than ${spec.maxKeys} fields`;
+      }
+      for (const k of keys) {
+        if (k.length === 0 || k.length > (spec.keyMaxLength ?? 200)) {
+          return `'${field}' has a field name of invalid length: '${k}'`;
+        }
+        if (typeof v[k] !== "string") return `'${field}.${k}' must be a string`;
+        if (v[k].length > (spec.valueMaxLength ?? 500)) {
+          return `'${field}.${k}' is longer than ${spec.valueMaxLength ?? 500}`;
+        }
+      }
+      return null;
+    }
     case "array": {
       if (!Array.isArray(v)) return `'${field}' must be an array`;
       if (spec.maxItems !== undefined && v.length > spec.maxItems) {

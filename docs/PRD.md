@@ -551,6 +551,26 @@ that does not trace to one of these is a process failure (see §12).
     can be handed the same rows as plain text to interpret with actual judgement, which no
     fixed column list can do.
 
+    **A column with no synonym anywhere is now KEPT, not dropped.** The owner's own words: "I
+    want to preserve all fields when ingesting spreadsheets. Even if they are not surfaced in
+    square or ui for now... Our workers need more data tracking than square offers." Before this,
+    any header `pick()` did not recognise simply never appeared again — the value was read off
+    the record and then nothing referenced it. `extraFields()` (`ops/src/batch.js`) now computes
+    the complement: every column NOT consumed by a known synonym list, keyed by the header text
+    `csvRecords()` already trims and lowercases before this file ever sees it (still readable —
+    "unit cost", not the further alphanumeric-only "unitcost" `pick()` matches synonyms against —
+    just not the exact original capitalization from the file), becomes `catalog.create_product`'s
+    `custom_fields` argument — see P0-71 below for where that argument actually lands. Capped the
+    same way every other free-text field in this codebase is (`CAPS.CATALOG_CUSTOM_FIELDS_MAX_KEYS`
+    distinct columns, `CATALOG_CUSTOM_FIELD_KEY_MAX`/`_VALUE_MAX` characters each) rather than
+    failing a whole row over one unusually wide sheet or one long note. `previewBatch`'s own
+    `mapProductRow` spreads the same extra fields into the preview row, so a person sees exactly
+    what will be kept as a custom field before confirming, not only after. One related fix in the
+    same change: `"cost"` was, until now, a PRICE synonym (`PRICE_KEYS`) — a sheet with its own
+    "Cost" column (what we pay, not what a customer pays) was silently read as the SALE price.
+    Removed from that list, a "Cost" column now falls through to `custom_fields` like any other
+    unrecognised one, preserved and clearly separate rather than conflated with retail price.
+
 29d. **`Test-PRD-P0-61-square_customer_intake`** — `customer.create` writes a new customer into
     SQUARE's own Customer Directory — the same directory the till and the storefront's contact form
     (P0-58/ADR-015) already write to — using Square's own field names (`given_name`, `family_name`,
@@ -846,6 +866,62 @@ that does not trace to one of these is a process failure (see §12).
     and refuses `in_store` in the query's own `WHERE` clause, not by a check the caller could
     forget to make.
 
+    **`custom_fields` is the second column in this family, for the same reason and by the same
+    mechanism.** The owner's own words: "Our workers need more data tracking than square offers...
+    these fields should be visible and editable to agents." A flat JSON object of field name ->
+    string value on `mirror_product` — unit cost, a vendor name, anything else Square has no
+    concept of at all, the same argument `channel` already rests on: no second writer exists to
+    diverge from a fact Square never had, so `syncCatalog`'s own `UPDATE`/`INSERT` never names this
+    column either, and a value survives every future sync untouched. Three tools reach it, none of
+    them touching Square: `catalog.create_product` (T2) accepts an optional `custom_fields` argument
+    and writes it directly to the mirror right after the item itself is created in Square;
+    `catalog.set_custom_fields` (T2, manager+) PATCHES it on an existing product by handle — a real
+    value adds or updates a key, an empty string `""` removes one, and every key not mentioned is
+    left alone, so editing one field never requires restating the rest; `catalog.product` (T0,
+    staff+) is the read path both of them, and a person asking the chat about a product, depend on
+    — nothing else in this file exposed a REAL, mirrored product to the model as a callable result
+    before this (catalog.draft_product reasons about a product that does not exist yet). Capped at
+    `CAPS.CATALOG_CUSTOM_FIELDS_MAX_KEYS` distinct fields, `CATALOG_CUSTOM_FIELD_KEY_MAX`/
+    `_VALUE_MAX` characters each — the same "a cap enforced in code, not a sentence in the prompt"
+    rule every other ceiling in this codebase follows. Deliberately **ops-only**: the storefront's
+    own reads (`store/src/catalog.js`) list their columns explicitly and neither names
+    `custom_fields`, so nothing here reaches the public site by accident the way `channel`'s own
+    fail-closed default already prevents for visibility itself.
+
+    **`Test-PRD-P0-71-items_tab`. A whole tab for the reason `custom_fields` exists: seeing and
+    authoring every field at once, not one product at a time through chat.** The owner's own
+    words: "it should show all items and all fields that are assigned to these items... this item
+    view is where we actually get to see them all and author them... a flexible grid layout that
+    uses the entire screen... using tiles, very clean tiles. So all the information should be
+    inside of these tiles, no external text outside of the cells." `GET /items` (`ops/src/index.js`,
+    rendered by `itemsPage()` in `views.js`) reads `listAllProducts()` (`catalog-writer.js`, one
+    query for every mirrored product plus one for every variation, grouped in memory rather than
+    N+1 queries per tile) and lays them out as a CSS grid (`repeat(auto-fill, minmax(240px, 1fr))`)
+    of self-contained cards — title, channel, status, category, every variation's own SKU and
+    price, and every `custom_fields` key/value, all inside the one bordered tile, nothing floating
+    beside it. A client-side text filter (`#item-search`, one `input` listener toggling `hidden` on
+    whichever tiles' own `data-search` attribute does not contain the query) is the "search them"
+    half — no server round trip, since a shop's whole catalog fits comfortably in one response.
+    ANY signed-in role may view it, matching `catalog.product`'s own T0 read gate; it is
+    **employee-only by the same construction as the rest of ops** — this file exists only in the
+    ops package, the whole host sits behind Cloudflare Access, and P0-71's own storefront reads
+    never name `custom_fields` — not a second gate to build, the existing one.
+
+    **Editing a tile goes through the SAME T2 approval gate every other catalog write in this
+    codebase does — no second, lighter-weight write path for "a manager clicked a button in ops."**
+    Each tile's own edit form (visible only to manager+, matching `catalog.set_channel`'s and
+    `catalog.set_custom_fields`'s own `minRole`) posts to `/items/<handle>/channel` or
+    `/items/<handle>/custom-fields`, which calls `runTool()` for the gate, `parkForApproval()` for
+    the token, and 303s the browser to the SAME `/approvals/<id>` page every other T2 write already
+    hands a human — the exact `applyFormEdits`-free "plain details" approval view `catalog.
+    set_channel` already got, not a new execute-on-click code path this codebase would then have
+    two of. `approvalResultPage()` gains an optional `backHref`/`backLabel` so approving an
+    Items-tab edit returns the approver to `/items` rather than the agent page every other approval
+    still returns to. The custom-fields form's own rows are numbered exactly the way `catalog.
+    set_custom_fields`' own `fields` patch already works: a row with a value updates or adds that
+    field, a row left blank removes it, and a field left off the form entirely is untouched — one
+    edit, one merge, both places.
+
 47b. **`Test-PRD-P0-72-product_detail_page`** — Every product has its own page at
     `/products/<handle>` — the answer to "how do I see product details", asked directly, of a
     shop whose cards used to be `<article>`s with no click-through at all. `loadProduct(env,
@@ -1010,6 +1086,17 @@ that does not trace to one of these is a process failure (see §12).
     which throws `SyntaxError` on invalid JavaScript without needing `document` or `window` to
     exist — so a future escaping mistake here fails the suite instead of shipping broken to every
     visitor silently.
+
+    **The same class of bug a third time — an unrelated element's own margin/padding stacking
+    onto `.chat-top`'s own uniform padding, this time on the TOP edge.** The owner's own words,
+    pointing at a real screenshot: "Its too far from top edge of outer chat box. Needs to match
+    [the] side." `.log`'s own `margin: 8px 0; padding: 4px 2px;` gave it `8 + 4 = 12px` of
+    top-specific space with no side equivalent (side margin `0`, side padding `2px`), stacking on
+    top of `.chat-top`'s own `14px` on every edge — the first message bubble sat noticeably
+    farther from the top than from either side. `.log`'s own margin now carries only the bottom
+    gap before the composer form (`margin: 0 0 8px`); padding is a uniform `2px`, matching the
+    side value exactly, so top and sides both work out to the same total distance from
+    `.chat-top`'s own edge.
 
 34a'''''''''. **`Test-PRD-P0-79-quick_actions_over_connect_prompt`** — The owner's own direction,
     read back verbatim: "remove [the connect-your-own-assistant block]... you already have quick
@@ -1430,6 +1517,65 @@ that does not trace to one of these is a process failure (see §12).
     cropped" — only the table's own visual grammar changed, not the mechanism that keeps a long or
     wide one from overflowing its own box.
 
+    **The compact card now fits a header and two rows on purpose, and the table sits right under
+    its own tool step.** The owner's own words: "Insert table right under 'ran
+    catalog_preview_product_batch' text and make it fit to content vertically. I only need to see
+    2 rows. The header and the content cells when in chat preview. Hitting full screen shouod show
+    the entire table." `.table-card`'s own `max-height` was a flat `240px` guess, sized for "enough
+    space" rather than any specific row count; it becomes `118px` — a header row plus two data rows
+    at this card's own font and cell padding, a real target rather than an estimate of "enough." A
+    third or later row still scrolls within the same box (`overflow: auto`, unchanged); `.table-card
+    .full`'s own `max-height: none` still removes the cap entirely, so "Full screen" shows the
+    WHOLE table, not merely more of it. Separately, the client's submit handler moves `tableCard()`
+    to run right after the tool-step loop instead of after `entry("agent", ...)` — the table used
+    to land at the very end of a turn, visually disconnected from the tool call that produced it
+    once the reply had any real length; it now renders immediately under the step that named it.
+
+    **Every size in the card shrank, not just one of them.** The owner's own words, once the
+    header-plus-two-rows sizing was actually in front of them: "Make the table with less padding
+    and smaller fonts. Make it as space efficient as possible." The card's own base font drops
+    from `12px` to `10px`; its own padding from `8px 10px` to `5px 6px`; the title bar's font from
+    `11px` to `9px` with its bottom margin from `6px` to `3px`; every cell's own padding from `4px
+    10px` to `2px 6px`; the "Full screen" button's own font from `11px` to `9px` and padding from
+    `2px 8px` to `1px 6px`. `max-height` is recomputed for the row height this smaller font/padding
+    actually produces — `84px`, down from `118px` — still the same specific target (a header row
+    plus two data rows), not the bigger-font number simply carried over unchanged.
+
+    **Cells fit their own content instead of stretching to fill the card, one more round of
+    padding cut, and the cell font matches the quick-prompt pills.** The owner's own words: "make
+    the cells fit to content. And very minimal padding. Either font size same as quick prompt
+    pills." `.table-card table` carried both `width: max-content` AND `min-width: 100%` — the
+    second rule forced a narrow table (few short columns, the common case for a 3-4 column
+    preview) to stretch across the whole card regardless of how little its own content needed,
+    which is what actually produced the "wasted padding" look, not the cell padding values
+    themselves. Dropping `min-width: 100%` and keeping only `width: max-content` lets a narrow
+    table sit at its own natural width; a WIDE table still scrolls sideways within the card exactly
+    as before, since that behaviour was always the card's own `overflow: auto`, never this rule.
+    Cell padding drops again, `2px 6px` to `1px 4px`, and the card's own padding to a flat `4px`;
+    cell font-size is set explicitly to `11px` — the same size `.choices .btn` (the quick-prompt
+    chips right under the widget) already uses — rather than inheriting the card's own smaller
+    size. `max-height` is recomputed once more for the shorter row height this produces, `70px`,
+    still the same header-row-plus-two-data-rows target as every earlier round.
+
+    **The table now scales to the card's own full width instead of sizing to its content, and
+    reverses course from the round right before it.** The owner's own words: "Make padding half
+    and font size to 9. You can scale the table to fit full width if possible! The goal is to
+    avoid cropping as much as possible while retaining readability." Padding is halved again
+    (card `4px` to `2px`, every cell and the "Full screen" button `1px 4px` to `1px 2px`) and the
+    font drops to a flat `9px` everywhere in the card, matching the title bar and button instead of
+    a bigger size just for cells. The bigger change is `.table-card table`: the entry right above
+    this one deliberately dropped `min-width: 100%` so a narrow table would size to its own natural
+    content width rather than stretch — but a table WIDER than the card still needed sideways
+    scrolling to reach the columns cropped off past the card's own edge, which is exactly the
+    "cropping" the owner was pointing at. `width: 100%` with `table-layout: fixed` reverses that on
+    purpose: the table can never exceed the card's own width regardless of column count, so there
+    is nothing left to scroll past. The old `white-space: nowrap` is dropped along with it —
+    `overflow-wrap: anywhere` lets long, unbroken content (a full approval URL, a long product
+    title) wrap onto more lines within its own column instead of being cut off or forcing the table
+    wider — readability is kept through wrapping, not through truncation or a horizontal scrollbar.
+    `max-height` is recomputed once more for the smaller row height this produces, `58px`, still
+    the same header-row-plus-two-data-rows target every earlier round targeted.
+
 34a''''''''''''''''''''. **`Test-PRD-P0-90-daylight_contrast`** — The owner's own words: "Bump up
     the contrast of the dimmer elements on ops page. Its a little hard to see on a mobile device
     in broad daylight." Direct sun washes out exactly the mid-tones a "dim, secondary" colour is
@@ -1701,6 +1847,22 @@ that does not trace to one of these is a process failure (see §12).
     initial markup), both icon constants are carried into the client script as plain JS strings —
     `ATTACH_ICON_HTML`/`CANCEL_ICON_HTML`, built via `JSON.stringify` over this file's own
     server-side `ATTACH_ICON`/`CANCEL_ICON` constants so the escaping is never hand-written twice.
+
+    **`Test-PRD-P0-98-voice_input`. A microphone button, next to Send, using the SAME swap-in-place
+    icon technique as the attach/cancel button right above.** The owner's own words: "Add the same
+    kind of microphone input button as claude next to the submit chat button same style as the +
+    button as far as colors." `#mic-btn` sits in the composer between `#q` and the send button,
+    carrying the SAME `icon-btn` class the attach button uses — "same style... as far as colors" is
+    exactly what sharing the class gives for free (the faint fill, hover, and `aria-pressed` accent
+    colour), rather than a second, parallel set of button rules that could drift from the first.
+    Clicking it starts the browser's own `SpeechRecognition`/`webkitSpeechRecognition` API (no
+    server call, no new dependency); a result appends the transcript to `#q`'s own value, and the
+    icon swaps to a small filled square (`MIC_STOP_ICON`) while recording, back to the mic glyph
+    (`MIC_ICON`) on `end` or `error` — the identical pattern `ATTACH_ICON`/`CANCEL_ICON` already
+    established for the button beside it, not a new one. Browser support for this API is
+    inconsistent (notably patchy on iOS Safari); rather than leave a control that silently does
+    nothing when pressed, the button is removed from the DOM outright (`micBtn.remove()`) the
+    moment `window.SpeechRecognition || window.webkitSpeechRecognition` comes back undefined.
 
 34a''''''''''''''''''''''''''''''. **`Test-PRD-P0-99-chat_form_inherited_margin`** — The SAME
     class of bug P0-96 found on the bottom edge, on the top edge instead. The owner's own words:

@@ -491,6 +491,85 @@ check("test_PRD_P0_70_flexible_spreadsheet_columns__a_real_world_header_row_stil
   assert.equal(result.ready[0].title, "Wool Coat");
 });
 
+check("test_PRD_P0_70_flexible_spreadsheet_columns__an_unrecognised_column_is_kept_as_a_custom_field_not_dropped", async () => {
+  /* The owner's own words: "I want to preserve all fields when ingesting
+     spreadsheets. Even if they are not surfaced in square or ui for now." */
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const csv =
+    "title,category,price,Unit Cost,Vendor\n" +
+    `Wool Coat,${outerwear.name},450.00,210.00,Acme Mills\n`;
+
+  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.ready.length, 1);
+
+  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
+  const id = new URL(result.ready[0].url).pathname.split("/").pop();
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let approved;
+  try {
+    approved = await approvePending(f.env, id, approver);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(approved.ok, true, approved.error);
+
+  /* csvRecords() already trims and lowercases every header before this file
+     ever sees it — "Unit Cost" and "Vendor" arrive here as "unit cost" and
+     "vendor", still readable, just not the exact original capitalization. */
+  const row = f.mirror("SELECT custom_fields FROM mirror_product WHERE title = 'Wool Coat'")[0];
+  assert.deepEqual(JSON.parse(row.custom_fields), { "unit cost": "210.00", vendor: "Acme Mills" });
+});
+
+check("test_PRD_P0_70_flexible_spreadsheet_columns__a_cost_column_is_no_longer_misread_as_the_sale_price", async () => {
+  /* The owner's own words: "Every product has a price and a unit cost" —
+     two different numbers. "cost" used to be a PRICE synonym, so a sheet
+     with its own "Cost" column (what we paid) was silently read as the
+     price (what a customer pays) instead of the real "price" column right
+     next to it. */
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const csv = "title,category,price,cost\n" + `Wool Coat,${outerwear.name},450.00,210.00\n`;
+
+  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+
+  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
+  const id = new URL(result.ready[0].url).pathname.split("/").pop();
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    await approvePending(f.env, id, approver);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  const variant = f.mirror(
+    "SELECT price_minor FROM mirror_variant WHERE product_id = (SELECT id FROM mirror_product WHERE title = 'Wool Coat')",
+  )[0];
+  assert.equal(variant.price_minor, 45000, "the real 'price' column must still win, not 'cost'");
+
+  const row = f.mirror("SELECT custom_fields FROM mirror_product WHERE title = 'Wool Coat'")[0];
+  assert.deepEqual(JSON.parse(row.custom_fields), { cost: "210.00" }, "the 'cost' column must be preserved, not discarded");
+});
+
+check("test_PRD_P0_70_flexible_spreadsheet_columns__the_preview_shows_extra_columns_the_same_way_it_shows_known_ones", async () => {
+  const { previewBatch } = await import("../src/batch.js");
+  const csv =
+    "title,category,price,Season\n" +
+    "Wool Coat,Outerwear,450.00,Fall 2026\n" +
+    "Silk Scarf,Accessories,90.00,\n";
+
+  const preview = previewBatch(csv, "products");
+  assert.equal(preview.sampleRows[0].season, "Fall 2026");
+  /* The second row left its own Season blank — it must read as "not found"
+     (null), the same convention a known column already uses, not throw off
+     which column index 3 means for either row. */
+  assert.equal(preview.sampleRows[1].season, null);
+});
+
 check("test_PRD_P0_60_spreadsheet_products__catalog_create_product_still_gates_on_role_even_from_a_spreadsheet", async () => {
   /* draftProductBatch adds no role check of its own — catalog.create_product's own
      minRole is the only gate, same as every other caller. This is what the
@@ -1127,14 +1206,18 @@ check("test_PRD_P0_37_mirror_is_ours__no_authoring_tool_writes_a_square_fact_to_
    * only writer of a Square-sourced column is shared/commerce/square/mirror.js,
    * reading back what Square now says.
    *
-   * ONE DELIBERATE EXCEPTION, allowlisted by name below rather than left to
+   * TWO DELIBERATE EXCEPTIONS, allowlisted by name below rather than left to
    * widen this regex's blind spot: catalog.set_channel's own
-   * `UPDATE mirror_product SET channel = ...` (Test-PRD-P0-71-product_channel).
-   * `channel` is not a fact Square has any notion of at all — Square does not
-   * know our storefront exists — so there is no second writer to diverge
-   * from, and mirror.js's own sync deliberately never names this column in
-   * its UPDATE or INSERT, for exactly this reason (see the comment on
-   * `channel` in shared/commerce/square/schema.sql). The assertion below still
+   * `UPDATE mirror_product SET channel = ...` (Test-PRD-P0-71-product_channel)
+   * and catalog.set_custom_fields'/catalog.create_product's own
+   * `UPDATE mirror_product SET custom_fields = ...`
+   * (Test-PRD-P0-89-batch_preview_confirm's custom_fields entry). Neither
+   * `channel` nor `custom_fields` is a fact Square has any notion of at all
+   * — Square does not know our storefront exists, and it has no field for a
+   * fact we invented — so neither has a second writer to diverge from, and
+   * mirror.js's own sync deliberately never names either column in its
+   * UPDATE or INSERT, for exactly this reason (see the comments on both
+   * columns in shared/commerce/square/schema.sql). The assertion below still
    * forbids that same file touching any OTHER mirror column.
    */
   const offenders = [];
@@ -1147,12 +1230,20 @@ check("test_PRD_P0_37_mirror_is_ours__no_authoring_tool_writes_a_square_fact_to_
   }
   assert.deepEqual(offenders, [], "an agent tool must not write a Square-sourced fact into the mirror");
 
-  /* The one exception really does touch only `channel`, and nothing an
-     incremental sync would ever also write. */
+  /* Every direct `UPDATE mirror_product` in this one allowlisted file really
+     does touch only `channel` or `custom_fields` — nothing an incremental
+     sync would ever also write. A per-statement check, not just the first
+     match, so a THIRD such statement cannot sneak in unnoticed. */
   const writer = fs.readFileSync(path.join(TOOLS_DIR, "catalog-write.js"), "utf8");
-  const stmt = /UPDATE mirror_product SET ([\s\S]*?) WHERE/.exec(writer);
-  assert.ok(stmt, "catalog.set_channel's UPDATE has moved or been removed");
-  assert.equal(stmt[1].trim(), "channel = ?", `catalog.set_channel touches more than 'channel': ${stmt[1]}`);
+  const stmts = [...writer.matchAll(/UPDATE mirror_product SET ([\s\S]*?) WHERE/g)];
+  assert.ok(stmts.length >= 2, "catalog.set_channel's and catalog.set_custom_fields' own UPDATEs have moved or been removed");
+  const ALLOWED_DIRECT_COLUMNS = ["channel = ?", "custom_fields = ?"];
+  for (const [, captured] of stmts) {
+    assert.ok(
+      ALLOWED_DIRECT_COLUMNS.includes(captured.trim()),
+      `an UPDATE mirror_product in catalog-write.js touches an unexpected column: ${captured}`,
+    );
+  }
 
   /* And the mirror schema itself refuses deletion, whatever anyone writes. */
   const f = await fixture();
@@ -1302,6 +1393,154 @@ check("test_PRD_P0_71_product_channel__the_tool_holds_no_square_resource_at_all"
   assert.deepEqual(tool.stores, ["catalog_mirror"]);
   assert.equal(tool.tier, "T2");
   assert.equal(tool.minRole, "manager");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-71 — custom_fields: the same "ours, not Square's" pattern as channel
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_71_product_channel__create_product_accepts_custom_fields_and_never_sends_them_to_square", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const res = await approvedCall(f, "catalog.create_product", {
+    ...COAT,
+    category_id: outerwear.id,
+    custom_fields: { "Unit Cost": "95.00", Vendor: "Acme Mills" },
+  });
+  assert.equal(res.ok, true, res.error);
+  assert.deepEqual(res.data.product.custom_fields, { "Unit Cost": "95.00", Vendor: "Acme Mills" });
+
+  /* Square only ever saw the ITEM upsert, the image step and the sync
+     search — nothing about custom_fields appears in any body sent. */
+  for (const call of f.calls()) {
+    assert.doesNotMatch(JSON.stringify(call.body ?? {}), /Unit Cost|Acme Mills/);
+  }
+
+  const row = f.mirror(`SELECT custom_fields FROM mirror_product WHERE handle = '${res.data.product.handle}'`)[0];
+  assert.deepEqual(JSON.parse(row.custom_fields), { "Unit Cost": "95.00", Vendor: "Acme Mills" });
+});
+
+check("test_PRD_P0_71_product_channel__a_product_created_without_custom_fields_defaults_to_empty", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const res = await approvedCall(f, "catalog.create_product", { ...COAT, category_id: outerwear.id });
+  assert.equal(res.ok, true, res.error);
+  const row = f.mirror(`SELECT custom_fields FROM mirror_product WHERE handle = '${res.data.product.handle}'`)[0];
+  assert.equal(row.custom_fields, "{}");
+});
+
+check("test_PRD_P0_71_product_channel__set_custom_fields_adds_updates_and_removes_in_one_patch", async () => {
+  const f = await fixture();
+  const handle = "shearling-trimmed-wool-blend-coat";
+
+  const first = await approvedCall(f, "catalog.set_custom_fields", {
+    handle,
+    fields: { "Unit Cost": "210.00", Vendor: "Acme Mills" },
+  });
+  assert.equal(first.ok, true, first.error);
+  assert.deepEqual(first.data.custom_fields, { "Unit Cost": "210.00", Vendor: "Acme Mills" });
+  assert.deepEqual(first.data.previous_custom_fields, {});
+  assert.equal(first.data.authority, "ours");
+
+  /* A second patch: update one key, remove the other (empty string),
+     leave nothing else mentioned untouched — there is nothing else yet,
+     but the point is neither key from the first patch survives by
+     accident if it were not for this merge. */
+  const second = await approvedCall(f, "catalog.set_custom_fields", {
+    handle,
+    fields: { "Unit Cost": "225.00", Vendor: "" },
+  });
+  assert.equal(second.ok, true, second.error);
+  assert.deepEqual(second.data.custom_fields, { "Unit Cost": "225.00" });
+
+  /* No Square call at all — this concept does not exist on Square's side,
+     same guarantee as catalog.set_channel. */
+  assert.deepEqual(f.calls(), []);
+
+  const row = f.mirror(`SELECT custom_fields FROM mirror_product WHERE handle = '${handle}'`)[0];
+  assert.deepEqual(JSON.parse(row.custom_fields), { "Unit Cost": "225.00" });
+});
+
+check("test_PRD_P0_71_product_channel__set_custom_fields_leaves_fields_not_mentioned_alone", async () => {
+  const f = await fixture();
+  const handle = "shearling-trimmed-wool-blend-coat";
+  await approvedCall(f, "catalog.set_custom_fields", { handle, fields: { Vendor: "Acme Mills" } });
+  const res = await approvedCall(f, "catalog.set_custom_fields", { handle, fields: { "Unit Cost": "150.00" } });
+  assert.deepEqual(res.data.custom_fields, { Vendor: "Acme Mills", "Unit Cost": "150.00" });
+});
+
+check("test_PRD_P0_71_product_channel__setting_the_exact_same_fields_again_is_refused_as_a_no_op", async () => {
+  const f = await fixture();
+  const handle = "shearling-trimmed-wool-blend-coat";
+  await approvedCall(f, "catalog.set_custom_fields", { handle, fields: { Vendor: "Acme Mills" } });
+  const res = await runTool("catalog.set_custom_fields", { handle, fields: { Vendor: "Acme Mills" } }, f.ctx);
+  assert.equal(res.ok, false);
+  assert.match(res.error, /already has exactly these fields/);
+});
+
+check("test_PRD_P0_71_product_channel__set_custom_fields_refuses_an_unknown_handle", async () => {
+  const f = await fixture();
+  const res = await runTool("catalog.set_custom_fields", { handle: "does-not-exist", fields: { Vendor: "x" } }, f.ctx);
+  assert.equal(res.ok, false);
+  assert.match(res.error, /no product with handle/);
+});
+
+check("test_PRD_P0_71_product_channel__set_custom_fields_requires_manager_and_the_tool_holds_no_square_resource", async () => {
+  const f = await fixture();
+  const denied = await runTool(
+    "catalog.set_custom_fields",
+    { handle: "shearling-trimmed-wool-blend-coat", fields: { Vendor: "x" } },
+    { ...f.ctx, ...staff },
+  );
+  assert.equal(denied.ok, false);
+  assert.match(denied.error, /requires the manager role/);
+
+  const tool = TOOLS["catalog.set_custom_fields"];
+  assert.ok(tool, "catalog.set_custom_fields is not registered");
+  assert.deepEqual(tool.resources ?? [], []);
+  assert.deepEqual(tool.stores, ["catalog_mirror"]);
+  assert.equal(tool.tier, "T2");
+  assert.equal(tool.minRole, "manager");
+});
+
+check("test_PRD_P0_71_product_channel__the_record_type_refuses_a_non_string_value_and_too_many_fields", async () => {
+  const f = await fixture();
+  const handle = "shearling-trimmed-wool-blend-coat";
+
+  const notAString = await runTool("catalog.set_custom_fields", { handle, fields: { Vendor: 12 } }, f.ctx);
+  assert.equal(notAString.ok, false);
+  assert.match(notAString.error, /must be a string/);
+
+  const tooMany = Object.fromEntries(
+    Array.from({ length: CAPS.CATALOG_CUSTOM_FIELDS_MAX_KEYS + 1 }, (_, i) => [`field_${i}`, "x"]),
+  );
+  const overCap = await runTool("catalog.set_custom_fields", { handle, fields: tooMany }, f.ctx);
+  assert.equal(overCap.ok, false);
+  assert.match(overCap.error, /holds more than/);
+});
+
+check("test_PRD_P0_71_product_channel__catalog_product_reads_custom_fields_alongside_the_rest", async () => {
+  const f = await fixture();
+  const handle = "shearling-trimmed-wool-blend-coat";
+  await approvedCall(f, "catalog.set_custom_fields", { handle, fields: { Vendor: "Acme Mills" } });
+
+  const res = await runTool("catalog.product", { handle }, f.ctx);
+  assert.equal(res.ok, true, res.error);
+  assert.equal(res.data.product.handle, handle);
+  assert.deepEqual(res.data.product.custom_fields, { Vendor: "Acme Mills" });
+  assert.ok(Array.isArray(res.data.variations) && res.data.variations.length > 0);
+
+  /* T0: staff can read it, no approval needed at all. */
+  const asStaff = await runTool("catalog.product", { handle }, { ...f.ctx, ...staff });
+  assert.equal(asStaff.ok, true, asStaff.error);
+  assert.equal(asStaff.needsApproval, undefined);
+});
+
+check("test_PRD_P0_71_product_channel__catalog_product_refuses_an_unknown_handle", async () => {
+  const f = await fixture();
+  const res = await runTool("catalog.product", { handle: "does-not-exist" }, f.ctx);
+  assert.equal(res.ok, false);
+  assert.match(res.error, /no product with handle/);
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -1748,12 +1987,20 @@ check("test_PRD_P0_34_multi_client_tools__the_authoring_tools_are_one_registry_f
   assert.ok(forStaff.includes("catalog.categories"));
   assert.ok(forStaff.includes("catalog.draft_product"));
   assert.ok(forStaff.includes("catalog.upload_image"));
+  assert.ok(forStaff.includes("catalog.product"), "reading a real product is T0 — staff can look one up");
   assert.ok(!forStaff.includes("catalog.create_product"));
   assert.ok(!forStaff.includes("catalog.update_product"));
   assert.ok(!forStaff.includes("catalog.create_category"));
   assert.ok(!forStaff.includes("catalog.set_channel"));
+  assert.ok(!forStaff.includes("catalog.set_custom_fields"));
 
-  for (const name of ["catalog.create_product", "catalog.update_product", "catalog.create_category", "catalog.set_channel"]) {
+  for (const name of [
+    "catalog.create_product",
+    "catalog.update_product",
+    "catalog.create_category",
+    "catalog.set_channel",
+    "catalog.set_custom_fields",
+  ]) {
     assert.ok(forManager.includes(name));
     assert.equal(TOOLS[name].tier, "T2", "every catalog write is T2 — these are commercial facts");
   }

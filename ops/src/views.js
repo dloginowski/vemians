@@ -120,26 +120,45 @@ a:hover { opacity: 0.82; }
    being changed — "still use a scrolling frame so I can see the entire
    table if cropped" — only the table's own visual grammar is. */
 const TABLE_CARD_CSS = `
+/* The table now SCALES to the card's own full width instead of sizing to
+   its natural content width — the owner's own words: "You can scale the
+   table to fit full width if possible! The goal is to avoid cropping as
+   much as possible while retaining readability." A previous round
+   dropped "min-width: 100%" so a narrow table would not stretch; this
+   reverses that on purpose, now for the opposite reason — a table wider
+   than the card used to need sideways scrolling to see the cropped-off
+   columns at all, which reads as "cropped" even though the rest is one
+   scroll away. "width: 100%" with "table-layout: fixed" instead
+   guarantees the table never exceeds the card's own width regardless of
+   column count, so there is nothing left to scroll past; long content
+   (a full URL, a long product title) WRAPS onto more lines within its
+   own column ("overflow-wrap: anywhere") instead of being cut off or
+   pushing the table wider. Padding is halved again (card 4px -> 2px,
+   every cell and the "Full screen" button 1px 4px -> 1px 2px) and the
+   font drops to a flat 9px everywhere in the card, matching the title
+   bar and button's own size instead of a bigger size just for cells.
+   max-height is recomputed once more for the smaller row height this
+   produces. */
 .table-card {
   align-self: stretch; max-width: 100%; box-sizing: border-box;
-  border: 1px solid var(--rule); border-radius: 0; padding: 8px 10px;
-  background: var(--image-ground); font-size: 12px;
-  max-height: 240px; overflow: auto;
+  border: 1px solid var(--rule); border-radius: 0; padding: 2px;
+  background: var(--image-ground); font-size: 9px;
+  max-height: 58px; overflow: auto;
 }
 .table-card h4 {
-  margin: 0 0 6px; padding: 0; font-size: 11px; font-weight: 700;
+  margin: 0 0 2px; padding: 0; font-size: 9px; font-weight: 700;
   color: var(--muted); display: flex; justify-content: space-between;
-  align-items: center; gap: 8px; position: sticky; left: 0;
+  align-items: center; gap: 6px; position: sticky; left: 0;
 }
-.table-card table { width: max-content; min-width: 100%; border-collapse: collapse; }
+.table-card table { width: 100%; table-layout: fixed; border-collapse: collapse; }
 .table-card th, .table-card td {
-  text-align: left; padding: 4px 10px; border: 1px solid var(--rule);
-  white-space: nowrap; vertical-align: top;
+  text-align: left; padding: 1px 2px; border: 1px solid var(--rule);
+  overflow-wrap: anywhere; word-break: break-word; vertical-align: top; font-size: 9px;
 }
 .table-card th { color: var(--ink); font-weight: 700; background: var(--ground); }
-.table-card a { color: var(--accent); }
+.table-card a { color: var(--accent); overflow-wrap: anywhere; }
 .table-card button {
-  flex: 0 0 auto; font: inherit; font-size: 11px; padding: 2px 8px; cursor: pointer;
+  flex: 0 0 auto; font: inherit; font-size: 9px; padding: 1px 2px; cursor: pointer;
   border: 1px solid var(--rule); border-radius: 12px; background: var(--ground); color: var(--ink);
 }
 .table-card button:hover { border-color: var(--accent); color: var(--accent); }
@@ -151,8 +170,32 @@ const TABLE_CARD_CSS = `
 }
 `;
 
+/* The first of what the owner is describing as tabs — "one tab, which is the
+   agent tab... another tab is gonna be the items tab." Two plain links for
+   now, not a framework-driven tab switch: each is its own server-rendered
+   page (/  and  /items), so this is the minimum that lets a person move
+   between them and see which one they are on, without committing to the
+   fuller hamburger-menu/tab-bar redesign that is still just an idea. Shared
+   between OPS_CSS (the agent page) and ITEMS_CSS below so the two tabs read
+   as one system rather than two pages that happen to link to each other. */
+const NAV_CSS = `
+.ops-nav { display: flex; gap: 6px; margin: 0 0 16px; }
+.ops-nav a {
+  font-size: 12px; font-weight: 600; padding: 6px 14px; border-radius: 999px;
+  border: 1px solid var(--rule); color: var(--muted); text-decoration: none;
+}
+.ops-nav a:hover { border-color: var(--accent); color: var(--accent); }
+.ops-nav a.active { border-color: var(--accent); color: var(--accent); background: rgba(217, 119, 87, 0.14); }
+`;
+
+function opsNav(active) {
+  const tab = (href, label, key) => `<a href="${href}"${key === active ? ' class="active"' : ""}>${label}</a>`;
+  return `<nav class="ops-nav">${tab("/", "Agent", "agent")}${tab("/items", "Items", "items")}</nav>`;
+}
+
 const OPS_CSS = `
 ${OPS_DARK_CSS}
+${NAV_CSS}
 /* 34rem was tuned for "one screen on a phone" before this page grew a chat
    widget, tables and an accordion of real content — on an actual desktop
    window it read as a narrow column stranded in the middle of empty space.
@@ -298,10 +341,21 @@ ${OPS_DARK_CSS}
  * few rows of table on a typical phone, capped so a very tall window does
  * not turn the log into most of the page.
  */
+/* THE SAME CLASS OF BUG AGAIN (P0-96's .attach-name, P0-99's inherited
+   .chat margin) — .log's own margin-top (8px) plus padding-top (4px) was
+   12px of unrelated extra space with no side equivalent (side margin: 0,
+   side padding: 2px), stacking on top of .chat-top's own uniform 14px
+   padding: the first bubble sat noticeably farther from the top edge than
+   from either side. The owner's own words, pointing at a real screenshot:
+   "See the 'add content' message? Its too far from top edge of outer chat
+   box. Needs to match [the] side." margin carries only the bottom gap
+   (before the composer form) now; padding is a uniform 2px matching the
+   side value exactly, so top and sides both work out to the same total
+   distance from .chat-top's own edge. */
 .log {
   display: flex; flex-direction: column; gap: 6px;
   max-height: min(62vh, 560px); overflow-y: auto;
-  margin: 8px 0; padding: 4px 2px;
+  margin: 0 0 8px; padding: 2px;
 }
 .log:empty { display: none; }
 .log p {
@@ -437,6 +491,23 @@ const SEND_ICON = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="
   `<path d="M8 12.5V3.5M8 3.5 3.5 8M8 3.5 12.5 8" fill="none" stroke="currentColor" stroke-width="1.4" ` +
   `stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
+/* Voice input, next to Send — the owner's own words: "Add the same kind
+   of microphone input button as claude next to the submit chat button
+   same style as the + button as far as colors." Same .icon-btn class as
+   the attach button (below), so it picks up the exact same faint fill,
+   hover, and aria-pressed accent colours with no CSS of its own — "same
+   style... as far as colors" is exactly what sharing the class gives for
+   free, rather than a second, parallel set of button rules to keep in
+   sync with the first. Swaps to MIC_STOP_ICON while recording, the same
+   swap-in-place pattern the attach button already uses for its own
+   plus/cancel states. */
+const MIC_ICON = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">` +
+  `<rect x="6" y="1.5" width="4" height="7.5" rx="2" fill="none" stroke="currentColor" stroke-width="1.4"/>` +
+  `<path d="M4 7.5v1a4 4 0 0 0 8 0v-1M8 12.5V15M5.5 15h5" fill="none" stroke="currentColor" ` +
+  `stroke-width="1.4" stroke-linecap="round"/></svg>`;
+const MIC_STOP_ICON = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">` +
+  `<rect x="4.5" y="4.5" width="7" height="7" rx="1" fill="currentColor"/></svg>`;
+
 /* The behaviour half of copyLine, as a string, so the front page and the
    identity page share one implementation rather than two that drift. */
 export const COPY_JS = `/* One delegated listener for every copy button on the page. The button reads
@@ -508,6 +579,7 @@ export function opsPage(identity, { hasKey, role }) {
     "Vemians ops",
     `<div class="bar">ops.vemians.com &middot; employees only</div>
 <main class="ops">
+${opsNav("agent")}
 ${id}
 
   <section class="greet">
@@ -522,6 +594,7 @@ ${id}
       <div class="chat-bar">
         <button type="button" class="icon-btn" id="attach-btn" aria-label="Attach a photo or file" title="Attach a photo or file">${ATTACH_ICON}</button>
         <input name="q" id="q" placeholder='e.g. "Add a wool coat, $450, Outerwear"' autocomplete="off">
+        <button type="button" class="icon-btn" id="mic-btn" aria-label="Voice input" title="Voice input">${MIC_ICON}</button>
         <button type="submit" class="send-btn" aria-label="Send" title="Send">${SEND_ICON}</button>
       </div>
       <input type="file" id="attach-input" hidden>
@@ -718,6 +791,50 @@ fileInput.addEventListener("change", () => {
   attachBtn.setAttribute("title", "Remove attachment");
 });
 
+/* Voice input. Support for SpeechRecognition is inconsistent across
+   browsers (notably patchy on iOS Safari), so the button is removed
+   outright when the API is missing rather than left sitting there as a
+   control that silently does nothing when pressed. */
+const MIC_ICON_HTML = ${JSON.stringify(MIC_ICON)};
+const MIC_STOP_ICON_HTML = ${JSON.stringify(MIC_STOP_ICON)};
+const micBtn = document.getElementById("mic-btn");
+const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (!SpeechRecognitionCtor) {
+  micBtn.remove();
+} else {
+  const recognition = new SpeechRecognitionCtor();
+  recognition.lang = "en-US";
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 1;
+  let listening = false;
+
+  function stopListening() {
+    listening = false;
+    micBtn.removeAttribute("aria-pressed");
+    micBtn.innerHTML = MIC_ICON_HTML;
+  }
+
+  recognition.addEventListener("result", (e) => {
+    const transcript = e.results[0][0].transcript.trim();
+    if (!transcript) return;
+    qInput.value = qInput.value ? qInput.value + " " + transcript : transcript;
+    qInput.focus();
+  });
+  recognition.addEventListener("end", stopListening);
+  recognition.addEventListener("error", stopListening);
+
+  micBtn.addEventListener("click", () => {
+    if (listening) {
+      recognition.stop();
+      return;
+    }
+    listening = true;
+    micBtn.setAttribute("aria-pressed", "true");
+    micBtn.innerHTML = MIC_STOP_ICON_HTML;
+    recognition.start();
+  });
+}
+
 document.getElementById("chat").addEventListener("submit", async (e) => {
   e.preventDefault();
   const box = qInput;
@@ -743,9 +860,14 @@ document.getElementById("chat").addEventListener("submit", async (e) => {
       });
     }
     const data = await res.json();
+    /* Table right under the tool step that produced it — "insert table
+       right under 'ran catalog_preview_product_batch' text," the owner's
+       own words — not after the agent's own text reply, which used to
+       leave it looking disconnected from the tool call it actually came
+       from once the reply had any real length to it. */
     (data.steps || []).forEach((s) => entry("tool", (s.ok ? "ran " : "refused ") + s.tool + (s.auditId ? " · audit " + s.auditId : "")));
-    entry("agent", data.reply || data.error || ("Request failed: " + res.status));
     if (data.table) tableCard(data.table);
+    entry("agent", data.reply || data.error || ("Request failed: " + res.status));
     if (data.pending) card(data.pending);
   } catch (err) {
     console.error("agent request failed", err);
@@ -780,6 +902,182 @@ document.querySelectorAll(".choices .btn[data-prompt]").forEach((btn) => {
  * It says the one thing that is true and useful in each case, and hands over a
  * copyable block for the case where it is neither.
  */
+/*
+ * The Items tab — the owner's own words: "it should show all items and all
+ * fields that are assigned to these items... this item view is where we
+ * actually get to see them all and author them... a flexible grid layout
+ * that uses the entire screen... using tiles, very clean tiles. So all the
+ * information should be inside of these tiles, no external text outside of
+ * the cells." This is the read (and, for a manager+, write) surface
+ * custom_fields was built for — catalog.product's own data, rendered as one
+ * self-contained card per item rather than a table row that only makes
+ * sense next to the row above and below it.
+ *
+ * Employee-only by the same construction as the rest of ops: this file
+ * exists only in the ops package (see the top-of-file comment), the whole
+ * host is behind Cloudflare Access, and the storefront's own reads never
+ * name `custom_fields` at all (P0-71) — nothing here is a second gate to
+ * remember, it is the existing one.
+ *
+ * Editing goes through the SAME T2 approval gate every other catalog write
+ * in this codebase does — catalog.set_channel and catalog.set_custom_fields,
+ * both already manager+-gated and human-approved. A tile's own edit form
+ * PARKS an approval and sends the browser to the existing /approvals/<id>
+ * page (see index.js) rather than writing anything itself: no second,
+ * lighter-weight "trusted because a manager clicked a button in ops" write
+ * path is introduced alongside the one this whole app already has.
+ */
+const ITEMS_CSS = `
+${NAV_CSS}
+.items-search {
+  width: 100%; box-sizing: border-box; font: inherit; font-size: 14px;
+  padding: 8px 12px; margin: 0 0 16px; border: 1px solid var(--muted);
+  border-radius: 8px; background: var(--image-ground); color: var(--ink);
+}
+.items-search:focus { outline: none; border-color: var(--ink); }
+.items-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px; align-items: start;
+}
+.item-tile {
+  box-sizing: border-box; border: 1px solid var(--rule); border-radius: 8px;
+  padding: 10px 12px; background: var(--image-ground); font-size: 12px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.item-tile h3 { margin: 0; font-size: 13px; color: var(--ink); line-height: 1.3; }
+.item-badges { display: flex; flex-wrap: wrap; gap: 4px; }
+.item-badges span {
+  font-size: 10px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--rule); color: var(--muted);
+}
+.item-badges .channel-website, .item-badges .channel-direct_link { border-color: var(--accent); color: var(--accent); }
+.item-variants, .item-fields { display: flex; flex-direction: column; gap: 2px; }
+.item-variants div, .item-fields div { display: flex; justify-content: space-between; gap: 6px; }
+.item-variants span:first-child, .item-fields span:first-child { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item-fields span:last-child { color: var(--ink); text-align: right; overflow-wrap: anywhere; }
+.item-empty { color: var(--muted); font-style: italic; }
+.item-edit { border-top: 1px solid var(--rule); margin-top: 2px; padding-top: 6px; }
+.item-edit summary { cursor: pointer; color: var(--muted); font-size: 11px; }
+.item-edit summary:hover { color: var(--accent); }
+.item-edit form { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.item-edit .row { display: flex; gap: 4px; }
+.item-edit input, .item-edit select {
+  flex: 1 1 auto; min-width: 0; font: inherit; font-size: 11px; padding: 3px 5px;
+  border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
+}
+.item-edit button {
+  font: inherit; font-size: 11px; padding: 3px 8px; cursor: pointer; align-self: flex-start;
+  border: 1px solid var(--rule); border-radius: 12px; background: var(--ground); color: var(--ink);
+}
+.item-edit button:hover { border-color: var(--accent); color: var(--accent); }
+`;
+
+const CHANNEL_LABEL = { in_store: "In store only", website: "Website", direct_link: "Direct link only" };
+
+function itemTile(product, canEdit) {
+  const fieldEntries = Object.entries(product.custom_fields ?? {});
+  const searchText = [
+    product.title,
+    product.handle,
+    product.category_name,
+    product.status,
+    product.channel,
+    ...product.variations.map((v) => v.sku ?? ""),
+    ...fieldEntries.flat(),
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  const variantRows = product.variations.length
+    ? product.variations
+        .map((v) => `<div><span>${esc(v.sku || v.title)}</span><span>${esc(money(v.price_minor, v.currency))}</span></div>`)
+        .join("")
+    : `<p class="item-empty">No variations.</p>`;
+
+  const fieldRows = fieldEntries.length
+    ? fieldEntries.map(([k, v]) => `<div><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join("")
+    : `<p class="item-empty">No custom fields yet.</p>`;
+
+  /* Up to 3 blank rows past the existing fields, so there is somewhere to
+     type a brand-new field without any add-row scripting — the same
+     "generous but capped" trade this file makes elsewhere. */
+  const blankRows = Math.max(0, Math.min(3, CAPS.CATALOG_CUSTOM_FIELDS_MAX_KEYS - fieldEntries.length));
+  const fieldInputs =
+    fieldEntries
+      .map(
+        ([k, v], i) =>
+          `<div class="row"><input name="field_name_${i}" value="${esc(k)}" placeholder="Field name">` +
+          `<input name="field_value_${i}" value="${esc(v)}" placeholder="Value (blank removes it)"></div>`,
+      )
+      .join("") +
+    Array.from(
+      { length: blankRows },
+      (_, i) =>
+        `<div class="row"><input name="field_name_${fieldEntries.length + i}" placeholder="Field name">` +
+        `<input name="field_value_${fieldEntries.length + i}" placeholder="Value"></div>`,
+    ).join("");
+
+  const editForms = canEdit
+    ? `<details class="item-edit">
+         <summary>Edit</summary>
+         <form method="post" action="/items/${esc(product.handle)}/channel">
+           <div class="row">
+             <select name="channel">
+               ${Object.entries(CHANNEL_LABEL)
+                 .map(([v, label]) => `<option value="${v}"${v === product.channel ? " selected" : ""}>${label}</option>`)
+                 .join("")}
+             </select>
+             <button type="submit">Update channel</button>
+           </div>
+         </form>
+         <form method="post" action="/items/${esc(product.handle)}/custom-fields">
+           ${fieldInputs}
+           <button type="submit">Save fields</button>
+         </form>
+       </details>`
+    : "";
+
+  return `<article class="item-tile" data-search="${esc(searchText)}">
+    <h3>${esc(product.title)}</h3>
+    <div class="item-badges">
+      <span class="channel-${product.channel}">${esc(CHANNEL_LABEL[product.channel] ?? product.channel)}</span>
+      <span>${esc(product.status)}</span>
+      <span>${esc(product.category_name || "Uncategorized")}</span>
+    </div>
+    <div class="item-variants">${variantRows}</div>
+    <div class="item-fields">${fieldRows}</div>
+    ${editForms}
+  </article>`;
+}
+
+export function itemsPage({ role }, products) {
+  const canEdit = role === "manager" || role === "owner";
+  const tiles = products.length
+    ? products.map((p) => itemTile(p, canEdit)).join("\n")
+    : `<p class="hint">No products in the mirror yet.</p>`;
+
+  return page(
+    "Items — Vemians ops",
+    `<div class="bar">ops.vemians.com &middot; employees only</div>
+<main class="ops">
+${opsNav("items")}
+  <section class="greet"><h1>Items</h1></section>
+  <input type="text" class="items-search" id="item-search" placeholder="Search title, handle, category, SKU, custom fields...">
+  <div class="items-grid" id="items-grid">
+${tiles}
+  </div>
+</main>
+<script>
+document.getElementById("item-search").addEventListener("input", (e) => {
+  const q = e.target.value.trim().toLowerCase();
+  document.querySelectorAll(".item-tile").forEach((el) => {
+    el.hidden = Boolean(q) && !el.dataset.search.includes(q);
+  });
+});
+</script>`,
+    ITEMS_CSS,
+  );
+}
+
 export function whoamiPage(detail) {
   const ok = Boolean(detail.role);
   const source =
@@ -989,13 +1287,13 @@ export function approvalPage(id, pending, { durable = true, categories = [] } = 
   );
 }
 
-export function approvalResultPage(ok, detail) {
+export function approvalResultPage(ok, detail, { backHref = "/", backLabel = "Back to ops" } = {}) {
   return page(
     ok ? "Approved" : "Not approved",
     `<main class="wrap">
        <h1>${ok ? "Done" : "Not approved"}</h1>
        <pre>${esc(typeof detail === "string" ? detail : JSON.stringify(detail, null, 2))}</pre>
-       <p><a href="/">Back to ops</a></p>
+       <p><a href="${esc(backHref)}">${esc(backLabel)}</a></p>
      </main>`,
     APPROVAL_CSS,
   );

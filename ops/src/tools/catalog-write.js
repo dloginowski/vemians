@@ -2,15 +2,17 @@
  * catalog.* authoring — a staff member describes a garment to their own AI
  * client, and it lands in Square, priced and categorised.
  *
- * Inherits agent-tool-contract, then catalog-skills. Six tools:
+ * Inherits agent-tool-contract, then catalog-skills. Nine tools:
  *
  *   catalog.categories       T0  the closed set of categories that EXIST
+ *   catalog.product          T0  read one mirrored product, variants and all
  *   catalog.upload_image     T1  an original into OUR bucket; returns our key
  *   catalog.draft_product    T1  a complete proposal and a diff; writes nothing
  *   catalog.create_product   T2  ITEM + ITEM_VARIATIONs in Square, then sync
  *   catalog.update_product   T2  the same path for an edit
  *   catalog.create_category  T2  separate, deliberate, and rarely right
  *   catalog.set_channel      T2  which audience sees a product — OURS, not Square's
+ *   catalog.set_custom_fields T2 whatever else we track that Square doesn't — OURS too
  *
  * ─── THREE DECISIONS, AND WHY EACH IS THE WAY IT IS ────────────────────────
  *
@@ -23,14 +25,20 @@
  *    mirror is only ever read back — and structurally here: a tool that must
  *    not write declares no `square` resource, so it holds nothing that could.
  *
- *    `catalog.set_channel` is the one deliberate exception, and it is one
- *    because `channel` (website / in_store / direct_link — Test-PRD-P0-71-
- *    product_channel) is not a fact Square has any notion of: Square does not
- *    know our storefront exists, so there is no second writer for it to
- *    diverge from. It writes `mirror_product` directly and declares no
- *    `square` resource at all — the tool that must not call Square holds
- *    nothing that could, the same structural argument as above, pointed the
- *    other way.
+ *    `catalog.set_channel` and `catalog.set_custom_fields` are the deliberate
+ *    exceptions, and each is one for the same reason: `channel` (website /
+ *    in_store / direct_link — Test-PRD-P0-71-product_channel) and
+ *    `custom_fields` (unit cost, a vendor name, anything else "our workers
+ *    need more data tracking than square offers" — the owner's own words)
+ *    are not facts Square has any notion of at all. Square does not know our
+ *    storefront exists, and it has no field for a fact we invented, so
+ *    neither has a second writer to diverge from. Both write `mirror_product`
+ *    directly and declare no `square` resource at all — the tool that must
+ *    not call Square holds nothing that could, the same structural argument
+ *    as above, pointed the other way. `catalog.create_product` is allowed to
+ *    ALSO set `custom_fields` at creation time (it already holds `square`,
+ *    for the item itself) — the fields still never reach Square, only a
+ *    second `UPDATE mirror_product` right after the sync that follows.
  *
  * 2. EVERY CATALOG WRITE IS T2.
  *    A price, a SKU and whether a thing is for sale are commercial facts.
@@ -410,6 +418,47 @@ export const catalogWriteTools = {
     },
   },
 
+  /*
+   * The read path for a real, mirrored product — nothing else in this file
+   * exposes one to the model as a callable result (catalog.draft_product
+   * reasons about a NEW product; catalog.update_product's own preflight read
+   * is internal bookkeeping, not a tool result). Without this, "these
+   * fields should be visible... to agents" would be true only at the
+   * instant of creation and never again. custom_fields comes back parsed,
+   * not as a JSON string a model would have to re-parse itself.
+   */
+  "catalog.product": {
+    tier: "T0",
+    domain: "catalog",
+    stores: ["catalog_mirror"],
+    minRole: "staff",
+    describe:
+      "Read one product from OUR mirror by handle: title, description, category, channel, every " +
+      "variation, and custom_fields — whatever a spreadsheet import or catalog.set_custom_fields put " +
+      "there that Square has no field for at all (unit cost, a vendor name, anything else we track " +
+      "that Square doesn't). This is the read path for catalog.set_custom_fields and " +
+      "catalog.update_product alike; it never calls Square.",
+    undo: null,
+    schema: {
+      handle: { type: "string", required: true, format: "handle" },
+    },
+    async run(args, t) {
+      const product = await productByHandle(t.db.catalog_mirror, args.handle);
+      if (!product) return { error: `no product with handle '${args.handle}'` };
+      const variations = await variantsOf(t.db.catalog_mirror, product.id);
+      let custom_fields = {};
+      try {
+        custom_fields = JSON.parse(product.custom_fields || "{}");
+      } catch {
+        custom_fields = {};
+      }
+      return {
+        product: { ...product, custom_fields },
+        variations,
+      };
+    },
+  },
+
   /* ── T1: propose, and store our own originals ─────────────────────────── */
 
   "catalog.upload_image": {
@@ -604,7 +653,11 @@ export const catalogWriteTools = {
       "else is refused. Prices are integer MINOR units, currency \"USD\" — this shop trades in nothing " +
       "else, so pass it without asking. A product with no real size/color options still needs one " +
       "variation, conventionally titled \"One size\". This is a T2 write: it executes only after a " +
-      "human approves it.",
+      "human approves it. `custom_fields` is OURS, not Square's: any field name -> string value we " +
+      "track that Square has no concept of at all (unit cost, a vendor name, a spreadsheet column " +
+      "with no home elsewhere). It never reaches Square — it is written to our own mirror right after " +
+      "the item is created — and survives every future sync untouched. Edit it later with " +
+      "catalog.set_custom_fields.",
     undo: "withdraw the item in Square; nothing is deleted, and the originals in R2 are untouched",
     schema: {
       title: { type: "string", required: true, maxLength: CAPS.CATALOG_TITLE_MAX },
@@ -612,6 +665,12 @@ export const catalogWriteTools = {
       category_id: { type: "string", required: true, format: "id" },
       variations: { type: "array", required: true, maxItems: CAPS.CATALOG_MAX_VARIATIONS, of: VARIATION },
       images: IMAGES,
+      custom_fields: {
+        type: "record",
+        maxKeys: CAPS.CATALOG_CUSTOM_FIELDS_MAX_KEYS,
+        keyMaxLength: CAPS.CATALOG_CUSTOM_FIELD_KEY_MAX,
+        valueMaxLength: CAPS.CATALOG_CUSTOM_FIELD_VALUE_MAX,
+      },
     },
     async check(args, t) {
       const problems = validateProposal(args);
@@ -665,9 +724,20 @@ export const catalogWriteTools = {
         images,
       });
 
+      /* custom_fields never reaches Square — see the note on the schema
+         above and on catalog.set_channel below. A fresh product has none
+         yet, so this is a plain SET rather than the read-merge-write
+         catalog.set_custom_fields needs for an EXISTING one. */
+      if (args.custom_fields && Object.keys(args.custom_fields).length) {
+        await t.db.catalog_mirror
+          .prepare("UPDATE mirror_product SET custom_fields = ? WHERE handle = ?")
+          .bind(JSON.stringify(args.custom_fields), out.product.handle)
+          .run();
+      }
+
       return {
         created: true,
-        product: out.product,
+        product: { ...out.product, custom_fields: args.custom_fields ?? {} },
         category: out.category,
         images: { ...out.images, originals_kept_in_r2: (args.images ?? []).length },
         mirror_sync: out.sync,
@@ -878,6 +948,105 @@ export const catalogWriteTools = {
         handle: args.handle,
         channel: args.channel,
         previous_channel: t.preflight.existing.channel,
+        authority: "ours",
+      };
+    },
+  },
+
+  /*
+   * A patch, not a replacement — the same shape a person edits one field of
+   * a form with, without having to restate every other field back. Setting
+   * a key to the empty string REMOVES it, so one tool both adds/updates and
+   * deletes rather than needing a second one for the opposite direction.
+   */
+  "catalog.set_custom_fields": {
+    tier: "T2",
+    domain: "catalog",
+    stores: ["catalog_mirror"],
+    minRole: "manager",
+    describe:
+      "Add, change or remove OUR OWN extra fields on a product, by handle — whatever a spreadsheet " +
+      "import carried, or anything else \"our workers need more data tracking than square offers\" " +
+      "(the owner's own words): unit cost, a vendor name, a reorder note, anything Square has no " +
+      "field for at all. `fields` is a PATCH merged into what is already there: a key with a real " +
+      "value is set or updated, a key set to the empty string \"\" is removed, and every key not " +
+      "mentioned is left untouched. This is OURS, not Square's — it never calls Square and never " +
+      "triggers a mirror sync; it writes the mirror directly and the value survives every future " +
+      "sync untouched, the same way catalog.set_channel's own value does. Read the current fields " +
+      "first with catalog.product.",
+    undo: "another catalog.set_custom_fields call, patching the previous values back",
+    schema: {
+      handle: { type: "string", required: true, format: "handle" },
+      fields: {
+        type: "record",
+        required: true,
+        maxKeys: CAPS.CATALOG_CUSTOM_FIELDS_MAX_KEYS,
+        keyMaxLength: CAPS.CATALOG_CUSTOM_FIELD_KEY_MAX,
+        valueMaxLength: CAPS.CATALOG_CUSTOM_FIELD_VALUE_MAX,
+      },
+    },
+    async check(args, t) {
+      const existing = await productByHandle(t.db.catalog_mirror, args.handle);
+      if (!existing) return { denied: `no product with handle '${args.handle}' in the mirror` };
+
+      let current = {};
+      try {
+        current = JSON.parse(existing.custom_fields || "{}");
+      } catch {
+        current = {};
+      }
+
+      const merged = { ...current };
+      const added = [];
+      const updated = [];
+      const removed = [];
+      for (const [key, value] of Object.entries(args.fields)) {
+        const had = Object.prototype.hasOwnProperty.call(current, key);
+        if (value === "") {
+          if (had) {
+            delete merged[key];
+            removed.push(key);
+          }
+          continue;
+        }
+        if (!had) added.push(key);
+        else if (current[key] !== value) updated.push(key);
+        merged[key] = value;
+      }
+
+      if (!added.length && !updated.length && !removed.length) {
+        return { denied: `'${args.handle}' already has exactly these fields — nothing would change` };
+      }
+      if (Object.keys(merged).length > CAPS.CATALOG_CUSTOM_FIELDS_MAX_KEYS) {
+        return {
+          denied:
+            `this would leave '${args.handle}' with more than ${CAPS.CATALOG_CUSTOM_FIELDS_MAX_KEYS} ` +
+            "custom fields — remove one first",
+        };
+      }
+
+      const changes = [
+        ...added.map((k) => `+${k}`),
+        ...updated.map((k) => `~${k}`),
+        ...removed.map((k) => `-${k}`),
+      ].join(", ");
+      return {
+        ok: true,
+        summary: `set custom fields on "${existing.title}" (${args.handle}): ${changes}`,
+        preflight: { existing, current, merged },
+      };
+    },
+    async run(args, t) {
+      const { merged, current } = t.preflight;
+      await t.db.catalog_mirror
+        .prepare("UPDATE mirror_product SET custom_fields = ? WHERE handle = ?")
+        .bind(JSON.stringify(merged), args.handle)
+        .run();
+      return {
+        updated: true,
+        handle: args.handle,
+        custom_fields: merged,
+        previous_custom_fields: current,
         authority: "ours",
       };
     },

@@ -44,11 +44,28 @@ function assertValidNode(node, where) {
     `${where}.type '${node.type}' is not a JSON Schema type`,
   );
   if (node.type === "object") {
-    assert.ok(node.properties && typeof node.properties === "object", `${where}.properties must be an object`);
-    for (const [k, v] of Object.entries(node.properties)) assertValidNode(v, `${where}.properties.${k}`);
-    if ("required" in node) {
-      assert.ok(Array.isArray(node.required), `${where}.required must be an array of field names`);
-      for (const r of node.required) assert.equal(typeof r, "string");
+    /* Two legal shapes for an object node: a FIXED set of named properties
+       (every tool argument but one), or — our own "record" DSL type,
+       custom_fields' own field name -> string value map, whose keys are
+       never known in advance — a free-form map described entirely by
+       `additionalProperties` with no `properties` at all. An object node
+       with neither is the actual bug this test exists to catch. */
+    if (node.properties !== undefined) {
+      assert.ok(
+        typeof node.properties === "object" && !Array.isArray(node.properties),
+        `${where}.properties must be an object`,
+      );
+      for (const [k, v] of Object.entries(node.properties)) assertValidNode(v, `${where}.properties.${k}`);
+      if ("required" in node) {
+        assert.ok(Array.isArray(node.required), `${where}.required must be an array of field names`);
+        for (const r of node.required) assert.equal(typeof r, "string");
+      }
+    } else {
+      assert.ok(
+        node.additionalProperties && typeof node.additionalProperties === "object",
+        `${where} is an object with no fixed properties, so it must declare additionalProperties`,
+      );
+      assertValidNode(node.additionalProperties, `${where}.additionalProperties`);
     }
   }
   if (node.type === "array" && "items" in node) assertValidNode(node.items, `${where}.items`);
