@@ -162,6 +162,24 @@ check("test_PRD_P0_71_items_tab__tab_equals_website_starts_the_iframe_on_the_pub
   assert.match(body, /data-src="https:\/\/vemians\.com"[^>]*class="active"/);
 });
 
+check("test_PRD_P0_71_items_tab__the_tabs_have_visibly_rounded_corners", async () => {
+  const { body } = await shell(OWNER);
+  assert.match(body, /\.shell-nav button\s*\{[^}]*border-radius:\s*10px 10px 0 0/s);
+});
+
+check("test_PRD_P0_71_items_tab__the_tab_rows_own_side_padding_matches_the_contents", async () => {
+  /* The owner's own words: "give the tabs side padding to get them away
+     from the edge (match the content padding)." .ops (the content wrapper
+     /chat and /items both use, checked here via /chat's own OPS_CSS)
+     carries 8px side padding — the tab row's own left edge should line up
+     with it, not sit at some unrelated 12px. */
+  const { body: shellBody } = await shell(OWNER);
+  assert.match(shellBody, /\.shell-header\s*\{[^}]*padding:\s*10px 8px 0/s);
+
+  const { body: chatBody } = await frontPage(OWNER);
+  assert.match(chatBody, /\.ops\s*\{[^}]*padding:\s*12px 8px 32px/s, "sanity check: .ops's own side padding is really 8px");
+});
+
 /* ─────────────────────────────────────────────────────────────────────────
  * P0-23 — the page must print the role the request actually carries
  * ───────────────────────────────────────────────────────────────────────── */
