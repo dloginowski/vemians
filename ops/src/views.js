@@ -99,8 +99,15 @@ ${OPS_DARK_CSS}
    window it read as a narrow column stranded in the middle of empty space.
    Wide enough now to use a real monitor; still capped, so a line of prose in
    the accordion below does not stretch across a 4K display and become hard
-   to read. */
-.ops { max-width: 64rem; padding: 12px 24px 32px; }
+   to read.
+ *
+ * Side padding is tight (8px, matching .chat-top's own tightened side
+ * padding — P0-93) rather than the roomier 24px this used to carry: on an
+ * actual phone screen, padding on both sides is width the chat widget and
+ * everything else on the page cannot use at all, and "maximize the use of
+ * space on mobile" was the owner's own direction. max-width still caps a
+ * wide desktop window, where the difference barely registers. */
+.ops { max-width: 64rem; padding: 12px 8px 32px; }
 
 .ops .warn { margin: 0 0 14px; }
 

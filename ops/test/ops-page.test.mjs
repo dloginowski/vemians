@@ -437,6 +437,19 @@ check("test_PRD_P0_93_nested_chat_frame__the_bottom_outer_corners_grew_to_stay_c
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
+ * P0-94 — the page uses more of a phone screen's own width
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_94_mobile_edge_to_edge__the_page_containers_side_padding_matches_the_chat_widgets_own", async () => {
+  const { body } = await frontPage(OWNER);
+  /* Top and bottom are untouched; sides now match .chat-top's own already-
+     tightened 8px, so the page edge and the widget edge read as one margin
+     rather than two stacked ones. */
+  assert.match(body, /\.ops\s*\{[^}]*padding:\s*12px 8px 32px/s, "side padding must be tightened, top/bottom unchanged");
+  assert.doesNotMatch(body, /\.ops\s*\{[^}]*padding:\s*12px 24px 32px/s, "the old roomier side padding must not still be set");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
  * P0-78 — a real scrolling chat widget, and compact one-click chips
  * ───────────────────────────────────────────────────────────────────────── */
 

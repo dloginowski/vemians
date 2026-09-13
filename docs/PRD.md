@@ -1433,6 +1433,20 @@ that does not trace to one of these is a process failure (see §12).
     bottom corners and the frame's bottom corners now share a centre and the pill reads as sitting
     neatly inside the frame rather than floating in an uneven gap or clipping its own edge.
 
+34a''''''''''''''''''''''''. **`Test-PRD-P0-94-mobile_edge_to_edge`** — The owner's own words:
+    "Overall reduce the overall page padding on the sides and let the chat fill more of the
+    horizontal space. I want to maximize the use of space on mobile devices." `.ops`'s own side
+    padding (`24px`) was the single biggest unused margin on a phone screen — width neither the
+    chat widget, the log, nor anything else on the page could ever use, on the narrowest screens
+    this page is asked to fit on at all.
+
+    `.ops`'s padding goes from a uniform-feeling `12px 24px 32px` to `12px 8px 32px` — top and
+    bottom unchanged, sides matching `.chat-top`'s own already-tightened `8px` side padding
+    (P0-93), so the page edge and the widget edge now read as one consistent margin rather than
+    two different ones stacked on top of each other. `max-width: 64rem` is untouched, so a wide
+    desktop window still caps the content column the same way it always did — the difference is
+    negligible there and material only on the narrow screens the request was actually about.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -1677,6 +1691,7 @@ Where each feature is enforced today:
 | P0-91 | `ops/test/ops-page.test.mjs` |
 | P0-92 | `ops/test/ops-page.test.mjs` |
 | P0-93 | `ops/test/ops-page.test.mjs` |
+| P0-94 | `ops/test/ops-page.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
