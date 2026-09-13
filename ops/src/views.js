@@ -252,60 +252,59 @@ html, body { height: 100%; margin: 0; }
    merge, not two colour-matched lines standing in for one. Only the
    active tab gets a fill or a radius at all — inactive tabs stay flat
    per the reference's own .tab / .tab.active split.
-   The accent border runs top AND sides again — dropping the sides
-   entirely (the previous round's fix for the black smudge) also hid
-   the tab's own outline, when the owner's original request was never
-   "no border on the sides," it was a border that CONTINUES through the
-   curve instead of clashing with it: "imagine the bottom orange edge,
-   smoothly curves up the tab... and keeps going right." The notch
-   below now draws that continuation itself, so the side border and the
-   curve read as one unbroken line again. */
+   Several rounds tried to make the accent border trace THROUGH the
+   curve itself (a second, spread-based shadow layer, then radius and
+   offset corrections chasing the artifacts that layer kept producing)
+   and each one made the shape worse, not better — the owner's own
+   words, after the last of them: "looks like a fucking mushroom."
+   That whole approach is abandoned. The border is back to TOP ONLY;
+   the sides are drawn separately, below, as short vertical lines that
+   stop well short of the curve — they can never touch it, so there is
+   nothing left for the curve to distort. */
 .shell-nav button.active {
-  background: var(--ground); color: var(--ink);
-  border: 1px solid var(--accent); border-bottom: none;
+  color: var(--ink);
+  border-top: 1px solid var(--accent);
   border-radius: var(--tab-radius) var(--tab-radius) 0 0;
   margin-bottom: -1px; padding-bottom: 8px; z-index: 1;
+  /* Two 1px-wide accent lines, one on each side, each only as tall as
+     the tab's own straight vertical run — full height minus the
+     rounded top's own radius minus the curve's own reach at the
+     bottom (--tab-radius again, since the notches below start exactly
+     at this box's own bottom edge). Positioned flush at the very top
+     (right where border-top ends) and sized no taller than that, so
+     the line's own bottom end sits well above the curve — never
+     overlapping it, unlike every previous attempt at this. */
+  background:
+    linear-gradient(var(--accent), var(--accent)) left top / 1px
+      calc(100% - var(--tab-radius) - 1px) no-repeat,
+    linear-gradient(var(--accent), var(--accent)) right top / 1px
+      calc(100% - var(--tab-radius) - 1px) no-repeat,
+    var(--ground);
 }
 /* The "round-out" notch — the owner's own complete reference code,
-   verbatim mechanism (a --tab-radius custom property driving every
-   number below through calc(), not hand-computed pixel literals): each
+   almost verbatim mechanism (a --tab-radius custom property driving
+   every number through calc(), not hand-computed pixel literals): each
    pseudo-element is a --tab-radius box sitting just outside the tab's
-   own edge, one corner cut into a quarter-circle (border-*-radius). The
-   reference draws this as a single flat-colour shadow; ours layers TWO
-   zero-blur shadows of the same cut shape, both offset sideways by
-   exactly HALF --tab-radius: the tab's own fill colour (--ground) on
-   top, at zero spread, exactly the reference's own shape; a 1px-wider
-   copy in --accent BEHIND it, via a 1px spread, so only the sliver the
-   front shape doesn't cover shows through — a thin accent outline that
-   traces the curve, continuing the tab's own top/side border smoothly
-   around its base instead of the border just stopping dead into a
-   flood of near-black.
+   own edge, one corner cut into a quarter-circle (border-*-radius),
+   then a ZERO-blur, ZERO-spread shadow of that same cut shape offset
+   sideways by exactly HALF --tab-radius — not a flood-filled spread,
+   an offset copy of the shape itself — in the tab's own fill colour
+   (--ground, standing in for the reference's own --tab-color). ONE
+   colour, ONE shadow layer: the attempt to also trace an accent
+   outline through this curve (a second, spread-based shadow layer) is
+   what produced the mushroom — plain and correct beats decorated and
+   broken.
    bottom: -1px and one extra 1px of height (rather than flush at 0,
-   exactly --tab-radius tall) are the owner's own follow-up fix: at
-   fractional device pixel ratios the browser can round the tab's own
-   border-box edge and this pseudo-element's edge to two DIFFERENT
-   physical pixels, leaving a hairline gap the header's own background
-   shows through — read as a thin dark seam right on the curve. Forcing
-   a deliberate 1px overlap into the floor removes the gap regardless of
-   which way any given browser's rounding falls.
-   border-*-radius takes TWO values (horizontal var(--tab-radius),
-   vertical calc(var(--tab-radius) + 1px)) rather than one, matching
-   width and the new height exactly — "they aren't matching up," the
-   owner's own words, zoomed in on a small straight flag hanging off the
-   curve. A single-value radius still equalled the box's OLD 14px
-   height, one px short of its new 15px height, so the arc consumed
-   only 14 of the 15 and left a straight 1px sliver — visible as a
-   small flat step (the accent outline made it obvious) rather than a
-   clean curve. Sizing both radii to their own matching dimension turns
-   the whole box back into a single unbroken quarter-ellipse.
-   left/right below carry one extra "- 1px" beyond --tab-radius's own
-   reach: an absolutely positioned element's offsets are measured from
-   its containing block's PADDING edge, which sits one border-width
-   INSIDE the button's actual visible border (box-sizing: border-box
-   draws that 1px border OUTSIDE the padding box) — so without this,
-   the curve's own inner edge started 1px short of the border's outer
-   edge instead of flush against it. The owner's own words: "the right
-   one has to have its left edge aligned and vice versa." */
+   exactly --tab-radius tall) are the owner's own fix for a separate,
+   real bug: at fractional device pixel ratios the browser can round
+   the tab's own border-box edge and this pseudo-element's edge to two
+   DIFFERENT physical pixels, leaving a hairline gap the header's own
+   background shows through as a thin dark seam. Forcing a deliberate
+   1px overlap into the floor removes the gap regardless of which way
+   any given browser's rounding falls — and border-*-radius takes TWO
+   values (horizontal var(--tab-radius), vertical calc(var(--tab-radius)
+   + 1px)) so the arc still consumes the FULL new height instead of
+   leaving a straight sliver the single old value was 1px short of. */
 .shell-nav button.active::before,
 .shell-nav button.active::after {
   content: "";
@@ -316,18 +315,14 @@ html, body { height: 100%; margin: 0; }
   background: transparent;
 }
 .shell-nav button.active::before {
-  left: calc(var(--tab-radius) * -1 - 1px);
+  left: calc(var(--tab-radius) * -1);
   border-bottom-right-radius: var(--tab-radius) calc(var(--tab-radius) + 1px);
-  box-shadow:
-    calc(var(--tab-radius) / 2) 0 0 0 var(--ground),
-    calc(var(--tab-radius) / 2) 0 0 1px var(--accent);
+  box-shadow: calc(var(--tab-radius) / 2) 0 0 0 var(--ground);
 }
 .shell-nav button.active::after {
-  right: calc(var(--tab-radius) * -1 - 1px);
+  right: calc(var(--tab-radius) * -1);
   border-bottom-left-radius: var(--tab-radius) calc(var(--tab-radius) + 1px);
-  box-shadow:
-    calc(var(--tab-radius) / -2) 0 0 0 var(--ground),
-    calc(var(--tab-radius) / -2) 0 0 1px var(--accent);
+  box-shadow: calc(var(--tab-radius) / -2) 0 0 0 var(--ground);
 }
 .shell-panel { flex: 1 1 auto; border-top: 1px solid var(--accent); }
 .shell-frame { width: 100%; height: 100%; border: 0; display: block; background: var(--ground); }

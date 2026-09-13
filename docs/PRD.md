@@ -1143,41 +1143,25 @@ that does not trace to one of these is a process failure (see §12).
     bottom now deliberately overlaps the floor by a pixel, closing the gap regardless of which way
     any given browser's own rounding falls.
 
-    **"Hid the side edges" — the fix for the black smudge went too far.** Dropping the active tab's
-    left/right border entirely (to stop it clashing with the notch) also removed the tab's own
+    **"Hid the side edges" — the fix for the black smudge went too far, then two more rounds
+    chasing an accent outline through the curve made it worse, not better.** Dropping the active
+    tab's left/right border entirely (to stop it clashing with the notch) removed the tab's own
     visible outline on its sides, which was never the actual ask: "imagine the bottom orange edge,
     smoothly curves up the tab... and keeps going right" describes a border that CONTINUES through
-    the curve, not one that stops before it. The border is back on all three non-bottom sides
-    (`border: 1px solid var(--accent); border-bottom: none;`); the notch itself now carries the
-    continuation. Its shadow list grew a second layer: the tab's own fill colour (`--ground`) at
-    zero spread, exactly the reference's own shape, sits on top; a 1px-wider copy in `--accent`
-    (via a 1px spread) sits behind it, so only the sliver the front shape doesn't cover shows
-    through — a thin accent outline tracing the curve, reading as one unbroken line with the
-    straight border above it instead of the border stopping dead into a flood of near-black.
-
-    **"They aren't matching up" — a small flag hanging off the curve, found from a zoomed-in
-    screenshot.** The subpixel-seam fix earlier grew the notch pseudo-element's own height by 1px
-    (14px → 15px) without growing its `border-*-radius` to match — still a single value equal to
-    the box's OLD 14px height, one px short of the new one. A `border-radius` corner only rounds as
-    much of the box as the radius covers; short by 1px, the arc consumed 14 of the 15 available
-    pixels and left a straight 1px sliver where the curve should have run all the way through —
-    small in near-black, but glaring once the new accent outline (above) traced it in orange, which
-    is what the owner's zoomed screenshot actually showed. Both `border-bottom-right-radius` and
-    `border-bottom-left-radius` now take TWO values instead of one — horizontal radius
-    `var(--tab-radius)` matching the box's own width, vertical radius `calc(var(--tab-radius) +
-    1px)` matching its own taller height — turning the shape back into one unbroken quarter-ellipse
-    with no leftover straight edge.
-
-    **"The right one has to have its left edge aligned and vice versa"** — the curve's own inner
-    edge, where it meets the tab, was 1px short of the border line rather than flush against it. An
-    absolutely positioned element's own offsets (`left`/`right` here) are measured from its
-    containing block's PADDING edge, which sits one border-width INSIDE the button's actual visible
-    border — `box-sizing: border-box` draws that 1px border OUTSIDE the padding box, not as part of
-    it. `left: calc(var(--tab-radius) * -1)` therefore started the notch exactly at the padding
-    edge, 1px inside where the border itself actually is. Both offsets now carry one more `- 1px`
-    (`calc(var(--tab-radius) * -1 - 1px)` for `::before`'s `left`, the mirrored form for
-    `::after`'s `right`), pushing each pseudo-element out to start precisely on the border line
-    instead of one pixel short of it.
+    the curve. The attempt that followed — a second, spread-based accent shadow layered onto the
+    notch, which needed its own `border-radius` correction once it made a preexisting height/radius
+    mismatch visible ("they aren't matching up"), then an offset correction chasing a 1px
+    misalignment between the curve and the border ("the right one has to have its left edge aligned
+    and vice versa") — never converged; the owner's own words on the final result: "looks like a
+    fucking mushroom." The accent shadow layer and its offset correction are both reverted; the
+    `border-radius` fix stays, since the height/radius mismatch it corrects is real and independent
+    of whether the curve carries an outline at all. The curve is a single plain `--ground` shadow
+    again, exactly the reference's own one-colour formula. The border is `border-top` only. In
+    place of a side border, `.shell-nav button.active` carries two 1px-wide `linear-gradient` lines
+    as part of its own `background`, positioned at the top-left and top-right and sized
+    `calc(100% - var(--tab-radius) - 1px)` tall — short enough that they stop well above where the
+    curve's own reach (`--tab-radius`) begins, so they can never touch or distort it. Plain and
+    disconnected from the curve beats decorated and broken.
 
 47b. **`Test-PRD-P0-72-product_detail_page`** — Every product has its own page at
     `/products/<handle>` — the answer to "how do I see product details", asked directly, of a
