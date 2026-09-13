@@ -277,6 +277,18 @@ function skillsReadResult(role, name) {
  * customer.create's own tier — offered only to roles that could actually
  * approve what the draft tools mint.
  */
+/* "Dont rely on text to try to explain table structure. Thats why you have
+   a scrolling preview... This is useless" — the owner's own words, after
+   watching the model restate a preview's rows as its own markdown table
+   in the chat reply, right next to the actual `table` the client already
+   renders for exactly that. Every description below says so explicitly:
+   relaying the data as prose (a second, worse copy of the same table) is
+   not the model's job here, only judging it and asking about it is. */
+const NO_TEXT_TABLE_NOTE =
+  " A compact, scrollable table of this data is rendered for the person automatically — never restate the " +
+  "rows yourself as a markdown table or grid; reply in one or two plain sentences (counts, anything that " +
+  "looks wrong) and let the table do the showing.";
+
 const PREVIEW_TOOL_DEFS = [
   {
     name: "catalog_preview_product_batch",
@@ -284,7 +296,8 @@ const PREVIEW_TOOL_DEFS = [
       "Read only the column headings and first row of an attached spreadsheet (asset id from the attachment " +
       "note) and show how they map to title/category/price/description/sku — without drafting or approving " +
       "anything. Call this FIRST for any spreadsheet of products: show the person the mapping, and only " +
-      "call catalog_draft_product_batch once they confirm it looks right.",
+      "call catalog_draft_product_batch once they confirm it looks right." +
+      NO_TEXT_TABLE_NOTE,
     input_schema: {
       type: "object",
       properties: { asset_id: { type: "string", description: "The asset id named in the attachment note." } },
@@ -293,7 +306,7 @@ const PREVIEW_TOOL_DEFS = [
   },
   {
     name: "customer_preview_customer_batch",
-    description: "The same as catalog_preview_product_batch, for a spreadsheet of customers instead of products.",
+    description: "The same as catalog_preview_product_batch, for a spreadsheet of customers instead of products." + NO_TEXT_TABLE_NOTE,
     input_schema: {
       type: "object",
       properties: { asset_id: { type: "string", description: "The asset id named in the attachment note." } },
@@ -312,7 +325,8 @@ const BATCH_TOOL_DEFS = [
       "closed category set and the price format, and mints a T2 approval link for every row that " +
       "resolves cleanly. Reports the rest with a plain reason. Call catalog_preview_product_batch on the " +
       "same asset first and get the person's confirmation on the column mapping before calling this — " +
-      "this is the same deterministic logic the dedicated upload page uses, just reached from chat.",
+      "this is the same deterministic logic the dedicated upload page uses, just reached from chat." +
+      NO_TEXT_TABLE_NOTE,
     input_schema: {
       type: "object",
       properties: { asset_id: { type: "string", description: "The asset id named in the attachment note." } },
@@ -321,7 +335,7 @@ const BATCH_TOOL_DEFS = [
   },
   {
     name: "customer_draft_customer_batch",
-    description: "The same as catalog_draft_product_batch, for a spreadsheet of customers instead of products.",
+    description: "The same as catalog_draft_product_batch, for a spreadsheet of customers instead of products." + NO_TEXT_TABLE_NOTE,
     input_schema: {
       type: "object",
       properties: { asset_id: { type: "string", description: "The asset id named in the attachment note." } },
@@ -474,6 +488,7 @@ export function systemPrompt(actor, role, defs, claims) {
       "Tools marked tier 2 stop for human approval before they execute. Call them normally when they are the right tool; the Worker handles the gate.",
       `If you are unsure of a domain's own rules — the category list, price/publish gates, an upload flow — call skills_read on "<domain>-skills" (skills_list names them). This is for when you are genuinely unsure, not a ritual to run before every call: try the most likely correct action first.`,
       "Answer from tool results, not from memory. If a tool refuses, say what it refused and stop. Be brief and plain.",
+      "Never restate a tool result's own rows or columns as a markdown table, an ASCII grid, or a pipe-delimited list in your reply. When a tool's own description says a table is already shown to the person, it means exactly that — your job is a short prose summary and a judgment call, not a second copy of the data.",
     ].join("\n\n") + "\n\n" + greetingScript(firstName).trim()
   );
 }

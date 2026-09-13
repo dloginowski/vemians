@@ -1354,7 +1354,38 @@ that does not trace to one of these is a process failure (see §12).
     count, with the title and "Full screen" button pinned in place (`position: sticky; left: 0`)
     so they stay reachable while scrolled right.
 
-34a''''''''''''''''''''. **`Test-PRD-P0-90-daylight_contrast`** — The owner's own words: "Bump up
+    **The model still has to be TOLD not to duplicate the table as text — building it was not
+    enough.** The owner's own words, watching a real preview reply: "Dont rely on text to try to
+    explain table structure. Thats why you have a scrolling preview... This is useless," followed
+    by a markdown table the model had written into its own reply, right next to the real `table`
+    the client was already rendering underneath it. Nothing before this told the model the
+    structured table existed at all, so it fell back to the one format it always has: prose,
+    reaching for a markdown table to represent tabular data the same way it would in a chat client
+    with no such feature. Every preview/draft tool description now ends with the same
+    `NO_TEXT_TABLE_NOTE`: "A compact, scrollable table of this data is rendered for the person
+    automatically — never restate the rows yourself as a markdown table or grid; reply in one or
+    two plain sentences... and let the table do the showing." `systemPrompt()` carries the same
+    rule as a standing backstop, independent of which tool was called, since a model that has
+    learned the habit from one tool's result can just as easily repeat it after a different one.
+
+    **The dedicated `/products/batch`, `/customers/batch` upload pages get the SAME table, not a
+    second, plainer one.** The owner's own words, having actually compared the two surfaces: "I
+    like how the table renders in our chat! Doesn't look like that on our website!" `batchReviewPage()`
+    (`ops/src/views.js`) predates the chat's own `tableCard()` and had never been revisited: it
+    rendered ready rows as a plain `<ol>` of links and skipped rows as a separate `<ul>` of
+    reasons, styled by nothing more than `APPROVAL_CSS`'s own generic list rules — the same data
+    this entry already gives a bordered, compact `.table-card` in chat looked like a different,
+    older feature on the page a manager reaches by clicking "Upload another spreadsheet."
+
+    The chat's own `.table-card` CSS (previously written directly into `OPS_CSS`, scoped as `.log
+    .table-card`) is extracted into a shared `TABLE_CARD_CSS` constant — selectors de-scoped to
+    bare `.table-card` so they work with no `#log` ancestor at all — and included in both `OPS_CSS`
+    (chat) and `APPROVAL_CSS` (this page and every other approval-style page), rather than kept as
+    one copy the second surface could not reach or a duplicate that could drift from it.
+    `batchReviewPage()` itself now builds a single `Row`/`Title`/`Status`/`Detail` table — the
+    exact shape `agent.js`'s own `batchDraftTable()` already uses for identical ready/skipped data
+    — instead of two separate list elements, so a spreadsheet reviewed on the dedicated page reads
+    the same way as one reviewed in chat, not merely styled to look similar.
     the contrast of the dimmer elements on ops page. Its a little hard to see on a mobile device
     in broad daylight." Direct sun washes out exactly the mid-tones a "dim, secondary" colour is
     built from — a ratio that reads comfortably indoors can still disappear outside, which a ratio

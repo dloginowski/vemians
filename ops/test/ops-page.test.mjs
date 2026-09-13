@@ -268,6 +268,44 @@ check("test_PRD_P0_75_ops_dark_theme__every_approval_style_page_carries_it_too",
   }
 });
 
+check("test_PRD_P0_89_batch_preview_confirm__the_batch_review_page_uses_the_same_table_card_as_chat", async () => {
+  /* The owner's own words, having seen both surfaces: "I like how the
+     table renders in our chat! Doesn't look like that on our website!"
+     batchReviewPage() (the /products/batch, /customers/batch upload
+     result) used to render a plain <ol> of ready links plus a separate
+     <ul> of skip reasons — nothing like tableCard()'s bordered, compact
+     card. It now shares the exact same .table-card CSS (TABLE_CARD_CSS,
+     included in both OPS_CSS for chat and APPROVAL_CSS for this page),
+     and the same Row/Title/Status/Detail column shape agent.js's own
+     batchDraftTable() uses for the identical data. */
+  const { batchReviewPage } = await import("../src/views.js");
+  const html = batchReviewPage(
+    {
+      ready: [{ row: 2, title: "Wool Coat", url: "https://ops.vemians.com/approvals/abc", summary: "add Wool Coat, $450.00" }],
+      skipped: [{ row: 3, title: "(no title)", reason: "no title column, or it was empty" }],
+    },
+    "products",
+  );
+  assert.match(html, /class="table-card"/, "the review page must use the same .table-card wrapper the chat uses");
+  assert.match(html, /<th>Row<\/th><th>Title<\/th><th>Status<\/th><th>Detail<\/th>/, "columns must match the chat's own Row/Title/Status/Detail shape");
+  assert.match(html, /<a href="https:\/\/ops\.vemians\.com\/approvals\/abc">Wool Coat<\/a>/, "a ready row's title must still link to its own approval");
+  assert.match(html, /no title column, or it was empty/, "a skipped row's own reason must still be shown");
+  assert.doesNotMatch(html, /<ol>/, "the old separate ready-list <ol> must be gone");
+  assert.doesNotMatch(html, /<ul>/, "the old separate skipped-list <ul> must be gone");
+});
+
+check("test_PRD_P0_89_batch_preview_confirm__the_table_card_style_is_shared_not_duplicated", async () => {
+  /* One CSS block (TABLE_CARD_CSS), included by both OPS_CSS (chat) and
+     APPROVAL_CSS (this page) — not two copies that could drift apart. */
+  const { approvalPage } = await import("../src/views.js");
+  const { opsPage } = await import("../src/views.js");
+  const chatHtml = opsPage({ verified: true, email: "owner@vemians.com", claims: {} }, { hasKey: true, role: "owner" });
+  const approvalHtml = approvalPage("id1", null);
+  for (const html of [chatHtml, approvalHtml]) {
+    assert.match(html, /\.table-card\s*\{[^}]*border:\s*1px solid var\(--rule\)/s, "both surfaces must carry the same .table-card rule");
+  }
+});
+
 check("test_PRD_P0_75_ops_dark_theme__the_employees_only_bar_is_readable_on_the_black_bar", async () => {
   /* theme.css's .bar sets color: var(--ground) — a light warm off-white on
      the storefront, but --ground is redefined to a near-black #191817 for

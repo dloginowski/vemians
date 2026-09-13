@@ -92,6 +92,57 @@ a:hover { opacity: 0.82; }
 .bar { color: var(--muted); }
 `;
 
+/*
+ * A batch preview or draft result — column mapping, or ready/skipped rows —
+ * rendered as a real table rather than a wall of text. Shared between the
+ * chat log (OPS_CSS, appended as a sibling of the message bubbles by
+ * tableCard()) and the dedicated /products/batch, /customers/batch upload
+ * pages (APPROVAL_CSS, rendered server-side by batchReviewPage()) — the
+ * owner's own words, after seeing both: "I like how the table renders in
+ * our chat! Doesn't look like that on our website!" One card style, used
+ * from two render paths, rather than the page route quietly staying on
+ * the plain <ol>/<ul> list it had before either surface had a real table
+ * to show. Selectors are bare .table-card (not .log .table-card) so this
+ * works standalone on a page with no #log element at all.
+ *
+ * The table keeps its own natural width (no forced 100%, no wrapped cells)
+ * and the card scrolls sideways when that is wider than its own box —
+ * "the ability to scroll... if it exceeds the chat box width," the owner's
+ * own words from the chat context — rather than squeezing a real approval
+ * URL or a long skip reason into an unreadable wrapped column.
+ */
+const TABLE_CARD_CSS = `
+.table-card {
+  align-self: stretch; max-width: 100%; box-sizing: border-box;
+  border: 1px solid var(--rule); border-radius: 10px; padding: 8px 10px;
+  background: var(--image-ground); font-size: 12px;
+  max-height: 240px; overflow: auto;
+}
+.table-card h4 {
+  margin: 0 0 6px; padding: 0; font-size: 11px; font-weight: 700;
+  color: var(--muted); display: flex; justify-content: space-between;
+  align-items: center; gap: 8px; position: sticky; left: 0;
+}
+.table-card table { width: max-content; min-width: 100%; border-collapse: collapse; }
+.table-card th, .table-card td {
+  text-align: left; padding: 4px 10px; border-bottom: 1px solid var(--rule);
+  white-space: nowrap; vertical-align: top;
+}
+.table-card th { color: var(--muted); font-weight: 700; }
+.table-card a { color: var(--accent); }
+.table-card button {
+  flex: 0 0 auto; font: inherit; font-size: 11px; padding: 2px 8px; cursor: pointer;
+  border: 1px solid var(--rule); border-radius: 12px; background: var(--ground); color: var(--ink);
+}
+.table-card button:hover { border-color: var(--accent); color: var(--accent); }
+/* Full screen is a fixed overlay, not a new scroll container elsewhere on
+   the page — the same element just grows to cover the viewport in place. */
+.table-card.full {
+  position: fixed; inset: 12px; z-index: 50; max-height: none;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+}
+`;
+
 const OPS_CSS = `
 ${OPS_DARK_CSS}
 /* 34rem was tuned for "one screen on a phone" before this page grew a chat
@@ -262,49 +313,7 @@ ${OPS_DARK_CSS}
   align-self: center; max-width: 100%; background: transparent;
   color: var(--muted); font-size: 12px; padding: 2px 8px; text-align: center;
 }
-/*
- * A batch preview or draft result — column mapping, or ready/skipped rows —
- * rendered as a real table rather than a wall of text, per the owner's own
- * words: "a brief preview... in compact format that is easy to review and
- * full screen." Lives INSIDE .log, as a sibling of the message bubbles, so
- * it scrolls with the conversation and the existing scrollTo call already
- * carries it into view — no separate scroll region to keep in sync. Still
- * IN CHAT, not a separate panel — this is the one place it renders.
- *
- * The table keeps its own natural width (no forced 100%, no wrapped cells)
- * and the card scrolls sideways when that is wider than the chat box —
- * "the ability to scroll... if it exceeds the chat box width," the owner's
- * own words — rather than squeezing a real approval URL or a long skip
- * reason into an unreadable wrapped column.
- */
-.log .table-card {
-  align-self: stretch; max-width: 100%; box-sizing: border-box;
-  border: 1px solid var(--rule); border-radius: 10px; padding: 8px 10px;
-  background: var(--image-ground); font-size: 12px;
-  max-height: 240px; overflow: auto;
-}
-.log .table-card h4 {
-  margin: 0 0 6px; padding: 0; font-size: 11px; font-weight: 700;
-  color: var(--muted); display: flex; justify-content: space-between;
-  align-items: center; gap: 8px; position: sticky; left: 0;
-}
-.log .table-card table { width: max-content; min-width: 100%; border-collapse: collapse; }
-.log .table-card th, .log .table-card td {
-  text-align: left; padding: 4px 10px; border-bottom: 1px solid var(--rule);
-  white-space: nowrap; vertical-align: top;
-}
-.log .table-card th { color: var(--muted); font-weight: 700; }
-.log .table-card button {
-  flex: 0 0 auto; font: inherit; font-size: 11px; padding: 2px 8px; cursor: pointer;
-  border: 1px solid var(--rule); border-radius: 12px; background: var(--ground); color: var(--ink);
-}
-.log .table-card button:hover { border-color: var(--accent); color: var(--accent); }
-/* Full screen is a fixed overlay, not a new scroll container elsewhere on
-   the page — the same element just grows to cover the viewport in place. */
-.table-card.full {
-  position: fixed; inset: 12px; z-index: 50; max-height: none;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
-}
+${TABLE_CARD_CSS}
 .gate { border: 1px solid var(--ink); padding: 12px; margin: 12px 0; border-radius: 10px; }
 .gate h3 { margin: 0 0 8px; }
 .gate dl { margin: 0; }
@@ -1057,30 +1066,41 @@ export function batchReviewPage({ ready, skipped, tooMany }, kind = "products") 
       APPROVAL_CSS,
     );
   }
+  /* One table, not a <ol> of ready links plus a separate <ul> of skip
+     reasons — the same Row/Title/Status/Detail shape the chat's own
+     tableCard() already uses for this exact data (agent.js's own
+     batchDraftTable()), so a spreadsheet reviewed here reads the same
+     way as one reviewed in chat. The owner's own words, having seen
+     both: "I like how the table renders in our chat! Doesn't look like
+     that on our website!" */
+  const rows = [
+    ...ready.map((r) => ({ row: r.row, title: r.title, status: "ready", detail: r.summary, url: r.url })),
+    ...skipped.map((s) => ({ row: s.row, title: s.title, status: "skipped", detail: s.reason, url: null })),
+  ].sort((a, b) => a.row - b.row);
+
   return page(
     "Spreadsheet uploaded",
     `<main class="wrap">
        <p class="eyebrow">Spreadsheet uploaded</p>
-       <h1>${ready.length} ready to review</h1>
+       <h1>${ready.length} ready to review, ${skipped.length} not added</h1>
        ${
          ready.length
-           ? `<ol>${ready
-               .map(
-                 (r) =>
-                   `<li><a href="${esc(r.url)}">${esc(r.title)}</a>
-                      <span class="fine">${esc(r.summary)}</span></li>`,
-               )
-               .join("")}</ol>
-              <p class="fine">Each one is its own approval — nothing is created until you open it and
+           ? `<p class="fine">Each ready row is its own approval — nothing is created until you open it and
                  say yes, the same as ${k.createVerb === "add" ? "adding" : "creating"} one ${k.noun} by hand.</p>`
            : "<p>Nothing in this file was ready to add.</p>"
        }
        ${
-         skipped.length
-           ? `<h2>${skipped.length} not added</h2>
-              <ul>${skipped
-                .map((s) => `<li>Row ${s.row}, "${esc(s.title)}": ${esc(s.reason)}</li>`)
-                .join("")}</ul>`
+         rows.length
+           ? `<div class="table-card"><table>
+                <thead><tr><th>Row</th><th>Title</th><th>Status</th><th>Detail</th></tr></thead>
+                <tbody>${rows
+                  .map(
+                    (r) =>
+                      `<tr><td>${r.row}</td><td>${r.url ? `<a href="${esc(r.url)}">${esc(r.title)}</a>` : esc(r.title)}</td>` +
+                      `<td>${r.status}</td><td>${esc(r.detail)}</td></tr>`,
+                  )
+                  .join("")}</tbody>
+              </table></div>`
            : ""
        }
        <p><a href="${k.path}">Upload another spreadsheet</a> &middot; <a href="/">Back to ops</a></p>
@@ -1239,6 +1259,7 @@ export function expenseFiledPage({ id, description, amount_minor, currency }) {
 
 const APPROVAL_CSS = `
 ${OPS_DARK_CSS}
+${TABLE_CARD_CSS}
 .wrap{max-width:44rem;margin:0 auto;padding:2rem 1.25rem}
 .eyebrow{text-transform:uppercase;letter-spacing:.08em;font-size:.75rem;opacity:.7;margin:0}
 h1{margin:.25rem 0 1rem;font-size:1.5rem;word-break:break-word}
