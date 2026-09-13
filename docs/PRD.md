@@ -1398,7 +1398,8 @@ that does not trace to one of these is a process failure (see §12).
     icon (`.chat .chat-bar .icon-btn`) goes from `--muted` to `--ink` at rest — full brightness,
     matching the composer's own send icon and typed text — with its hover state moved from `--ink`
     to `--accent` so hovering still reads as a distinct state now that the resting colour is no
-    longer the dim one.
+    longer the dim one. (The attach icon's own styling moves on again in P0-95 — a filled circle
+    matching the send button's own treatment, not just a brighter glyph on a transparent one.)
 
 34a'''''''''''''''''''''''. **`Test-PRD-P0-93-nested_chat_frame`** — Immediate follow-up to
     P0-92, once the accent frame was actually in front of the owner. Their own words: "Keep the
@@ -1438,11 +1439,22 @@ that does not trace to one of these is a process failure (see §12).
     rather than the mistaken `18px`. `.chat .chat-bar` stays `24px`, untouched throughout; `.chat-
     top`'s radius was `20px 20px 32px 32px` against the original `8px` gap (`24 + 8 = 32`), then
     recomputed to `20px 20px 28px 28px` (`24 + 4 = 28`) once the gap itself was tightened further
-    to `4px` above — the arithmetic has to be redone every time the gap changes, since the whole
-    point is staying concentric with it, not landing on one fixed "big" number. Top corners stay
-    unchanged throughout (nothing rounded sits against them), so the frame's own bottom curve and
-    the pill's bottom curve keep sharing a centre exactly the way the owner asked for from the
-    start, at whatever gap the padding happens to be tightened to next.
+    to `4px` above.
+
+    **A THIRD round was needed — the per-corner split itself was the bug, not just its numbers.**
+    Even `20px 20px 28px 28px` still rendered visibly uneven on a real phone: "Make sure there is
+    an even gap between chat and outer edges!!! Make sides match the bottom!" The root cause both
+    earlier rounds missed: `.chat .chat-bar`'s DECLARED `24px` radius never actually renders at
+    `24px`. The bar is only about `42px` tall (`4px + 4px` padding plus a `34px` button), and CSS
+    caps `border-radius` at half a box's own dimension once the declared value would exceed it — a
+    full stadium either way, visually, but the pill's TRUE rendered radius is `~21px`, not the
+    nominal `24` every prior round of arithmetic here used. `21 + 4 = 25` is what is actually
+    concentric with the pill's real shape — and rather than keep tracking a separately-computed
+    "smaller top, bigger bottom" split that has now produced a visible mismatch twice, `.chat-top`
+    moves to ONE uniform `25px` on every corner. Top corners being slightly rounder than their old
+    `20px` costs nothing (nothing rounded is nested against them to begin with), and removing the
+    per-corner distinction entirely is what actually keeps the gap the same width all the way
+    around — sides included — the way the owner asked for from the start.
 
     **What the owner actually wanted instead: even padding around the send button.** `.chat-bar`'s
     own padding was `4px 4px 4px 6px` — 6px on the left (in front of the attach icon), only 4px on
@@ -1451,6 +1463,32 @@ that does not trace to one of these is a process failure (see §12).
     4px, left AND right 6px) — the send button now has the same clearance the attach button always
     had, "fit better" being exactly the plain, correct way to describe closing a two-pixel
     asymmetry nobody had a reason for in the first place.
+
+    **A further round tightened both gaps once more, together.** The owner's own words: "Submit
+    buttons padding / chat radius could use a bit of tightening too. Button feels like it could
+    use a slight nudge to the right or the inner chat edge has a tiny bit uneven padding on the
+    sides." The actual numbers were already even on both sides (`.chat .chat-bar`'s `4px 6px` is a
+    genuine 6px/6px split, `.chat-top`'s `14px 4px 4px` a genuine 4px/4px one) — the send button
+    likely reads as sitting closer to the frame than the attach button simply because it shares
+    the frame's own orange, an optical effect rather than a numeric bug this time. Rather than
+    introduce a deliberate asymmetry to chase that impression, both gaps were tightened together,
+    which brings both buttons closer to their own edge and keeps them exactly matched: `.chat
+    .chat-bar`'s own padding drops from `4px 6px` to a uniform `4px` (the button's own padding, as
+    named); `.chat-top`'s sides/bottom drop from `4px` to `3px`. `.chat-top`'s radius is
+    recomputed for the new gap using the same formula as before — `pillRadius (21, the pill's true
+    rendered shape) + thisGap` — from `21 + 4 = 25px` to `21 + 3 = 24px`.
+
+    **The "one uniform radius" simplification itself was wrong — a smaller top was never the
+    bug.** The owner's own follow-up, after confirming the padding question directly: "I like the
+    smaller top radius of the outer chat box." Collapsing `.chat-top` to one flat `24px` (this
+    entry's own earlier round, above) had fixed the uneven-gap symptom by accident — the real bug
+    was computing the bottom corner against the pill's WRONG, nominal `24px` radius instead of its
+    true rendered `~21px`, not the mere fact that top and bottom differed. `.chat-top`'s radius
+    becomes `20px 20px 24px 24px` again: top stays a plain, independent `20px` (nothing rounded is
+    nested against it, so it was always free to be whatever reads best), bottom stays the
+    correctly-recomputed `24px` (`21 + 3`) from the round just above. Same visual "fits neatly"
+    result the owner asked for from the very first round of this entry — reached this time with
+    the right number in the right place, instead of erasing the distinction that produced it.
 
 34a''''''''''''''''''''''''. **`Test-PRD-P0-94-mobile_edge_to_edge`** — The owner's own words:
     "Overall reduce the overall page padding on the sides and let the chat fill more of the
@@ -1465,6 +1503,68 @@ that does not trace to one of these is a process failure (see §12).
     two different ones stacked on top of each other. `max-width: 64rem` is untouched, so a wide
     desktop window still caps the content column the same way it always did — the difference is
     negligible there and material only on the narrow screens the request was actually about.
+
+34a'''''''''''''''''''''''''. **`Test-PRD-P0-95-filled_attach_button`** — The owner's own words:
+    "Brighten the bg color of the + button on the left side of chat entry field. Make sure that
+    it also flows neatly inside of the inner chat border (like the chat submit button)." The
+    attach icon (P0-92) had already gone from a dim `--muted` glyph to a bright `--ink` one, but
+    stayed a bare glyph on a transparent background — visually a different kind of control from
+    `.send-btn`'s own solid, filled accent circle sitting in the bar's other rounded end.
+
+    `.chat .chat-bar .icon-btn` becomes a `34px` circle (up from `32px`, matching the send
+    button's own size so both round buttons nest into the bar's left and right ends identically) —
+    the SIZE half of "flows neatly... like the chat submit button" stands. The FILL half went
+    through a direct correction: a first pass gave it the exact treatment `.send-btn` already has
+    — an opaque `--ink` background with a `--ground` glyph on top, `.send-btn:hover`'s own
+    `opacity: 0.85` — which read as a second bold, competing circle rather than a quieter sibling
+    to Send. The owner's own words once it was in front of them: "A faint gray fill for the
+    attachment button. Needs to be just a little brighter than the bg." It becomes a translucent
+    white overlay, `rgba(255, 255, 255, 0.08)` at rest over the bar's own `--image-ground`,
+    brightening to `0.16` on hover — "a little brighter than the bg," read literally, rather than
+    an opaque colour of its own — with the glyph itself staying `--ink` (bright) since the fill
+    underneath it is faint rather than solid. The `aria-pressed="true"` state (an attachment
+    currently staged) reverts to its own original faint accent tint, `rgba(217, 119, 87, 0.14)`,
+    for the same reason: an opaque `--accent` fill would have been the one loud circle this entry
+    was correcting away from, just recoloured.
+
+34a'''''''''''''''''''''''''''. **`Test-PRD-P0-96-attach_name_empty_collapse`** — Three straight
+    rounds of corner-radius arithmetic on `.chat-top` (P0-93's own entry, above) never actually
+    fixed "Make sure there is an even gap between chat and outer edges!!! Make sides match the
+    bottom!" — because none of them were the real bug. The owner's own words, once shown the
+    original screenshot again: "I sent you a screenshot that clearly shows that the side padding
+    between inner and outer chat boxes was much smaller than bottom padding!" Re-reading that
+    screenshot directly (rather than continuing to reason about corner geometry alone) found it:
+    `.attach-name` (`ops/src/views.js`) — the filename label under the composer, empty far more
+    often than not — had no `:empty` collapse rule. An EMPTY block-level element is not the same
+    as an ABSENT one: it still opens a line box sized by its own font metrics, and still carries
+    its own `margin: 4px 2px 0` even with zero characters inside it. That extra height sat directly
+    below the composer pill, inside the very same `.chat-top` padding box the sides had no
+    equivalent content in — inflating the visible bottom gap well past whatever `.chat-top`'s own
+    padding declared, while the sides (nothing else occupying that space) stayed exactly the
+    declared width. Every one of P0-93's own corner-radius corrections was arithmetically correct
+    for the geometry it was solving and still could not have fixed this, because this was never a
+    radius problem.
+
+    Fixed with the same one-line pattern `.log:empty { display: none; }` already used one element
+    up in this exact form, just never carried over to this one: `.attach-name:empty { display:
+    none; }`. An empty span now contributes zero height and zero margin, so the actual rendered
+    gap below the pill matches `.chat-top`'s own declared padding on every side — for the first
+    time, for the reason the owner's own screenshot actually showed, not a guess about how CSS
+    handles nested rounded corners.
+
+    **Fixing the bug still pointed the padding value the wrong direction.** Removing the phantom
+    height made the bottom gap match the sides' `3px` — technically even, but the owner's own
+    correction named exactly what went wrong anyway: "I didn't ask you to make bottom gap smaller
+    I asked the side padding to be bigger to match the bottom padding." The bottom had genuinely
+    looked bigger and roomier in the original screenshot; shrinking it to match the sides' small
+    value satisfied "even" while losing the look that was actually liked. Rather than guess a new
+    number chasing a look that came from a bug now removed, `.chat-top`'s padding returns to
+    `14px` on every side — the original, generous value it carried before any tightening request
+    in this entire thread ever touched it. `.chat-top`'s bottom-corner radius is recomputed for
+    this bigger gap using the same formula as every round before it — pillRadius (`21`, the
+    pill's true rendered shape) + thisGap (`14`, now that sides/bottom match top) = `35px` — while
+    the top corner keeps its own independently-liked `20px`, since nothing rounded is nested
+    against it regardless of what the gap itself is.
 
 ## 4. P1 features
 
@@ -1711,6 +1811,8 @@ Where each feature is enforced today:
 | P0-92 | `ops/test/ops-page.test.mjs` |
 | P0-93 | `ops/test/ops-page.test.mjs` |
 | P0-94 | `ops/test/ops-page.test.mjs` |
+| P0-95 | `ops/test/ops-page.test.mjs` |
+| P0-96 | `ops/test/ops-page.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

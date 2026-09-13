@@ -389,15 +389,14 @@ check("test_PRD_P0_92_chat_widget_accent__the_widgets_own_frame_matches_the_quic
   assert.match(body, /\.chat-top\s*\{[^}]*border:\s*1px solid var\(--accent\)/s, "the widget frame must use the same accent border");
 });
 
-check("test_PRD_P0_92_chat_widget_accent__the_entry_lines_own_border_and_the_plus_button_are_brighter", async () => {
+check("test_PRD_P0_92_chat_widget_accent__the_entry_lines_own_border_is_brighter", async () => {
   const { body } = await frontPage(OWNER);
   /* Brighter than the old --rule, but not a second orange box nested inside
      the now-accent .chat-top frame — a distinct, plain-neutral bump. */
   assert.match(body, /\.chat \.chat-bar\s*\{[^}]*border:\s*1px solid var\(--muted\)/s, "the entry line's own border must no longer be the dim --rule");
   assert.doesNotMatch(body, /\.chat \.chat-bar\s*\{[^}]*border:\s*1px solid var\(--rule\)/s, "the old dim border must not still be set");
-  /* The "+" attach icon, full brightness at rest — matching the composer's
-     own send icon and typed text, not the dim secondary tone. */
-  assert.match(body, /\.chat \.chat-bar \.icon-btn\s*\{[^}]*color:\s*var\(--ink\)/s, "the attach icon must be full-bright at rest");
+  /* The "+" attach icon's own styling moved on again in P0-95 (a filled
+     circle, not a bare bright glyph) — see that section for its own tests. */
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -414,35 +413,48 @@ check("test_PRD_P0_93_nested_chat_frame__focus_stays_gray_rather_than_doubling_u
   );
 });
 
-check("test_PRD_P0_93_nested_chat_frame__the_outer_frame_has_tight_even_padding_on_sides_and_bottom", async () => {
+check("test_PRD_P0_93_nested_chat_frame__the_outer_frame_padding_is_the_same_on_every_side_again", async () => {
+  /* This padding was tightened three times (8px, then 4px, then 3px on
+     sides/bottom) before the owner's own correction: "I didn't ask you
+     to make bottom gap smaller I asked the side padding to be bigger to
+     match the bottom padding." The bottom had looked bigger for a real
+     bug (P0-96's own uncollapsed empty .attach-name span) — fixing that
+     bug shrank the bottom to match the sides' small 3px, the opposite of
+     what was actually asked. Rather than guess a value chasing a look
+     that came from a bug now removed, every side returns to 14px — the
+     original value this padding carried before any tightening request
+     in this whole thread touched it, and trivially "sides match bottom"
+     since there is only one number now. */
   const { body } = await frontPage(OWNER);
-  /* Top keeps its own room for the hint/log stack; sides and bottom match
-     each other and are tighter than before, per the owner's own words —
-     tightened again, from an already-tight 8px down to 4px, on a direct
-     follow-up: "I would even reduce the padding from 8 to 4px - to
-     tighten the inner chat and outer edge gap." */
-  assert.match(body, /\.chat-top\s*\{[^}]*padding:\s*14px 4px 4px/s, "sides and bottom must be tight and equal to each other");
+  assert.match(body, /\.chat-top\s*\{[^}]*padding:\s*14px;/s, "every side must be the same, generous 14px again");
 });
 
 check("test_PRD_P0_93_nested_chat_frame__the_pills_own_radius_never_changes__only_the_outer_frame_matches_it", async () => {
-  /* The pill's own radius is never touched — the owner's own words: "Dont
-     change the inner chat radius! I liked how it flowed around the chat
-     buttons!" A first pass here mistakenly shrank the pill's radius to
-     18px and grew the outer frame's bottom corners to match THAT — wrong,
-     since the pill was never meant to change. The correct read, once
-     clarified: the pill stays 24px, and the outer frame's BOTTOM corners
-     grow to stay concentric with the pill's true, unchanged radius plus
-     the tightened gap — 24 + 4 = 28 once the gap itself was tightened
-     further to 4px — "the bottom of the outer chat box edge radius is
-     slightly bigger than the inner chat edge so that it has a neat, even
-     padding." Top corners stay at 20px, since nothing rounded is nested
-     against them. */
+  /* The pill's own DECLARED radius is never touched — the owner's own
+     words: "Dont change the inner chat radius! I liked how it flowed
+     around the chat buttons!" — but two rounds of per-corner arithmetic
+     on the outer frame (20/20/26/26, then 20/20/28/28) still rendered
+     visibly uneven on a real phone: "Make sure there is an even gap
+     between chat and outer edges!!! Make sides match the bottom!" The
+     bug both rounds missed — the pill's declared 24px never actually
+     renders at 24px. At the bar's own real height (~42px: 4px+4px
+     padding plus a 34px button), CSS caps border-radius at half the
+     box's own dimension, so the pill is a true stadium at ~21px, not the
+     nominal 24 the earlier arithmetic used. A brief "one uniform radius
+     everywhere" fix followed, on the mistaken assumption the mismatch
+     itself came from top and bottom differing — but the owner's own
+     later words, "I like the smaller top radius of the outer chat box,"
+     confirmed the asymmetry was never the bug; the WRONG NUMBER for the
+     bottom corner was. Top and bottom differ again (20px top, a plainly
+     aesthetic choice since nothing rounded sits there; the bottom
+     recomputed correctly for whatever the current gap is: pillRadius 21
+     + thisGap — 24 at a 3px gap, now 35 at the restored 14px gap). */
   const { body } = await frontPage(OWNER);
-  assert.match(body, /\.chat \.chat-bar\s*\{[^}]*border-radius:\s*24px/s, "the composer pill's own radius must never change");
+  assert.match(body, /\.chat \.chat-bar\s*\{[^}]*border-radius:\s*24px/s, "the composer pill's own declared radius must never change");
   assert.match(
     body,
-    /\.chat-top\s*\{[^}]*border-radius:\s*20px 20px 28px 28px/s,
-    "only the outer frame's bottom corners should be bigger, matching the pill's own unchanged radius plus the current gap",
+    /\.chat-top\s*\{[^}]*border-radius:\s*20px 20px 35px 35px/s,
+    "top corners stay smaller (aesthetic, unrelated to the pill), bottom corners recomputed against the pill's TRUE rendered radius plus the current gap",
   );
 });
 
@@ -451,13 +463,20 @@ check("test_PRD_P0_93_nested_chat_frame__the_send_button_gets_the_same_clearance
      "make the padding on the chat submit button a little more even so it
      fit better." The bar's own left/right padding used to be 6px/4px — the
      send button sat measurably tighter against the edge than the attach
-     button on the other side. */
+     button on the other side. Tightened once more since, from 6px to a
+     uniform 4px all around: "submit button's padding could use a bit of
+     tightening too" — still even, just closer to the edge than before. */
   const { body } = await frontPage(OWNER);
-  assert.match(body, /\.chat \.chat-bar\s*\{[^}]*padding:\s*4px 6px;/s, "left and right padding around the buttons must now match");
+  assert.match(body, /\.chat \.chat-bar\s*\{[^}]*padding:\s*4px;/s, "padding around the buttons must be uniform on every side");
   assert.doesNotMatch(
     body,
     /\.chat \.chat-bar\s*\{[^}]*padding:\s*4px 4px 4px 6px/s,
     "the old asymmetric 4px/6px split must not still be set",
+  );
+  assert.doesNotMatch(
+    body,
+    /\.chat \.chat-bar\s*\{[^}]*padding:\s*4px 6px;/s,
+    "the old, less-tight 4px/6px even split must not still be set",
   );
 });
 
@@ -472,6 +491,62 @@ check("test_PRD_P0_94_mobile_edge_to_edge__the_page_containers_side_padding_matc
      rather than two stacked ones. */
   assert.match(body, /\.ops\s*\{[^}]*padding:\s*12px 8px 32px/s, "side padding must be tightened, top/bottom unchanged");
   assert.doesNotMatch(body, /\.ops\s*\{[^}]*padding:\s*12px 24px 32px/s, "the old roomier side padding must not still be set");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-95 — the attach button is a filled circle, matching the send button
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_95_filled_attach_button__the_plus_button_matches_the_send_buttons_own_size", async () => {
+  const { body } = await frontPage(OWNER);
+  /* Same size as .send-btn (34px, up from 32px) so both round buttons nest
+     into the bar's own rounded ends identically — "flows neatly inside of
+     the inner chat border (like the chat submit button)," the owner's own
+     words. */
+  assert.match(body, /\.chat \.chat-bar \.icon-btn\s*\{[^}]*width:\s*34px/s, "the attach button must match the send button's own size");
+  assert.match(body, /\.chat \.chat-bar \.icon-btn\s*\{[^}]*height:\s*34px/s, "the attach button must match the send button's own size");
+});
+
+check("test_PRD_P0_95_filled_attach_button__the_fill_is_a_faint_overlay_not_an_opaque_circle", async () => {
+  /* A first pass filled it solid with --ink, matching .send-btn's own
+     opaque circle — corrected on the spot: "A faint gray fill for the
+     attachment button. Needs to be just a little brighter than the bg."
+     A translucent white overlay over the bar's own --image-ground reads
+     as "a little brighter," not a second bold circle competing with Send. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.chat \.chat-bar \.icon-btn\s*\{[^}]*background:\s*rgba\(255, 255, 255, 0\.08\)/s, "the fill must be a faint overlay, not an opaque colour");
+  assert.doesNotMatch(body, /\.chat \.chat-bar \.icon-btn\s*\{[^}]*background:\s*var\(--ink\)/s, "the old opaque --ink fill must not still be set");
+  assert.match(body, /\.chat \.chat-bar \.icon-btn\s*\{[^}]*color:\s*var\(--ink\)/s, "the glyph itself stays bright against the now-faint fill");
+});
+
+check("test_PRD_P0_95_filled_attach_button__hover_and_pressed_states_are_also_faint_tints_not_opaque_fills", async () => {
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.chat \.chat-bar \.icon-btn:hover\s*\{[^}]*background:\s*rgba\(255, 255, 255, 0\.16\)/s, "hover must brighten the same faint overlay, not switch to opacity dimming");
+  /* An attachment currently staged gets a faint accent tint, matching the
+     same "faint fill" language as the resting and hover states. */
+  assert.match(
+    body,
+    /\.chat \.chat-bar \.icon-btn\[aria-pressed="true"\]\s*\{[^}]*background:\s*rgba\(217, 119, 87, 0\.14\)/s,
+    "the pressed/active state must be a faint accent tint, not an opaque accent fill",
+  );
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-96 — the empty attach-name label no longer inflates the bottom gap
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_96_attach_name_empty_collapse__an_empty_attach_name_span_is_fully_collapsed", async () => {
+  /* THE ACTUAL BUG behind "side padding is much smaller than bottom
+     padding" — confirmed against the owner's own screenshot, not the
+     corner-radius theory P0-93's own entry spent three rounds on. An
+     empty block-level span still opens a line box for its own font
+     metrics and still carries its own margin-top even with zero
+     characters inside it — extra height sitting below the composer pill,
+     inside the very padding box the sides had no equivalent content in.
+     The same one-line pattern .log:empty already uses, just never
+     carried over to this element. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.attach-name:empty\s*\{[^}]*display:\s*none/s, "an empty attach-name span must collapse to zero height and zero margin");
 });
 
 /* ─────────────────────────────────────────────────────────────────────────

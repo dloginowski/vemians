@@ -123,23 +123,30 @@ ${OPS_DARK_CSS}
    accent colour tying the widget to the shortcuts that feed it, rather than
    the plain neutral --rule every other box on the page uses.
  *
- * Sides and bottom are tight (4px, tightened further from an already-tight
- * 8px on the owner's own follow-up) so the composer pill nested inside
- * sits close against this frame rather than floating in a gap; top stays
- * roomier (14px) since the hint/log stack sits there, not the pill. The
- * bottom corners are bigger than the top ones (28px vs 20px) so the frame
- * stays concentric with the pill's own UNCHANGED 24px radius plus this
- * tight 4px gap (24 + 4 = 28) — the owner's own words, once this was
- * right: "the bottom of the outer chat box edge radius is slightly bigger
- * than the inner chat edge so that it has a neat, even padding." The
- * pill's own radius never changes (see .chat .chat-bar below), and this
- * arithmetic has to be redone every time the gap itself changes — only the
- * outer frame grows to match the pill, the same idea as evening out the
- * send button's own padding rather than shrinking the button to fit a
- * tighter box. */
+ * All FOUR sides are the same 14px again, matching top — the direction
+ * this kept getting corrected in was backwards. The owner's own words:
+ * "I didn't ask you to make bottom gap smaller I asked the side padding
+ * to be bigger to match the bottom padding." The bottom visibly looked
+ * bigger in the original screenshot for a real reason (P0-96's own bug,
+ * an uncollapsed empty .attach-name span) — but fixing that bug shrank
+ * the bottom to match the sides' small 3px, when what was actually asked
+ * was the reverse: grow the sides to match how roomy the bottom used to
+ * look. Rather than guess a value trying to reproduce a look that came
+ * from a bug now removed, this returns to 14px on every side — the
+ * original, generous value this padding carried before any tightening
+ * request in this whole thread ever touched it, and trivially "sides
+ * match bottom" since there is now only one number.
+ *
+ * A smaller top radius (20px) than bottom — the owner's own separate,
+ * standing preference, unrelated to the padding value: nothing rounded
+ * is nested against the top corners regardless of what the gap is. The
+ * bottom corners still have to stay concentric with the pill below,
+ * whose TRUE rendered radius is ~21px (explained on .chat .chat-bar) —
+ * pillRadius (21) + thisGap (14, now that sides/bottom are 14px again) =
+ * 35px, recomputed for the new, bigger gap the same way it was for 3px. */
 .chat-top {
-  border: 1px solid var(--accent); border-radius: 20px 20px 28px 28px;
-  padding: 14px 4px 4px; margin-bottom: 16px;
+  border: 1px solid var(--accent); border-radius: 20px 20px 35px 35px;
+  padding: 14px; margin-bottom: 16px;
 }
 
 /* Centred and quiet on purpose — a name check, not the thing on the page
@@ -295,18 +302,28 @@ ${OPS_DARK_CSS}
 /* Brighter than the page's plain --rule boxes (the entry line itself, and
    the "+" attach icon at rest) — both were dim enough to disappear next to
    the now-orange .chat-top frame around them. */
-/* Radius stays 24px — never touched by .chat-top's own bottom-corner
-   adjustment above — because it is what the outer frame is being kept
-   concentric WITH, not a value being corrected: the owner's own words,
-   "I liked how it flowed around the chat buttons," the round 32-34px icon
-   buttons sitting inside it. Padding is EVEN left and right (6px each)
-   rather than the 4px/6px split this used to carry, which left the send
-   button sitting measurably tighter against the bar's own edge than the
-   attach button was on the other side. */
+/* Declared 24px, never touched by .chat-top's own corner radius above —
+   it is what the outer frame is kept concentric WITH, not a value being
+   corrected: the owner's own words, "I liked how it flowed around the
+   chat buttons," the round 32-34px icon buttons sitting inside it. It
+   ACTUALLY renders around 21px, though: this bar is only ~42px tall
+   (4px+4px padding plus a 34px button — unchanged by the left/right
+   padding below, which does not affect the bar's own height), and CSS
+   caps border-radius at half a box's own dimension once the declared
+   value would exceed it — a full stadium either way, but .chat-top's own
+   radius above has to be sized against this real ~21px shape, not the
+   nominal 24, or the two frames stop looking concentric on an actual
+   screen. Padding is a further-tightened, still-EVEN 4px all around
+   (down from 6px left/right) — "submit button's padding could use a bit
+   of tightening too," the owner's own words — not a return to the
+   uneven 4px/6px split this carried before P0-93, which sat the send
+   button measurably tighter against the bar's own edge than the attach
+   button on the other side; both buttons are equally close to their own
+   edge here, just closer than before. */
 .chat .chat-bar {
   display: flex; align-items: center; gap: 2px;
   border: 1px solid var(--muted); border-radius: 24px;
-  padding: 4px 6px; background: var(--image-ground);
+  padding: 4px; background: var(--image-ground);
 }
 /* Stays the same neutral grey on focus — an orange ring here, right inside
    an already-orange .chat-top frame, doubled up on the one accent colour
@@ -323,16 +340,41 @@ ${OPS_DARK_CSS}
   display: inline-flex; align-items: center; justify-content: center;
   border: none; border-radius: 50%;
 }
-.chat .chat-bar .icon-btn { width: 32px; height: 32px; background: transparent; color: var(--ink); }
-.chat .chat-bar .icon-btn:hover { background: rgba(255, 255, 255, 0.08); color: var(--accent); }
+/* A filled circle, same 34px size as .send-btn so the two round buttons
+   nest into the bar's own left and right ends identically — "flows neatly
+   inside of the inner chat border (like the chat submit button)," the
+   owner's own words. The fill itself is deliberately NOT a bold solid
+   colour like .send-btn's own accent: a first pass tried exactly that
+   (var(--ink), full brightness) and the owner's own correction was "A
+   faint gray fill for the attachment button. Needs to be just a little
+   brighter than the bg" — a translucent white overlay over the bar's own
+   --image-ground, not an opaque circle competing with Send for attention.
+   The glyph stays --ink (bright) since the fill underneath it is now
+   faint rather than opaque, the same contrast pairing --ink text always
+   has against a dark ground on this page. */
+.chat .chat-bar .icon-btn { width: 34px; height: 34px; background: rgba(255, 255, 255, 0.08); color: var(--ink); }
+.chat .chat-bar .icon-btn:hover { background: rgba(255, 255, 255, 0.16); color: var(--accent); }
 .chat .chat-bar .icon-btn[aria-pressed="true"] { color: var(--accent); background: rgba(217, 119, 87, 0.14); }
 .chat .chat-bar .send-btn { width: 34px; height: 34px; background: var(--accent); color: var(--ground); }
 .chat .chat-bar .send-btn:hover { opacity: 0.85; }
 .chat .chat-bar .send-btn:disabled { opacity: 0.4; cursor: default; }
+/* THE ACTUAL BUG behind "side padding is much smaller than bottom padding"
+   — confirmed against the owner's own screenshot, not just a corner-radius
+   theory. This span is empty (no filename picked) far more often than not,
+   but empty was never the same as ABSENT: a block-level element still
+   opens a line box for its own font metrics with no text in it at all, and
+   still carries its own margin-top (4px) — extra height NOBODY declared as
+   part of .chat-top's own gap, sitting directly below the composer pill,
+   inside the same padded box. That is what was inflating the bottom gap
+   well past the 3-4px .chat-top padding actually asked for, while the
+   sides (nothing else in that direction) stayed exactly the declared
+   width — never a radius or padding-value bug at all. .log:empty already
+   uses this exact pattern one element up; this one just never got it. */
 .attach-name {
   display: block; font-size: 12px; color: var(--muted); margin: 4px 2px 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.attach-name:empty { display: none; }
 
 `;
 
