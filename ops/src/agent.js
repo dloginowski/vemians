@@ -181,6 +181,21 @@ export function toolDefinitions(role) {
 }
 
 /*
+ * Tool ids are `domain.verb` — every one of them, by convention, everywhere
+ * else in this codebase. Anthropic's own tool name grammar is
+ * `^[a-zA-Z0-9_-]{1,128}$`: no dot. Every real call has 400'd on this from
+ * the day a live key was first configured (P0-86) — the fix that made the
+ * error visible (surfacing Anthropic's own message) is what finally named
+ * it: `tools.2.custom.name: String should match pattern '^[a-zA-Z0-9_-]
+ * {1,128}$'`. `toolDefinitions()` itself keeps the dotted names — tests,
+ * TOOLS lookups and every caller in this file besides the actual API call
+ * depend on that — so the wire form exists only at the two points that
+ * touch Anthropic: the `tools` array in the request, and translating a
+ * `tool_use` block's name back before dispatching it.
+ */
+export const wireName = (id) => id.replace(/[^a-zA-Z0-9_-]/g, "_");
+
+/*
  * Skills used to reach a model only through the MCP endpoint — a tool name
  * says what it is called, but not that the category set is closed, that
  * price and publish are two gates, that a photograph goes through an upload
@@ -534,6 +549,11 @@ export async function agentTurn({ q, identity, env, attachment = null }) {
 
   const defs = [...SKILLS_TOOL_DEFS, ...toolDefinitions(role)];
   const allowed = new Set(defs.map((d) => d.name));
+  /* Only the outbound shape changes — everything downstream (allowed, TOOLS
+     lookups, the pending record, the audit steps) keeps using the real,
+     dotted name via this reverse lookup. */
+  const nameForWire = new Map(defs.map((d) => [wireName(d.name), d.name]));
+  const wireDefs = defs.map((d) => ({ ...d, name: wireName(d.name) }));
   const messages = [{ role: "user", content: buildUserContent(q, attachment) }];
   const steps = [];
 
@@ -542,7 +562,7 @@ export async function agentTurn({ q, identity, env, attachment = null }) {
       model: MODEL,
       max_tokens: MAX_TOKENS,
       system: systemPrompt(actor, role, defs, identity),
-      tools: defs,
+      tools: wireDefs,
       messages,
     });
     if (error) return { mode: "model", actor, role, steps, pending: null, reply: error };
@@ -575,31 +595,36 @@ export async function agentTurn({ q, identity, env, attachment = null }) {
 
     const results = [];
     for (const use of uses) {
-      const outcome = await dispatch(use.name, use.input, { actor, role, env, allowed });
+      /* `use.name` is the WIRE name Anthropic just called (Claude echoes back
+         exactly what it was given in `tools`) — translate to the real,
+         dotted name for everything from here on; the API-facing message
+         content pushed above keeps the wire name untouched, as it must. */
+      const name = nameForWire.get(use.name) || use.name;
+      const outcome = await dispatch(name, use.input, { actor, role, env, allowed });
 
       if (outcome.kind === "approval") {
         /* A T2 tool wants a human. The turn stops here — including any sibling
            tool calls in the same assistant message, which are not run. */
-        const tool = TOOLS[use.name];
-        const id = stashPending({ actor, role, tool: use.name, args: use.input });
+        const tool = TOOLS[name];
+        const id = stashPending({ actor, role, tool: name, args: use.input });
         return {
           mode: "model",
           actor,
           role,
           steps,
-          reply: textOf(message) || `${use.name} needs your approval before it runs.`,
+          reply: textOf(message) || `${name} needs your approval before it runs.`,
           pending: {
             id,
-            tool: use.name,
+            tool: name,
             tier: (tool && tool.tier) || outcome.out.tier,
             args: use.input,
-            effect: describeTool(tool, use.name, use.input),
+            effect: describeTool(tool, name, use.input),
             stores: (tool && tool.stores) || [],
           },
         };
       }
 
-      steps.push({ tool: use.name, tier: (TOOLS[use.name] || {}).tier, ok: !outcome.block.is_error, auditId: outcome.audit });
+      steps.push({ tool: name, tier: (TOOLS[name] || {}).tier, ok: !outcome.block.is_error, auditId: outcome.audit });
       results.push({ ...outcome.block, tool_use_id: use.id });
     }
 
