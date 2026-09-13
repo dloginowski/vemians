@@ -1405,7 +1405,7 @@ that does not trace to one of these is a process failure (see §12).
     inner chatbox a gray color when highlighted. I want it to have less padding on the sides and
     bottom. Make it even with the outer chat border with slightly smaller radius so that inner
     chat box container fits neatly into the outer (orange) edge... This means that the bottom
-    outer edge radius is bigger than it currently is." Three separate, compounding fixes.
+    outer edge radius is bigger than it currently is."
 
     **Focus no longer spends the one accent colour on a ring that was already inside one.**
     `.chat .chat-bar:focus-within` moves from `border-color: var(--accent)` to `var(--ink)` — a
@@ -1420,18 +1420,26 @@ that does not trace to one of these is a process failure (see §12).
     named, while the top keeps its own 14px since the hint/log stack sits there, not the composer
     pill.
 
-    **A smaller inner radius alone would have LOOKED wrong at the bottom corners with a tighter
-    gap — the outer radius had to grow to match, not shrink.** `.chat .chat-bar`'s own radius drops
-    from `24px` (bigger than the outer frame's own 20px — already a mismatch before this) to
-    `18px`. Nested rounded corners read as concentric only when outerRadius ≈ innerRadius + gap:
-    with the gap now a tight `8px`, a corner sharing the OLD outer 20px radius would visibly cut
-    into the pill's own curve at the bottom two corners, where the tightened gap actually lives —
-    exactly the "bottom outer edge radius is bigger than it currently is" the owner named after
-    seeing it. `.chat-top`'s radius becomes `20px 20px 26px 26px` (CSS's top-left/top-right/
-    bottom-right/bottom-left order): the top two corners are unchanged, since nothing rounded is
-    nested against them; only the bottom two grow, to `18px + 8px = 26px`, so the pill's own
-    bottom corners and the frame's bottom corners now share a centre and the pill reads as sitting
-    neatly inside the frame rather than floating in an uneven gap or clipping its own edge.
+    **The radius change was tried and then reverted, on direct owner feedback.** A first pass
+    shrank `.chat .chat-bar`'s own radius from `24px` to `18px` and grew `.chat-top`'s bottom
+    corners to `26px` to stay concentric with the tighter gap above — the geometry the owner's own
+    "bottom outer edge radius is bigger than it currently is" described. Once it was actually in
+    front of them: "Dont change the inner chat radius! I liked how it flowed around the chat
+    buttons!" The bigger `24px` radius is what let the pill's own curve flow continuously into the
+    round icon buttons (32-34px circles) sitting inside it — a fact this document did not weigh
+    before shipping the "fix": a bigger radius pairing with a round button is not a defect to correct
+    toward the frame's own smaller radius, it is what makes the composer read as one
+    continuous pill rather than a rounded box with circles dropped inside it. Both radii are back
+    to what they were before this entry touched them — `.chat .chat-bar` at `24px`, `.chat-top`
+    uniform at `20px` — and the padding change above stands on its own regardless.
+
+    **What the owner actually wanted instead: even padding around the send button.** `.chat-bar`'s
+    own padding was `4px 4px 4px 6px` — 6px on the left (in front of the attach icon), only 4px on
+    the right (behind the send button), so the send button sat measurably tighter against the
+    bar's own edge than the attach button did on the other side. It becomes `4px 6px` (top/bottom
+    4px, left AND right 6px) — the send button now has the same clearance the attach button always
+    had, "fit better" being exactly the plain, correct way to describe closing a two-pixel
+    asymmetry nobody had a reason for in the first place.
 
 34a''''''''''''''''''''''''. **`Test-PRD-P0-94-mobile_edge_to_edge`** — The owner's own words:
     "Overall reduce the overall page padding on the sides and let the chat fill more of the

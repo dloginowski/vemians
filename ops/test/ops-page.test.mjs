@@ -421,18 +421,30 @@ check("test_PRD_P0_93_nested_chat_frame__the_outer_frame_has_tight_even_padding_
   assert.match(body, /\.chat-top\s*\{[^}]*padding:\s*14px 8px 8px/s, "sides and bottom must be tight and equal to each other");
 });
 
-check("test_PRD_P0_93_nested_chat_frame__the_bottom_outer_corners_grew_to_stay_concentric_with_the_smaller_inner_radius", async () => {
+check("test_PRD_P0_93_nested_chat_frame__both_radii_are_left_exactly_as_they_were_before_this_entry", async () => {
+  /* A first pass here shrank the pill's own radius and grew the outer
+     frame's bottom corners to stay geometrically concentric with the
+     tighter gap — reverted on direct owner feedback: "Dont change the
+     inner chat radius! I liked how it flowed around the chat buttons!"
+     The bigger 24px pill radius is what lets it read as one continuous
+     shape with the round icon buttons inside it, not a mismatch to fix. */
   const { body } = await frontPage(OWNER);
-  /* The pill's own radius must shrink first (it was bigger than the outer
-     frame's own radius before this — already a mismatch) ... */
-  assert.match(body, /\.chat \.chat-bar\s*\{[^}]*border-radius:\s*18px/s, "the composer pill's own radius must be smaller than before");
-  /* ... and only the outer frame's BOTTOM corners grow to match it plus the
-     tightened gap (innerRadius + gap = 18 + 8 = 26) — the top corners are
-     unchanged, since nothing rounded is nested against them. */
-  assert.match(
+  assert.match(body, /\.chat \.chat-bar\s*\{[^}]*border-radius:\s*24px/s, "the composer pill's own radius must be unchanged");
+  assert.match(body, /\.chat-top\s*\{[^}]*border-radius:\s*20px;/s, "the outer frame's radius must be plain and uniform, not per-corner");
+});
+
+check("test_PRD_P0_93_nested_chat_frame__the_send_button_gets_the_same_clearance_the_attach_button_always_had", async () => {
+  /* What the owner actually asked for once the radius idea was withdrawn:
+     "make the padding on the chat submit button a little more even so it
+     fit better." The bar's own left/right padding used to be 6px/4px — the
+     send button sat measurably tighter against the edge than the attach
+     button on the other side. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.chat \.chat-bar\s*\{[^}]*padding:\s*4px 6px;/s, "left and right padding around the buttons must now match");
+  assert.doesNotMatch(
     body,
-    /\.chat-top\s*\{[^}]*border-radius:\s*20px 20px 26px 26px/s,
-    "only the bottom corners of the outer frame should have grown",
+    /\.chat \.chat-bar\s*\{[^}]*padding:\s*4px 4px 4px 6px/s,
+    "the old asymmetric 4px/6px split must not still be set",
   );
 });
 

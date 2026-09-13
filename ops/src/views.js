@@ -126,14 +126,15 @@ ${OPS_DARK_CSS}
  * Sides and bottom are tight (8px) so the composer pill nested inside sits
  * close against this frame rather than floating in a wide gap; top stays
  * roomier (14px) since the hint/log stack sits there, not the pill. The
- * bottom corners are bigger than the top ones (26px vs 20px) for the same
- * reason a picture frame's mat is one width: the pill's own radius (18px,
- * below) plus this tight 8px gap needs a bigger outer curve to still look
- * concentric — an unequal radius one side and equal padding the other would
- * make the pill look like it is cutting into the frame at the corner.
- */
+ * radius is plain 20px, uniform — a first pass here tried shrinking the
+ * pill's own radius and growing these bottom corners to stay geometrically
+ * concentric with the tighter gap, which is not what "fits neatly" turned
+ * out to mean: the owner's own words after seeing it, "Dont change the
+ * inner chat radius! I liked how it flowed around the chat buttons!" — the
+ * pill's bigger radius is what lets it read as one continuous shape with
+ * the round icon buttons inside it, not a mismatch to correct. */
 .chat-top {
-  border: 1px solid var(--accent); border-radius: 20px 20px 26px 26px;
+  border: 1px solid var(--accent); border-radius: 20px;
   padding: 14px 8px 8px; margin-bottom: 16px;
 }
 
@@ -290,10 +291,16 @@ ${OPS_DARK_CSS}
 /* Brighter than the page's plain --rule boxes (the entry line itself, and
    the "+" attach icon at rest) — both were dim enough to disappear next to
    the now-orange .chat-top frame around them. */
+/* Radius stays 24px, deliberately bigger than .chat-top's own 20px — the
+   owner's own words: "I liked how it flowed around the chat buttons," the
+   round 32-34px icon buttons sitting inside it. Padding is EVEN left and
+   right (6px each) rather than the 4px/6px split this used to carry, which
+   left the send button sitting measurably tighter against the bar's own
+   edge than the attach button was on the other side. */
 .chat .chat-bar {
   display: flex; align-items: center; gap: 2px;
-  border: 1px solid var(--muted); border-radius: 18px;
-  padding: 4px 4px 4px 6px; background: var(--image-ground);
+  border: 1px solid var(--muted); border-radius: 24px;
+  padding: 4px 6px; background: var(--image-ground);
 }
 /* Stays the same neutral grey on focus — an orange ring here, right inside
    an already-orange .chat-top frame, doubled up on the one accent colour
