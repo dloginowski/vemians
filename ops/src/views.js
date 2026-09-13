@@ -358,23 +358,6 @@ ${OPS_DARK_CSS}
 .chat .chat-bar .send-btn { width: 34px; height: 34px; background: var(--accent); color: var(--ground); }
 .chat .chat-bar .send-btn:hover { opacity: 0.85; }
 .chat .chat-bar .send-btn:disabled { opacity: 0.4; cursor: default; }
-/* THE ACTUAL BUG behind "side padding is much smaller than bottom padding"
-   — confirmed against the owner's own screenshot, not just a corner-radius
-   theory. This span is empty (no filename picked) far more often than not,
-   but empty was never the same as ABSENT: a block-level element still
-   opens a line box for its own font metrics with no text in it at all, and
-   still carries its own margin-top (4px) — extra height NOBODY declared as
-   part of .chat-top's own gap, sitting directly below the composer pill,
-   inside the same padded box. That is what was inflating the bottom gap
-   well past the 3-4px .chat-top padding actually asked for, while the
-   sides (nothing else in that direction) stayed exactly the declared
-   width — never a radius or padding-value bug at all. .log:empty already
-   uses this exact pattern one element up; this one just never got it. */
-.attach-name {
-  display: block; font-size: 12px; color: var(--muted); margin: 4px 2px 0;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.attach-name:empty { display: none; }
 
 `;
 
@@ -395,9 +378,14 @@ const CLIPBOARD = `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="
 /* One attach button, not two — a plain "+" like the reference composer's own,
    same stroke-only style as CLIPBOARD above. It opens one file picker that
    takes a photo or any other file; the agent works out which from what
-   actually arrives, so the UI never has to ask first. */
+   actually arrives, so the UI never has to ask first. Once a file IS
+   picked, the same button becomes the way to cancel it — swapped to an
+   "x" (CANCEL_ICON below) rather than adding a second button for a
+   choice that only exists in one of two states at a time. */
 const ATTACH_ICON = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">` +
   `<path d="M8 3v10M3 8h10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>`;
+const CANCEL_ICON = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">` +
+  `<path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>`;
 const SEND_ICON = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">` +
   `<path d="M8 12.5V3.5M8 3.5 3.5 8M8 3.5 12.5 8" fill="none" stroke="currentColor" stroke-width="1.4" ` +
   `stroke-linecap="round" stroke-linejoin="round"/></svg>`;
@@ -489,7 +477,6 @@ ${id}
         <input name="q" id="q" placeholder='e.g. "Add a wool coat, $450, Outerwear"' autocomplete="off">
         <button type="submit" class="send-btn" aria-label="Send" title="Send">${SEND_ICON}</button>
       </div>
-      <span class="attach-name" id="attach-name" aria-live="polite"></span>
       <input type="file" id="attach-input" hidden>
     </form>
   </section>
@@ -628,32 +615,65 @@ function card(p) {
  * its own: a photo with no typed text is a normal message, "figure out what
  * to do with it" being exactly the point of handing it to the agent instead
  * of a purpose-built upload form.
+ *
+ * A picked file's name used to run in its own line under the composer
+ * (.attach-name) — a second thing on the page saying "a file is attached"
+ * instead of the one place someone is already looking. The owner's own
+ * words: "instead of adding a line under the inner chat box... just update
+ * the default text inside of the chat box." The filename now replaces the
+ * INPUT'S OWN PLACEHOLDER instead — visible only while the box is empty,
+ * the same way a placeholder always works, and gone the moment someone
+ * types over it or the attachment is cleared.
+ *
+ * The SAME button attaches and cancels — never two buttons for a choice
+ * that only exists in one of two states at a time. The owner's own words:
+ * "I should be able to cancel the attachment! The + button should change
+ * to an x button." ATTACH_ICON_HTML/CANCEL_ICON_HTML are this file's own
+ * server-side ATTACH_ICON/CANCEL_ICON constants, carried into the client
+ * script as plain strings (JSON.stringify handles the escaping) since the
+ * button's own innerHTML has to be swappable at runtime, not just set once
+ * in the initial markup the way the button's FIRST icon is.
  */
+const ATTACH_ICON_HTML = ${JSON.stringify(ATTACH_ICON)};
+const CANCEL_ICON_HTML = ${JSON.stringify(CANCEL_ICON)};
 const fileInput = document.getElementById("attach-input");
-const attachName = document.getElementById("attach-name");
 const attachBtn = document.getElementById("attach-btn");
+const qInput = document.getElementById("q");
+const DEFAULT_PLACEHOLDER = qInput.placeholder;
 
 function clearAttachments() {
   fileInput.value = "";
-  attachName.textContent = "";
+  qInput.placeholder = DEFAULT_PLACEHOLDER;
   attachBtn.removeAttribute("aria-pressed");
+  attachBtn.innerHTML = ATTACH_ICON_HTML;
+  attachBtn.setAttribute("aria-label", "Attach a photo or file");
+  attachBtn.setAttribute("title", "Attach a photo or file");
 }
 
 function pickedFile() {
   return fileInput.files[0] || null;
 }
 
-attachBtn.addEventListener("click", () => fileInput.click());
+attachBtn.addEventListener("click", () => {
+  if (pickedFile()) {
+    clearAttachments();
+    return;
+  }
+  fileInput.click();
+});
 
 fileInput.addEventListener("change", () => {
   if (!fileInput.files[0]) return;
-  attachName.textContent = fileInput.files[0].name;
+  qInput.placeholder = "Attached \"" + fileInput.files[0].name + "\" — add a note (optional)";
   attachBtn.setAttribute("aria-pressed", "true");
+  attachBtn.innerHTML = CANCEL_ICON_HTML;
+  attachBtn.setAttribute("aria-label", "Remove attachment");
+  attachBtn.setAttribute("title", "Remove attachment");
 });
 
 document.getElementById("chat").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const box = document.getElementById("q");
+  const box = qInput;
   const q = box.value.trim();
   const file = pickedFile();
   if (!q && !file) return;
@@ -692,7 +712,7 @@ document.getElementById("chat").addEventListener("submit", async (e) => {
    reuses every bit of the handler above rather than duplicating the fetch. */
 document.querySelectorAll(".choices .btn[data-prompt]").forEach((btn) => {
   btn.addEventListener("click", () => {
-    document.getElementById("q").value = btn.dataset.prompt;
+    qInput.value = btn.dataset.prompt;
     document.getElementById("chat").requestSubmit();
   });
 });
