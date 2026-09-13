@@ -232,9 +232,12 @@ export function shellPage(active = "agent") {
 
   return page(
     "Vemians ops",
+    /* No "ops.vemians.com · employees only" banner above the tabs — the
+       owner's own words: "GET RID OF THE HEADER... I WANT THE TABS TO BE
+       IN PLACE OF HEADER." The tab row itself IS the header now; nothing
+       sits above it. */
     `<div class="shell">
   <div class="shell-header">
-    <div class="bar">ops.vemians.com &middot; employees only</div>
     <nav class="shell-nav">${nav}<a class="visit" href="https://vemians.com" target="_blank" rel="noopener">Visit site &#8599;</a></nav>
   </div>
   <div class="shell-panel">
