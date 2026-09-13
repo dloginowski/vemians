@@ -229,10 +229,19 @@ ${OPS_DARK_CSS}
  * competing with either side of the conversation. Empty at rest, so the
  * widget does not show a blank grey box before the first message — it grows
  * into place instead.
+ *
+ * max-height was a flat 320px, sized before this widget ever had to hold a
+ * batch preview's own long explanatory reply AND a table in the same
+ * scrolling column — the owner's own words, seeing a real one cropped mid-
+ * table on a phone with most of the screen still empty below it: "I cant
+ * really tell what is being shown." min(62vh, 560px) scales with the actual
+ * viewport instead of a single guessed number: room for a real reply plus a
+ * few rows of table on a typical phone, capped so a very tall window does
+ * not turn the log into most of the page.
  */
 .log {
   display: flex; flex-direction: column; gap: 6px;
-  max-height: 320px; overflow-y: auto;
+  max-height: min(62vh, 560px); overflow-y: auto;
   margin: 8px 0; padding: 4px 2px;
 }
 .log:empty { display: none; }

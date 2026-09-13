@@ -976,6 +976,19 @@ that does not trace to one of these is a process failure (see §12).
     small outlined chips: this page has exactly one thing asking to be pressed hardest now, and
     P0-74 already put that thing above these chips, not beside them as an equal.
 
+    **`.log`'s own max-height grew once the widget had more to show than a few chat lines.** The
+    owner's own words, seeing a real batch preview reply on a phone: "When adding a spreadsheet
+    it looks like the bottom is getting cropped? I cant really tell what is being shown...." The
+    fixed `320px` above was sized before this widget ever had to hold a batch preview's own long
+    explanatory reply (P0-88) AND a structured table (P0-89) in the same scrolling column — the
+    screenshot showed most of the phone screen still empty below the widget while the table's own
+    header and "Full screen" button were cut off mid-row. `max-height` becomes `min(62vh, 560px)`
+    — scales with the actual viewport instead of one guessed pixel number, giving a typical phone
+    real room for a reply plus a few rows of table, while a very tall window is still capped at
+    `560px` rather than letting the log swallow most of the page. `.table-card`'s own separate
+    `max-height: 240px` (P0-89) is untouched — a wide or long table still scrolls within its own
+    card either way; this only grows the OUTER column that card sits inside.
+
 34a'''''''''. **`Test-PRD-P0-79-quick_actions_over_connect_prompt`** — The owner's own direction,
     read back verbatim: "remove [the connect-your-own-assistant block]... you already have quick
     actions under the chat, that's what I want to expand." The promotional block P0-69 had put where

@@ -649,6 +649,16 @@ check("test_PRD_P0_78_chat_widget__the_log_is_a_bounded_scrolling_container_not_
   assert.match(body, /\.log\s*\{[^}]*overflow-y:\s*auto/s, "and it must scroll internally rather than the whole page");
 });
 
+check("test_PRD_P0_78_chat_widget__the_logs_max_height_scales_with_the_viewport_not_a_flat_guess", async () => {
+  /* The owner's own words, seeing a real batch preview reply cropped on a
+     phone with most of the screen still empty below the widget: "I cant
+     really tell what is being shown." A flat 320px was sized before this
+     widget ever had to hold a long reply AND a table in the same column. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.log\s*\{[^}]*max-height:\s*min\(62vh, 560px\)/s, "the log must scale with the viewport, not a single guessed pixel value");
+  assert.doesNotMatch(body, /\.log\s*\{[^}]*max-height:\s*320px/s, "the old flat 320px cap must not still be set");
+});
+
 check("test_PRD_P0_78_chat_widget__mine_agent_and_tool_are_three_distinct_bubble_styles", async () => {
   const { body } = await frontPage(OWNER);
   for (const cls of ["you", "agent", "tool"]) {
