@@ -926,6 +926,19 @@ that does not trace to one of these is a process failure (see §12).
     `var(--muted)`, a token theme.css never had, for the same reason: a colour tuned to sit quietly
     on cream reads as barely-visible on near-black.
 
+34a''''''. **`Test-PRD-P0-76-valid_tool_schema`** — Found the first time a real
+    `ANTHROPIC_API_KEY` reached a real request: every call to the built-in chat answered "The
+    model service returned 400." `toolDefinitions()` (`ops/src/agent.js`) was handing Claude's
+    Messages API `tool.schema` UNCONVERTED as `input_schema` — this codebase's own validation DSL
+    (`tools/validate.js`: a flat `{field: {type, required, format, of}}` map, `required` living on
+    each field rather than a top-level array) rather than the JSON Schema object
+    (`{type:"object", properties:{...}, required:[...]}`) the API actually requires. The DSL
+    validated correctly against runTool()'s own `validate()` — a completely separate code path —
+    which is exactly why nothing caught this: every existing test exercised that path or a stubbed
+    Anthropic response, and none of them called the real API with a real schema. `toJsonSchema()`
+    now converts every tool's schema, recursively for a nested array-of-objects field (`variations`
+    on `catalog.create_product`, the one shape that most needed it), before it ever reaches Claude.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -1152,6 +1165,7 @@ Where each feature is enforced today:
 | P0-73 | `ops/test/media-backfill.test.mjs` for the fetch-and-store job; the real-photo half of `store/test/storefront.test.mjs` for rendering and the hover-alt fallback rule |
 | P0-74 | `ops/test/ops-page.test.mjs` |
 | P0-75 | `ops/test/ops-page.test.mjs` |
+| P0-76 | `ops/test/agent-tool-schema.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

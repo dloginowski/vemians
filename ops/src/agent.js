@@ -119,11 +119,53 @@ function describeTool(tool, name, args) {
   return name;
 }
 
+/*
+ * `tool.schema` is THIS CODEBASE'S OWN validation DSL (tools/validate.js) — a
+ * flat map of field name to spec, with validate.js-specific keys (`required`
+ * living on the FIELD, not a top-level array; `format` naming our own
+ * patterns like "handle" or "currency"; `of` for array items). It is not, and
+ * was never, the JSON Schema object Anthropic's tool-use API requires for
+ * `input_schema`: `{type:"object", properties:{...}, required:[...]}`.
+ *
+ * Sending the raw DSL straight through validated correctly against our OWN
+ * runTool() — a completely separate code path — but was never valid input to
+ * Claude at all. Every real call was going to get a 400 back from Anthropic
+ * the first time a real API key made it reach them, because no test in this
+ * codebase calls the actual Messages API; the stub and every mocked test
+ * exercise runTool()'s own validate(), not this shape. Test-PRD-P0-76-
+ * valid_tool_schema.
+ */
+function fieldToJsonSchema(spec) {
+  const out = { type: spec.type === "integer" ? "integer" : spec.type };
+  if (spec.enum) out.enum = spec.enum;
+  if (spec.maxLength !== undefined) out.maxLength = spec.maxLength;
+  if (spec.min !== undefined) out.minimum = spec.min;
+  if (spec.max !== undefined) out.maximum = spec.max;
+  if (spec.maxItems !== undefined) out.maxItems = spec.maxItems;
+  if (spec.format) out.description = `Format: ${spec.format}`;
+  if (spec.type === "array" && spec.of) {
+    out.items = spec.of.type === "object" ? toJsonSchema(spec.of.schema) : fieldToJsonSchema(spec.of);
+  }
+  return out;
+}
+
+export function toJsonSchema(schema) {
+  const properties = {};
+  const required = [];
+  for (const [field, spec] of Object.entries(schema || {})) {
+    properties[field] = fieldToJsonSchema(spec);
+    if (spec.required) required.push(field);
+  }
+  const out = { type: "object", properties };
+  if (required.length) out.required = required;
+  return out;
+}
+
 export function toolDefinitions(role) {
   return allowedTools(role).map(([name, tool]) => ({
     name,
     description: `${describeTool(tool, name)} [tier ${tool.tier}, domain ${tool.domain}, stores ${(tool.stores || []).join(", ") || "none"}]`,
-    input_schema: tool.schema || { type: "object", properties: {} },
+    input_schema: toJsonSchema(tool.schema),
   }));
 }
 
