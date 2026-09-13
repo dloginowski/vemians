@@ -476,6 +476,21 @@ check("test_PRD_P0_60_spreadsheet_products__a_bad_row_is_reported_with_why_not_s
   assert.deepEqual(result.skipped.map((s) => s.row), [2, 3, 4]);
 });
 
+check("test_PRD_P0_70_flexible_spreadsheet_columns__a_real_world_header_row_still_matches", async () => {
+  /* A coworker's actual export, not our own sample file: "Item Name" instead
+     of "title", "Product Type" instead of "category", "Retail Price"
+     instead of "price", punctuation and casing nobody typed to a spec. */
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const csv =
+    "Item Name,Product_Type,Retail Price\n" +
+    "Wool Coat,Outerwear,245.00\n";
+
+  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.ready.length, 1);
+  assert.equal(result.ready[0].title, "Wool Coat");
+});
+
 check("test_PRD_P0_60_spreadsheet_products__catalog_create_product_still_gates_on_role_even_from_a_spreadsheet", async () => {
   /* draftProductBatch adds no role check of its own — catalog.create_product's own
      minRole is the only gate, same as every other caller. This is what the

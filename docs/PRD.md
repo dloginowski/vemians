@@ -535,6 +535,22 @@ that does not trace to one of these is a process failure (see §12).
     manager+ only, at the route itself: either tool's own `minRole` would otherwise turn a staff
     upload into the same refusal repeated once per row.
 
+29c'. **`Test-PRD-P0-70-flexible_spreadsheet_columns`** — A real spreadsheet is not typed to our
+    sample file. `pick()` (`ops/src/batch.js`) now normalizes both the uploaded header and the
+    synonym list to letters-and-digits only before comparing, so "Item Name", "item_name" and
+    "ITEM-NAME:" all match the same column — punctuation, casing and an underscore are not a
+    different column, the same rule `csvRecords()` already applied to whitespace. The synonym
+    lists themselves are also wider (`item`, `style`, `product type`, `retail price`, and
+    others), covering headers a real export is likely to use rather than only the ones this
+    codebase's own sample file happens to name. **This still refuses, honestly, past that
+    point**: a column this codebase has never heard of (a completely different word, not a
+    formatting variant) is still an unmatched title and a plain "no title column" skip — the
+    fix is broader matching, not a guess at an unfamiliar word. For a spreadsheet shaped
+    differently enough that no synonym list will ever cover it, the ops assistant chat (any
+    role, one click from the front page — P0-69) already has full `catalog.*` tool access and
+    can be handed the same rows as plain text to interpret with actual judgement, which no
+    fixed column list can do.
+
 29d. **`Test-PRD-P0-61-square_customer_intake`** — `customer.create` writes a new customer into
     SQUARE's own Customer Directory — the same directory the till and the storefront's contact form
     (P0-58/ADR-015) already write to — using Square's own field names (`given_name`, `family_name`,
@@ -1024,6 +1040,7 @@ Where each feature is enforced today:
 | P0-55 | `ops/test/media-square.test.mjs`, over a stubbed Square uploader |
 | P0-59 | `ops/test/media-new.test.mjs`, over the real Worker |
 | P0-60 | `ops/test/csv.test.mjs` for the parser; the product-batch half of `ops/test/catalog-write.test.mjs`; the customer-batch half of `ops/test/customer-create.test.mjs`; `ops/test/batch-route.test.mjs` for both HTTP routes |
+| P0-70 | the flexible-header half of `ops/test/catalog-write.test.mjs` |
 | P0-61 | `ops/test/customer-create.test.mjs`, over a fake Square client — no Square account, token or network call is involved |
 | P0-62 | `ops/test/mcp-instructions.test.mjs` |
 | P0-63 | the editable-approval half of `ops/test/catalog-write.test.mjs`, over the real Worker (`worker.fetch`) |

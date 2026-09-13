@@ -25,9 +25,20 @@ import { parkForApproval } from "./mcp.js";
 import { csvRecords, parseCsv } from "./tools/csv.js";
 import { CAPS } from "./tools/caps.js";
 
+/* Letters and digits only, so "Item Name", "item_name", "Item-Name:" and
+   "ITEM NAME" all match the same synonym — a coworker's spreadsheet was not
+   typed to a spec, and punctuation or an underscore is not a different
+   column. */
+function normalizeKey(k) {
+  return String(k ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
 function pick(record, keys) {
+  const normalized = {};
+  for (const [k, v] of Object.entries(record)) normalized[normalizeKey(k)] = v;
   for (const k of keys) {
-    if (record[k]) return record[k];
+    const v = normalized[normalizeKey(k)];
+    if (v) return v;
   }
   return "";
 }
@@ -55,12 +66,15 @@ async function parkRows(env, { actor, role, toolName }, rows) {
 
 /* ── merchandise ──────────────────────────────────────────────────────── */
 
-const TITLE_KEYS = ["title", "name", "product", "product title", "product name"];
-const DESCRIPTION_KEYS = ["description", "desc", "details"];
-const CATEGORY_KEYS = ["category", "category name"];
-const PRICE_KEYS = ["price", "cost", "price (usd)"];
+const TITLE_KEYS = [
+  "title", "name", "product", "product title", "product name",
+  "item", "item name", "item title", "style", "style name",
+];
+const DESCRIPTION_KEYS = ["description", "desc", "details", "product description", "copy"];
+const CATEGORY_KEYS = ["category", "category name", "type", "product type", "collection", "department"];
+const PRICE_KEYS = ["price", "cost", "price (usd)", "retail price", "unit price", "sale price", "msrp"];
 const CURRENCY_KEYS = ["currency"];
-const SKU_KEYS = ["sku"];
+const SKU_KEYS = ["sku", "style number", "item number", "product code"];
 
 /*
  * "45", "45.00", "$45.00", "1,045.50" — never a float multiplication, which
