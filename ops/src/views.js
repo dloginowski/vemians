@@ -1037,16 +1037,44 @@ ${OPS_DARK_CSS}
   border-radius: 8px; background: var(--image-ground); color: var(--ink);
 }
 .items-search:focus { outline: none; border-color: var(--ink); }
+/* Two columns down to phone width — the owner's own words: "on my
+   phone, I want a two column layout... as it gets wider, it will just
+   fill the entire screen." auto-fill's own minmax(240px, 1fr) never
+   fits two columns below ~500px (2 * 240px alone exceeds most phone
+   screens), collapsing to one. Fixed at exactly 2 below 480px, then
+   auto-fill takes over — more columns as the viewport grows, same as
+   before. */
 .items-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  display: grid; grid-template-columns: repeat(2, 1fr);
   gap: 10px; align-items: start;
+}
+@media (min-width: 480px) {
+  .items-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
 }
 .item-tile {
   box-sizing: border-box; border: 1px solid var(--rule); border-radius: 8px;
   padding: 10px 12px; background: var(--image-ground); font-size: 12px;
   display: flex; flex-direction: column; gap: 6px;
 }
-.item-tile h3 { margin: 0; font-size: 13px; color: var(--ink); line-height: 1.3; }
+/* Expanding one tile to the full screen instead of leaving every field
+   crammed into a small grid cell — the owner's own words: "when I
+   click on the item, it's gonna expand to my entire phone screen, and
+   I should see all of that data." Same convention as .table-card.full
+   in the chat log (TABLE_CARD_CSS above): the SAME element grows in
+   place, no second element or separate scroll state to track. */
+.item-tile.full {
+  position: fixed; inset: 12px; z-index: 50; overflow: auto;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+}
+.item-tile h3 {
+  margin: 0; font-size: 13px; color: var(--ink); line-height: 1.3;
+  display: flex; justify-content: space-between; align-items: center; gap: 6px;
+}
+.item-expand {
+  flex: 0 0 auto; font: inherit; font-size: 10px; padding: 1px 6px; cursor: pointer;
+  border: 1px solid var(--rule); border-radius: 999px; background: var(--ground); color: var(--muted);
+}
+.item-expand:hover { border-color: var(--accent); color: var(--accent); }
 .item-badges { display: flex; flex-wrap: wrap; gap: 4px; }
 .item-badges span {
   font-size: 10px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--rule); color: var(--muted);
@@ -1139,7 +1167,7 @@ function itemTile(product, canEdit) {
     : "";
 
   return `<article class="item-tile" data-search="${esc(searchText)}">
-    <h3>${esc(product.title)}</h3>
+    <h3><span>${esc(product.title)}</span><button type="button" class="item-expand">Expand</button></h3>
     <div class="item-badges">
       <span class="channel-${product.channel}">${esc(CHANNEL_LABEL[product.channel] ?? product.channel)}</span>
       <span>${esc(product.status)}</span>
@@ -1159,13 +1187,19 @@ export function itemsPage({ role }, products) {
 
   return page(
     "Items — Vemians ops",
-    /* No bar here either — see the same note on opsPage(). */
+    /* No bar here either — see the same note on opsPage(). Search sits
+       BELOW the grid, not above it — the owner's own words: "it's not
+       easy to put in stuff at the top of the screen of the phone." A
+       thumb reaches the bottom of a phone screen far more easily than
+       the top, so the one thing on this page that's typed into every
+       time belongs where a thumb already rests, not up where it has to
+       stretch. */
     `<main class="ops">
   <section class="greet"><h1>Items</h1></section>
-  <input type="text" class="items-search" id="item-search" placeholder="Search title, handle, category, SKU, custom fields...">
   <div class="items-grid" id="items-grid">
 ${tiles}
   </div>
+  <input type="text" class="items-search" id="item-search" placeholder="Search title, handle, category, SKU, custom fields...">
 </main>
 <script>
 document.getElementById("item-search").addEventListener("input", (e) => {
@@ -1173,6 +1207,19 @@ document.getElementById("item-search").addEventListener("input", (e) => {
   document.querySelectorAll(".item-tile").forEach((el) => {
     el.hidden = Boolean(q) && !el.dataset.search.includes(q);
   });
+});
+/* One delegated listener for every tile's own Expand button, rather
+   than one per tile — the same "no per-item wiring" trade the search
+   filter above already makes. Toggling .full on the tile itself grows
+   the SAME element in place (TABLE_CARD_CSS's own .table-card.full
+   convention in the chat log) instead of opening a second element or
+   tracking separate scroll state. */
+document.getElementById("items-grid").addEventListener("click", (e) => {
+  const btn = e.target.closest(".item-expand");
+  if (!btn) return;
+  const tile = btn.closest(".item-tile");
+  const isFull = tile.classList.toggle("full");
+  btn.textContent = isFull ? "Close" : "Expand";
 });
 </script>`,
     ITEMS_CSS,
