@@ -124,14 +124,17 @@ ${OPS_DARK_CSS}
   overflow-x: visible; white-space: pre-wrap; word-break: break-word;
   font-family: var(--face); font-size: var(--type);
 }
-/* Top-aligned with the first line of a prompt that wraps to three. */
+/* Top-aligned with the first line of a prompt that wraps to three. Round,
+   like every other icon-only control on this surface now (the composer's
+   attach and send buttons) — one shape for "this button is an icon", not a
+   square one here and a circle there. */
 .copy button {
   flex: 0 0 auto; font: inherit; font-size: var(--eyebrow);
   width: 34px; height: 34px; padding: 0; cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;
-  border: 1px solid var(--rule); background: var(--ground); color: var(--ink);
+  border: 1px solid var(--rule); border-radius: 50%; background: var(--ground); color: var(--ink);
 }
-.copy button:hover { border-color: var(--ink); }
+.copy button:hover { border-color: var(--accent); color: var(--accent); }
 /* The confirmation replaces the icon in place — same box, same width, so the
    line beside it does not move when someone taps. */
 .copy button[data-state] svg { display: none; }
