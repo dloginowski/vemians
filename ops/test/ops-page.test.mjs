@@ -324,28 +324,54 @@ check("test_PRD_P0_89_batch_preview_confirm__the_table_matches_a_plain_rendered_
 check("test_PRD_P0_89_batch_preview_confirm__the_compact_card_fits_a_header_and_two_rows_not_a_flat_guess", async () => {
   /* The owner's own words: "make it fit to content vertically. I only
      need to see 2 rows. The header and the content cells when in chat
-     preview." — then, once smaller fonts/padding shrank the actual row
-     height: "Make the table with less padding and smaller fonts. Make
-     it as space efficient as possible." 84px is the SAME specific target
-     (one header row + two data rows), recomputed for the smaller font
-     and cell padding — not the old, bigger-font 118px carried over
+     preview." — then, twice over, once smaller fonts/padding shrank the
+     actual row height: "Make the table with less padding and smaller
+     fonts. Make it as space efficient as possible," and again "make the
+     cells fit to content... very minimal padding... font size same as
+     quick prompt pills." 70px is the SAME specific target (one header
+     row + two data rows), recomputed yet again for the smaller font and
+     cell padding — not an earlier round's 84px or 118px carried over
      unchanged. Full screen must still drop the cap entirely so it shows
      the WHOLE table, not just a bit more of it. */
   const { body } = await frontPage(OWNER);
-  assert.match(body, /\.table-card\s*\{[^}]*max-height:\s*84px/s, "the compact card must be sized to roughly a header plus two rows at the smaller font");
+  assert.match(body, /\.table-card\s*\{[^}]*max-height:\s*70px/s, "the compact card must be sized to roughly a header plus two rows at the smaller font");
+  assert.doesNotMatch(body, /\.table-card\s*\{[^}]*max-height:\s*84px/s, "the previous round's 84px target must not still be set");
   assert.doesNotMatch(body, /\.table-card\s*\{[^}]*max-height:\s*118px/s, "the old, bigger-font 118px target must not still be set");
   assert.match(body, /\.table-card\.full\s*\{[^}]*max-height:\s*none/s, "full screen must remove the height cap entirely");
 });
 
 check("test_PRD_P0_89_batch_preview_confirm__the_table_is_as_space_efficient_as_possible", async () => {
   /* The owner's own words: "Make the table with less padding and
-     smaller fonts. Make it as space efficient as possible." Every size
-     in the card — its own box, the title bar, every cell — must be
-     smaller than the previous round, not just one of them. */
+     smaller fonts. Make it as space efficient as possible," then again
+     "very minimal padding." Every size in the card — its own box, every
+     cell — must be smaller than the previous round, not just one of them. */
   const { body } = await frontPage(OWNER);
-  assert.match(body, /\.table-card\s*\{[^}]*font-size:\s*10px/s, "the card's own base font must be smaller than the previous 12px");
-  assert.match(body, /\.table-card\s*\{[^}]*padding:\s*5px 6px/s, "the card's own padding must be tighter than the previous 8px 10px");
-  assert.match(body, /\.table-card th, \.table-card td\s*\{[^}]*padding:\s*2px 6px/s, "cell padding must be tighter than the previous 4px 10px");
+  assert.match(body, /\.table-card\s*\{[^}]*padding:\s*4px/s, "the card's own padding must be tighter than the previous 5px 6px");
+  assert.match(body, /\.table-card th, \.table-card td\s*\{[^}]*padding:\s*1px 4px/s, "cell padding must be tighter than the previous 2px 6px");
+});
+
+check("test_PRD_P0_89_batch_preview_confirm__cells_fit_their_own_content_instead_of_being_stretched", async () => {
+  /* The owner's own words: "make the cells fit to content." The table
+     used to carry "min-width: 100%" alongside its own "width:
+     max-content" — forcing a narrow table (few short columns) to
+     stretch across the whole card, so the browser padded out the extra
+     space inside the cells rather than leaving the table its natural
+     size. That min-width rule must be gone; the sideways-scroll
+     behaviour for a WIDE table still comes from the card's own overflow,
+     never from stretching a narrow one. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.table-card table\s*\{[^}]*width:\s*max-content/s, "the table must still size to its own natural width");
+  assert.doesNotMatch(body, /\.table-card table\s*\{[^}]*min-width:\s*100%/s, "a narrow table must not be stretched to fill the card");
+});
+
+check("test_PRD_P0_89_batch_preview_confirm__cell_font_matches_the_quick_prompt_pills", async () => {
+  /* The owner's own words: "font size same as quick prompt pills" —
+     the same 11px .choices .btn (the quick-prompt chips right below the
+     widget) already uses, not an unrelated smaller size the table card
+     picked on its own. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.choices \.btn\s*\{[^}]*font-size:\s*11px/s, "sanity check: the quick-prompt pills' own font-size");
+  assert.match(body, /\.table-card th, \.table-card td\s*\{[^}]*font-size:\s*11px/s, "cell font-size must match the quick-prompt pills");
 });
 
 check("test_PRD_P0_89_batch_preview_confirm__the_table_renders_right_under_its_own_tool_step_not_after_the_reply", async () => {

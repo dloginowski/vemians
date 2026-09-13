@@ -1465,6 +1465,22 @@ that does not trace to one of these is a process failure (see §12).
     actually produces — `84px`, down from `118px` — still the same specific target (a header row
     plus two data rows), not the bigger-font number simply carried over unchanged.
 
+    **Cells fit their own content instead of stretching to fill the card, one more round of
+    padding cut, and the cell font matches the quick-prompt pills.** The owner's own words: "make
+    the cells fit to content. And very minimal padding. Either font size same as quick prompt
+    pills." `.table-card table` carried both `width: max-content` AND `min-width: 100%` — the
+    second rule forced a narrow table (few short columns, the common case for a 3-4 column
+    preview) to stretch across the whole card regardless of how little its own content needed,
+    which is what actually produced the "wasted padding" look, not the cell padding values
+    themselves. Dropping `min-width: 100%` and keeping only `width: max-content` lets a narrow
+    table sit at its own natural width; a WIDE table still scrolls sideways within the card exactly
+    as before, since that behaviour was always the card's own `overflow: auto`, never this rule.
+    Cell padding drops again, `2px 6px` to `1px 4px`, and the card's own padding to a flat `4px`;
+    cell font-size is set explicitly to `11px` — the same size `.choices .btn` (the quick-prompt
+    chips right under the widget) already uses — rather than inheriting the card's own smaller
+    size. `max-height` is recomputed once more for the shorter row height this produces, `70px`,
+    still the same header-row-plus-two-data-rows target as every earlier round.
+
 34a''''''''''''''''''''. **`Test-PRD-P0-90-daylight_contrast`** — The owner's own words: "Bump up
     the contrast of the dimmer elements on ops page. Its a little hard to see on a mobile device
     in broad daylight." Direct sun washes out exactly the mid-tones a "dim, secondary" colour is
