@@ -120,41 +120,45 @@ a:hover { opacity: 0.82; }
    being changed — "still use a scrolling frame so I can see the entire
    table if cropped" — only the table's own visual grammar is. */
 const TABLE_CARD_CSS = `
-/* Cells fit their OWN content instead of being stretched to fill the
-   card's width — the owner's own words: "make the cells fit to
-   content." table's old "min-width: 100%" forced a narrow table (few
-   short columns) to stretch across the whole card anyway, so the
-   browser padded out the extra space inside the cells rather than
-   leaving the table its natural size. Dropped, so a two-column preview
-   sits at its own natural width instead of stretched; a wide table
-   still scrolls sideways inside the card exactly as before (that
-   behaviour came from the card's own overflow, never from this rule).
-   Padding is cut to the bare minimum a border and a line of text still
-   need, and cell/table font-size matches the quick-prompt pills right
-   below the widget (.choices .btn, 11px) rather than an unrelated
-   smaller size of its own. max-height is recomputed again for the
-   shorter row height this produces — still a header row plus two data
-   rows, not the previous round's bigger-font 84px carried over. */
+/* The table now SCALES to the card's own full width instead of sizing to
+   its natural content width — the owner's own words: "You can scale the
+   table to fit full width if possible! The goal is to avoid cropping as
+   much as possible while retaining readability." A previous round
+   dropped "min-width: 100%" so a narrow table would not stretch; this
+   reverses that on purpose, now for the opposite reason — a table wider
+   than the card used to need sideways scrolling to see the cropped-off
+   columns at all, which reads as "cropped" even though the rest is one
+   scroll away. "width: 100%" with "table-layout: fixed" instead
+   guarantees the table never exceeds the card's own width regardless of
+   column count, so there is nothing left to scroll past; long content
+   (a full URL, a long product title) WRAPS onto more lines within its
+   own column ("overflow-wrap: anywhere") instead of being cut off or
+   pushing the table wider. Padding is halved again (card 4px -> 2px,
+   every cell and the "Full screen" button 1px 4px -> 1px 2px) and the
+   font drops to a flat 9px everywhere in the card, matching the title
+   bar and button's own size instead of a bigger size just for cells.
+   max-height is recomputed once more for the smaller row height this
+   produces. */
 .table-card {
   align-self: stretch; max-width: 100%; box-sizing: border-box;
-  border: 1px solid var(--rule); border-radius: 0; padding: 4px;
-  background: var(--image-ground); font-size: 11px;
-  max-height: 70px; overflow: auto;
+  border: 1px solid var(--rule); border-radius: 0; padding: 2px;
+  background: var(--image-ground); font-size: 9px;
+  max-height: 58px; overflow: auto;
 }
 .table-card h4 {
   margin: 0 0 2px; padding: 0; font-size: 9px; font-weight: 700;
   color: var(--muted); display: flex; justify-content: space-between;
   align-items: center; gap: 6px; position: sticky; left: 0;
 }
-.table-card table { width: max-content; border-collapse: collapse; }
+.table-card table { width: 100%; table-layout: fixed; border-collapse: collapse; }
 .table-card th, .table-card td {
-  text-align: left; padding: 1px 4px; border: 1px solid var(--rule);
-  white-space: nowrap; vertical-align: top; font-size: 11px;
+  text-align: left; padding: 1px 2px; border: 1px solid var(--rule);
+  overflow-wrap: anywhere; word-break: break-word; vertical-align: top; font-size: 9px;
 }
 .table-card th { color: var(--ink); font-weight: 700; background: var(--ground); }
-.table-card a { color: var(--accent); }
+.table-card a { color: var(--accent); overflow-wrap: anywhere; }
 .table-card button {
-  flex: 0 0 auto; font: inherit; font-size: 9px; padding: 1px 4px; cursor: pointer;
+  flex: 0 0 auto; font: inherit; font-size: 9px; padding: 1px 2px; cursor: pointer;
   border: 1px solid var(--rule); border-radius: 12px; background: var(--ground); color: var(--ink);
 }
 .table-card button:hover { border-color: var(--accent); color: var(--accent); }

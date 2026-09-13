@@ -1481,6 +1481,25 @@ that does not trace to one of these is a process failure (see §12).
     size. `max-height` is recomputed once more for the shorter row height this produces, `70px`,
     still the same header-row-plus-two-data-rows target as every earlier round.
 
+    **The table now scales to the card's own full width instead of sizing to its content, and
+    reverses course from the round right before it.** The owner's own words: "Make padding half
+    and font size to 9. You can scale the table to fit full width if possible! The goal is to
+    avoid cropping as much as possible while retaining readability." Padding is halved again
+    (card `4px` to `2px`, every cell and the "Full screen" button `1px 4px` to `1px 2px`) and the
+    font drops to a flat `9px` everywhere in the card, matching the title bar and button instead of
+    a bigger size just for cells. The bigger change is `.table-card table`: the entry right above
+    this one deliberately dropped `min-width: 100%` so a narrow table would size to its own natural
+    content width rather than stretch — but a table WIDER than the card still needed sideways
+    scrolling to reach the columns cropped off past the card's own edge, which is exactly the
+    "cropping" the owner was pointing at. `width: 100%` with `table-layout: fixed` reverses that on
+    purpose: the table can never exceed the card's own width regardless of column count, so there
+    is nothing left to scroll past. The old `white-space: nowrap` is dropped along with it —
+    `overflow-wrap: anywhere` lets long, unbroken content (a full approval URL, a long product
+    title) wrap onto more lines within its own column instead of being cut off or forcing the table
+    wider — readability is kept through wrapping, not through truncation or a horizontal scrollbar.
+    `max-height` is recomputed once more for the smaller row height this produces, `58px`, still
+    the same header-row-plus-two-data-rows target every earlier round targeted.
+
 34a''''''''''''''''''''. **`Test-PRD-P0-90-daylight_contrast`** — The owner's own words: "Bump up
     the contrast of the dimmer elements on ops page. Its a little hard to see on a mobile device
     in broad daylight." Direct sun washes out exactly the mid-tones a "dim, secondary" colour is
