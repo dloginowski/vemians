@@ -201,11 +201,14 @@ const SHELL_CSS = `
 ${OPS_DARK_CSS}
 html, body { height: 100%; margin: 0; }
 .shell { display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; background: var(--ground); }
-.shell-header { flex: 0 0 auto; padding: 10px 12px 0; }
+/* Side padding matches .ops's own (below, 8px) rather than an unrelated
+   12px, so the tab row's left edge lines up with the content edge in the
+   iframe beneath it instead of sitting further out from the screen edge. */
+.shell-header { flex: 0 0 auto; padding: 10px 8px 0; }
 .shell-nav { display: flex; align-items: flex-end; gap: 3px; }
 .shell-nav button {
   font: inherit; font-size: 12px; font-weight: 600; padding: 7px 16px; cursor: pointer;
-  border: 1px solid var(--rule); border-bottom: none; border-radius: 6px 6px 0 0;
+  border: 1px solid var(--rule); border-bottom: none; border-radius: 10px 10px 0 0;
   background: var(--image-ground); color: var(--muted); position: relative;
 }
 .shell-nav button:hover:not(.active) { color: var(--accent); }

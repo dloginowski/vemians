@@ -994,6 +994,14 @@ that does not trace to one of these is a process failure (see §12).
     under the Items mirror's own 500, which already names an unrelated data-layer fix that signing
     in again does nothing for. That note now only renders for an actual identity refusal (401/403).
 
+    **Two small tab-styling corrections.** The owner's own words: "I want tabs to have radiused
+    corners! And give the tabs side padding to get them away from the edge (match the content
+    padding)." `.shell-nav button`'s own top corner radius goes from a barely-visible `6px` to a
+    clearly rounded `10px`; `.shell-header`'s own side padding drops from an unrelated `12px` to
+    the `8px` `.ops` (the content wrapper both `/chat` and `/items` use) already carries, so the
+    tab row's own left edge lines up with the content edge in the iframe beneath it instead of
+    sitting further out from the screen edge than what it fronts.
+
 47b. **`Test-PRD-P0-72-product_detail_page`** — Every product has its own page at
     `/products/<handle>` — the answer to "how do I see product details", asked directly, of a
     shop whose cards used to be `<article>`s with no click-through at all. `loadProduct(env,
