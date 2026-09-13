@@ -175,7 +175,8 @@ check("test_PRD_P0_71_items_tab__the_tabs_are_top_rounded_and_square_on_the_bott
      top-only value used before), a flat SQUARE bottom — a pill needs
      BOTH ends rounded, and this one only ever has one. */
   const { body } = await shell(OWNER);
-  assert.match(body, /\.shell-nav button\s*\{[^}]*border-radius:\s*14px 14px 0 0/s);
+  assert.match(body, /\.shell-nav\s*\{[^}]*--tab-radius:\s*14px/s);
+  assert.match(body, /\.shell-nav button\s*\{[^}]*border-radius:\s*var\(--tab-radius\) var\(--tab-radius\) 0 0/s);
   assert.doesNotMatch(body, /\.shell-nav button\s*\{[^}]*border-radius:\s*(8px|20px|30px)[;\s]/s, "no all-corners radius (the pill shape) may remain");
 });
 
@@ -195,17 +196,21 @@ check("test_PRD_P0_71_items_tab__the_active_tab_structurally_merges_into_the_pan
 });
 
 check("test_PRD_P0_71_items_tab__the_active_tab_has_round_out_notches_at_its_own_base", async () => {
-  /* The exact box-shadow "round-out" formula the owner sent, code
-     included: a 14px box (matching the tab's own top corner radius) just
+  /* The owner's own complete reference code, verbatim mechanism: a
+     --tab-radius custom property driving every number through calc(),
+     not hand-computed pixel literals. Each pseudo-element sits just
      outside the active tab's own left/right edge, one corner cut into a
      quarter-circle, then a ZERO-blur, ZERO-spread shadow of that same
-     shape offset sideways by HALF the radius (7px) — not a flood-filled
-     spread. */
+     shape offset sideways by exactly HALF --tab-radius — not a
+     flood-filled spread. */
   const { body } = await shell(OWNER);
-  assert.match(body, /\.shell-nav button\.active::before\s*\{[^}]*border-bottom-right-radius:\s*14px/s);
-  assert.match(body, /\.shell-nav button\.active::before\s*\{[^}]*box-shadow:\s*7px 0 0 0 var\(--ground\)/s);
-  assert.match(body, /\.shell-nav button\.active::after\s*\{[^}]*border-bottom-left-radius:\s*14px/s);
-  assert.match(body, /\.shell-nav button\.active::after\s*\{[^}]*box-shadow:\s*-7px 0 0 0 var\(--ground\)/s);
+  assert.match(body, /\.shell-nav\s*\{[^}]*--tab-radius:\s*14px/s);
+  assert.match(body, /\.shell-nav button\.active::before\s*\{[^}]*left:\s*calc\(var\(--tab-radius\) \* -1\)/s);
+  assert.match(body, /\.shell-nav button\.active::before\s*\{[^}]*border-bottom-right-radius:\s*var\(--tab-radius\)/s);
+  assert.match(body, /\.shell-nav button\.active::before\s*\{[^}]*box-shadow:\s*calc\(var\(--tab-radius\) \/ 2\) 0 0 0 var\(--ground\)/s);
+  assert.match(body, /\.shell-nav button\.active::after\s*\{[^}]*right:\s*calc\(var\(--tab-radius\) \* -1\)/s);
+  assert.match(body, /\.shell-nav button\.active::after\s*\{[^}]*border-bottom-left-radius:\s*var\(--tab-radius\)/s);
+  assert.match(body, /\.shell-nav button\.active::after\s*\{[^}]*box-shadow:\s*calc\(var\(--tab-radius\) \/ -2\) 0 0 0 var\(--ground\)/s);
 });
 
 check("test_PRD_P0_71_items_tab__the_gap_between_tabs_is_wide_enough_the_notches_never_bite_a_neighbour", async () => {
