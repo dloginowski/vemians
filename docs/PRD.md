@@ -1053,115 +1053,23 @@ that does not trace to one of these is a process failure (see §12).
     and overlapped — a genuine structural merge into `.shell-panel` below it, not two lines
     standing in for one.
 
-    **A "round-out" notch at the base of the active tab, the classic box-shadow technique, sent
-    directly by the owner.** Where the active tab's own straight side met the header's flat
-    background, it did so at a hard right angle — two 8×8 pseudo-elements just outside the tab's
-    own left/right edge fix that: each has ONE corner rounded, and its own `box-shadow` (matching
-    colour and radius) paints the header's background everywhere OUTSIDE that arc, which is what
-    reads as the header's flat edge curving smoothly UP into the tab's own straight side rather
-    than meeting it square-on. `.shell-header` carries no background of its own, so the notch has
-    to name `.shell`'s own `--ground` explicitly rather than inherit it through two positioned
-    ancestors. `.shell-nav`'s own tab gap widens from `3px` to `12px` in the same change — the
-    notch reaches `8px` outside the active tab's own edge, and the old gap would have let that
-    paint over part of whichever tab sits next to it.
-
-    **The notch's own formula, corrected against the owner's complete reference code.** The first
-    pass above approximated the technique with a flood-filled `box-shadow: 4px 4px 0 4px
-    var(--ground)` — nonzero vertical offset AND nonzero spread. The owner's own complete code
-    (`--radius: 12px`, `box-shadow: calc(var(--radius) / 2) 0 0 0 var(--tab-color)`) uses neither:
-    ZERO blur, ZERO spread, a HORIZONTAL-ONLY offset of exactly half the radius — an offset COPY
-    of the same cut-corner shape, not a flood fill spreading outward from it. Reworked to match
-    exactly and, while at it, sized the notch to the tab's own existing `14px` top-corner radius
-    instead of an arbitrary `8px`: `.shell-nav button.active::before`/`::after` are now `14px`
-    boxes with `border-bottom-right-radius`/`border-bottom-left-radius: 14px` and `box-shadow: 7px
-    0 0 0 var(--ground)` / `-7px 0 0 0 var(--ground)` (7px being exactly half of 14px). The larger
-    notch reaches further than the `8px` one did, so `.shell-nav`'s own gap widened again, `12px`
-    to `16px`, to keep it clear of a neighbouring tab.
-
-    **The notch's own mechanism, made literal.** Even with the right numbers, the round above still
-    hand-computed every value (`14px`, `7px`, `-7px`) as pixel literals rather than using the
-    owner's own mechanism — a single radius variable driving every other number through `calc()`.
-    The owner's own words, after seeing that this still did not match: "I gave you exact css and
-    html." `.shell-nav` now declares `--tab-radius: 14px` once, and every dependent number is
-    `calc()`-derived from it exactly as the reference code was — `border-radius: var(--tab-radius)
-    var(--tab-radius) 0 0` on the tab itself, `width`/`height: var(--tab-radius)` on each notch,
-    `left: calc(var(--tab-radius) * -1)` / `right: calc(var(--tab-radius) * -1)`, `border-bottom-
-    *-radius: var(--tab-radius)`, and `box-shadow: calc(var(--tab-radius) / 2) 0 0 0 var(--ground)`
-    / `calc(var(--tab-radius) / -2) 0 0 0 var(--ground))` in place of `var(--tab-color)` (`.shell-
-    header` has no background of its own, so `--ground` has to be named explicitly rather than
-    inherited). Same rendered result as the literal-pixel round before it, but now one number
-    change to `--tab-radius` moves every dependent value together, the way the owner's own code
-    was written to work.
-
-    **The notch was invisible, and every tab looked like its own separate chip — the owner's own
-    words, after the previous round still deployed: "No. What you have now looks like shit."**
-    Two real bugs, not a formula mismatch. First: `.shell-header` had no background of its own, so
-    it inherited `--ground` from `.shell` — the exact same colour the round-out notch paints
-    outward (the active tab's own background). Painting a colour over an identical background is a
-    no-op; the whole trick was invisible against the header's real background, working only where
-    it happened to land on a neighbouring tab's own box instead. Second: every tab, active or not,
-    carried its own `border` and `background` — the reference code's `.tab` is plain (`border:
-    none; background: transparent`) and only `.tab.active` gets a fill, a border, or a radius at
-    all; giving every tab a bordered box made the strip read as separate chips rather than folder
-    tabs in a flat bar, which the notch curves (designed for ONE raised tab against a flat
-    background) then cut into at odd angles. Fixed both to match the reference structurally, not
-    just its formula: `.shell-header` now carries its own `background: var(--image-ground)`,
-    distinct from the active tab's `var(--ground)`, so the notch has something to actually contrast
-    against; `.shell-nav button`'s base rule dropped to `border: none; background: transparent`
-    (plain muted text, nothing else), with the border, fill, and `border-radius` moved onto
-    `.shell-nav button.active` alone, exactly where the reference code puts them.
-
-    **Still "black shapes" at the base of the active tab, deployed and seen live again.** The header
-    now had a background genuinely different from `--ground` — `--image-ground` — but the two are
-    both near-black, only a handful of RGB points apart (`#191817` vs `#242220`): enough of a
-    difference for the notch to stop being a literal no-op, not enough to read as a curve. What
-    showed up instead was a flat dark smudge, indistinguishable in shape from a plain square.
-    `.shell-header`'s background moved to `--bar` (`#000000`, pure black) — the same token the
-    storefront's own top bar already uses for a visibly distinct strip — giving the notch an actual
-    colour boundary to curve across instead of a barely-different shade of the same near-black.
-
-    **A thick black smudge on top of the orange edge, once the notch actually had contrast to work
-    with.** With a real colour boundary in place, a different bug became visible: the active tab's
-    own left/right border (`border: 1px solid var(--accent)`, added for a visible "paper tab"
-    outline the reference code never had) sits exactly on the same pixels the round-out notch is
-    designed to blend across — the notch's entire job is to paint the tab's own colour outward past
-    that boundary, so anything drawn ON that boundary, orange border included, gets partly
-    overpainted by the notch's near-black shadow. No offset adjustment fixes this: the shadow's
-    width is deliberately wider than the boundary it crosses, by design, on both sides of it.
-    `.shell-nav button.active` now carries `border-top` only, dropping the left/right border
-    entirely — the notch only ever reaches the BOTTOM corners, so a top-only accent line never
-    meets it, and the reference code's own `.tab` never had a border for the same underlying
-    reason.
-
-    **A subpixel seam, diagnosed and fixed by the owner directly.** At fractional device pixel
-    ratios, a browser can round the active tab's own border-box edge and the notch pseudo-element's
-    edge to two DIFFERENT physical pixels — a hairline gap opens between them, and the header's own
-    background shows through it as a thin dark line right on the curve, independent of the border
-    conflict fixed above. The owner's own fix: `bottom: -1px` instead of flush `0`, with the
-    pseudo-element's own `height` grown by that same `1px` (`calc(var(--tab-radius) + 1px)`) so its
-    TOP edge — the one that actually meets the tab — lands exactly where it did before; only the
-    bottom now deliberately overlaps the floor by a pixel, closing the gap regardless of which way
-    any given browser's own rounding falls.
-
-    **"Hid the side edges" — the fix for the black smudge went too far, then two more rounds
-    chasing an accent outline through the curve made it worse, not better.** Dropping the active
-    tab's left/right border entirely (to stop it clashing with the notch) removed the tab's own
-    visible outline on its sides, which was never the actual ask: "imagine the bottom orange edge,
-    smoothly curves up the tab... and keeps going right" describes a border that CONTINUES through
-    the curve. The attempt that followed — a second, spread-based accent shadow layered onto the
-    notch, which needed its own `border-radius` correction once it made a preexisting height/radius
-    mismatch visible ("they aren't matching up"), then an offset correction chasing a 1px
-    misalignment between the curve and the border ("the right one has to have its left edge aligned
-    and vice versa") — never converged; the owner's own words on the final result: "looks like a
-    fucking mushroom." The accent shadow layer and its offset correction are both reverted; the
-    `border-radius` fix stays, since the height/radius mismatch it corrects is real and independent
-    of whether the curve carries an outline at all. The curve is a single plain `--ground` shadow
-    again, exactly the reference's own one-colour formula. The border is `border-top` only. In
-    place of a side border, `.shell-nav button.active` carries two 1px-wide `linear-gradient` lines
-    as part of its own `background`, positioned at the top-left and top-right and sized
-    `calc(100% - var(--tab-radius) - 1px)` tall — short enough that they stop well above where the
-    curve's own reach (`--tab-radius`) begins, so they can never touch or distort it. Plain and
-    disconnected from the curve beats decorated and broken.
+    **A "round-out" notch at the base of the active tab — eight straight rounds of box-shadow,
+    border-radius, and offset corrections chasing each other's own artifacts, ending in "looks like
+    a fucking mushroom."** The idea, sent directly by the owner as a complete reference
+    implementation: curve the header's flat background smoothly up into the active tab's own
+    straight side at the base, using paired pseudo-elements with a matching box-shadow. Every
+    attempt to get this right surfaced a new, different bug — an invisible curve against a
+    background that didn't contrast enough, a black smudge where the curve crossed the tab's own
+    border, a stray flag where a height fix didn't match its own radius, a 1px misalignment between
+    the curve and the border, and finally a shape decorated with an accent outline that read as a
+    mushroom instead of a tab. The owner's own words, plainly, after that last round: "Just make
+    them with a rounded top and straight bottom edges. I'm tired of you fucking up." The whole
+    notch mechanism — both pseudo-elements, every shadow layer, every correction — is removed.
+    `.shell-nav button.active` is now the plain shape it always could have been: `border-radius:
+    var(--tab-radius) var(--tab-radius) 0 0` (rounded top, square bottom, unchanged from the
+    "not pills" round above), a single `border: 1px solid var(--accent); border-bottom: none`
+    running the full outline minus the edge that merges into `.shell-panel`, and nothing else at
+    the base — no curve, no notch, nothing left to distort.
 
 47b. **`Test-PRD-P0-72-product_detail_page`** — Every product has its own page at
     `/products/<handle>` — the answer to "how do I see product details", asked directly, of a

@@ -216,113 +216,38 @@ html, body { height: 100%; margin: 0; }
    edge, it is past it AND past .chat-top's own frame: 8px (.ops) + 1px
    (.chat-top's own border) + 14px (.chat-top's own padding) = 23px, the
    point actual chat content (the log, the composer) starts at. */
-/* The reference code's container has its own flat background
-   (--bg-color) distinct from the active tab's own colour (--tab-color)
-   — without that contrast the round-out notch below paints the tab's
-   colour over a background that is ALREADY that same colour and is
-   therefore invisible. A first attempt used --image-ground here, but
-   that and --ground are both near-black and only a few RGB points
-   apart — enough of a "difference" for the notch to no longer be a
-   literal no-op, but still too close to read as a curve; it showed up
-   as a flat dark smudge rather than a visible shape. --bar (pure black,
-   the same token the storefront's own top bar already uses for a
-   visibly distinct strip) reads as an actual colour boundary against
-   --ground instead. */
 .shell-header { flex: 0 0 auto; padding: 10px 23px 0; background: var(--bar); }
-/* Gap wide enough that the active tab's own round-out notches (--tab-
-   radius to each side, below) never reach a neighbouring tab — 3px let
-   them bite into whichever tab sits next to the active one. */
 .shell-nav { --tab-radius: 14px; display: flex; align-items: flex-end; gap: 16px; }
-/* Flat and borderless until active, matching the reference code's own
-   .tab exactly ("border: none; background: transparent") — every tab
-   drawn as its own bordered box, active or not, was what read as a row
-   of separate chips rather than folder tabs in a flat bar. */
+/* Flat and borderless until active — every tab drawn as its own
+   bordered box, active or not, was what read as a row of separate
+   chips rather than folder tabs in a flat bar. */
 .shell-nav button {
   font: inherit; font-size: 12px; font-weight: 600; padding: 7px 16px; cursor: pointer;
   border: none; background: transparent; color: var(--muted); position: relative;
 }
 .shell-nav button:hover:not(.active) { color: var(--accent); }
-/* A TAB, not a pill sitting above a line: rounded top corners, a flat
-   SQUARE bottom (never rounded — that is what read as a pill, not this
-   corner radius by itself), and the active one structurally open at the
-   bottom (no bottom border) so its own background flows straight into
-   .shell-panel's with nothing separating them — pulled down by the
-   shared 1px border width so its own sides land exactly on the panel's
-   own top border rather than stopping short of it. This is a real
-   merge, not two colour-matched lines standing in for one. Only the
-   active tab gets a fill or a radius at all — inactive tabs stay flat
-   per the reference's own .tab / .tab.active split.
-   Several rounds tried to make the accent border trace THROUGH the
-   curve itself (a second, spread-based shadow layer, then radius and
-   offset corrections chasing the artifacts that layer kept producing)
-   and each one made the shape worse, not better — the owner's own
-   words, after the last of them: "looks like a fucking mushroom."
-   That whole approach is abandoned. The border is back to TOP ONLY;
-   the sides are drawn separately, below, as short vertical lines that
-   stop well short of the curve — they can never touch it, so there is
-   nothing left for the curve to distort. */
+/* A TAB, not a pill: rounded top corners, a flat SQUARE bottom (never
+   rounded — that is what read as a pill), and the active one
+   structurally open at the bottom (no bottom border) so its own
+   background flows straight into .shell-panel's with nothing
+   separating them — pulled down by the shared 1px border width so its
+   own sides land exactly on the panel's own top border rather than
+   stopping short of it. This is a real merge, not two colour-matched
+   lines standing in for one.
+   A "round-out" notch that curved the header's own background smoothly
+   up into this shape's base used to sit here — eight straight rounds
+   of box-shadow/border-radius/offset corrections chasing each other's
+   own artifacts, ending in "looks like a fucking mushroom," the
+   owner's own words, then "just make them with a rounded top and
+   straight bottom edges. I'm tired of you fucking up." Removed
+   entirely. Rounded top, straight square bottom, a plain full border
+   (top + both sides) minus the one edge that merges into the panel —
+   nothing else. */
 .shell-nav button.active {
-  color: var(--ink);
-  border-top: 1px solid var(--accent);
+  background: var(--ground); color: var(--ink);
+  border: 1px solid var(--accent); border-bottom: none;
   border-radius: var(--tab-radius) var(--tab-radius) 0 0;
   margin-bottom: -1px; padding-bottom: 8px; z-index: 1;
-  /* Two 1px-wide accent lines, one on each side, each only as tall as
-     the tab's own straight vertical run — full height minus the
-     rounded top's own radius minus the curve's own reach at the
-     bottom (--tab-radius again, since the notches below start exactly
-     at this box's own bottom edge). Positioned flush at the very top
-     (right where border-top ends) and sized no taller than that, so
-     the line's own bottom end sits well above the curve — never
-     overlapping it, unlike every previous attempt at this. */
-  background:
-    linear-gradient(var(--accent), var(--accent)) left top / 1px
-      calc(100% - var(--tab-radius) - 1px) no-repeat,
-    linear-gradient(var(--accent), var(--accent)) right top / 1px
-      calc(100% - var(--tab-radius) - 1px) no-repeat,
-    var(--ground);
-}
-/* The "round-out" notch — the owner's own complete reference code,
-   almost verbatim mechanism (a --tab-radius custom property driving
-   every number through calc(), not hand-computed pixel literals): each
-   pseudo-element is a --tab-radius box sitting just outside the tab's
-   own edge, one corner cut into a quarter-circle (border-*-radius),
-   then a ZERO-blur, ZERO-spread shadow of that same cut shape offset
-   sideways by exactly HALF --tab-radius — not a flood-filled spread,
-   an offset copy of the shape itself — in the tab's own fill colour
-   (--ground, standing in for the reference's own --tab-color). ONE
-   colour, ONE shadow layer: the attempt to also trace an accent
-   outline through this curve (a second, spread-based shadow layer) is
-   what produced the mushroom — plain and correct beats decorated and
-   broken.
-   bottom: -1px and one extra 1px of height (rather than flush at 0,
-   exactly --tab-radius tall) are the owner's own fix for a separate,
-   real bug: at fractional device pixel ratios the browser can round
-   the tab's own border-box edge and this pseudo-element's edge to two
-   DIFFERENT physical pixels, leaving a hairline gap the header's own
-   background shows through as a thin dark seam. Forcing a deliberate
-   1px overlap into the floor removes the gap regardless of which way
-   any given browser's rounding falls — and border-*-radius takes TWO
-   values (horizontal var(--tab-radius), vertical calc(var(--tab-radius)
-   + 1px)) so the arc still consumes the FULL new height instead of
-   leaving a straight sliver the single old value was 1px short of. */
-.shell-nav button.active::before,
-.shell-nav button.active::after {
-  content: "";
-  position: absolute;
-  bottom: -1px;
-  width: var(--tab-radius);
-  height: calc(var(--tab-radius) + 1px);
-  background: transparent;
-}
-.shell-nav button.active::before {
-  left: calc(var(--tab-radius) * -1);
-  border-bottom-right-radius: var(--tab-radius) calc(var(--tab-radius) + 1px);
-  box-shadow: calc(var(--tab-radius) / 2) 0 0 0 var(--ground);
-}
-.shell-nav button.active::after {
-  right: calc(var(--tab-radius) * -1);
-  border-bottom-left-radius: var(--tab-radius) calc(var(--tab-radius) + 1px);
-  box-shadow: calc(var(--tab-radius) / -2) 0 0 0 var(--ground);
 }
 .shell-panel { flex: 1 1 auto; border-top: 1px solid var(--accent); }
 .shell-frame { width: 100%; height: 100%; border: 0; display: block; background: var(--ground); }

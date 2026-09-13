@@ -181,122 +181,44 @@ check("test_PRD_P0_71_items_tab__the_tabs_are_top_rounded_and_square_on_the_bott
 });
 
 check("test_PRD_P0_71_items_tab__inactive_tabs_are_flat_not_their_own_bordered_box", async () => {
-  /* The reference code's own .tab is "border: none; background:
-     transparent" — every tab drawn as its own bordered, filled box (the
-     shape this shell used before) read as a row of separate chips, not
-     folder tabs in a flat bar, and it also made the round-out notch
-     paint over another tab's own box instead of the header's actual
-     background. Only .active gets a border, a fill, or a radius now. */
+  /* Every tab drawn as its own bordered, filled box read as a row of
+     separate chips, not folder tabs in a flat bar. Only .active gets a
+     border, a fill, or a radius now. */
   const { body } = await shell(OWNER);
   assert.match(body, /\.shell-nav button\s*\{[^}]*border:\s*none/s);
   assert.match(body, /\.shell-nav button\s*\{[^}]*background:\s*transparent/s);
 });
 
-check("test_PRD_P0_71_items_tab__the_header_background_differs_from_the_active_tabs_own_colour", async () => {
-  /* The round-out notch paints the active tab's own colour (--ground)
-     outward into whatever sits behind it — if that background is ALSO
-     --ground, the paint is invisible: the entire trick depends on the
-     header's own background differing from the tab's, exactly like the
-     reference code's separate --bg-color and --tab-color. --image-ground
-     was tried first, but it and --ground are both near-black and only a
-     few RGB points apart — a real difference, but too subtle to read as
-     a curve rather than a dark smudge. --bar (pure black, the same
-     token the storefront's own top bar uses) is an actual colour
-     boundary against --ground instead. */
+check("test_PRD_P0_71_items_tab__the_active_tab_is_plain_rounded_top_square_bottom_no_curve", async () => {
+  /* Eight straight rounds tried to give the base of the active tab a
+     "round-out" curve smoothly blending into the header — a box-shadow
+     technique that kept producing its own new geometry bugs (an
+     invisible curve, a black smudge over the border, a stray flag, a
+     misaligned edge, "looks like a fucking mushroom") faster than any
+     of them could be fixed. The owner's own words, plainly: "Just make
+     them with a rounded top and straight bottom edges. I'm tired of
+     you fucking up." No notch, no curve, no pseudo-elements at the
+     tab's own base at all — a rounded top, a flat square bottom, and a
+     single plain border. */
   const { body } = await shell(OWNER);
-  assert.match(body, /\.shell-header\s*\{[^}]*background:\s*var\(--bar\)/s);
-  assert.match(body, /\.shell-nav button\.active\s*\{[^}]*background:[^}]*var\(--ground\)/s);
+  assert.match(body, /\.shell-nav\s*\{[^}]*--tab-radius:\s*14px/s);
+  assert.match(body, /\.shell-nav button\.active\s*\{[^}]*border-radius:\s*var\(--tab-radius\) var\(--tab-radius\) 0 0/s);
+  assert.doesNotMatch(
+    body,
+    /\.shell-nav button\.active::before|\.shell-nav button\.active::after/,
+    "no pseudo-element notch may exist at the base of the active tab",
+  );
 });
 
 check("test_PRD_P0_71_items_tab__the_active_tab_structurally_merges_into_the_panel_not_just_matches_its_colour", async () => {
-  /* The owner's own words: "imagine the bottom orange edge, smoothly
-     curves up the tab. Over the tab and smoothly transitions down and
-     keeps going right." A genuine merge, not two colour-matched lines
-     standing in for one: the active tab's own bottom border is removed
-     entirely (border-top only, no bottom) and its background matches
-     the panel's, so it structurally opens into what it fronts rather
-     than floating above it as an independent, fully-bordered piece. */
+  /* The active tab's own bottom border is removed entirely
+     (border-bottom: none) and its background matches the panel's, so
+     it structurally opens into what it fronts rather than floating
+     above it as an independent, fully-bordered piece. */
   const { body } = await shell(OWNER);
-  assert.match(body, /\.shell-nav button\.active\s*\{[^}]*border-top:\s*1px solid var\(--accent\)/s);
+  assert.match(body, /\.shell-nav button\.active\s*\{[^}]*border:\s*1px solid var\(--accent\); border-bottom:\s*none/s);
   assert.match(body, /\.shell-nav button\.active\s*\{[^}]*margin-bottom:\s*-1px/s);
   assert.match(body, /\.shell-panel\s*\{[^}]*border-top:\s*1px solid var\(--accent\)/s, "the panel's own line the active tab merges into must still be there");
-});
-
-check("test_PRD_P0_71_items_tab__the_side_accent_lines_stop_short_of_the_curve_instead_of_tracing_it", async () => {
-  /* Three straight rounds tried to make the accent border trace THROUGH
-     the round-out curve itself (a spread-based second shadow layer,
-     then chasing the geometry bugs that layer produced) — each one
-     made the shape worse, ending in "looks like a fucking mushroom,"
-     the owner's own words. Abandoned entirely: the curve below is a
-     single plain colour again, and the side "border" is two short
-     background-gradient lines, sized to stop before the curve's own
-     reach (--tab-radius) even begins, so they can never touch or
-     distort it. */
-  const { body } = await shell(OWNER);
-  const activeRule = body.match(/\.shell-nav button\.active\s*\{[^}]*\}/s)[0];
-  assert.doesNotMatch(activeRule, /border:\s*1px solid var\(--accent\); border-bottom/, "no full-sides border may return");
-  assert.match(activeRule, /linear-gradient\(var\(--accent\), var\(--accent\)\) left top \/ 1px\s+calc\(100% - var\(--tab-radius\) - 1px\) no-repeat/);
-  assert.match(activeRule, /linear-gradient\(var\(--accent\), var\(--accent\)\) right top \/ 1px\s+calc\(100% - var\(--tab-radius\) - 1px\) no-repeat/);
-});
-
-check("test_PRD_P0_71_items_tab__the_active_tab_has_round_out_notches_at_its_own_base", async () => {
-  /* The owner's own complete reference code, verbatim mechanism: a
-     --tab-radius custom property driving every number through calc(),
-     not hand-computed pixel literals. Each pseudo-element sits just
-     outside the active tab's own left/right edge, one corner cut into a
-     quarter-circle, then a ZERO-blur, ZERO-spread shadow of that same
-     shape offset sideways by exactly HALF --tab-radius — not a
-     flood-filled spread. */
-  const { body } = await shell(OWNER);
-  assert.match(body, /\.shell-nav\s*\{[^}]*--tab-radius:\s*14px/s);
-  assert.match(body, /\.shell-nav button\.active::before\s*\{[^}]*left:\s*calc\(var\(--tab-radius\) \* -1\)/s);
-  assert.match(body, /\.shell-nav button\.active::before\s*\{[^}]*border-bottom-right-radius:\s*var\(--tab-radius\)/s);
-  assert.match(body, /\.shell-nav button\.active::before\s*\{[^}]*box-shadow:\s*calc\(var\(--tab-radius\) \/ 2\) 0 0 0 var\(--ground\)/s);
-  assert.doesNotMatch(body, /\.shell-nav button\.active::before\s*\{[^}]*box-shadow:[^}]*var\(--accent\)/s, "the curve must be a single plain colour, not a decorated outline");
-  assert.match(body, /\.shell-nav button\.active::after\s*\{[^}]*right:\s*calc\(var\(--tab-radius\) \* -1\)/s);
-  assert.match(body, /\.shell-nav button\.active::after\s*\{[^}]*border-bottom-left-radius:\s*var\(--tab-radius\)/s);
-  assert.match(body, /\.shell-nav button\.active::after\s*\{[^}]*box-shadow:\s*calc\(var\(--tab-radius\) \/ -2\) 0 0 0 var\(--ground\)/s);
-});
-
-check("test_PRD_P0_71_items_tab__the_notch_overlaps_the_floor_by_a_pixel_so_subpixel_rounding_cant_open_a_seam", async () => {
-  /* At fractional device pixel ratios the browser can round the tab's
-     own border-box edge and the notch pseudo-element's edge to two
-     DIFFERENT physical pixels, leaving a hairline gap the header's own
-     background shows through as a thin dark seam right on the curve.
-     The owner's own fix: sit the pseudo-element 1px into the floor
-     (bottom: -1px) and grow it by that same 1px so its own top edge —
-     where it actually meets the tab — stays exactly where it was. */
-  const { body } = await shell(OWNER);
-  assert.match(body, /\.shell-nav button\.active::before,\s*\n\.shell-nav button\.active::after\s*\{[^}]*bottom:\s*-1px/s);
-  assert.match(body, /\.shell-nav button\.active::before,\s*\n\.shell-nav button\.active::after\s*\{[^}]*height:\s*calc\(var\(--tab-radius\) \+ 1px\)/s);
-});
-
-check("test_PRD_P0_71_items_tab__the_notch_radius_matches_its_own_taller_box_not_just_its_width", async () => {
-  /* "They aren't matching up" — zoomed in, a small straight flag hung
-     off the curve. A single-value border-radius still equalled the
-     box's OLD 14px height, one px short of the 15px height the subpixel
-     fix (above) grew it to, so the arc consumed only 14 of the 15 and
-     left a straight sliver where a pure curve should be. Both radii
-     must be sized to their own matching dimension: width
-     (--tab-radius) horizontally, the box's own taller height
-     (--tab-radius + 1px) vertically. */
-  const { body } = await shell(OWNER);
-  assert.match(
-    body,
-    /\.shell-nav button\.active::before\s*\{[^}]*border-bottom-right-radius:\s*var\(--tab-radius\) calc\(var\(--tab-radius\) \+ 1px\)/s,
-  );
-  assert.match(
-    body,
-    /\.shell-nav button\.active::after\s*\{[^}]*border-bottom-left-radius:\s*var\(--tab-radius\) calc\(var\(--tab-radius\) \+ 1px\)/s,
-  );
-});
-
-check("test_PRD_P0_71_items_tab__the_gap_between_tabs_is_wide_enough_the_notches_never_bite_a_neighbour", async () => {
-  /* The notches above reach 14px outside the active tab's own edge — the
-     original 3px gap between tabs would have let that paint over part of
-     whichever tab sits next to the active one. */
-  const { body } = await shell(OWNER);
-  assert.match(body, /\.shell-nav\s*\{[^}]*gap:\s*16px/s);
 });
 
 check("test_PRD_P0_71_items_tab__the_first_tab_lines_up_with_the_inner_chat_content_not_ops_own_edge", async () => {
