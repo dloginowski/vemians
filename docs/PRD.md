@@ -980,6 +980,20 @@ that does not trace to one of these is a process failure (see §12).
     doubled one. That single copy is gone too: `shell-header` now contains nothing but
     `shell-nav` itself, so the tab row is the entire header rather than a row underneath one.
 
+    **The public storefront is a TAB, not a link out — the same "everything is an iframe" rule,
+    no exception for this one.** The owner's own words, emphatically, after the first attempt made
+    it a plain `<a target="_blank">`: "A link!!! Its inside a tab! Iframe are you listening???
+    Header is tabs and everything in tab body is an iframe." "Website" is now the third entry in
+    `SHELL_TABS`, a real `<button>` identical in every way to Agent/Items — its own `src` is the
+    cross-origin `https://vemians.com` rather than a same-origin path, but the click handler does
+    not know or care: it is the exact same `#ops-frame`-swap every other tab already gets, never a
+    new browser tab. Nothing in either Worker sets `X-Frame-Options` or a `frame-ancestors` CSP, so
+    embedding the storefront this way is unblocked. `?tab=website` joins `?tab=items` as a way to
+    link straight to it. Separately, in the same round: `refusalPage()` had been appending "sign in
+    with your Vemians email" under EVERY refusal regardless of status — actively misleading right
+    under the Items mirror's own 500, which already names an unrelated data-layer fix that signing
+    in again does nothing for. That note now only renders for an actual identity refusal (401/403).
+
 47b. **`Test-PRD-P0-72-product_detail_page`** — Every product has its own page at
     `/products/<handle>` — the answer to "how do I see product details", asked directly, of a
     shop whose cards used to be `<article>`s with no click-through at all. `loadProduct(env,

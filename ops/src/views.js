@@ -185,13 +185,17 @@ const TABLE_CARD_CSS = `
  * tab merges into the panel below it (matching background, its own bottom
  * edge pulled down 1px to sit exactly on the panel's top border and hide
  * the seam, the classic tabbed-pane trick); an inactive one sits a little
- * lower and a little dimmer, like a folder pushed back in the drawer. The
- * storefront link is the last item on purpose (the owner's own words: "add
- * a link to the public facing site as the last link") and reads as a
- * label on the cabinet rather than another folder in it — pushed to the
- * far right, plain rather than tab-shaped, opening in a new tab since
- * leaving ops entirely inside the same iframe would strand the person's
- * place in it.
+ * lower and a little dimmer, like a folder pushed back in the drawer.
+ *
+ * The public storefront is a TAB, not a link out — the owner's own words,
+ * emphatically, after a first attempt made it an <a target="_blank">:
+ * "A link!!! Its inside a tab! Iframe are you listening??? Header is tabs
+ * and everything in tab body is an iframe." No exception for this one: its
+ * `src` is the cross-origin `https://vemians.com` instead of a same-origin
+ * path, but the click handler below does not know or care — it is the
+ * exact same iframe.src swap every other tab already gets. Nothing in this
+ * codebase sets X-Frame-Options or a frame-ancestors CSP on the storefront,
+ * so embedding it is unblocked.
  */
 const SHELL_CSS = `
 ${OPS_DARK_CSS}
@@ -209,11 +213,6 @@ html, body { height: 100%; margin: 0; }
   background: var(--ground); color: var(--ink); border-color: var(--accent);
   margin-bottom: -1px; padding-bottom: 8px; z-index: 1;
 }
-.shell-nav .visit {
-  margin-left: auto; align-self: center; font-size: 12px; color: var(--muted);
-  text-decoration: none; padding: 4px 2px;
-}
-.shell-nav .visit:hover { color: var(--accent); }
 .shell-panel { flex: 1 1 auto; border-top: 1px solid var(--accent); }
 .shell-frame { width: 100%; height: 100%; border: 0; display: block; background: var(--ground); }
 `;
@@ -221,6 +220,7 @@ html, body { height: 100%; margin: 0; }
 const SHELL_TABS = [
   { key: "agent", label: "Agent", src: "/chat", href: "/" },
   { key: "items", label: "Items", src: "/items", href: "/?tab=items" },
+  { key: "website", label: "Website", src: "https://vemians.com", href: "/?tab=website" },
 ];
 
 export function shellPage(active = "agent") {
@@ -238,7 +238,7 @@ export function shellPage(active = "agent") {
        sits above it. */
     `<div class="shell">
   <div class="shell-header">
-    <nav class="shell-nav">${nav}<a class="visit" href="https://vemians.com" target="_blank" rel="noopener">Visit site &#8599;</a></nav>
+    <nav class="shell-nav">${nav}</nav>
   </div>
   <div class="shell-panel">
     <iframe class="shell-frame" id="ops-frame" src="${esc(initial.src)}" title="Vemians ops"></iframe>
@@ -1216,14 +1216,24 @@ h2 { font-size: var(--type); font-weight: 700; margin: 24px 0 8px; }
 `;
 
 export function refusalPage(status, reason) {
+  /* The "sign in" note only makes sense for an IDENTITY refusal (401/403) —
+     it was appended unconditionally, so a 500 or 503 (the Items mirror
+     failing to read, a store not configured yet) told the reader to sign
+     in with their Vemians email right under a reason that has nothing to
+     do with who they are. Confusing on its own; actively misleading right
+     under a 500 that already names the real, unrelated fix. */
+  const identityNote =
+    status === 401 || status === 403
+      ? `<p class="note">This page is for Vemians staff and asks you to sign in first. If you are staff and
+     landed here, sign in with your Vemians email and try again.</p>`
+      : "";
   return page(
     "Refused",
     `<div class="bar">ops.vemians.com</div>
 <main class="ops">
   <h2>${status} &mdash; refused</h2>
   <p>${esc(reason)}</p>
-  <p class="note">This page is for Vemians staff and asks you to sign in first. If you are staff and
-     landed here, sign in with your Vemians email and try again.</p>
+  ${identityNote}
 </main>`,
     OPS_DARK_CSS,
   );

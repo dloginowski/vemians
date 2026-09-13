@@ -979,7 +979,8 @@ async function ops(request, env, path) {
        /chat (loaded into it by default) is what already tells that person
        plainly that they have no role, the same as before this page split
        into a shell and a tab's own content. */
-    const tab = new URL(request.url).searchParams.get("tab") === "items" ? "items" : "agent";
+    const requestedTab = new URL(request.url).searchParams.get("tab");
+    const tab = ["items", "website"].includes(requestedTab) ? requestedTab : "agent";
     return html(shellPage(tab));
   }
 
