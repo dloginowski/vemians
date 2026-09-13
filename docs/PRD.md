@@ -633,6 +633,18 @@ that does not trace to one of these is a process failure (see §12).
     and JWKS-verified assertion — the same lesson P0-35's own history already taught this file once
     about a link nobody actually followed.
 
+34c. **Prompt-based editing on the approval page — deferred, not built.** The click-to-edit fields
+    of P0-63 are the click-and-type half of "review, edit manually, or use prompts"; the third
+    option, telling the page in plain language what to change and having it edit the fields for
+    you, is deliberately not part of this change. It needs a new server-side LLM call from the ops
+    Worker itself — a new API key/secret, an ongoing per-call cost, and a new prompt-injection
+    surface sitting directly on a page whose submit button triggers a real write to Square — and is
+    a separate decision from the editable form it would sit on top of, same as P0-33's encrypted
+    vault is a separate decision from the Square customer intake it would sit next to. No tool, no
+    route and no field for it exists yet; when it is built it still goes through the same
+    `applyFormEdits` → tool `check()` path P0-63 already established, so a prompt can suggest a
+    field value but never bypass validation.
+
 35. **`Test-PRD-P0-35-approval_never_in_band`** — A T2 action requested through MCP does not
     execute in the model's context. It returns an approval URL on `ops.vemians.com`; the token is
     minted server-side from the human's browser action and is never returned to, nor accepted
