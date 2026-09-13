@@ -1011,6 +1011,18 @@ that does not trace to one of these is a process failure (see §12).
     "Double ratius padding not triple" — the radius overshot; `10px` doubles to `20px` instead,
     the padding already right and left untouched.
 
+    **All four corners round, not just the top two — "paper tabs that got cut out."** The owner's
+    own words, having asked for "tabs in a filing cabinet" and then watched the classic tabbed-pane
+    shape (rounded top, square bottom, the active tab's own bottom border removed and pulled onto
+    the panel's own border to merge flush with it) actually render: "I want bottom radiused too as
+    if these are paper tabs that got cut out." `.shell-nav button` moves from a `20px 20px 0 0`
+    top-only radius to a single `20px` on every corner. The merge trick goes with it — a real
+    cut-paper tab is its own separate piece, not fused to the folder body it sits above, and a
+    fully-rounded shape pulled flush onto a square panel edge reads as a visible notch rather than
+    a seam hidden. The active tab is told apart by colour alone now (its own background matching
+    the panel, its own border accent-coloured) — there is no seam left to hide, so nothing needs
+    hiding it.
+
 47b. **`Test-PRD-P0-72-product_detail_page`** — Every product has its own page at
     `/products/<handle>` — the answer to "how do I see product details", asked directly, of a
     shop whose cards used to be `<article>`s with no click-through at all. `loadProduct(env,
