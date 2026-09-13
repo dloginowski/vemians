@@ -277,16 +277,24 @@ html, body { height: 100%; margin: 0; }
    offset sideways by exactly HALF --tab-radius — not a flood-filled
    spread, an offset copy of the shape itself — painted in the active
    tab's own colour (--ground, standing in for the reference's own
-   --tab-color) over the header's own --image-ground background, which
-   is what makes the header's flat edge read as curving smoothly UP into
-   the tab's own straight side. */
+   --tab-color) over the header's own --bar background, which is what
+   makes the header's flat edge read as curving smoothly UP into the
+   tab's own straight side.
+   bottom: -1px and one extra 1px of height (rather than flush at 0,
+   exactly --tab-radius tall) are the owner's own follow-up fix: at
+   fractional device pixel ratios the browser can round the tab's own
+   border-box edge and this pseudo-element's edge to two DIFFERENT
+   physical pixels, leaving a hairline gap the header's own background
+   shows through — read as a thin dark seam right on the curve. Forcing
+   a deliberate 1px overlap into the floor removes the gap regardless of
+   which way any given browser's rounding falls. */
 .shell-nav button.active::before,
 .shell-nav button.active::after {
   content: "";
   position: absolute;
-  bottom: 0;
+  bottom: -1px;
   width: var(--tab-radius);
-  height: var(--tab-radius);
+  height: calc(var(--tab-radius) + 1px);
   background: transparent;
 }
 .shell-nav button.active::before {

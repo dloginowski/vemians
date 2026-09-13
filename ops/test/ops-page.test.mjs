@@ -257,6 +257,19 @@ check("test_PRD_P0_71_items_tab__the_active_tab_has_round_out_notches_at_its_own
   assert.match(body, /\.shell-nav button\.active::after\s*\{[^}]*box-shadow:\s*calc\(var\(--tab-radius\) \/ -2\) 0 0 0 var\(--ground\)/s);
 });
 
+check("test_PRD_P0_71_items_tab__the_notch_overlaps_the_floor_by_a_pixel_so_subpixel_rounding_cant_open_a_seam", async () => {
+  /* At fractional device pixel ratios the browser can round the tab's
+     own border-box edge and the notch pseudo-element's edge to two
+     DIFFERENT physical pixels, leaving a hairline gap the header's own
+     background shows through as a thin dark seam right on the curve.
+     The owner's own fix: sit the pseudo-element 1px into the floor
+     (bottom: -1px) and grow it by that same 1px so its own top edge —
+     where it actually meets the tab — stays exactly where it was. */
+  const { body } = await shell(OWNER);
+  assert.match(body, /\.shell-nav button\.active::before,\s*\n\.shell-nav button\.active::after\s*\{[^}]*bottom:\s*-1px/s);
+  assert.match(body, /\.shell-nav button\.active::before,\s*\n\.shell-nav button\.active::after\s*\{[^}]*height:\s*calc\(var\(--tab-radius\) \+ 1px\)/s);
+});
+
 check("test_PRD_P0_71_items_tab__the_gap_between_tabs_is_wide_enough_the_notches_never_bite_a_neighbour", async () => {
   /* The notches above reach 14px outside the active tab's own edge — the
      original 3px gap between tabs would have let that paint over part of
