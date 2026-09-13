@@ -1023,6 +1023,11 @@ that does not trace to one of these is a process failure (see §12).
     the panel, its own border accent-coloured) — there is no seam left to hide, so nothing needs
     hiding it.
 
+    **Corrected immediately: `20px` on every corner of a ~29px-tall button rounds it into a
+    capsule, not a tab with rounded corners.** The owner's own words: "No! Not pills! Tabs!" `8px`,
+    still uniform on every corner, stays clearly a rounded RECTANGLE — every corner visibly
+    softened without the curvature meeting in the middle and erasing the shape it is a corner of.
+
 47b. **`Test-PRD-P0-72-product_detail_page`** — Every product has its own page at
     `/products/<handle>` — the answer to "how do I see product details", asked directly, of a
     shop whose cards used to be `<article>`s with no click-through at all. `loadProduct(env,
