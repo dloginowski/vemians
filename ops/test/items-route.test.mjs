@@ -174,6 +174,49 @@ check("test_PRD_P0_71_items_tab__the_items_tab_shows_every_field_including_custo
   assert.match(body, /Acme Mills/);
 });
 
+check("test_PRD_P0_71_items_tab__the_grid_is_two_columns_on_a_phone_and_fills_in_more_as_it_widens", async () => {
+  /* The owner's own words: "on my phone, I want a two column layout...
+     as it gets wider, it will just fill the entire screen." The old
+     auto-fill(minmax(240px, 1fr)) never fit two columns below ~500px
+     (2 * 240px alone exceeds most phone screens), collapsing to one.
+     Fixed at exactly 2 below 480px; auto-fill takes over above it. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.match(body, /\.items-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2, 1fr\)/s);
+  assert.match(body, /@media \(min-width: 480px\)\s*\{\s*\.items-grid\s*\{[^}]*grid-template-columns:\s*repeat\(auto-fill, minmax\(240px, 1fr\)\)/s);
+});
+
+check("test_PRD_P0_71_items_tab__a_tile_expands_to_the_full_screen_instead_of_cramming_data_into_a_cell", async () => {
+  /* The owner's own words: "when I click on the item, it's gonna
+     expand to my entire phone screen, and I should see all of that
+     data." Same convention as TABLE_CARD_CSS's own .table-card.full in
+     the chat log — the SAME element grows in place via a toggled
+     class, not a second element or separate scroll state. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.match(body, /class="item-expand"/, "every tile needs its own expand control");
+  assert.match(body, /\.item-tile\.full\s*\{[^}]*position:\s*fixed/s);
+  assert.match(body, /classList\.toggle\("full"\)/, "the expand button must toggle the SAME element, not open a second one");
+});
+
+check("test_PRD_P0_71_items_tab__the_search_box_sits_below_the_grid_not_above_it", async () => {
+  /* The owner's own words: "it's not easy to put in stuff at the top
+     of the screen of the phone." A thumb reaches the bottom of a phone
+     screen far more easily than the top. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  const gridAt = body.indexOf('id="items-grid"');
+  const searchAt = body.indexOf('id="item-search"');
+  assert.ok(gridAt >= 0 && searchAt >= 0, "both the grid and the search box must be present");
+  assert.ok(searchAt > gridAt, "the search box must come after the grid in document order");
+});
+
 check("test_PRD_P0_71_items_tab__items_no_longer_draws_its_own_copy_of_the_tab_bar_or_banner", async () => {
   /* The persistent shell (index.js's / route, views.js's shellPage()) is the
      ONLY place the tab bar AND the "employees only" strip render now — the

@@ -1087,6 +1087,22 @@ that does not trace to one of these is a process failure (see §12).
     ops-rendered page but never `itemsPage()` — the exact gap that let this ship unnoticed — so a
     new, dedicated check now covers it too.
 
+    **The grid, an expand-to-full-screen tile, and search moved to the bottom — three usability
+    fixes from actually using the tab on a phone.** First: "on my phone, I want a two column
+    layout... as it gets wider, it will just fill the entire screen." `.items-grid`'s own
+    `auto-fill(minmax(240px, 1fr))` never fit two columns below roughly 500px — two 240px columns
+    alone exceed most phone screens — so it silently collapsed to one. Fixed at exactly
+    `repeat(2, 1fr)` below a `480px` media query breakpoint; `auto-fill` takes back over above it,
+    unchanged. Second: "when I click on the item, it's gonna expand to my entire phone screen, and
+    I should see all of that data" — every tile crammed its full detail into a small grid cell with
+    no way to see it larger. Each tile now carries its own `Expand` button, toggling a `.full` class
+    on the SAME `<article>` (`position: fixed; inset: 12px; z-index: 50`) rather than opening a
+    second element — the identical convention `TABLE_CARD_CSS`'s own `.table-card.full` already
+    uses in the chat log, wired through one delegated click listener on `#items-grid` rather than
+    binding a handler per tile. Third: "it's not easy to put in stuff at the top of the screen of
+    the phone" — the search box moved from above the grid to below it, since a thumb reaches the
+    bottom of a phone screen far more easily than the top.
+
 47b. **`Test-PRD-P0-72-product_detail_page`** — Every product has its own page at
     `/products/<handle>` — the answer to "how do I see product details", asked directly, of a
     shop whose cards used to be `<article>`s with no click-through at all. `loadProduct(env,
