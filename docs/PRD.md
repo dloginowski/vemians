@@ -1297,21 +1297,27 @@ that does not trace to one of these is a process failure (see §12).
 
     **A preview that mints nothing, ahead of a draft that mints everything.** `batch.js` gains
     `previewBatch(text, kind)` — read-only, reusing the exact same `pick()`/key-list column
-    matching `draftProductBatch`/`draftCustomerBatch` use, but on the FIRST row only: no
-    `listCategories` call, no `runTool`, no `parkForApproval`. `agent.js` exposes it as two more
-    meta-tools, `catalog_preview_product_batch`/`customer_preview_customer_batch` (same manager+
-    gate as the draft tools, same `asset_id` argument), and `attachmentNote()`'s spreadsheet
-    pointer now names the preview tool first: call it, show the person the detected headings and
-    how the first row maps to title/category/price/etc (or given_name/email/phone/…), and only
-    call the draft tool once they confirm the mapping looks right. Nothing here forces the
-    sequence at the API layer — the model could still call the draft tool directly — the ordering
-    is instructed, the same trust boundary `agent-tool-contract`'s other "ask only a genuine
-    choice" guidance already runs on.
+    matching `draftProductBatch`/`draftCustomerBatch` use, but on the first `PREVIEW_SAMPLE_ROWS`
+    (3) rows only: no `listCategories` call, no `runTool`, no `parkForApproval`. "Just top 2 or 3
+    rows to see the headings" — the owner's own words, once a first version previewing only row 1
+    was actually in front of them — is why 3 rather than 1: enough to see the mapping hold across
+    more than a single row, not the whole sheet. `agent.js` exposes it as two more meta-tools,
+    `catalog_preview_product_batch`/`customer_preview_customer_batch` (same manager+ gate as the
+    draft tools, same `asset_id` argument), and `attachmentNote()`'s spreadsheet pointer now names
+    the preview tool first: call it, show the person the detected headings and how the sampled
+    rows map to title/category/price/etc (or given_name/email/phone/…), and only call the draft
+    tool once they confirm the mapping looks right. Nothing here forces the sequence at the API
+    layer — the model could still call the draft tool directly — the ordering is instructed, the
+    same trust boundary `agent-tool-contract`'s other "ask only a genuine choice" guidance already
+    runs on.
 
     **A structured `table`, not just prose, is the point of "compact format... full screen."** A
-    person cannot review 40 rows of skip reasons rendered as one text bubble. Both the new preview
-    tools and the existing draft tools now return a `table: {title, columns, rows}` alongside
-    their text summary — `dispatch()` passes it through as a sibling of the `tool_result` block,
+    person cannot review 40 rows of skip reasons rendered as one text bubble. The preview table's
+    columns are the real detected headings (`title`, `category`, `price`, …) with one row per
+    sampled record — a normal spreadsheet snippet, not a field-by-field list — and the draft
+    tools' own table is `Row`/`Title`/`Status`/`Detail`, one row per actual CSV row. Both return a
+    `table: {title, columns, rows}` alongside their text summary — `dispatch()` passes it through
+    as a sibling of the `tool_result` block,
     and `agentTurn()` tracks the most recent one across the round-trip loop (`lastTable`) so it
     rides along on the turn's own final `{mode, actor, role, steps, reply, table}` shape even
     though the actual tool call may not be the model's very last step. `index.js`'s existing

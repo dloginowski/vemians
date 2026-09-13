@@ -399,27 +399,34 @@ async function dispatchBatchDraft(name, args, { actor, role, env }) {
   }
 }
 
-/* Preview relays previewBatch's own {headers, rowCount, firstRow} — a
-   read-only look at column headings and the first row, so a wrong mapping
-   is caught before the draft tools mint anything. */
+/* Preview relays previewBatch's own {headers, rowCount, sampleRows} — a
+   read-only look at column headings and the first few rows, so a wrong
+   mapping is caught before the draft tools mint anything. Only as many
+   rows as previewBatch actually sampled — "just top 2 or 3 rows to see the
+   headings," not the whole sheet. */
 function formatBatchPreview(kind, preview) {
   if (!preview.rowCount) return "That spreadsheet has no rows to preview.";
-  const fields = Object.entries(preview.firstRow)
-    .map(([field, value]) => `  ${field}: ${value === null ? "(not found)" : value}`)
-    .join("\n");
+  const noun = kind === "customers" ? "customers" : "products";
+  const lines = preview.sampleRows.map((row, i) => {
+    const fields = Object.entries(row)
+      .map(([field, value]) => `${field}=${value === null ? "(not found)" : value}`)
+      .join(", ");
+    return `  Row ${i + 1}: ${fields}`;
+  });
   return (
     `${preview.rowCount} row${preview.rowCount === 1 ? "" : "s"} detected. Columns found: ${preview.headers.join(", ")}.\n\n` +
-    `First row, as ${kind === "customers" ? "a customer" : "a product"} would read it:\n${fields}\n\n` +
+    `First ${preview.sampleRows.length} of them, as ${noun} would read:\n${lines.join("\n")}\n\n` +
     "Show this mapping to the person before drafting the rest — if anything above looks wrong, it will be wrong for every row."
   );
 }
 
 function previewTable(kind, preview) {
   if (!preview.rowCount) return null;
+  const columns = Object.keys(preview.sampleRows[0]);
   return {
-    title: `Preview: ${preview.rowCount} row${preview.rowCount === 1 ? "" : "s"} detected`,
-    columns: ["Field", "Detected value (row 1)"],
-    rows: Object.entries(preview.firstRow).map(([field, value]) => [field, value === null ? "(not found)" : String(value)]),
+    title: `Preview: first ${preview.sampleRows.length} of ${preview.rowCount} row${preview.rowCount === 1 ? "" : "s"}`,
+    columns,
+    rows: preview.sampleRows.map((row) => columns.map((c) => (row[c] === null ? "(not found)" : String(row[c])))),
   };
 }
 

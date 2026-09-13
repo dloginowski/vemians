@@ -2052,7 +2052,7 @@ check("test_PRD_P0_89_batch_preview_confirm__staff_cannot_call_the_preview_meta_
   assert.match(outcome.block.content, /manager or owner/i);
 });
 
-check("test_PRD_P0_89_batch_preview_confirm__previews_the_first_row_and_headings_without_minting_anything", async () => {
+check("test_PRD_P0_89_batch_preview_confirm__previews_the_first_rows_and_headings_without_minting_anything", async () => {
   const f = await fixture();
   const csv = "title,category,price\nWool Coat,Outerwear,450.00\nAnother Coat,Outerwear,99.00\n";
   const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
@@ -2069,11 +2069,36 @@ check("test_PRD_P0_89_batch_preview_confirm__previews_the_first_row_and_headings
   assert.doesNotMatch(outcome.block.content, /https?:\/\/\S+\/approvals\//, "a preview must mint no approval link");
   assert.deepEqual(f.calls(), [], "a preview must not touch Square at all");
 
-  /* The structured table is what the client renders — a compact,
-     row-per-field mapping of the FIRST row only, not the whole sheet. */
-  assert.equal(outcome.table.columns.length, 2);
-  const titleRow = outcome.table.rows.find(([field]) => field === "title");
-  assert.deepEqual(titleRow, ["title", "Wool Coat"]);
+  /* The structured table is what the client renders — real headings as
+     columns, one row per sample record, so it reads like a normal
+     spreadsheet snippet rather than a field-by-field list. */
+  assert.deepEqual(outcome.table.columns, ["title", "category", "price", "currency", "description", "sku"]);
+  assert.equal(outcome.table.rows.length, 2, "both rows fit under the 3-row sample cap");
+  const titleCol = outcome.table.columns.indexOf("title");
+  assert.equal(outcome.table.rows[0][titleCol], "Wool Coat");
+  assert.equal(outcome.table.rows[1][titleCol], "Another Coat");
+});
+
+check("test_PRD_P0_89_batch_preview_confirm__only_shows_the_top_few_rows_not_the_whole_sheet", async () => {
+  /* "Don't need to see it all. Just top 2 or 3 rows to see the headings" —
+     the owner's own words, once the preview was actually in front of them.
+     A sheet with far more rows than that must still preview as only a
+     handful, with the true total named separately. */
+  const rows = Array.from({ length: 20 }, (_, i) => `Item ${i},Outerwear,${10 + i}.00`).join("\n");
+  const csv = `title,category,price\n${rows}\n`;
+  const outcome = await dispatch(
+    "catalog_preview_product_batch",
+    { asset_id: "ast_1" },
+    {
+      actor: "mara@vemians.com",
+      role: "manager",
+      env: { ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) },
+      allowed: new Set(["catalog_preview_product_batch"]),
+    },
+  );
+  assert.equal(outcome.block.is_error, false);
+  assert.match(outcome.block.content, /20 rows detected/);
+  assert.equal(outcome.table.rows.length, 3, "sampled, not the full 20 rows");
 });
 
 check("test_PRD_P0_89_batch_preview_confirm__customers_preview_maps_the_square_field_names", async () => {
@@ -2090,8 +2115,9 @@ check("test_PRD_P0_89_batch_preview_confirm__customers_preview_maps_the_square_f
   );
   assert.equal(outcome.block.is_error, false);
   assert.match(outcome.block.content, /1 row detected/);
-  const emailRow = outcome.table.rows.find(([field]) => field === "email_address");
-  assert.deepEqual(emailRow, ["email_address", "ava@example.com"]);
+  assert.deepEqual(outcome.table.columns, ["given_name", "family_name", "email_address", "phone_number"]);
+  const emailCol = outcome.table.columns.indexOf("email_address");
+  assert.equal(outcome.table.rows[0][emailCol], "ava@example.com");
 });
 
 check("test_PRD_P0_89_batch_preview_confirm__an_empty_spreadsheet_previews_as_nothing_to_show_not_a_crash", async () => {
