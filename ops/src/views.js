@@ -220,12 +220,15 @@ html, body { height: 100%; margin: 0; }
    (--bg-color) distinct from the active tab's own colour (--tab-color)
    — without that contrast the round-out notch below paints the tab's
    colour over a background that is ALREADY that same colour and is
-   therefore invisible. .shell-header carries --image-ground for exactly
-   this reason: it has to differ from .shell-nav button.active's own
-   background (--ground, chosen so the active tab still merges into
-   .shell-panel below, which is also --ground) or there is nothing for
-   the curve to contrast against. */
-.shell-header { flex: 0 0 auto; padding: 10px 23px 0; background: var(--image-ground); }
+   therefore invisible. A first attempt used --image-ground here, but
+   that and --ground are both near-black and only a few RGB points
+   apart — enough of a "difference" for the notch to no longer be a
+   literal no-op, but still too close to read as a curve; it showed up
+   as a flat dark smudge rather than a visible shape. --bar (pure black,
+   the same token the storefront's own top bar already uses for a
+   visibly distinct strip) reads as an actual colour boundary against
+   --ground instead. */
+.shell-header { flex: 0 0 auto; padding: 10px 23px 0; background: var(--bar); }
 /* Gap wide enough that the active tab's own round-out notches (--tab-
    radius to each side, below) never reach a neighbouring tab — 3px let
    them bite into whichever tab sits next to the active one. */

@@ -197,9 +197,14 @@ check("test_PRD_P0_71_items_tab__the_header_background_differs_from_the_active_t
      outward into whatever sits behind it — if that background is ALSO
      --ground, the paint is invisible: the entire trick depends on the
      header's own background differing from the tab's, exactly like the
-     reference code's separate --bg-color and --tab-color. */
+     reference code's separate --bg-color and --tab-color. --image-ground
+     was tried first, but it and --ground are both near-black and only a
+     few RGB points apart — a real difference, but too subtle to read as
+     a curve rather than a dark smudge. --bar (pure black, the same
+     token the storefront's own top bar uses) is an actual colour
+     boundary against --ground instead. */
   const { body } = await shell(OWNER);
-  assert.match(body, /\.shell-header\s*\{[^}]*background:\s*var\(--image-ground\)/s);
+  assert.match(body, /\.shell-header\s*\{[^}]*background:\s*var\(--bar\)/s);
   assert.match(body, /\.shell-nav button\.active\s*\{[^}]*background:\s*var\(--ground\)/s);
 });
 

@@ -1111,6 +1111,15 @@ that does not trace to one of these is a process failure (see §12).
     (plain muted text, nothing else), with the border, fill, and `border-radius` moved onto
     `.shell-nav button.active` alone, exactly where the reference code puts them.
 
+    **Still "black shapes" at the base of the active tab, deployed and seen live again.** The header
+    now had a background genuinely different from `--ground` — `--image-ground` — but the two are
+    both near-black, only a handful of RGB points apart (`#191817` vs `#242220`): enough of a
+    difference for the notch to stop being a literal no-op, not enough to read as a curve. What
+    showed up instead was a flat dark smudge, indistinguishable in shape from a plain square.
+    `.shell-header`'s background moved to `--bar` (`#000000`, pure black) — the same token the
+    storefront's own top bar already uses for a visibly distinct strip — giving the notch an actual
+    colour boundary to curve across instead of a barely-different shade of the same near-black.
+
 47b. **`Test-PRD-P0-72-product_detail_page`** — Every product has its own page at
     `/products/<handle>` — the answer to "how do I see product details", asked directly, of a
     shop whose cards used to be `<article>`s with no click-through at all. `loadProduct(env,
