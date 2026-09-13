@@ -28,7 +28,7 @@
 import { notFoundPage } from "../../shared/view/html.js";
 import { explainRole, readAccessIdentity } from "./access.js";
 import { agentTurn, approve, roleFor } from "./agent.js";
-import { approvePending, handleMcp, isMcpPath, peekPending } from "./mcp.js";
+import { approvePending, peekPending } from "./approvals.js";
 import { CAPS } from "./tools/caps.js";
 import { roleAtLeast } from "./tools/roles.js";
 import { contentTypeFor, mediaKey, mintUploadTicket, verifyUploadTicket, STORABLE_IMAGE_TYPES } from "./tools/media.js";
@@ -259,11 +259,6 @@ async function ingestAgentAttachment(env, { file, email }) {
 }
 
 async function ops(request, env, path) {
-  /* The MCP endpoint owns its own identity check: it refuses a service token
-     the ops page would happily render for, and its refusal is JSON with a
-     WWW-Authenticate header rather than an HTML page. See src/mcp.js. */
-  if (isMcpPath(path)) return handleMcp(request, env, path);
-
   const identity = await readAccessIdentity(request, env);
 
   if (!identity.ok) {
@@ -373,8 +368,7 @@ async function ops(request, env, path) {
   if (path === "/media/upload") {
     /*
      * A machine may not upload a photograph: the audit trail and the ticket
-     * both name a person, and a service token names a machine — the same
-     * refusal src/mcp.js makes, for the same reason.
+     * both name a person, and a service token names a machine.
      */
     const email = identity.claims?.email;
     if (typeof email !== "string" || !email.includes("@")) {

@@ -58,6 +58,7 @@ const ROLES = ["staff", "manager", "owner"];
    binding, so the module could not call it. */
 import { roleFor, firstNameFrom } from "./access.js";
 import { greetingScript } from "./greeting.js";
+import { skillsFor, skillByName } from "./skills.js";
 export { roleFor };
 
 
@@ -88,6 +89,16 @@ export function mayUse(role, name, tool) {
    line on screen — is derived from this one function. One source of truth. */
 export function allowedTools(role) {
   return Object.entries(TOOLS || {}).filter(([name, tool]) => mayUse(role, name, tool));
+}
+
+/* Can this role use ANYTHING in this domain? Asks the same tool list the
+   tools themselves are filtered from, not a second table of domains — which
+   is how skill visibility and tool visibility would come to disagree. The
+   sole consumer is skillsFor() below: a skill for tools this role cannot
+   call is not listed, for the same reason those tools are not listed. */
+export function canUseDomain(role, domain) {
+  const d = String(domain || "").toLowerCase();
+  return allowedTools(role).some(([, tool]) => String(tool.domain || "").toLowerCase() === d);
 }
 
 /* What the ops page prints under "Bindings": the stores this session can reach,
@@ -170,11 +181,65 @@ export function toolDefinitions(role) {
 }
 
 /*
+ * Skills used to reach a model only through the MCP endpoint — a tool name
+ * says what it is called, but not that the category set is closed, that
+ * price and publish are two gates, that a photograph goes through an upload
+ * ticket. Removing MCP (P0-81) would have made that knowledge unreachable
+ * by any code path, so the built-in chat gets the same two meta-tools an MCP
+ * client always had: `skills_list` names what is readable at this role,
+ * `skills_read` returns one in full. These are not in TOOLS — they read
+ * skills.js directly rather than going through runTool, since they touch no
+ * store and need no audit row.
+ */
+const SKILLS_TOOL_DEFS = [
+  {
+    name: "skills_list",
+    description:
+      "List the skill documents available at this role — how the tools here are meant to be used, " +
+      "not just what they are called. Read these before your first write. " +
+      "Returns name, description and size; skills_read returns the text.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "skills_read",
+    description:
+      "Return one skill document in full, by the name skills_list gave. " +
+      "Markdown, exactly as it is maintained in the repository.",
+    input_schema: {
+      type: "object",
+      properties: { name: { type: "string", description: "A name from skills_list, e.g. catalog-skills", maxLength: 60 } },
+      required: ["name"],
+    },
+  },
+];
+
+function skillsListResult(role) {
+  const visible = skillsFor(role, canUseDomain);
+  return JSON.stringify(
+    {
+      skills: visible.map(({ name, title, description, version, bytes }) => ({ name, title, description, version, bytes })),
+      start_with: "agent-tool-contract",
+      note: "Filtered to this role. A skill for tools you cannot call is not listed, for the same reason those tools are not listed.",
+    },
+    null,
+    2,
+  );
+}
+
+function skillsReadResult(role, name) {
+  const skill = skillByName(name);
+  const visible = skill && skillsFor(role, canUseDomain).some((s) => s.name === skill.name);
+  if (!visible) {
+    return { isError: true, text: `No skill named ${JSON.stringify(name)} is available to you. Call skills_list for the ones that are.` };
+  }
+  return { isError: false, text: skill.text };
+}
+
+/*
  * This built-in browser chat is the "stupid simple" path — the one click
- * from the ops front page, no external app, no connector setup. It has to
- * open the SAME way the MCP path does (P0-62/P0-68), or "one click from ops"
- * quietly means "a worse, unbranded version of the real thing" instead of
- * the primary experience it is meant to be.
+ * from the ops front page, no external app, no connector setup. It is now
+ * the ONLY path (P0-81 removed MCP), so this is the sole place the
+ * greeting-and-menu protocol and the skills-first instruction have to work.
  */
 export function systemPrompt(actor, role, defs, claims) {
   const firstName = firstNameFrom(claims, actor);
@@ -184,6 +249,10 @@ export function systemPrompt(actor, role, defs, claims) {
         ` (${role}), first name ${firstName}.`,
       `You have exactly ${defs.length} tool${defs.length === 1 ? "" : "s"}. That list is the whole of what you can reach: it is built from this person's role before the request leaves the Worker, so anything absent from it is unreachable, not merely forbidden. Do not describe tools you do not have, and do not offer to run one.`,
       "Tools marked tier 2 stop for human approval before they execute. Call them normally when they are the right tool; the Worker handles the gate.",
+      /* The whole reason skills are served. Point at them in the first thing
+         the model reads, or it learns the category-set, price/publish and
+         upload-ticket rules by being refused instead. */
+      `Before your first write, call skills_list, then skills_read on "agent-tool-contract" plus whichever domain you are about to touch.`,
       "Answer from tool results, not from memory. If a tool refuses, say what it refused and stop. Be brief and plain.",
     ].join("\n\n") + "\n\n" + greetingScript(firstName).trim()
   );
@@ -282,11 +351,21 @@ function textOf(message) {
 
 /* ---- tool dispatch ----------------------------------------------------- */
 
-async function dispatch(name, args, { actor, role, env, allowed }) {
+export async function dispatch(name, args, { actor, role, env, allowed }) {
   /* Second enforcement of the same set. The model was never shown this tool;
      if it names one anyway, that is a refusal, not a call. */
   if (!allowed.has(name)) {
     return { kind: "result", block: { type: "tool_result", tool_use_id: null, content: `No such tool: ${name}.`, is_error: true } };
+  }
+
+  /* Meta-tools, not in TOOLS: they touch no store, need no audit row, and
+     answer from skills.js directly rather than through runTool. */
+  if (name === "skills_list") {
+    return { kind: "result", block: { type: "tool_result", tool_use_id: null, content: skillsListResult(role), is_error: false } };
+  }
+  if (name === "skills_read") {
+    const { isError, text } = skillsReadResult(role, args?.name);
+    return { kind: "result", block: { type: "tool_result", tool_use_id: null, content: text, is_error: isError } };
   }
 
   let out;
@@ -395,7 +474,7 @@ export async function agentTurn({ q, identity, env, attachment = null }) {
     };
   }
 
-  const defs = toolDefinitions(role);
+  const defs = [...SKILLS_TOOL_DEFS, ...toolDefinitions(role)];
   const allowed = new Set(defs.map((d) => d.name));
   const messages = [{ role: "user", content: buildUserContent(q, attachment) }];
   const steps = [];

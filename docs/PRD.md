@@ -1015,19 +1015,65 @@ that does not trace to one of these is a process failure (see §12).
     paragraph about it, and stays covered by its own test elsewhere: role derivation and its
     source (`ops/test/skills.test.mjs`'s `explainRole` checks), tool-count-per-role scoping
     (`ops/test/tools.test.mjs`), the T2-parks-and-returns-a-link contract
-    (`ops/test/catalog-write.test.mjs`, `ops/test/mcp-instructions.test.mjs`,
-    `ops/test/assets-route.test.mjs`, `ops/test/approvals.test.mjs`), and the skills-first
-    connect protocol (`ops/test/skills.test.mjs`, `ops/test/mcp-instructions.test.mjs`). The `/mcp`
-    endpoint and its handler (`ops/src/mcp.js`) are unchanged — an assistant that already knows to
-    connect still can, and still reads the skills first — only the on-page prose that used to
-    explain it, one layer more than P0-79 already went, is gone. "Backed by skills" is exactly
-    this split: the agent conversing over `/ops/agent` or `/mcp` still carries the full contract
-    (`greetingScript`, `agent-tool-contract`, and the rest of `skills/`), it just no longer needs a
-    static wall of text on the page to say so — the assistant says it, when asked, instead.
+    (`ops/test/catalog-write.test.mjs`, `ops/test/assets-route.test.mjs`,
+    `ops/test/approvals.test.mjs`), and the skills-first connect protocol
+    (`ops/test/skills.test.mjs`, `ops/test/agent-greeting.test.mjs`). At the time this was
+    written, the `/mcp` endpoint was unchanged and still fully documented in the developer fold
+    for whichever assistant went looking for it — **since superseded by P0-81, which removed
+    `/mcp` itself rather than leave it undocumented but reachable.** "Backed by skills" as
+    written here meant the agent conversing over `/ops/agent` or `/mcp` both carried the full
+    contract; P0-81 is the follow-through once only one of those two callers was left.
 
     `readRoster`, `sessionBindings`/`skillsFor`/`ROLES.map` for page display, `bindingsLine`,
     `rosterRows` and `opsShifts` are deleted from `ops/src/index.js` and `ops/src/views.js` rather
     than left unreachable — none had a caller once the sections that used them were gone.
+
+34a'''''''''''. **`Test-PRD-P0-81-skills_over_mcp`** — The owner's own words: "MCP is probably
+    only for me. Even then. I don't think I'll need it." The `/mcp` endpoint — its handler
+    (`ops/src/mcp.js`), the checked-in `.mcp.json` Claude Code registration, and the
+    `@modelcontextprotocol/server` dependency — is deleted outright, not merely left off the page
+    the way P0-80 left it. The built-in chat (`/ops/agent`, already the sole one-click path since
+    P0-68) is now the only way anything talks to these tools at all.
+
+    **Deleting MCP would have deleted skills too, by accident, if nothing moved.** Skills
+    (`skills/*/SKILL.md` — the category-set, price/publish-gate and upload-ticket knowledge a
+    tool name alone does not carry) had exactly one reader: an MCP client's `skills_list` /
+    `skills_read` tool calls. `ops/src/skills.js` had no other caller. Removing MCP without
+    wiring skills in anywhere else would have left `skills.js` and nine `SKILL.md` files as dead
+    weight nothing ever executes — the opposite of "Good skills," which was the owner's own next
+    sentence in the same message. So `agent.js`'s tool loop gained the same two meta-tools an MCP
+    client always had, `skills_list` and `skills_read`, handled in `dispatch()` before either name
+    ever reaches `runTool()` — they touch no store and need no audit row. `systemPrompt()` now
+    carries the "read the skills first" instruction `buildInstructions()` used to.
+
+    **Filtering moves with it, not a rule of its own.** `skillsFor(role, canUseDomain)`
+    (`skills.js`) is unchanged — dependency-injected on purpose, per its own comment, so it holds
+    no opinion about roles. What changed is which `canUseDomain` it is handed: MCP's own
+    (`roleCanUse`/`TIER_FLOOR`/`DOMAIN_FLOOR`, a rule this codebase had never reconciled with the
+    built-in chat's own `mayUse`/`MAX_TIER`) is gone along with the endpoint; `agent.js` now
+    exports its own `canUseDomain`, derived from `allowedTools()` — the same function that already
+    decides which TOOLS this role's chat can call — so a skill for a domain the built-in chat
+    cannot reach is never one this codebase's own rule disagrees with itself about.
+
+    **What survived the split, and why.** `parkForApproval`/`peekPending`/`approvePending` were
+    never MCP-specific — `batch.js`'s CSV upload flow and the `/approvals/<id>` page both reached
+    them the whole time, MCP was only one more caller — so they move to a new `ops/src/approvals.js`
+    rather than disappear with the rest of `mcp.js`. `roleCanUse` and its constants move with them,
+    since `approvePending` re-checks an approver's role against it; nothing new consumes it.
+    `canUseDomain`/`toolsFor` (MCP's tool-listing helpers) and everything protocol-shaped
+    (`buildInstructions`, `buildServer`, `handleMcp`, `isMcpPath`, the OAuth discovery responses)
+    have no reader left anywhere and are deleted outright.
+
+    P0-62's greeting-menu-order guarantee (`buildInstructions()`'s own tests) is not a lost check:
+    `greetingScript()` was always shared verbatim with `systemPrompt()`, already independently
+    covered end to end by `ops/test/agent-greeting.test.mjs`, which is the one surface left to
+    carry it. `ops/test/mcp-instructions.test.mjs` is deleted with `mcp.js` itself, and the
+    `ops/test/skills.test.mjs`/`ops/test/catalog-write.test.mjs`/`ops/test/customer-create.test.mjs`/
+    `ops/test/approvals.test.mjs` imports that reached `mcp.js` are repointed at `agent.js` and
+    `approvals.js`. `ops/test/agent-skills.test.mjs` is new: `skills_list`/`skills_read` through
+    `dispatch()` directly, `canUseDomain` cross-checked against `mayUse()` tool-by-tool, and the
+    system prompt's own skills-first instruction — the same "assert what it sends, not what the
+    code means" standard `ops/test/agent-tool-schema.test.mjs` already set for `toolDefinitions()`.
 
 ## 4. P1 features
 
@@ -1260,6 +1306,7 @@ Where each feature is enforced today:
 | P0-78 | `ops/test/ops-page.test.mjs` |
 | P0-79 | `ops/test/ops-page.test.mjs` |
 | P0-80 | `ops/test/ops-page.test.mjs` |
+| P0-81 | `ops/test/agent-skills.test.mjs`, plus the repointed imports in `ops/test/skills.test.mjs`, `ops/test/catalog-write.test.mjs`, `ops/test/customer-create.test.mjs`, `ops/test/approvals.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

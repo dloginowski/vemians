@@ -183,7 +183,7 @@ export async function readAccessIdentity(request, env) {
 
 
 /*
- * Claims -> role. THE canonical mapping; agent.js and mcp.js both import it.
+ * Claims -> role. THE canonical mapping; agent.js imports it.
  *
  * There were briefly two implementations. They disagreed: one matched group
  * names by suffix and defaulted to "staff", the other required an exact name

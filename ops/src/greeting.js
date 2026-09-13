@@ -1,11 +1,10 @@
 /*
- * The greeting-and-menu protocol, shared verbatim by every surface that
- * talks to a person — the MCP endpoint (mcp.js's buildInstructions) and the
- * built-in browser chat (agent.js's systemPrompt). One text, in its own
- * dependency-free module, because the alternative is two prompts that
- * describe the same four choices in almost the same words until the day
- * someone edits only one of them — and because agent.js has no reason to
- * pull in the whole MCP SDK just to read a string.
+ * The greeting-and-menu protocol for the built-in browser chat
+ * (agent.js's systemPrompt) — the ops surface's only conversational path
+ * since P0-81 removed the MCP endpoint that used to share this text
+ * verbatim via its own buildInstructions(). Kept in its own dependency-free
+ * module regardless: agent.js has no reason to carry this much prompt text
+ * inline, and a second consumer is one import away if one ever returns.
  */
 export function greetingScript(firstName) {
   return (
