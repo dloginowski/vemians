@@ -1413,12 +1413,14 @@ that does not trace to one of these is a process failure (see §12).
     orange as its own focus ring said nothing an already-orange frame had not; `--ink` still reads
     as a distinct, brighter "active" state without borrowing the frame's own colour.
 
-    **Less padding, and an intentionally UNEQUAL gap.** `.chat-top`'s padding goes from a uniform
-    `14px` to `14px 8px 8px` (top/right/bottom shorthand: right and bottom inherit the third
-    value, left is set by the fourth positional value being absent so it repeats the second — in
-    effect top 14px, sides and bottom both 8px) — tight and even on the sides and bottom the owner
-    named, while the top keeps its own 14px since the hint/log stack sits there, not the composer
-    pill.
+    **Less padding, and an intentionally UNEQUAL gap — tightened twice.** `.chat-top`'s padding
+    goes from a uniform `14px` to `14px 8px 8px` (top/right/bottom shorthand: right and bottom
+    inherit the third value, left is set by the fourth positional value being absent so it
+    repeats the second — in effect top 14px, sides and bottom both 8px) — tight and even on the
+    sides and bottom the owner named, while the top keeps its own 14px since the hint/log stack
+    sits there, not the composer pill. A direct follow-up tightened it again: "I would even reduce
+    the padding from 8 to 4px - to tighten the inner chat and outer edge gap" — `14px 4px 4px`,
+    top still untouched.
 
     **The radius geometry took two attempts to get right, and the pill's own radius never actually
     needed to change.** A first pass shrank `.chat .chat-bar`'s own radius from `24px` to `18px`
@@ -1434,10 +1436,13 @@ that does not trace to one of these is a process failure (see §12).
     (same idea as the chat send button fitting inside of the inner chat box)" — the SAME concentric
     idea as the first attempt, just computed against the pill's real, unchanged `24px` radius
     rather than the mistaken `18px`. `.chat .chat-bar` stays `24px`, untouched throughout; `.chat-
-    top`'s radius is `20px 20px 32px 32px` — top corners unchanged (nothing rounded sits against
-    them), bottom corners at `24 + 8 = 32px` (the pill's true radius plus the tightened 8px gap
-    from the padding change below), so the frame's own bottom curve and the pill's bottom curve
-    share a centre exactly the way the owner asked for from the start.
+    top`'s radius was `20px 20px 32px 32px` against the original `8px` gap (`24 + 8 = 32`), then
+    recomputed to `20px 20px 28px 28px` (`24 + 4 = 28`) once the gap itself was tightened further
+    to `4px` above — the arithmetic has to be redone every time the gap changes, since the whole
+    point is staying concentric with it, not landing on one fixed "big" number. Top corners stay
+    unchanged throughout (nothing rounded sits against them), so the frame's own bottom curve and
+    the pill's bottom curve keep sharing a centre exactly the way the owner asked for from the
+    start, at whatever gap the padding happens to be tightened to next.
 
     **What the owner actually wanted instead: even padding around the send button.** `.chat-bar`'s
     own padding was `4px 4px 4px 6px` — 6px on the left (in front of the attach icon), only 4px on

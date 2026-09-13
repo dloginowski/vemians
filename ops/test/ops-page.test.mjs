@@ -417,8 +417,11 @@ check("test_PRD_P0_93_nested_chat_frame__focus_stays_gray_rather_than_doubling_u
 check("test_PRD_P0_93_nested_chat_frame__the_outer_frame_has_tight_even_padding_on_sides_and_bottom", async () => {
   const { body } = await frontPage(OWNER);
   /* Top keeps its own room for the hint/log stack; sides and bottom match
-     each other and are tighter than before, per the owner's own words. */
-  assert.match(body, /\.chat-top\s*\{[^}]*padding:\s*14px 8px 8px/s, "sides and bottom must be tight and equal to each other");
+     each other and are tighter than before, per the owner's own words —
+     tightened again, from an already-tight 8px down to 4px, on a direct
+     follow-up: "I would even reduce the padding from 8 to 4px - to
+     tighten the inner chat and outer edge gap." */
+  assert.match(body, /\.chat-top\s*\{[^}]*padding:\s*14px 4px 4px/s, "sides and bottom must be tight and equal to each other");
 });
 
 check("test_PRD_P0_93_nested_chat_frame__the_pills_own_radius_never_changes__only_the_outer_frame_matches_it", async () => {
@@ -429,16 +432,17 @@ check("test_PRD_P0_93_nested_chat_frame__the_pills_own_radius_never_changes__onl
      since the pill was never meant to change. The correct read, once
      clarified: the pill stays 24px, and the outer frame's BOTTOM corners
      grow to stay concentric with the pill's true, unchanged radius plus
-     the tightened 8px gap (24 + 8 = 32) — "the bottom of the outer chat
-     box edge radius is slightly bigger than the inner chat edge so that
-     it has a neat, even padding." Top corners stay at 20px, since nothing
-     rounded is nested against them. */
+     the tightened gap — 24 + 4 = 28 once the gap itself was tightened
+     further to 4px — "the bottom of the outer chat box edge radius is
+     slightly bigger than the inner chat edge so that it has a neat, even
+     padding." Top corners stay at 20px, since nothing rounded is nested
+     against them. */
   const { body } = await frontPage(OWNER);
   assert.match(body, /\.chat \.chat-bar\s*\{[^}]*border-radius:\s*24px/s, "the composer pill's own radius must never change");
   assert.match(
     body,
-    /\.chat-top\s*\{[^}]*border-radius:\s*20px 20px 32px 32px/s,
-    "only the outer frame's bottom corners should be bigger, matching the pill's own unchanged radius plus the gap",
+    /\.chat-top\s*\{[^}]*border-radius:\s*20px 20px 28px 28px/s,
+    "only the outer frame's bottom corners should be bigger, matching the pill's own unchanged radius plus the current gap",
   );
 });
 

@@ -123,20 +123,23 @@ ${OPS_DARK_CSS}
    accent colour tying the widget to the shortcuts that feed it, rather than
    the plain neutral --rule every other box on the page uses.
  *
- * Sides and bottom are tight (8px) so the composer pill nested inside sits
- * close against this frame rather than floating in a wide gap; top stays
+ * Sides and bottom are tight (4px, tightened further from an already-tight
+ * 8px on the owner's own follow-up) so the composer pill nested inside
+ * sits close against this frame rather than floating in a gap; top stays
  * roomier (14px) since the hint/log stack sits there, not the pill. The
- * bottom corners are bigger than the top ones (32px vs 20px) so the frame
+ * bottom corners are bigger than the top ones (28px vs 20px) so the frame
  * stays concentric with the pill's own UNCHANGED 24px radius plus this
- * tight 8px gap (24 + 8 = 32) — the owner's own words, once this was right:
- * "the bottom of the outer chat box edge radius is slightly bigger than
- * the inner chat edge so that it has a neat, even padding." The pill's own
- * radius never changes (see .chat .chat-bar below) — only the outer frame
- * grows to match it, the same idea as evening out the send button's own
- * padding rather than shrinking the button to fit a tighter box. */
+ * tight 4px gap (24 + 4 = 28) — the owner's own words, once this was
+ * right: "the bottom of the outer chat box edge radius is slightly bigger
+ * than the inner chat edge so that it has a neat, even padding." The
+ * pill's own radius never changes (see .chat .chat-bar below), and this
+ * arithmetic has to be redone every time the gap itself changes — only the
+ * outer frame grows to match the pill, the same idea as evening out the
+ * send button's own padding rather than shrinking the button to fit a
+ * tighter box. */
 .chat-top {
-  border: 1px solid var(--accent); border-radius: 20px 20px 32px 32px;
-  padding: 14px 8px 8px; margin-bottom: 16px;
+  border: 1px solid var(--accent); border-radius: 20px 20px 28px 28px;
+  padding: 14px 4px 4px; margin-bottom: 16px;
 }
 
 /* Centred and quiet on purpose — a name check, not the thing on the page
