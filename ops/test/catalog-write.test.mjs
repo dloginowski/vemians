@@ -75,7 +75,7 @@ import { nearestCategory, suggestCategory, validateProposal } from "../src/tools
 register("../../shared/test/text-modules.mjs", import.meta.url);
 const { approvePending, parkForApproval } = await import("../src/approvals.js");
 const { draftProductBatch } = await import("../src/batch.js");
-const { dispatch } = await import("../src/agent.js");
+const { dispatch, NO_TEXT_TABLE_NOTE } = await import("../src/agent.js");
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OPS = path.join(HERE, "..");
@@ -2168,4 +2168,16 @@ check("test_PRD_P0_89_batch_preview_confirm__too_many_rows_carries_no_table_only
     { actor: "mara@vemians.com", role: "manager", env, allowed: new Set(["catalog_draft_product_batch"]) },
   );
   assert.equal(outcome.table, null);
+});
+
+check("test_PRD_P0_89_batch_preview_confirm__the_no_text_table_note_bans_every_shape_not_just_markdown", async () => {
+  /* "Dont rely on text to try to explain table structure... This is
+     useless" named "a markdown table" specifically, and the model found
+     the loophole immediately — a bulleted arrow-style mapping instead
+     ("- **Title** ← 'style #'..."), the identical restatement in a
+     different shape. The note must ban the whole category, not one
+     named format. */
+  assert.match(NO_TEXT_TABLE_NOTE, /rendered for the person automatically/i, "must say a table is already shown");
+  assert.match(NO_TEXT_TABLE_NOTE, /markdown table/i, "must still name a markdown table");
+  assert.match(NO_TEXT_TABLE_NOTE, /bulleted or arrow-style field-by-field mapping/i, "must also ban the bulleted/arrow-mapping loophole the model actually used");
 });

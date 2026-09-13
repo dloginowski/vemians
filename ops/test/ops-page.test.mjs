@@ -268,6 +268,59 @@ check("test_PRD_P0_75_ops_dark_theme__every_approval_style_page_carries_it_too",
   }
 });
 
+check("test_PRD_P0_89_batch_preview_confirm__the_batch_review_page_uses_the_same_table_card_as_chat", async () => {
+  /* The owner's own words, having seen both surfaces: "I like how the
+     table renders in our chat! Doesn't look like that on our website!"
+     batchReviewPage() (the /products/batch, /customers/batch upload
+     result) used to render a plain <ol> of ready links plus a separate
+     <ul> of skip reasons — nothing like tableCard()'s bordered, compact
+     card. It now shares the exact same .table-card CSS (TABLE_CARD_CSS,
+     included in both OPS_CSS for chat and APPROVAL_CSS for this page),
+     and the same Row/Title/Status/Detail column shape agent.js's own
+     batchDraftTable() uses for the identical data. */
+  const { batchReviewPage } = await import("../src/views.js");
+  const html = batchReviewPage(
+    {
+      ready: [{ row: 2, title: "Wool Coat", url: "https://ops.vemians.com/approvals/abc", summary: "add Wool Coat, $450.00" }],
+      skipped: [{ row: 3, title: "(no title)", reason: "no title column, or it was empty" }],
+    },
+    "products",
+  );
+  assert.match(html, /class="table-card"/, "the review page must use the same .table-card wrapper the chat uses");
+  assert.match(html, /<th>Row<\/th><th>Title<\/th><th>Status<\/th><th>Detail<\/th>/, "columns must match the chat's own Row/Title/Status/Detail shape");
+  assert.match(html, /<a href="https:\/\/ops\.vemians\.com\/approvals\/abc">Wool Coat<\/a>/, "a ready row's title must still link to its own approval");
+  assert.match(html, /no title column, or it was empty/, "a skipped row's own reason must still be shown");
+  assert.doesNotMatch(html, /<ol>/, "the old separate ready-list <ol> must be gone");
+  assert.doesNotMatch(html, /<ul>/, "the old separate skipped-list <ul> must be gone");
+});
+
+check("test_PRD_P0_89_batch_preview_confirm__the_table_card_style_is_shared_not_duplicated", async () => {
+  /* One CSS block (TABLE_CARD_CSS), included by both OPS_CSS (chat) and
+     APPROVAL_CSS (this page) — not two copies that could drift apart. */
+  const { approvalPage } = await import("../src/views.js");
+  const { opsPage } = await import("../src/views.js");
+  const chatHtml = opsPage({ verified: true, email: "owner@vemians.com", claims: {} }, { hasKey: true, role: "owner" });
+  const approvalHtml = approvalPage("id1", null);
+  for (const html of [chatHtml, approvalHtml]) {
+    assert.match(html, /\.table-card\s*\{[^}]*border:\s*1px solid var\(--rule\)/s, "both surfaces must carry the same .table-card rule");
+  }
+});
+
+check("test_PRD_P0_89_batch_preview_confirm__the_table_matches_a_plain_rendered_markdown_table_not_a_rounded_card", async () => {
+  /* "Render it like that on our website!... Make sure you follow the
+     [Claude] in chat styling. Respect markups and render tables etc" —
+     having just compared this card unfavourably to how an ordinary
+     markdown table renders. Square corners ("Dont round its corners"),
+     a full grid (vertical rules between columns, not only a line under
+     each row), and a shaded header row — the scrolling frame itself
+     (max-height/overflow, checked elsewhere) is unchanged; only the
+     table's own visual grammar is. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.table-card\s*\{[^}]*border-radius:\s*0/s, "corners must be square, not rounded");
+  assert.match(body, /\.table-card th, \.table-card td\s*\{[^}]*border:\s*1px solid var\(--rule\)/s, "every cell must have a full border, not only a bottom line");
+  assert.match(body, /\.table-card th\s*\{[^}]*background:\s*var\(--ground\)/s, "the header row must be visually shaded, matching an ordinary rendered table");
+});
+
 check("test_PRD_P0_75_ops_dark_theme__the_employees_only_bar_is_readable_on_the_black_bar", async () => {
   /* theme.css's .bar sets color: var(--ground) — a light warm off-white on
      the storefront, but --ground is redefined to a near-black #191817 for
@@ -463,21 +516,30 @@ check("test_PRD_P0_93_nested_chat_frame__the_send_button_gets_the_same_clearance
      "make the padding on the chat submit button a little more even so it
      fit better." The bar's own left/right padding used to be 6px/4px — the
      send button sat measurably tighter against the edge than the attach
-     button on the other side. Tightened once more since, from 6px to a
-     uniform 4px all around: "submit button's padding could use a bit of
-     tightening too" — still even, just closer to the edge than before. */
+     button on the other side. Both buttons must have the SAME left/right
+     clearance — a uniform 4px round in between made that clearance too
+     tight relative to the vertical gap and was corrected back to 4px 6px
+     (see the P0-93 vertical-vs-sides check below); either way, left and
+     right must always match each other. */
   const { body } = await frontPage(OWNER);
-  assert.match(body, /\.chat \.chat-bar\s*\{[^}]*padding:\s*4px;/s, "padding around the buttons must be uniform on every side");
   assert.doesNotMatch(
     body,
     /\.chat \.chat-bar\s*\{[^}]*padding:\s*4px 4px 4px 6px/s,
-    "the old asymmetric 4px/6px split must not still be set",
+    "the old asymmetric 4px/6px split (send tighter than attach) must not still be set",
   );
-  assert.doesNotMatch(
-    body,
-    /\.chat \.chat-bar\s*\{[^}]*padding:\s*4px 6px;/s,
-    "the old, less-tight 4px/6px even split must not still be set",
-  );
+});
+
+check("test_PRD_P0_93_nested_chat_frame__the_sides_are_wider_than_the_vertical_gap_again", async () => {
+  /* The owner's own direct measurement, once a uniform 4px was actually in
+     front of them: "Sides is less than vertical. I don't think that's an
+     optical illusion. Side padding probably needs like 2 more pixels."
+     Vertical stays 4px (it already matches the button height exactly, no
+     room to spare); sides go back to 6px — the same value this carried
+     before the brief uniform-4px round, restored on their own read of it
+     rather than further guessing. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.chat \.chat-bar\s*\{[^}]*padding:\s*4px 6px;/s, "sides must be wider than the vertical gap, not uniform");
+  assert.doesNotMatch(body, /\.chat \.chat-bar\s*\{[^}]*padding:\s*4px;/s, "the uniform 4px round must not still be set");
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -647,6 +709,16 @@ check("test_PRD_P0_78_chat_widget__the_log_is_a_bounded_scrolling_container_not_
   const { body } = await frontPage(OWNER);
   assert.match(body, /\.log\s*\{[^}]*max-height:/s, "the message log must be height-bounded, not free to grow the page");
   assert.match(body, /\.log\s*\{[^}]*overflow-y:\s*auto/s, "and it must scroll internally rather than the whole page");
+});
+
+check("test_PRD_P0_78_chat_widget__the_logs_max_height_scales_with_the_viewport_not_a_flat_guess", async () => {
+  /* The owner's own words, seeing a real batch preview reply cropped on a
+     phone with most of the screen still empty below the widget: "I cant
+     really tell what is being shown." A flat 320px was sized before this
+     widget ever had to hold a long reply AND a table in the same column. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.log\s*\{[^}]*max-height:\s*min\(62vh, 560px\)/s, "the log must scale with the viewport, not a single guessed pixel value");
+  assert.doesNotMatch(body, /\.log\s*\{[^}]*max-height:\s*320px/s, "the old flat 320px cap must not still be set");
 });
 
 check("test_PRD_P0_78_chat_widget__mine_agent_and_tool_are_three_distinct_bubble_styles", async () => {

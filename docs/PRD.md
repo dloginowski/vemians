@@ -976,6 +976,19 @@ that does not trace to one of these is a process failure (see §12).
     small outlined chips: this page has exactly one thing asking to be pressed hardest now, and
     P0-74 already put that thing above these chips, not beside them as an equal.
 
+    **`.log`'s own max-height grew once the widget had more to show than a few chat lines.** The
+    owner's own words, seeing a real batch preview reply on a phone: "When adding a spreadsheet
+    it looks like the bottom is getting cropped? I cant really tell what is being shown...." The
+    fixed `320px` above was sized before this widget ever had to hold a batch preview's own long
+    explanatory reply (P0-88) AND a structured table (P0-89) in the same scrolling column — the
+    screenshot showed most of the phone screen still empty below the widget while the table's own
+    header and "Full screen" button were cut off mid-row. `max-height` becomes `min(62vh, 560px)`
+    — scales with the actual viewport instead of one guessed pixel number, giving a typical phone
+    real room for a reply plus a few rows of table, while a very tall window is still capped at
+    `560px` rather than letting the log swallow most of the page. `.table-card`'s own separate
+    `max-height: 240px` (P0-89) is untouched — a wide or long table still scrolls within its own
+    card either way; this only grows the OUTER column that card sits inside.
+
 34a'''''''''. **`Test-PRD-P0-79-quick_actions_over_connect_prompt`** — The owner's own direction,
     read back verbatim: "remove [the connect-your-own-assistant block]... you already have quick
     actions under the chat, that's what I want to expand." The promotional block P0-69 had put where
@@ -1341,6 +1354,60 @@ that does not trace to one of these is a process failure (see §12).
     count, with the title and "Full screen" button pinned in place (`position: sticky; left: 0`)
     so they stay reachable while scrolled right.
 
+    **The model still has to be TOLD not to duplicate the table as text — building it was not
+    enough.** The owner's own words, watching a real preview reply: "Dont rely on text to try to
+    explain table structure. Thats why you have a scrolling preview... This is useless," followed
+    by a markdown table the model had written into its own reply, right next to the real `table`
+    the client was already rendering underneath it. Nothing before this told the model the
+    structured table existed at all, so it fell back to the one format it always has: prose,
+    reaching for a markdown table to represent tabular data the same way it would in a chat client
+    with no such feature. Every preview/draft tool description now ends with the same
+    `NO_TEXT_TABLE_NOTE`: "A compact, scrollable table of this data is rendered for the person
+    automatically — never restate the rows yourself as a markdown table or grid; reply in one or
+    two plain sentences... and let the table do the showing." `systemPrompt()` carries the same
+    rule as a standing backstop, independent of which tool was called, since a model that has
+    learned the habit from one tool's result can just as easily repeat it after a different one.
+
+    **The dedicated `/products/batch`, `/customers/batch` upload pages get the SAME table, not a
+    second, plainer one.** The owner's own words, having actually compared the two surfaces: "I
+    like how the table renders in our chat! Doesn't look like that on our website!" `batchReviewPage()`
+    (`ops/src/views.js`) predates the chat's own `tableCard()` and had never been revisited: it
+    rendered ready rows as a plain `<ol>` of links and skipped rows as a separate `<ul>` of
+    reasons, styled by nothing more than `APPROVAL_CSS`'s own generic list rules — the same data
+    this entry already gives a bordered, compact `.table-card` in chat looked like a different,
+    older feature on the page a manager reaches by clicking "Upload another spreadsheet."
+
+    The chat's own `.table-card` CSS (previously written directly into `OPS_CSS`, scoped as `.log
+    .table-card`) is extracted into a shared `TABLE_CARD_CSS` constant — selectors de-scoped to
+    bare `.table-card` so they work with no `#log` ancestor at all — and included in both `OPS_CSS`
+    (chat) and `APPROVAL_CSS` (this page and every other approval-style page), rather than kept as
+    one copy the second surface could not reach or a duplicate that could drift from it.
+    `batchReviewPage()` itself now builds a single `Row`/`Title`/`Status`/`Detail` table — the
+    exact shape `agent.js`'s own `batchDraftTable()` already uses for identical ready/skipped data
+    — instead of two separate list elements, so a spreadsheet reviewed on the dedicated page reads
+    the same way as one reviewed in chat, not merely styled to look similar.
+
+    **The banned-text-restatement wording had a loophole, and the table's own look still didn't
+    match a plainly rendered one.** The owner's own words, still watching the same live reply:
+    "Oh. It renders much nicer in chat!" followed immediately by a bulleted field-by-field mapping
+    — `- **Title** ← "style #" (e.g. 001-001)` and so on — sitting in the model's OWN reply text,
+    the identical restatement `NO_TEXT_TABLE_NOTE` was written to stop, just in a shape its own
+    wording never named ("a markdown table or grid" — a bulleted arrow-mapping is neither). Both
+    `NO_TEXT_TABLE_NOTE` and `systemPrompt()`'s own standing backstop now ban the whole category —
+    "any prose, bullet list, or arrow-style mapping that walks through the row/column structure by
+    hand" — not one named format among others.
+
+    Separately: "Render it like that on our website!... Make sure you follow the [Claude] in chat
+    styling. Respect markups and render tables etc" — having compared `.table-card`'s own look
+    unfavourably to how an ordinary markdown table renders elsewhere. `TABLE_CARD_CSS` drops its
+    `border-radius` to `0` ("Dont round its corners") and gives every `th`/`td` a full `1px solid
+    var(--rule)` border instead of only a line under each row — a real grid, not a card with rows
+    stacked in it — with the header row shaded (`background: var(--ground)`) to read as a header
+    the way a rendered markdown table's own would. The scrolling frame itself (`max-height`,
+    `overflow: auto`) is untouched — "still use a scrolling frame so I can see the entire table if
+    cropped" — only the table's own visual grammar changed, not the mechanism that keeps a long or
+    wide one from overflowing its own box.
+
 34a''''''''''''''''''''. **`Test-PRD-P0-90-daylight_contrast`** — The owner's own words: "Bump up
     the contrast of the dimmer elements on ops page. Its a little hard to see on a mobile device
     in broad daylight." Direct sun washes out exactly the mid-tones a "dim, secondary" colour is
@@ -1565,6 +1632,16 @@ that does not trace to one of these is a process failure (see §12).
     pill's true rendered shape) + thisGap (`14`, now that sides/bottom match top) = `35px` — while
     the top corner keeps its own independently-liked `20px`, since nothing rounded is nested
     against it regardless of what the gap itself is.
+
+    **A separate, smaller-scale version of the same "sides vs. the other axis" question, this
+    time on `.chat .chat-bar` itself.** The uniform `4px` round above ("submit button's padding
+    could use a bit of tightening too") made the sides read as tighter than the vertical gap once
+    it was actually in front of the owner again: "Sides is less than vertical. I don't think
+    that's an optical illusion. Side padding probably needs like 2 more pixels." Vertical stays
+    `4px` (it already matches the button height exactly — no room to spare there without shrinking
+    the buttons themselves); sides return to `6px`, the same value this padding carried before
+    that uniform round, restored on the owner's own direct measurement rather than further
+    guessing at a number.
 
 34a''''''''''''''''''''''''''''. **`Test-PRD-P0-97-placeholder_names_the_attachment`** — The
     owner's own words: "When adding an attachment, instead of adding a line under the inner chat
