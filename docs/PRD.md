@@ -939,6 +939,43 @@ that does not trace to one of these is a process failure (see §12).
     now converts every tool's schema, recursively for a nested array-of-objects field (`variations`
     on `catalog.create_product`, the one shape that most needed it), before it ever reaches Claude.
 
+34a'''''''. **`Test-PRD-P0-77-chat_attachments`** — A row of two icons under the chat input — a
+    photo, and any other file — asked for directly: "let the agent figure out what to do with
+    them" rather than the purpose-built, no-assistant paths P0-59/P0-65 already give a photo or a
+    document. Choosing either uploads through the SAME stores those paths already use —
+    `ops/src/index.js`'s `ingestAgentAttachment` puts a photo in the media store
+    (`catalog.upload_image`'s own store) and everything else in the asset store (`/assets/new`'s
+    own store) — **before the agent ever sees it**, for the same reason `catalog.upload_image`
+    never takes bytes as a tool argument: a model cannot usefully re-emit a photo's bytes into a
+    tool call, only reference a key it is already given.
+
+    A photo therefore reaches Claude TWICE, for two different reasons (`agent.js`'s
+    `buildUserContent`): as a real `image` content block, so the model can actually look at it and
+    reason about what it is showing, capped at `CAPS.AGENT_VISION_MAX_BYTES` — past that the photo
+    is still stored in full, just not previewed to the model, which is told so in plain words
+    rather than silently seeing nothing — and as a sentence naming the key it is already stored
+    under, so a tool call that wants to use it (`catalog.create_product`'s `images`) references
+    that key directly instead of the model inventing one or calling `catalog.upload_image` a
+    second, redundant time. A non-photo file has no vision block at all — it is EXTRACTED TEXT,
+    read the same way `/assets/<id>` already reads one back for a person browsing without an
+    assistant, folded into the same sentence. Neither text nor a file is required on its own: a
+    photo with nothing typed is still a complete, valid message — "figure out what to do with it"
+    being the entire point of handing it to the agent instead of a form.
+
+34a''''''''. **`Test-PRD-P0-78-chat_widget`** — The owner's own words: "ugly still... I want a
+    legit chat widget scrolling, similar to telegram... compact vertically." `.log`
+    (`ops/src/views.js`'s `OPS_DARK_CSS`) is now a fixed-height, scrolling column of message
+    bubbles rather than an ever-growing flat list of paragraphs pushing the rest of the page down
+    — MINE align right in the one accent colour on the page; the agent's align left, quiet and
+    bordered; a tool step is neither conversational bubble, it is a centred system aside (the
+    genre's own "so-and-so joined" convention), never competing with either side of the actual
+    conversation. Collapses to nothing at rest (`.log:empty`) rather than showing an empty grey
+    box before the first message. The whole assistant now sits inside one visibly bordered card
+    (`.chat-top`) rather than reading as loose page furniture. The three one-click task buttons —
+    the "big ass text buttons" objected to directly — shrank from bold, filled, accent CTAs to
+    small outlined chips: this page has exactly one thing asking to be pressed hardest now, and
+    P0-74 already put that thing above these chips, not beside them as an equal.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -1166,6 +1203,8 @@ Where each feature is enforced today:
 | P0-74 | `ops/test/ops-page.test.mjs` |
 | P0-75 | `ops/test/ops-page.test.mjs` |
 | P0-76 | `ops/test/agent-tool-schema.test.mjs` |
+| P0-77 | `ops/test/agent-attachments.test.mjs` |
+| P0-78 | `ops/test/ops-page.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

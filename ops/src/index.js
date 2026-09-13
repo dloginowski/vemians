@@ -33,7 +33,7 @@ import { customers, week } from "./seed.js";
 import { skillsFor } from "./skills.js";
 import { CAPS } from "./tools/caps.js";
 import { ROLES, roleAtLeast } from "./tools/roles.js";
-import { contentTypeFor, mediaKey, mintUploadTicket, verifyUploadTicket } from "./tools/media.js";
+import { contentTypeFor, mediaKey, mintUploadTicket, verifyUploadTicket, STORABLE_IMAGE_TYPES } from "./tools/media.js";
 import { mediaStoreFor, assetFileStoreFor, receiptFileStoreFor, runTool } from "./tools/index.js";
 import { contentTypeForAsset, extractText } from "./tools/assets.js";
 import { scanReceipt } from "./tools/receipt-ocr.js";
@@ -200,6 +200,95 @@ async function body(request) {
   const ct = request.headers.get("content-type") || "";
   if (ct.includes("application/json")) return await request.json();
   return Object.fromEntries(await request.formData());
+}
+
+/* String.fromCharCode(...bytes) blows the call stack on anything but a small
+   array; a phone photo is well past that. Chunked, so a multi-megabyte photo
+   still encodes without one giant spread. */
+function bytesToBase64(bytes) {
+  const CHUNK = 0x8000;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+}
+
+/*
+ * "A row of icons under chat; let the agent figure out what to do with
+ * them" — the owner's own words. This is where a file dropped into the chat
+ * actually lands, BEFORE the agent ever sees it: a photo goes to the same
+ * media store catalog.upload_image uses, everything else to the same asset
+ * store /assets/new uses, both under the identity already verified for this
+ * request. agent.js never receives raw bytes it would have to re-store —
+ * only a reference to what is already there, plus (for a photo small enough)
+ * a copy for the model to actually look at. See the comment on
+ * buildUserContent in agent.js for why a photo makes that trip twice.
+ */
+async function ingestAgentAttachment(env, { file, email }) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const imageType = contentTypeFor(file.name, file.type);
+
+  if (imageType && STORABLE_IMAGE_TYPES.includes(imageType)) {
+    if (bytes.byteLength > CAPS.ORIGINAL_IMAGE_MAX_BYTES) {
+      return { error: `That photo is larger than the ${CAPS.ORIGINAL_IMAGE_MAX_BYTES}-byte limit.`, status: 413 };
+    }
+    let media;
+    try {
+      media = mediaStoreFor(env);
+    } catch (err) {
+      console.error(`ERROR ops/agent: no media store available — ${err.message}`);
+      return { error: "Photo storage is not configured on this deployment yet.", status: 503 };
+    }
+    const key = mediaKey(imageType);
+    try {
+      await media.put(key, bytes, { contentType: imageType, actor: email, caption: file.name });
+    } catch (err) {
+      console.error(`ERROR ops/agent: storing attached photo failed — ${err.message}`);
+      return { error: err.message, status: 413 };
+    }
+    const image =
+      bytes.byteLength <= CAPS.AGENT_VISION_MAX_BYTES ? { mediaType: imageType, base64: bytesToBase64(bytes) } : null;
+    return { kind: "photo", key, filename: file.name, image };
+  }
+
+  const contentType = contentTypeForAsset(file.name, file.type);
+  if (!contentType) {
+    return {
+      error: `"${file.name}" is not a file type this can read yet. Try an image, or .txt, .md, .csv, .json, .pdf, a spreadsheet, or a Word document.`,
+      status: 415,
+    };
+  }
+  if (bytes.byteLength > CAPS.ASSET_MAX_BYTES) {
+    return { error: `That file is larger than the ${CAPS.ASSET_MAX_BYTES}-byte limit.`, status: 413 };
+  }
+  let files;
+  try {
+    files = assetFileStoreFor(env);
+  } catch (err) {
+    console.error(`ERROR ops/agent: no asset file store available — ${err.message}`);
+    return { error: "File storage is not configured on this deployment yet.", status: 503 };
+  }
+  const id = crypto.randomUUID();
+  const key = `assets/${id}`;
+  try {
+    await files.put(key, bytes);
+  } catch (err) {
+    return { error: err.message, status: 413 };
+  }
+  const extracted = extractText(contentType, bytes);
+  try {
+    await env.ASSETS.prepare(
+      "INSERT INTO asset(id, store_key, filename, content_type, size_bytes, uploaded_by, extracted_text, text_truncated)" +
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+      .bind(id, key, file.name, contentType, bytes.byteLength, email, extracted?.text ?? null, extracted?.truncated ? 1 : 0)
+      .run();
+  } catch (err) {
+    console.error(`ERROR ops/agent: stored ${key} but could not record it — ${err.message}`);
+    return { error: "Stored the file but could not record it. Try again.", status: 500 };
+  }
+  return { kind: "file", id, filename: file.name, extractedText: extracted?.text ?? null };
 }
 
 async function ops(request, env, path) {
@@ -602,14 +691,28 @@ async function ops(request, env, path) {
   if (path === "/agent") {
     if (request.method !== "POST") return json({ error: "POST only" }, 405);
     let q = "";
+    let rawFile = null;
     try {
-      q = String((await body(request)).q || "");
+      const parsed = await body(request);
+      q = String(parsed.q || "");
+      if (parsed.file instanceof File && parsed.file.size > 0) rawFile = parsed.file;
     } catch (err) {
       console.error(`ERROR ops/agent: unreadable body — ${err.message}`);
       return json({ error: "Unreadable request body." }, 400);
     }
 
-    const turn = await agentTurn({ q, identity, env });
+    let attachment = null;
+    if (rawFile) {
+      const email = identity.claims?.email;
+      if (typeof email !== "string" || !email.includes("@")) {
+        return json({ error: "This route requires a per-user Access identity." }, 403);
+      }
+      const ingested = await ingestAgentAttachment(env, { file: rawFile, email });
+      if (ingested.error) return json({ error: ingested.error }, ingested.status ?? 400);
+      attachment = ingested;
+    }
+
+    const turn = await agentTurn({ q, identity, env, attachment });
     return json({ verified: identity.verified, ...turn });
   }
 

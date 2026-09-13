@@ -70,11 +70,24 @@ const OPS_DARK_CSS = `
 
 a { color: var(--accent); }
 a:hover { opacity: 0.82; }
+
+/* theme.css's .bar sets color: var(--ground) — on the storefront that's a
+   light warm off-white against the same black bar, so it reads fine. Here
+   --ground is redefined to a near-black for the dark ground itself, which
+   left the "ops.vemians.com · employees only" strip nearly invisible: near-
+   black text on a black bar. A dim, deliberately unobtrusive gray instead. */
+.bar { color: var(--muted); }
 `;
 
 const OPS_CSS = `
 ${OPS_DARK_CSS}
-.ops { max-width: 34rem; padding: 12px 16px 32px; }
+/* 34rem was tuned for "one screen on a phone" before this page grew a chat
+   widget, tables and an accordion of real content — on an actual desktop
+   window it read as a narrow column stranded in the middle of empty space.
+   Wide enough now to use a real monitor; still capped, so a line of prose in
+   the accordion below does not stretch across a 4K display and become hard
+   to read. */
+.ops { max-width: 64rem; padding: 12px 24px 32px; }
 
 .id { font-size: var(--eyebrow); margin: 0 0 16px; color: var(--muted); }
 .ops .warn { margin: 0 0 14px; }
@@ -84,28 +97,31 @@ ${OPS_DARK_CSS}
 .hint { font-size: var(--eyebrow); color: var(--muted); margin: 0 0 8px; }
 .hint a { color: var(--accent); }
 
-/* The one filled colour on the page, spent on the controls that do
-   something — a button that only outlines never reads as "press me" on a
-   near-black ground the way it did bordered in ink on cream. */
-.key .btn {
-  display: inline-block; font: inherit; font-size: var(--eyebrow);
-  padding: 10px 16px; border: 1px solid var(--accent); background: var(--accent);
-  color: var(--ground); text-decoration: none; font-weight: 700;
+/* The widget itself reads as one contained thing — a border around the
+   whole assistant, not just around the log inside it — so it does not look
+   like loose page furniture next to the chips below it. Rounder than a
+   typical card, closer to the composer shape it wraps, per the reference
+   screenshot of a mobile chat composer this was asked to match. */
+.chat-top {
+  border: 1px solid var(--rule); border-radius: 20px;
+  padding: 14px; margin-bottom: 16px;
 }
-.key .btn:hover { background: transparent; color: var(--accent); }
+.chat-top h1 { margin-bottom: 8px; }
 
-.greet { margin: 0 0 16px; }
+.greet { margin: 0 0 12px; }
 .greet h1 { font-size: var(--type); font-weight: 700; margin: 0 0 4px; }
 
 .menu { margin: 0 0 20px; }
 .menu h1 { font-size: var(--type); font-weight: 700; margin: 0 0 4px; }
-.choices { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+/* Small chips, not CTAs — three routine tasks and a fold, not the thing on
+   the page asking to be pressed hardest. The chat above is that thing now. */
+.choices { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .choices .btn {
-  display: inline-block; font: inherit; font-size: var(--eyebrow);
-  padding: 10px 16px; border: 1px solid var(--accent); background: var(--accent);
-  color: var(--ground); text-decoration: none; font-weight: 700;
+  display: inline-block; font: inherit; font-size: 13px; line-height: 1.2;
+  padding: 5px 10px; border: 1px solid var(--accent); border-radius: 999px;
+  background: transparent; color: var(--accent); text-decoration: none; font-weight: 400;
 }
-.choices .btn:hover { background: transparent; color: var(--accent); }
+.choices .btn:hover { background: var(--accent); color: var(--ground); }
 
 /* One copyable line. The <pre> scrolls rather than wrapping, so a long command
    never reflows the page on a phone; the button stays beside it at every width
@@ -123,14 +139,17 @@ ${OPS_DARK_CSS}
   overflow-x: visible; white-space: pre-wrap; word-break: break-word;
   font-family: var(--face); font-size: var(--type);
 }
-/* Top-aligned with the first line of a prompt that wraps to three. */
+/* Top-aligned with the first line of a prompt that wraps to three. Round,
+   like every other icon-only control on this surface now (the composer's
+   attach and send buttons) — one shape for "this button is an icon", not a
+   square one here and a circle there. */
 .copy button {
   flex: 0 0 auto; font: inherit; font-size: var(--eyebrow);
   width: 34px; height: 34px; padding: 0; cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;
-  border: 1px solid var(--rule); background: var(--ground); color: var(--ink);
+  border: 1px solid var(--rule); border-radius: 50%; background: var(--ground); color: var(--ink);
 }
-.copy button:hover { border-color: var(--ink); }
+.copy button:hover { border-color: var(--accent); color: var(--accent); }
 /* The confirmation replaces the icon in place — same box, same width, so the
    line beside it does not move when someone taps. */
 .copy button[data-state] svg { display: none; }
@@ -163,20 +182,92 @@ ${OPS_DARK_CSS}
 .scroll { overflow-x: auto; }
 .you td { font-weight: 700; }
 
-.bind { background: var(--image-ground); padding: 8px 10px; margin: 0 0 8px; }
-.log { margin-top: 8px; }
-.log p { margin: 0 0 6px; }
-.log .agent { color: var(--muted); }
-.log .tool { color: var(--muted); }
-.gate { border: 1px solid var(--ink); padding: 12px; margin: 12px 0; }
+/* A footnote, not a control — no background, no border-radius, nothing that
+   reads as a boxed UI element sitting right above the input that actually is
+   one. Plain small text is what makes it read as metadata. */
+.bind { font-size: 11px; color: var(--muted); margin: 0 0 10px; }
+.bind code { color: var(--muted); }
+
+/*
+ * A real chat widget, not a growing list of paragraphs: a fixed-height,
+ * scrolling column of bubbles — same shape as the genre this was asked to
+ * match (Telegram). MINE align right in the one accent colour on the page;
+ * the agent's align left, quiet and bordered; a TOOL step is neither — it is
+ * a system aside (Telegram's own "so-and-so joined"), centred, small, never
+ * competing with either side of the conversation. Empty at rest, so the
+ * widget does not show a blank grey box before the first message — it grows
+ * into place instead.
+ */
+.log {
+  display: flex; flex-direction: column; gap: 6px;
+  max-height: 320px; overflow-y: auto;
+  margin: 8px 0; padding: 4px 2px;
+}
+.log:empty { display: none; }
+.log p {
+  margin: 0; padding: 8px 12px; border-radius: 14px;
+  max-width: 82%; font-size: 14px; line-height: 1.4;
+  white-space: pre-wrap; word-break: break-word;
+}
+.log p.you {
+  align-self: flex-end; background: var(--accent); color: var(--ground);
+  border-bottom-right-radius: 4px;
+}
+.log p.agent {
+  align-self: flex-start; background: var(--image-ground); color: var(--ink);
+  border-bottom-left-radius: 4px;
+}
+.log p.tool {
+  align-self: center; max-width: 100%; background: transparent;
+  color: var(--muted); font-size: 12px; padding: 2px 8px; text-align: center;
+}
+.gate { border: 1px solid var(--ink); padding: 12px; margin: 12px 0; border-radius: 10px; }
 .gate h3 { margin: 0 0 8px; }
 .gate dl { margin: 0; }
 .gate dt { font-weight: 700; margin-top: 8px; }
 .gate dd { margin: 0; white-space: pre-wrap; word-break: break-word; }
 .gate .row { display: flex; gap: 8px; }
 .gate button[disabled] { color: var(--muted); border-color: var(--rule); cursor: default; }
-.chat input { padding: 8px 10px; }
-.chat button { margin-top: 6px; padding: 8px 16px; font-size: var(--eyebrow); }
+/*
+ * The composer bar — one rounded pill holding both attach icons, the input
+ * and Send, the same shape a phone chat app's own composer takes: round
+ * icon buttons on the left, borderless input filling the middle, a filled
+ * circular Send on the right. Everything inside shares the bar's own
+ * background rather than drawing a second box around itself.
+ *
+ * Every rule below is scoped ".chat .chat-bar ..." (or by id, for the input),
+ * on purpose: shared/design/theme.css already carries ".chat input" and
+ * ".chat button" at specificity (0,1,1), and this form still carries
+ * class="chat" for the approval gate's own buttons further down to inherit
+ * from — so anything here weaker than that would be silently overridden by
+ * the shared rule rather than replacing it the way it reads on screen.
+ */
+.chat .chat-bar {
+  display: flex; align-items: center; gap: 2px;
+  border: 1px solid var(--rule); border-radius: 24px;
+  padding: 4px 4px 4px 6px; background: var(--image-ground);
+}
+.chat .chat-bar:focus-within { border-color: var(--accent); }
+#q {
+  flex: 1 1 auto; min-width: 0; border: none; background: transparent;
+  padding: 8px 4px; font: inherit; font-size: 14px; color: var(--ink);
+}
+#q:focus { outline: none; }
+.chat .chat-bar button {
+  flex: 0 0 auto; margin: 0; padding: 0; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; border-radius: 50%;
+}
+.chat .chat-bar .icon-btn { width: 32px; height: 32px; background: transparent; color: var(--muted); }
+.chat .chat-bar .icon-btn:hover { background: rgba(255, 255, 255, 0.08); color: var(--ink); }
+.chat .chat-bar .icon-btn[aria-pressed="true"] { color: var(--accent); background: rgba(217, 119, 87, 0.14); }
+.chat .chat-bar .send-btn { width: 34px; height: 34px; background: var(--accent); color: var(--ground); }
+.chat .chat-bar .send-btn:hover { opacity: 0.85; }
+.chat .chat-bar .send-btn:disabled { opacity: 0.4; cursor: default; }
+.attach-name {
+  display: block; font-size: 12px; color: var(--muted); margin: 4px 2px 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 
 /* The seven-day grid is unreadable under about 640px — two columns there, one
    per day, in the same order. Nothing is hidden, the wrap point is the width. */
@@ -212,6 +303,16 @@ function opsShifts(week) {
 const CLIPBOARD = `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">` +
   `<rect x="4.5" y="2.5" width="7" height="2.5" rx="0.6" fill="none" stroke="currentColor"/>` +
   `<path d="M4.5 3.75H3.5v9.75h9V3.75h-1" fill="none" stroke="currentColor"/></svg>`;
+
+/* One attach button, not two — a plain "+" like the reference composer's own,
+   same stroke-only style as CLIPBOARD above. It opens one file picker that
+   takes a photo or any other file; the agent works out which from what
+   actually arrives, so the UI never has to ask first. */
+const ATTACH_ICON = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">` +
+  `<path d="M8 3v10M3 8h10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>`;
+const SEND_ICON = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">` +
+  `<path d="M8 12.5V3.5M8 3.5 3.5 8M8 3.5 12.5 8" fill="none" stroke="currentColor" stroke-width="1.4" ` +
+  `stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
 /* The behaviour half of copyLine, as a string, so the front page and the
    identity page share one implementation rather than two that drift. */
@@ -322,25 +423,26 @@ ${id}
 
   <section class="greet">
     <h1>Hi ${esc(firstName)} — what would you like to do?</h1>
-    <p class="hint">Ask the assistant right here, or skip straight to a task below.</p>
   </section>
 
   <section class="key chat-top">
     <h1>Ask the ops assistant</h1>
-    <p class="hint">Look something up, describe a product instead of using a spreadsheet, ask a
-       question. Built in, answered right here, nothing to set up.</p>
     ${bindingsLine(bindings, hasKey)}
     <div class="log" id="log"></div>
     <div id="gate"></div>
     <form class="chat" id="chat" method="post" action="/ops/agent">
-      <input name="q" id="q" placeholder="Ask about the catalog, orders, stock or the schedule" autocomplete="off">
-      <button type="submit">Send</button>
+      <div class="chat-bar">
+        <button type="button" class="icon-btn" id="attach-btn" aria-label="Attach a photo or file" title="Attach a photo or file">${ATTACH_ICON}</button>
+        <input name="q" id="q" placeholder='e.g. "Add a wool coat, $450, Outerwear"' autocomplete="off">
+        <button type="submit" class="send-btn" aria-label="Send" title="Send">${SEND_ICON}</button>
+      </div>
+      <span class="attach-name" id="attach-name" aria-live="polite"></span>
+      <input type="file" id="attach-input" hidden>
     </form>
   </section>
 
   <section class="menu">
     <h1>Or, one click</h1>
-    <p class="hint">No assistant, no typing — the three most common tasks, done directly.</p>
     <div class="choices">
       <a class="btn" href="/products/batch">Add Merchandise</a>
       <a class="btn" href="/customers/batch">Add Customers</a>
@@ -350,18 +452,6 @@ ${id}
   </section>
 
   <div id="more-options">
-
-  <section class="key">
-    <h1>Add a photo</h1>
-    <p class="hint">One photo per click. No assistant needed.</p>
-    <p><a class="btn" href="/media/new">Add a photo</a></p>
-  </section>
-
-  <section class="key">
-    <h1>Drop a file for the team</h1>
-    <p class="hint">A price list, a policy note, meeting notes — any connected assistant can read it back.</p>
-    <p><a class="btn" href="/assets/new">Drop a file</a></p>
-  </section>
 
   <section class="key">
     <h1>Connect your own Claude or ChatGPT instead</h1>
@@ -514,13 +604,15 @@ ${COPY_JS}
 const log = document.getElementById("log");
 const gate = document.getElementById("gate");
 
-/* One builder for every log row. kind is "" (you), "agent" or "tool". */
+/* One builder for every bubble. kind is "" (you), "agent" or "tool" — "you"
+   gets an explicit class too (not left bare), since the bubble styling reads
+   it the same way the other two do. */
 function entry(kind, text) {
   const p = document.createElement("p");
-  if (kind) p.className = kind;
+  p.className = kind || "you";
   p.textContent = text;
   log.appendChild(p);
-  p.scrollIntoView({ block: "nearest" });
+  log.scrollTo({ top: log.scrollHeight, behavior: "smooth" });
   return p;
 }
 
@@ -573,20 +665,59 @@ function card(p) {
   gate.appendChild(el);
 }
 
+/* ---- attachments ---------------------------------------------------------
+ * One button, one file at a time — a photo or any other file, the agent
+ * works out which. Neither the text box nor the attachment is required on
+ * its own: a photo with no typed text is a normal message, "figure out what
+ * to do with it" being exactly the point of handing it to the agent instead
+ * of a purpose-built upload form.
+ */
+const fileInput = document.getElementById("attach-input");
+const attachName = document.getElementById("attach-name");
+const attachBtn = document.getElementById("attach-btn");
+
+function clearAttachments() {
+  fileInput.value = "";
+  attachName.textContent = "";
+  attachBtn.removeAttribute("aria-pressed");
+}
+
+function pickedFile() {
+  return fileInput.files[0] || null;
+}
+
+attachBtn.addEventListener("click", () => fileInput.click());
+
+fileInput.addEventListener("change", () => {
+  if (!fileInput.files[0]) return;
+  attachName.textContent = fileInput.files[0].name;
+  attachBtn.setAttribute("aria-pressed", "true");
+});
+
 document.getElementById("chat").addEventListener("submit", async (e) => {
   e.preventDefault();
   const box = document.getElementById("q");
   const q = box.value.trim();
-  if (!q) return;
+  const file = pickedFile();
+  if (!q && !file) return;
   gate.textContent = "";
-  entry("", q);
+  entry("", q || ("(attached " + file.name + ")"));
   box.value = "";
+  clearAttachments();
   try {
-    const res = await fetch("/ops/agent", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ q }),
-    });
+    let res;
+    if (file) {
+      const form = new FormData();
+      form.set("q", q);
+      form.set("file", file);
+      res = await fetch("/ops/agent", { method: "POST", body: form });
+    } else {
+      res = await fetch("/ops/agent", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ q }),
+      });
+    }
     const data = await res.json();
     (data.steps || []).forEach((s) => entry("tool", (s.ok ? "ran " : "refused ") + s.tool + (s.auditId ? " · audit " + s.auditId : "")));
     entry("agent", data.reply || data.error || ("Request failed: " + res.status));

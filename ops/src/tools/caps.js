@@ -78,6 +78,18 @@ export const CAPS = Object.freeze({
    * Square added since the last run, which is almost always far fewer.
    */
   MEDIA_BACKFILL_MAX_PER_RUN: 20,
+  /*
+   * A photo attached straight into the ops chat (the icon row under the
+   * input) rides to Claude as a vision content block, base64-encoded inline
+   * in the request body — a real network payload this time, not a tool
+   * argument the model itself has to emit, so the arithmetic that rules out
+   * inline tool-argument bytes does not apply here. Still capped, well under
+   * Anthropic's own per-image ceiling, so one large phone photo cannot blow
+   * out the request. The photo is stored in full regardless of this cap —
+   * only the COPY sent for the model to look at is skipped past it, and the
+   * turn still proceeds, just without vision on that one attachment.
+   */
+  AGENT_VISION_MAX_BYTES: 4 * 1024 * 1024,
 
   /*
    * Batch spreadsheet upload (batch.js). Each row calls runTool and, for a
