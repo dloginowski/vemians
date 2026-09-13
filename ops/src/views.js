@@ -181,11 +181,15 @@ const TABLE_CARD_CSS = `
  * either one is drawn, so the two are not stacked on top of each other the
  * moment this loads inside the iframe below).
  *
- * "Think of tabs in a filing cabinet" — the owner's own words. The active
- * tab merges into the panel below it (matching background, its own bottom
- * edge pulled down 1px to sit exactly on the panel's top border and hide
- * the seam, the classic tabbed-pane trick); an inactive one sits a little
- * lower and a little dimmer, like a folder pushed back in the drawer.
+ * "Think of tabs in a filing cabinet," then, once the top-only rounding
+ * was actually on screen: "I want bottom radiused too as if these are
+ * paper tabs that got cut out" — the owner's own words both times. Every
+ * corner rounded, on every tab, rather than the classic tabbed-pane shape
+ * (rounded top, square bottom, merged flush into the panel below): a real
+ * cut-paper tab is its own separate piece, not fused to the folder body
+ * it sits above. The active tab is still told apart by background and
+ * border colour alone (matching the panel, accent-coloured border) —
+ * there is no seam left to hide, so no merge trick is needed either.
  *
  * The public storefront is a TAB, not a link out — the owner's own words,
  * emphatically, after a first attempt made it an <a target="_blank">:
@@ -208,14 +212,11 @@ html, body { height: 100%; margin: 0; }
 .shell-nav { display: flex; align-items: flex-end; gap: 3px; }
 .shell-nav button {
   font: inherit; font-size: 12px; font-weight: 600; padding: 7px 16px; cursor: pointer;
-  border: 1px solid var(--rule); border-bottom: none; border-radius: 20px 20px 0 0;
+  border: 1px solid var(--rule); border-radius: 20px;
   background: var(--image-ground); color: var(--muted); position: relative;
 }
 .shell-nav button:hover:not(.active) { color: var(--accent); }
-.shell-nav button.active {
-  background: var(--ground); color: var(--ink); border-color: var(--accent);
-  margin-bottom: -1px; padding-bottom: 8px; z-index: 1;
-}
+.shell-nav button.active { background: var(--ground); color: var(--ink); border-color: var(--accent); }
 .shell-panel { flex: 1 1 auto; border-top: 1px solid var(--accent); }
 .shell-frame { width: 100%; height: 100%; border: 0; display: block; background: var(--ground); }
 `;

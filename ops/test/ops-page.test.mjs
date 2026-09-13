@@ -163,12 +163,24 @@ check("test_PRD_P0_71_items_tab__tab_equals_website_starts_the_iframe_on_the_pub
 });
 
 check("test_PRD_P0_71_items_tab__the_tabs_have_visibly_rounded_corners", async () => {
-  /* 6px, then 10px, then briefly 30px ("triple tab radius") — corrected
-     immediately after: "Double ratius [radius]... not triple." Doubling
-     the same 10px this was tripled from gives 20px, not a third value
-     invented from scratch. */
+  /* 6px, then 10px, then briefly 30px ("triple tab radius"), corrected to
+     20px ("Double ratius [radius]... not triple") — all on TOP corners
+     only, the classic tabbed-pane shape. The owner's own words next:
+     "I want bottom radiused too as if these are paper tabs that got cut
+     out" — a single 20px on every corner, not a 4-value top-only radius. */
   const { body } = await shell(OWNER);
-  assert.match(body, /\.shell-nav button\s*\{[^}]*border-radius:\s*20px 20px 0 0/s);
+  assert.match(body, /\.shell-nav button\s*\{[^}]*border-radius:\s*20px[;\s]/s);
+  assert.doesNotMatch(body, /\.shell-nav button\s*\{[^}]*border-radius:\s*20px 20px 0 0/s, "the old top-only shape must be gone");
+});
+
+check("test_PRD_P0_71_items_tab__a_cut_out_tab_has_no_merge_seam_with_the_panel", async () => {
+  /* A real cut-paper tab is its own separate piece — the merge trick
+     (border-bottom: none, a negative margin pulling the active tab onto
+     the panel's own border) was for the OLD tabbed-pane shape and reads
+     as a visible notch now that every corner is rounded. */
+  const { body } = await shell(OWNER);
+  assert.doesNotMatch(body, /\.shell-nav button\s*\{[^}]*border-bottom:\s*none/s);
+  assert.doesNotMatch(body, /\.shell-nav button\.active\s*\{[^}]*margin-bottom/s);
 });
 
 check("test_PRD_P0_71_items_tab__the_tab_rows_own_side_padding_is_doubled_again", async () => {
