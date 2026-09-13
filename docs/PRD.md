@@ -1420,18 +1420,24 @@ that does not trace to one of these is a process failure (see §12).
     named, while the top keeps its own 14px since the hint/log stack sits there, not the composer
     pill.
 
-    **The radius change was tried and then reverted, on direct owner feedback.** A first pass
-    shrank `.chat .chat-bar`'s own radius from `24px` to `18px` and grew `.chat-top`'s bottom
-    corners to `26px` to stay concentric with the tighter gap above — the geometry the owner's own
-    "bottom outer edge radius is bigger than it currently is" described. Once it was actually in
-    front of them: "Dont change the inner chat radius! I liked how it flowed around the chat
-    buttons!" The bigger `24px` radius is what let the pill's own curve flow continuously into the
-    round icon buttons (32-34px circles) sitting inside it — a fact this document did not weigh
-    before shipping the "fix": a bigger radius pairing with a round button is not a defect to correct
-    toward the frame's own smaller radius, it is what makes the composer read as one
-    continuous pill rather than a rounded box with circles dropped inside it. Both radii are back
-    to what they were before this entry touched them — `.chat .chat-bar` at `24px`, `.chat-top`
-    uniform at `20px` — and the padding change above stands on its own regardless.
+    **The radius geometry took two attempts to get right, and the pill's own radius never actually
+    needed to change.** A first pass shrank `.chat .chat-bar`'s own radius from `24px` to `18px`
+    and grew `.chat-top`'s bottom corners to `26px` to stay concentric with that shrunken value —
+    reverted on the spot: "Dont change the inner chat radius! I liked how it flowed around the
+    chat buttons!" The bigger `24px` radius is what lets the pill's own curve flow continuously
+    into the round icon buttons (32-34px circles) sitting inside it, not a mismatch to correct
+    toward the frame's own smaller radius. A second pass over-corrected the other way, reverting
+    `.chat-top` to a plain uniform `20px` as well — which dropped the "bottom outer edge radius is
+    bigger" idea entirely rather than just fixing which radius it was measured against. The
+    owner's own clarification named the actual intent precisely: "the bottom of the outer chat box
+    edge radius is slightly bigger than the inner chat edge so that it has a neat, even padding
+    (same idea as the chat send button fitting inside of the inner chat box)" — the SAME concentric
+    idea as the first attempt, just computed against the pill's real, unchanged `24px` radius
+    rather than the mistaken `18px`. `.chat .chat-bar` stays `24px`, untouched throughout; `.chat-
+    top`'s radius is `20px 20px 32px 32px` — top corners unchanged (nothing rounded sits against
+    them), bottom corners at `24 + 8 = 32px` (the pill's true radius plus the tightened 8px gap
+    from the padding change below), so the frame's own bottom curve and the pill's bottom curve
+    share a centre exactly the way the owner asked for from the start.
 
     **What the owner actually wanted instead: even padding around the send button.** `.chat-bar`'s
     own padding was `4px 4px 4px 6px` — 6px on the left (in front of the attach icon), only 4px on
