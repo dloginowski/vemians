@@ -120,11 +120,21 @@ a:hover { opacity: 0.82; }
    being changed — "still use a scrolling frame so I can see the entire
    table if cropped" — only the table's own visual grammar is. */
 const TABLE_CARD_CSS = `
+/* max-height sized to fit its own content in the compact/inline chat
+   view — the owner's own words: "make it fit to content vertically. I
+   only need to see 2 rows. The header and the content cells." ~118px is
+   one header row plus two data rows at this card's own 12px font/padding
+   (~25.5px per row including its own border, plus the title bar and the
+   card's own padding) — not a guess at "enough space," a specific target
+   row count. Anything past 2 data rows scrolls within this same box
+   (overflow: auto, unchanged); .table-card.full below still drops the
+   cap entirely so "Full screen" shows the whole table, not just more of
+   it. */
 .table-card {
   align-self: stretch; max-width: 100%; box-sizing: border-box;
   border: 1px solid var(--rule); border-radius: 0; padding: 8px 10px;
   background: var(--image-ground); font-size: 12px;
-  max-height: 240px; overflow: auto;
+  max-height: 118px; overflow: auto;
 }
 .table-card h4 {
   margin: 0 0 6px; padding: 0; font-size: 11px; font-weight: 700;
@@ -754,9 +764,14 @@ document.getElementById("chat").addEventListener("submit", async (e) => {
       });
     }
     const data = await res.json();
+    /* Table right under the tool step that produced it — "insert table
+       right under 'ran catalog_preview_product_batch' text," the owner's
+       own words — not after the agent's own text reply, which used to
+       leave it looking disconnected from the tool call it actually came
+       from once the reply had any real length to it. */
     (data.steps || []).forEach((s) => entry("tool", (s.ok ? "ran " : "refused ") + s.tool + (s.auditId ? " · audit " + s.auditId : "")));
-    entry("agent", data.reply || data.error || ("Request failed: " + res.status));
     if (data.table) tableCard(data.table);
+    entry("agent", data.reply || data.error || ("Request failed: " + res.status));
     if (data.pending) card(data.pending);
   } catch (err) {
     console.error("agent request failed", err);

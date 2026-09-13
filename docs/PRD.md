@@ -1441,7 +1441,19 @@ that does not trace to one of these is a process failure (see §12).
     cropped" — only the table's own visual grammar changed, not the mechanism that keeps a long or
     wide one from overflowing its own box.
 
-34a''''''''''''''''''''. **`Test-PRD-P0-90-daylight_contrast`** — The owner's own words: "Bump up
+    **The compact card now fits a header and two rows on purpose, and the table sits right under
+    its own tool step.** The owner's own words: "Insert table right under 'ran
+    catalog_preview_product_batch' text and make it fit to content vertically. I only need to see
+    2 rows. The header and the content cells when in chat preview. Hitting full screen shouod show
+    the entire table." `.table-card`'s own `max-height` was a flat `240px` guess, sized for "enough
+    space" rather than any specific row count; it becomes `118px` — a header row plus two data rows
+    at this card's own font and cell padding, a real target rather than an estimate of "enough." A
+    third or later row still scrolls within the same box (`overflow: auto`, unchanged); `.table-card
+    .full`'s own `max-height: none` still removes the cap entirely, so "Full screen" shows the
+    WHOLE table, not merely more of it. Separately, the client's submit handler moves `tableCard()`
+    to run right after the tool-step loop instead of after `entry("agent", ...)` — the table used
+    to land at the very end of a turn, visually disconnected from the tool call that produced it
+    once the reply had any real length; it now renders immediately under the step that named it.
     the contrast of the dimmer elements on ops page. Its a little hard to see on a mobile device
     in broad daylight." Direct sun washes out exactly the mid-tones a "dim, secondary" colour is
     built from — a ratio that reads comfortably indoors can still disappear outside, which a ratio

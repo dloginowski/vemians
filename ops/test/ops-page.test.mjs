@@ -321,6 +321,37 @@ check("test_PRD_P0_89_batch_preview_confirm__the_table_matches_a_plain_rendered_
   assert.match(body, /\.table-card th\s*\{[^}]*background:\s*var\(--ground\)/s, "the header row must be visually shaded, matching an ordinary rendered table");
 });
 
+check("test_PRD_P0_89_batch_preview_confirm__the_compact_card_fits_a_header_and_two_rows_not_a_flat_guess", async () => {
+  /* The owner's own words: "make it fit to content vertically. I only
+     need to see 2 rows. The header and the content cells when in chat
+     preview." 118px is a specific target (one header row + two data
+     rows at this card's own font/padding), not the old 240px flat guess.
+     Full screen must still drop the cap entirely so it shows the WHOLE
+     table, not just a bit more of it. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.table-card\s*\{[^}]*max-height:\s*118px/s, "the compact card must be sized to roughly a header plus two rows");
+  assert.doesNotMatch(body, /\.table-card\s*\{[^}]*max-height:\s*240px/s, "the old flat 240px guess must not still be set");
+  assert.match(body, /\.table-card\.full\s*\{[^}]*max-height:\s*none/s, "full screen must remove the height cap entirely");
+});
+
+check("test_PRD_P0_89_batch_preview_confirm__the_table_renders_right_under_its_own_tool_step_not_after_the_reply", async () => {
+  /* The owner's own words: "Insert table right under 'ran
+     catalog_preview_product_batch' text." Before this, the table was
+     appended AFTER the agent's own text reply, which left it looking
+     disconnected from the tool call that actually produced it once the
+     reply had any real length. Checked by source order in the actual
+     client script — the tool-step loop and the table call must both run
+     before entry("agent", ...). */
+  const { body } = await frontPage(OWNER);
+  const script = body.slice(body.indexOf("<script>"), body.indexOf("</script>"));
+  const stepsAt = script.indexOf('data.steps || []).forEach');
+  const tableAt = script.indexOf("if (data.table) tableCard(data.table)");
+  const replyAt = script.indexOf('entry("agent", data.reply');
+  assert.ok(stepsAt > -1 && tableAt > -1 && replyAt > -1, "all three must be present in the real submit handler");
+  assert.ok(stepsAt < tableAt, "tool steps must render before the table");
+  assert.ok(tableAt < replyAt, "the table must render before the agent's own text reply, not after it");
+});
+
 check("test_PRD_P0_75_ops_dark_theme__the_employees_only_bar_is_readable_on_the_black_bar", async () => {
   /* theme.css's .bar sets color: var(--ground) — a light warm off-white on
      the storefront, but --ground is redefined to a near-black #191817 for
