@@ -401,6 +401,80 @@ check("test_PRD_P0_92_chat_widget_accent__the_entry_lines_own_border_and_the_plu
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
+ * P0-93 — the composer pill nests neatly inside the now-orange frame
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_93_nested_chat_frame__focus_stays_gray_rather_than_doubling_up_on_orange", async () => {
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.chat \.chat-bar:focus-within\s*\{[^}]*border-color:\s*var\(--ink\)/s, "focus must stay a neutral colour");
+  assert.doesNotMatch(
+    body,
+    /\.chat \.chat-bar:focus-within\s*\{[^}]*border-color:\s*var\(--accent\)/s,
+    "focus must not still turn the same orange as the frame it already sits inside",
+  );
+});
+
+check("test_PRD_P0_93_nested_chat_frame__the_outer_frame_has_tight_even_padding_on_sides_and_bottom", async () => {
+  const { body } = await frontPage(OWNER);
+  /* Top keeps its own room for the hint/log stack; sides and bottom match
+     each other and are tighter than before, per the owner's own words —
+     tightened again, from an already-tight 8px down to 4px, on a direct
+     follow-up: "I would even reduce the padding from 8 to 4px - to
+     tighten the inner chat and outer edge gap." */
+  assert.match(body, /\.chat-top\s*\{[^}]*padding:\s*14px 4px 4px/s, "sides and bottom must be tight and equal to each other");
+});
+
+check("test_PRD_P0_93_nested_chat_frame__the_pills_own_radius_never_changes__only_the_outer_frame_matches_it", async () => {
+  /* The pill's own radius is never touched — the owner's own words: "Dont
+     change the inner chat radius! I liked how it flowed around the chat
+     buttons!" A first pass here mistakenly shrank the pill's radius to
+     18px and grew the outer frame's bottom corners to match THAT — wrong,
+     since the pill was never meant to change. The correct read, once
+     clarified: the pill stays 24px, and the outer frame's BOTTOM corners
+     grow to stay concentric with the pill's true, unchanged radius plus
+     the tightened gap — 24 + 4 = 28 once the gap itself was tightened
+     further to 4px — "the bottom of the outer chat box edge radius is
+     slightly bigger than the inner chat edge so that it has a neat, even
+     padding." Top corners stay at 20px, since nothing rounded is nested
+     against them. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.chat \.chat-bar\s*\{[^}]*border-radius:\s*24px/s, "the composer pill's own radius must never change");
+  assert.match(
+    body,
+    /\.chat-top\s*\{[^}]*border-radius:\s*20px 20px 28px 28px/s,
+    "only the outer frame's bottom corners should be bigger, matching the pill's own unchanged radius plus the current gap",
+  );
+});
+
+check("test_PRD_P0_93_nested_chat_frame__the_send_button_gets_the_same_clearance_the_attach_button_always_had", async () => {
+  /* What the owner actually asked for once the radius idea was withdrawn:
+     "make the padding on the chat submit button a little more even so it
+     fit better." The bar's own left/right padding used to be 6px/4px — the
+     send button sat measurably tighter against the edge than the attach
+     button on the other side. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.chat \.chat-bar\s*\{[^}]*padding:\s*4px 6px;/s, "left and right padding around the buttons must now match");
+  assert.doesNotMatch(
+    body,
+    /\.chat \.chat-bar\s*\{[^}]*padding:\s*4px 4px 4px 6px/s,
+    "the old asymmetric 4px/6px split must not still be set",
+  );
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-94 — the page uses more of a phone screen's own width
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_94_mobile_edge_to_edge__the_page_containers_side_padding_matches_the_chat_widgets_own", async () => {
+  const { body } = await frontPage(OWNER);
+  /* Top and bottom are untouched; sides now match .chat-top's own already-
+     tightened 8px, so the page edge and the widget edge read as one margin
+     rather than two stacked ones. */
+  assert.match(body, /\.ops\s*\{[^}]*padding:\s*12px 8px 32px/s, "side padding must be tightened, top/bottom unchanged");
+  assert.doesNotMatch(body, /\.ops\s*\{[^}]*padding:\s*12px 24px 32px/s, "the old roomier side padding must not still be set");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
  * P0-78 — a real scrolling chat widget, and compact one-click chips
  * ───────────────────────────────────────────────────────────────────────── */
 

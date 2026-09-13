@@ -99,8 +99,15 @@ ${OPS_DARK_CSS}
    window it read as a narrow column stranded in the middle of empty space.
    Wide enough now to use a real monitor; still capped, so a line of prose in
    the accordion below does not stretch across a 4K display and become hard
-   to read. */
-.ops { max-width: 64rem; padding: 12px 24px 32px; }
+   to read.
+ *
+ * Side padding is tight (8px, matching .chat-top's own tightened side
+ * padding — P0-93) rather than the roomier 24px this used to carry: on an
+ * actual phone screen, padding on both sides is width the chat widget and
+ * everything else on the page cannot use at all, and "maximize the use of
+ * space on mobile" was the owner's own direction. max-width still caps a
+ * wide desktop window, where the difference barely registers. */
+.ops { max-width: 64rem; padding: 12px 8px 32px; }
 
 .ops .warn { margin: 0 0 14px; }
 
@@ -114,10 +121,25 @@ ${OPS_DARK_CSS}
    screenshot of a mobile chat composer this was asked to match. */
 /* Same orange as the quick-prompt chips below it (.choices .btn) — one
    accent colour tying the widget to the shortcuts that feed it, rather than
-   the plain neutral --rule every other box on the page uses. */
+   the plain neutral --rule every other box on the page uses.
+ *
+ * Sides and bottom are tight (4px, tightened further from an already-tight
+ * 8px on the owner's own follow-up) so the composer pill nested inside
+ * sits close against this frame rather than floating in a gap; top stays
+ * roomier (14px) since the hint/log stack sits there, not the pill. The
+ * bottom corners are bigger than the top ones (28px vs 20px) so the frame
+ * stays concentric with the pill's own UNCHANGED 24px radius plus this
+ * tight 4px gap (24 + 4 = 28) — the owner's own words, once this was
+ * right: "the bottom of the outer chat box edge radius is slightly bigger
+ * than the inner chat edge so that it has a neat, even padding." The
+ * pill's own radius never changes (see .chat .chat-bar below), and this
+ * arithmetic has to be redone every time the gap itself changes — only the
+ * outer frame grows to match the pill, the same idea as evening out the
+ * send button's own padding rather than shrinking the button to fit a
+ * tighter box. */
 .chat-top {
-  border: 1px solid var(--accent); border-radius: 20px;
-  padding: 14px; margin-bottom: 16px;
+  border: 1px solid var(--accent); border-radius: 20px 20px 28px 28px;
+  padding: 14px 4px 4px; margin-bottom: 16px;
 }
 
 /* Centred and quiet on purpose — a name check, not the thing on the page
@@ -273,12 +295,24 @@ ${OPS_DARK_CSS}
 /* Brighter than the page's plain --rule boxes (the entry line itself, and
    the "+" attach icon at rest) — both were dim enough to disappear next to
    the now-orange .chat-top frame around them. */
+/* Radius stays 24px — never touched by .chat-top's own bottom-corner
+   adjustment above — because it is what the outer frame is being kept
+   concentric WITH, not a value being corrected: the owner's own words,
+   "I liked how it flowed around the chat buttons," the round 32-34px icon
+   buttons sitting inside it. Padding is EVEN left and right (6px each)
+   rather than the 4px/6px split this used to carry, which left the send
+   button sitting measurably tighter against the bar's own edge than the
+   attach button was on the other side. */
 .chat .chat-bar {
   display: flex; align-items: center; gap: 2px;
   border: 1px solid var(--muted); border-radius: 24px;
-  padding: 4px 4px 4px 6px; background: var(--image-ground);
+  padding: 4px 6px; background: var(--image-ground);
 }
-.chat .chat-bar:focus-within { border-color: var(--accent); }
+/* Stays the same neutral grey on focus — an orange ring here, right inside
+   an already-orange .chat-top frame, doubled up on the one accent colour
+   for no extra information. --ink instead of --muted still reads as a
+   distinct, brighter "active" state without borrowing the frame's colour. */
+.chat .chat-bar:focus-within { border-color: var(--ink); }
 #q {
   flex: 1 1 auto; min-width: 0; border: none; background: transparent;
   padding: 8px 4px; font: inherit; font-size: 14px; color: var(--ink);

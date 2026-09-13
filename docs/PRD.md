@@ -1400,6 +1400,72 @@ that does not trace to one of these is a process failure (see §12).
     to `--accent` so hovering still reads as a distinct state now that the resting colour is no
     longer the dim one.
 
+34a'''''''''''''''''''''''. **`Test-PRD-P0-93-nested_chat_frame`** — Immediate follow-up to
+    P0-92, once the accent frame was actually in front of the owner. Their own words: "Keep the
+    inner chatbox a gray color when highlighted. I want it to have less padding on the sides and
+    bottom. Make it even with the outer chat border with slightly smaller radius so that inner
+    chat box container fits neatly into the outer (orange) edge... This means that the bottom
+    outer edge radius is bigger than it currently is."
+
+    **Focus no longer spends the one accent colour on a ring that was already inside one.**
+    `.chat .chat-bar:focus-within` moves from `border-color: var(--accent)` to `var(--ink)` — a
+    focused composer nested inside the now-orange `.chat-top` frame (P0-92) doubling that same
+    orange as its own focus ring said nothing an already-orange frame had not; `--ink` still reads
+    as a distinct, brighter "active" state without borrowing the frame's own colour.
+
+    **Less padding, and an intentionally UNEQUAL gap — tightened twice.** `.chat-top`'s padding
+    goes from a uniform `14px` to `14px 8px 8px` (top/right/bottom shorthand: right and bottom
+    inherit the third value, left is set by the fourth positional value being absent so it
+    repeats the second — in effect top 14px, sides and bottom both 8px) — tight and even on the
+    sides and bottom the owner named, while the top keeps its own 14px since the hint/log stack
+    sits there, not the composer pill. A direct follow-up tightened it again: "I would even reduce
+    the padding from 8 to 4px - to tighten the inner chat and outer edge gap" — `14px 4px 4px`,
+    top still untouched.
+
+    **The radius geometry took two attempts to get right, and the pill's own radius never actually
+    needed to change.** A first pass shrank `.chat .chat-bar`'s own radius from `24px` to `18px`
+    and grew `.chat-top`'s bottom corners to `26px` to stay concentric with that shrunken value —
+    reverted on the spot: "Dont change the inner chat radius! I liked how it flowed around the
+    chat buttons!" The bigger `24px` radius is what lets the pill's own curve flow continuously
+    into the round icon buttons (32-34px circles) sitting inside it, not a mismatch to correct
+    toward the frame's own smaller radius. A second pass over-corrected the other way, reverting
+    `.chat-top` to a plain uniform `20px` as well — which dropped the "bottom outer edge radius is
+    bigger" idea entirely rather than just fixing which radius it was measured against. The
+    owner's own clarification named the actual intent precisely: "the bottom of the outer chat box
+    edge radius is slightly bigger than the inner chat edge so that it has a neat, even padding
+    (same idea as the chat send button fitting inside of the inner chat box)" — the SAME concentric
+    idea as the first attempt, just computed against the pill's real, unchanged `24px` radius
+    rather than the mistaken `18px`. `.chat .chat-bar` stays `24px`, untouched throughout; `.chat-
+    top`'s radius was `20px 20px 32px 32px` against the original `8px` gap (`24 + 8 = 32`), then
+    recomputed to `20px 20px 28px 28px` (`24 + 4 = 28`) once the gap itself was tightened further
+    to `4px` above — the arithmetic has to be redone every time the gap changes, since the whole
+    point is staying concentric with it, not landing on one fixed "big" number. Top corners stay
+    unchanged throughout (nothing rounded sits against them), so the frame's own bottom curve and
+    the pill's bottom curve keep sharing a centre exactly the way the owner asked for from the
+    start, at whatever gap the padding happens to be tightened to next.
+
+    **What the owner actually wanted instead: even padding around the send button.** `.chat-bar`'s
+    own padding was `4px 4px 4px 6px` — 6px on the left (in front of the attach icon), only 4px on
+    the right (behind the send button), so the send button sat measurably tighter against the
+    bar's own edge than the attach button did on the other side. It becomes `4px 6px` (top/bottom
+    4px, left AND right 6px) — the send button now has the same clearance the attach button always
+    had, "fit better" being exactly the plain, correct way to describe closing a two-pixel
+    asymmetry nobody had a reason for in the first place.
+
+34a''''''''''''''''''''''''. **`Test-PRD-P0-94-mobile_edge_to_edge`** — The owner's own words:
+    "Overall reduce the overall page padding on the sides and let the chat fill more of the
+    horizontal space. I want to maximize the use of space on mobile devices." `.ops`'s own side
+    padding (`24px`) was the single biggest unused margin on a phone screen — width neither the
+    chat widget, the log, nor anything else on the page could ever use, on the narrowest screens
+    this page is asked to fit on at all.
+
+    `.ops`'s padding goes from a uniform-feeling `12px 24px 32px` to `12px 8px 32px` — top and
+    bottom unchanged, sides matching `.chat-top`'s own already-tightened `8px` side padding
+    (P0-93), so the page edge and the widget edge now read as one consistent margin rather than
+    two different ones stacked on top of each other. `max-width: 64rem` is untouched, so a wide
+    desktop window still caps the content column the same way it always did — the difference is
+    negligible there and material only on the narrow screens the request was actually about.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -1643,6 +1709,8 @@ Where each feature is enforced today:
 | P0-90 | `ops/test/ops-page.test.mjs` |
 | P0-91 | `ops/test/ops-page.test.mjs` |
 | P0-92 | `ops/test/ops-page.test.mjs` |
+| P0-93 | `ops/test/ops-page.test.mjs` |
+| P0-94 | `ops/test/ops-page.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
