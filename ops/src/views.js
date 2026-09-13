@@ -244,10 +244,24 @@ html, body { height: 100%; margin: 0; }
    (top + both sides) minus the one edge that merges into the panel —
    nothing else. */
 .shell-nav button.active {
-  background: var(--ground); color: var(--ink);
-  border: 1px solid var(--accent); border-bottom: none;
+  color: var(--ink);
+  border-top: 1px solid var(--accent);
   border-radius: var(--tab-radius) var(--tab-radius) 0 0;
   margin-bottom: -1px; padding-bottom: 8px; z-index: 1;
+  /* Two 1px-wide accent lines, one on each side, each only as tall as
+     the tab's own straight vertical run — full height minus the
+     rounded top's own radius minus the curve's own reach at the
+     bottom (--tab-radius again, since the notches below start exactly
+     at this box's own bottom edge). Positioned flush at the very top
+     (right where border-top ends) and sized no taller than that, so
+     the line's own bottom end sits well above the curve — never
+     overlapping it, unlike every previous attempt at this. */
+  background:
+    linear-gradient(var(--accent), var(--accent)) left top / 1px
+      calc(100% - var(--tab-radius) - 1px) no-repeat,
+    linear-gradient(var(--accent), var(--accent)) right top / 1px
+      calc(100% - var(--tab-radius) - 1px) no-repeat,
+    var(--ground);
 }
 .shell-panel { flex: 1 1 auto; border-top: 1px solid var(--accent); }
 .shell-frame { width: 100%; height: 100%; border: 0; display: block; background: var(--ground); }
