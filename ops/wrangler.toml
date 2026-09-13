@@ -131,13 +131,25 @@ SQUARE_LOCATION_ID = "L846PQNSM9TF4"
 LOCATION_ID = "main"
 
 # ---------------------------------------------------------------------------
-# Custom Domain. Commented out because `wrangler deploy` will try to create it,
-# which fails until the zone is on Cloudflare (deploy-cloudflare.md §1).
-# Uncomment once the nameservers have moved, then deploy.
+# Custom Domain. The zone is on Cloudflare: vemians.com, www.vemians.com and
+# staging.vemians.com all deploy and answer 200 today (deploy-workers.yml runs
+# #32-41), so the precondition this used to be commented out for no longer
+# holds. `deploy-cloudflare.md` §3 still describes attaching this one by hand
+# in the dashboard because that is how it was first done for the other three
+# hostnames — this stanza is the same result, declared in code instead, so a
+# redeploy cannot silently lose the attachment the way a dashboard click can.
 #
-# [[routes]]
-# pattern      = "ops.vemians.com"
-# custom_domain = true
+# Uncommented but NOT YET DEPLOYED as of this commit — deploying it attaches
+# a public Custom Domain on live infrastructure, which is worth a deliberate
+# `wrangler deploy` (or a deploy-workers.yml run) rather than happening as a
+# side effect of an unrelated push. It also does nothing on its own for
+# Access: `deploy-cloudflare.md` §4-8 (Zero Trust, Google Workspace login,
+# the Access application and its AUD tag) are separate dashboard steps this
+# file cannot do or verify, and until they exist every request here answers
+# 401 with no assertion to check — the documented, correct resting state.
+[[routes]]
+pattern      = "ops.vemians.com"
+custom_domain = true
 
 # ---------------------------------------------------------------------------
 # Pending T2 approvals for POST /mcp (ADR-007). A T2 tool called over MCP parks
