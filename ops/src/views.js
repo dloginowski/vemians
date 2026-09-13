@@ -89,9 +89,7 @@ ${OPS_DARK_CSS}
    to read. */
 .ops { max-width: 64rem; padding: 12px 24px 32px; }
 
-.id { font-size: var(--eyebrow); margin: 0 0 16px; color: var(--muted); }
 .ops .warn { margin: 0 0 14px; }
-.id strong { color: var(--ink); }
 
 .key h1 { font-size: var(--type); font-weight: 700; margin: 0 0 4px; }
 .hint { font-size: var(--eyebrow); color: var(--muted); margin: 0 0 8px; }
@@ -185,8 +183,14 @@ ${OPS_DARK_CSS}
 
 /* A footnote, not a control — no background, no border-radius, nothing that
    reads as a boxed UI element sitting right above the input that actually is
-   one. Plain small text is what makes it read as metadata. */
-.bind { font-size: 11px; color: var(--muted); margin: 0 0 10px; }
+   one. Plain small text is what makes it read as metadata. Kept to one line
+   the same way a COMMAND does elsewhere on this page (.copy pre): scrolling
+   rather than wrapping, since a footnote broken across three lines reads as
+   more important than it is. */
+.bind {
+  font-size: 10px; color: var(--muted); margin: 0 0 10px;
+  white-space: nowrap; overflow-x: auto;
+}
 .bind code { color: var(--muted); }
 
 /*
@@ -358,13 +362,11 @@ export function copyLine(text, { wrap = false } = {}) {
     `<button type="button" data-copy aria-label="Copy" title="Copy">${CLIPBOARD}</button></div>`;
 }
 
-function bindingsLine(bindings, hasKey) {
+function bindingsLine(bindings, hasKey, via) {
   const b = bindings || { role: "staff", tools: [], stores: [], hidden: 0 };
   const stores = b.stores.length ? b.stores.map((s) => `<code>${esc(s)}</code>`).join(", ") : "<code>none</code>";
-  const model = hasKey
-    ? "Model: <code>claude-sonnet-5</code>."
-    : "Model: none — <code>ANTHROPIC_API_KEY</code> is unset, so the built-in chat echoes. Connect your own assistant instead.";
-  return `<div class="bind">Role <strong>${esc(b.role)}</strong> &middot; ${b.tools.length} tool${b.tools.length === 1 ? "" : "s"} bound${b.hidden ? `, ${b.hidden} withheld` : ""} &middot; stores this session can reach: ${stores}. ${model}</div>`;
+  const model = hasKey ? "claude-sonnet-5" : "no model, set <code>ANTHROPIC_API_KEY</code>";
+  return `<div class="bind">role <strong>${esc(b.role || "none")}</strong>${via ? ` (${esc(via)})` : ""} &middot; ${b.tools.length} tool${b.tools.length === 1 ? "" : "s"}${b.hidden ? `, ${b.hidden} hidden` : ""} &middot; ${stores} &middot; ${model}</div>`;
 }
 
 /*
@@ -404,14 +406,17 @@ function rosterRows(roster, identity, role, roleVia) {
  * cannot claim a capability the tool layer would refuse.
  */
 export function opsPage(identity, { customers, week, bindings, hasKey, role, roleVia, skills = [], roster = [], rosterNote = "", perRole = [], mcpUrl = "https://ops.vemians.com/mcp" }) {
-  const source = roleVia === "policy" ? "Access policy" : roleVia === "group" ? "Access group" : roleVia || "no role granted";
+  const via = roleVia === "policy" ? "policy" : roleVia === "group" ? "group" : roleVia || "no role granted";
   const b = bindings || { role, tools: [], stores: [], hidden: 0 };
 
-  /* One line, not a banner. The unverified case is the exception and keeps the
-     black bar, because a Worker accepting unsigned assertions is not a detail
-     to fold away. */
+  /* Verified identity used to also print as its own line — email, role, how
+     it was granted — directly under the black bar. Redundant on screen: the
+     greeting below already names the person, and the bindings footnote
+     inside the assistant card already names the role and now its source too.
+     The unverified case is kept as a banner regardless — a Worker accepting
+     unsigned assertions is not a detail to fold away. */
   const id = identity.verified
-    ? `<p class="id"><strong>${esc(identity.email)}</strong> &middot; role <strong>${esc(role || "none")}</strong> &middot; ${esc(source)}</p>`
+    ? ""
     : `<div class="warn">Unsigned assertion accepted — ACCESS_TEAM_DOMAIN and ACCESS_AUD are unset. Prototype mode only. Claimed: <strong>${esc(identity.email)}</strong> &middot; role <strong>${esc(role || "none")}</strong>.</div>`;
 
   const firstName = firstNameFrom(identity.claims, identity.email);
@@ -428,7 +433,7 @@ ${id}
 
   <section class="key chat-top">
     <h1>Ask the ops assistant</h1>
-    ${bindingsLine(bindings, hasKey)}
+    ${bindingsLine(bindings, hasKey, via)}
     <div class="log" id="log"></div>
     <div id="gate"></div>
     <form class="chat" id="chat" method="post" action="/ops/agent">

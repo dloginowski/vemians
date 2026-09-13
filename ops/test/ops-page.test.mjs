@@ -81,8 +81,12 @@ check("test_PRD_P0_23_group_derived_roles__the_front_page_resolves_a_policy_deri
 });
 
 check("test_PRD_P0_23_group_derived_roles__the_page_states_where_the_role_came_from", async () => {
+  /* Used to be its own line under the black bar ("dimitri@vemians.com ·
+     role owner · Access policy") — folded into the bindings footnote
+     instead once that line was dropped as redundant with the greeting
+     above it and the role already named in the footnote itself. */
   const { body } = await frontPage(OWNER);
-  assert.match(body, /Access policy/, "a person must be able to see how they were granted the role");
+  assert.match(body, /role <strong>owner<\/strong> \(policy\)/, "a person must be able to see how they were granted the role");
 });
 
 check("test_PRD_P0_23_group_derived_roles__an_unmapped_policy_is_shown_as_no_role", async () => {
