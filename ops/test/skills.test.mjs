@@ -40,7 +40,7 @@ function check(name, fn) {
  * ───────────────────────────────────────────────────────────────────────── */
 
 check("test_PRD_P0_54_skill_discovery__every_skill_file_is_bundled_with_its_front_matter", () => {
-  assert.equal(SKILLS.length, 8, "all eight SKILL.md files should be bundled");
+  assert.equal(SKILLS.length, 9, "all nine SKILL.md files should be bundled");
   for (const s of SKILLS) {
     assert.ok(s.text.length > 500, `${s.name} looks truncated (${s.text.length} bytes)`);
     assert.ok(s.description.length > 20, `${s.name} has no usable description`);

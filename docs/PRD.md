@@ -537,6 +537,24 @@ that does not trace to one of these is a process failure (see §12).
     non-identifying label, never a foreign key, so a ticket survives the erasure of what it
     points at and reading a ticket does not confer access to the linked record.
 
+31b. **`Test-PRD-P0-65-asset_drop_site`** — Staff drop a working document (a vendor price list, a
+    policy note, meeting notes) at `/assets/new` — a plain browser upload, no assistant needed,
+    same shape as `/media/new` — and any role can then have their own agent read it back through
+    `assets.list` / `assets.read`. Its own store (`shared/db/assets.sql`), on the same blast-radius
+    rule as `tickets`: a dropped file is not customer data, not commerce, not people, and belongs
+    nowhere else. The original bytes live in R2 (`ASSET_FILES`), reachable only from the upload and
+    download routes in `src/index.js` — `assets.list` and `assets.read` declare no resource at all,
+    so the tool layer holds no binding that could return raw bytes to a model even by mistake
+    (P0-24). Text is extracted once, at upload, for the formats with no ambiguity about what "text"
+    means — `.txt`, `.md`, `.csv`, `.json` — and stored in the index; a PDF, a spreadsheet workbook
+    or a Word document is accepted and listed like everything else, but `assets.read` returns `text:
+    null` and a plain note rather than guessing at content it never parsed. Extending extraction to
+    those formats needs an edge-runtime-compatible parser this codebase has not vetted, and is a
+    deliberate follow-up, not an oversight. Extracted text is capped in characters
+    (`CAPS.ASSET_TEXT_MAX_CHARS`) and marked `truncated` past it — a limit an agent is told about,
+    not one it silently loses content to. The index row is append-only at the database (no
+    `UPDATE`, no `DELETE`): a newer version of a document is a new row, never an edit to an old one.
+
 32. **`Test-PRD-P0-33-customer_intake`** — Creating a customer writes the profile and the
     encrypted identity as one operation, records consent per purpose at intake, and is a T2
     action for manager and above. A customer is never created as a side effect of another tool.
@@ -905,6 +923,7 @@ Where each feature is enforced today:
 | P0-62 | `ops/test/mcp-instructions.test.mjs` |
 | P0-63 | the editable-approval half of `ops/test/catalog-write.test.mjs`, over the real Worker (`worker.fetch`) |
 | P0-64 | `ops/test/skills.test.mjs` |
+| P0-65 | `ops/test/tools.test.mjs` for the tool layer and extraction; `ops/test/assets-route.test.mjs` for the upload/download/list routes, over the real Worker |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

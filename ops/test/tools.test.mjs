@@ -36,6 +36,7 @@ import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 
 import { runTool, TOOLS, STORE_BINDINGS, describeTools } from "../src/tools/index.js";
+import { contentTypeForAsset, extractText } from "../src/tools/assets.js";
 import { createApprovalStore } from "../src/tools/approval.js";
 import { createRateLimiter } from "../src/tools/rate.js";
 import { createSeedCatalogSource } from "../src/tools/catalog-source.js";
@@ -100,6 +101,7 @@ function opsEnv() {
     FINANCE: d1("finance"),
     AUDIT: d1("audit"),
     IDENTITY: d1("identity"),
+    ASSETS: d1("assets"),
   };
 }
 
@@ -144,6 +146,14 @@ function seed(env) {
              ('exp_2','bud_1','tomas@vemians.com','tomas@vemians.com','Window install',900000,'USD','2026-09-02','submitted','r2/receipts/exp_2.pdf'),
              ('exp_3','bud_1','ana@vemians.com','ana@vemians.com','Courier',4500,'USD','2026-09-03','submitted',NULL),
              ('exp_4','bud_1','ana@vemians.com','ana@vemians.com','Studio hire',60000,'USD','2026-09-04','submitted','r2/receipts/exp_4.pdf');
+  `);
+
+  const as = env.ASSETS._raw;
+  as.exec(`
+    INSERT INTO asset(id, store_key, filename, content_type, size_bytes, uploaded_by, extracted_text, text_truncated)
+      VALUES ('ast_1', 'assets/ast_1.txt', 'vendor-notes.txt', 'text/plain', 42, 'ana@vemians.com', 'Ships net 30.', 0);
+    INSERT INTO asset(id, store_key, filename, content_type, size_bytes, uploaded_by)
+      VALUES ('ast_2', 'assets/ast_2.pdf', 'price-list.pdf', 'application/pdf', 91000, 'mara@vemians.com');
   `);
   return env;
 }
@@ -956,11 +966,94 @@ check("test_PRD_P0_01_store_topology__each_store_is_its_own_database_in_the_tool
   /* Six separate connections; a statement prepared on one cannot see another. */
   assert.throws(() => f.env.FINANCE._raw.prepare('SELECT * FROM "order"').all(), /no such table/);
   assert.throws(() => f.env.CUSTOMERS._raw.prepare("SELECT * FROM expense").all(), /no such table/);
-  /* Four of the six D1 stores, plus the catalog mirror the agent authoring
-     tools READ (they write to Square; ADR-009). Still not `identity`. */
-  assert.equal(Object.keys(STORE_BINDINGS).length, 5, "the registry reaches five stores and no more");
+  /* Five of the seven D1 stores, plus the catalog mirror the agent authoring
+     tools READ (they write to Square; ADR-009). Still not `identity`, and
+     still not `audit` or `tickets` — the latter has no tool at all yet. */
+  assert.equal(Object.keys(STORE_BINDINGS).length, 6, "the registry reaches six stores and no more");
   assert.ok(!Object.keys(STORE_BINDINGS).includes("identity"), "the vault is unreachable from the registry");
   assert.ok(!Object.keys(STORE_BINDINGS).includes("audit"), "audit is written by the registry, not by a tool");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-65 — the asset drop site: agents read what staff drop, text only
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_65_asset_drop_site__staff_can_list_and_read_without_a_manager_role", async () => {
+  const f = fixture(staff);
+  const list = await runTool("assets.list", {}, f.ctx);
+  assert.equal(list.ok, true);
+  assert.equal(list.data.assets.length, 2, "both seeded assets are listed");
+  const names = list.data.assets.map((a) => a.filename);
+  assert.ok(names.includes("vendor-notes.txt"));
+  assert.ok(names.includes("price-list.pdf"));
+});
+
+check("test_PRD_P0_65_asset_drop_site__a_text_type_returns_its_actual_content", async () => {
+  const f = fixture(staff);
+  const res = await runTool("assets.read", { asset_id: "ast_1" }, f.ctx);
+  assert.equal(res.ok, true);
+  assert.equal(res.data.text, "Ships net 30.");
+  assert.equal(res.data.truncated, false);
+});
+
+check("test_PRD_P0_65_asset_drop_site__a_type_with_no_extraction_says_so_instead_of_guessing", async () => {
+  const f = fixture(staff);
+  const res = await runTool("assets.read", { asset_id: "ast_2" }, f.ctx);
+  assert.equal(res.ok, true);
+  assert.equal(res.data.text, null, "a PDF is never parsed today — null, not an empty string");
+  assert.match(res.data.note, /no text extraction for application\/pdf/);
+  assert.equal(res.data.path, "/assets/ast_2");
+});
+
+check("test_PRD_P0_65_asset_drop_site__reading_an_unknown_id_is_a_plain_miss_not_a_crash", async () => {
+  const f = fixture(staff);
+  const res = await runTool("assets.read", { asset_id: "ast_nope" }, f.ctx);
+  assert.equal(res.ok, false);
+  assert.match(res.error, /no asset 'ast_nope'/);
+  assert.equal(f.audit().at(-1).result, "error", "a second row, pointing at the read that found nothing");
+});
+
+check("test_PRD_P0_65_asset_drop_site__the_tool_layer_holds_no_binding_to_the_raw_bytes", () => {
+  /* agent-tool-contract: scope is a binding, not a promise. assets.list and
+     assets.read declare no resource at all, so there is no line of code that
+     could hand either one an R2 client without also adding the declaration
+     (Test-PRD-P0-24-binding_scoped_tools). */
+  assert.deepEqual(TOOLS["assets.list"].resources ?? [], []);
+  assert.deepEqual(TOOLS["assets.read"].resources ?? [], []);
+});
+
+check("test_PRD_P0_65_asset_drop_site__the_index_row_is_append_only_at_the_database", () => {
+  const f = fixture(staff);
+  assert.throws(
+    () => f.env.ASSETS._raw.exec("UPDATE asset SET filename='renamed.txt' WHERE id='ast_1'"),
+    /append-only/,
+  );
+  assert.throws(() => f.env.ASSETS._raw.exec("DELETE FROM asset WHERE id='ast_1'"), /never deleted/);
+});
+
+check("test_PRD_P0_65_asset_drop_site__a_long_text_file_is_truncated_and_says_so", () => {
+  const big = "x".repeat(CAPS.ASSET_TEXT_MAX_CHARS + 500);
+  const out = extractText("text/plain", new TextEncoder().encode(big));
+  assert.equal(out.text.length, CAPS.ASSET_TEXT_MAX_CHARS);
+  assert.equal(out.truncated, true);
+});
+
+check("test_PRD_P0_65_asset_drop_site__a_short_text_file_is_not_marked_truncated", () => {
+  const out = extractText("text/csv", new TextEncoder().encode("a,b\n1,2\n"));
+  assert.equal(out.text, "a,b\n1,2\n");
+  assert.equal(out.truncated, false);
+});
+
+check("test_PRD_P0_65_asset_drop_site__an_unsupported_type_extracts_to_null_not_garbage", () => {
+  assert.equal(extractText("application/pdf", new Uint8Array([1, 2, 3])), null);
+  assert.equal(extractText("application/vnd.ms-excel", new Uint8Array([1, 2, 3])), null);
+});
+
+check("test_PRD_P0_65_asset_drop_site__content_type_prefers_a_recognised_declared_type_then_the_extension", () => {
+  assert.equal(contentTypeForAsset("notes.txt", "text/plain"), "text/plain");
+  assert.equal(contentTypeForAsset("notes.txt", "application/octet-stream"), "text/plain");
+  assert.equal(contentTypeForAsset("report.PDF", ""), "application/pdf");
+  assert.equal(contentTypeForAsset("archive.zip", "application/zip"), null, "not an accepted type");
 });
 
 /* ─────────────────────────────────────────────────────────────────────────

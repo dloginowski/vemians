@@ -1,10 +1,12 @@
-# Create the KV namespace the ops Worker binds, and write its id back into
+# Create the KV namespaces the ops Worker binds, and write their ids back into
 # ops/wrangler.toml.
 #
 # R2 WAS HERE AND IS NOT ANY MORE. ADR-013 dropped the bucket: Square holds the
 # photographs. Leaving the bucket step in place meant a permission we no longer
 # need could fail the run BEFORE it reached the namespace we do need — which is
-# exactly what happened, twice.
+# exactly what happened, twice. The employee asset drop site (assets.js) also
+# stores its bytes in KV rather than reopening that R2 permission, for the same
+# reason — see the ASSET_FILES comment in ops/wrangler.toml.
 #
 # Everything for agentic catalog authoring was written and none of it was
 # wired: `catalog.upload_image` had no bucket to put a photograph in, and every
@@ -15,8 +17,11 @@
 # the loop variable IS the resource name, a create that fails is not allowed to
 # read as success, and anything left that is not a real id fails the step.
 #
-# An R2 binding is by NAME, so there is nothing to resolve for the bucket. KV
-# binds by id, so that one is looked up and committed.
+# TWO KV NAMESPACES, ONE LOOP. Title and binding travel together as
+# "title:BINDING" — a KV title is not a legal binding name (the ops Worker
+# calls it env.APPROVALS, not env["vemians-approvals"]) and a namespace's
+# title and its binding have always been two different strings here, so the
+# loop needs both, not one derived from the other.
 
 name: bootstrap-resources
 
@@ -31,7 +36,7 @@ permissions:
   contents: write
 
 env:
-  KV_TITLE: vemians-approvals
+  KV_NAMESPACES: "vemians-approvals:APPROVALS vemians-asset-files:ASSET_FILES"
 
 jobs:
   bootstrap:
@@ -51,24 +56,33 @@ jobs:
       - run: npm ci
         working-directory: ops
 
-      - name: Create the KV namespace
+      - name: Create the KV namespaces
         working-directory: ops
         run: |
-          if npx wrangler kv namespace create "$KV_TITLE" >/tmp/kv.log 2>&1; then
-            cat /tmp/kv.log
-          elif grep -qiE 'already exists|10014' /tmp/kv.log; then
-            echo "$KV_TITLE already exists — nothing to do."
-          else
-            cat /tmp/kv.log
-            echo "::error::could not create $KV_TITLE"; exit 1
-          fi
+          for pair in $KV_NAMESPACES; do
+            title="${pair%%:*}"
+            echo "::group::$title"
+            if npx wrangler kv namespace create "$title" >/tmp/kv.log 2>&1; then
+              cat /tmp/kv.log
+            elif grep -qiE 'already exists|10014' /tmp/kv.log; then
+              echo "$title already exists — nothing to do."
+            else
+              cat /tmp/kv.log
+              echo "::error::could not create $title"; exit 1
+            fi
+            echo "::endgroup::"
+          done
 
-      - name: Activate the APPROVALS binding
+      - name: Activate the KV bindings
         run: |
           (cd ops && npx wrangler kv namespace list) > /tmp/kv.json
-          python3 .github/scripts/resolve-kv-id.py /tmp/kv.json ops/wrangler.toml "$KV_TITLE"
+          for pair in $KV_NAMESPACES; do
+            title="${pair%%:*}"
+            binding="${pair##*:}"
+            python3 .github/scripts/resolve-kv-id.py /tmp/kv.json ops/wrangler.toml "$title" "$binding"
+          done
 
-      - name: Commit the id
+      - name: Commit the ids
         run: |
           if git diff --quiet -- ops/wrangler.toml; then
             echo "ops/wrangler.toml already correct — nothing to commit."; exit 0
@@ -76,9 +90,10 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add ops/wrangler.toml
-          git commit -m "Activate the APPROVALS and MEDIA bindings
+          git commit -m "Activate the APPROVALS and ASSET_FILES KV bindings
 
           Both ship COMMENTED, because wrangler rejects a binding to a
-          namespace or bucket that does not exist and fails the whole deploy
-          with it. They are written live here, after the resources exist."
+          namespace that does not exist and fails the whole deploy with it.
+          They are written live here, after the resources exist. MEDIA (R2)
+          stays commented — ADR-013 dropped that bucket on purpose."
           git push

@@ -36,7 +36,7 @@ permissions:
 
 env:
   # The database-name suffixes, exactly as the wrangler.toml files spell them.
-  DBS: customers identity commerce people finance audit tickets catalog-mirror
+  DBS: customers identity commerce people finance audit tickets catalog-mirror assets
 
 jobs:
   bootstrap:

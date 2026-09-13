@@ -936,9 +936,9 @@ labeled("test_PRD_P0_47_category_navigation__paging_stays_inside_the_category", 
    The invariant changed, deliberately: an ALLOW-LIST of exactly one store.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* The seven stores that live on the ops Worker and must never appear here. Named
+/* The eight stores that live on the ops Worker and must never appear here. Named
    one by one, so a future addition trips this check rather than passing review. */
-const OPS_ONLY_STORES = ["CUSTOMERS", "IDENTITY", "COMMERCE", "PEOPLE", "FINANCE", "AUDIT", "TICKETS"];
+const OPS_ONLY_STORES = ["CUSTOMERS", "IDENTITY", "COMMERCE", "PEOPLE", "FINANCE", "AUDIT", "TICKETS", "ASSETS"];
 
 labeled("test_PRD_P0_24_binding_scoped_tools__the_storefront_binds_the_mirror_and_nothing_else", () => {
   const toml = read("store", "wrangler.toml");
@@ -1005,7 +1005,7 @@ labeled("test_PRD_P0_26_owned_storefront__staging_is_a_different_worker_with_a_d
   }
 });
 
-labeled("test_PRD_P0_24_binding_scoped_tools__the_seven_ops_stores_are_bound_on_ops", () => {
+labeled("test_PRD_P0_24_binding_scoped_tools__the_eight_ops_stores_are_bound_on_ops", () => {
   /* The other half of the same invariant: they did not go missing, they are
      over there. A check that only asserts absence passes when a store is
      deleted from both files. */

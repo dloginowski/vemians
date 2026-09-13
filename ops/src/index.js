@@ -34,13 +34,17 @@ import { skillsFor } from "./skills.js";
 import { CAPS } from "./tools/caps.js";
 import { ROLES, roleAtLeast } from "./tools/roles.js";
 import { contentTypeFor, mediaKey, mintUploadTicket, verifyUploadTicket } from "./tools/media.js";
-import { mediaStoreFor } from "./tools/index.js";
+import { mediaStoreFor, assetFileStoreFor } from "./tools/index.js";
+import { contentTypeForAsset, extractText } from "./tools/assets.js";
 import { listCategories } from "./tools/catalog-writer.js";
 import { applyFormEdits } from "./approval-forms.js";
 import { syncFromSquare } from "./sync.js";
 import {
   approvalPage,
   approvalResultPage,
+  assetListPage,
+  assetUploadedPage,
+  assetUploadPage,
   batchReviewPage,
   batchUploadPage,
   opsPage,
@@ -321,6 +325,128 @@ async function ops(request, env, path) {
       return json({ error: "Your Access identity is in no group this application maps to a role." }, 403);
     }
     return mediaUpload(request, env, identity, email);
+  }
+
+  /*
+   * /assets — the employee asset drop site. Any signed-in role, no manager
+   * gate: these are working documents, not a Square write (unlike
+   * /products/batch and /customers/batch, which do gate on manager because
+   * catalog.create_product and customer.create refuse below it anyway).
+   *
+   *   /assets/new    GET the upload form, POST a file      (a person, browser only)
+   *   /assets/<id>   GET the original bytes back            (a person, or a link an agent hands out)
+   *   /assets        GET a plain list, for a person browsing without an assistant
+   */
+  if (path === "/assets/new" || path === "/assets" || (path.startsWith("/assets/") && path !== "/assets/new")) {
+    const email = identity.claims?.email;
+    if (typeof email !== "string" || !email.includes("@")) {
+      return html(refusalPage(403, "This page requires signing in as a person, not a service token."), 403);
+    }
+    if (!roleFor(identity, env)) {
+      return html(refusalPage(403, "Your Access identity is in no group this application maps to a role."), 403);
+    }
+
+    if (path === "/assets") {
+      if (!env.ASSETS) return html(refusalPage(503, "The asset drop site is not configured on this deployment yet."), 503);
+      const { results } = await env.ASSETS.prepare(
+        "SELECT id, filename, content_type, size_bytes, uploaded_by, uploaded_at FROM asset ORDER BY uploaded_at DESC LIMIT ?",
+      )
+        .bind(CAPS.ASSET_LIST_MAX_ROWS)
+        .all();
+      return html(assetListPage(results ?? []));
+    }
+
+    if (path === "/assets/new") {
+      if (request.method === "GET") return html(assetUploadPage());
+      if (request.method !== "POST") {
+        return html(refusalPage(405, "Upload a file to this page, or open it in a browser."), 405);
+      }
+      if (!env.ASSETS) {
+        return html(refusalPage(503, "The asset drop site is not configured on this deployment yet."), 503);
+      }
+
+      let file;
+      try {
+        const form = await request.formData();
+        file = form.get("file");
+      } catch (err) {
+        return html(refusalPage(400, `Unreadable upload — ${err.message}`), 400);
+      }
+      if (!(file instanceof File) || file.size === 0) {
+        return html(refusalPage(400, "No file was attached."), 400);
+      }
+      if (file.size > CAPS.ASSET_MAX_BYTES) {
+        return html(refusalPage(413, `That file is larger than the ${CAPS.ASSET_MAX_BYTES}-byte limit.`), 413);
+      }
+      const contentType = contentTypeForAsset(file.name, file.type);
+      if (!contentType) {
+        return html(
+          refusalPage(
+            415,
+            `"${file.name}" is not a file type this drop site takes yet. Try .txt, .md, .csv, .json, .pdf, ` +
+              "a spreadsheet, or a Word document.",
+          ),
+          415,
+        );
+      }
+
+      let files;
+      try {
+        files = assetFileStoreFor(env);
+      } catch (err) {
+        console.error(`ERROR ops/assets: ${err.message}`);
+        return html(refusalPage(503, "File storage is not configured on this deployment yet."), 503);
+      }
+
+      const id = crypto.randomUUID();
+      const key = `assets/${id}`;
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      try {
+        await files.put(key, bytes);
+      } catch (err) {
+        return html(refusalPage(413, err.message), 413);
+      }
+
+      const extracted = extractText(contentType, bytes);
+      try {
+        await env.ASSETS.prepare(
+          "INSERT INTO asset(id, store_key, filename, content_type, size_bytes, uploaded_by, extracted_text, text_truncated)" +
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+          .bind(id, key, file.name, contentType, bytes.byteLength, email, extracted?.text ?? null, extracted?.truncated ? 1 : 0)
+          .run();
+      } catch (err) {
+        console.error(`ERROR ops/assets: stored ${key} but could not record it — ${err.message}`);
+        return html(refusalPage(500, "Stored the file but could not record it. Try again."), 500);
+      }
+
+      return html(assetUploadedPage({ id, filename: file.name, hasText: Boolean(extracted) }));
+    }
+
+    /* /assets/<id> — the download route. */
+    const id = path.slice("/assets/".length);
+    if (!env.ASSETS) return html(refusalPage(503, "The asset drop site is not configured on this deployment yet."), 503);
+    const row = await env.ASSETS.prepare("SELECT store_key, filename, content_type FROM asset WHERE id = ?").bind(id).first();
+    if (!row) return html(refusalPage(404, "No such file."), 404);
+
+    let files;
+    try {
+      files = assetFileStoreFor(env);
+    } catch (err) {
+      console.error(`ERROR ops/assets: ${err.message}`);
+      return html(refusalPage(503, "File storage is not configured on this deployment yet."), 503);
+    }
+    const bytes = await files.bytes(row.store_key);
+    if (!bytes) {
+      console.error(`ERROR ops/assets: asset ${id} has a record but no bytes at ${row.store_key}`);
+      return html(refusalPage(404, "The file's record exists but its bytes are missing."), 404);
+    }
+    return new Response(bytes, {
+      headers: {
+        "content-type": row.content_type,
+        "content-disposition": `inline; filename="${row.filename.replace(/["\\]/g, "_")}"`,
+      },
+    });
   }
 
   if (path === "/agent") {

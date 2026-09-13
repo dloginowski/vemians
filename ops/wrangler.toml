@@ -222,11 +222,30 @@ enabled = true
 # bucket_name = "vemians-media"
 
 # ---------------------------------------------------------------------------
+# The employee asset drop site's original bytes (ops/src/tools/assets.js).
+# NOT an R2 bucket, ON PURPOSE: ADR-013 dropped this ops Worker's one R2
+# bucket after two failed workflow runs and a token permission that was never
+# granted, and reintroducing R2 for a second, unrelated feature would risk
+# hitting the exact same account-level wall. KV is already live here —
+# APPROVALS above is the proof — and a KV value holds up to 25 MB, comfortably
+# past CAPS.ASSET_MAX_BYTES (20 MB) for a document rather than a video.
+#
+# Created and resolved by .github/workflows/bootstrap-resources.yml, the same
+# way APPROVALS is. Commented for the same reason: a binding to a namespace
+# that does not exist fails the deploy rather than degrading. Without this
+# binding the upload route refuses with 503 rather than accepting a file it
+# cannot actually keep.
+#
+# [[kv_namespaces]]
+# binding = "ASSET_FILES"
+# id      = "<id>"
+
+# ---------------------------------------------------------------------------
 # D1 bindings.
 #
 # These blocks are the enforcement behind Test-PRD-P0-24-binding_scoped_tools.
-# The seven stores below — customers, identity, commerce, people, finance,
-# audit, tickets — are bound HERE AND NOWHERE ELSE: a customer profile is not
+# The eight stores below — customers, identity, commerce, people, finance,
+# audit, tickets, assets — are bound HERE AND NOWHERE ELSE: a customer profile is not
 # reachable from the storefront by any code path, because the binding does not
 # exist there and neither does the code. That is the whole reason the two
 # surfaces are two Workers: scope is structural, not a query filter.
@@ -282,6 +301,17 @@ database_id   = "178ae750-75b0-479b-bbed-14ddb2e5035a"
 binding       = "TICKETS"            # company-wide issues; closed, never deleted
 database_name = "vemians-tickets"
 database_id   = "9addc2c1-7f22-44be-bf93-f8e831905ce7"
+
+# The employee asset drop site's index (shared/db/assets.sql) — filename,
+# uploader, extracted text. NOT YET CREATED: added to the bootstrap-d1
+# workflow's $DBS list, but that run has not happened yet, so the id below is
+# a PLACEHOLDER rather than the real UUID every store above already has.
+# `wrangler deploy` will fail loudly on it rather than silently accepting it
+# (bootstrap-d1.yml's own id-resolution step checks for exactly this shape).
+[[d1_databases]]
+binding       = "ASSETS"             # asset-drop-site index; append-only, see shared/db/assets.sql
+database_name = "vemians-assets"
+database_id   = "PLACEHOLDER-run-bootstrap-d1"
 
 # Our copy of Square's authoritative catalog (shared/commerce/square/schema.sql,
 # ADR-009). READ by the agent tools — the closed set of categories, the price

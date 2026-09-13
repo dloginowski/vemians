@@ -283,6 +283,12 @@ ${id}
   </section>
 
   <section class="key">
+    <h1>Drop a file for the team</h1>
+    <p class="hint">A price list, a policy note, meeting notes — any connected assistant can read it back.</p>
+    <p><a class="btn" href="/assets/new">Drop a file</a></p>
+  </section>
+
+  <section class="key">
     <h1>Connect your assistant</h1>
     <p class="hint">Paste this into your Claude or ChatGPT to get started.</p>
     ${copyLine(mcpUrl)}
@@ -861,6 +867,70 @@ export function batchReviewPage({ ready, skipped, tooMany }, kind = "products") 
            : ""
        }
        <p><a href="${k.path}">Upload another spreadsheet</a> &middot; <a href="/">Back to ops</a></p>
+     </main>`,
+    APPROVAL_CSS,
+  );
+}
+
+/*
+ * /assets/new — drop a file for the team, no assistant needed. Same "no
+ * confirmation screen, just do it" shape as /media/new: there is nothing
+ * here for a human to approve, because dropping a document changes nothing
+ * else in the business.
+ */
+export function assetUploadPage() {
+  return page(
+    "Drop a file for the team",
+    `<main class="wrap">
+       <p class="eyebrow">Anyone can drop one</p>
+       <h1>Drop a file for the team</h1>
+       <p>A vendor price list, a policy note, meeting notes — anyone you work with, and any
+          assistant connected here, can read it back afterward.</p>
+       <p class="fine">Works today: .txt, .md, .csv, .json (read back as text), plus .pdf, spreadsheets
+          and Word documents (stored and listed, but not yet readable as text — open the file
+          itself for those).</p>
+       <form method="POST" enctype="multipart/form-data">
+         <input type="file" name="file" required>
+         <p><button type="submit">Upload</button></p>
+       </form>
+       <p><a href="/assets">See what has been dropped</a> &middot; <a href="/">Back to ops</a></p>
+     </main>`,
+    APPROVAL_CSS,
+  );
+}
+
+export function assetUploadedPage({ id, filename, hasText }) {
+  return page(
+    "File added",
+    `<main class="wrap">
+       <p class="eyebrow">Added</p>
+       <h1>${esc(filename)}</h1>
+       <p>${hasText ? "Any assistant connected here can already read its text." : "Stored and listed. There is no text extraction for this file type yet — open it directly to read it."}</p>
+       <p><a href="/assets/${esc(id)}">Open the file</a></p>
+       <p><a href="/assets/new">Drop another</a> &middot; <a href="/">Back to ops</a></p>
+     </main>`,
+    APPROVAL_CSS,
+  );
+}
+
+export function assetListPage(rows) {
+  return page(
+    "Files dropped for the team",
+    `<main class="wrap">
+       <p class="eyebrow">${rows.length} file${rows.length === 1 ? "" : "s"}</p>
+       <h1>Files dropped for the team</h1>
+       ${
+         rows.length
+           ? `<ul>${rows
+               .map(
+                 (r) =>
+                   `<li><a href="/assets/${esc(r.id)}">${esc(r.filename)}</a>
+                      <span class="fine">${esc(r.uploaded_by)} &middot; ${esc(r.uploaded_at)}</span></li>`,
+               )
+               .join("")}</ul>`
+           : "<p>Nothing has been dropped yet.</p>"
+       }
+       <p><a href="/assets/new">Drop a file</a> &middot; <a href="/">Back to ops</a></p>
      </main>`,
     APPROVAL_CSS,
   );

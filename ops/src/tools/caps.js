@@ -113,6 +113,20 @@ export const CAPS = Object.freeze({
 
   /* Free text an agent can put into a store, per field. */
   MAX_TEXT: 500,
+
+  /*
+   * Employee asset drop site (assets.js). A working document, not a photo —
+   * generous enough for a real spreadsheet or PDF, nowhere near what a store
+   * would need to hold video or a full media library.
+   */
+  ASSET_MAX_BYTES: 20 * 1024 * 1024,
+  /* Extracted TEXT an agent tool can hand back in one call. A cap in
+     characters, not bytes — this is what a model actually reads, and the
+     same "a warning in the prompt is not a cap" rule applies to it. Refusing
+     is wrong here (the file is still worth having on record); truncating and
+     saying so is not. */
+  ASSET_TEXT_MAX_CHARS: 100_000,
+  ASSET_LIST_MAX_ROWS: 100,
 });
 
 /* Clamp a caller-supplied row count into the cap. Never trust the argument. */

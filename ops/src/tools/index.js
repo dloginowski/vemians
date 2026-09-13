@@ -48,6 +48,7 @@
  */
 import { writeAudit } from "./audit.js";
 import { approvals as defaultApprovals } from "./approval.js";
+import { assetTools, createAssetFileStore } from "./assets.js";
 import { CAPS } from "./caps.js";
 import { createSeedCatalogSource } from "./catalog-source.js";
 import { createSquareCatalogWriter } from "./catalog-writer.js";
@@ -82,6 +83,10 @@ export const STORE_BINDINGS = Object.freeze({
      schema.sql). READ from here; a catalog write goes to Square and the mirror
      follows by sync — see catalog-writer.js. */
   catalog_mirror: "CATALOG_MIRROR",
+  /* The asset drop site's index (shared/db/assets.sql) — filename, uploader,
+     extracted text. The bytes are a separate binding (ASSET_FILES, R2) that
+     no tool ever holds; see assets.js. */
+  assets: "ASSETS",
 });
 
 /*
@@ -148,6 +153,7 @@ export const TOOLS = buildRegistry([
   commerceTools,
   peopleTools,
   financeTools,
+  assetTools,
 ]);
 
 /* The description an agent is given. Data, not prose in a prompt. */
@@ -204,6 +210,15 @@ export function mediaStoreFor(env) {
   if (env?.MEDIA) return createMediaStore(env.MEDIA, env);
   console.info("INFO media: no MEDIA bucket bound — photographs go to Square, which holds the only copy");
   return createSquareMediaStore(createImageUploader(env), env);
+}
+
+/* The asset drop site's bytes (assets.js) — src/index.js's upload/download
+   routes only; no tool ever calls this. There is no fallback store the way
+   mediaStoreFor has Square: a missing ASSET_FILES binding is a hard refusal,
+   not a degraded mode, because there is nowhere else a dropped document could
+   reasonably go. */
+export function assetFileStoreFor(env) {
+  return createAssetFileStore(env?.ASSET_FILES);
 }
 
 function scopedResources(tool, ctx) {
