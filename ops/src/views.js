@@ -323,9 +323,18 @@ ${OPS_DARK_CSS}
   display: inline-flex; align-items: center; justify-content: center;
   border: none; border-radius: 50%;
 }
-.chat .chat-bar .icon-btn { width: 32px; height: 32px; background: transparent; color: var(--ink); }
-.chat .chat-bar .icon-btn:hover { background: rgba(255, 255, 255, 0.08); color: var(--accent); }
-.chat .chat-bar .icon-btn[aria-pressed="true"] { color: var(--accent); background: rgba(217, 119, 87, 0.14); }
+/* A filled circle now, the same treatment as .send-btn below rather than a
+   bare glyph on a transparent background — the owner's own words: "Make
+   sure that it also flows neatly inside of the inner chat border (like
+   the chat submit button)." Same 34px size as the send button too, so the
+   two round buttons nest into the bar's own left and right ends the same
+   way. --ink is the brightest neutral on the page (short of the accent
+   itself, reserved for send/active) — --ground for the glyph on top of it
+   for the same contrast reason .send-btn's own icon is --ground on
+   --accent, not the other way round. */
+.chat .chat-bar .icon-btn { width: 34px; height: 34px; background: var(--ink); color: var(--ground); }
+.chat .chat-bar .icon-btn:hover { opacity: 0.85; }
+.chat .chat-bar .icon-btn[aria-pressed="true"] { background: var(--accent); color: var(--ground); }
 .chat .chat-bar .send-btn { width: 34px; height: 34px; background: var(--accent); color: var(--ground); }
 .chat .chat-bar .send-btn:hover { opacity: 0.85; }
 .chat .chat-bar .send-btn:disabled { opacity: 0.4; cursor: default; }

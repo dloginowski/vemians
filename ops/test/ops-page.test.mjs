@@ -389,15 +389,14 @@ check("test_PRD_P0_92_chat_widget_accent__the_widgets_own_frame_matches_the_quic
   assert.match(body, /\.chat-top\s*\{[^}]*border:\s*1px solid var\(--accent\)/s, "the widget frame must use the same accent border");
 });
 
-check("test_PRD_P0_92_chat_widget_accent__the_entry_lines_own_border_and_the_plus_button_are_brighter", async () => {
+check("test_PRD_P0_92_chat_widget_accent__the_entry_lines_own_border_is_brighter", async () => {
   const { body } = await frontPage(OWNER);
   /* Brighter than the old --rule, but not a second orange box nested inside
      the now-accent .chat-top frame — a distinct, plain-neutral bump. */
   assert.match(body, /\.chat \.chat-bar\s*\{[^}]*border:\s*1px solid var\(--muted\)/s, "the entry line's own border must no longer be the dim --rule");
   assert.doesNotMatch(body, /\.chat \.chat-bar\s*\{[^}]*border:\s*1px solid var\(--rule\)/s, "the old dim border must not still be set");
-  /* The "+" attach icon, full brightness at rest — matching the composer's
-     own send icon and typed text, not the dim secondary tone. */
-  assert.match(body, /\.chat \.chat-bar \.icon-btn\s*\{[^}]*color:\s*var\(--ink\)/s, "the attach icon must be full-bright at rest");
+  /* The "+" attach icon's own styling moved on again in P0-95 (a filled
+     circle, not a bare bright glyph) — see that section for its own tests. */
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -472,6 +471,39 @@ check("test_PRD_P0_94_mobile_edge_to_edge__the_page_containers_side_padding_matc
      rather than two stacked ones. */
   assert.match(body, /\.ops\s*\{[^}]*padding:\s*12px 8px 32px/s, "side padding must be tightened, top/bottom unchanged");
   assert.doesNotMatch(body, /\.ops\s*\{[^}]*padding:\s*12px 24px 32px/s, "the old roomier side padding must not still be set");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-95 — the attach button is a filled circle, matching the send button
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_95_filled_attach_button__the_plus_button_is_a_filled_circle_the_same_size_as_send", async () => {
+  const { body } = await frontPage(OWNER);
+  /* Same size as .send-btn (34px, up from 32px) so both round buttons nest
+     into the bar's own rounded ends identically — "flows neatly inside of
+     the inner chat border (like the chat submit button)," the owner's own
+     words. */
+  assert.match(body, /\.chat \.chat-bar \.icon-btn\s*\{[^}]*width:\s*34px/s, "the attach button must match the send button's own size");
+  assert.match(body, /\.chat \.chat-bar \.icon-btn\s*\{[^}]*height:\s*34px/s, "the attach button must match the send button's own size");
+  /* Filled with --ink (the brightest neutral short of the accent colour,
+     which stays reserved for send/active), --ground for the glyph on top
+     — the same contrast direction .send-btn's own icon already uses. */
+  assert.match(body, /\.chat \.chat-bar \.icon-btn\s*\{[^}]*background:\s*var\(--ink\)/s, "the button's own background must be brightened, not just its glyph");
+  assert.match(body, /\.chat \.chat-bar \.icon-btn\s*\{[^}]*color:\s*var\(--ground\)/s, "the glyph must contrast against its new filled background");
+});
+
+check("test_PRD_P0_95_filled_attach_button__hover_and_pressed_states_match_the_send_buttons_own_pattern", async () => {
+  const { body } = await frontPage(OWNER);
+  /* Literally .send-btn:hover's own rule — the two buttons now behave
+     identically on interaction, not just at rest. */
+  assert.match(body, /\.chat \.chat-bar \.icon-btn:hover\s*\{[^}]*opacity:\s*0\.85/s, "hover must match the send button's own opacity dim, not a translucent overlay");
+  /* An attachment currently staged swaps the fill to the accent colour
+     rather than a plain rgba tint, keeping --ground for the glyph. */
+  assert.match(
+    body,
+    /\.chat \.chat-bar \.icon-btn\[aria-pressed="true"\]\s*\{[^}]*background:\s*var\(--accent\)/s,
+    "the pressed/active state must fill with the accent colour, not a translucent tint",
+  );
 });
 
 /* ─────────────────────────────────────────────────────────────────────────

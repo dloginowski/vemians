@@ -1398,7 +1398,8 @@ that does not trace to one of these is a process failure (see §12).
     icon (`.chat .chat-bar .icon-btn`) goes from `--muted` to `--ink` at rest — full brightness,
     matching the composer's own send icon and typed text — with its hover state moved from `--ink`
     to `--accent` so hovering still reads as a distinct state now that the resting colour is no
-    longer the dim one.
+    longer the dim one. (The attach icon's own styling moves on again in P0-95 — a filled circle
+    matching the send button's own treatment, not just a brighter glyph on a transparent one.)
 
 34a'''''''''''''''''''''''. **`Test-PRD-P0-93-nested_chat_frame`** — Immediate follow-up to
     P0-92, once the accent frame was actually in front of the owner. Their own words: "Keep the
@@ -1466,7 +1467,24 @@ that does not trace to one of these is a process failure (see §12).
     desktop window still caps the content column the same way it always did — the difference is
     negligible there and material only on the narrow screens the request was actually about.
 
-## 4. P1 features
+34a'''''''''''''''''''''''''. **`Test-PRD-P0-95-filled_attach_button`** — The owner's own words:
+    "Brighten the bg color of the + button on the left side of chat entry field. Make sure that
+    it also flows neatly inside of the inner chat border (like the chat submit button)." The
+    attach icon (P0-92) had already gone from a dim `--muted` glyph to a bright `--ink` one, but
+    stayed a bare glyph on a transparent background — visually a different kind of control from
+    `.send-btn`'s own solid, filled accent circle sitting in the bar's other rounded end.
+
+    `.chat .chat-bar .icon-btn` now gets the exact same treatment `.send-btn` already has: a
+    filled `34px` circle (up from `32px`, matching the send button's own size so both round
+    buttons nest into the bar's left and right ends identically) with `--ink` as its background —
+    the page's brightest neutral short of the accent colour itself, which stays reserved for
+    send/active states — and `--ground` for the glyph on top of it, the same contrast direction
+    `.send-btn`'s own `--ground`-on-`--accent` icon already uses, not the reverse. Hover moves from
+    a translucent white overlay to `opacity: 0.85`, literally `.send-btn:hover`'s own rule, so the
+    two buttons behave identically on interaction as well as at rest. The `aria-pressed="true"`
+    state (an attachment is currently staged) swaps the fill to `--accent` instead of the plain
+    `rgba` tint it used before, keeping `--ground` for the glyph — the same fill-plus-contrasting-
+    glyph pattern, just with the accent colour standing in for "this is now the active choice."
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
    inventory, schedule and knowledge, scoped by the caller's bindings.
@@ -1711,6 +1729,7 @@ Where each feature is enforced today:
 | P0-92 | `ops/test/ops-page.test.mjs` |
 | P0-93 | `ops/test/ops-page.test.mjs` |
 | P0-94 | `ops/test/ops-page.test.mjs` |
+| P0-95 | `ops/test/ops-page.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
