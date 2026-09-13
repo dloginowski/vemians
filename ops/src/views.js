@@ -298,10 +298,21 @@ ${OPS_DARK_CSS}
  * few rows of table on a typical phone, capped so a very tall window does
  * not turn the log into most of the page.
  */
+/* THE SAME CLASS OF BUG AGAIN (P0-96's .attach-name, P0-99's inherited
+   .chat margin) — .log's own margin-top (8px) plus padding-top (4px) was
+   12px of unrelated extra space with no side equivalent (side margin: 0,
+   side padding: 2px), stacking on top of .chat-top's own uniform 14px
+   padding: the first bubble sat noticeably farther from the top edge than
+   from either side. The owner's own words, pointing at a real screenshot:
+   "See the 'add content' message? Its too far from top edge of outer chat
+   box. Needs to match [the] side." margin carries only the bottom gap
+   (before the composer form) now; padding is a uniform 2px matching the
+   side value exactly, so top and sides both work out to the same total
+   distance from .chat-top's own edge. */
 .log {
   display: flex; flex-direction: column; gap: 6px;
   max-height: min(62vh, 560px); overflow-y: auto;
-  margin: 8px 0; padding: 4px 2px;
+  margin: 0 0 8px; padding: 2px;
 }
 .log:empty { display: none; }
 .log p {

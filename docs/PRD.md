@@ -1011,6 +1011,17 @@ that does not trace to one of these is a process failure (see §12).
     exist — so a future escaping mistake here fails the suite instead of shipping broken to every
     visitor silently.
 
+    **The same class of bug a third time — an unrelated element's own margin/padding stacking
+    onto `.chat-top`'s own uniform padding, this time on the TOP edge.** The owner's own words,
+    pointing at a real screenshot: "Its too far from top edge of outer chat box. Needs to match
+    [the] side." `.log`'s own `margin: 8px 0; padding: 4px 2px;` gave it `8 + 4 = 12px` of
+    top-specific space with no side equivalent (side margin `0`, side padding `2px`), stacking on
+    top of `.chat-top`'s own `14px` on every edge — the first message bubble sat noticeably
+    farther from the top than from either side. `.log`'s own margin now carries only the bottom
+    gap before the composer form (`margin: 0 0 8px`); padding is a uniform `2px`, matching the
+    side value exactly, so top and sides both work out to the same total distance from
+    `.chat-top`'s own edge.
+
 34a'''''''''. **`Test-PRD-P0-79-quick_actions_over_connect_prompt`** — The owner's own direction,
     read back verbatim: "remove [the connect-your-own-assistant block]... you already have quick
     actions under the chat, that's what I want to expand." The promotional block P0-69 had put where

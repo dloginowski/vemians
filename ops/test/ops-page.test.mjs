@@ -749,6 +749,21 @@ check("test_PRD_P0_78_chat_widget__the_inline_client_script_is_valid_javascript"
   assert.doesNotThrow(() => new Function(script), "the inline client script must be syntactically valid JavaScript");
 });
 
+check("test_PRD_P0_78_chat_widget__the_first_bubble_sits_the_same_distance_from_top_as_from_the_sides", async () => {
+  /* THE SAME CLASS OF BUG AGAIN (.attach-name, the inherited .chat margin)
+     — .log's own margin-top (8px) plus padding-top (4px) was 12px of
+     unrelated extra space with no side equivalent (side margin 0, side
+     padding 2px), stacking on top of .chat-top's own uniform 14px padding.
+     The owner's own words, pointing at a real screenshot: "Its too far
+     from top edge of outer chat box. Needs to match [the] side." margin
+     now carries only the bottom gap before the composer form; padding is
+     a uniform 2px matching the side value exactly. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.log\s*\{[^}]*padding:\s*2px;/s, "padding must be uniform, matching the side value on every edge");
+  assert.match(body, /\.log\s*\{[^}]*margin:\s*0 0 8px;/s, "margin must carry only the bottom gap, none on top");
+  assert.doesNotMatch(body, /\.log\s*\{[^}]*margin:\s*8px 0/s, "the old top-heavy margin must not still be set");
+});
+
 check("test_PRD_P0_78_chat_widget__mine_agent_and_tool_are_three_distinct_bubble_styles", async () => {
   const { body } = await frontPage(OWNER);
   for (const cls of ["you", "agent", "tool"]) {
