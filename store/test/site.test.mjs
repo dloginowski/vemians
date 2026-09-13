@@ -31,6 +31,7 @@ const worker = (await import("../src/index.js")).default;
 const { SITE, addressLine, hoursRows, mapsDirectionsUrl, mapsSearchUrl, openDaysCount, openDaysLabel } =
   await import("../../shared/site.js");
 const { categoriesOf, subsOf } = await import("../src/query.js");
+const { money } = await import("../../shared/view/html.js");
 const products = (await import("../../shared/seed/catalog.js")).products;
 
 /* What the page actually contains. `esc()` turns every & in a URL into &amp;
@@ -411,6 +412,20 @@ labeled("test_PRD_P0_57_two_level_navigation__one_pane_open_at_a_time", () => {
      forgotten they were in. */
   assert.match(drawer, /btn\.addEventListener\("click", function \(\) \{\s*\n\s*collapse\(\);/);
   assert.match(drawer, /armDialog\(menu, trigger, "Menu", collapse\)/);
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Test-PRD-P0-72-product_detail_page — the real Worker's own route
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+labeled("test_PRD_P0_72_product_detail_page__a_seeded_product_answers_200_and_an_unknown_handle_404s", async () => {
+  const known = await get(`/products/${products[0].handle}`);
+  assert.equal(known.status, 200);
+  assert.ok(known.html.includes(products[0].name), "the product's own name is not on its own page");
+  assert.ok(known.html.includes(inPage(money(products[0].minor, products[0].currency))));
+
+  const missing = await get("/products/this-handle-does-not-exist");
+  assert.equal(missing.status, 404);
 });
 
 test("every label in this file is unique and named in the PRD", () => {

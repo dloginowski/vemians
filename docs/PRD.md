@@ -829,6 +829,37 @@ that does not trace to one of these is a process failure (see §12).
     catalog rather than an empty grid — which reads as a broken shop, not a bad link. The
     current category carries `aria-current="page"`.
 
+47a. **`Test-PRD-P0-71-product_channel`** — Not every product Square knows about is for the public
+    website. `mirror_product` (`shared/commerce/square/schema.sql`) carries a `channel` column —
+    `in_store` (the shop only, not shown at any storefront URL), `website` (in the grid and has
+    its own page), or `direct_link` (has its own page, left out of the grid, for someone with the
+    link). **Fail closed, the same way every other permission in this codebase defaults**: a new
+    or freshly-synced product is `in_store` until a person says otherwise, so nothing reaches the
+    public site by an omission rather than a decision. This is deliberately **ours, not Square's**
+    — Square has no notion of our storefront at all — so `catalog.set_channel` (T2, manager+,
+    `ops/src/tools/catalog-write.js`) writes `mirror_product` directly and calls Square for
+    nothing; `syncCatalog` (`shared/commerce/square/mirror.js`) never names this column in its
+    `UPDATE`, on purpose, so a value set here survives every future sync untouched — exactly the
+    guarantee `handle` already relies on. `store/src/catalog.js`'s grid query filters
+    `channel = 'website'`; a product's own page (P0-72) accepts `website` and `direct_link` alike
+    and refuses `in_store` in the query's own `WHERE` clause, not by a check the caller could
+    forget to make.
+
+47b. **`Test-PRD-P0-72-product_detail_page`** — Every product has its own page at
+    `/products/<handle>` — the answer to "how do I see product details", asked directly, of a
+    shop whose cards used to be `<article>`s with no click-through at all. `loadProduct(env,
+    handle)` (`store/src/catalog.js`) is a second, dedicated read alongside the grid's — a
+    `direct_link` product must resolve here while never once appearing in the grid's own query,
+    which only a separate statement can guarantee. It falls back to the seed catalog under the
+    same "mirror not synced yet" case `loadCatalog` already treats as seed-served (P0-49), so a
+    fresh `wrangler dev --local` can open a seeded product's page with no Square account; a handle
+    that is simply wrong, or that names a real `in_store` product, is an honest 404 either way.
+    The grid's card (`store/src/views.js`) now wraps its image and name in a link to that page —
+    the wishlist heart stays a sibling control outside it, so tapping the glyph never also
+    navigates. **This is not a cart or a checkout** (see Non-goals): the page states the price and
+    description and points to `/visit` to see the piece in person or ask about it, honestly,
+    rather than rendering a "Buy" button that does nothing.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -1050,6 +1081,8 @@ Where each feature is enforced today:
 | P0-67 | `ops/test/skills.test.mjs` for `firstNameFrom` and `buildInstructions()`; no round-trip test yet exercises `skills_list`'s wire response directly — this file has no harness that calls a registered MCP tool handler, for any tool, not only this one |
 | P0-68 | `ops/test/agent-greeting.test.mjs` for `systemPrompt()`'s greeting; no test yet drives `agentTurn()` end to end (the whole file has no test coverage of the Anthropic call loop itself, not only the greeting) |
 | P0-69 | `ops/test/ops-page.test.mjs`, over the real Worker |
+| P0-71 | `ops/test/catalog-write.test.mjs` for `catalog.set_channel`; the channel-filter half of `store/test/storefront.test.mjs` |
+| P0-72 | the product-detail half of `store/test/storefront.test.mjs`, over the real mirror schema |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

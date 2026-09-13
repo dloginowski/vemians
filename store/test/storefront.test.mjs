@@ -88,6 +88,7 @@ const read = (...p) => fs.readFileSync(path.join(REPO, ...p), "utf8");
 register("../../shared/test/text-modules.mjs", import.meta.url);
 
 const { catalogPage, catalogPartial, shotUrl } = await import("../src/views.js");
+const { productPage } = await import("../src/pages.js");
 const { money } = await import("../../shared/view/html.js");
 const { brandsOf, categoriesOf, href, PAGE, parseQuery, select, SORTS } = await import("../src/query.js");
 
@@ -120,11 +121,15 @@ const CATEGORIES = categoriesOf(products);
  * directly, exactly as a completed sync would have left them.
  */
 const { d1FromSql } = await import("../../shared/test/d1.mjs");
-const { loadCatalog, toneFor } = await import("../src/catalog.js");
+const { loadCatalog, loadProduct, toneFor } = await import("../src/catalog.js");
 
 const MIRROR_SQL = read("shared", "commerce", "square", "schema.sql");
 
-/* A mirror holding `items`, each { handle, title, category, minor }. */
+/* A mirror holding `items`, each { handle, title, category, minor, channel? }.
+   `channel` defaults to 'website' — the fixtures here are testing the grid's
+   mechanics, not the visibility feature, so a caller that does not mention
+   it should see exactly the pre-channel behaviour. Tests for the channel
+   filter itself pass it explicitly. */
 function mirrorWith(items) {
   const db = d1FromSql(MIRROR_SQL);
   const cats = new Map();
@@ -139,9 +144,9 @@ function mirrorWith(items) {
   items.forEach((it, i) => {
     db._raw
       .prepare(
-        "INSERT INTO mirror_product (id, external_ref, handle, title, status, category_id) VALUES (?, ?, ?, ?, 'active', ?)",
+        "INSERT INTO mirror_product (id, external_ref, handle, title, status, channel, category_id) VALUES (?, ?, ?, ?, 'active', ?, ?)",
       )
-      .run(`prod-${i}`, `SQ_ITEM_${i}`, it.handle, it.title, it.category ? cats.get(it.category) : null);
+      .run(`prod-${i}`, `SQ_ITEM_${i}`, it.handle, it.title, it.channel ?? "website", it.category ? cats.get(it.category) : null);
     if (it.minor === null) return;
     db._raw
       .prepare(
@@ -929,6 +934,159 @@ labeled("test_PRD_P0_47_category_navigation__paging_stays_inside_the_category", 
   const html = catalogPage(brandsOf(products), known, q, select(products, q), "seed");
   const form = html.slice(html.indexOf('<form class="panel"'), html.indexOf("</form>"));
   assert.match(form, new RegExp(`<input type="hidden" name="category" value="${known[0]}">`));
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Test-PRD-P0-71-product_channel
+   Fail closed: nothing reaches the public site until a person says which
+   audience it is for.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+labeled("test_PRD_P0_71_product_channel__the_grid_shows_only_the_website_channel", async () => {
+  const stock = [
+    { ...SQUARE_STOCK[0], channel: "website" },
+    { ...SQUARE_STOCK[1], channel: "in_store" },
+    { ...SQUARE_STOCK[2], channel: "direct_link" },
+    { ...SQUARE_STOCK[3], channel: "website" },
+  ];
+  const { source, products: served } = (await saying(() => loadCatalog({ CATALOG_MIRROR: mirrorWith(stock) }))).value;
+  assert.equal(source, "mirror");
+  assert.deepEqual(
+    served.map((p) => p.handle).sort(),
+    [stock[0].handle, stock[3].handle].sort(),
+    "the grid must hold exactly the website-channel products, nothing else",
+  );
+});
+
+labeled("test_PRD_P0_71_product_channel__a_product_with_no_channel_set_defaults_hidden_from_the_grid", async () => {
+  /* The load-bearing case: nothing here mentions `channel` at all, so this
+     exercises the SCHEMA's own DEFAULT — the same state a just-synced
+     product is actually in — rather than mirrorWith()'s test-only default of
+     'website'. */
+  const db = mirrorWith([]);
+  db._raw.prepare("INSERT INTO mirror_category (id, external_ref, name) VALUES ('cat-1','SQ_CAT_1','Homeware')").run();
+  db._raw
+    .prepare(
+      "INSERT INTO mirror_product (id, external_ref, handle, title, status, category_id) VALUES ('prod-x','SQ_ITEM_X','hidden-vase','Hidden vase','active','cat-1')",
+    )
+    .run();
+  db._raw
+    .prepare(
+      "INSERT INTO mirror_variant (id, external_ref, product_id, sku, title, ordinal, price_minor, currency) VALUES ('var-x','SQ_VAR_X','prod-x','SKU-X','One size',0,10000,'USD')",
+    )
+    .run();
+
+  const { products: served } = (await saying(() => loadCatalog({ CATALOG_MIRROR: db }))).value;
+  assert.ok(!served.some((p) => p.handle === "hidden-vase"), "an untagged product must default to hidden, not shown");
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Test-PRD-P0-72-product_detail_page
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+labeled("test_PRD_P0_72_product_detail_page__website_and_direct_link_both_resolve_in_store_never_does", async () => {
+  const stock = [
+    { ...SQUARE_STOCK[0], channel: "website" },
+    { ...SQUARE_STOCK[1], channel: "direct_link" },
+    { ...SQUARE_STOCK[2], channel: "in_store" },
+  ];
+  const db = mirrorWith(stock);
+
+  const website = await loadProduct({ CATALOG_MIRROR: db }, stock[0].handle);
+  assert.equal(website.source, "mirror");
+  assert.equal(website.product.handle, stock[0].handle);
+
+  const direct = await loadProduct({ CATALOG_MIRROR: db }, stock[1].handle);
+  assert.equal(direct.source, "mirror");
+  assert.equal(direct.product.handle, stock[1].handle);
+
+  const hidden = await loadProduct({ CATALOG_MIRROR: db }, stock[2].handle);
+  assert.equal(hidden, null, "an in_store product must not resolve at its own URL either");
+});
+
+labeled("test_PRD_P0_72_product_detail_page__a_direct_link_product_is_reachable_but_never_in_the_grid", async () => {
+  const stock = [
+    { ...SQUARE_STOCK[0], channel: "website" },
+    { ...SQUARE_STOCK[1], channel: "direct_link" },
+  ];
+  const db = mirrorWith(stock);
+
+  const { source, products: served } = (await saying(() => loadCatalog({ CATALOG_MIRROR: db }))).value;
+  assert.equal(source, "mirror");
+  assert.deepEqual(served.map((p) => p.handle), [stock[0].handle], "the direct_link product leaked into the grid");
+
+  const found = await loadProduct({ CATALOG_MIRROR: db }, stock[1].handle);
+  assert.ok(found, "a direct_link product must still resolve at its own address");
+  assert.equal(found.product.handle, stock[1].handle);
+});
+
+labeled("test_PRD_P0_72_product_detail_page__no_binding_or_an_unmigrated_mirror_serves_a_seeded_product", async () => {
+  const noBinding = await loadProduct({}, products[0].handle);
+  assert.deepEqual(noBinding, { source: "seed", product: products[0] });
+
+  const fresh = {
+    prepare: () => ({
+      first: async () => {
+        throw new Error("no such table: mirror_product_index");
+      },
+    }),
+  };
+  const unmigrated = await loadProduct({ CATALOG_MIRROR: fresh }, products[0].handle);
+  assert.deepEqual(unmigrated, { source: "seed", product: products[0] });
+});
+
+labeled("test_PRD_P0_72_product_detail_page__a_real_mirror_404s_rather_than_falling_back_to_the_seed", async () => {
+  const db = mirrorWith(SQUARE_STOCK);
+
+  const unknown = await loadProduct({ CATALOG_MIRROR: db }, "this-handle-does-not-exist");
+  assert.equal(unknown, null);
+
+  /* A seed handle the mirror has simply never heard of is ALSO a 404 — the
+     seed fallback exists for "nothing has synced yet", not for "this product
+     used to be seed data". */
+  const seedHandleInARealMirror = await loadProduct({ CATALOG_MIRROR: db }, products[0].handle);
+  assert.equal(seedHandleInARealMirror, null);
+});
+
+labeled("test_PRD_P0_72_product_detail_page__the_page_states_price_and_description_and_points_to_the_door", () => {
+  const product = {
+    handle: "hand-thrown-vase",
+    brand: "",
+    name: "Hand-thrown stoneware vase",
+    minor: 18000,
+    currency: "USD",
+    category: "Homeware",
+    eyebrow: "",
+    tone: 0.1,
+    description: "Wheel-thrown, one at a time.",
+  };
+  const html = productPage(["homeware"], {}, product, "mirror");
+  assert.match(html, /<title>Hand-thrown stoneware vase<\/title>/);
+  assert.match(html, /<h1>Hand-thrown stoneware vase<\/h1>/);
+  assert.ok(html.includes(money(18000, "USD")));
+  assert.match(html, /Wheel-thrown, one at a time\./);
+  /* This is not a cart or a checkout (docs/PRD.md Non-goals) — a button that
+     looked like one and did nothing would be worse than no button. */
+  assert.doesNotMatch(html, /add to bag|>\s*buy\s*</i);
+  assert.match(html, /href="\/visit#contact"/, "the page must point at a real way to ask about the piece");
+  assert.match(html, /served from our catalog mirror/, "the mirror-served note must be honest about its source");
+});
+
+labeled("test_PRD_P0_72_product_detail_page__the_grid_card_links_to_the_product_and_the_heart_stays_outside_it", () => {
+  const { html } = render();
+  const product = products[0];
+  assert.match(html, new RegExp(`<a class="card-link" href="/products/${product.handle}">`));
+
+  const start = html.indexOf(`data-handle="${product.handle}"`);
+  const block = html.slice(start, html.indexOf("</article>", start));
+  const heartIdx = block.indexOf('class="heart"');
+  const linkIdx = block.indexOf('<a class="card-link"');
+  const linkCloseIdx = block.indexOf("</a>", linkIdx);
+  assert.ok(heartIdx >= 0 && linkIdx >= 0 && linkCloseIdx > linkIdx);
+  assert.ok(
+    heartIdx < linkIdx || heartIdx > linkCloseIdx,
+    "the wishlist heart must not be nested inside the product link, or tapping it would also navigate",
+  );
 });
 
 /* ═══════════════════════════════════════════════════════════════════════════

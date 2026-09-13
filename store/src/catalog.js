@@ -62,8 +62,29 @@ const MIRROR_SQL = `
            WHERE v.product_id = p.id ORDER BY v.ordinal, v.id LIMIT 1) AS currency
     FROM mirror_product_index p
     LEFT JOIN mirror_category_index c ON c.id = p.category_id
-   WHERE p.status = 'active'
+   WHERE p.status = 'active' AND p.channel = 'website'
    ORDER BY p.title`;
+
+/*
+ * One product, read by handle rather than filtered from the grid's own list —
+ * `direct_link` belongs at its own URL without ever appearing in `MIRROR_SQL`'s
+ * results, which is the entire point of that channel (Test-PRD-P0-71-product_
+ * channel). `in_store` is excluded here in the WHERE clause, not by the caller
+ * checking a field afterward: the one query a product's own page runs must
+ * already refuse to return a product nobody said the public could see.
+ */
+const PRODUCT_SQL = `
+  SELECT p.handle                                    AS handle,
+         p.title                                     AS name,
+         p.source_description                        AS description,
+         COALESCE(c.name, '')                        AS category,
+         (SELECT v.price_minor FROM mirror_variant_index v
+           WHERE v.product_id = p.id ORDER BY v.ordinal, v.id LIMIT 1) AS minor,
+         (SELECT v.currency FROM mirror_variant_index v
+           WHERE v.product_id = p.id ORDER BY v.ordinal, v.id LIMIT 1) AS currency
+    FROM mirror_product_index p
+    LEFT JOIN mirror_category_index c ON c.id = p.category_id
+   WHERE p.status = 'active' AND p.channel IN ('website', 'direct_link') AND p.handle = ?`;
 
 /*
  * A deterministic 0.00–0.24, the range the seed's hand-picked tones sit in.
@@ -92,6 +113,11 @@ function fromMirror(row) {
     eyebrow: "",
     tone: toneFor(row.handle),
   };
+}
+
+/* The grid's shape, plus the one field only a product's own page needs. */
+function fromMirrorDetail(row) {
+  return { ...fromMirror(row), description: row.description || "" };
 }
 
 /**
@@ -157,4 +183,58 @@ export async function loadCatalog(env) {
 
   console.info(`INFO store: serving ${priced.length} products from the catalog mirror`);
   return { source: "mirror", products: priced.map(fromMirror) };
+}
+
+/**
+ * One product's own page, by handle. `website` and `direct_link` both
+ * resolve here — a direct link is still a real, open URL, just one this
+ * function's caller (loadCatalog's grid) never lists. `in_store` is refused
+ * in PRODUCT_SQL's own WHERE clause, the same fail-closed shape as the grid's
+ * `channel = 'website'`: a hidden product has no address, not a page that
+ * happens not to be linked from anywhere.
+ *
+ * Falls back to the seed catalog under the same "mirror not ready" cases
+ * loadCatalog treats as seed-served, so a fresh `wrangler dev --local` can
+ * open a seeded product's page with no Square account at all. A handle that
+ * is simply wrong, or that names a real `in_store` product, is an honest 404
+ * — the seed fallback only fires when the mirror itself holds nothing yet.
+ *
+ * @returns {Promise<{source: "mirror"|"seed", product: object}|null>} null means 404.
+ */
+export async function loadProduct(env, handle) {
+  const seeded = () => seedProducts.find((p) => p.handle === handle) ?? null;
+
+  const db = env?.CATALOG_MIRROR;
+  if (!db?.prepare) {
+    const product = seeded();
+    return product ? { source: "seed", product } : null;
+  }
+
+  let row;
+  try {
+    row = await db.prepare(PRODUCT_SQL).bind(handle).first();
+  } catch (err) {
+    if (/no such table|no such view/i.test(err?.message ?? "")) {
+      console.warn(
+        "WARNING store: CATALOG_MIRROR has no schema yet — run `npm run db:local` in store/, serving the seed catalog",
+      );
+    } else {
+      console.error(`ERROR store: reading a product from the catalog mirror failed — ${err.message}`);
+    }
+    const product = seeded();
+    return product ? { source: "seed", product } : null;
+  }
+
+  if (row && row.minor !== null && row.minor !== undefined && row.currency) {
+    return { source: "mirror", product: fromMirrorDetail(row) };
+  }
+
+  /* No visible, priced product at that handle in the mirror — could be a
+     genuinely unknown handle, an `in_store` product doing exactly what it is
+     set to do, or a mirror that has not synced anything at all yet. Only the
+     last of those falls back to the seed; the other two are an honest 404. */
+  const product = seeded();
+  if (!product) return null;
+  const anySynced = await db.prepare("SELECT 1 FROM mirror_product_index LIMIT 1").first();
+  return anySynced ? null : { source: "seed", product };
 }

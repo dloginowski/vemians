@@ -59,7 +59,7 @@ export async function listCategories(db) {
 export async function productByHandle(db, handle) {
   return db
     .prepare(
-      "SELECT id, handle, title, source_description, status, category_id FROM mirror_product_index WHERE handle = ?",
+      "SELECT id, handle, title, source_description, status, channel, category_id FROM mirror_product_index WHERE handle = ?",
     )
     .bind(handle)
     .first();

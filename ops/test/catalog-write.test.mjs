@@ -1118,21 +1118,41 @@ check("test_PRD_P0_37_mirror_is_ours__an_approved_create_writes_square_first_and
   assert.equal(f.mirror("SELECT * FROM mirror_sync WHERE id = 'catalog'").length, 1);
 });
 
-check("test_PRD_P0_37_mirror_is_ours__no_authoring_tool_writes_a_catalog_row_directly", async () => {
+check("test_PRD_P0_37_mirror_is_ours__no_authoring_tool_writes_a_square_fact_to_the_mirror_directly", async () => {
   /*
-   * The structural half of "Square is the write target". Two writers into one
-   * copy — the till's sync and ours — diverge silently, so the ops tool layer
-   * contains no INSERT or UPDATE against a mirror table at all. The only writer
-   * is shared/commerce/square/mirror.js, reading back what Square now says.
+   * The structural half of "Square is the write target" — for a FACT SQUARE
+   * ALSO HAS. Two writers into one copy of such a fact — the till's sync and
+   * ours — diverge silently, so the ops tool layer contains no INSERT or
+   * UPDATE against a mirror table for anything Square could also write. The
+   * only writer of a Square-sourced column is shared/commerce/square/mirror.js,
+   * reading back what Square now says.
+   *
+   * ONE DELIBERATE EXCEPTION, allowlisted by name below rather than left to
+   * widen this regex's blind spot: catalog.set_channel's own
+   * `UPDATE mirror_product SET channel = ...` (Test-PRD-P0-71-product_channel).
+   * `channel` is not a fact Square has any notion of at all — Square does not
+   * know our storefront exists — so there is no second writer to diverge
+   * from, and mirror.js's own sync deliberately never names this column in
+   * its UPDATE or INSERT, for exactly this reason (see the comment on
+   * `channel` in shared/commerce/square/schema.sql). The assertion below still
+   * forbids that same file touching any OTHER mirror column.
    */
   const offenders = [];
   for (const file of fs.readdirSync(TOOLS_DIR).filter((n) => n.endsWith(".js"))) {
     const src = fs.readFileSync(path.join(TOOLS_DIR, file), "utf8");
     for (const m of src.matchAll(/\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+mirror_\w+/gi)) {
+      if (file === "catalog-write.js" && /^UPDATE\s+mirror_product$/i.test(m[0])) continue;
       offenders.push(`${file}: ${m[0]}`);
     }
   }
-  assert.deepEqual(offenders, [], "an agent tool must not write the mirror; it writes Square");
+  assert.deepEqual(offenders, [], "an agent tool must not write a Square-sourced fact into the mirror");
+
+  /* The one exception really does touch only `channel`, and nothing an
+     incremental sync would ever also write. */
+  const writer = fs.readFileSync(path.join(TOOLS_DIR, "catalog-write.js"), "utf8");
+  const stmt = /UPDATE mirror_product SET ([\s\S]*?) WHERE/.exec(writer);
+  assert.ok(stmt, "catalog.set_channel's UPDATE has moved or been removed");
+  assert.equal(stmt[1].trim(), "channel = ?", `catalog.set_channel touches more than 'channel': ${stmt[1]}`);
 
   /* And the mirror schema itself refuses deletion, whatever anyone writes. */
   const f = await fixture();
@@ -1201,6 +1221,87 @@ check("test_PRD_P0_37_mirror_is_ours__an_edit_goes_to_square_and_the_mirror_foll
   );
   assert.equal(zeroed.ok, false);
   assert.match(zeroed.error, /Zero is not a discount/);
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-71 — channel: which audience sees a product. Ours, not Square's.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_71_product_channel__a_freshly_synced_product_defaults_to_in_store", async () => {
+  /* Fail closed: a product that just arrived from Square, with nobody having
+     said anything about the website at all, must not be reachable there. */
+  const f = await fixture();
+  const row = f.mirror("SELECT channel FROM mirror_product WHERE handle = 'shearling-trimmed-wool-blend-coat'")[0];
+  assert.equal(row.channel, "in_store");
+});
+
+check("test_PRD_P0_71_product_channel__set_channel_writes_the_mirror_directly_and_calls_square_for_nothing", async () => {
+  const f = await fixture();
+  const res = await approvedCall(f, "catalog.set_channel", {
+    handle: "shearling-trimmed-wool-blend-coat",
+    channel: "website",
+  });
+  assert.equal(res.ok, true, res.error);
+  assert.equal(res.data.updated, true);
+  assert.equal(res.data.channel, "website");
+  assert.equal(res.data.previous_channel, "in_store");
+  assert.equal(res.data.authority, "ours");
+
+  /* No Square call at all — this concept does not exist on Square's side. */
+  assert.deepEqual(f.calls(), []);
+
+  const row = f.mirror("SELECT channel FROM mirror_product WHERE handle = 'shearling-trimmed-wool-blend-coat'")[0];
+  assert.equal(row.channel, "website");
+});
+
+check("test_PRD_P0_71_product_channel__direct_link_and_in_store_are_the_only_other_choices", async () => {
+  const f = await fixture();
+  const bad = await runTool(
+    "catalog.set_channel",
+    { handle: "shearling-trimmed-wool-blend-coat", channel: "everywhere" },
+    f.ctx,
+  );
+  assert.equal(bad.ok, false);
+  assert.match(bad.error, /must be one of in_store, website, direct_link/);
+
+  const ok = await approvedCall(f, "catalog.set_channel", {
+    handle: "shearling-trimmed-wool-blend-coat",
+    channel: "direct_link",
+  });
+  assert.equal(ok.ok, true, ok.error);
+  assert.equal(
+    f.mirror("SELECT channel FROM mirror_product WHERE handle = 'shearling-trimmed-wool-blend-coat'")[0].channel,
+    "direct_link",
+  );
+});
+
+check("test_PRD_P0_71_product_channel__an_unknown_handle_is_refused", async () => {
+  const f = await fixture();
+  const res = await runTool("catalog.set_channel", { handle: "does-not-exist", channel: "website" }, f.ctx);
+  assert.equal(res.ok, false);
+  assert.match(res.error, /no product with handle/);
+});
+
+check("test_PRD_P0_71_product_channel__setting_the_same_channel_again_is_refused_as_a_no_op", async () => {
+  const f = await fixture();
+  const res = await runTool(
+    "catalog.set_channel",
+    { handle: "shearling-trimmed-wool-blend-coat", channel: "in_store" },
+    f.ctx,
+  );
+  assert.equal(res.ok, false);
+  assert.match(res.error, /already in_store/);
+});
+
+check("test_PRD_P0_71_product_channel__the_tool_holds_no_square_resource_at_all", () => {
+  /* Structural, like every other "this tool cannot reach X" guarantee in this
+     codebase: a missing declaration, not a promise the body keeps. */
+  const tool = TOOLS["catalog.set_channel"];
+  assert.ok(tool, "catalog.set_channel is not registered");
+  assert.deepEqual(tool.resources ?? [], []);
+  assert.deepEqual(tool.stores, ["catalog_mirror"]);
+  assert.equal(tool.tier, "T2");
+  assert.equal(tool.minRole, "manager");
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -1614,8 +1715,9 @@ check("test_PRD_P0_34_multi_client_tools__the_authoring_tools_are_one_registry_f
   assert.ok(!forStaff.includes("catalog.create_product"));
   assert.ok(!forStaff.includes("catalog.update_product"));
   assert.ok(!forStaff.includes("catalog.create_category"));
+  assert.ok(!forStaff.includes("catalog.set_channel"));
 
-  for (const name of ["catalog.create_product", "catalog.update_product", "catalog.create_category"]) {
+  for (const name of ["catalog.create_product", "catalog.update_product", "catalog.create_category", "catalog.set_channel"]) {
     assert.ok(forManager.includes(name));
     assert.equal(TOOLS[name].tier, "T2", "every catalog write is T2 — these are commercial facts");
   }

@@ -11,6 +11,7 @@
 import { esc, money, page } from "../../shared/view/html.js";
 import { SITE, addressLine, hoursRows, mapsDirectionsUrl, mapsSearchUrl, openDaysCount, openDaysLabel } from "../../shared/site.js";
 import { CSS, footer, header, drawer, label } from "./shell.js";
+import { shotUrl } from "./views.js";
 
 /*
  * `reveal` marks a block for the scroll-in. It is an ATTRIBUTE, not a class
@@ -74,6 +75,46 @@ ${tiles}
   </section>
 </main>`,
     { categories, subsByCategory },
+  );
+}
+
+/* ────────────────────────────────────────────────── one product's page ─── */
+
+/*
+ * A product's own page, at /products/<handle> (Test-PRD-P0-72-product_detail_page).
+ * `source` picks the footer note exactly as it does on the grid (P0-49) —
+ * a page that opened through the seed fallback must say so as honestly as
+ * the grid it was reached from.
+ *
+ * No "Add to bag": this Worker has no cart (see the note at the top of
+ * store/src/index.js and the Non-goals in docs/PRD.md), and a button that
+ * looked like checkout and did nothing would be a worse page than one that
+ * points a visitor at the door instead.
+ */
+export function productPage(categories, subsByCategory, product, source = "seed") {
+  const brand = product.brand || "";
+  const description = product.description || "";
+  const alt = brand ? `${esc(brand)} &mdash; ${esc(product.name)}` : esc(product.name);
+
+  return shell(
+    product.name,
+    `<main class="page product" id="product">
+  <div class="product-media">
+    <img class="shot" src="${esc(shotUrl(product, 0))}" alt="${alt}" width="800" height="900" decoding="async" fetchpriority="high">
+  </div>
+  <section class="product-info"${reveal}>
+${brand ? `    <p class="brand">${esc(brand)}</p>\n` : ""}    <h1>${esc(product.name)}</h1>
+    <p class="price">${esc(money(product.minor, product.currency))}</p>
+${description ? `    <p class="description">${esc(description)}</p>\n` : ""}    <p>There is no checkout here yet &mdash; <a href="/visit#contact">ask us about this piece</a>
+       or come and see it in the shop.</p>
+    <p><a href="/">&larr; Back to the shop</a></p>
+  </section>
+</main>`,
+    {
+      categories,
+      subsByCategory,
+      note: source === "mirror" ? "Prototype · served from our catalog mirror" : "Prototype · seed data, no commerce provider attached",
+    },
   );
 }
 

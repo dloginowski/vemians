@@ -31,6 +31,9 @@
  *                  shared/view/enhance.client.js.
  *   /img/<h>-<v>.svg  placeholder photography, one shot per URL, so images can
  *                  actually load, decode and be preloaded on hover intent.
+ *   /products/<handle>  one product's own page — `website` and `direct_link`
+ *                  channel products alike (P0-71); `in_store` is a 404 here
+ *                  exactly as it is absent from the grid.
  *   /bag           the bag. Held on the viewer's device, never here.
  *   /visit         hours, directions, how to reach a person, how to join the list.
  *   /collaborations  editorial.
@@ -77,9 +80,9 @@
 
 import { notFoundPage } from "../../shared/view/html.js";
 import script from "../../shared/view/enhance.client.js";
-import { loadCatalog } from "./catalog.js";
+import { loadCatalog, loadProduct } from "./catalog.js";
 import { brandsOf, categoriesOf, parseQuery, select, subsOf } from "./query.js";
-import { bagPage, collaborationsPage, visitPage } from "./pages.js";
+import { bagPage, collaborationsPage, productPage, visitPage } from "./pages.js";
 import { catalogPage, catalogPartial, shotSvg } from "./views.js";
 import { handleContact } from "./contact.js";
 
@@ -95,6 +98,12 @@ const asset = (body, type) =>
 /* /img/<handle>-<variant>.svg. The handle must be one we actually ship: the
    URL is not a template that renders whatever it is handed. */
 const SHOT = /^\/img\/(.+)-(\d+)\.svg$/;
+
+/* /products/<handle>. Same handle shape the catalog itself uses (see the
+   seed catalog and shared/commerce/square/schema.sql) — lowercase letters,
+   digits and hyphens, nothing a query string or a path traversal could ride
+   in on. */
+const PRODUCT = /^\/products\/([a-z0-9-]+)$/;
 
 /* The second level of the nav, per category, derived exactly as the first is.
    One shape, built once per request and handed to every page, so the drawer is
@@ -129,6 +138,24 @@ export default {
       const variant = Number(shot[2]);
       if (!product || variant > 1) return html(notFoundPage(), 404);
       return asset(shotSvg(product, variant), "image/svg+xml; charset=utf-8");
+    }
+
+    /*
+     * A single product's page (Test-PRD-P0-72-product_detail_page). Resolved
+     * from its OWN read (loadProduct), not by filtering the grid's list in
+     * memory — a `direct_link` product must be reachable here while never
+     * once appearing in loadCatalog's own query, which only a separate
+     * statement can guarantee. A handle that resolves to nothing — unknown,
+     * or genuinely `in_store` — is a plain 404, not a hint either way.
+     */
+    const productMatch = PRODUCT.exec(url.pathname);
+    if (productMatch) {
+      const found = await loadProduct(env, productMatch[1]);
+      if (!found) return html(notFoundPage(), 404);
+      const { products } = await loadCatalog(env);
+      const categories = categoriesOf(products);
+      const subs = subsFor(products, categories);
+      return html(productPage(categories, subs, found.product, found.source));
     }
 
     /*

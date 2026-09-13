@@ -79,6 +79,21 @@ CREATE TABLE mirror_product (
   source_description TEXT NOT NULL DEFAULT '',-- Square's copy, for reconciliation only
   status             TEXT NOT NULL DEFAULT 'active'
                        CHECK (status IN ('draft','active','archived')),
+  -- WHICH AUDIENCE SEES THIS, NOT WHETHER IT EXISTS. `status` is Square's own
+  -- publish lifecycle (P0-53-ish: draft/active/archived); `channel` is ours —
+  -- Square has no concept of "our storefront" at all, so this is NOT a fact
+  -- synced from Square and the sync job (mirror.js) never names this column
+  -- in its UPDATE, on purpose: a value set here survives every re-sync
+  -- untouched, the same way `handle` already does. Defaults to 'in_store' —
+  -- fail closed, matching how every other surface in this codebase treats an
+  -- unset permission: NOTHING reaches the public site until a person says so,
+  -- not a website presence that has to be opted OUT of.
+  --   in_store     never shown on the storefront, at any URL
+  --   website      shown in the grid and has its own page
+  --   direct_link  has its own page, but excluded from the grid/nav — for
+  --                someone with the link, not for browsing
+  channel            TEXT NOT NULL DEFAULT 'in_store'
+                       CHECK (channel IN ('in_store','website','direct_link')),
   category_id        TEXT REFERENCES mirror_category(id),
   source_version     INTEGER NOT NULL DEFAULT 0,  -- Square's optimistic-concurrency version
   archived_at        TEXT,
@@ -87,7 +102,7 @@ CREATE TABLE mirror_product (
 CREATE INDEX idx_mirror_product_active ON mirror_product (archived_at, handle);
 
 CREATE VIEW mirror_product_index AS
-SELECT id, external_ref, handle, title, source_description, status,
+SELECT id, external_ref, handle, title, source_description, status, channel,
        category_id, source_version, synced_at
 FROM mirror_product WHERE archived_at IS NULL;
 

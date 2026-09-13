@@ -84,12 +84,15 @@ function card(product, index) {
   const brand = product.brand || "";
   const eyebrow = product.eyebrow || "";
   const label = brand ? `${esc(brand)} &mdash; ${esc(product.name)}` : esc(product.name);
+  const href = `/products/${esc(product.handle)}`;
   return `<article class="card" data-handle="${esc(product.handle)}">
   <div class="card-head"><span class="eyebrow">${esc(eyebrow)}</span><span class="heart" data-heart="${esc(product.handle)}" data-name="${brand ? `${esc(brand)} ` : ""}${esc(product.name)}" aria-hidden="true">&#9825;</span></div>
-  <div class="card-media" data-alt="${esc(shotUrl(product, 1))}">
-    <img class="shot" src="${esc(shotUrl(product, 0))}" alt="${label}" width="800" height="900" decoding="async"${eager ? ' fetchpriority="high"' : ' loading="lazy"'}>
-  </div>
-${brand ? `  <p class="brand">${esc(brand)}</p>\n` : ""}  <p class="name">${esc(product.name)}</p>
+  <a class="card-link" href="${href}">
+    <div class="card-media" data-alt="${esc(shotUrl(product, 1))}">
+      <img class="shot" src="${esc(shotUrl(product, 0))}" alt="${label}" width="800" height="900" decoding="async"${eager ? ' fetchpriority="high"' : ' loading="lazy"'}>
+    </div>
+${brand ? `    <p class="brand">${esc(brand)}</p>\n` : ""}    <p class="name">${esc(product.name)}</p>
+  </a>
   <p class="price">${esc(money(product.minor, product.currency))}</p>
 </article>`;
 }
