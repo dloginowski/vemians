@@ -1065,6 +1065,19 @@ that does not trace to one of these is a process failure (see §12).
     notch reaches `8px` outside the active tab's own edge, and the old gap would have let that
     paint over part of whichever tab sits next to it.
 
+    **The notch's own formula, corrected against the owner's complete reference code.** The first
+    pass above approximated the technique with a flood-filled `box-shadow: 4px 4px 0 4px
+    var(--ground)` — nonzero vertical offset AND nonzero spread. The owner's own complete code
+    (`--radius: 12px`, `box-shadow: calc(var(--radius) / 2) 0 0 0 var(--tab-color)`) uses neither:
+    ZERO blur, ZERO spread, a HORIZONTAL-ONLY offset of exactly half the radius — an offset COPY
+    of the same cut-corner shape, not a flood fill spreading outward from it. Reworked to match
+    exactly and, while at it, sized the notch to the tab's own existing `14px` top-corner radius
+    instead of an arbitrary `8px`: `.shell-nav button.active::before`/`::after` are now `14px`
+    boxes with `border-bottom-right-radius`/`border-bottom-left-radius: 14px` and `box-shadow: 7px
+    0 0 0 var(--ground)` / `-7px 0 0 0 var(--ground)` (7px being exactly half of 14px). The larger
+    notch reaches further than the `8px` one did, so `.shell-nav`'s own gap widened again, `12px`
+    to `16px`, to keep it clear of a neighbouring tab.
+
 47b. **`Test-PRD-P0-72-product_detail_page`** — Every product has its own page at
     `/products/<handle>` — the answer to "how do I see product details", asked directly, of a
     shop whose cards used to be `<article>`s with no click-through at all. `loadProduct(env,

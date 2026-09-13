@@ -217,10 +217,10 @@ html, body { height: 100%; margin: 0; }
    (.chat-top's own border) + 14px (.chat-top's own padding) = 23px, the
    point actual chat content (the log, the composer) starts at. */
 .shell-header { flex: 0 0 auto; padding: 10px 23px 0; }
-/* Gap wide enough that the active tab's own round-out notches (8px to
+/* Gap wide enough that the active tab's own round-out notches (14px to
    each side, below) never reach a neighbouring tab — 3px let them bite
    into whichever tab sits next to the active one. */
-.shell-nav { display: flex; align-items: flex-end; gap: 12px; }
+.shell-nav { display: flex; align-items: flex-end; gap: 16px; }
 .shell-nav button {
   font: inherit; font-size: 12px; font-weight: 600; padding: 7px 16px; cursor: pointer;
   border: 1px solid var(--rule); border-bottom: none; border-radius: 14px 14px 0 0;
@@ -242,34 +242,35 @@ html, body { height: 100%; margin: 0; }
 }
 /* The "round-out" notch: the active tab's own straight sides meet the
    header's flat background at a hard right angle without this — these
-   two pseudo-elements are what curve that join outward instead, the
-   classic box-shadow technique for it. Each is an 8x8 box sitting just
-   outside the tab's own edge, one corner rounded; the box-shadow, same
-   colour and radius, spread out from that rounded corner, paints the
-   header's own background everywhere OUTSIDE the arc, which is what
-   reads as the header's flat edge curving smoothly UP into the tab's
-   own straight side rather than a corner. .shell-header carries no
-   background of its own, so this has to match .shell's own --ground
-   explicitly — it cannot inherit through two positioned ancestors the
-   way a plain background would. */
+   two pseudo-elements are what curve that join outward instead. Sent
+   directly, exact formula included: each is a 14px box (matching the
+   tab's own top corner radius) sitting just outside the tab's own edge,
+   one corner cut into a quarter-circle (border-*-radius), then a
+   ZERO-blur, ZERO-spread box-shadow of that same shape offset sideways
+   by HALF the radius (7px) — not a flood-filled spread, an offset copy
+   of the cut shape itself — paints the header's own background over
+   exactly the region that reads as the corner curving outward. .shell-
+   header carries no background of its own, so this names .shell's own
+   --ground explicitly — it cannot inherit through two positioned
+   ancestors the way a plain background would. */
 .shell-nav button.active::before,
 .shell-nav button.active::after {
   content: "";
   position: absolute;
   bottom: 0;
-  width: 8px;
-  height: 8px;
+  width: 14px;
+  height: 14px;
   background: transparent;
 }
 .shell-nav button.active::before {
-  left: -8px;
-  border-bottom-right-radius: 8px;
-  box-shadow: 4px 4px 0 4px var(--ground);
+  left: -14px;
+  border-bottom-right-radius: 14px;
+  box-shadow: 7px 0 0 0 var(--ground);
 }
 .shell-nav button.active::after {
-  right: -8px;
-  border-bottom-left-radius: 8px;
-  box-shadow: -4px 4px 0 4px var(--ground);
+  right: -14px;
+  border-bottom-left-radius: 14px;
+  box-shadow: -7px 0 0 0 var(--ground);
 }
 .shell-panel { flex: 1 1 auto; border-top: 1px solid var(--accent); }
 .shell-frame { width: 100%; height: 100%; border: 0; display: block; background: var(--ground); }
