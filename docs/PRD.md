@@ -1175,6 +1175,35 @@ that does not trace to one of these is a process failure (see §12).
     wording. The hint is appended, never substituted: the person's actual words still reach the
     model unchanged, first.
 
+34a''''''''''''''''. **`Test-PRD-P0-86-surfaced_model_errors`** — The owner reported a live 400
+    from the model, twice, with nothing to go on beyond "I'm still getting 400" — twice, because
+    the actual Anthropic error detail (which tool, which argument, what shape it expected) was
+    reaching only a Worker log neither of us could tail live, while the chat itself showed only
+    "The model service returned 400." `agent-tool-contract`'s own audit-before-return rule
+    applies here too, one level up: a call to Anthropic that fails is a call this codebase should
+    account for as legibly as a call to Square that fails, not swallow into a bare status code.
+
+    `callClaude()`'s error branch now parses Anthropic's own error body
+    (`{type:"error", error:{type, message}}`) and puts `error.message` — the one line that
+    actually names the field, tool or shape that was wrong — into the chat reply itself,
+    truncated to 500 characters so a pathological body cannot flood the chat. A body that is not
+    that shape (a proxy's own HTML error page, say) falls back to the raw text, truncated to 300;
+    a body that is not JSON at all never throws attempting to parse it. The full, untruncated body
+    is still logged server-side as before — this adds a second, visible destination, it does not
+    remove the first.
+
+    **This is the fix for the SYMPTOM, not (yet) a confirmed fix for the underlying 400** — its
+    root cause was never actually seen by either the owner or this session, only inferred and
+    guessed at twice already (the tool-schema fix, P0-76, was a different, confirmed 400; this
+    one's cause is still unknown). The point of this change is that the next occurrence is
+    self-diagnosing: whoever sees it can read the exact reason in the chat itself and act on it
+    immediately, rather than reporting "still 400" a third time.
+
+    First real test coverage of `callClaude()`'s own error path (previously: none, noted openly
+    in P0-68's own PRD entry) — `ANTHROPIC_BASE_URL`, the override this file already shipped for
+    exactly this purpose, points at a local HTTP server shaped like Anthropic's real error
+    responses, no live network call or API key involved.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -1411,6 +1440,7 @@ Where each feature is enforced today:
 | P0-83 | `ops/test/ops-page.test.mjs`, `ops/test/agent-greeting.test.mjs` |
 | P0-84 | `ops/test/catalog-write.test.mjs` |
 | P0-85 | `ops/test/agent-skills.test.mjs` |
+| P0-86 | `ops/test/agent-model-errors.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
