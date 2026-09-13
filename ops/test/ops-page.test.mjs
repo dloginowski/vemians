@@ -532,21 +532,111 @@ check("test_PRD_P0_95_filled_attach_button__hover_and_pressed_states_are_also_fa
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
- * P0-96 — the empty attach-name label no longer inflates the bottom gap
+ * P0-96 — superseded by P0-97: the element this fixed no longer exists
  * ───────────────────────────────────────────────────────────────────────── */
 
-check("test_PRD_P0_96_attach_name_empty_collapse__an_empty_attach_name_span_is_fully_collapsed", async () => {
-  /* THE ACTUAL BUG behind "side padding is much smaller than bottom
-     padding" — confirmed against the owner's own screenshot, not the
-     corner-radius theory P0-93's own entry spent three rounds on. An
-     empty block-level span still opens a line box for its own font
-     metrics and still carries its own margin-top even with zero
-     characters inside it — extra height sitting below the composer pill,
-     inside the very padding box the sides had no equivalent content in.
-     The same one-line pattern .log:empty already uses, just never
-     carried over to this element. */
+/* P0-96 fixed .attach-name's own :empty case — an empty label element still
+   opening a line box and still carrying its own margin, inflating the gap
+   below the composer pill. P0-97 (below) removes the whole element rather
+   than only its empty state, which is a stronger fix of the same class of
+   bug: there is no longer any element there at all to leave un-collapsed
+   by a future edit. Nothing here to check independently of P0-97's own
+   tests — asserting ".attach-name is absent" IS this entry's own check. */
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-97 — the attachment's name updates the chat box, not a line under it
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_97_placeholder_names_the_attachment__the_attach_name_line_is_gone_entirely", async () => {
+  /* The owner's own words: "instead of adding a line under the inner chat
+     box... just update the default text inside of the chat box." Removing
+     the element outright (not just its :empty case, P0-96's own fix) is
+     what actually delivers "instead of" — a second line under the
+     composer is exactly what was asked to stop happening. (A couple of
+     comments elsewhere in the page's own source still narrate this
+     history by the old class name — checked here as functional markup,
+     not prose.) */
   const { body } = await frontPage(OWNER);
-  assert.match(body, /\.attach-name:empty\s*\{[^}]*display:\s*none/s, "an empty attach-name span must collapse to zero height and zero margin");
+  assert.doesNotMatch(body, /class="attach-name"/, "the .attach-name span itself must be gone from the markup");
+  assert.doesNotMatch(body, /\.attach-name\s*\{/, "the .attach-name CSS rule must be gone");
+  assert.doesNotMatch(body, /getElementById\("attach-name"\)/, "no script reference to the removed element may remain");
+});
+
+check("test_PRD_P0_97_placeholder_names_the_attachment__picking_a_file_swaps_the_inputs_own_placeholder", async () => {
+  const { body } = await frontPage(OWNER);
+  const script = body.slice(body.indexOf("attach-input"));
+  const changeHandler = script.slice(script.indexOf("fileInput.addEventListener"), script.indexOf("fileInput.addEventListener") + 300);
+  assert.match(changeHandler, /qInput\.placeholder\s*=/, "picking a file must overwrite the input's own placeholder, not a separate element");
+  assert.match(changeHandler, /fileInput\.files\[0\]\.name/, "the new placeholder must be built from the picked file's own name");
+  assert.doesNotMatch(changeHandler, /attachName/, "there must be no separate attach-name element left to update");
+});
+
+check("test_PRD_P0_97_placeholder_names_the_attachment__clearing_restores_the_original_placeholder", async () => {
+  /* Clearing (after send, or the "x" — there is no separate clear button,
+     clearAttachments runs after every send) must put the ORIGINAL
+     placeholder back, not just blank the box — a person who has not
+     picked a file yet still needs the "e.g. ..." example text. */
+  const { body } = await frontPage(OWNER);
+  const script = body.slice(body.indexOf("attach-input"));
+  assert.match(script, /const DEFAULT_PLACEHOLDER = qInput\.placeholder/, "the original placeholder must be captured once, before anything overwrites it");
+  assert.match(script, /function clearAttachments\(\) \{[^}]*qInput\.placeholder = DEFAULT_PLACEHOLDER/s, "clearing must restore the captured original placeholder");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-98 — the same button attaches and cancels
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_98_cancellable_attachment__clicking_the_button_while_a_file_is_staged_cancels_it", async () => {
+  /* The owner's own words: "I should be able to cancel the attachment!
+     The + button should change to an x button." One button, two jobs —
+     pickedFile() (already used elsewhere) decides which. */
+  const { body } = await frontPage(OWNER);
+  const script = body.slice(body.indexOf("attach-input"));
+  const clickHandler = script.slice(script.indexOf("attachBtn.addEventListener(\"click\""), script.indexOf("attachBtn.addEventListener(\"click\"") + 200);
+  assert.match(clickHandler, /if \(pickedFile\(\)\) \{/, "clicking with a file already staged must check pickedFile() first");
+  assert.match(clickHandler, /clearAttachments\(\);/, "and cancel it via the same clearAttachments() used after every send");
+  assert.match(clickHandler, /fileInput\.click\(\);/, "clicking with nothing staged must still open the file picker");
+});
+
+check("test_PRD_P0_98_cancellable_attachment__the_icon_and_accessible_name_swap_with_the_state", async () => {
+  const { body } = await frontPage(OWNER);
+  const script = body.slice(body.indexOf("attach-input"));
+  /* Picking a file swaps to the cancel icon and names what the button now
+     does — not what it always does. */
+  const changeHandler = script.slice(script.indexOf("fileInput.addEventListener"), script.indexOf("fileInput.addEventListener") + 400);
+  assert.match(changeHandler, /attachBtn\.innerHTML = CANCEL_ICON_HTML/, "picking a file must swap the button's own icon to the cancel glyph");
+  assert.match(changeHandler, /attachBtn\.setAttribute\("aria-label", "Remove attachment"\)/, "the accessible name must say what the button now does");
+  /* Clearing (send, or the button itself) swaps both back. */
+  const clearFn = script.slice(script.indexOf("function clearAttachments"), script.indexOf("function clearAttachments") + 400);
+  assert.match(clearFn, /attachBtn\.innerHTML = ATTACH_ICON_HTML/, "clearing must restore the original plus icon");
+  assert.match(clearFn, /attachBtn\.setAttribute\("aria-label", "Attach a photo or file"\)/, "clearing must restore the original accessible name");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-99 — the composer form's own inherited top margin is zeroed
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_99_chat_form_inherited_margin__the_composer_forms_own_margin_top_is_zeroed", async () => {
+  /* THE SAME CLASS OF BUG P0-96 found on the bottom edge, on the top edge
+     instead: .chat-top's own padding was already a literal, uniform 14px
+     on every side — shared/design/theme.css's own ".chat { margin-top:
+     12px }" (written for the storefront's unrelated contact-form chat
+     block) was stacking on top of it, since the composer <form> carries
+     class="chat" deliberately (so the gate's own button row inherits
+     from it too). The owner's own words: "match the outer chat box top
+     padding to its side padding. So that content is evenly spaced out
+     from the edge." */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /#chat\s*\{[^}]*margin-top:\s*0/s, "the composer form's own inherited top margin must be zeroed");
+});
+
+check("test_PRD_P0_99_chat_form_inherited_margin__the_gates_own_button_row_still_gets_its_margin", async () => {
+  /* The fix must be scoped to #chat specifically — a blanket .chat
+     override would also remove the approval gate's own, separately-
+     wanted spacing above its button row (class='chat row', a few hundred
+     lines further down in the same script). */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /class='chat row'/, "the gate's own button row must still carry the plain .chat class, unaffected by the #chat override");
 });
 
 /* ─────────────────────────────────────────────────────────────────────────

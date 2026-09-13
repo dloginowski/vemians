@@ -1566,6 +1566,66 @@ that does not trace to one of these is a process failure (see §12).
     the top corner keeps its own independently-liked `20px`, since nothing rounded is nested
     against it regardless of what the gap itself is.
 
+34a''''''''''''''''''''''''''''. **`Test-PRD-P0-97-placeholder_names_the_attachment`** — The
+    owner's own words: "When adding an attachment, instead of adding a line under the inner chat
+    box. Just update the default text inside of the chat box to indicate that I'm adding a file
+    name." `.attach-name` — the span P0-96 had just fixed the `:empty` case of — is removed
+    outright, HTML, CSS and script references alike, rather than kept and merely collapsed when
+    unused: a second line under the composer stating "a file is attached" was itself the thing
+    asked to stop existing, not only its empty-state bug.
+
+    `#q`'s own placeholder now carries that information instead: picking a file sets it to
+    `Attached "filename.ext" — add a note (optional)`, replacing the ordinary `e.g. "Add a wool
+    coat..."` example text for as long as the box stays empty — exactly how a placeholder already
+    behaves, so no new interaction pattern is introduced, only a different string in the one that
+    already existed. The original placeholder is captured once into `DEFAULT_PLACEHOLDER` before
+    anything overwrites it, and `clearAttachments()` (already called after every send, and now
+    also the way a cancelled attachment is cleared — see P0-98 immediately below) restores it, so
+    a person who has not picked a file yet still sees the original example text, never a stale
+    "Attached" message nor a blank box.
+
+34a'''''''''''''''''''''''''''''. **`Test-PRD-P0-98-cancellable_attachment`** — The owner's own
+    words, the same turn P0-97 shipped: "Also I should be able to cancel the attachment! The +
+    button should change to an x button." Before this, the only way to drop a picked file was to
+    send the message anyway or reload the page — `clearAttachments()` existed but nothing in the
+    UI called it once a file was staged.
+
+    ONE button does both jobs, never two competing for the same corner of the composer: clicking
+    `#attach-btn` opens the file picker when nothing is staged, and calls `clearAttachments()`
+    instead when something already is — `pickedFile()` (already used elsewhere to check this) is
+    the same check that decides which. The icon itself swaps to say which mode is active: a new
+    `CANCEL_ICON` (an "x", the same stroke-only style as `ATTACH_ICON`) replaces the "+" the
+    moment a file is picked, and `clearAttachments()` swaps it back — along with `aria-label`/
+    `title` moving between "Attach a photo or file" and "Remove attachment", so the accessible
+    name matches what the button currently does, not just what it always does. Since the button's
+    `innerHTML` has to change at RUNTIME (unlike `ATTACH_ICON`'s own one-time use baked into the
+    initial markup), both icon constants are carried into the client script as plain JS strings —
+    `ATTACH_ICON_HTML`/`CANCEL_ICON_HTML`, built via `JSON.stringify` over this file's own
+    server-side `ATTACH_ICON`/`CANCEL_ICON` constants so the escaping is never hand-written twice.
+
+34a''''''''''''''''''''''''''''''. **`Test-PRD-P0-99-chat_form_inherited_margin`** — The SAME
+    class of bug P0-96 found on the bottom edge, on the top edge instead. The owner's own words:
+    "match the outer chat box top padding to its side padding. So that content is evenly spaced
+    out from the edge." `.chat-top`'s own padding was already a literal, uniform `14px` on every
+    side — the actual gap looked uneven anyway for a reason that had nothing to do with the
+    padding value itself, the same shape of surprise as P0-96's own `.attach-name` bug.
+
+    `shared/design/theme.css`'s own `.chat { margin-top: 12px; }` — written for the storefront's
+    unrelated contact-form-styled chat block — applies to ANY element with `class="chat"`
+    regardless of which page loads it, and the composer `<form>` carries that class deliberately
+    (so the approval gate's own button row, `class='chat row'`, inherits from it too — see the
+    comment on `.chat .chat-bar`). With the hint paragraph absent (the common case, no
+    `ANTHROPIC_API_KEY` warning) and `.log`/`#gate` both empty and collapsed to nothing, the form
+    is the FIRST thing inside `.chat-top`'s own padded box — so its inherited `margin-top` stacked
+    directly on top of the `14px` padding, making the effective top gap roughly `26px` against the
+    sides' plain `14px`, never a padding-VALUE mismatch at all.
+
+    Fixed with `#chat { margin-top: 0; }` — scoped to the id, not a blanket `.chat` override,
+    since zeroing `.chat` itself would also remove the gate's own, separately-wanted spacing above
+    its button row. `.chat-top`'s own padding is untouched; the fix is entirely about removing an
+    inherited margin nobody meant to apply here, the same lesson P0-96 already established for the
+    bottom edge — checking what actually renders, not just what one property declares.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -1813,6 +1873,9 @@ Where each feature is enforced today:
 | P0-94 | `ops/test/ops-page.test.mjs` |
 | P0-95 | `ops/test/ops-page.test.mjs` |
 | P0-96 | `ops/test/ops-page.test.mjs` |
+| P0-97 | `ops/test/ops-page.test.mjs` |
+| P0-98 | `ops/test/ops-page.test.mjs` |
+| P0-99 | `ops/test/ops-page.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
