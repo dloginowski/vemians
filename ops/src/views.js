@@ -123,19 +123,23 @@ ${OPS_DARK_CSS}
    accent colour tying the widget to the shortcuts that feed it, rather than
    the plain neutral --rule every other box on the page uses.
  *
- * Sides and bottom are tight (3px, tightened once more from 4px) so the
- * composer pill nested inside sits close against this frame; top stays
- * roomier (14px) since the hint/log stack sits there, not the pill.
+ * Sides and bottom are tight (3px, tightened once more from 4px, both
+ * together) so the composer pill nested inside sits close against this
+ * frame; top stays roomier (14px) since the hint/log stack sits there,
+ * not the pill.
  *
- * ONE uniform radius on every corner, not a smaller top paired with a
- * bigger bottom (a per-corner split rendered visibly uneven here twice —
- * see the long comment on .chat .chat-bar below for why). The pill's own
- * TRUE rendered radius is ~21px (also explained below); this frame's own
- * radius has to stay pillRadius + thisGap to read as concentric, so it
- * moves from 21 + 4 = 25 to 21 + 3 = 24 now that the gap itself
- * tightened again — recompute this every time either number changes. */
+ * A smaller top radius (20px) than bottom (24px) — deliberately kept, on
+ * the owner's own preference — but no longer the source of the earlier
+ * "uneven gap" bug: THAT bug was using the wrong number for "bottom",
+ * not the mere fact of top and bottom differing. The pill below declares
+ * 24px but actually renders at ~21px (explained on .chat .chat-bar); the
+ * earlier per-corner attempts computed bottom against the wrong, nominal
+ * 24, not the pill's true rendered radius — this recomputes it correctly
+ * (pillRadius 21 + thisGap 3 = 24) while leaving the TOP corner as its
+ * own independent, purely aesthetic choice, since nothing rounded is
+ * nested against the top at all. */
 .chat-top {
-  border: 1px solid var(--accent); border-radius: 24px;
+  border: 1px solid var(--accent); border-radius: 20px 20px 24px 24px;
   padding: 14px 3px 3px; margin-bottom: 16px;
 }
 

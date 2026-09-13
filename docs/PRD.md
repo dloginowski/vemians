@@ -1478,6 +1478,18 @@ that does not trace to one of these is a process failure (see §12).
     recomputed for the new gap using the same formula as before — `pillRadius (21, the pill's true
     rendered shape) + thisGap` — from `21 + 4 = 25px` to `21 + 3 = 24px`.
 
+    **The "one uniform radius" simplification itself was wrong — a smaller top was never the
+    bug.** The owner's own follow-up, after confirming the padding question directly: "I like the
+    smaller top radius of the outer chat box." Collapsing `.chat-top` to one flat `24px` (this
+    entry's own earlier round, above) had fixed the uneven-gap symptom by accident — the real bug
+    was computing the bottom corner against the pill's WRONG, nominal `24px` radius instead of its
+    true rendered `~21px`, not the mere fact that top and bottom differed. `.chat-top`'s radius
+    becomes `20px 20px 24px 24px` again: top stays a plain, independent `20px` (nothing rounded is
+    nested against it, so it was always free to be whatever reads best), bottom stays the
+    correctly-recomputed `24px` (`21 + 3`) from the round just above. Same visual "fits neatly"
+    result the owner asked for from the very first round of this entry — reached this time with
+    the right number in the right place, instead of erasing the distinction that produced it.
+
 34a''''''''''''''''''''''''. **`Test-PRD-P0-94-mobile_edge_to_edge`** — The owner's own words:
     "Overall reduce the overall page padding on the sides and let the chat fill more of the
     horizontal space. I want to maximize the use of space on mobile devices." `.ops`'s own side

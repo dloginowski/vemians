@@ -433,20 +433,20 @@ check("test_PRD_P0_93_nested_chat_frame__the_pills_own_radius_never_changes__onl
      renders at 24px. At the bar's own real height (~42px: 4px+4px
      padding plus a 34px button), CSS caps border-radius at half the
      box's own dimension, so the pill is a true stadium at ~21px, not the
-     nominal 24 the earlier arithmetic used. 21 + 4 (the current gap) = 25
-     is what is actually concentric — and using ONE uniform radius on
-     every corner of the outer frame, rather than a smaller top paired
-     with a separately-computed bottom, is what finally keeps the gap the
-     same width all the way around, sides included. */
+     nominal 24 the earlier arithmetic used. A brief "one uniform radius
+     everywhere" fix followed, on the mistaken assumption the mismatch
+     itself came from top and bottom differing — but the owner's own
+     later words, "I like the smaller top radius of the outer chat box,"
+     confirmed the asymmetry was never the bug; the WRONG NUMBER for the
+     bottom corner was. Top and bottom differ again (20px top, a plainly
+     aesthetic choice since nothing rounded sits there; the bottom
+     recomputed correctly this time: pillRadius 21 + thisGap 3 = 24). */
   const { body } = await frontPage(OWNER);
   assert.match(body, /\.chat \.chat-bar\s*\{[^}]*border-radius:\s*24px/s, "the composer pill's own declared radius must never change");
-  /* The formula is pillRadius (21, true/rendered) + thisGap: 21 + 3 = 24
-     once the gap itself tightened again from 4px to 3px. */
-  assert.match(body, /\.chat-top\s*\{[^}]*border-radius:\s*24px;/s, "the outer frame must use one uniform radius, recomputed for the current gap");
-  assert.doesNotMatch(
+  assert.match(
     body,
-    /\.chat-top\s*\{[^}]*border-radius:\s*\d+px \d+px \d+px \d+px/s,
-    "a per-corner split is exactly what rendered unevenly — it must not still be set",
+    /\.chat-top\s*\{[^}]*border-radius:\s*20px 20px 24px 24px/s,
+    "top corners stay smaller (aesthetic, unrelated to the pill), bottom corners recomputed against the pill's TRUE rendered radius plus the current gap",
   );
 });
 
