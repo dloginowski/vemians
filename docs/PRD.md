@@ -1120,6 +1120,19 @@ that does not trace to one of these is a process failure (see §12).
     storefront's own top bar already uses for a visibly distinct strip — giving the notch an actual
     colour boundary to curve across instead of a barely-different shade of the same near-black.
 
+    **A thick black smudge on top of the orange edge, once the notch actually had contrast to work
+    with.** With a real colour boundary in place, a different bug became visible: the active tab's
+    own left/right border (`border: 1px solid var(--accent)`, added for a visible "paper tab"
+    outline the reference code never had) sits exactly on the same pixels the round-out notch is
+    designed to blend across — the notch's entire job is to paint the tab's own colour outward past
+    that boundary, so anything drawn ON that boundary, orange border included, gets partly
+    overpainted by the notch's near-black shadow. No offset adjustment fixes this: the shadow's
+    width is deliberately wider than the boundary it crosses, by design, on both sides of it.
+    `.shell-nav button.active` now carries `border-top` only, dropping the left/right border
+    entirely — the notch only ever reaches the BOTTOM corners, so a top-only accent line never
+    meets it, and the reference code's own `.tab` never had a border for the same underlying
+    reason.
+
 47b. **`Test-PRD-P0-72-product_detail_page`** — Every product has its own page at
     `/products/<handle>` — the answer to "how do I see product details", asked directly, of a
     shop whose cards used to be `<article>`s with no click-through at all. `loadProduct(env,

@@ -245,16 +245,26 @@ html, body { height: 100%; margin: 0; }
 /* A TAB, not a pill sitting above a line: rounded top corners, a flat
    SQUARE bottom (never rounded — that is what read as a pill, not this
    corner radius by itself), and the active one structurally open at the
-   bottom (border-bottom: none) so its own background flows straight
-   into .shell-panel's with nothing separating them — pulled down by the
+   bottom (no bottom border) so its own background flows straight into
+   .shell-panel's with nothing separating them — pulled down by the
    shared 1px border width so its own sides land exactly on the panel's
    own top border rather than stopping short of it. This is a real
    merge, not two colour-matched lines standing in for one. Only the
-   active tab gets a border or a radius at all — inactive tabs stay flat
-   per the reference's own .tab / .tab.active split. */
+   active tab gets a fill or a radius at all — inactive tabs stay flat
+   per the reference's own .tab / .tab.active split.
+   TOP border only, not the sides: a left/right border on the active tab
+   sits exactly where the round-out notch below crosses the tab's own
+   edge, so the notch's near-black shadow painted straight over the
+   bottom of that border — a visible "black smudge on top of the orange
+   edge," the owner's own words. The notch's whole job is to blend
+   across that boundary, so any border drawn ON it will always get
+   partly overpainted; the reference code's own .tab has no border at
+   all for the same reason. Keeping the accent line on the TOP edge
+   only avoids the conflict entirely, since the notch never reaches
+   there. */
 .shell-nav button.active {
   background: var(--ground); color: var(--ink);
-  border: 1px solid var(--accent); border-bottom: none;
+  border-top: 1px solid var(--accent);
   border-radius: var(--tab-radius) var(--tab-radius) 0 0;
   margin-bottom: -1px; padding-bottom: 8px; z-index: 1;
 }
