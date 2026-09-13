@@ -195,7 +195,14 @@ ${OPS_DARK_CSS}
  * words: "a brief preview... in compact format that is easy to review and
  * full screen." Lives INSIDE .log, as a sibling of the message bubbles, so
  * it scrolls with the conversation and the existing scrollTo call already
- * carries it into view — no separate scroll region to keep in sync.
+ * carries it into view — no separate scroll region to keep in sync. Still
+ * IN CHAT, not a separate panel — this is the one place it renders.
+ *
+ * The table keeps its own natural width (no forced 100%, no wrapped cells)
+ * and the card scrolls sideways when that is wider than the chat box —
+ * "the ability to scroll... if it exceeds the chat box width," the owner's
+ * own words — rather than squeezing a real approval URL or a long skip
+ * reason into an unreadable wrapped column.
  */
 .log .table-card {
   align-self: stretch; max-width: 100%; box-sizing: border-box;
@@ -206,12 +213,12 @@ ${OPS_DARK_CSS}
 .log .table-card h4 {
   margin: 0 0 6px; padding: 0; font-size: 11px; font-weight: 700;
   color: var(--muted); display: flex; justify-content: space-between;
-  align-items: center; gap: 8px;
+  align-items: center; gap: 8px; position: sticky; left: 0;
 }
-.log .table-card table { width: 100%; border-collapse: collapse; }
+.log .table-card table { width: max-content; min-width: 100%; border-collapse: collapse; }
 .log .table-card th, .log .table-card td {
-  text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--rule);
-  word-break: break-word; vertical-align: top;
+  text-align: left; padding: 4px 10px; border-bottom: 1px solid var(--rule);
+  white-space: nowrap; vertical-align: top;
 }
 .log .table-card th { color: var(--muted); font-weight: 700; }
 .log .table-card button {

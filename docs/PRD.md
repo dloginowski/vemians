@@ -1326,6 +1326,15 @@ that does not trace to one of these is a process failure (see §12).
     back — one element, one piece of state, no second copy of the table to keep matching the
     first.
 
+    **Scrolls sideways rather than squeezing a real approval URL into an unreadable wrapped
+    column.** The owner's own words, once the table was actually in front of them: "the ability
+    to scroll the element sideways if it exceeds the chat box width." The table keeps its natural
+    column widths (`width: max-content` inside a `min-width: 100%` card, cells `white-space:
+    nowrap`) instead of being forced to the card's own width with wrapped text — a wide table
+    scrolls horizontally within the same card that already scrolls vertically for a long row
+    count, with the title and "Full screen" button pinned in place (`position: sticky; left: 0`)
+    so they stay reachable while scrolled right.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
