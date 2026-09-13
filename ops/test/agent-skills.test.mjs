@@ -119,6 +119,18 @@ check("test_PRD_P0_82_skills_on_demand__the_system_prompt_offers_skills_read_wit
   assert.doesNotMatch(text, /call skills_list, then skills_read/i, "no forced two-step sequence");
 });
 
+check("test_PRD_P0_89_batch_preview_confirm__the_system_prompt_bans_every_shape_of_text_restatement", () => {
+  /* The standing backstop version of NO_TEXT_TABLE_NOTE — independent of
+     which tool was called, since a model that has learned the habit from
+     one tool's result can just as easily repeat it after a different
+     one. Must ban the bulleted/arrow-mapping loophole too, not only "a
+     markdown table" the way the very first wording did. */
+  const text = systemPrompt("ana@vemians.test", "staff", toolDefinitions("staff"), { given_name: "Ana" });
+  assert.match(text, /never restate a tool result/i);
+  assert.match(text, /markdown table/i);
+  assert.match(text, /bulleted or arrow-style field-by-field mapping/i);
+});
+
 check("test_PRD_P0_81_skills_over_mcp__the_meta_tools_are_offered_alongside_the_domain_tools", () => {
   /* agentTurn() itself prepends these to toolDefinitions()'s own list — this
      asserts on the shape agentTurn sends, without needing a live model call. */

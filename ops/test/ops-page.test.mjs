@@ -306,6 +306,21 @@ check("test_PRD_P0_89_batch_preview_confirm__the_table_card_style_is_shared_not_
   }
 });
 
+check("test_PRD_P0_89_batch_preview_confirm__the_table_matches_a_plain_rendered_markdown_table_not_a_rounded_card", async () => {
+  /* "Render it like that on our website!... Make sure you follow the
+     [Claude] in chat styling. Respect markups and render tables etc" —
+     having just compared this card unfavourably to how an ordinary
+     markdown table renders. Square corners ("Dont round its corners"),
+     a full grid (vertical rules between columns, not only a line under
+     each row), and a shaded header row — the scrolling frame itself
+     (max-height/overflow, checked elsewhere) is unchanged; only the
+     table's own visual grammar is. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.table-card\s*\{[^}]*border-radius:\s*0/s, "corners must be square, not rounded");
+  assert.match(body, /\.table-card th, \.table-card td\s*\{[^}]*border:\s*1px solid var\(--rule\)/s, "every cell must have a full border, not only a bottom line");
+  assert.match(body, /\.table-card th\s*\{[^}]*background:\s*var\(--ground\)/s, "the header row must be visually shaded, matching an ordinary rendered table");
+});
+
 check("test_PRD_P0_75_ops_dark_theme__the_employees_only_bar_is_readable_on_the_black_bar", async () => {
   /* theme.css's .bar sets color: var(--ground) — a light warm off-white on
      the storefront, but --ground is redefined to a near-black #191817 for

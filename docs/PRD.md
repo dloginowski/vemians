@@ -1386,6 +1386,29 @@ that does not trace to one of these is a process failure (see §12).
     exact shape `agent.js`'s own `batchDraftTable()` already uses for identical ready/skipped data
     — instead of two separate list elements, so a spreadsheet reviewed on the dedicated page reads
     the same way as one reviewed in chat, not merely styled to look similar.
+
+    **The banned-text-restatement wording had a loophole, and the table's own look still didn't
+    match a plainly rendered one.** The owner's own words, still watching the same live reply:
+    "Oh. It renders much nicer in chat!" followed immediately by a bulleted field-by-field mapping
+    — `- **Title** ← "style #" (e.g. 001-001)` and so on — sitting in the model's OWN reply text,
+    the identical restatement `NO_TEXT_TABLE_NOTE` was written to stop, just in a shape its own
+    wording never named ("a markdown table or grid" — a bulleted arrow-mapping is neither). Both
+    `NO_TEXT_TABLE_NOTE` and `systemPrompt()`'s own standing backstop now ban the whole category —
+    "any prose, bullet list, or arrow-style mapping that walks through the row/column structure by
+    hand" — not one named format among others.
+
+    Separately: "Render it like that on our website!... Make sure you follow the [Claude] in chat
+    styling. Respect markups and render tables etc" — having compared `.table-card`'s own look
+    unfavourably to how an ordinary markdown table renders elsewhere. `TABLE_CARD_CSS` drops its
+    `border-radius` to `0` ("Dont round its corners") and gives every `th`/`td` a full `1px solid
+    var(--rule)` border instead of only a line under each row — a real grid, not a card with rows
+    stacked in it — with the header row shaded (`background: var(--ground)`) to read as a header
+    the way a rendered markdown table's own would. The scrolling frame itself (`max-height`,
+    `overflow: auto`) is untouched — "still use a scrolling frame so I can see the entire table if
+    cropped" — only the table's own visual grammar changed, not the mechanism that keeps a long or
+    wide one from overflowing its own box.
+
+34a''''''''''''''''''''. **`Test-PRD-P0-90-daylight_contrast`** — The owner's own words: "Bump up
     the contrast of the dimmer elements on ops page. Its a little hard to see on a mobile device
     in broad daylight." Direct sun washes out exactly the mid-tones a "dim, secondary" colour is
     built from — a ratio that reads comfortably indoors can still disappear outside, which a ratio

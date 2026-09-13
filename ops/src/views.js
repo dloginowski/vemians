@@ -111,10 +111,18 @@ a:hover { opacity: 0.82; }
  * own words from the chat context — rather than squeezing a real approval
  * URL or a long skip reason into an unreadable wrapped column.
  */
+/* Square corners, a full grid (vertical rules between columns, not just a
+   line under each row) and a shaded header — the owner's own words: "Make
+   sure you follow the [Claude] in chat styling. Respect markups and render
+   tables etc," having just compared this card's own look, unfavourably,
+   to how a plain markdown table renders in an ordinary chat client. The
+   scrolling frame itself (max-height + overflow below) is not the thing
+   being changed — "still use a scrolling frame so I can see the entire
+   table if cropped" — only the table's own visual grammar is. */
 const TABLE_CARD_CSS = `
 .table-card {
   align-self: stretch; max-width: 100%; box-sizing: border-box;
-  border: 1px solid var(--rule); border-radius: 10px; padding: 8px 10px;
+  border: 1px solid var(--rule); border-radius: 0; padding: 8px 10px;
   background: var(--image-ground); font-size: 12px;
   max-height: 240px; overflow: auto;
 }
@@ -125,10 +133,10 @@ const TABLE_CARD_CSS = `
 }
 .table-card table { width: max-content; min-width: 100%; border-collapse: collapse; }
 .table-card th, .table-card td {
-  text-align: left; padding: 4px 10px; border-bottom: 1px solid var(--rule);
+  text-align: left; padding: 4px 10px; border: 1px solid var(--rule);
   white-space: nowrap; vertical-align: top;
 }
-.table-card th { color: var(--muted); font-weight: 700; }
+.table-card th { color: var(--ink); font-weight: 700; background: var(--ground); }
 .table-card a { color: var(--accent); }
 .table-card button {
   flex: 0 0 auto; font: inherit; font-size: 11px; padding: 2px 8px; cursor: pointer;
