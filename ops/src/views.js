@@ -357,9 +357,9 @@ ${id}
 
   <section class="menu">
     <div class="choices">
-      <a class="btn" href="/products/batch">Add Merchandise</a>
-      <a class="btn" href="/customers/batch">Add Customers</a>
-      <a class="btn" href="/expenses/new">Submit Expenses</a>
+      <a class="btn" href="/products/batch">+ Merchandise</a>
+      <a class="btn" href="/customers/batch">+ Customers</a>
+      <a class="btn" href="/expenses/new">+ Expense</a>
     </div>
   </section>
 </main>
