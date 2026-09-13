@@ -357,6 +357,29 @@ check("test_PRD_P0_90_daylight_contrast__the_already_strong_tokens_were_left_alo
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
+ * P0-91 — a quieter, centred greeting, no redundant assistant heading
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_91_quiet_greeting__the_greet_heading_is_centred_and_no_longer_full_bright_bold", async () => {
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.greet\s*\{[^}]*text-align:\s*center/s, "the greeting must be centred");
+  assert.match(body, /\.greet h1\s*\{[^}]*font-weight:\s*400/s, "no longer bold");
+  assert.match(body, /\.greet h1\s*\{[^}]*color:\s*var\(--muted\)/s, "no longer full-bright --ink");
+  assert.doesNotMatch(body, /\.greet h1\s*\{[^}]*font-weight:\s*700/s, "the old bold weight must not still be set");
+});
+
+check("test_PRD_P0_91_quiet_greeting__the_ask_the_ops_assistant_line_is_gone", async () => {
+  const { body } = await frontPage(OWNER);
+  assert.doesNotMatch(body, /Ask the ops assistant/, "a heading that only restated what the chat widget already is");
+  /* The greeting itself, and the widget it introduces, must both still be
+     on the page — this removes one redundant line, not the surrounding
+     features. */
+  assert.match(body, /Hi Owner — what would you like to do/);
+  const main = body.slice(body.indexOf("<main"));
+  assert.ok(main.indexOf('id="chat"') > -1, "the chat form must still be on the page");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
  * P0-78 — a real scrolling chat widget, and compact one-click chips
  * ───────────────────────────────────────────────────────────────────────── */
 

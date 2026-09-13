@@ -1365,6 +1365,21 @@ that does not trace to one of these is a process failure (see §12).
     token, so a future edit that quietly drifts a colour back under its floor fails the same way a
     missed feature would.
 
+34a'''''''''''''''''''''. **`Test-PRD-P0-91-quiet_greeting`** — The owner's own words: "Center the
+    welcome heading too (Hi Dimitri — what would you like to do?) And make it less prominent
+    (bright) also remove the 'ask the ops assistant' line." Two redundant "first thing on the
+    page" signals were both fighting for the same attention the chat widget itself (P0-74) is
+    supposed to get: a bold, full-bright, left-aligned name greeting, immediately followed by a
+    second heading that only restated what the widget right below it obviously already was.
+
+    `.greet` is now centred (`text-align: center`) and its `<h1>` drops from `font-weight: 700` in
+    `--ink` (15.3:1, the page's brightest possible text) to `font-weight: 400` in `--muted`
+    (P0-90's own freshly-raised 7:1 token) — still perfectly legible, no longer the loudest thing
+    on the screen. The `<h1>Ask the ops assistant</h1>` inside `.key.chat-top` is deleted outright
+    rather than restyled — a heading that only names what a chat box already visibly is was pure
+    restatement, not information — and the two CSS rules that existed solely to style it
+    (`.key h1`, `.chat-top h1`) are removed with it rather than left as dead rules nothing renders.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -1606,6 +1621,7 @@ Where each feature is enforced today:
 | P0-88 | `ops/test/catalog-write.test.mjs` |
 | P0-89 | `ops/test/catalog-write.test.mjs`; no test yet drives the `views.js` client script's `tableCard()` rendering directly — this file has no browser/DOM harness for any client-side script, not only this one |
 | P0-90 | `ops/test/ops-page.test.mjs` |
+| P0-91 | `ops/test/ops-page.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

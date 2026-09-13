@@ -104,7 +104,6 @@ ${OPS_DARK_CSS}
 
 .ops .warn { margin: 0 0 14px; }
 
-.key h1 { font-size: var(--type); font-weight: 700; margin: 0 0 4px; }
 .hint { font-size: var(--eyebrow); color: var(--muted); margin: 0 0 8px; }
 .hint a { color: var(--accent); }
 
@@ -117,10 +116,12 @@ ${OPS_DARK_CSS}
   border: 1px solid var(--rule); border-radius: 20px;
   padding: 14px; margin-bottom: 16px;
 }
-.chat-top h1 { margin-bottom: 8px; }
 
-.greet { margin: 0 0 12px; }
-.greet h1 { font-size: var(--type); font-weight: 700; margin: 0 0 4px; }
+/* Centred and quiet on purpose — a name check, not the thing on the page
+   asking to be read first. The chat widget right below it is that thing;
+   a bold, full-bright "Hi Dimitri" over it competed for the same attention. */
+.greet { margin: 0 0 12px; text-align: center; }
+.greet h1 { font-size: var(--type); font-weight: 400; color: var(--muted); margin: 0; }
 
 .menu { margin: 0 0 20px; }
 /* Small chips, not CTAs — three routine tasks and a fold, not the thing on
@@ -397,7 +398,6 @@ ${id}
   </section>
 
   <section class="key chat-top">
-    <h1>Ask the ops assistant</h1>
     ${hasKey ? "" : '<p class="hint">No model connected &mdash; set <code>ANTHROPIC_API_KEY</code> to turn this on.</p>'}
     <div class="log" id="log"></div>
     <div id="gate"></div>
