@@ -170,32 +170,93 @@ const TABLE_CARD_CSS = `
 }
 `;
 
-/* The first of what the owner is describing as tabs — "one tab, which is the
-   agent tab... another tab is gonna be the items tab." Two plain links for
-   now, not a framework-driven tab switch: each is its own server-rendered
-   page (/  and  /items), so this is the minimum that lets a person move
-   between them and see which one they are on, without committing to the
-   fuller hamburger-menu/tab-bar redesign that is still just an idea. Shared
-   between OPS_CSS (the agent page) and ITEMS_CSS below so the two tabs read
-   as one system rather than two pages that happen to link to each other. */
-const NAV_CSS = `
-.ops-nav { display: flex; gap: 6px; margin: 0 0 16px; }
-.ops-nav a {
-  font-size: 12px; font-weight: 600; padding: 6px 14px; border-radius: 999px;
-  border: 1px solid var(--rule); color: var(--muted); text-decoration: none;
+/*
+ * The shell — the owner's own correction to the two-links-per-page nav this
+ * replaces: "No I WANT tabs in the header. Replace this: the header is
+ * always present. Everything else is an iframe." One persistent header
+ * (this CSS, this markup) that never reloads; the tab CONTENT is an
+ * <iframe> whose src swaps between /chat and /items, each an otherwise
+ * ordinary page that no longer draws its own copy of the tab bar (nor, now,
+ * its own copy of the "employees only" strip — this is the only place
+ * either one is drawn, so the two are not stacked on top of each other the
+ * moment this loads inside the iframe below).
+ *
+ * "Think of tabs in a filing cabinet" — the owner's own words. The active
+ * tab merges into the panel below it (matching background, its own bottom
+ * edge pulled down 1px to sit exactly on the panel's top border and hide
+ * the seam, the classic tabbed-pane trick); an inactive one sits a little
+ * lower and a little dimmer, like a folder pushed back in the drawer. The
+ * storefront link is the last item on purpose (the owner's own words: "add
+ * a link to the public facing site as the last link") and reads as a
+ * label on the cabinet rather than another folder in it — pushed to the
+ * far right, plain rather than tab-shaped, opening in a new tab since
+ * leaving ops entirely inside the same iframe would strand the person's
+ * place in it.
+ */
+const SHELL_CSS = `
+${OPS_DARK_CSS}
+html, body { height: 100%; margin: 0; }
+.shell { display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; background: var(--ground); }
+.shell-header { flex: 0 0 auto; padding: 10px 12px 0; }
+.shell-nav { display: flex; align-items: flex-end; gap: 3px; }
+.shell-nav button {
+  font: inherit; font-size: 12px; font-weight: 600; padding: 7px 16px; cursor: pointer;
+  border: 1px solid var(--rule); border-bottom: none; border-radius: 6px 6px 0 0;
+  background: var(--image-ground); color: var(--muted); position: relative;
 }
-.ops-nav a:hover { border-color: var(--accent); color: var(--accent); }
-.ops-nav a.active { border-color: var(--accent); color: var(--accent); background: rgba(217, 119, 87, 0.14); }
+.shell-nav button:hover:not(.active) { color: var(--accent); }
+.shell-nav button.active {
+  background: var(--ground); color: var(--ink); border-color: var(--accent);
+  margin-bottom: -1px; padding-bottom: 8px; z-index: 1;
+}
+.shell-nav .visit {
+  margin-left: auto; align-self: center; font-size: 12px; color: var(--muted);
+  text-decoration: none; padding: 4px 2px;
+}
+.shell-nav .visit:hover { color: var(--accent); }
+.shell-panel { flex: 1 1 auto; border-top: 1px solid var(--accent); }
+.shell-frame { width: 100%; height: 100%; border: 0; display: block; background: var(--ground); }
 `;
 
-function opsNav(active) {
-  const tab = (href, label, key) => `<a href="${href}"${key === active ? ' class="active"' : ""}>${label}</a>`;
-  return `<nav class="ops-nav">${tab("/", "Agent", "agent")}${tab("/items", "Items", "items")}</nav>`;
+const SHELL_TABS = [
+  { key: "agent", label: "Agent", src: "/chat", href: "/" },
+  { key: "items", label: "Items", src: "/items", href: "/?tab=items" },
+];
+
+export function shellPage(active = "agent") {
+  const initial = SHELL_TABS.find((t) => t.key === active) ?? SHELL_TABS[0];
+  const nav = SHELL_TABS.map(
+    (t) =>
+      `<button type="button" data-src="${esc(t.src)}" data-href="${esc(t.href)}"${t.key === initial.key ? ' class="active"' : ""}>${esc(t.label)}</button>`,
+  ).join("");
+
+  return page(
+    "Vemians ops",
+    `<div class="shell">
+  <div class="shell-header">
+    <div class="bar">ops.vemians.com &middot; employees only</div>
+    <nav class="shell-nav">${nav}<a class="visit" href="https://vemians.com" target="_blank" rel="noopener">Visit site &#8599;</a></nav>
+  </div>
+  <div class="shell-panel">
+    <iframe class="shell-frame" id="ops-frame" src="${esc(initial.src)}" title="Vemians ops"></iframe>
+  </div>
+</div>
+<script>
+document.querySelectorAll(".shell-nav button").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".shell-nav button").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("ops-frame").src = btn.dataset.src;
+    history.replaceState(null, "", btn.dataset.href);
+  });
+});
+</script>`,
+    SHELL_CSS,
+  );
 }
 
 const OPS_CSS = `
 ${OPS_DARK_CSS}
-${NAV_CSS}
 /* 34rem was tuned for "one screen on a phone" before this page grew a chat
    widget, tables and an accordion of real content — on an actual desktop
    window it read as a narrow column stranded in the middle of empty space.
@@ -577,9 +638,11 @@ export function opsPage(identity, { hasKey, role }) {
 
   return page(
     "Vemians ops",
-    `<div class="bar">ops.vemians.com &middot; employees only</div>
-<main class="ops">
-${opsNav("agent")}
+    /* No "ops.vemians.com · employees only" bar here — this page now loads
+       ONLY inside the shell's own iframe (shellPage(), above), which
+       already draws that strip once, in its own header. A second copy
+       here stacked directly on top of it, every time this loaded. */
+    `<main class="ops">
 ${id}
 
   <section class="greet">
@@ -928,7 +991,6 @@ document.querySelectorAll(".choices .btn[data-prompt]").forEach((btn) => {
  * path is introduced alongside the one this whole app already has.
  */
 const ITEMS_CSS = `
-${NAV_CSS}
 .items-search {
   width: 100%; box-sizing: border-box; font: inherit; font-size: 14px;
   padding: 8px 12px; margin: 0 0 16px; border: 1px solid var(--muted);
@@ -1057,9 +1119,8 @@ export function itemsPage({ role }, products) {
 
   return page(
     "Items — Vemians ops",
-    `<div class="bar">ops.vemians.com &middot; employees only</div>
-<main class="ops">
-${opsNav("items")}
+    /* No bar here either — see the same note on opsPage(). */
+    `<main class="ops">
   <section class="greet"><h1>Items</h1></section>
   <input type="text" class="items-search" id="item-search" placeholder="Search title, handle, category, SKU, custom fields...">
   <div class="items-grid" id="items-grid">

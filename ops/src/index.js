@@ -53,6 +53,7 @@ import {
   itemsPage,
   opsPage,
   refusalPage,
+  shellPage,
   whoamiPage,
 } from "./views.js";
 import { draftCustomerBatch, draftProductBatch, parsePriceToMinor } from "./batch.js";
@@ -404,7 +405,30 @@ async function ops(request, env, path) {
     if (!env.CATALOG_MIRROR) {
       return html(refusalPage(503, "The catalog mirror is not configured on this deployment yet."), 503);
     }
-    const products = await listAllProducts(env.CATALOG_MIRROR, { limit: CAPS.CATALOG_ITEMS_PAGE_MAX_ROWS });
+    let products;
+    try {
+      products = await listAllProducts(env.CATALOG_MIRROR, { limit: CAPS.CATALOG_ITEMS_PAGE_MAX_ROWS });
+    } catch (err) {
+      /* The most likely real cause, named plainly rather than surfacing a
+         raw Worker exception: custom_fields was added to mirror_product by
+         hand (ALTER TABLE, run once against production D1 — this schema
+         has no migration runner), but mirror_product_index is a VIEW, and
+         SQLite compiles a view's own column list at CREATE VIEW time. Adding
+         a column to the base table does not change an already-existing
+         view — the view has to be dropped and recreated with the new
+         column named, same as schema.sql's own definition. */
+      console.error(`ERROR ops/items: listAllProducts failed — ${err.message}`);
+      return html(
+        refusalPage(
+          500,
+          "The Items tab could not read the catalog mirror. If custom_fields was just added to " +
+            "mirror_product by hand, mirror_product_index also needs recreating — ALTER TABLE does not " +
+            "update an existing view's own column list. Run: DROP VIEW mirror_product_index; then the " +
+            "CREATE VIEW statement from shared/commerce/square/schema.sql, against vemians-catalog-mirror.",
+        ),
+        500,
+      );
+    }
     return html(itemsPage({ role }, products));
   }
 
@@ -936,7 +960,30 @@ async function ops(request, env, path) {
     return wantsJson ? json(body) : html(whoamiPage(body));
   }
 
+  /*
+   * / — the shell. The owner's own words: "I WANT tabs in the header...
+   * the header is always present. Everything else is an iframe." One
+   * persistent header (the tab bar) that never reloads, and one <iframe>
+   * beneath it whose src swaps between the tabs' own ordinary pages —
+   * /chat and /items are unchanged content, just no longer drawing their
+   * OWN copy of the tab bar (shellPage() is the only place it is drawn
+   * now). `?tab=items` picks which one loads first, so a link can still
+   * point at a specific tab without a second, tab-shaped page for each.
+   * Named /chat, not /agent: `/agent` (below) is already the chat form's
+   * OWN POST endpoint, and giving this page the same path would make it
+   * unreachable — shadowed by that earlier, POST-only handler.
+   */
   if (path === "" || path === "/") {
+    /* No role gate here on purpose — matching how this page has always
+       behaved. A verified-but-unmapped identity still gets the shell, and
+       /chat (loaded into it by default) is what already tells that person
+       plainly that they have no role, the same as before this page split
+       into a shell and a tab's own content. */
+    const tab = new URL(request.url).searchParams.get("tab") === "items" ? "items" : "agent";
+    return html(shellPage(tab));
+  }
+
+  if (path === "/chat") {
     /*
      * `env` was missing from this call, and from the two in agent.js. roleFor
      * defaults it to {}, so OWNER_POLICY_ID and its siblings read as undefined

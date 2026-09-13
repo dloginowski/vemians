@@ -54,9 +54,21 @@ function assertion(claims) {
   return `${b64({ alg: "RS256" })}.${b64(claims)}.signature`;
 }
 
+/* /chat, not /: the chat widget moved there when / became the persistent-
+   header shell ("the header is always present. Everything else is an
+   iframe" — the owner's own words). Every test in this file is about the
+   chat widget's own content, which is what /chat now serves. */
 async function frontPage(claims, env = ENV) {
   const res = await worker.fetch(
-    new Request("http://localhost/", { headers: { "Cf-Access-Jwt-Assertion": assertion(claims) } }),
+    new Request("http://localhost/chat", { headers: { "Cf-Access-Jwt-Assertion": assertion(claims) } }),
+    env,
+  );
+  return { status: res.status, body: await res.text() };
+}
+
+async function shell(claims, path = "/", env = ENV) {
+  const res = await worker.fetch(
+    new Request(`http://localhost${path}`, { headers: { "Cf-Access-Jwt-Assertion": assertion(claims) } }),
     env,
   );
   return { status: res.status, body: await res.text() };
@@ -64,6 +76,71 @@ async function frontPage(claims, env = ENV) {
 
 const OWNER = { email: "owner@example.test", policy_id: OWNER_POLICY };
 const STAFF = { email: "staff@example.test", policy_id: STAFF_POLICY };
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-71 — the shell: a persistent header, an iframe for everything else
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_71_items_tab__the_root_page_is_a_shell_with_both_tabs_and_an_iframe", async () => {
+  /* The owner's own words: "I WANT tabs in the header. Replace this: the
+     header is always present. Everything else is an iframe." */
+  const { status, body } = await shell(OWNER);
+  assert.equal(status, 200);
+  assert.match(body, /<iframe[^>]*id="ops-frame"/, "the tab content must load in an iframe");
+  assert.match(body, /<button[^>]*>Agent<\/button>/);
+  assert.match(body, /<button[^>]*>Items<\/button>/);
+});
+
+check("test_PRD_P0_71_items_tab__the_shell_defaults_to_the_agent_tab", async () => {
+  const { body } = await shell(OWNER);
+  assert.match(body, /id="ops-frame" src="\/chat"/, "the iframe must default to the chat content");
+  assert.match(body, /data-src="\/chat"[^>]*class="active"/, "the Agent tab must read as active by default");
+});
+
+check("test_PRD_P0_71_items_tab__tab_equals_items_starts_the_iframe_on_items_instead", async () => {
+  const { body } = await shell(OWNER, "/?tab=items");
+  assert.match(body, /id="ops-frame" src="\/items"/);
+  assert.match(body, /data-src="\/items"[^>]*class="active"/, "the Items tab must read as active when linked directly");
+});
+
+check("test_PRD_P0_71_items_tab__the_shell_requires_no_role_the_same_as_before_the_split", async () => {
+  /* Matching the page's own pre-shell behaviour: a verified-but-unmapped
+     identity still sees the shell, and /chat (loaded into it by default)
+     is what already tells that person plainly they have no role — the
+     shell itself is not a second place that gate has to be re-implemented. */
+  const res = await worker.fetch(
+    new Request("http://localhost/", {
+      headers: { "Cf-Access-Jwt-Assertion": assertion({ email: "stranger@example.test", policy_id: "unmapped-policy" }) },
+    }),
+    ENV,
+  );
+  assert.equal(res.status, 200);
+});
+
+check("test_PRD_P0_71_items_tab__chat_no_longer_draws_its_own_copy_of_the_tab_bar_or_banner", async () => {
+  /* The shell is the ONLY place the tab bar (and, now, the "employees only"
+     strip) renders — a page that also drew its own would show either one
+     twice, stacked directly on top of the shell's own copy the moment it
+     loads inside the iframe. The Items page's own half of this is
+     asserted in items-route.test.mjs, against real seeded content rather
+     than a mirror-less 503. */
+  const { status, body } = await frontPage(OWNER);
+  assert.equal(status, 200);
+  assert.doesNotMatch(body, /shell-nav/);
+  assert.doesNotMatch(body, /class="bar"/, "the employees-only strip must not be drawn a second time inside the iframe");
+});
+
+check("test_PRD_P0_71_items_tab__the_shell_carries_a_link_to_the_public_site_as_the_last_item", async () => {
+  /* The owner's own words: "add a link to the public facing site as the
+     last link." Opens in a new tab — leaving ops entirely inside the same
+     iframe would strand whichever tab the person was on. */
+  const { body } = await shell(OWNER);
+  const nav = body.match(/<nav class="shell-nav">[\s\S]*?<\/nav>/)[0];
+  const items = [...nav.matchAll(/<(?:button|a)[^>]*>/g)];
+  const last = items.at(-1)[0];
+  assert.match(last, /href="https:\/\/vemians\.com"/, "the storefront link must be the LAST item, not just present somewhere");
+  assert.match(last, /target="_blank"/);
+});
 
 /* ─────────────────────────────────────────────────────────────────────────
  * P0-23 — the page must print the role the request actually carries
