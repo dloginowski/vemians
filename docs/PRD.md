@@ -1527,6 +1527,33 @@ that does not trace to one of these is a process failure (see §12).
     for the same reason: an opaque `--accent` fill would have been the one loud circle this entry
     was correcting away from, just recoloured.
 
+34a'''''''''''''''''''''''''''. **`Test-PRD-P0-96-attach_name_empty_collapse`** — Three straight
+    rounds of corner-radius arithmetic on `.chat-top` (P0-93's own entry, above) never actually
+    fixed "Make sure there is an even gap between chat and outer edges!!! Make sides match the
+    bottom!" — because none of them were the real bug. The owner's own words, once shown the
+    original screenshot again: "I sent you a screenshot that clearly shows that the side padding
+    between inner and outer chat boxes was much smaller than bottom padding!" Re-reading that
+    screenshot directly (rather than continuing to reason about corner geometry alone) found it:
+    `.attach-name` (`ops/src/views.js`) — the filename label under the composer, empty far more
+    often than not — had no `:empty` collapse rule. An EMPTY block-level element is not the same
+    as an ABSENT one: it still opens a line box sized by its own font metrics, and still carries
+    its own `margin: 4px 2px 0` even with zero characters inside it. That extra height sat directly
+    below the composer pill, inside the very same `.chat-top` padding box the sides had no
+    equivalent content in — inflating the visible bottom gap well past whatever `.chat-top`'s own
+    padding declared, while the sides (nothing else occupying that space) stayed exactly the
+    declared width. Every one of P0-93's own corner-radius corrections was arithmetically correct
+    for the geometry it was solving and still could not have fixed this, because this was never a
+    radius problem.
+
+    Fixed with the same one-line pattern `.log:empty { display: none; }` already used one element
+    up in this exact form, just never carried over to this one: `.attach-name:empty { display:
+    none; }`. An empty span now contributes zero height and zero margin, so the actual rendered
+    gap below the pill matches `.chat-top`'s own declared padding on every side — for the first
+    time, for the reason the owner's own screenshot actually showed, not a guess about how CSS
+    handles nested rounded corners.
+
+## 4. P1 features
+
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
    inventory, schedule and knowledge, scoped by the caller's bindings.
 2. **`Test-PRD-P1-02-agent_scheduling`** — Managers build, amend and publish shifts
@@ -1771,6 +1798,7 @@ Where each feature is enforced today:
 | P0-93 | `ops/test/ops-page.test.mjs` |
 | P0-94 | `ops/test/ops-page.test.mjs` |
 | P0-95 | `ops/test/ops-page.test.mjs` |
+| P0-96 | `ops/test/ops-page.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

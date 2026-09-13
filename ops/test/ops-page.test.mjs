@@ -524,6 +524,24 @@ check("test_PRD_P0_95_filled_attach_button__hover_and_pressed_states_are_also_fa
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
+ * P0-96 — the empty attach-name label no longer inflates the bottom gap
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_96_attach_name_empty_collapse__an_empty_attach_name_span_is_fully_collapsed", async () => {
+  /* THE ACTUAL BUG behind "side padding is much smaller than bottom
+     padding" — confirmed against the owner's own screenshot, not the
+     corner-radius theory P0-93's own entry spent three rounds on. An
+     empty block-level span still opens a line box for its own font
+     metrics and still carries its own margin-top even with zero
+     characters inside it — extra height sitting below the composer pill,
+     inside the very padding box the sides had no equivalent content in.
+     The same one-line pattern .log:empty already uses, just never
+     carried over to this element. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.attach-name:empty\s*\{[^}]*display:\s*none/s, "an empty attach-name span must collapse to zero height and zero margin");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
  * P0-78 — a real scrolling chat widget, and compact one-click chips
  * ───────────────────────────────────────────────────────────────────────── */
 

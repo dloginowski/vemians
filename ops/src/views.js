@@ -352,10 +352,23 @@ ${OPS_DARK_CSS}
 .chat .chat-bar .send-btn { width: 34px; height: 34px; background: var(--accent); color: var(--ground); }
 .chat .chat-bar .send-btn:hover { opacity: 0.85; }
 .chat .chat-bar .send-btn:disabled { opacity: 0.4; cursor: default; }
+/* THE ACTUAL BUG behind "side padding is much smaller than bottom padding"
+   — confirmed against the owner's own screenshot, not just a corner-radius
+   theory. This span is empty (no filename picked) far more often than not,
+   but empty was never the same as ABSENT: a block-level element still
+   opens a line box for its own font metrics with no text in it at all, and
+   still carries its own margin-top (4px) — extra height NOBODY declared as
+   part of .chat-top's own gap, sitting directly below the composer pill,
+   inside the same padded box. That is what was inflating the bottom gap
+   well past the 3-4px .chat-top padding actually asked for, while the
+   sides (nothing else in that direction) stayed exactly the declared
+   width — never a radius or padding-value bug at all. .log:empty already
+   uses this exact pattern one element up; this one just never got it. */
 .attach-name {
   display: block; font-size: 12px; color: var(--muted); margin: 4px 2px 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.attach-name:empty { display: none; }
 
 `;
 
