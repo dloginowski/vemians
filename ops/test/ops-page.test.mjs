@@ -303,6 +303,41 @@ check("test_PRD_P0_75_ops_dark_theme__no_hardcoded_grey_survives_the_reskin", as
   assert.doesNotMatch(styleOnly, /#666/, "a hardcoded grey survived the dark reskin");
 });
 
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-78 — a real scrolling chat widget, and compact one-click chips
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_78_chat_widget__the_log_is_a_bounded_scrolling_container_not_a_growing_list", async () => {
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.log\s*\{[^}]*max-height:/s, "the message log must be height-bounded, not free to grow the page");
+  assert.match(body, /\.log\s*\{[^}]*overflow-y:\s*auto/s, "and it must scroll internally rather than the whole page");
+});
+
+check("test_PRD_P0_78_chat_widget__mine_agent_and_tool_are_three_distinct_bubble_styles", async () => {
+  const { body } = await frontPage(OWNER);
+  for (const cls of ["you", "agent", "tool"]) {
+    assert.match(body, new RegExp(`\\.log p\\.${cls}\\s*\\{`), `no bubble style for '.log p.${cls}'`);
+  }
+  /* Telegram's own shape: mine on the right, the other side on the left. */
+  assert.match(body, /\.log p\.you\s*\{[^}]*align-self:\s*flex-end/s);
+  assert.match(body, /\.log p\.agent\s*\{[^}]*align-self:\s*flex-start/s);
+});
+
+check("test_PRD_P0_78_chat_widget__the_clients_own_entry_builder_always_classes_the_users_own_bubble", async () => {
+  /* The bug this guards: kind "" (the user's own line) used to get NO class
+     at all — `if (kind) p.className = kind` — so it fell back to whatever
+     bare <p> looks like instead of a "mine" bubble. */
+  const { body } = await frontPage(OWNER);
+  const script = body.slice(body.indexOf("function entry"), body.indexOf("function entry") + 400);
+  assert.match(script, /p\.className\s*=\s*kind\s*\|\|\s*"you"/);
+});
+
+check("test_PRD_P0_78_chat_widget__the_one_click_tasks_are_small_chips_not_bold_filled_ctas", async () => {
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.choices \.btn\s*\{[^}]*border-radius:\s*999px/s, "expected a pill-shaped chip");
+  assert.doesNotMatch(body, /\.choices \.btn\s*\{[^}]*font-weight:\s*700/s, "no longer a bold CTA");
+});
+
 check("test_PRD_P0_54_skill_discovery__the_copy_control_is_an_icon_with_a_reachable_label", async () => {
   /* An icon-only control is a control with no name unless it carries one. */
   const { body } = await frontPage(OWNER);

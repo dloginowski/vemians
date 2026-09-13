@@ -962,6 +962,20 @@ that does not trace to one of these is a process failure (see §12).
     photo with nothing typed is still a complete, valid message — "figure out what to do with it"
     being the entire point of handing it to the agent instead of a form.
 
+34a''''''''. **`Test-PRD-P0-78-chat_widget`** — The owner's own words: "ugly still... I want a
+    legit chat widget scrolling, similar to telegram... compact vertically." `.log`
+    (`ops/src/views.js`'s `OPS_DARK_CSS`) is now a fixed-height, scrolling column of message
+    bubbles rather than an ever-growing flat list of paragraphs pushing the rest of the page down
+    — MINE align right in the one accent colour on the page; the agent's align left, quiet and
+    bordered; a tool step is neither conversational bubble, it is a centred system aside (the
+    genre's own "so-and-so joined" convention), never competing with either side of the actual
+    conversation. Collapses to nothing at rest (`.log:empty`) rather than showing an empty grey
+    box before the first message. The whole assistant now sits inside one visibly bordered card
+    (`.chat-top`) rather than reading as loose page furniture. The three one-click task buttons —
+    the "big ass text buttons" objected to directly — shrank from bold, filled, accent CTAs to
+    small outlined chips: this page has exactly one thing asking to be pressed hardest now, and
+    P0-74 already put that thing above these chips, not beside them as an equal.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -1190,6 +1204,7 @@ Where each feature is enforced today:
 | P0-75 | `ops/test/ops-page.test.mjs` |
 | P0-76 | `ops/test/agent-tool-schema.test.mjs` |
 | P0-77 | `ops/test/agent-attachments.test.mjs` |
+| P0-78 | `ops/test/ops-page.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
