@@ -633,7 +633,25 @@ that does not trace to one of these is a process failure (see §12).
     and JWKS-verified assertion — the same lesson P0-35's own history already taught this file once
     about a link nobody actually followed.
 
-34c. **Prompt-based editing on the approval page — deferred, not built.** The click-to-edit fields
+34c. **`Test-PRD-P0-64-greeting_survives_every_client`** — The greeting-and-menu opening (P0-62)
+    is stated twice, in two different places, on purpose. `buildInstructions()`'s connect-time
+    `instructions` field is the version Claude Code's own CLI actually shows the model before its
+    first reply; the `agent-tool-contract` skill's new "First message to a person" section is the
+    version every other client sees, because it arrives as the result of a real `skills_read` call
+    rather than a field a client is free to drop. **The regression this exists for:** a coworker
+    said "hello" in a fresh session and got the generic assistant identity line, not the menu —
+    because the client they were using does not surface server `instructions` at all (confirmed for
+    at least the ChatGPT and Claude.ai web connectors). Relying on `instructions` alone made the
+    entire onboarding promise true for one client and silently false for the two the ops page's own
+    visible instructions point most people at ("paste this into your Claude or ChatGPT"). Every
+    role reads `agent-tool-contract` first (P0-54), so the fix is not a new mechanism — it is
+    putting the same words somewhere every client is already guaranteed to read. The `.mcp.json`
+    checked into the repo root additionally lets a Claude Code session opened in a clone of this
+    repository connect after one manual, one-time approval instead of the `claude mcp add` line;
+    a remote or headless Claude Code session still cannot complete the interactive Access sign-in
+    on its own, and the ops page's developer section says so rather than implying otherwise.
+
+34d. **Prompt-based editing on the approval page — deferred, not built.** The click-to-edit fields
     of P0-63 are the click-and-type half of "review, edit manually, or use prompts"; the third
     option, telling the page in plain language what to change and having it edit the fields for
     you, is deliberately not part of this change. It needs a new server-side LLM call from the ops
@@ -886,6 +904,7 @@ Where each feature is enforced today:
 | P0-61 | `ops/test/customer-create.test.mjs`, over a fake Square client — no Square account, token or network call is involved |
 | P0-62 | `ops/test/mcp-instructions.test.mjs` |
 | P0-63 | the editable-approval half of `ops/test/catalog-write.test.mjs`, over the real Worker (`worker.fetch`) |
+| P0-64 | `ops/test/skills.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

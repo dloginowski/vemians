@@ -363,12 +363,25 @@ ${perRole
       <p><strong>Endpoint.</strong> <code>${esc(mcpUrl)}</code>, MCP over HTTP, behind Cloudflare
          Access. Unauthenticated requests get 401 with a <code>WWW-Authenticate</code> challenge and
          the protected-resource metadata.</p>
-      <p><strong>Claude Code.</strong> One line, once per machine:</p>
+      <p><strong>Claude Code.</strong> Working from a clone of the <code>vemians</code> repo, the
+         server is already registered in the checked-in <code>.mcp.json</code> at its root — the
+         first session in that clone shows a one-time pending-approval prompt (run
+         <code>claude</code>, or <code>/mcp</code> inside a session, to approve it), then every
+         later session there connects on its own. From anywhere else, one line, once per machine:</p>
       ${copyLine(`claude mcp add --transport http vemians ${mcpUrl}`)}
+      <p><strong>A remote or headless Claude Code session cannot finish the sign-in itself.</strong>
+         The first connection needs an interactive browser to complete Cloudflare Access, so a
+         cloud or CI session sees the server listed but unauthenticated until a person approves it
+         from an interactive one, or the session is given a pre-issued token.</p>
       <p><strong>Start by reading the skills.</strong> Call <code>skills_list</code>, then
          <code>skills_read</code> for each one, before calling anything else. They carry the argument
          shapes, the refusal rules and the house conventions that are not inferable from the tool
-         schemas${skills.length ? `: ${skills.map((s) => `<code>${esc(s.name)}</code>`).join(", ")}` : ""}.</p>
+         schemas${skills.length ? `: ${skills.map((s) => `<code>${esc(s.name)}</code>`).join(", ")}` : ""}.
+         <strong>This is also where the greeting comes from</strong> — <code>agent-tool-contract</code>
+         spells out the "greet by name, offer a short menu" opening, because the server's own
+         connect-time <code>instructions</code> are not reliably shown to the model on every
+         client: read the skill and every client behaves the same way; wait on <code>instructions</code>
+         alone and some clients (Claude.ai and ChatGPT's own web connectors, at least) never show it at all.</p>
       <p><strong>Tiers.</strong> T0 reads and returns. T1 proposes — it writes nothing and its output
          is a draft for a human. T2 writes, and does not run when you call it: it parks the intent
          and returns a URL under <code>/approvals/</code> for a person to open. Do not ask the user

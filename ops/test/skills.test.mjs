@@ -146,6 +146,29 @@ check("test_PRD_P0_54_skill_discovery__lookup_accepts_the_name_or_the_uri", () =
   assert.equal(skillByName("no-such-skill"), null);
 });
 
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-64 — the greeting protocol survives a client that drops `instructions`
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_64_greeting_survives_every_client__agent_tool_contract_carries_the_opening_script", () => {
+  /* buildInstructions()'s FIRST MESSAGE / SECOND MESSAGE text (P0-62) is a
+     connect-time `instructions` field, and at least two real MCP clients
+     (Claude.ai's own web connector, ChatGPT) do not surface that field to the
+     model at all. agent-tool-contract is read by every role (asserted above)
+     via a real skills_read call, whose result reaches the model on every
+     client — so the same greeting protocol has to live here too, not only in
+     buildInstructions(). */
+  const contract = skillByName("agent-tool-contract").text;
+  assert.match(contract, /greet.*by name/i, "the opening greeting is not documented in the skill");
+  assert.match(contract, /short menu/i, "the numbered menu is not documented in the skill");
+  assert.match(
+    contract,
+    /spreadsheet, or would you rather tell me about them here/i,
+    "the spreadsheet-or-narrate follow-up question is not documented in the skill",
+  );
+  assert.match(contract, /real form, not a preview/i, "the editable-approval-link framing is missing");
+});
+
 test("test_PRD_P0_30_prd_traceability__every_label_used_here_exists_in_the_prd", async () => {
   const { readFileSync } = await import("node:fs");
   const { fileURLToPath } = await import("node:url");

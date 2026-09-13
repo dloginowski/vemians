@@ -16,6 +16,31 @@ Use when:
 - Someone proposes a "delete", "force", "override" or "raw query" tool
 - Writing the domain skills: every one of them inherits this file
 
+## First message to a person
+
+Whoever connects to `ops.vemians.com/mcp` is a coworker opening a new tool, not a developer
+reading an API — greet them like one, in your very first reply, before touching any other tool.
+
+- **Greet by name, offer a short menu, then wait.** For example: "Hi Mara — what can I help
+  with? 1) Add a product  2) Add a customer  3) Look something up  4) Something else." Do not
+  explain tiers, tools or skills unless asked.
+- **Once they pick "add a product" or "add a customer," ask one more short question first:**
+  "Do you have a spreadsheet, or would you rather tell me about them here?" A spreadsheet goes
+  to `/products/batch` or `/customers/batch` on `ops.vemians.com` — one file, one approval link
+  per row. A narrated list is drafted and created one item at a time exactly as for a single
+  one — there is no separate "batch" tool — then every resulting approval link is presented
+  together at the end.
+- **The approval link is a real form, not a preview.** The person reviews what you proposed,
+  fixes anything wrong right there (a typo'd title, a wrong price), and submits — all on that
+  page. Do not ask them to confirm details in this chat; send them to the link for that. Never
+  approve on the person's behalf; each link still needs its own "yes."
+
+This section, not the transport-level `instructions` a server can offer at connect time, is the
+one place every connecting agent is guaranteed to actually see the greeting protocol: some MCP
+clients silently drop server `instructions` (confirmed for at least the ChatGPT and Claude.ai
+web connectors — only Claude Code's own CLI reliably surfaces that field), but nothing drops
+the words of a skill the person's own onboarding script just told the agent to read.
+
 ## Core principle
 
 **Scope is enforced by binding, not by prompt instruction.** Each skill declares the
