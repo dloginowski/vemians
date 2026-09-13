@@ -162,40 +162,36 @@ check("test_PRD_P0_71_items_tab__tab_equals_website_starts_the_iframe_on_the_pub
   assert.match(body, /data-src="https:\/\/vemians\.com"[^>]*class="active"/);
 });
 
-check("test_PRD_P0_71_items_tab__the_tabs_have_visibly_rounded_corners_without_becoming_pills", async () => {
-  /* 6px, then 10px, then briefly 30px ("triple tab radius"), corrected to
-     20px ("Double ratius [radius]... not triple") on TOP corners only,
-     then a uniform 20px on every corner ("paper tabs that got cut out")
-     — which, on a ~29px-tall button, rounds so far it erases the corners
-     into one capsule. The owner's own words, immediately: "No! Not
-     pills! Tabs!" 8px, uniform on every corner, stays clearly a rounded
-     RECTANGLE rather than a stadium shape. */
+check("test_PRD_P0_71_items_tab__the_tabs_are_top_rounded_and_square_on_the_bottom_not_pills", async () => {
+  /* A long detour: 6px top-only, then 10px, briefly 30px on every corner
+     ("triple tab radius"), corrected to 20px on every corner ("Double
+     ratius... not triple", then "bottom radiused too... paper tabs cut
+     out"), then 8px on every corner ("No! Not pills! Tabs!") — which
+     STILL read as pills once actually on screen, because the shape had
+     both ends rounded regardless of the radius value. The owner's own
+     words, emphatically: "They need to look like tabs! More radiused.
+     NOT PILLS ON TOP OF A LINE." Landed on the classic tabbed-pane
+     shape: rounded TOP corners only (14px, more generous than any
+     top-only value used before), a flat SQUARE bottom — a pill needs
+     BOTH ends rounded, and this one only ever has one. */
   const { body } = await shell(OWNER);
-  assert.match(body, /\.shell-nav button\s*\{[^}]*border-radius:\s*8px[;\s]/s);
-  assert.doesNotMatch(body, /\.shell-nav button\s*\{[^}]*border-radius:\s*20px/s, "the pill-inducing 20px must be gone");
+  assert.match(body, /\.shell-nav button\s*\{[^}]*border-radius:\s*14px 14px 0 0/s);
+  assert.doesNotMatch(body, /\.shell-nav button\s*\{[^}]*border-radius:\s*(8px|20px|30px)[;\s]/s, "no all-corners radius (the pill shape) may remain");
 });
 
-check("test_PRD_P0_71_items_tab__a_cut_out_tab_keeps_its_own_full_border_on_every_side", async () => {
-  /* The OLD tabbed-pane merge trick removed the tab's own bottom border
-     entirely (border-bottom: none) so the panel's own line could show
-     through in its place — wrong for a "cut out" tab, which is its own
-     complete shape, border on every side. */
-  const { body } = await shell(OWNER);
-  assert.doesNotMatch(body, /\.shell-nav button\s*\{[^}]*border-bottom:\s*none/s);
-});
-
-check("test_PRD_P0_71_items_tab__the_active_tabs_own_border_fuses_with_the_panels_accent_line", async () => {
+check("test_PRD_P0_71_items_tab__the_active_tab_structurally_merges_into_the_panel_not_just_matches_its_colour", async () => {
   /* The owner's own words: "imagine the bottom orange edge, smoothly
      curves up the tab. Over the tab and smoothly transitions down and
-     keeps going right." The active tab keeps its own full, all-corners-
-     rounded border (the check above) — pulling it down by exactly the
-     shared 1px border width makes its own bottom edge and the panel's
-     own top border occupy the same pixel row across the tab's width,
-     reading as one continuous accent stroke rather than two lines that
-     merely touch. */
+     keeps going right." A genuine merge, not two colour-matched lines
+     standing in for one: the active tab's own bottom border is removed
+     entirely (border-bottom: none, same as every tab now) and its
+     background matches the panel's, so it structurally opens into what
+     it fronts rather than floating above it as an independent, fully-
+     bordered piece. */
   const { body } = await shell(OWNER);
+  assert.match(body, /\.shell-nav button\s*\{[^}]*border-bottom:\s*none/s);
   assert.match(body, /\.shell-nav button\.active\s*\{[^}]*margin-bottom:\s*-1px/s);
-  assert.match(body, /\.shell-panel\s*\{[^}]*border-top:\s*1px solid var\(--accent\)/s, "the panel's own line the active tab fuses with must still be there");
+  assert.match(body, /\.shell-panel\s*\{[^}]*border-top:\s*1px solid var\(--accent\)/s, "the panel's own line the active tab merges into must still be there");
 });
 
 check("test_PRD_P0_71_items_tab__the_first_tab_lines_up_with_the_inner_chat_content_not_ops_own_edge", async () => {

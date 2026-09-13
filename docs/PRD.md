@@ -1041,6 +1041,18 @@ that does not trace to one of these is a process failure (see §12).
     the SAME pixel row across the tab's width, so the accent line reads as one continuous stroke
     that follows the tab's own rounded corners up and over rather than two lines that merely touch.
 
+    **That attempt read as pills sitting on top of a line once actually on screen, not tabs.** The
+    owner's own words, emphatically: "They need to look like tabs! More radiused. NOT PILLS ON TOP
+    OF A LINE." Every corner rounded (even the deliberately restrained `8px` from the round before)
+    is a pill regardless of the radius value, because a pill is defined by BOTH ends being rounded
+    — the fix was never the number. Landed on the classic tabbed-pane shape this whole thread
+    circled back to: `.shell-nav button` rounds its TOP corners only (`14px 14px 0 0` — more
+    generous than any top-only value this shape used before, satisfying "more radiused" without
+    ever risking a pill, since the bottom stays square), and the active tab's own bottom border is
+    removed entirely (`border-bottom: none`, same as every tab) rather than merely colour-matched
+    and overlapped — a genuine structural merge into `.shell-panel` below it, not two lines
+    standing in for one.
+
 47b. **`Test-PRD-P0-72-product_detail_page`** — Every product has its own page at
     `/products/<handle>` — the answer to "how do I see product details", asked directly, of a
     shop whose cards used to be `<article>`s with no click-through at all. `loadProduct(env,
