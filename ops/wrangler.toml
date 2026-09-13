@@ -338,7 +338,7 @@ database_id   = "9addc2c1-7f22-44be-bf93-f8e831905ce7"
 [[d1_databases]]
 binding       = "ASSETS"             # asset-drop-site index; append-only, see shared/db/assets.sql
 database_name = "vemians-assets"
-database_id   = "PLACEHOLDER-run-bootstrap-d1"
+database_id   = "e8788eab-50b1-4639-a7a1-9bde14bc8005"
 
 # Our copy of Square's authoritative catalog (shared/commerce/square/schema.sql,
 # ADR-009). READ by the agent tools — the closed set of categories, the price
