@@ -273,6 +273,26 @@ check("test_PRD_P0_71_items_tab__the_notch_overlaps_the_floor_by_a_pixel_so_subp
   assert.match(body, /\.shell-nav button\.active::before,\s*\n\.shell-nav button\.active::after\s*\{[^}]*height:\s*calc\(var\(--tab-radius\) \+ 1px\)/s);
 });
 
+check("test_PRD_P0_71_items_tab__the_notch_radius_matches_its_own_taller_box_not_just_its_width", async () => {
+  /* "They aren't matching up" — zoomed in, a small straight flag hung
+     off the curve. A single-value border-radius still equalled the
+     box's OLD 14px height, one px short of the 15px height the subpixel
+     fix (above) grew it to, so the arc consumed only 14 of the 15 and
+     left a straight sliver where a pure curve should be. Both radii
+     must be sized to their own matching dimension: width
+     (--tab-radius) horizontally, the box's own taller height
+     (--tab-radius + 1px) vertically. */
+  const { body } = await shell(OWNER);
+  assert.match(
+    body,
+    /\.shell-nav button\.active::before\s*\{[^}]*border-bottom-right-radius:\s*var\(--tab-radius\) calc\(var\(--tab-radius\) \+ 1px\)/s,
+  );
+  assert.match(
+    body,
+    /\.shell-nav button\.active::after\s*\{[^}]*border-bottom-left-radius:\s*var\(--tab-radius\) calc\(var\(--tab-radius\) \+ 1px\)/s,
+  );
+});
+
 check("test_PRD_P0_71_items_tab__the_gap_between_tabs_is_wide_enough_the_notches_never_bite_a_neighbour", async () => {
   /* The notches above reach 14px outside the active tab's own edge — the
      original 3px gap between tabs would have let that paint over part of

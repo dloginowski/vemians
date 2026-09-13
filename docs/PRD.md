@@ -1155,6 +1155,19 @@ that does not trace to one of these is a process failure (see §12).
     through — a thin accent outline tracing the curve, reading as one unbroken line with the
     straight border above it instead of the border stopping dead into a flood of near-black.
 
+    **"They aren't matching up" — a small flag hanging off the curve, found from a zoomed-in
+    screenshot.** The subpixel-seam fix earlier grew the notch pseudo-element's own height by 1px
+    (14px → 15px) without growing its `border-*-radius` to match — still a single value equal to
+    the box's OLD 14px height, one px short of the new one. A `border-radius` corner only rounds as
+    much of the box as the radius covers; short by 1px, the arc consumed 14 of the 15 available
+    pixels and left a straight 1px sliver where the curve should have run all the way through —
+    small in near-black, but glaring once the new accent outline (above) traced it in orange, which
+    is what the owner's zoomed screenshot actually showed. Both `border-bottom-right-radius` and
+    `border-bottom-left-radius` now take TWO values instead of one — horizontal radius
+    `var(--tab-radius)` matching the box's own width, vertical radius `calc(var(--tab-radius) +
+    1px)` matching its own taller height — turning the shape back into one unbroken quarter-ellipse
+    with no leftover straight edge.
+
 47b. **`Test-PRD-P0-72-product_detail_page`** — Every product has its own page at
     `/products/<handle>` — the answer to "how do I see product details", asked directly, of a
     shop whose cards used to be `<article>`s with no click-through at all. `loadProduct(env,

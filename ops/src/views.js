@@ -287,7 +287,17 @@ html, body { height: 100%; margin: 0; }
    physical pixels, leaving a hairline gap the header's own background
    shows through — read as a thin dark seam right on the curve. Forcing
    a deliberate 1px overlap into the floor removes the gap regardless of
-   which way any given browser's rounding falls. */
+   which way any given browser's rounding falls.
+   border-*-radius takes TWO values (horizontal var(--tab-radius),
+   vertical calc(var(--tab-radius) + 1px)) rather than one, matching
+   width and the new height exactly — "they aren't matching up," the
+   owner's own words, zoomed in on a small straight flag hanging off the
+   curve. A single-value radius still equalled the box's OLD 14px
+   height, one px short of its new 15px height, so the arc consumed
+   only 14 of the 15 and left a straight 1px sliver — visible as a
+   small flat step (the accent outline made it obvious) rather than a
+   clean curve. Sizing both radii to their own matching dimension turns
+   the whole box back into a single unbroken quarter-ellipse. */
 .shell-nav button.active::before,
 .shell-nav button.active::after {
   content: "";
@@ -299,14 +309,14 @@ html, body { height: 100%; margin: 0; }
 }
 .shell-nav button.active::before {
   left: calc(var(--tab-radius) * -1);
-  border-bottom-right-radius: var(--tab-radius);
+  border-bottom-right-radius: var(--tab-radius) calc(var(--tab-radius) + 1px);
   box-shadow:
     calc(var(--tab-radius) / 2) 0 0 0 var(--ground),
     calc(var(--tab-radius) / 2) 0 0 1px var(--accent);
 }
 .shell-nav button.active::after {
   right: calc(var(--tab-radius) * -1);
-  border-bottom-left-radius: var(--tab-radius);
+  border-bottom-left-radius: var(--tab-radius) calc(var(--tab-radius) + 1px);
   box-shadow:
     calc(var(--tab-radius) / -2) 0 0 0 var(--ground),
     calc(var(--tab-radius) / -2) 0 0 1px var(--accent);
