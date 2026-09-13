@@ -74,7 +74,13 @@ a:hover { opacity: 0.82; }
 
 const OPS_CSS = `
 ${OPS_DARK_CSS}
-.ops { max-width: 34rem; padding: 12px 16px 32px; }
+/* 34rem was tuned for "one screen on a phone" before this page grew a chat
+   widget, tables and an accordion of real content — on an actual desktop
+   window it read as a narrow column stranded in the middle of empty space.
+   Wide enough now to use a real monitor; still capped, so a line of prose in
+   the accordion below does not stretch across a 4K display and become hard
+   to read. */
+.ops { max-width: 64rem; padding: 12px 24px 32px; }
 
 .id { font-size: var(--eyebrow); margin: 0 0 16px; color: var(--muted); }
 .ops .warn { margin: 0 0 14px; }
