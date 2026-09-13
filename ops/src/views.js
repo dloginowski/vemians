@@ -70,6 +70,13 @@ const OPS_DARK_CSS = `
 
 a { color: var(--accent); }
 a:hover { opacity: 0.82; }
+
+/* theme.css's .bar sets color: var(--ground) — on the storefront that's a
+   light warm off-white against the same black bar, so it reads fine. Here
+   --ground is redefined to a near-black for the dark ground itself, which
+   left the "ops.vemians.com · employees only" strip nearly invisible: near-
+   black text on a black bar. A dim, deliberately unobtrusive gray instead. */
+.bar { color: var(--muted); }
 `;
 
 const OPS_CSS = `

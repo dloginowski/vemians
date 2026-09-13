@@ -289,6 +289,15 @@ check("test_PRD_P0_75_ops_dark_theme__every_approval_style_page_carries_it_too",
   }
 });
 
+check("test_PRD_P0_75_ops_dark_theme__the_employees_only_bar_is_readable_on_the_black_bar", async () => {
+  /* theme.css's .bar sets color: var(--ground) — a light warm off-white on
+     the storefront, but --ground is redefined to a near-black #191817 for
+     the ops dark ground, which left "ops.vemians.com · employees only"
+     nearly invisible: near-black text on the same black bar. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.bar\s*\{\s*color:\s*var\(--muted\)/, "the bar text must not inherit --ground once --ground is near-black");
+});
+
 check("test_PRD_P0_75_ops_dark_theme__no_hardcoded_grey_survives_the_reskin", async () => {
   /* #666 was this file's own stand-in for secondary text under the light
      theme; left in place it reads as a barely-visible dark grey on the new
