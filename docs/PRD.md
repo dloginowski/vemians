@@ -685,6 +685,52 @@ that does not trace to one of these is a process failure (see §12).
     result reaches the model on every client, `instructions` or not. Both read from the same
     `firstNameFrom()`, so there is one answer, not two that can disagree.
 
+34a''. **`Test-PRD-P0-68-one_click_ops_chat`** — Connecting a third-party assistant (Claude,
+    ChatGPT) is a real, deliberate option, but it is not the ONE-CLICK path: it needs the person
+    to leave `ops.vemians.com`, open their own client's connector settings, paste a URL, and
+    complete a separate sign-in. The built-in browser chat already on the ops front page (`/agent`,
+    `agent.js`) is the one-click path — a coworker is already signed in to see the page at all,
+    so asking a question there is the whole interaction. It existed all session with its own
+    bare system prompt and none of the greeting-and-menu work — a person using it got a plain
+    Q&A assistant while the "real" experience lived only in the MCP path nobody reaches without
+    leaving the page first.
+
+    `greetingScript(firstName)` (`ops/src/greeting.js`) is the fix: the FIRST MESSAGE / SECOND
+    MESSAGE / "Submit Expenses is different" / "that link is a real form" protocol, extracted
+    into its own dependency-free module and shared VERBATIM by `buildInstructions()` (MCP) and
+    `agent.js`'s `systemPrompt()` (the built-in chat) — one text, not two prompts describing the
+    same four choices in almost the same words until one of them drifts. `systemPrompt()` also
+    now resolves the person's real first name the same way (`firstNameFrom`), so the one-click
+    chat opens exactly like the MCP path: "Hi Ana — 1) Add Merchandise 2) Add Customers
+    3) Submit Expenses 4) More Options."
+
+    **This surface has a real dependency the others do not.** `/agent` calls the Anthropic
+    Messages API directly and needs `ANTHROPIC_API_KEY` set as a Worker secret; with it unset,
+    `agentTurn()` degrades to an echo stub rather than erroring, which is correct behaviour for a
+    prototype with no key configured but means "one click, stupid simple" is only actually true
+    once that secret exists on this deployment — unconfirmed from this environment, the same as
+    every other secret-gated behaviour in this codebase.
+
+34a'''. **`Test-PRD-P0-69-one_click_welcome_menu`** — The FIRST thing on the ops front page,
+    immediately after the identity line, is a literal welcome message by first name with four
+    clickable choices — **Add Merchandise, Add Customers, Submit Expenses, More Options** — the
+    same four words as the chat greeting (P0-62/P0-68), but as real page buttons rather than a
+    conversation someone has to start. The first three are direct links to routes that already
+    do the whole job with no assistant at all (`/products/batch`, `/customers/batch`,
+    `/expenses/new`); "More Options" is an in-page anchor to everything else — a single photo,
+    dropping a file, the built-in chat, connecting a third-party assistant.
+
+    **This supersedes P0-54's earlier framing.** The front page used to have "one job for almost
+    everyone: hand over the address to paste into their own assistant" — true when the only way
+    to use this surface was to leave it for someone else's client. It is no longer true: the
+    one-click menu is the primary path and sits above even that address, and the built-in chat
+    (P0-68) that used to live captioned "your own assistant is the one worth using" inside a
+    closed accordion is now open at rest, right where "More Options" points, because steering
+    people away from the one surface that needs no setup at all was the opposite of "stupid
+    simple." Connecting a third-party assistant is still there, still real, just demoted to what
+    it actually is now: an option for someone who prefers their own client or wants to hand it a
+    photo from their own device, not the thing everyone is assumed to want.
+
 34b. **`Test-PRD-P0-63-editable_approval`** — The `/approvals/` page is a real, editable form for
     the two tools the spreadsheet and narrated-list flows actually produce
     (`catalog.create_product`, `customer.create`): a coworker can fix a typo'd title or a wrong
@@ -985,6 +1031,8 @@ Where each feature is enforced today:
 | P0-65 | `ops/test/tools.test.mjs` for the tool layer and extraction; `ops/test/assets-route.test.mjs` for the upload/download/list routes, over the real Worker |
 | P0-66 | `ops/test/tools.test.mjs` for `parseReceiptText` and the OCR fallback; `ops/test/expenses-route.test.mjs` for the scan/confirm/file routes, over the real Worker; `ops/test/mcp-instructions.test.mjs` and `ops/test/skills.test.mjs` for the "no tool, send them to the link" instruction |
 | P0-67 | `ops/test/skills.test.mjs` for `firstNameFrom` and `buildInstructions()`; no round-trip test yet exercises `skills_list`'s wire response directly — this file has no harness that calls a registered MCP tool handler, for any tool, not only this one |
+| P0-68 | `ops/test/agent-greeting.test.mjs` for `systemPrompt()`'s greeting; no test yet drives `agentTurn()` end to end (the whole file has no test coverage of the Anthropic call loop itself, not only the greeting) |
+| P0-69 | `ops/test/ops-page.test.mjs`, over the real Worker |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

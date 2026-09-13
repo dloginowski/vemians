@@ -12,6 +12,7 @@
 import { esc, money, page } from "../../shared/view/html.js";
 import { CAPS } from "./tools/caps.js";
 import { editableFieldsFor } from "./approval-forms.js";
+import { firstNameFrom } from "./access.js";
 
 /*
  * ---- the front page -------------------------------------------------------
@@ -52,6 +53,16 @@ const OPS_CSS = `
   text-decoration: none;
 }
 .key .btn:hover { background: var(--ink); color: var(--ground); }
+
+.menu { margin: 0 0 20px; }
+.menu h1 { font-size: var(--type); font-weight: 700; margin: 0 0 4px; }
+.choices { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.choices .btn {
+  display: inline-block; font: inherit; font-size: var(--eyebrow);
+  padding: 10px 16px; border: 1px solid var(--ink); color: var(--ink);
+  text-decoration: none;
+}
+.choices .btn:hover { background: var(--ink); color: var(--ground); }
 
 /* One copyable line. The <pre> scrolls rather than wrapping, so a long command
    never reflows the page on a phone; the button stays beside it at every width
@@ -258,28 +269,31 @@ export function opsPage(identity, { customers, week, bindings, hasKey, role, rol
     ? `<p class="id"><strong>${esc(identity.email)}</strong> &middot; role <strong>${esc(role || "none")}</strong> &middot; ${esc(source)}</p>`
     : `<div class="warn">Unsigned assertion accepted — ACCESS_TEAM_DOMAIN and ACCESS_AUD are unset. Prototype mode only. Claimed: <strong>${esc(identity.email)}</strong> &middot; role <strong>${esc(role || "none")}</strong>.</div>`;
 
+  const firstName = firstNameFrom(identity.claims, identity.email);
+
   return page(
     "Vemians ops",
     `<div class="bar">ops.vemians.com &middot; employees only</div>
 <main class="ops">
 ${id}
 
+  <section class="menu">
+    <h1>Hi ${esc(firstName)} — what would you like to do?</h1>
+    <p class="hint">Pick one. No assistant, no setup — this is the whole interaction.</p>
+    <div class="choices">
+      <a class="btn" href="/products/batch">Add Merchandise</a>
+      <a class="btn" href="/customers/batch">Add Customers</a>
+      <a class="btn" href="/expenses/new">Submit Expenses</a>
+      <a class="btn" href="#more-options">More Options</a>
+    </div>
+  </section>
+
+  <div id="more-options">
+
   <section class="key">
     <h1>Add a photo</h1>
     <p class="hint">One photo per click. No assistant needed.</p>
     <p><a class="btn" href="/media/new">Add a photo</a></p>
-  </section>
-
-  <section class="key">
-    <h1>Add products from a spreadsheet</h1>
-    <p class="hint">One product per row. No assistant needed.</p>
-    <p><a class="btn" href="/products/batch">Upload a spreadsheet</a></p>
-  </section>
-
-  <section class="key">
-    <h1>Add customers from a spreadsheet</h1>
-    <p class="hint">One customer per row, straight into Square. No assistant needed.</p>
-    <p><a class="btn" href="/customers/batch">Upload a spreadsheet</a></p>
   </section>
 
   <section class="key">
@@ -289,20 +303,30 @@ ${id}
   </section>
 
   <section class="key">
-    <h1>Scan a receipt</h1>
-    <p class="hint">Photograph it, confirm what we read, and it's filed under your name. No assistant needed.</p>
-    <p><a class="btn" href="/expenses/new">Scan a receipt</a></p>
+    <h1>Ask the ops assistant</h1>
+    <p class="hint">Anything not covered above — look something up, describe a product instead of using a
+       spreadsheet, ask a question. Built in, answered right here, nothing to set up.</p>
+    ${bindingsLine(bindings, hasKey)}
+    <div class="log" id="log"></div>
+    <div id="gate"></div>
+    <form class="chat" id="chat" method="post" action="/ops/agent">
+      <input name="q" id="q" placeholder="Ask about the catalog, orders, stock or the schedule" autocomplete="off">
+      <button type="submit">Send</button>
+    </form>
   </section>
 
   <section class="key">
-    <h1>Connect your assistant</h1>
-    <p class="hint">Paste this into your Claude or ChatGPT to get started.</p>
+    <h1>Connect your own Claude or ChatGPT instead</h1>
+    <p class="hint">For someone who prefers their own assistant, or wants to hand it a photo straight from
+       their device. Paste this into it to get started.</p>
     ${copyLine(mcpUrl)}
     <p class="hint">Then say this, so it learns how we do things.</p>
     ${copyLine("Read the vemians skills, then tell me what you can do here.", { wrap: true })}
     ${copyLine("Find every black boot in the catalog and show me what is out of stock.", { wrap: true })}
     ${copyLine("Here is a photo. Draft a product from it: brand, name, description, price.", { wrap: true })}
   </section>
+
+  </div>
 
   <div class="acc">
 
@@ -405,19 +429,6 @@ ${perRole
          }</p>
       <p><strong>Identity.</strong> The actor and the role come from the Access assertion on every
          request. They are never arguments; a call whose arguments mention either is refused.</p>
-    </details>
-
-    <details class="aside">
-      <summary>Ask here instead</summary>
-      <p>A box for a quick question without connecting anything. Your own assistant, set up at the
-         top of this page, is the one worth using.</p>
-      ${bindingsLine(bindings, hasKey)}
-      <div class="log" id="log"></div>
-      <div id="gate"></div>
-      <form class="chat" id="chat" method="post" action="/ops/agent">
-        <input name="q" id="q" placeholder="Ask about the catalog, orders, stock or the schedule" autocomplete="off">
-        <button type="submit">Send</button>
-      </form>
     </details>
 
     <details class="aside">

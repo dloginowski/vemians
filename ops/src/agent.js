@@ -55,7 +55,8 @@ const ROLES = ["staff", "manager", "owner"];
    exactly one. Re-exported so existing callers keep working. */
 /* Imported, not re-exported blind: `export … from` creates no local
    binding, so the module could not call it. */
-import { roleFor } from "./access.js";
+import { roleFor, firstNameFrom } from "./access.js";
+import { greetingScript } from "./greeting.js";
 export { roleFor };
 
 
@@ -125,13 +126,24 @@ export function toolDefinitions(role) {
   }));
 }
 
-function systemPrompt(actor, role, defs) {
-  return [
-    `You are the Vemians ops assistant on ops.vemians.com. The person you are talking to is ${actor}, role ${role}.`,
-    `You have exactly ${defs.length} tool${defs.length === 1 ? "" : "s"}. That list is the whole of what you can reach: it is built from this person's role before the request leaves the Worker, so anything absent from it is unreachable, not merely forbidden. Do not describe tools you do not have, and do not offer to run one.`,
-    "Tools marked tier 2 stop for human approval before they execute. Call them normally when they are the right tool; the Worker handles the gate.",
-    "Answer from tool results, not from memory. If a tool refuses, say what it refused and stop. Be brief and plain.",
-  ].join("\n\n");
+/*
+ * This built-in browser chat is the "stupid simple" path — the one click
+ * from the ops front page, no external app, no connector setup. It has to
+ * open the SAME way the MCP path does (P0-62/P0-68), or "one click from ops"
+ * quietly means "a worse, unbranded version of the real thing" instead of
+ * the primary experience it is meant to be.
+ */
+export function systemPrompt(actor, role, defs, claims) {
+  const firstName = firstNameFrom(claims, actor);
+  return (
+    [
+      `You are the Vemians ops assistant on ops.vemians.com. The person you are talking to is ${actor}` +
+        ` (${role}), first name ${firstName}.`,
+      `You have exactly ${defs.length} tool${defs.length === 1 ? "" : "s"}. That list is the whole of what you can reach: it is built from this person's role before the request leaves the Worker, so anything absent from it is unreachable, not merely forbidden. Do not describe tools you do not have, and do not offer to run one.`,
+      "Tools marked tier 2 stop for human approval before they execute. Call them normally when they are the right tool; the Worker handles the gate.",
+      "Answer from tool results, not from memory. If a tool refuses, say what it refused and stop. Be brief and plain.",
+    ].join("\n\n") + "\n\n" + greetingScript(firstName).trim()
+  );
 }
 
 /* ---- the approval gate (P0-25) ----------------------------------------- *
@@ -291,7 +303,7 @@ export async function agentTurn({ q, identity, env }) {
     const { message, error } = await callClaude(env, {
       model: MODEL,
       max_tokens: MAX_TOKENS,
-      system: systemPrompt(actor, role, defs),
+      system: systemPrompt(actor, role, defs, identity),
       tools: defs,
       messages,
     });

@@ -172,6 +172,47 @@ check("test_PRD_P0_54_skill_discovery__only_the_address_and_the_prompts_are_open
   assert.ok(main.slice(firstFold).includes("claude mcp add"), "but it must still be on the page");
 });
 
+check("test_PRD_P0_69_one_click_welcome_menu__greets_by_first_name_with_the_four_choices_above_everything_else", async () => {
+  /* The literal ask: a welcome message, by name, offering Add Merchandise /
+     Add Customers / Submit Expenses / More Options — reachable without
+     leaving the page, without connecting anything, in one click. This is
+     the FIRST thing on the page after the identity line, ahead of even the
+     "connect your own assistant" address (P0-54's own prior "one job"
+     framing, superseded: a local one-click menu is the primary path now,
+     the external connector a secondary one for someone who prefers it). */
+  const { body } = await frontPage(OWNER);
+  const main = body.slice(body.indexOf("<main"));
+  assert.match(main, /Hi Owner — what would you like to do/, "greets by the resolved first name");
+
+  const order = ["Add Merchandise", "Add Customers", "Submit Expenses", "More Options"];
+  let cursor = -1;
+  for (const item of order) {
+    const at = main.indexOf(item);
+    assert.ok(at !== -1, `"${item}" is missing from the welcome menu`);
+    assert.ok(at > cursor, `"${item}" is out of order`);
+    cursor = at;
+  }
+  assert.ok(cursor < main.indexOf("/mcp"), "the one-click menu must come before the external connector address");
+
+  assert.match(main, /href="\/products\/batch"[^>]*>Add Merchandise/);
+  assert.match(main, /href="\/customers\/batch"[^>]*>Add Customers/);
+  assert.match(main, /href="\/expenses\/new"[^>]*>Submit Expenses/);
+});
+
+check("test_PRD_P0_69_one_click_welcome_menu__the_built_in_chat_is_the_more_options_fallback_not_a_folded_afterthought", async () => {
+  /* The chat box used to live in a closed <details> captioned "your own
+     assistant is the one worth using" — actively steering away from the one
+     surface that needs no setup at all. It is now open, and framed as the
+     fallback for what the three direct links do not cover. */
+  const { body } = await frontPage(OWNER);
+  assert.doesNotMatch(body, /<summary>Ask here instead<\/summary>/, "no longer folded under its old caption");
+  const main = body.slice(body.indexOf("<main"));
+  const chatAt = main.indexOf('id="chat"');
+  const firstFold = main.indexOf("<details");
+  assert.ok(chatAt > -1, "the chat box must still be on the page");
+  assert.ok(chatAt < firstFold, "and it must be open at rest, not inside the accordion");
+});
+
 check("test_PRD_P0_54_skill_discovery__the_copy_control_is_an_icon_with_a_reachable_label", async () => {
   /* An icon-only control is a control with no name unless it carries one. */
   const { body } = await frontPage(OWNER);
