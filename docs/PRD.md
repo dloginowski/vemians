@@ -1163,6 +1163,17 @@ that does not trace to one of these is a process failure (see §12).
     curve's own reach (`--tab-radius`) begins, so they can never touch or distort it. Plain and
     disconnected from the curve beats decorated and broken.
 
+    **"The right one has to have its left edge aligned and vice versa"** — the curve's own inner
+    edge, where it meets the tab, was 1px short of the border line rather than flush against it. An
+    absolutely positioned element's own offsets (`left`/`right` here) are measured from its
+    containing block's PADDING edge, which sits one border-width INSIDE the button's actual visible
+    border — `box-sizing: border-box` draws that 1px border OUTSIDE the padding box, not as part of
+    it. `left: calc(var(--tab-radius) * -1)` therefore started the notch exactly at the padding
+    edge, 1px inside where the border itself actually is. Both offsets now carry one more `- 1px`
+    (`calc(var(--tab-radius) * -1 - 1px)` for `::before`'s `left`, the mirrored form for
+    `::after`'s `right`), pushing each pseudo-element out to start precisely on the border line
+    instead of one pixel short of it.
+
 47b. **`Test-PRD-P0-72-product_detail_page`** — Every product has its own page at
     `/products/<handle>` — the answer to "how do I see product details", asked directly, of a
     shop whose cards used to be `<article>`s with no click-through at all. `loadProduct(env,
