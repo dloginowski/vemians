@@ -504,6 +504,263 @@ check("test_PRD_P0_60_spreadsheet_products__more_rows_than_the_cap_is_refused_be
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
+ * P0-63 — the /approvals/ page is a real form, driven the way a browser
+ * actually drives it (worker.fetch, not runTool/approvePending called
+ * directly) — the exact gap that let a ReferenceError on `email` ship
+ * undetected in the POST handler: every earlier test of this path called
+ * approvePending() straight from the test file, never through index.js's
+ * own route, so nothing ever exercised the line that crashed.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+/* GET only reads `role` from the claims — decoded-but-unverified is enough,
+   the same shortcut every other worker.fetch test in this repo already
+   takes on localhost. */
+function assertion(claims) {
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  return `${b64({ alg: "RS256" })}.${b64(claims)}.signature`;
+}
+
+const HTTP_ENV_EXTRA = { SURFACE: "ops", MANAGER_POLICY_ID: "policy-manager", STAFF_POLICY_ID: "policy-staff" };
+const MANAGER_CLAIMS = { email: "mara@vemians.com", policy_id: "policy-manager" };
+
+async function getApproval(env, id, claims = MANAGER_CLAIMS) {
+  const worker = (await import("../src/index.js")).default;
+  return worker.fetch(
+    new Request(`http://localhost/approvals/${id}`, { headers: { "Cf-Access-Jwt-Assertion": assertion(claims) } }),
+    { ...env, ...HTTP_ENV_EXTRA },
+  );
+}
+
+/*
+ * approvePending() REFUSES an unverified assertion outright ("An unverified
+ * assertion may read. It may not authorise a write.") — so a POST test has
+ * to produce the real thing: a genuinely RS256-signed assertion plus a JWKS
+ * endpoint that serves the matching public key, exactly what access.js's
+ * verifySignature() actually checks. A fresh team domain (and so a fresh
+ * JWKS URL) per call sidesteps access.js's own hour-long JWKS cache, which
+ * is keyed by URL and module-level — reusing one across tests would verify
+ * the SECOND test's token against the FIRST test's key.
+ */
+async function verifiedPost(env, claims) {
+  const teamDomain = `test-${crypto.randomUUID()}.cloudflareaccess.com`;
+  const aud = "test-aud";
+  const kid = "k1";
+
+  const keyPair = await crypto.subtle.generateKey(
+    { name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
+    true,
+    ["sign", "verify"],
+  );
+  const jwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
+  const jwksUrl = `https://${teamDomain}/cdn-cgi/access/certs`;
+  const jwksBody = { keys: [{ kty: jwk.kty, n: jwk.n, e: jwk.e, kid, alg: "RS256" }] };
+
+  const b64url = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const header = b64url({ alg: "RS256", kid });
+  const payload = b64url({ ...claims, aud });
+  const sig = await crypto.subtle.sign(
+    "RSASSA-PKCS1-v1_5",
+    keyPair.privateKey,
+    new TextEncoder().encode(`${header}.${payload}`),
+  );
+  const token = `${header}.${payload}.${Buffer.from(sig).toString("base64url")}`;
+
+  /* Layered over whatever fetch is already installed (a test's own fake
+     Square fetch), so a JWKS request is served here and everything else
+     falls through unchanged. */
+  const under = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    if (String(url) === jwksUrl) return new Response(JSON.stringify(jwksBody), { status: 200 });
+    return under(url, init);
+  };
+
+  return {
+    token,
+    env: { ...env, ACCESS_TEAM_DOMAIN: teamDomain, ACCESS_AUD: aud },
+    restore: () => {
+      globalThis.fetch = under;
+    },
+  };
+}
+
+async function postApproval(env, id, formFields, claims = MANAGER_CLAIMS) {
+  const worker = (await import("../src/index.js")).default;
+  const { token, env: verifiedEnv, restore } = await verifiedPost(env, claims);
+  try {
+    const form = new FormData();
+    for (const [k, v] of Object.entries(formFields)) form.set(k, v);
+    return await worker.fetch(
+      new Request(`http://localhost/approvals/${id}`, {
+        method: "POST",
+        headers: { "Cf-Access-Jwt-Assertion": token },
+        body: form,
+      }),
+      { ...verifiedEnv, ...HTTP_ENV_EXTRA },
+    );
+  } finally {
+    restore();
+  }
+}
+
+check("test_PRD_P0_63_editable_approval__submitting_unchanged_actually_creates_the_product", async () => {
+  /* THE REGRESSION. A real POST through the real Worker route, with no
+     edits — this is what "just click submit" has to do, and it is exactly
+     what crashed with `email is not defined` before this was fixed. */
+  const f = await fixture({ actor: "assistant@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const args = { ...COAT, category_id: outerwear.id };
+  const gate = await runTool("catalog.create_product", args, f.ctx);
+  const { id } = await parkForApproval(f.env, {
+    name: "catalog.create_product",
+    args,
+    actor: f.ctx.actor,
+    role: f.ctx.role,
+    tier: "T2",
+    summary: gate.data.would,
+  });
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let res;
+  try {
+    /* The form's own prefilled values, submitted back unchanged — no edits,
+       just "yes". */
+    res = await postApproval(f.env, id, {
+      title: COAT.title,
+      description: COAT.description,
+      category_id: outerwear.id,
+      price: (COAT.variations[0].price_minor / 100).toFixed(2),
+      sku: COAT.variations[0].sku,
+    });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.equal(res.status, 200, await res.text());
+  assert.ok(f.calls().some((c) => c.path === "/v2/catalog/object"), "the product must actually reach Square");
+});
+
+check("test_PRD_P0_63_editable_approval__the_get_page_shows_editable_fields_prefilled", async () => {
+  const f = await fixture({ actor: "assistant@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const args = { ...COAT, category_id: outerwear.id };
+  const gate = await runTool("catalog.create_product", args, f.ctx);
+  const { id } = await parkForApproval(f.env, {
+    name: "catalog.create_product",
+    args,
+    actor: f.ctx.actor,
+    role: f.ctx.role,
+    tier: "T2",
+    summary: gate.data.would,
+  });
+
+  const res = await getApproval(f.env, id);
+  const html = await res.text();
+  assert.equal(res.status, 200);
+  assert.match(html, /name="title"[^>]*value="Belted gabardine trench coat"/);
+  assert.match(html, /<option value="[^"]+" selected>Outerwear<\/option>/);
+  assert.match(html, /name="price"[^>]*value="1890\.00"/);
+});
+
+check("test_PRD_P0_63_editable_approval__an_edited_price_is_what_actually_gets_created", async () => {
+  const f = await fixture({ actor: "assistant@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const args = { ...COAT, category_id: outerwear.id };
+  const gate = await runTool("catalog.create_product", args, f.ctx);
+  const { id } = await parkForApproval(f.env, {
+    name: "catalog.create_product",
+    args,
+    actor: f.ctx.actor,
+    role: f.ctx.role,
+    tier: "T2",
+    summary: gate.data.would,
+  });
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let res;
+  try {
+    res = await postApproval(f.env, id, {
+      title: "Belted gabardine trench coat — sample",
+      category_id: outerwear.id,
+      price: "225.00",
+      sku: COAT.variations[0].sku,
+    });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.equal(res.status, 200, await res.text());
+  const upsert = f.calls().find((c) => c.path === "/v2/catalog/object");
+  assert.ok(upsert, "the edited proposal must still reach Square");
+  const variation = upsert.body.object.item_data.variations[0];
+  assert.equal(variation.item_variation_data.price_money.amount, 22500, "the EDITED price, not the original 189000");
+  assert.equal(upsert.body.object.item_data.name, "Belted gabardine trench coat — sample");
+});
+
+check("test_PRD_P0_63_editable_approval__an_edit_that_will_not_parse_is_refused_before_square_sees_it", async () => {
+  const f = await fixture({ actor: "assistant@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const args = { ...COAT, category_id: outerwear.id };
+  const gate = await runTool("catalog.create_product", args, f.ctx);
+  const { id } = await parkForApproval(f.env, {
+    name: "catalog.create_product",
+    args,
+    actor: f.ctx.actor,
+    role: f.ctx.role,
+    tier: "T2",
+    summary: gate.data.would,
+  });
+
+  const res = await postApproval(f.env, id, {
+    title: COAT.title,
+    category_id: outerwear.id,
+    price: "not a number",
+    sku: COAT.variations[0].sku,
+  });
+  assert.equal(res.status, 400);
+  assert.match(await res.text(), /not a plain number/);
+  assert.deepEqual(f.calls(), [], "a refusal on the way in must never reach Square");
+
+  /* And the link survives the refused attempt — peekPending, not consumed,
+     so the person can fix it and try again. */
+  const { peekPending } = await import("../src/mcp.js");
+  const { pending } = await peekPending(f.env, id);
+  assert.ok(pending, "an edit that fails to parse must not burn the approval link");
+});
+
+check("test_PRD_P0_63_editable_approval__a_tool_with_no_friendly_form_still_just_works", async () => {
+  /* catalog.create_category has no editableFieldsFor() entry — the plain
+     read-only view from before this change, and a submit with no relevant
+     form fields must still run the parked args unchanged. */
+  const f = await fixture({ actor: "assistant@vemians.com", role: "manager" });
+  const args = { name: "Outerwear — Heavy", reason: "a genuinely new seasonal sub-line" };
+  const gate = await runTool("catalog.create_category", args, f.ctx);
+  if (!gate.needsApproval) return; /* near-duplicate refusal is a different, already-covered path */
+  const { id } = await parkForApproval(f.env, {
+    name: "catalog.create_category",
+    args,
+    actor: f.ctx.actor,
+    role: f.ctx.role,
+    tier: "T2",
+    summary: gate.data.would,
+  });
+
+  const html = await (await getApproval(f.env, id)).text();
+  assert.doesNotMatch(html, /class="field"/, "no friendly editor for an unlisted tool");
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let res;
+  try {
+    res = await postApproval(f.env, id, {});
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(res.status, 200, await res.text());
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
  * P0-40 — the category comes from a closed set, with reasoning
  * ───────────────────────────────────────────────────────────────────────── */
 

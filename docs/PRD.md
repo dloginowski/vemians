@@ -597,15 +597,41 @@ that does not trace to one of these is a process failure (see §12).
 34a. **`Test-PRD-P0-62-onboarding_greeting`** — The MCP server's own `instructions` — the one
     thing every connecting agent reads before its first reply, regardless of which chat client it
     is — tell it to greet the coworker by name and offer a short numbered menu of what it can help
-    with right now, then wait, rather than opening with an explanation of tiers or tools. The same
-    text tells it what several products or customers at once actually means: point at
-    `/products/batch` or `/customers/batch` when a spreadsheet exists, and when the coworker narrates
-    a list instead, draft and create one item at a time exactly as for a single one — there is no
-    separate "batch" tool — then present every resulting approval link together at the end, the same
-    shape a spreadsheet's own review page already has. `buildInstructions(identity)` is a pure
-    function precisely so a test can assert on the words a client actually receives, the same
+    with right now, then wait, rather than opening with an explanation of tiers or tools. Once they
+    pick a category (add a product, add a customer), a second short multiple-choice question asks
+    spreadsheet-or-narrate before anything else happens. Both answers reach the same place: point at
+    `/products/batch` or `/customers/batch` for a spreadsheet; for a narrated list, draft and create
+    one item at a time exactly as for a single one — there is no separate "batch" tool — then present
+    every resulting approval link together at the end. The text also says the link is a real form to
+    send them to, not something to walk through in chat (P0-63). `buildInstructions(identity)` is a
+    pure function precisely so a test can assert on the words a client actually receives, the same
     lesson the `/approvals/` 404 already taught this codebase once (P0-35): reading the code and
     believing it says the right thing is not the same as checking what it sends.
+
+34b. **`Test-PRD-P0-63-editable_approval`** — The `/approvals/` page is a real, editable form for
+    the two tools the spreadsheet and narrated-list flows actually produce
+    (`catalog.create_product`, `customer.create`): a coworker can fix a typo'd title or a wrong
+    price right there before saying yes, not only accept or reject exactly what was proposed. Every
+    other T2 tool keeps the plain read-only view — building a correct generic editor for an
+    arbitrary schema is a different, larger project, and a wrong guess at one is worse than the
+    honest raw view. An edit still goes through the tool's own `check()`: one that will not parse
+    (a price that is not a plain number) is refused before Square ever sees it, exactly like a bad
+    CSV row, and the link survives to be tried again rather than being burned on a failed attempt.
+
+    **The regressions this exists for — two of them, stacked in the same handler:** the POST
+    handler referenced `email` without ever declaring it in scope, so every real browser submission
+    of "Yes, do this" for an MCP-parked approval threw `ReferenceError: email is not defined` rather
+    than running anything. Once that was fixed, the same handler still built the approver it passes
+    to `approvePending()` as `{ email, role }` — never `verified` — so `approvePending()`'s own "no
+    unverified assertion" guard refused every submission unconditionally, including one carrying a
+    genuinely signed, JWKS-verified Cloudflare Access token. Neither bug was caught earlier because
+    every prior test of this path called `approvePending()` directly from a test file, never through
+    the actual Worker route a browser hits, and neither bug alone was sufficient to notice the
+    other — the real approval flow had, in effect, never executed a write end-to-end until both were
+    found and fixed together. `ops/test/catalog-write.test.mjs`'s P0-63 checks now drive
+    `worker.fetch()` against `/approvals/<id>` for real, POST included, with a genuinely RS256-signed
+    and JWKS-verified assertion — the same lesson P0-35's own history already taught this file once
+    about a link nobody actually followed.
 
 35. **`Test-PRD-P0-35-approval_never_in_band`** — A T2 action requested through MCP does not
     execute in the model's context. It returns an approval URL on `ops.vemians.com`; the token is
@@ -847,6 +873,7 @@ Where each feature is enforced today:
 | P0-60 | `ops/test/csv.test.mjs` for the parser; the product-batch half of `ops/test/catalog-write.test.mjs`; the customer-batch half of `ops/test/customer-create.test.mjs`; `ops/test/batch-route.test.mjs` for both HTTP routes |
 | P0-61 | `ops/test/customer-create.test.mjs`, over a fake Square client — no Square account, token or network call is involved |
 | P0-62 | `ops/test/mcp-instructions.test.mjs` |
+| P0-63 | the editable-approval half of `ops/test/catalog-write.test.mjs`, over the real Worker (`worker.fetch`) |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

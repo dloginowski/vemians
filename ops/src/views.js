@@ -11,6 +11,7 @@
 
 import { esc, money, page } from "../../shared/view/html.js";
 import { CAPS } from "./tools/caps.js";
+import { editableFieldsFor } from "./approval-forms.js";
 
 /*
  * ---- the front page -------------------------------------------------------
@@ -639,7 +640,27 @@ const PLAIN_ACTION = Object.freeze({
   "catalog.create_category": "Add a new category",
 });
 
-export function approvalPage(id, pending, { durable = true } = {}) {
+function renderEditableField(f) {
+  if (f.kind === "select") {
+    return `<div class="field"><label for="f_${esc(f.name)}">${esc(f.label)}</label>
+      <select id="f_${esc(f.name)}" name="${esc(f.name)}">
+        ${f.options
+          .map(
+            (o) =>
+              `<option value="${esc(o.value)}"${o.value === f.value ? " selected" : ""}>${esc(o.label)}</option>`,
+          )
+          .join("")}
+      </select></div>`;
+  }
+  if (f.kind === "textarea") {
+    return `<div class="field"><label for="f_${esc(f.name)}">${esc(f.label)}</label>
+      <textarea id="f_${esc(f.name)}" name="${esc(f.name)}" rows="3">${esc(f.value)}</textarea></div>`;
+  }
+  return `<div class="field"><label for="f_${esc(f.name)}">${esc(f.label)}</label>
+    <input id="f_${esc(f.name)}" name="${esc(f.name)}" type="text" value="${esc(f.value)}"></div>`;
+}
+
+export function approvalPage(id, pending, { durable = true, categories = [] } = {}) {
   if (!pending) {
     return page(
       "Nothing to approve",
@@ -662,6 +683,7 @@ export function approvalPage(id, pending, { durable = true } = {}) {
 
   const args = Object.entries(pending.args ?? {});
   const label = PLAIN_ACTION[pending.tool] ?? pending.tool;
+  const fields = editableFieldsFor(pending.tool, pending.args, categories);
   return page(
     `Approve ${esc(pending.tool)}`,
     `<main class="wrap">
@@ -675,23 +697,30 @@ export function approvalPage(id, pending, { durable = true } = {}) {
            : ""
        }
 
-       <details${pending.summary ? "" : " open"}>
-         <summary>Full details (${esc(pending.tool)})</summary>
-         ${
-           args.length
-             ? `<dl>${args
-                 .map(
-                   ([k, v]) =>
-                     `<dt>${esc(k)}</dt><dd><pre>${esc(
-                       typeof v === "string" ? v : JSON.stringify(v, null, 2),
-                     )}</pre></dd>`,
-                 )
-                 .join("")}</dl>`
-             : "<p>No arguments.</p>"
-         }
-       </details>
-
        <form method="POST" action="/approvals/${esc(id)}">
+         ${
+           fields
+             ? `<p class="fine">Review it below — change anything that is wrong, then submit.</p>
+                ${fields.map(renderEditableField).join("")}`
+             : ""
+         }
+
+         <details${pending.summary || fields ? "" : " open"}>
+           <summary>Full details (${esc(pending.tool)})</summary>
+           ${
+             args.length
+               ? `<dl>${args
+                   .map(
+                     ([k, v]) =>
+                       `<dt>${esc(k)}</dt><dd><pre>${esc(
+                         typeof v === "string" ? v : JSON.stringify(v, null, 2),
+                       )}</pre></dd>`,
+                   )
+                   .join("")}</dl>`
+               : "<p>No arguments.</p>"
+           }
+         </details>
+
          <button type="submit">Yes, do this</button>
        </form>
        <p><a href="/">No, do nothing</a></p>
@@ -837,4 +866,8 @@ pre{white-space:pre-wrap;word-break:break-word;background:rgba(127,127,127,.12);
 button{margin-top:1.5rem;padding:.85rem 1.4rem;font-size:1rem;border-radius:.5rem;border:0;background:#111;color:#fff;width:100%;max-width:20rem}
 .fine{font-size:.85rem;opacity:.75;margin-top:.75rem}
 .warn{font-size:.85rem;border-left:3px solid #c60;padding-left:.75rem;margin-top:1.25rem}
+.field{margin:0 0 1rem}
+.field label{display:block;font-weight:600;font-size:.85rem;margin-bottom:.3rem}
+.field input,.field select,.field textarea{width:100%;font:inherit;font-size:1rem;padding:.6rem .7rem;border:1px solid rgba(127,127,127,.4);border-radius:.4rem;background:transparent;color:inherit;box-sizing:border-box}
+.field textarea{resize:vertical}
 `;

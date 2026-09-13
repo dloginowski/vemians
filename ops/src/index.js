@@ -35,6 +35,8 @@ import { CAPS } from "./tools/caps.js";
 import { ROLES, roleAtLeast } from "./tools/roles.js";
 import { contentTypeFor, mediaKey, mintUploadTicket, verifyUploadTicket } from "./tools/media.js";
 import { mediaStoreFor } from "./tools/index.js";
+import { listCategories } from "./tools/catalog-writer.js";
+import { applyFormEdits } from "./approval-forms.js";
 import { syncFromSquare } from "./sync.js";
 import {
   approvalPage,
@@ -378,13 +380,37 @@ async function ops(request, env, path) {
    */
   if (path.startsWith("/approvals/")) {
     const id = path.slice("/approvals/".length);
+    const email = identity.claims?.email;
     const role = roleFor(identity, env);
     if (!role) {
       return html(refusalPage(403, "Your Access identity is in no group this application maps to a role."), 403);
     }
 
     if (request.method === "POST") {
-      const out = await approvePending(env, id, { email, role });
+      /*
+       * The person reviewing may have edited a field on the prefilled form —
+       * applyFormEdits() merges that over what was originally parked, and
+       * refuses cleanly (no different from a bad CSV row) if an edit does
+       * not parse. A tool with no friendly form just gets its args back
+       * unchanged. Either way runTool's own check() gets the final say.
+       */
+      const pendingBefore = await peekPending(env, id);
+      let overrideArgs;
+      if (pendingBefore.pending) {
+        let form;
+        try {
+          form = await request.formData();
+        } catch (err) {
+          return html(approvalResultPage(false, `Unreadable submission — ${err.message}`), 400);
+        }
+        const edited = applyFormEdits(pendingBefore.pending.tool, pendingBefore.pending.args, form);
+        if (!edited.ok) {
+          return html(approvalResultPage(false, edited.error), 400);
+        }
+        overrideArgs = edited.args;
+      }
+
+      const out = await approvePending(env, id, { email, role, verified: identity.verified }, overrideArgs);
       if (!out.ok) console.error(`ERROR ops/approvals: ${email} could not approve ${id} — ${out.error}`);
       return html(approvalResultPage(Boolean(out.ok), out.ok ? out.result ?? out : out.error), out.ok ? 200 : 403);
     }
@@ -395,7 +421,13 @@ async function ops(request, env, path) {
         "WARNING ops/approvals: approvals are held per-isolate on this deployment — bind APPROVALS (KV) to make an approval link outlive the request that minted it",
       );
     }
-    return html(approvalPage(id, pending, { durable }), pending ? 200 : 404);
+    /* Only fetched for a tool whose approval page actually shows a category
+       picker — a DB read nothing else on this page needs. */
+    const categories =
+      pending?.tool === "catalog.create_product" && env.CATALOG_MIRROR
+        ? await listCategories(env.CATALOG_MIRROR)
+        : [];
+    return html(approvalPage(id, pending, { durable, categories }), pending ? 200 : 404);
   }
 
   if (path === "/whoami") {

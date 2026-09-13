@@ -248,7 +248,7 @@ export async function peekPending(env, id) {
   return { pending: await store.get(id), durable: store.durable };
 }
 
-export async function approvePending(env, id, approver) {
+export async function approvePending(env, id, approver, argsOverride) {
   if (!approver?.email || !approver?.role) {
     console.error("ERROR mcp/approve: called without a verified approver identity");
     return { ok: false, error: "Approval requires a verified Access identity." };
@@ -288,11 +288,18 @@ export async function approvePending(env, id, approver) {
    * asked is preserved separately via onBehalfOf, which lands in the audit
    * row's detail rather than overwriting who actually did it.
    */
+  /* A person reviewing the prefilled form may have fixed a typo'd title or a
+     wrong price before clicking "Yes, do this" — argsOverride carries that
+     edit. It still goes through the SAME check() as the originally parked
+     args did (a bad edit is refused exactly like a bad CSV row), and the
+     audit row ends up recording what was actually created, not what was
+     first proposed. */
+  const args = argsOverride ?? pending.args;
   const ctx = { actor: approver.email, role: approver.role, env, onBehalfOf: pending.requestedBy };
-  const proposal = await runTool(pending.tool, pending.args, ctx);
+  const proposal = await runTool(pending.tool, args, ctx);
   if (!proposal?.needsApproval) return proposal;
 
-  return runTool(pending.tool, pending.args, { ...ctx, approvalToken: proposal.data?.approval?.token });
+  return runTool(pending.tool, args, { ...ctx, approvalToken: proposal.data?.approval?.token });
 }
 
 /* ----------------------------------------------------------------- adapter */
@@ -361,20 +368,31 @@ export function buildInstructions(identity) {
     ` can help with right now — for example "1) Add a product  2) Add a` +
     ` customer  3) Look something up  4) Something else" — then wait for` +
     ` their choice. Do not explain tiers, tools or skills unless asked.` +
-    /* Several products or customers at once has two entry points that
-       must produce the SAME result: a spreadsheet on ops.vemians.com
-       (/products/batch, /customers/batch — one file, one approval link
-       per row), or a list said out loud in this chat. For the second,
-       there is no separate "batch" tool: draft, then create, once per
-       item, exactly as for one — then gather every resulting approval
-       link and present them together at the end, the same shape a
-       spreadsheet's review page already has. Never approve on the
-       person's behalf; each link still needs its own "yes". */
-    ` A LIST OF SEVERAL PRODUCTS OR CUSTOMERS: if they have a spreadsheet,` +
-    ` point them at /products/batch or /customers/batch on ops.vemians.com` +
-    ` instead of typing it all out. If they narrate the list here instead,` +
-    ` draft and create one at a time as usual, then present every` +
+    /* Once they pick "add a product" or "add a customer" from the first
+       menu, ask a second, equally short question before doing anything:
+       spreadsheet or narrate it here. Both end at the SAME result — a
+       spreadsheet on ops.vemians.com (/products/batch, /customers/batch —
+       one file, one approval link per row), or, for a narrated list, draft
+       then create one at a time exactly as for a single item, gathering
+       every resulting approval link to present together at the end. There
+       is no separate "batch" tool for the second path. Never approve on
+       the person's behalf; each link still needs its own "yes". */
+    ` SECOND MESSAGE, once they pick a category: ask one more short` +
+    ` multiple-choice question before doing anything — "Do you have a` +
+    ` spreadsheet, or would you rather tell me about them here?" For a` +
+    ` spreadsheet, point them at /products/batch or /customers/batch on` +
+    ` ops.vemians.com. For a narrated list, draft and create one at a time` +
+    ` as usual — there is no separate "batch" tool — then present every` +
     ` resulting approval link together at the end.` +
+    /* The link either path ends at is not read-only. Say so, or the model's
+       own habit is to describe a proposal in the chat and ask the person to
+       confirm it there — which is exactly the in-band approval P0-35 exists
+       to prevent. The page is the only place a change can be reviewed,
+       corrected or said yes to. */
+    ` THAT LINK IS A REAL FORM, not just a preview: the person can review` +
+    ` what you proposed, fix anything wrong right there (a typo'd title, a` +
+    ` wrong price), and submit — all on that page. Do not ask them to` +
+    ` confirm details in this chat; send them to the link for that.` +
     (identity.verified ? "" : " WARNING: the Access assertion was decoded but NOT signature-verified on this deployment.")
   );
 }
