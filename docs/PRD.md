@@ -1123,6 +1123,39 @@ that does not trace to one of these is a process failure (see §12).
     agent to. Checked over the real page (`data-prompt` present with the right text, the old
     `href`s gone) and over `greetingScript()`'s own text (the new skip-the-menu clause present).
 
+34a''''''''''''''. **`Test-PRD-P0-84-efficient_drafting`** — The owner's own words: "I want chat
+    to ask all the right questions to add products. As efficiently and smoothly as possible...
+    if not, we learn from our mistakes and refine the skill." Auditing `catalog.draft_product`'s
+    and `catalog.create_product`'s own schema against what a person is likely to actually say
+    (the composer's own placeholder: `"Add a wool coat, $450, Outerwear"`) found two real gaps
+    between "required argument" and "a person should be asked":
+
+    - **`currency` is required on every variation, with no schema default and no `CAPS` constant**
+      for it anywhere in the codebase — every seed fixture and every price example in this
+      repository is USD, and there is no multi-currency path to choose between. A person who
+      never mentioned currency has nothing to say if asked; the only correct behaviour is the
+      model defaulting to `"USD"` on its own.
+    - **A product with no real size/color options still needs one `variation` object**
+      (`validateProposal`'s own message: *"a single-size garment still needs one, conventionally
+      titled 'One size'"*) — but that guidance only ever reached the model AFTER a refusal, not
+      on the first attempt.
+
+    **The fix lives in the tool's own `describe` text, not a skill.** P0-82 made `skills_read`
+    on-demand rather than a mandatory first step, which means a model confident it has enough
+    information (title, price, category) may never read `catalog-skills` at all before calling
+    `catalog.draft_product` — exactly the case this gap needed fixing for. A tool's `describe`
+    string is sent on every single request, unconditionally, the same way `create_product`
+    already said "`category_id` MUST come from catalog.categories" inline rather than leaving it
+    to a skill someone might skip. So both tools now say plainly: default to USD without asking;
+    use one variation titled "One size" for a product with no real options; and — since
+    `draft_product` still requires a `description` argument the model must supply something for
+    — write a short one from the title/category/photo rather than asking the person to dictate
+    one. What IS worth asking stays exactly three things: what it is, the price, and (only if it
+    truly has them) the sizes or colors.
+
+    Checked directly against `TOOLS[name].describe`, the same "assert what it sends" standard
+    this file keeps returning to — not against a skill document a real call might never read.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -1357,6 +1390,7 @@ Where each feature is enforced today:
 | P0-81 | `ops/test/agent-skills.test.mjs`, plus the repointed imports in `ops/test/skills.test.mjs`, `ops/test/catalog-write.test.mjs`, `ops/test/customer-create.test.mjs`, `ops/test/approvals.test.mjs` |
 | P0-82 | `ops/test/agent-skills.test.mjs` |
 | P0-83 | `ops/test/ops-page.test.mjs`, `ops/test/agent-greeting.test.mjs` |
+| P0-84 | `ops/test/catalog-write.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

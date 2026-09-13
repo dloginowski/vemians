@@ -506,7 +506,12 @@ export const catalogWriteTools = {
       "Turn a description and some uploaded photographs into a complete product proposal: title, " +
       "description, variations, a price read against comparable stock, and a CATEGORY SUGGESTION with " +
       "the reasoning behind it. Returns a diff for a human to review. THIS WRITES NOTHING — not to " +
-      "Square, not to our stores. Feed the result to catalog.create_product when the human agrees.",
+      "Square, not to our stores. Feed the result to catalog.create_product when the human agrees. " +
+      "EFFICIENT DRAFTING: this shop trades in USD only — pass \"USD\" without asking. Write the " +
+      "description yourself from the title/category/photo rather than asking the person to dictate " +
+      "one. A product with no real size/color options still needs one variation — title it " +
+      "\"One size\" rather than asking whether it has variations. Only ask the person about a " +
+      "genuine choice: what it is, the price, and (if it truly has them) the sizes or colors.",
     undo: "nothing to undo — this tool produces a proposal and changes no store, here or at Square",
     schema: {
       title: { type: "string", required: true, maxLength: CAPS.CATALOG_TITLE_MAX },
@@ -596,8 +601,10 @@ export const catalogWriteTools = {
       "Create a product in SQUARE — the ITEM and its ITEM_VARIATIONs — attach the uploaded originals " +
       "as images, and then sync our mirror from Square. Square is authoritative (ADR-009); this tool " +
       "never writes a product row directly. `category_id` MUST come from catalog.categories; anything " +
-      "else is refused. Prices are integer MINOR units. This is a T2 write: it executes only after a " +
-      "human approves it, and over MCP it returns an approval link instead of executing.",
+      "else is refused. Prices are integer MINOR units, currency \"USD\" — this shop trades in nothing " +
+      "else, so pass it without asking. A product with no real size/color options still needs one " +
+      "variation, conventionally titled \"One size\". This is a T2 write: it executes only after a " +
+      "human approves it.",
     undo: "withdraw the item in Square; nothing is deleted, and the originals in R2 are untouched",
     schema: {
       title: { type: "string", required: true, maxLength: CAPS.CATALOG_TITLE_MAX },
