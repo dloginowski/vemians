@@ -1772,6 +1772,22 @@ that does not trace to one of these is a process failure (see §12).
     `ATTACH_ICON_HTML`/`CANCEL_ICON_HTML`, built via `JSON.stringify` over this file's own
     server-side `ATTACH_ICON`/`CANCEL_ICON` constants so the escaping is never hand-written twice.
 
+    **`Test-PRD-P0-98-voice_input`. A microphone button, next to Send, using the SAME swap-in-place
+    icon technique as the attach/cancel button right above.** The owner's own words: "Add the same
+    kind of microphone input button as claude next to the submit chat button same style as the +
+    button as far as colors." `#mic-btn` sits in the composer between `#q` and the send button,
+    carrying the SAME `icon-btn` class the attach button uses — "same style... as far as colors" is
+    exactly what sharing the class gives for free (the faint fill, hover, and `aria-pressed` accent
+    colour), rather than a second, parallel set of button rules that could drift from the first.
+    Clicking it starts the browser's own `SpeechRecognition`/`webkitSpeechRecognition` API (no
+    server call, no new dependency); a result appends the transcript to `#q`'s own value, and the
+    icon swaps to a small filled square (`MIC_STOP_ICON`) while recording, back to the mic glyph
+    (`MIC_ICON`) on `end` or `error` — the identical pattern `ATTACH_ICON`/`CANCEL_ICON` already
+    established for the button beside it, not a new one. Browser support for this API is
+    inconsistent (notably patchy on iOS Safari); rather than leave a control that silently does
+    nothing when pressed, the button is removed from the DOM outright (`micBtn.remove()`) the
+    moment `window.SpeechRecognition || window.webkitSpeechRecognition` comes back undefined.
+
 34a''''''''''''''''''''''''''''''. **`Test-PRD-P0-99-chat_form_inherited_margin`** — The SAME
     class of bug P0-96 found on the bottom edge, on the top edge instead. The owner's own words:
     "match the outer chat box top padding to its side padding. So that content is evenly spaced

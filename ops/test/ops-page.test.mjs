@@ -743,6 +743,46 @@ check("test_PRD_P0_98_cancellable_attachment__the_icon_and_accessible_name_swap_
   assert.match(clearFn, /attachBtn\.setAttribute\("aria-label", "Attach a photo or file"\)/, "clearing must restore the original accessible name");
 });
 
+check("test_PRD_P0_98_voice_input__the_mic_button_sits_between_the_input_and_send_using_the_same_icon_btn_class", async () => {
+  /* The owner's own words: "Add the same kind of microphone input button
+     as claude next to the submit chat button same style as the + button
+     as far as colors." Sharing .icon-btn with the attach button is what
+     gives it the same colours for free, without a second set of button
+     rules. */
+  const { body } = await frontPage(OWNER);
+  const bar = body.slice(body.indexOf('<div class="chat-bar">'), body.indexOf("</div>", body.indexOf('<div class="chat-bar">')) + 1000);
+  assert.match(bar, /id="attach-btn"[\s\S]*id="mic-btn"[\s\S]*id="q"[\s\S]*class="send-btn"|id="attach-btn"[\s\S]*id="q"[\s\S]*id="mic-btn"[\s\S]*class="send-btn"/, "the mic button must sit next to Send, after attach and the input");
+  assert.match(bar, /id="mic-btn"[^>]*class="icon-btn"|class="icon-btn"[^>]*id="mic-btn"/, "the mic button must share the attach button's own icon-btn class");
+});
+
+check("test_PRD_P0_98_voice_input__unsupported_browsers_get_the_button_removed_not_a_dead_control", async () => {
+  /* Speech recognition support is inconsistent (notably patchy on iOS
+     Safari) — a button that silently does nothing when pressed is worse
+     than no button at all. */
+  const { body } = await frontPage(OWNER);
+  const script = body.slice(body.indexOf("attach-input"));
+  assert.match(script, /SpeechRecognitionCtor\s*=\s*window\.SpeechRecognition\s*\|\|\s*window\.webkitSpeechRecognition/, "must feature-detect both the standard and webkit-prefixed API");
+  assert.match(script, /if \(!SpeechRecognitionCtor\) \{\s*micBtn\.remove\(\);/, "an unsupported browser must remove the button outright, not leave it inert");
+});
+
+check("test_PRD_P0_98_voice_input__a_recognized_result_appends_to_the_existing_input_value_not_replacing_it", async () => {
+  const { body } = await frontPage(OWNER);
+  const script = body.slice(body.indexOf("attach-input"));
+  const resultHandler = script.slice(script.indexOf('addEventListener("result"'), script.indexOf('addEventListener("result"') + 300);
+  assert.match(resultHandler, /qInput\.value\s*\?\s*qInput\.value\s*\+\s*" "\s*\+\s*transcript\s*:\s*transcript/, "a transcript must be appended after any text already typed, not overwrite it");
+});
+
+check("test_PRD_P0_98_voice_input__the_icon_swaps_to_a_stop_glyph_while_recording_and_back_when_it_ends", async () => {
+  /* Same swap-in-place technique the attach/cancel button already uses —
+     the icon itself communicates the current state. */
+  const { body } = await frontPage(OWNER);
+  const script = body.slice(body.indexOf("attach-input"));
+  const clickHandler = script.slice(script.indexOf('micBtn.addEventListener("click"'), script.indexOf('micBtn.addEventListener("click"') + 300);
+  assert.match(clickHandler, /micBtn\.innerHTML = MIC_STOP_ICON_HTML/, "starting to record must swap to the stop glyph");
+  const stopFn = script.slice(script.indexOf("function stopListening"), script.indexOf("function stopListening") + 200);
+  assert.match(stopFn, /micBtn\.innerHTML = MIC_ICON_HTML/, "ending (naturally or on error) must swap back to the mic glyph");
+});
+
 /* ─────────────────────────────────────────────────────────────────────────
  * P0-99 — the composer form's own inherited top margin is zeroed
  * ───────────────────────────────────────────────────────────────────────── */

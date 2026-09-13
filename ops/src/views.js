@@ -467,6 +467,23 @@ const SEND_ICON = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="
   `<path d="M8 12.5V3.5M8 3.5 3.5 8M8 3.5 12.5 8" fill="none" stroke="currentColor" stroke-width="1.4" ` +
   `stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
+/* Voice input, next to Send — the owner's own words: "Add the same kind
+   of microphone input button as claude next to the submit chat button
+   same style as the + button as far as colors." Same .icon-btn class as
+   the attach button (below), so it picks up the exact same faint fill,
+   hover, and aria-pressed accent colours with no CSS of its own — "same
+   style... as far as colors" is exactly what sharing the class gives for
+   free, rather than a second, parallel set of button rules to keep in
+   sync with the first. Swaps to MIC_STOP_ICON while recording, the same
+   swap-in-place pattern the attach button already uses for its own
+   plus/cancel states. */
+const MIC_ICON = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">` +
+  `<rect x="6" y="1.5" width="4" height="7.5" rx="2" fill="none" stroke="currentColor" stroke-width="1.4"/>` +
+  `<path d="M4 7.5v1a4 4 0 0 0 8 0v-1M8 12.5V15M5.5 15h5" fill="none" stroke="currentColor" ` +
+  `stroke-width="1.4" stroke-linecap="round"/></svg>`;
+const MIC_STOP_ICON = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">` +
+  `<rect x="4.5" y="4.5" width="7" height="7" rx="1" fill="currentColor"/></svg>`;
+
 /* The behaviour half of copyLine, as a string, so the front page and the
    identity page share one implementation rather than two that drift. */
 export const COPY_JS = `/* One delegated listener for every copy button on the page. The button reads
@@ -552,6 +569,7 @@ ${id}
       <div class="chat-bar">
         <button type="button" class="icon-btn" id="attach-btn" aria-label="Attach a photo or file" title="Attach a photo or file">${ATTACH_ICON}</button>
         <input name="q" id="q" placeholder='e.g. "Add a wool coat, $450, Outerwear"' autocomplete="off">
+        <button type="button" class="icon-btn" id="mic-btn" aria-label="Voice input" title="Voice input">${MIC_ICON}</button>
         <button type="submit" class="send-btn" aria-label="Send" title="Send">${SEND_ICON}</button>
       </div>
       <input type="file" id="attach-input" hidden>
@@ -747,6 +765,50 @@ fileInput.addEventListener("change", () => {
   attachBtn.setAttribute("aria-label", "Remove attachment");
   attachBtn.setAttribute("title", "Remove attachment");
 });
+
+/* Voice input. Support for SpeechRecognition is inconsistent across
+   browsers (notably patchy on iOS Safari), so the button is removed
+   outright when the API is missing rather than left sitting there as a
+   control that silently does nothing when pressed. */
+const MIC_ICON_HTML = ${JSON.stringify(MIC_ICON)};
+const MIC_STOP_ICON_HTML = ${JSON.stringify(MIC_STOP_ICON)};
+const micBtn = document.getElementById("mic-btn");
+const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (!SpeechRecognitionCtor) {
+  micBtn.remove();
+} else {
+  const recognition = new SpeechRecognitionCtor();
+  recognition.lang = "en-US";
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 1;
+  let listening = false;
+
+  function stopListening() {
+    listening = false;
+    micBtn.removeAttribute("aria-pressed");
+    micBtn.innerHTML = MIC_ICON_HTML;
+  }
+
+  recognition.addEventListener("result", (e) => {
+    const transcript = e.results[0][0].transcript.trim();
+    if (!transcript) return;
+    qInput.value = qInput.value ? qInput.value + " " + transcript : transcript;
+    qInput.focus();
+  });
+  recognition.addEventListener("end", stopListening);
+  recognition.addEventListener("error", stopListening);
+
+  micBtn.addEventListener("click", () => {
+    if (listening) {
+      recognition.stop();
+      return;
+    }
+    listening = true;
+    micBtn.setAttribute("aria-pressed", "true");
+    micBtn.innerHTML = MIC_STOP_ICON_HTML;
+    recognition.start();
+  });
+}
 
 document.getElementById("chat").addEventListener("submit", async (e) => {
   e.preventDefault();
