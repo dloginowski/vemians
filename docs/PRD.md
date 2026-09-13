@@ -1143,6 +1143,18 @@ that does not trace to one of these is a process failure (see §12).
     bottom now deliberately overlaps the floor by a pixel, closing the gap regardless of which way
     any given browser's own rounding falls.
 
+    **"Hid the side edges" — the fix for the black smudge went too far.** Dropping the active tab's
+    left/right border entirely (to stop it clashing with the notch) also removed the tab's own
+    visible outline on its sides, which was never the actual ask: "imagine the bottom orange edge,
+    smoothly curves up the tab... and keeps going right" describes a border that CONTINUES through
+    the curve, not one that stops before it. The border is back on all three non-bottom sides
+    (`border: 1px solid var(--accent); border-bottom: none;`); the notch itself now carries the
+    continuation. Its shadow list grew a second layer: the tab's own fill colour (`--ground`) at
+    zero spread, exactly the reference's own shape, sits on top; a 1px-wider copy in `--accent`
+    (via a 1px spread) sits behind it, so only the sliver the front shape doesn't cover shows
+    through — a thin accent outline tracing the curve, reading as one unbroken line with the
+    straight border above it instead of the border stopping dead into a flood of near-black.
+
 47b. **`Test-PRD-P0-72-product_detail_page`** — Every product has its own page at
     `/products/<handle>` — the answer to "how do I see product details", asked directly, of a
     shop whose cards used to be `<article>`s with no click-through at all. `loadProduct(env,

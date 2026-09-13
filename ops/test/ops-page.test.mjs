@@ -212,31 +212,34 @@ check("test_PRD_P0_71_items_tab__the_active_tab_structurally_merges_into_the_pan
   /* The owner's own words: "imagine the bottom orange edge, smoothly
      curves up the tab. Over the tab and smoothly transitions down and
      keeps going right." A genuine merge, not two colour-matched lines
-     standing in for one: the active tab carries no bottom border at all
-     (only border-top, per the round-out notch conflict below) and its
-     background matches the panel's, so it structurally opens into what
-     it fronts rather than floating above it as an independent, fully-
-     bordered piece. */
+     standing in for one: the active tab's own bottom border is removed
+     entirely (border-bottom: none) and its background matches the
+     panel's, so it structurally opens into what it fronts rather than
+     floating above it as an independent, fully-bordered piece. */
   const { body } = await shell(OWNER);
-  assert.match(body, /\.shell-nav button\.active\s*\{[^}]*border-top:\s*1px solid var\(--accent\)/s);
+  assert.match(body, /\.shell-nav button\.active\s*\{[^}]*border:\s*1px solid var\(--accent\); border-bottom:\s*none/s);
   assert.match(body, /\.shell-nav button\.active\s*\{[^}]*margin-bottom:\s*-1px/s);
   assert.match(body, /\.shell-panel\s*\{[^}]*border-top:\s*1px solid var\(--accent\)/s, "the panel's own line the active tab merges into must still be there");
 });
 
-check("test_PRD_P0_71_items_tab__the_active_tab_has_no_side_border_for_the_notch_to_paint_over", async () => {
-  /* A left/right border on the active tab sits exactly where the
-     round-out notch crosses the tab's own edge, so the notch's own
-     near-black shadow painted straight over the bottom of that border —
-     a visible "black smudge on top of the orange edge," the owner's own
-     words. The notch's whole job is to blend across that boundary, so
-     any border drawn on it will always get partly overpainted; the
-     reference code's own .tab has no border at all for the same
-     reason. Only a TOP border remains, since the notch never reaches
-     there. */
+check("test_PRD_P0_71_items_tab__the_notch_carries_its_own_accent_outline_so_the_side_border_keeps_going", async () => {
+  /* Dropping the side border entirely (an earlier round's fix for a
+     black smudge where it crossed the notch) also hid the tab's own
+     outline — "hid the side edges," the owner's own words. The border
+     is back on all three sides; instead the notch's own shadow list
+     grew a second layer: the tab's fill colour (--ground) at zero
+     spread, exactly the reference's own shape, with a 1px-wider --accent
+     copy behind it so a thin outline traces the curve — a continuation
+     of the border, not a border stopping dead into a flood of colour. */
   const { body } = await shell(OWNER);
-  const activeRule = body.match(/\.shell-nav button\.active\s*\{[^}]*\}/s)[0];
-  assert.doesNotMatch(activeRule, /\bborder:\s*1px/, "the active tab must not set a full (all-sides) border");
-  assert.doesNotMatch(activeRule, /border-(left|right):/, "the active tab must not set its own left/right border");
+  assert.match(
+    body,
+    /\.shell-nav button\.active::before\s*\{[^}]*box-shadow:\s*calc\(var\(--tab-radius\) \/ 2\) 0 0 0 var\(--ground\),\s*calc\(var\(--tab-radius\) \/ 2\) 0 0 1px var\(--accent\)/s,
+  );
+  assert.match(
+    body,
+    /\.shell-nav button\.active::after\s*\{[^}]*box-shadow:\s*calc\(var\(--tab-radius\) \/ -2\) 0 0 0 var\(--ground\),\s*calc\(var\(--tab-radius\) \/ -2\) 0 0 1px var\(--accent\)/s,
+  );
 });
 
 check("test_PRD_P0_71_items_tab__the_active_tab_has_round_out_notches_at_its_own_base", async () => {
