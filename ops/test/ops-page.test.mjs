@@ -175,9 +175,9 @@ check("test_PRD_P0_69_one_click_welcome_menu__greets_by_first_name_with_the_choi
     cursor = at;
   }
 
-  assert.match(main, /href="\/products\/batch"[^>]*>\+ Merchandise/);
-  assert.match(main, /href="\/customers\/batch"[^>]*>\+ Customers/);
-  assert.match(main, /href="\/expenses\/new"[^>]*>\+ Expense/);
+  assert.match(main, /data-prompt="Add merchandise"[^>]*>\+ Merchandise/);
+  assert.match(main, /data-prompt="Add customers"[^>]*>\+ Customers/);
+  assert.match(main, /data-prompt="Submit an expense"[^>]*>\+ Expense/);
 });
 
 check("test_PRD_P0_69_one_click_welcome_menu__the_built_in_chat_is_open_at_rest_not_a_folded_afterthought", async () => {

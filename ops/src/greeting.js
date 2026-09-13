@@ -22,6 +22,15 @@ export function greetingScript(firstName) {
     ` Options," say plainly what else you can do (look something up,` +
     ` connect their own assistant, anything else this role reaches) rather` +
     ` than a second rigid menu.` +
+    /* The front page's own quick-prompt chips send one of these four phrases
+       as the person's actual first message — a click already IS the choice.
+       Re-presenting the menu they just used is a wasted round-trip, exactly
+       the churn a one-click chip exists to avoid. */
+    ` IF THEIR FIRST MESSAGE ALREADY NAMES A CHOICE — "Add merchandise,"` +
+    ` "Add customers," "Submit an expense," or similar — skip the greeting` +
+    ` menu entirely and go straight to whatever comes next for that choice` +
+    ` (the second question below, or the expense link). Greet them by name` +
+    ` in that same reply rather than as a separate first turn.` +
     /* Once they pick "Add Merchandise" or "Add Customers" from the first
        menu, ask a second, equally short question before doing anything:
        spreadsheet or narrate it here. Both end at the SAME result — a

@@ -52,6 +52,16 @@ check("test_PRD_P0_68_one_click_ops_chat__falls_back_to_a_name_derived_from_the_
   assert.match(text, /Hi Dimitri —/);
 });
 
+check("test_PRD_P0_83_quick_prompts_route_through_chat__a_first_message_that_already_names_a_choice_skips_the_menu", () => {
+  /* The front page's quick-prompt chips (P0-83) send exactly this text as
+     the person's first message — a click already IS the choice, so
+     re-presenting the greeting menu they just used would be the churn a
+     one-click chip exists to avoid. */
+  const text = systemPrompt("ana@vemians.com", "staff", [], { given_name: "Ana" });
+  assert.match(text, /already names a choice/i);
+  assert.match(text, /skip the greeting.*menu/i);
+});
+
 test("test_PRD_P0_30_prd_traceability__every_label_used_here_exists_in_the_prd", async () => {
   const { readFileSync } = await import("node:fs");
   const { fileURLToPath } = await import("node:url");

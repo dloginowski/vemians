@@ -117,8 +117,9 @@ ${OPS_DARK_CSS}
 .choices { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
 .choices .btn {
   display: inline-block; font: inherit; font-size: 11px; line-height: 1.2;
-  padding: 4px 9px; border: 1px solid var(--accent); border-radius: 999px;
+  padding: 4px 9px; margin: 0; border: 1px solid var(--accent); border-radius: 999px;
   background: transparent; color: var(--accent); text-decoration: none; font-weight: 400;
+  cursor: pointer;
 }
 .choices .btn:hover { background: var(--accent); color: var(--ground); }
 
@@ -357,9 +358,9 @@ ${id}
 
   <section class="menu">
     <div class="choices">
-      <a class="btn" href="/products/batch">+ Merchandise</a>
-      <a class="btn" href="/customers/batch">+ Customers</a>
-      <a class="btn" href="/expenses/new">+ Expense</a>
+      <button type="button" class="btn" data-prompt="Add merchandise">+ Merchandise</button>
+      <button type="button" class="btn" data-prompt="Add customers">+ Customers</button>
+      <button type="button" class="btn" data-prompt="Submit an expense">+ Expense</button>
     </div>
   </section>
 </main>
@@ -491,6 +492,17 @@ document.getElementById("chat").addEventListener("submit", async (e) => {
     console.error("agent request failed", err);
     entry("agent", "Request failed: " + err.message);
   }
+});
+
+/* The one-click chips are quick PROMPTS now, not links to a separate page —
+   chat is the one entry point for everything (the owner's own words: "I
+   want them to go to chat"). Filling the box and submitting the same form
+   reuses every bit of the handler above rather than duplicating the fetch. */
+document.querySelectorAll(".choices .btn[data-prompt]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.getElementById("q").value = btn.dataset.prompt;
+    document.getElementById("chat").requestSubmit();
+  });
 });
 </script>`,
     OPS_CSS,

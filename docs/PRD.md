@@ -732,10 +732,10 @@ that does not trace to one of these is a process failure (see §12).
     Add Customers, Submit Expenses, More Options** — the same four words as the chat greeting
     (P0-62/P0-68), but as real page buttons rather than a conversation someone has to start. (P0-74
     now puts the built-in assistant between the greeting and this menu — see that entry for why;
-    the menu itself, and its four choices in this order, are unchanged.) The first three are direct
-    links to routes that already do the whole job with no assistant at all (`/products/batch`,
-    `/customers/batch`, `/expenses/new`); "More Options" is an in-page anchor to everything else —
-    a single photo, dropping a file, connecting a third-party assistant.
+    the menu itself, and its four choices in this order, are unchanged.) The first three were
+    ORIGINALLY direct links to routes that already did the whole job with no assistant at all
+    (`/products/batch`, `/customers/batch`, `/expenses/new`); "More Options" was an in-page anchor
+    to everything else. **Superseded by P0-83**, which routes all three through chat instead.
 
     **This supersedes P0-54's earlier framing.** The front page used to have "one job for almost
     everyone: hand over the address to paste into their own assistant" — true when the only way
@@ -1098,6 +1098,31 @@ that does not trace to one of these is a process failure (see §12).
     schema.test.mjs` already set for `toolDefinitions()`: `skills_read` must still be named, but
     "before your first write/call" and "call skills_list, then skills_read" must both be gone.
 
+34a'''''''''''''. **`Test-PRD-P0-83-quick_prompts_route_through_chat`** — The owner's own words:
+    "I want them to go to chat. And I want chat to have a skill to address these as efficiently
+    as possible." The three one-click chips (P0-69) were plain links straight to `/products/batch`,
+    `/customers/batch` and `/expenses/new` — real routes, but a second entry point bypassing the
+    assistant entirely. They are now `<button data-prompt="...">` elements: a click fills the chat
+    input with a canned first message ("Add merchandise," "Add customers," "Submit an expense")
+    and submits the same form the person would have typed into by hand, reusing the existing
+    submit handler rather than a second fetch path.
+
+    **Chat is the one entry point now, so a click has to cost the same one round-trip a typed
+    message would, not two.** Landing at a chat with the person's choice already typed is not
+    the same as landing at a chat that still has to ask what they want: `greetingScript()` gained
+    a clause naming exactly this — a first message that already names a choice ("Add
+    merchandise" or similar) skips the greeting-menu step entirely and goes straight to whatever
+    comes next for that choice (P0-62's own second question, or the expense link), greeting the
+    person by name in that same reply rather than as a separate turn first. Submit Expenses still
+    resolves in exactly one round-trip either way — no second question exists for it (P0-66) — so
+    a click there costs no more than the direct link it replaced.
+
+    The routes themselves (`batchUploadPage`, `receiptUploadPage`) are unchanged and unlinked from
+    nowhere else: chat still points a person at them once it knows which one applies (a
+    spreadsheet, or a receipt photo), the same way `greetingScript()` already told a connecting
+    agent to. Checked over the real page (`data-prompt` present with the right text, the old
+    `href`s gone) and over `greetingScript()`'s own text (the new skip-the-menu clause present).
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -1331,6 +1356,7 @@ Where each feature is enforced today:
 | P0-80 | `ops/test/ops-page.test.mjs` |
 | P0-81 | `ops/test/agent-skills.test.mjs`, plus the repointed imports in `ops/test/skills.test.mjs`, `ops/test/catalog-write.test.mjs`, `ops/test/customer-create.test.mjs`, `ops/test/approvals.test.mjs` |
 | P0-82 | `ops/test/agent-skills.test.mjs` |
+| P0-83 | `ops/test/ops-page.test.mjs`, `ops/test/agent-greeting.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
