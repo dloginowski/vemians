@@ -1030,6 +1030,7 @@ document.querySelectorAll(".choices .btn[data-prompt]").forEach((btn) => {
  * path is introduced alongside the one this whole app already has.
  */
 const ITEMS_CSS = `
+${OPS_DARK_CSS}
 .items-search {
   width: 100%; box-sizing: border-box; font: inherit; font-size: 14px;
   padding: 8px 12px; margin: 0 0 16px; border: 1px solid var(--muted);

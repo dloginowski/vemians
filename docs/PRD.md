@@ -1071,6 +1071,22 @@ that does not trace to one of these is a process failure (see §12).
     running the full outline minus the edge that merges into `.shell-panel`, and nothing else at
     the base — no curve, no notch, nothing left to distort.
 
+    **The Items tab rendered in the wrong theme.** The owner's own report, once the D1 view was
+    fixed and the tab actually loaded: "it's the wrong theme. It should be a grid layout using the
+    same dark theme that's in the ops dashboard." The grid was already there (`.items-grid` has
+    always been `display: grid`); the theme was not — `ITEMS_CSS` never included `OPS_DARK_CSS` at
+    all, unlike `OPS_CSS` (`opsPage()`) and `APPROVAL_CSS` (the approval, batch-upload, and
+    expense-scanner pages), so `itemsPage()` rendered in `shared/design/theme.css`'s own light
+    palette instead. This also likely explains "you're missing the top edge... it should not
+    disappear by switching to a different page": `.shell-panel`'s own `border-top: 1px solid
+    var(--accent)` is part of the PERSISTENT shell, not the iframe's own content, so it was never
+    actually gone — a thin accent line against a near-black tab and a bright light-themed one reads
+    very differently, easily mistaken for disappearing. `ITEMS_CSS` now opens with `${OPS_DARK_CSS}`,
+    the same pattern every other ops page already follows. The dark-theme coverage test
+    (`test_PRD_P0_75_ops_dark_theme__every_approval_style_page_carries_it_too`) checked every other
+    ops-rendered page but never `itemsPage()` — the exact gap that let this ship unnoticed — so a
+    new, dedicated check now covers it too.
+
 47b. **`Test-PRD-P0-72-product_detail_page`** — Every product has its own page at
     `/products/<handle>` — the answer to "how do I see product details", asked directly, of a
     shop whose cards used to be `<article>`s with no click-through at all. `loadProduct(env,

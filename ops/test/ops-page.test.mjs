@@ -438,6 +438,20 @@ check("test_PRD_P0_75_ops_dark_theme__every_approval_style_page_carries_it_too",
   }
 });
 
+check("test_PRD_P0_75_ops_dark_theme__the_items_tab_carries_it_too", async () => {
+  /* ITEMS_CSS never included OPS_DARK_CSS at all — the Items tab rendered
+     in the shared light theme.css palette while every other ops page (this
+     suite's own list above included) rendered dark, an owner-reported bug:
+     "it's the wrong theme... using the same dark theme that's in the ops
+     dashboard." The accent-coloured line the shell's own panel draws above
+     the iframe reads as present or "missing" by contrast with whatever the
+     iframe's own page renders — the wrong, light background here was very
+     likely why that line read as gone specifically on this tab. */
+  const { itemsPage } = await import("../src/views.js");
+  assert.match(itemsPage({ role: "owner" }, []), /--ground:\s*#191817/);
+  assert.match(itemsPage({ role: "owner" }, []), /--accent:\s*#D97757/);
+});
+
 check("test_PRD_P0_71_items_tab__a_non_identity_refusal_does_not_tell_the_reader_to_sign_in", async () => {
   /* The bug this guards: refusalPage() appended "sign in with your Vemians
      email" UNCONDITIONALLY, so the Items mirror-read 500 — a data problem,
