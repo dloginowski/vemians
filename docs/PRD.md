@@ -478,6 +478,23 @@ that does not trace to one of these is a process failure (see §12).
     reused for a second photo. No Access role, or no `MEDIA_SIGNING_KEY` configured, refuses with a
     plain page rather than a link that would 403 or 503 further down.
 
+29c. **`Test-PRD-P0-60-spreadsheet_products`** — `/products/batch` turns one CSV into one
+    `catalog.create_product` T2 approval per row that resolves cleanly — the exact same tool, the
+    exact same category-closed-set and price-cap checks a chat-drafted product goes through,
+    re-derived nowhere. One product, one variation, per row: a spreadsheet cell cannot describe
+    several sizes at several prices without a schema of its own, so a product needing that still
+    goes through the chat tools. Photos are out of scope for the same reason a cell cannot hold
+    image bytes — added afterward, per product, the same way a one-off product's photo is (P0-59).
+
+    A row that cannot even be attempted — no title, a category that is not exactly one of the
+    closed set's names, a price that is not a plain decimal — is reported with the reason and
+    never reaches `runTool`, because the tool layer has no way to say "that is not a number". A
+    file over `CAPS.BATCH_MAX_ROWS` is refused whole, before any row is touched, rather than
+    silently truncated. Uploading a spreadsheet mints approvals; it does not consume any of
+    them — each one is still opened and said yes to individually, on the same `/approvals/` page
+    a single product's draft produces, so there is one confirmation screen in this codebase, not
+    two.
+
 30. **`Test-PRD-P0-30-prd_traceability`** — Every check in a PRD-backed test file carries a
     `Test-PRD-*` label, and every label used must exist in this PRD. The test files enforce this
     themselves, so a renamed or invented label fails the run rather than drifting silently.
@@ -793,6 +810,7 @@ Where each feature is enforced today:
 | P0-54 | `ops/test/skills.test.mjs`, `ops/test/ops-page.test.mjs` |
 | P0-55 | `ops/test/media-square.test.mjs`, over a stubbed Square uploader |
 | P0-59 | `ops/test/media-new.test.mjs`, over the real Worker |
+| P0-60 | `ops/test/csv.test.mjs` for the parser; the batch half of `ops/test/catalog-write.test.mjs`; `ops/test/batch-route.test.mjs` for the HTTP route |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

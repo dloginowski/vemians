@@ -71,6 +71,17 @@ export const CAPS = Object.freeze({
   MEDIA_TICKET_TTL_MS: 15 * 60 * 1000,
 
   /*
+   * Batch spreadsheet upload (batch.js). Each row calls runTool and, for a
+   * row that resolves, parkForApproval — sequentially, inside one Worker
+   * request, one of which reaches Square. A row count with no ceiling is a
+   * timeout waiting for a big enough file, not a feature.
+   */
+  BATCH_MAX_ROWS: 200,
+  /* Generous for 200 short rows and nowhere near ORIGINAL_IMAGE_MAX_BYTES —
+     a file this size holding fewer rows than the cap above is not a CSV. */
+  BATCH_MAX_BYTES: 2 * 1024 * 1024,
+
+  /*
    * Category near-duplicate refusal. Two names whose normalised token sets
    * overlap by at least this share are treated as the same category, so
    * "Coats" cannot be created next to "Coats & Jackets" without the refusal

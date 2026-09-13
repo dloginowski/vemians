@@ -75,6 +75,7 @@ import { nearestCategory, suggestCategory, validateProposal } from "../src/tools
    dynamic because a static one is resolved before this line ever runs. */
 register("../../shared/test/text-modules.mjs", import.meta.url);
 const { approvePending, parkForApproval } = await import("../src/mcp.js");
+const { draftBatch } = await import("../src/batch.js");
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OPS = path.join(HERE, "..");
@@ -431,6 +432,75 @@ check("test_PRD_P0_35_approval_never_in_band__a_role_that_cannot_use_the_tool_ca
   assert.equal(result.ok, false);
   assert.match(result.error, /cannot approve/);
   assert.deepEqual(f.calls(), [], "a refused approver must never reach Square");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-60 — a spreadsheet mints one approval per row, never a write
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_60_spreadsheet_products__a_clean_row_becomes_one_ready_to_review_approval", async () => {
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const csv =
+    "title,description,category,price,sku\n" +
+    `Wool Coat,Warm and heavy,${outerwear.name},450.00,VEM-100\n`;
+
+  const result = await draftBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  assert.equal(result.skipped.length, 0);
+  assert.equal(result.ready.length, 1);
+  assert.equal(result.ready[0].title, "Wool Coat");
+  assert.match(result.ready[0].url, /\/approvals\//);
+  assert.match(result.ready[0].summary, /Wool Coat/);
+
+  /* Uploading is not approving: nothing reaches Square until someone opens
+     that link and says yes. */
+  assert.deepEqual(f.calls(), []);
+});
+
+check("test_PRD_P0_60_spreadsheet_products__a_bad_row_is_reported_with_why_not_silently_dropped", async () => {
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const csv =
+    "title,category,price\n" +
+    ",Outerwear,45.00\n" +
+    "Sun Hat,Millinery,20.00\n" +
+    "Silk Scarf,Outerwear,free\n";
+
+  const result = await draftBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  assert.equal(result.ready.length, 0);
+  assert.equal(result.skipped.length, 3);
+  assert.match(result.skipped[0].reason, /no title/);
+  assert.match(result.skipped[1].reason, /"Millinery" does not exist/);
+  assert.match(result.skipped[2].reason, /"free" is not a plain number/);
+  /* Rows are 1-based and counted past the header, so a person can find row 2
+     in the spreadsheet they actually uploaded. */
+  assert.deepEqual(result.skipped.map((s) => s.row), [2, 3, 4]);
+});
+
+check("test_PRD_P0_60_spreadsheet_products__catalog_create_product_still_gates_on_role_even_from_a_spreadsheet", async () => {
+  /* draftBatch adds no role check of its own — catalog.create_product's own
+     minRole is the only gate, same as every other caller. This is what the
+     /products/batch route itself refuses BEFORE reading the file, so a staff
+     upload never gets this far; documented here so a change to that tool's
+     minRole is felt in exactly one place, not silently in two. */
+  const f = await fixture({ actor: "ana@vemians.com", role: "staff" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const csv = `title,category,price\nWool Coat,${outerwear.name},450.00\n`;
+
+  const result = await draftBatch(f.env, { text: csv, actor: "ana@vemians.com", role: "staff" });
+  assert.equal(result.ready.length, 0);
+  assert.equal(result.skipped.length, 1);
+  assert.match(result.skipped[0].reason, /requires the manager role/);
+});
+
+check("test_PRD_P0_60_spreadsheet_products__more_rows_than_the_cap_is_refused_before_any_row_runs", async () => {
+  const f = await fixture();
+  const tooMany = CAPS.BATCH_MAX_ROWS + 1;
+  const csv = "title,category,price\n" + Array.from({ length: tooMany }, (_, i) => `Item ${i},Outerwear,10.00`).join("\n");
+
+  const result = await draftBatch(f.env, { text: csv, actor: f.ctx.actor, role: f.ctx.role });
+  assert.equal(result.tooMany, tooMany);
+  assert.deepEqual(result.ready, []);
+  assert.deepEqual(result.skipped, []);
 });
 
 /* ─────────────────────────────────────────────────────────────────────────

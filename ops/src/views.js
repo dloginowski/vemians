@@ -10,6 +10,7 @@
  */
 
 import { esc, money, page } from "../../shared/view/html.js";
+import { CAPS } from "./tools/caps.js";
 
 /*
  * ---- the front page -------------------------------------------------------
@@ -266,6 +267,12 @@ ${id}
     <h1>Add a photo</h1>
     <p class="hint">One photo per click. No assistant needed.</p>
     <p><a class="btn" href="/media/new">Add a photo</a></p>
+  </section>
+
+  <section class="key">
+    <h1>Add products from a spreadsheet</h1>
+    <p class="hint">One product per row. No assistant needed.</p>
+    <p><a class="btn" href="/products/batch">Upload a spreadsheet</a></p>
   </section>
 
   <section class="key">
@@ -701,6 +708,86 @@ export function approvalResultPage(ok, detail) {
        <h1>${ok ? "Done" : "Not approved"}</h1>
        <pre>${esc(typeof detail === "string" ? detail : JSON.stringify(detail, null, 2))}</pre>
        <p><a href="/">Back to ops</a></p>
+     </main>`,
+    APPROVAL_CSS,
+  );
+}
+
+/*
+ * "Add products from a spreadsheet" — the other half of batch.js.
+ *
+ * GET is one file input and nothing else. Column names, what a row needs, an
+ * example — kept OUT of this page and said once, in the CSV template a person
+ * downloads, so there is exactly one place the two can drift apart from.
+ */
+export function batchUploadPage() {
+  return page(
+    "Add products from a spreadsheet",
+    `<main class="wrap">
+       <p class="eyebrow">One product per row</p>
+       <h1>Add products from a spreadsheet</h1>
+       <p>Columns: <strong>title</strong>, <strong>category</strong>, <strong>price</strong> — required.
+          <strong>description</strong> and <strong>sku</strong> — optional. Category must be spelled
+          exactly like one that already exists.</p>
+       <form method="POST" enctype="multipart/form-data">
+         <input type="file" name="file" accept=".csv,text/csv" required>
+         <p><button type="submit">Upload</button></p>
+       </form>
+       <p class="fine">Nothing is added yet. The next page shows what you are about to
+          create, one at a time, before anything reaches Square.</p>
+       <p><a href="/">Back to ops</a></p>
+     </main>`,
+    APPROVAL_CSS,
+  );
+}
+
+/*
+ * The result of one upload: a link to review per row that resolved cleanly,
+ * and a plain reason for every row that did not. Each link is a normal
+ * /approvals/ page — the same prefilled confirmation screen a single chat
+ * draft produces, so there is one approval screen in this codebase, not two.
+ */
+export function batchReviewPage({ ready, skipped, tooMany }) {
+  if (tooMany) {
+    return page(
+      "Too many rows",
+      `<main class="wrap">
+         <p class="eyebrow">Nothing was added</p>
+         <h1>Too many rows</h1>
+         <p>This file has ${tooMany} rows. The most one upload can take at once is ${CAPS.BATCH_MAX_ROWS} —
+            split it and upload the rest separately.</p>
+         <p><a href="/products/batch">Try again</a> &middot; <a href="/">Back to ops</a></p>
+       </main>`,
+      APPROVAL_CSS,
+    );
+  }
+  return page(
+    "Spreadsheet uploaded",
+    `<main class="wrap">
+       <p class="eyebrow">Spreadsheet uploaded</p>
+       <h1>${ready.length} ready to review</h1>
+       ${
+         ready.length
+           ? `<ol>${ready
+               .map(
+                 (r) =>
+                   `<li><a href="${esc(r.url)}">${esc(r.title)}</a>
+                      <span class="fine">${esc(r.summary)}</span></li>`,
+               )
+               .join("")}</ol>
+              <p class="fine">Each one is its own approval — nothing is created until you open it and
+                 say yes, the same as adding one product by hand.</p>`
+           : "<p>Nothing in this file was ready to add.</p>"
+       }
+       ${
+         skipped.length
+           ? `<h2>${skipped.length} not added</h2>
+              <ul>${skipped
+                .map((s) => `<li>Row ${s.row}, "${esc(s.title)}": ${esc(s.reason)}</li>`)
+                .join("")}</ul>`
+           : ""
+       }
+       <p><a href="/products/batch">Upload another spreadsheet</a> &middot; <a href="/">Back to ops</a></p>
      </main>`,
     APPROVAL_CSS,
   );

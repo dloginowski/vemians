@@ -32,11 +32,20 @@ import { approvePending, canUseDomain, handleMcp, isMcpPath, peekPending } from 
 import { customers, week } from "./seed.js";
 import { skillsFor } from "./skills.js";
 import { CAPS } from "./tools/caps.js";
-import { ROLES } from "./tools/roles.js";
+import { ROLES, roleAtLeast } from "./tools/roles.js";
 import { contentTypeFor, mediaKey, mintUploadTicket, verifyUploadTicket } from "./tools/media.js";
 import { mediaStoreFor } from "./tools/index.js";
 import { syncFromSquare } from "./sync.js";
-import { approvalPage, approvalResultPage, opsPage, refusalPage, whoamiPage } from "./views.js";
+import {
+  approvalPage,
+  approvalResultPage,
+  batchReviewPage,
+  batchUploadPage,
+  opsPage,
+  refusalPage,
+  whoamiPage,
+} from "./views.js";
+import { draftBatch } from "./batch.js";
 
 const html = (body, status = 200) =>
   new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8" } });
@@ -196,6 +205,66 @@ async function ops(request, env, path) {
     return AGENT_PATHS.has(path)
       ? json({ error: identity.reason }, identity.status)
       : html(refusalPage(identity.status, identity.reason), identity.status);
+  }
+
+  /*
+   * /products/batch — one CSV, many draft products, each still approved one
+   * at a time on its own /approvals/ page. See batch.js for what a row needs
+   * and why photos are out of scope for this route.
+   */
+  if (path === "/products/batch") {
+    const email = identity.claims?.email;
+    if (typeof email !== "string" || !email.includes("@")) {
+      return html(refusalPage(403, "This page requires signing in as a person, not a service token."), 403);
+    }
+    const role = roleFor(identity, env);
+    if (!role) {
+      return html(refusalPage(403, "Your Access identity is in no group this application maps to a role."), 403);
+    }
+    /*
+     * catalog.create_product itself refuses below manager, whether the call
+     * is asking to park an approval or to run one — a staff upload would get
+     * every single row back as "requires the manager role", which is one
+     * confusing message repeated N times rather than one clear one said
+     * before any row is even read.
+     */
+    if (!roleAtLeast(role, "manager")) {
+      return html(
+        refusalPage(
+          403,
+          "Adding products needs the manager role. Ask a manager to upload this, or draft it with your assistant instead.",
+        ),
+        403,
+      );
+    }
+
+    if (request.method === "GET") {
+      return html(batchUploadPage());
+    }
+    if (request.method !== "POST") {
+      return html(refusalPage(405, "Upload a file to this page, or open it in a browser."), 405);
+    }
+
+    let file;
+    try {
+      const form = await request.formData();
+      file = form.get("file");
+    } catch (err) {
+      return html(refusalPage(400, `Unreadable upload — ${err.message}`), 400);
+    }
+    if (!(file instanceof File) || file.size === 0) {
+      return html(refusalPage(400, "No file was attached."), 400);
+    }
+    if (file.size > CAPS.BATCH_MAX_BYTES) {
+      return html(
+        refusalPage(413, `That file is larger than the ${CAPS.BATCH_MAX_BYTES}-byte limit for one upload.`),
+        413,
+      );
+    }
+
+    const text = await file.text();
+    const result = await draftBatch(env, { text, actor: email, role });
+    return html(batchReviewPage(result));
   }
 
   /*
