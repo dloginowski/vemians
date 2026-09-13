@@ -28,14 +28,14 @@
 import { notFoundPage } from "../../shared/view/html.js";
 import { explainRole, readAccessIdentity } from "./access.js";
 import { agentTurn, approve, roleFor } from "./agent.js";
-import { approvePending, peekPending } from "./approvals.js";
+import { approvePending, parkForApproval, peekPending } from "./approvals.js";
 import { CAPS } from "./tools/caps.js";
 import { roleAtLeast } from "./tools/roles.js";
 import { contentTypeFor, mediaKey, mintUploadTicket, verifyUploadTicket, STORABLE_IMAGE_TYPES } from "./tools/media.js";
 import { mediaStoreFor, assetFileStoreFor, receiptFileStoreFor, runTool } from "./tools/index.js";
 import { contentTypeForAsset, extractText } from "./tools/assets.js";
 import { scanReceipt } from "./tools/receipt-ocr.js";
-import { listCategories } from "./tools/catalog-writer.js";
+import { listAllProducts, listCategories } from "./tools/catalog-writer.js";
 import { applyFormEdits } from "./approval-forms.js";
 import { syncFromSquare } from "./sync.js";
 import { backfillMedia } from "./media-backfill.js";
@@ -50,6 +50,7 @@ import {
   expenseConfirmPage,
   expenseFiledPage,
   receiptUploadPage,
+  itemsPage,
   opsPage,
   refusalPage,
   whoamiPage,
@@ -63,6 +64,11 @@ const json = (body, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8" } });
 
 const DEV_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "[::1]"]);
+
+/* Which /approvals/<id> writes were parked from an Items-tab tile, so the
+   result page can send the approver back there instead of to the agent
+   page every other approval link returns to. */
+const ITEMS_TAB_TOOLS = new Set(["catalog.set_channel", "catalog.set_custom_fields"]);
 
 function servesOps(hostname, env) {
   /* An explicit SURFACE wins over the hostname, in both directions. */
@@ -380,6 +386,92 @@ async function ops(request, env, path) {
       return json({ error: "Your Access identity is in no group this application maps to a role." }, 403);
     }
     return mediaUpload(request, env, identity, email);
+  }
+
+  /*
+   * /items — the employee-only tile grid over every mirrored product, custom
+   * fields included (P0-71). Any signed-in role may VIEW it (a T0 read, same
+   * as catalog.product); editing a tile mints a T2 approval and hands the
+   * browser to the SAME /approvals/<id> page every other catalog write
+   * already uses, rather than writing anything itself — see the comment on
+   * itemsPage() in views.js for why.
+   */
+  if (path === "/items") {
+    const role = roleFor(identity, env);
+    if (!role) {
+      return html(refusalPage(403, "Your Access identity is in no group this application maps to a role."), 403);
+    }
+    if (!env.CATALOG_MIRROR) {
+      return html(refusalPage(503, "The catalog mirror is not configured on this deployment yet."), 503);
+    }
+    const products = await listAllProducts(env.CATALOG_MIRROR, { limit: CAPS.CATALOG_ITEMS_PAGE_MAX_ROWS });
+    return html(itemsPage({ role }, products));
+  }
+
+  if (path.startsWith("/items/") && (path.endsWith("/channel") || path.endsWith("/custom-fields"))) {
+    const email = identity.claims?.email;
+    if (typeof email !== "string" || !email.includes("@")) {
+      return html(refusalPage(403, "This page requires signing in as a person, not a service token."), 403);
+    }
+    const role = roleFor(identity, env);
+    if (!role) {
+      return html(refusalPage(403, "Your Access identity is in no group this application maps to a role."), 403);
+    }
+    if (request.method !== "POST") {
+      return html(refusalPage(405, "Edit an item from the Items tab, not this URL directly."), 405);
+    }
+    /* catalog.set_channel and catalog.set_custom_fields both refuse below
+       manager anyway, but checked here first — same as /products/batch —
+       so a staff member gets one clear reason instead of runTool's own
+       generic denial. */
+    if (!roleAtLeast(role, "manager")) {
+      return html(refusalPage(403, "Editing an item needs the manager role. Ask a manager, or draft the change with your assistant instead."), 403);
+    }
+
+    const isChannel = path.endsWith("/channel");
+    const handle = path.slice("/items/".length, path.length - (isChannel ? "/channel".length : "/custom-fields".length));
+
+    let form;
+    try {
+      form = await request.formData();
+    } catch (err) {
+      return html(refusalPage(400, `Unreadable submission — ${err.message}`), 400);
+    }
+
+    let toolName, args, summaryNoun;
+    if (isChannel) {
+      toolName = "catalog.set_channel";
+      args = { handle, channel: String(form.get("channel") ?? "") };
+      summaryNoun = "channel";
+    } else {
+      /* field_name_0/field_value_0, field_name_1/field_value_1, ... — the
+         same numbered-row shape itemTile() renders in views.js. A row with
+         no name is skipped; a row with a name but no value is passed
+         through as "" so catalog.set_custom_fields' own merge treats it as
+         a removal, exactly the same as editing it there directly. */
+      const fields = {};
+      for (let i = 0; form.has(`field_name_${i}`); i += 1) {
+        const key = String(form.get(`field_name_${i}`) ?? "").trim();
+        if (key) fields[key] = String(form.get(`field_value_${i}`) ?? "").trim();
+      }
+      toolName = "catalog.set_custom_fields";
+      args = { handle, fields };
+      summaryNoun = "custom fields";
+    }
+
+    const gate = await runTool(toolName, args, { actor: email, role, env });
+    if (!gate?.needsApproval) {
+      return html(refusalPage(400, gate?.error || `That ${summaryNoun} change could not be proposed.`), 400);
+    }
+    const { id } = await parkForApproval(env, {
+      name: toolName,
+      args,
+      actor: email,
+      role,
+      tier: "T2",
+      summary: gate.data.would,
+    });
+    return new Response(null, { status: 303, headers: { Location: `/approvals/${id}` } });
   }
 
   /*
@@ -752,7 +844,18 @@ async function ops(request, env, path) {
 
       const out = await approvePending(env, id, { email, role, verified: identity.verified }, overrideArgs);
       if (!out.ok) console.error(`ERROR ops/approvals: ${email} could not approve ${id} — ${out.error}`);
-      return html(approvalResultPage(Boolean(out.ok), out.ok ? out.result ?? out : out.error), out.ok ? 200 : 403);
+      /* A write parked from the Items tab sends the person back there rather
+         than to the generic "Back to ops" (agent) link every other approval
+         uses — they came from a tile, not from chat. */
+      const backToItems = ITEMS_TAB_TOOLS.has(pendingBefore.pending?.tool);
+      return html(
+        approvalResultPage(
+          Boolean(out.ok),
+          out.ok ? out.result ?? out : out.error,
+          backToItems ? { backHref: "/items", backLabel: "Back to Items" } : undefined,
+        ),
+        out.ok ? 200 : 403,
+      );
     }
 
     const { pending, durable } = await peekPending(env, id);

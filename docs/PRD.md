@@ -888,6 +888,40 @@ that does not trace to one of these is a process failure (see §12).
     `custom_fields`, so nothing here reaches the public site by accident the way `channel`'s own
     fail-closed default already prevents for visibility itself.
 
+    **`Test-PRD-P0-71-items_tab`. A whole tab for the reason `custom_fields` exists: seeing and
+    authoring every field at once, not one product at a time through chat.** The owner's own
+    words: "it should show all items and all fields that are assigned to these items... this item
+    view is where we actually get to see them all and author them... a flexible grid layout that
+    uses the entire screen... using tiles, very clean tiles. So all the information should be
+    inside of these tiles, no external text outside of the cells." `GET /items` (`ops/src/index.js`,
+    rendered by `itemsPage()` in `views.js`) reads `listAllProducts()` (`catalog-writer.js`, one
+    query for every mirrored product plus one for every variation, grouped in memory rather than
+    N+1 queries per tile) and lays them out as a CSS grid (`repeat(auto-fill, minmax(240px, 1fr))`)
+    of self-contained cards — title, channel, status, category, every variation's own SKU and
+    price, and every `custom_fields` key/value, all inside the one bordered tile, nothing floating
+    beside it. A client-side text filter (`#item-search`, one `input` listener toggling `hidden` on
+    whichever tiles' own `data-search` attribute does not contain the query) is the "search them"
+    half — no server round trip, since a shop's whole catalog fits comfortably in one response.
+    ANY signed-in role may view it, matching `catalog.product`'s own T0 read gate; it is
+    **employee-only by the same construction as the rest of ops** — this file exists only in the
+    ops package, the whole host sits behind Cloudflare Access, and P0-71's own storefront reads
+    never name `custom_fields` — not a second gate to build, the existing one.
+
+    **Editing a tile goes through the SAME T2 approval gate every other catalog write in this
+    codebase does — no second, lighter-weight write path for "a manager clicked a button in ops."**
+    Each tile's own edit form (visible only to manager+, matching `catalog.set_channel`'s and
+    `catalog.set_custom_fields`'s own `minRole`) posts to `/items/<handle>/channel` or
+    `/items/<handle>/custom-fields`, which calls `runTool()` for the gate, `parkForApproval()` for
+    the token, and 303s the browser to the SAME `/approvals/<id>` page every other T2 write already
+    hands a human — the exact `applyFormEdits`-free "plain details" approval view `catalog.
+    set_channel` already got, not a new execute-on-click code path this codebase would then have
+    two of. `approvalResultPage()` gains an optional `backHref`/`backLabel` so approving an
+    Items-tab edit returns the approver to `/items` rather than the agent page every other approval
+    still returns to. The custom-fields form's own rows are numbered exactly the way `catalog.
+    set_custom_fields`' own `fields` patch already works: a row with a value updates or adds that
+    field, a row left blank removes it, and a field left off the form entirely is untouched — one
+    edit, one merge, both places.
+
 47b. **`Test-PRD-P0-72-product_detail_page`** — Every product has its own page at
     `/products/<handle>` — the answer to "how do I see product details", asked directly, of a
     shop whose cards used to be `<article>`s with no click-through at all. `loadProduct(env,
