@@ -276,6 +276,12 @@ ${id}
   </section>
 
   <section class="key">
+    <h1>Add customers from a spreadsheet</h1>
+    <p class="hint">One customer per row, straight into Square. No assistant needed.</p>
+    <p><a class="btn" href="/customers/batch">Upload a spreadsheet</a></p>
+  </section>
+
+  <section class="key">
     <h1>Connect your assistant</h1>
     <p class="hint">Paste this into your Claude or ChatGPT to get started.</p>
     ${copyLine(mcpUrl)}
@@ -714,27 +720,51 @@ export function approvalResultPage(ok, detail) {
 }
 
 /*
- * "Add products from a spreadsheet" — the other half of batch.js.
+ * "Add products/customers from a spreadsheet" — the other half of batch.js.
+ * One shape, two kinds, so the two pages cannot say different things about
+ * how uploading works while agreeing about what a row needs.
  *
  * GET is one file input and nothing else. Column names, what a row needs, an
  * example — kept OUT of this page and said once, in the CSV template a person
  * downloads, so there is exactly one place the two can drift apart from.
  */
-export function batchUploadPage() {
+const BATCH_KINDS = Object.freeze({
+  products: {
+    noun: "product",
+    path: "/products/batch",
+    columns:
+      "Columns: <strong>title</strong>, <strong>category</strong>, <strong>price</strong> — required. " +
+      "<strong>description</strong> and <strong>sku</strong> — optional. Category must be spelled " +
+      "exactly like one that already exists.",
+    createVerb: "create",
+  },
+  customers: {
+    noun: "customer",
+    path: "/customers/batch",
+    columns:
+      "Columns are Square's own names — the same shape a spreadsheet exported from Square, or typed " +
+      "at the till, already has: <strong>given_name</strong>, <strong>family_name</strong>, " +
+      "<strong>email_address</strong>, <strong>phone_number</strong>, <strong>note</strong>, " +
+      "<strong>reference_id</strong>. Every column is optional, but each row needs at least a name, " +
+      "an email, or a phone number.",
+    createVerb: "add",
+  },
+});
+
+export function batchUploadPage(kind = "products") {
+  const k = BATCH_KINDS[kind];
   return page(
-    "Add products from a spreadsheet",
+    `Add ${k.noun}s from a spreadsheet`,
     `<main class="wrap">
-       <p class="eyebrow">One product per row</p>
-       <h1>Add products from a spreadsheet</h1>
-       <p>Columns: <strong>title</strong>, <strong>category</strong>, <strong>price</strong> — required.
-          <strong>description</strong> and <strong>sku</strong> — optional. Category must be spelled
-          exactly like one that already exists.</p>
+       <p class="eyebrow">One ${k.noun} per row</p>
+       <h1>Add ${k.noun}s from a spreadsheet</h1>
+       <p>${k.columns}</p>
        <form method="POST" enctype="multipart/form-data">
          <input type="file" name="file" accept=".csv,text/csv" required>
          <p><button type="submit">Upload</button></p>
        </form>
        <p class="fine">Nothing is added yet. The next page shows what you are about to
-          create, one at a time, before anything reaches Square.</p>
+          ${k.createVerb}, one at a time, before anything reaches Square.</p>
        <p><a href="/">Back to ops</a></p>
      </main>`,
     APPROVAL_CSS,
@@ -747,7 +777,8 @@ export function batchUploadPage() {
  * /approvals/ page — the same prefilled confirmation screen a single chat
  * draft produces, so there is one approval screen in this codebase, not two.
  */
-export function batchReviewPage({ ready, skipped, tooMany }) {
+export function batchReviewPage({ ready, skipped, tooMany }, kind = "products") {
+  const k = BATCH_KINDS[kind];
   if (tooMany) {
     return page(
       "Too many rows",
@@ -756,7 +787,7 @@ export function batchReviewPage({ ready, skipped, tooMany }) {
          <h1>Too many rows</h1>
          <p>This file has ${tooMany} rows. The most one upload can take at once is ${CAPS.BATCH_MAX_ROWS} —
             split it and upload the rest separately.</p>
-         <p><a href="/products/batch">Try again</a> &middot; <a href="/">Back to ops</a></p>
+         <p><a href="${k.path}">Try again</a> &middot; <a href="/">Back to ops</a></p>
        </main>`,
       APPROVAL_CSS,
     );
@@ -776,7 +807,7 @@ export function batchReviewPage({ ready, skipped, tooMany }) {
                )
                .join("")}</ol>
               <p class="fine">Each one is its own approval — nothing is created until you open it and
-                 say yes, the same as adding one product by hand.</p>`
+                 say yes, the same as ${k.createVerb === "add" ? "adding" : "creating"} one ${k.noun} by hand.</p>`
            : "<p>Nothing in this file was ready to add.</p>"
        }
        ${
@@ -787,7 +818,7 @@ export function batchReviewPage({ ready, skipped, tooMany }) {
                 .join("")}</ul>`
            : ""
        }
-       <p><a href="/products/batch">Upload another spreadsheet</a> &middot; <a href="/">Back to ops</a></p>
+       <p><a href="${k.path}">Upload another spreadsheet</a> &middot; <a href="/">Back to ops</a></p>
      </main>`,
     APPROVAL_CSS,
   );

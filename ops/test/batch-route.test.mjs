@@ -85,6 +85,21 @@ check("test_PRD_P0_60_spreadsheet_products__an_unmapped_identity_cannot_reach_th
   assert.equal(res.status, 403);
 });
 
+check("test_PRD_P0_60_spreadsheet_products__the_customer_upload_page_names_squares_own_field_names", async () => {
+  const res = await get("/customers/batch", MANAGER);
+  assert.equal(res.status, 200);
+  const body = await res.text();
+  assert.match(body, /given_name/);
+  assert.match(body, /email_address/);
+  assert.match(body, /phone_number/);
+});
+
+check("test_PRD_P0_60_spreadsheet_products__staff_cannot_reach_the_customer_upload_form_either", async () => {
+  const res = await get("/customers/batch", STAFF);
+  assert.equal(res.status, 403);
+  assert.match(await res.text(), /manager/i);
+});
+
 check("test_PRD_P0_60_spreadsheet_products__posting_with_no_file_attached_is_refused_plainly", async () => {
   const form = new FormData();
   const res = await worker.fetch(

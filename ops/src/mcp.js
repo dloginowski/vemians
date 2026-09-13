@@ -331,24 +331,58 @@ function describe(id, tool) {
   return `${base}\n\n[T0 read]`;
 }
 
+/*
+ * A pure string builder, kept apart from buildServer() so a test can assert
+ * on exactly what a connecting agent is told without a full MCP handshake —
+ * "the code was asked what it meant, not what it sent" is the recurring bug
+ * class this whole codebase tests against, and instructions text is exactly
+ * the kind of thing that reads fine in review and never actually says what
+ * you meant to a live client.
+ */
+export function buildInstructions(identity) {
+  return (
+    `Vemians ops tools for ${identity.actor} (${identity.role}).` +
+    ` Only the tools this role may use are listed.` +
+    ` T2 writes are never executed by this endpoint: they return a link a human approves in a browser.` +
+    /* The whole reason skills are served. A tool name says what it is
+       called; the skill says that the category set is closed, that price
+       and publish are two gates, that a photograph goes through an upload
+       ticket. Point at it in the first thing the model reads, or it will
+       learn those rules by being refused. */
+    ` START BY READING THE SKILLS: call skills_list, then skills_read on` +
+    ` "agent-tool-contract" plus whichever domain you are about to touch.` +
+    ` They are also exposed as MCP resources under skill://<name>.` +
+    /* The first turn is a coworker opening a new tool, not a developer
+       reading an API. Greeting them with a wall of tool names is the
+       opposite of the plain, short-choices experience the ops front page
+       itself promises — say so here, once, so every connecting agent
+       opens the same way instead of each inventing its own tone. */
+    ` FIRST MESSAGE: greet them by name and offer a short menu of what you` +
+    ` can help with right now — for example "1) Add a product  2) Add a` +
+    ` customer  3) Look something up  4) Something else" — then wait for` +
+    ` their choice. Do not explain tiers, tools or skills unless asked.` +
+    /* Several products or customers at once has two entry points that
+       must produce the SAME result: a spreadsheet on ops.vemians.com
+       (/products/batch, /customers/batch — one file, one approval link
+       per row), or a list said out loud in this chat. For the second,
+       there is no separate "batch" tool: draft, then create, once per
+       item, exactly as for one — then gather every resulting approval
+       link and present them together at the end, the same shape a
+       spreadsheet's review page already has. Never approve on the
+       person's behalf; each link still needs its own "yes". */
+    ` A LIST OF SEVERAL PRODUCTS OR CUSTOMERS: if they have a spreadsheet,` +
+    ` point them at /products/batch or /customers/batch on ops.vemians.com` +
+    ` instead of typing it all out. If they narrate the list here instead,` +
+    ` draft and create one at a time as usual, then present every` +
+    ` resulting approval link together at the end.` +
+    (identity.verified ? "" : " WARNING: the Access assertion was decoded but NOT signature-verified on this deployment.")
+  );
+}
+
 function buildServer(identity, env) {
   const server = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
-    {
-      instructions:
-        `Vemians ops tools for ${identity.actor} (${identity.role}).` +
-        ` Only the tools this role may use are listed.` +
-        ` T2 writes are never executed by this endpoint: they return a link a human approves in a browser.` +
-        /* The whole reason skills are served. A tool name says what it is
-           called; the skill says that the category set is closed, that price
-           and publish are two gates, that a photograph goes through an upload
-           ticket. Point at it in the first thing the model reads, or it will
-           learn those rules by being refused. */
-        ` START BY READING THE SKILLS: call skills_list, then skills_read on` +
-        ` "agent-tool-contract" plus whichever domain you are about to touch.` +
-        ` They are also exposed as MCP resources under skill://<name>.` +
-        (identity.verified ? "" : " WARNING: the Access assertion was decoded but NOT signature-verified on this deployment."),
-    },
+    { instructions: buildInstructions(identity) },
   );
 
   /*

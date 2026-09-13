@@ -75,7 +75,7 @@ import { nearestCategory, suggestCategory, validateProposal } from "../src/tools
    dynamic because a static one is resolved before this line ever runs. */
 register("../../shared/test/text-modules.mjs", import.meta.url);
 const { approvePending, parkForApproval } = await import("../src/mcp.js");
-const { draftBatch } = await import("../src/batch.js");
+const { draftProductBatch } = await import("../src/batch.js");
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OPS = path.join(HERE, "..");
@@ -445,7 +445,7 @@ check("test_PRD_P0_60_spreadsheet_products__a_clean_row_becomes_one_ready_to_rev
     "title,description,category,price,sku\n" +
     `Wool Coat,Warm and heavy,${outerwear.name},450.00,VEM-100\n`;
 
-  const result = await draftBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
   assert.equal(result.skipped.length, 0);
   assert.equal(result.ready.length, 1);
   assert.equal(result.ready[0].title, "Wool Coat");
@@ -465,7 +465,7 @@ check("test_PRD_P0_60_spreadsheet_products__a_bad_row_is_reported_with_why_not_s
     "Sun Hat,Millinery,20.00\n" +
     "Silk Scarf,Outerwear,free\n";
 
-  const result = await draftBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
   assert.equal(result.ready.length, 0);
   assert.equal(result.skipped.length, 3);
   assert.match(result.skipped[0].reason, /no title/);
@@ -477,7 +477,7 @@ check("test_PRD_P0_60_spreadsheet_products__a_bad_row_is_reported_with_why_not_s
 });
 
 check("test_PRD_P0_60_spreadsheet_products__catalog_create_product_still_gates_on_role_even_from_a_spreadsheet", async () => {
-  /* draftBatch adds no role check of its own — catalog.create_product's own
+  /* draftProductBatch adds no role check of its own — catalog.create_product's own
      minRole is the only gate, same as every other caller. This is what the
      /products/batch route itself refuses BEFORE reading the file, so a staff
      upload never gets this far; documented here so a change to that tool's
@@ -486,7 +486,7 @@ check("test_PRD_P0_60_spreadsheet_products__catalog_create_product_still_gates_o
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   const csv = `title,category,price\nWool Coat,${outerwear.name},450.00\n`;
 
-  const result = await draftBatch(f.env, { text: csv, actor: "ana@vemians.com", role: "staff" });
+  const result = await draftProductBatch(f.env, { text: csv, actor: "ana@vemians.com", role: "staff" });
   assert.equal(result.ready.length, 0);
   assert.equal(result.skipped.length, 1);
   assert.match(result.skipped[0].reason, /requires the manager role/);
@@ -497,7 +497,7 @@ check("test_PRD_P0_60_spreadsheet_products__more_rows_than_the_cap_is_refused_be
   const tooMany = CAPS.BATCH_MAX_ROWS + 1;
   const csv = "title,category,price\n" + Array.from({ length: tooMany }, (_, i) => `Item ${i},Outerwear,10.00`).join("\n");
 
-  const result = await draftBatch(f.env, { text: csv, actor: f.ctx.actor, role: f.ctx.role });
+  const result = await draftProductBatch(f.env, { text: csv, actor: f.ctx.actor, role: f.ctx.role });
   assert.equal(result.tooMany, tooMany);
   assert.deepEqual(result.ready, []);
   assert.deepEqual(result.skipped, []);
@@ -1293,7 +1293,7 @@ check("test_PRD_P0_24_binding_scoped_tools__the_draft_tool_holds_no_square_write
 
   /* And the registry refuses the mistake at assembly rather than at a request:
      a T0 declaring the write path cannot be built (src/tools/index.js). */
-  assert.deepEqual(RESOURCES, ["square", "media"]);
+  assert.deepEqual(RESOURCES, ["square", "square_client", "media"]);
   assert.equal(TOOLS["catalog.categories"].tier, "T0");
 });
 

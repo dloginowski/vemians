@@ -45,7 +45,7 @@ import {
   refusalPage,
   whoamiPage,
 } from "./views.js";
-import { draftBatch } from "./batch.js";
+import { draftCustomerBatch, draftProductBatch } from "./batch.js";
 
 const html = (body, status = 200) =>
   new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8" } });
@@ -208,11 +208,15 @@ async function ops(request, env, path) {
   }
 
   /*
-   * /products/batch — one CSV, many draft products, each still approved one
-   * at a time on its own /approvals/ page. See batch.js for what a row needs
-   * and why photos are out of scope for this route.
+   * /products/batch and /customers/batch — one CSV, many drafts, each still
+   * approved one at a time on its own /approvals/ page. See batch.js for what
+   * a row needs per kind and why photos are out of scope for either route.
    */
-  if (path === "/products/batch") {
+  if (path === "/products/batch" || path === "/customers/batch") {
+    const kind = path === "/products/batch" ? "products" : "customers";
+    const draftFn = kind === "products" ? draftProductBatch : draftCustomerBatch;
+    const noun = kind === "products" ? "products" : "customers";
+
     const email = identity.claims?.email;
     if (typeof email !== "string" || !email.includes("@")) {
       return html(refusalPage(403, "This page requires signing in as a person, not a service token."), 403);
@@ -222,24 +226,24 @@ async function ops(request, env, path) {
       return html(refusalPage(403, "Your Access identity is in no group this application maps to a role."), 403);
     }
     /*
-     * catalog.create_product itself refuses below manager, whether the call
-     * is asking to park an approval or to run one — a staff upload would get
-     * every single row back as "requires the manager role", which is one
-     * confusing message repeated N times rather than one clear one said
+     * Both catalog.create_product and customer.create refuse below manager,
+     * whether the call is asking to park an approval or to run one — a staff
+     * upload would get every single row back as "requires the manager role",
+     * one confusing message repeated N times rather than one clear one said
      * before any row is even read.
      */
     if (!roleAtLeast(role, "manager")) {
       return html(
         refusalPage(
           403,
-          "Adding products needs the manager role. Ask a manager to upload this, or draft it with your assistant instead.",
+          `Adding ${noun} needs the manager role. Ask a manager to upload this, or draft it with your assistant instead.`,
         ),
         403,
       );
     }
 
     if (request.method === "GET") {
-      return html(batchUploadPage());
+      return html(batchUploadPage(kind));
     }
     if (request.method !== "POST") {
       return html(refusalPage(405, "Upload a file to this page, or open it in a browser."), 405);
@@ -263,8 +267,8 @@ async function ops(request, env, path) {
     }
 
     const text = await file.text();
-    const result = await draftBatch(env, { text, actor: email, role });
-    return html(batchReviewPage(result));
+    const result = await draftFn(env, { text, actor: email, role });
+    return html(batchReviewPage(result, kind));
   }
 
   /*

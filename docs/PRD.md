@@ -478,22 +478,43 @@ that does not trace to one of these is a process failure (see §12).
     reused for a second photo. No Access role, or no `MEDIA_SIGNING_KEY` configured, refuses with a
     plain page rather than a link that would 403 or 503 further down.
 
-29c. **`Test-PRD-P0-60-spreadsheet_products`** — `/products/batch` turns one CSV into one
-    `catalog.create_product` T2 approval per row that resolves cleanly — the exact same tool, the
-    exact same category-closed-set and price-cap checks a chat-drafted product goes through,
-    re-derived nowhere. One product, one variation, per row: a spreadsheet cell cannot describe
-    several sizes at several prices without a schema of its own, so a product needing that still
-    goes through the chat tools. Photos are out of scope for the same reason a cell cannot hold
-    image bytes — added afterward, per product, the same way a one-off product's photo is (P0-59).
+29c. **`Test-PRD-P0-60-spreadsheet_products`** — `/products/batch` and `/customers/batch` each turn
+    one CSV into one T2 approval per row that resolves cleanly — `catalog.create_product` for the
+    first, `customer.create` (P0-61) for the second — the exact same tool, the exact same checks a
+    chat-drafted call goes through, re-derived nowhere. `batch.js` holds the two column-to-`args`
+    mappings; parking an approval is the one shared step underneath both. One record per row: a
+    spreadsheet cell cannot describe a product with several sizes at several prices, or a customer
+    with two phone numbers, without a schema of its own, so anything needing that still goes
+    through the chat tools. Photos are out of scope for products for the same reason a cell cannot
+    hold image bytes — added afterward, per product, the same way a one-off product's photo is
+    (P0-59).
 
-    A row that cannot even be attempted — no title, a category that is not exactly one of the
-    closed set's names, a price that is not a plain decimal — is reported with the reason and
-    never reaches `runTool`, because the tool layer has no way to say "that is not a number". A
-    file over `CAPS.BATCH_MAX_ROWS` is refused whole, before any row is touched, rather than
-    silently truncated. Uploading a spreadsheet mints approvals; it does not consume any of
-    them — each one is still opened and said yes to individually, on the same `/approvals/` page
-    a single product's draft produces, so there is one confirmation screen in this codebase, not
-    two.
+    A row that cannot even be attempted — a product with no title, a category that is not exactly
+    one of the closed set's names, a price that is not a plain decimal — is reported with the
+    reason and never reaches `runTool`, because the tool layer has no way to say "that is not a
+    number"; a customer row's own refusals (no identifying field, a malformed email) come straight
+    from `customer.create`'s own check(), relayed rather than re-derived. A file over
+    `CAPS.BATCH_MAX_ROWS` is refused whole, before any row is touched, rather than silently
+    truncated. Uploading a spreadsheet mints approvals; it does not consume any of them — each one
+    is still opened and said yes to individually, on the same `/approvals/` page a single record's
+    draft produces, so there is one confirmation screen in this codebase, not two. Both routes are
+    manager+ only, at the route itself: either tool's own `minRole` would otherwise turn a staff
+    upload into the same refusal repeated once per row.
+
+29d. **`Test-PRD-P0-61-square_customer_intake`** — `customer.create` writes a new customer into
+    SQUARE's own Customer Directory — the same directory the till and the storefront's contact form
+    (P0-58/ADR-015) already write to — using Square's own field names (`given_name`, `family_name`,
+    `email_address`, `phone_number`, `note`, `reference_id`) rather than inventing our own. **This is
+    not P0-33.** The `customer.*` family above it (`profile`, `fit`, `history`, `update_fit`) reads
+    and writes OUR OWN `customers` store, keyed by an opaque `customer_id`, and P0-08 promises that
+    family never returns a name, email or phone number; `customer.create` holds no `customers` or
+    `identity` binding at all; a Square customer id is not a `customer_id` any tool in that family
+    will ever accept. P0-33's encrypted vault with per-purpose consent remains unbuilt and deliberately
+    deferred (identity-skills: build it last) — this is the smaller thing ADR-015 already established
+    is fine, leaning on Square's own directory rather than building a second place to hold the same
+    kind of data. Square's own rule is enforced before Square ever sees the call: at least one of
+    `given_name`, `family_name`, `email_address` or `phone_number`. Minimum role manager, same T2 gate
+    as every other write in this codebase.
 
 30. **`Test-PRD-P0-30-prd_traceability`** — Every check in a PRD-backed test file carries a
     `Test-PRD-*` label, and every label used must exist in this PRD. The test files enforce this
@@ -572,6 +593,19 @@ that does not trace to one of these is a process failure (see §12).
     from the same registry that filters the calls, so the page cannot advertise a capability the
     tool layer would refuse. Checked by `ops/test/ops-page.test.mjs`, which fetches the real page
     from the real Worker rather than asserting over the template.
+
+34a. **`Test-PRD-P0-62-onboarding_greeting`** — The MCP server's own `instructions` — the one
+    thing every connecting agent reads before its first reply, regardless of which chat client it
+    is — tell it to greet the coworker by name and offer a short numbered menu of what it can help
+    with right now, then wait, rather than opening with an explanation of tiers or tools. The same
+    text tells it what several products or customers at once actually means: point at
+    `/products/batch` or `/customers/batch` when a spreadsheet exists, and when the coworker narrates
+    a list instead, draft and create one item at a time exactly as for a single one — there is no
+    separate "batch" tool — then present every resulting approval link together at the end, the same
+    shape a spreadsheet's own review page already has. `buildInstructions(identity)` is a pure
+    function precisely so a test can assert on the words a client actually receives, the same
+    lesson the `/approvals/` 404 already taught this codebase once (P0-35): reading the code and
+    believing it says the right thing is not the same as checking what it sends.
 
 35. **`Test-PRD-P0-35-approval_never_in_band`** — A T2 action requested through MCP does not
     execute in the model's context. It returns an approval URL on `ops.vemians.com`; the token is
@@ -810,7 +844,9 @@ Where each feature is enforced today:
 | P0-54 | `ops/test/skills.test.mjs`, `ops/test/ops-page.test.mjs` |
 | P0-55 | `ops/test/media-square.test.mjs`, over a stubbed Square uploader |
 | P0-59 | `ops/test/media-new.test.mjs`, over the real Worker |
-| P0-60 | `ops/test/csv.test.mjs` for the parser; the batch half of `ops/test/catalog-write.test.mjs`; `ops/test/batch-route.test.mjs` for the HTTP route |
+| P0-60 | `ops/test/csv.test.mjs` for the parser; the product-batch half of `ops/test/catalog-write.test.mjs`; the customer-batch half of `ops/test/customer-create.test.mjs`; `ops/test/batch-route.test.mjs` for both HTTP routes |
+| P0-61 | `ops/test/customer-create.test.mjs`, over a fake Square client — no Square account, token or network call is involved |
+| P0-62 | `ops/test/mcp-instructions.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

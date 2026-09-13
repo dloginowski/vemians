@@ -56,6 +56,7 @@ import { catalogWriteTools } from "./catalog-write.js";
 import { commerceTools } from "./commerce.js";
 import { createMediaStore, createSquareMediaStore } from "./media.js";
 import { createImageUploader } from "../../../shared/commerce/square/images.js";
+import { createSquareClient } from "../../../shared/commerce/square/client.js";
 import { customerTools } from "./customers.js";
 import { financeTools } from "./finance.js";
 import { peopleTools } from "./people.js";
@@ -96,11 +97,16 @@ export const STORE_BINDINGS = Object.freeze({
  *   square  the catalog WRITE path — an authenticated Square client plus the
  *           mirror sync that follows a write. Constructed from env; a tool
  *           never sees a raw client and never sees a Square identifier.
+ *   square_client  the SAME authenticated client, with none of the catalog
+ *           machinery — no mirror, no CATALOG_MIRROR requirement. For a tool
+ *           that calls Square directly for something that is not the catalog
+ *           (customer.create's CreateCustomer today) and would otherwise have
+ *           to depend on a binding it has no reason to need.
  *   media   OUR R2 bucket for photographic originals, through the narrow view
  *           in media.js — which has no `delete`, because nothing here removes a
  *           photograph.
  */
-export const RESOURCES = Object.freeze(["square", "media"]);
+export const RESOURCES = Object.freeze(["square", "square_client", "media"]);
 
 const AUDIT_BINDING = "AUDIT";
 
@@ -205,6 +211,8 @@ function scopedResources(tool, ctx) {
   for (const resource of tool.resources ?? []) {
     if (resource === "square") {
       out.square = ctx.square ?? createSquareCatalogWriter(ctx.env, { commerceDb: ctx.env?.COMMERCE ?? null });
+    } else if (resource === "square_client") {
+      out.square_client = ctx.square_client ?? createSquareClient(ctx.env, ctx.clientOptions);
     } else if (resource === "media") {
       out.media = ctx.media ?? mediaStoreFor(ctx.env ?? {});
     }

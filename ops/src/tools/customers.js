@@ -23,6 +23,12 @@
  * and applies neither.
  */
 import { CAPS, rowLimit } from "./caps.js";
+import { createCustomer } from "../../../shared/commerce/square/customers.js";
+
+/* Good enough to catch a typo, not a promise of deliverability — the same
+   shape store/src/contact.js already uses, so the two do not drift apart
+   over what counts as "looks like an email". */
+const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export const customerTools = {
   "customer.profile": {
@@ -249,6 +255,73 @@ export const customerTools = {
               },
         },
       };
+    },
+  },
+
+  /*
+   * NOT PART OF THE customer.* FAMILY ABOVE. Everything above this line reads
+   * or proposes changes to OUR OWN `customers` store, keyed by an opaque
+   * customer_id, and P0-08 promises that family never returns a name, email
+   * or phone number. This tool touches none of that: it writes to SQUARE'S
+   * Customer Directory (the same one the till and the storefront's contact
+   * form — ADR-015 — already write to), holds no `customers` or `identity`
+   * binding, and the id Square hands back is a Square customer id, not a
+   * customer_id any tool above will ever accept as one.
+   *
+   * FIELD NAMES ARE SQUARE'S OWN (given_name, family_name, email_address,
+   * phone_number, note, reference_id) on purpose: batch.js's spreadsheet
+   * ingest for customers uses these exact column names, because that is the
+   * shape a spreadsheet exported from Square, or typed at the till, already
+   * has — one vocabulary, not a translation layer that could drift.
+   *
+   * Why this is not P0-33's planned customer_intake: that feature is our OWN
+   * encrypted vault, with per-purpose consent — a bigger, deliberately
+   * deferred decision (identity-skills: build it last). This is the much
+   * smaller thing ADR-015 already established is fine: leaning on Square's
+   * own directory rather than building a second place to hold the same kind
+   * of data.
+   */
+  "customer.create": {
+    tier: "T2",
+    domain: "customers",
+    stores: [],
+    resources: ["square_client"],
+    minRole: "manager",
+    describe:
+      "Create a customer in SQUARE's own Customer Directory — the same one the till and the " +
+      "storefront's contact form (ADR-015) write to. Needs at least one of given_name, family_name, " +
+      "email_address or phone_number (Square's own rule). Field names are Square's, not ours. This " +
+      "is a T2 write: it executes only after a human approves it in a browser.",
+    undo: "no delete path here — merge or remove the record by hand in Square's own dashboard",
+    schema: {
+      given_name: { type: "string", maxLength: 80 },
+      family_name: { type: "string", maxLength: 80 },
+      email_address: { type: "string", maxLength: 200 },
+      phone_number: { type: "string", maxLength: 40 },
+      note: { type: "string", maxLength: 500 },
+      reference_id: { type: "string", maxLength: 100 },
+    },
+    async check(args) {
+      if (!args.given_name && !args.family_name && !args.email_address && !args.phone_number) {
+        return {
+          denied:
+            "needs at least one of given_name, family_name, email_address or phone_number — " +
+            "Square will not create a customer with none of those",
+        };
+      }
+      if (args.email_address && !EMAIL_SHAPE.test(args.email_address)) {
+        return { denied: `'${args.email_address}' does not look like an email address` };
+      }
+      const label =
+        [args.given_name, args.family_name].filter(Boolean).join(" ") ||
+        args.email_address ||
+        args.phone_number;
+      return { ok: true, summary: `add ${label} to Square's customer directory` };
+    },
+    async run(args, t) {
+      const res = await createCustomer(t.square_client, args);
+      if (!res?.customer?.id) return { error: "Square did not return a customer id" };
+      return { created: true, square_customer_id: res.customer.id };
     },
   },
 };
