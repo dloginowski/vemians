@@ -1093,6 +1093,24 @@ that does not trace to one of these is a process failure (see §12).
     change to `--tab-radius` moves every dependent value together, the way the owner's own code
     was written to work.
 
+    **The notch was invisible, and every tab looked like its own separate chip — the owner's own
+    words, after the previous round still deployed: "No. What you have now looks like shit."**
+    Two real bugs, not a formula mismatch. First: `.shell-header` had no background of its own, so
+    it inherited `--ground` from `.shell` — the exact same colour the round-out notch paints
+    outward (the active tab's own background). Painting a colour over an identical background is a
+    no-op; the whole trick was invisible against the header's real background, working only where
+    it happened to land on a neighbouring tab's own box instead. Second: every tab, active or not,
+    carried its own `border` and `background` — the reference code's `.tab` is plain (`border:
+    none; background: transparent`) and only `.tab.active` gets a fill, a border, or a radius at
+    all; giving every tab a bordered box made the strip read as separate chips rather than folder
+    tabs in a flat bar, which the notch curves (designed for ONE raised tab against a flat
+    background) then cut into at odd angles. Fixed both to match the reference structurally, not
+    just its formula: `.shell-header` now carries its own `background: var(--image-ground)`,
+    distinct from the active tab's `var(--ground)`, so the notch has something to actually contrast
+    against; `.shell-nav button`'s base rule dropped to `border: none; background: transparent`
+    (plain muted text, nothing else), with the border, fill, and `border-radius` moved onto
+    `.shell-nav button.active` alone, exactly where the reference code puts them.
+
 47b. **`Test-PRD-P0-72-product_detail_page`** — Every product has its own page at
     `/products/<handle>` — the answer to "how do I see product details", asked directly, of a
     shop whose cards used to be `<article>`s with no click-through at all. `loadProduct(env,

@@ -176,8 +176,31 @@ check("test_PRD_P0_71_items_tab__the_tabs_are_top_rounded_and_square_on_the_bott
      BOTH ends rounded, and this one only ever has one. */
   const { body } = await shell(OWNER);
   assert.match(body, /\.shell-nav\s*\{[^}]*--tab-radius:\s*14px/s);
-  assert.match(body, /\.shell-nav button\s*\{[^}]*border-radius:\s*var\(--tab-radius\) var\(--tab-radius\) 0 0/s);
-  assert.doesNotMatch(body, /\.shell-nav button\s*\{[^}]*border-radius:\s*(8px|20px|30px)[;\s]/s, "no all-corners radius (the pill shape) may remain");
+  assert.match(body, /\.shell-nav button\.active\s*\{[^}]*border-radius:\s*var\(--tab-radius\) var\(--tab-radius\) 0 0/s);
+  assert.doesNotMatch(body, /\.shell-nav button\.active\s*\{[^}]*border-radius:\s*(8px|20px|30px)[;\s]/s, "no all-corners radius (the pill shape) may remain");
+});
+
+check("test_PRD_P0_71_items_tab__inactive_tabs_are_flat_not_their_own_bordered_box", async () => {
+  /* The reference code's own .tab is "border: none; background:
+     transparent" — every tab drawn as its own bordered, filled box (the
+     shape this shell used before) read as a row of separate chips, not
+     folder tabs in a flat bar, and it also made the round-out notch
+     paint over another tab's own box instead of the header's actual
+     background. Only .active gets a border, a fill, or a radius now. */
+  const { body } = await shell(OWNER);
+  assert.match(body, /\.shell-nav button\s*\{[^}]*border:\s*none/s);
+  assert.match(body, /\.shell-nav button\s*\{[^}]*background:\s*transparent/s);
+});
+
+check("test_PRD_P0_71_items_tab__the_header_background_differs_from_the_active_tabs_own_colour", async () => {
+  /* The round-out notch paints the active tab's own colour (--ground)
+     outward into whatever sits behind it — if that background is ALSO
+     --ground, the paint is invisible: the entire trick depends on the
+     header's own background differing from the tab's, exactly like the
+     reference code's separate --bg-color and --tab-color. */
+  const { body } = await shell(OWNER);
+  assert.match(body, /\.shell-header\s*\{[^}]*background:\s*var\(--image-ground\)/s);
+  assert.match(body, /\.shell-nav button\.active\s*\{[^}]*background:\s*var\(--ground\)/s);
 });
 
 check("test_PRD_P0_71_items_tab__the_active_tab_structurally_merges_into_the_panel_not_just_matches_its_colour", async () => {
@@ -185,12 +208,11 @@ check("test_PRD_P0_71_items_tab__the_active_tab_structurally_merges_into_the_pan
      curves up the tab. Over the tab and smoothly transitions down and
      keeps going right." A genuine merge, not two colour-matched lines
      standing in for one: the active tab's own bottom border is removed
-     entirely (border-bottom: none, same as every tab now) and its
-     background matches the panel's, so it structurally opens into what
-     it fronts rather than floating above it as an independent, fully-
-     bordered piece. */
+     entirely (border-bottom: none) and its background matches the
+     panel's, so it structurally opens into what it fronts rather than
+     floating above it as an independent, fully-bordered piece. */
   const { body } = await shell(OWNER);
-  assert.match(body, /\.shell-nav button\s*\{[^}]*border-bottom:\s*none/s);
+  assert.match(body, /\.shell-nav button\.active\s*\{[^}]*border-bottom:\s*none/s);
   assert.match(body, /\.shell-nav button\.active\s*\{[^}]*margin-bottom:\s*-1px/s);
   assert.match(body, /\.shell-panel\s*\{[^}]*border-top:\s*1px solid var\(--accent\)/s, "the panel's own line the active tab merges into must still be there");
 });

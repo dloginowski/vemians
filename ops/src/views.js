@@ -216,29 +216,43 @@ html, body { height: 100%; margin: 0; }
    edge, it is past it AND past .chat-top's own frame: 8px (.ops) + 1px
    (.chat-top's own border) + 14px (.chat-top's own padding) = 23px, the
    point actual chat content (the log, the composer) starts at. */
-.shell-header { flex: 0 0 auto; padding: 10px 23px 0; }
+/* The reference code's container has its own flat background
+   (--bg-color) distinct from the active tab's own colour (--tab-color)
+   — without that contrast the round-out notch below paints the tab's
+   colour over a background that is ALREADY that same colour and is
+   therefore invisible. .shell-header carries --image-ground for exactly
+   this reason: it has to differ from .shell-nav button.active's own
+   background (--ground, chosen so the active tab still merges into
+   .shell-panel below, which is also --ground) or there is nothing for
+   the curve to contrast against. */
+.shell-header { flex: 0 0 auto; padding: 10px 23px 0; background: var(--image-ground); }
 /* Gap wide enough that the active tab's own round-out notches (--tab-
    radius to each side, below) never reach a neighbouring tab — 3px let
    them bite into whichever tab sits next to the active one. */
 .shell-nav { --tab-radius: 14px; display: flex; align-items: flex-end; gap: 16px; }
+/* Flat and borderless until active, matching the reference code's own
+   .tab exactly ("border: none; background: transparent") — every tab
+   drawn as its own bordered box, active or not, was what read as a row
+   of separate chips rather than folder tabs in a flat bar. */
 .shell-nav button {
   font: inherit; font-size: 12px; font-weight: 600; padding: 7px 16px; cursor: pointer;
-  border: 1px solid var(--rule); border-bottom: none;
-  border-radius: var(--tab-radius) var(--tab-radius) 0 0;
-  background: var(--image-ground); color: var(--muted); position: relative;
+  border: none; background: transparent; color: var(--muted); position: relative;
 }
 .shell-nav button:hover:not(.active) { color: var(--accent); }
 /* A TAB, not a pill sitting above a line: rounded top corners, a flat
    SQUARE bottom (never rounded — that is what read as a pill, not this
    corner radius by itself), and the active one structurally open at the
-   bottom (border-bottom: none, same as every tab) so its own background
-   flows straight into .shell-panel's with nothing separating them —
-   pulled down by the shared 1px border width so its own sides land
-   exactly on the panel's own top border rather than stopping short of
-   it. This is a real merge, not two colour-matched lines standing in
-   for one. */
+   bottom (border-bottom: none) so its own background flows straight
+   into .shell-panel's with nothing separating them — pulled down by the
+   shared 1px border width so its own sides land exactly on the panel's
+   own top border rather than stopping short of it. This is a real
+   merge, not two colour-matched lines standing in for one. Only the
+   active tab gets a border or a radius at all — inactive tabs stay flat
+   per the reference's own .tab / .tab.active split. */
 .shell-nav button.active {
-  background: var(--ground); color: var(--ink); border-color: var(--accent);
+  background: var(--ground); color: var(--ink);
+  border: 1px solid var(--accent); border-bottom: none;
+  border-radius: var(--tab-radius) var(--tab-radius) 0 0;
   margin-bottom: -1px; padding-bottom: 8px; z-index: 1;
 }
 /* The "round-out" notch — the owner's own complete reference code,
@@ -248,12 +262,11 @@ html, body { height: 100%; margin: 0; }
    own edge, one corner cut into a quarter-circle (border-*-radius),
    then a ZERO-blur, ZERO-spread box-shadow of that same cut shape
    offset sideways by exactly HALF --tab-radius — not a flood-filled
-   spread, an offset copy of the shape itself — which paints the
-   header's own background over exactly the region that reads as the
-   corner curving outward. .shell-header carries no background of its
-   own, so this names .shell's own --ground explicitly in place of the
-   reference's --tab-color — it cannot inherit through two positioned
-   ancestors the way a plain background would. */
+   spread, an offset copy of the shape itself — painted in the active
+   tab's own colour (--ground, standing in for the reference's own
+   --tab-color) over the header's own --image-ground background, which
+   is what makes the header's flat edge read as curving smoothly UP into
+   the tab's own straight side. */
 .shell-nav button.active::before,
 .shell-nav button.active::after {
   content: "";
