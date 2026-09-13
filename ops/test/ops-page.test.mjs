@@ -103,6 +103,16 @@ check("test_PRD_P0_71_items_tab__tab_equals_items_starts_the_iframe_on_items_ins
   assert.match(body, /data-src="\/items"[^>]*class="active"/, "the Items tab must read as active when linked directly");
 });
 
+check("test_PRD_P0_71_items_tab__the_tabs_are_the_header_not_a_row_under_a_separate_banner", async () => {
+  /* The owner's own words: "GET RID OF THE HEADER DAMNIT! I WANT THE TABS
+     TO BE IN PLACE OR HEADER" — the tab row itself is the header now;
+     nothing (the old "employees only" banner included) sits above it. */
+  const { body } = await shell(OWNER);
+  assert.doesNotMatch(body, /class="bar"/, "no separate banner may sit above the tabs");
+  const header = body.match(/<div class="shell-header">[\s\S]*?<\/div>\s*<div class="shell-panel">/)[0];
+  assert.match(header, /<nav class="shell-nav">/, "the tab row must be the header's own, and only, content");
+});
+
 check("test_PRD_P0_71_items_tab__the_shell_requires_no_role_the_same_as_before_the_split", async () => {
   /* Matching the page's own pre-shell behaviour: a verified-but-unmapped
      identity still sees the shell, and /chat (loaded into it by default)

@@ -972,6 +972,14 @@ that does not trace to one of these is a process failure (see §12).
     wraps `listAllProducts()` in a `try/catch` and names the actual likely cause and its fix
     on-screen, rather than a raw, unhandled exception reaching the person reading the page.
 
+    **The tabs ARE the header now — no banner sits above them.** The owner's own words, seeing
+    the previous round's fix still stacking a banner over a bare tab row: "GET RID OF THE HEADER
+    DAMNIT! I WANT THE TABS TO BE IN PLACE OF HEADER." The previous round had already removed the
+    "employees only" banner's DUPLICATE inside `/chat` and `/items`, but left the shell's own
+    single copy sitting above its own tab row — still a banner-then-tabs layout, just no longer a
+    doubled one. That single copy is gone too: `shell-header` now contains nothing but
+    `shell-nav` itself, so the tab row is the entire header rather than a row underneath one.
+
 47b. **`Test-PRD-P0-72-product_detail_page`** — Every product has its own page at
     `/products/<handle>` — the answer to "how do I see product details", asked directly, of a
     shop whose cards used to be `<article>`s with no click-through at all. `loadProduct(env,
