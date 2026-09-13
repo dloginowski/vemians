@@ -162,15 +162,17 @@ check("test_PRD_P0_71_items_tab__tab_equals_website_starts_the_iframe_on_the_pub
   assert.match(body, /data-src="https:\/\/vemians\.com"[^>]*class="active"/);
 });
 
-check("test_PRD_P0_71_items_tab__the_tabs_have_visibly_rounded_corners", async () => {
+check("test_PRD_P0_71_items_tab__the_tabs_have_visibly_rounded_corners_without_becoming_pills", async () => {
   /* 6px, then 10px, then briefly 30px ("triple tab radius"), corrected to
-     20px ("Double ratius [radius]... not triple") — all on TOP corners
-     only, the classic tabbed-pane shape. The owner's own words next:
-     "I want bottom radiused too as if these are paper tabs that got cut
-     out" — a single 20px on every corner, not a 4-value top-only radius. */
+     20px ("Double ratius [radius]... not triple") on TOP corners only,
+     then a uniform 20px on every corner ("paper tabs that got cut out")
+     — which, on a ~29px-tall button, rounds so far it erases the corners
+     into one capsule. The owner's own words, immediately: "No! Not
+     pills! Tabs!" 8px, uniform on every corner, stays clearly a rounded
+     RECTANGLE rather than a stadium shape. */
   const { body } = await shell(OWNER);
-  assert.match(body, /\.shell-nav button\s*\{[^}]*border-radius:\s*20px[;\s]/s);
-  assert.doesNotMatch(body, /\.shell-nav button\s*\{[^}]*border-radius:\s*20px 20px 0 0/s, "the old top-only shape must be gone");
+  assert.match(body, /\.shell-nav button\s*\{[^}]*border-radius:\s*8px[;\s]/s);
+  assert.doesNotMatch(body, /\.shell-nav button\s*\{[^}]*border-radius:\s*20px/s, "the pill-inducing 20px must be gone");
 });
 
 check("test_PRD_P0_71_items_tab__a_cut_out_tab_has_no_merge_seam_with_the_panel", async () => {

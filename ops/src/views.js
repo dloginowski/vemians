@@ -190,6 +190,12 @@ const TABLE_CARD_CSS = `
  * it sits above. The active tab is still told apart by background and
  * border colour alone (matching the panel, accent-coloured border) —
  * there is no seam left to hide, so no merge trick is needed either.
+ * A first pass rounded every corner at the SAME 20px the top corners
+ * already used — on a ~29px-tall button that is past the point a corner
+ * radius can still read as a corner at all, so all four rounded into one
+ * capsule. The owner's own words, immediately: "No! Not pills! Tabs!" 8px
+ * keeps every corner visibly rounded without erasing the rectangle they
+ * are corners OF.
  *
  * The public storefront is a TAB, not a link out — the owner's own words,
  * emphatically, after a first attempt made it an <a target="_blank">:
@@ -212,7 +218,7 @@ html, body { height: 100%; margin: 0; }
 .shell-nav { display: flex; align-items: flex-end; gap: 3px; }
 .shell-nav button {
   font: inherit; font-size: 12px; font-weight: 600; padding: 7px 16px; cursor: pointer;
-  border: 1px solid var(--rule); border-radius: 20px;
+  border: 1px solid var(--rule); border-radius: 8px;
   background: var(--image-ground); color: var(--muted); position: relative;
 }
 .shell-nav button:hover:not(.active) { color: var(--accent); }
