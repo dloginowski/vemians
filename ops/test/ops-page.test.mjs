@@ -194,6 +194,28 @@ check("test_PRD_P0_71_items_tab__the_active_tab_structurally_merges_into_the_pan
   assert.match(body, /\.shell-panel\s*\{[^}]*border-top:\s*1px solid var\(--accent\)/s, "the panel's own line the active tab merges into must still be there");
 });
 
+check("test_PRD_P0_71_items_tab__the_active_tab_has_round_out_notches_at_its_own_base", async () => {
+  /* The classic box-shadow "round-out" technique the owner sent directly:
+     two 8x8 pseudo-elements just outside the active tab's own left/right
+     edge, each with one corner rounded, whose box-shadow (same colour and
+     radius) paints the header's own background everywhere OUTSIDE that
+     arc — the header's flat edge reads as curving smoothly up into the
+     tab's own straight side rather than meeting it at a hard corner. */
+  const { body } = await shell(OWNER);
+  assert.match(body, /\.shell-nav button\.active::before\s*\{[^}]*border-bottom-right-radius:\s*8px/s);
+  assert.match(body, /\.shell-nav button\.active::before\s*\{[^}]*box-shadow:\s*4px 4px 0 4px var\(--ground\)/s);
+  assert.match(body, /\.shell-nav button\.active::after\s*\{[^}]*border-bottom-left-radius:\s*8px/s);
+  assert.match(body, /\.shell-nav button\.active::after\s*\{[^}]*box-shadow:\s*-4px 4px 0 4px var\(--ground\)/s);
+});
+
+check("test_PRD_P0_71_items_tab__the_gap_between_tabs_is_wide_enough_the_notches_never_bite_a_neighbour", async () => {
+  /* The notches above reach 8px outside the active tab's own edge — the
+     original 3px gap between tabs would have let that paint over part of
+     whichever tab sits next to the active one. */
+  const { body } = await shell(OWNER);
+  assert.match(body, /\.shell-nav\s*\{[^}]*gap:\s*12px/s);
+});
+
 check("test_PRD_P0_71_items_tab__the_first_tab_lines_up_with_the_inner_chat_content_not_ops_own_edge", async () => {
   /* .ops's own 8px, doubled to 16px, then the owner's own words, more
      precisely: "First tab on left matches the inner chat left extent."

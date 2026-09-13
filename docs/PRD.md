@@ -1053,6 +1053,18 @@ that does not trace to one of these is a process failure (see §12).
     and overlapped — a genuine structural merge into `.shell-panel` below it, not two lines
     standing in for one.
 
+    **A "round-out" notch at the base of the active tab, the classic box-shadow technique, sent
+    directly by the owner.** Where the active tab's own straight side met the header's flat
+    background, it did so at a hard right angle — two 8×8 pseudo-elements just outside the tab's
+    own left/right edge fix that: each has ONE corner rounded, and its own `box-shadow` (matching
+    colour and radius) paints the header's background everywhere OUTSIDE that arc, which is what
+    reads as the header's flat edge curving smoothly UP into the tab's own straight side rather
+    than meeting it square-on. `.shell-header` carries no background of its own, so the notch has
+    to name `.shell`'s own `--ground` explicitly rather than inherit it through two positioned
+    ancestors. `.shell-nav`'s own tab gap widens from `3px` to `12px` in the same change — the
+    notch reaches `8px` outside the active tab's own edge, and the old gap would have let that
+    paint over part of whichever tab sits next to it.
+
 47b. **`Test-PRD-P0-72-product_detail_page`** — Every product has its own page at
     `/products/<handle>` — the answer to "how do I see product details", asked directly, of a
     shop whose cards used to be `<article>`s with no click-through at all. `loadProduct(env,
