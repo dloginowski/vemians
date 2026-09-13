@@ -711,7 +711,7 @@ attachBtn.addEventListener("click", () => {
 
 fileInput.addEventListener("change", () => {
   if (!fileInput.files[0]) return;
-  qInput.placeholder = "Attached \"" + fileInput.files[0].name + "\" — add a note (optional)";
+  qInput.placeholder = 'Attached "' + fileInput.files[0].name + '" — add a note (optional)';
   attachBtn.setAttribute("aria-pressed", "true");
   attachBtn.innerHTML = CANCEL_ICON_HTML;
   attachBtn.setAttribute("aria-label", "Remove attachment");
