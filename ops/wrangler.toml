@@ -236,9 +236,9 @@ enabled = true
 # binding the upload route refuses with 503 rather than accepting a file it
 # cannot actually keep.
 #
-# [[kv_namespaces]]
-# binding = "ASSET_FILES"
-# id      = "<id>"
+[[kv_namespaces]]
+binding = "ASSET_FILES"
+id      = "dcdc9d082ba5472b9accd36639398db3"
 
 # ---------------------------------------------------------------------------
 # The expense receipt scanner's original photos (ops/src/tools/finance.js).
@@ -250,9 +250,9 @@ enabled = true
 # way APPROVALS and ASSET_FILES are. Commented for the same reason: a binding
 # to a namespace that does not exist fails the deploy rather than degrading.
 #
-# [[kv_namespaces]]
-# binding = "RECEIPT_FILES"
-# id      = "<id>"
+[[kv_namespaces]]
+binding = "RECEIPT_FILES"
+id      = "55305dca477d4f2cb7b8385d07641afb"
 
 # ---------------------------------------------------------------------------
 # Workers AI — reads a receipt photo for the expense scanner
