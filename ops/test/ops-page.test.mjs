@@ -380,6 +380,27 @@ check("test_PRD_P0_91_quiet_greeting__the_ask_the_ops_assistant_line_is_gone", a
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
+ * P0-92 — the chat widget picks up the quick-prompt chips' own accent
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_92_chat_widget_accent__the_widgets_own_frame_matches_the_quick_prompt_chips", async () => {
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.choices \.btn\s*\{[^}]*border:\s*1px solid var\(--accent\)/s, "the chip border this widget must now match");
+  assert.match(body, /\.chat-top\s*\{[^}]*border:\s*1px solid var\(--accent\)/s, "the widget frame must use the same accent border");
+});
+
+check("test_PRD_P0_92_chat_widget_accent__the_entry_lines_own_border_and_the_plus_button_are_brighter", async () => {
+  const { body } = await frontPage(OWNER);
+  /* Brighter than the old --rule, but not a second orange box nested inside
+     the now-accent .chat-top frame — a distinct, plain-neutral bump. */
+  assert.match(body, /\.chat \.chat-bar\s*\{[^}]*border:\s*1px solid var\(--muted\)/s, "the entry line's own border must no longer be the dim --rule");
+  assert.doesNotMatch(body, /\.chat \.chat-bar\s*\{[^}]*border:\s*1px solid var\(--rule\)/s, "the old dim border must not still be set");
+  /* The "+" attach icon, full brightness at rest — matching the composer's
+     own send icon and typed text, not the dim secondary tone. */
+  assert.match(body, /\.chat \.chat-bar \.icon-btn\s*\{[^}]*color:\s*var\(--ink\)/s, "the attach icon must be full-bright at rest");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
  * P0-78 — a real scrolling chat widget, and compact one-click chips
  * ───────────────────────────────────────────────────────────────────────── */
 

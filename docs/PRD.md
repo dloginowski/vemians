@@ -1380,6 +1380,26 @@ that does not trace to one of these is a process failure (see §12).
     restatement, not information — and the two CSS rules that existed solely to style it
     (`.key h1`, `.chat-top h1`) are removed with it rather than left as dead rules nothing renders.
 
+34a''''''''''''''''''''''. **`Test-PRD-P0-92-chat_widget_accent`** — The owner's own words: "Make
+    the chat window border same orange color as the quick chat pills. Make the + button in chat
+    box and chat entry line a little brighter too" — then, on being asked to confirm which
+    "entry line" they meant: "The border of chat entry line i mean." Three separate elements had
+    all been drawn in the same flat `--rule` neutral every other box on the page uses, which read
+    as visually disconnected from `.choices .btn`'s own orange outline directly below the widget,
+    and dim enough next to it that the attach icon and the composer's own outline both nearly
+    disappeared.
+
+    `.chat-top` (the widget's own outer frame) goes from a `--rule` border to `var(--accent)` —
+    literally the same token `.choices .btn` already borders itself in, so the widget and the
+    quick-prompt chips beneath it now read as one accent family rather than two unrelated boxes.
+    `.chat .chat-bar` (the composer pill itself — "the entry line") goes from `--rule` to
+    `var(--muted)` — brighter, but a plain neutral rather than a second orange box nested inside
+    the first, so the two borders stay visually distinct rather than doubling up. The `+` attach
+    icon (`.chat .chat-bar .icon-btn`) goes from `--muted` to `--ink` at rest — full brightness,
+    matching the composer's own send icon and typed text — with its hover state moved from `--ink`
+    to `--accent` so hovering still reads as a distinct state now that the resting colour is no
+    longer the dim one.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -1622,6 +1642,7 @@ Where each feature is enforced today:
 | P0-89 | `ops/test/catalog-write.test.mjs`; no test yet drives the `views.js` client script's `tableCard()` rendering directly — this file has no browser/DOM harness for any client-side script, not only this one |
 | P0-90 | `ops/test/ops-page.test.mjs` |
 | P0-91 | `ops/test/ops-page.test.mjs` |
+| P0-92 | `ops/test/ops-page.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

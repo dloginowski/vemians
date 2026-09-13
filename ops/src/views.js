@@ -112,8 +112,11 @@ ${OPS_DARK_CSS}
    like loose page furniture next to the chips below it. Rounder than a
    typical card, closer to the composer shape it wraps, per the reference
    screenshot of a mobile chat composer this was asked to match. */
+/* Same orange as the quick-prompt chips below it (.choices .btn) — one
+   accent colour tying the widget to the shortcuts that feed it, rather than
+   the plain neutral --rule every other box on the page uses. */
 .chat-top {
-  border: 1px solid var(--rule); border-radius: 20px;
+  border: 1px solid var(--accent); border-radius: 20px;
   padding: 14px; margin-bottom: 16px;
 }
 
@@ -267,9 +270,12 @@ ${OPS_DARK_CSS}
  * from — so anything here weaker than that would be silently overridden by
  * the shared rule rather than replacing it the way it reads on screen.
  */
+/* Brighter than the page's plain --rule boxes (the entry line itself, and
+   the "+" attach icon at rest) — both were dim enough to disappear next to
+   the now-orange .chat-top frame around them. */
 .chat .chat-bar {
   display: flex; align-items: center; gap: 2px;
-  border: 1px solid var(--rule); border-radius: 24px;
+  border: 1px solid var(--muted); border-radius: 24px;
   padding: 4px 4px 4px 6px; background: var(--image-ground);
 }
 .chat .chat-bar:focus-within { border-color: var(--accent); }
@@ -283,8 +289,8 @@ ${OPS_DARK_CSS}
   display: inline-flex; align-items: center; justify-content: center;
   border: none; border-radius: 50%;
 }
-.chat .chat-bar .icon-btn { width: 32px; height: 32px; background: transparent; color: var(--muted); }
-.chat .chat-bar .icon-btn:hover { background: rgba(255, 255, 255, 0.08); color: var(--ink); }
+.chat .chat-bar .icon-btn { width: 32px; height: 32px; background: transparent; color: var(--ink); }
+.chat .chat-bar .icon-btn:hover { background: rgba(255, 255, 255, 0.08); color: var(--accent); }
 .chat .chat-bar .icon-btn[aria-pressed="true"] { color: var(--accent); background: rgba(217, 119, 87, 0.14); }
 .chat .chat-bar .send-btn { width: 34px; height: 34px; background: var(--accent); color: var(--ground); }
 .chat .chat-bar .send-btn:hover { opacity: 0.85; }
