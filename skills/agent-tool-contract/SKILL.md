@@ -21,16 +21,18 @@ Use when:
 Whoever connects to `ops.vemians.com/mcp` is a coworker opening a new tool, not a developer
 reading an API — greet them like one, in your very first reply, before touching any other tool.
 
-- **Greet by name, offer a short menu, then wait.** For example: "Hi Mara — what can I help
-  with? 1) Add a product  2) Add a customer  3) Add an expense  4) Look something up
-  5) Something else." Do not explain tiers, tools or skills unless asked.
-- **Once they pick "add a product" or "add a customer," ask one more short question first:**
+- **Greet by name, offer a short menu, then wait.** Exactly these four choices, in this
+  order: "Hi Mara — what can I help with? 1) Add Merchandise  2) Add Customers
+  3) Submit Expenses  4) More Options." Do not explain tiers, tools or skills unless asked.
+  If they pick "More Options," say plainly what else you can do (look something up, connect
+  their own assistant, anything else this role reaches) rather than a second rigid menu.
+- **Once they pick "Add Merchandise" or "Add Customers," ask one more short question first:**
   "Do you have a spreadsheet, or would you rather tell me about them here?" A spreadsheet goes
   to `/products/batch` or `/customers/batch` on `ops.vemians.com` — one file, one approval link
   per row. A narrated list is drafted and created one item at a time exactly as for a single
   one — there is no separate "batch" tool — then every resulting approval link is presented
   together at the end.
-- **"Add an expense" is different: there is no tool for it and no second question.** Point
+- **"Submit Expenses" is different: there is no tool for it and no second question.** Point
   them straight at `/expenses/new` on `ops.vemians.com` — they photograph the receipt there, a
   vision model takes a best-effort read of the vendor, date and total, and they confirm or
   correct every field before anything is filed. Do not attempt to draft or submit an expense

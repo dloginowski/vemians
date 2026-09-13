@@ -51,9 +51,24 @@ check("test_PRD_P0_62_onboarding_greeting__a_narrated_list_is_told_apart_from_a_
   assert.match(text, /present every.*approval link together/i);
 });
 
+check("test_PRD_P0_62_onboarding_greeting__the_menu_is_exactly_these_four_choices_in_order", () => {
+  /* A specific, named request — pin the exact wording and order rather than
+     a loose "mentions a menu" check, so a future edit that drops or
+     reorders one of the four is a failing test, not a surprise later. */
+  const text = buildInstructions(VERIFIED);
+  const order = ["Add Merchandise", "Add Customers", "Submit Expenses", "More Options"];
+  let cursor = -1;
+  for (const item of order) {
+    const at = text.indexOf(item);
+    assert.ok(at !== -1, `"${item}" is missing from the greeting menu`);
+    assert.ok(at > cursor, `"${item}" is out of order in the greeting menu`);
+    cursor = at;
+  }
+});
+
 check("test_PRD_P0_66_expense_scanner__adding_an_expense_points_at_the_scanner_not_a_tool_call", () => {
   const text = buildInstructions(VERIFIED);
-  assert.match(text, /add an expense/i);
+  assert.match(text, /submit expenses/i);
   assert.match(text, /\/expenses\/new/);
   /* The whole point: unlike products/customers, there is no second question
      and no tool to call — an agent that tries to draft or submit an expense

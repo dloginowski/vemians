@@ -649,16 +649,23 @@ that does not trace to one of these is a process failure (see §12).
 34a. **`Test-PRD-P0-62-onboarding_greeting`** — The MCP server's own `instructions` — the one
     thing every connecting agent reads before its first reply, regardless of which chat client it
     is — tell it to greet the coworker by name and offer a short numbered menu of what it can help
-    with right now, then wait, rather than opening with an explanation of tiers or tools. Once they
-    pick a category (add a product, add a customer), a second short multiple-choice question asks
-    spreadsheet-or-narrate before anything else happens. Both answers reach the same place: point at
-    `/products/batch` or `/customers/batch` for a spreadsheet; for a narrated list, draft and create
-    one item at a time exactly as for a single one — there is no separate "batch" tool — then present
-    every resulting approval link together at the end. The text also says the link is a real form to
-    send them to, not something to walk through in chat (P0-63). `buildInstructions(identity)` is a
-    pure function precisely so a test can assert on the words a client actually receives, the same
-    lesson the `/approvals/` 404 already taught this codebase once (P0-35): reading the code and
-    believing it says the right thing is not the same as checking what it sends.
+    with right now, then wait, rather than opening with an explanation of tiers or tools. The menu
+    is a specific, pinned set of four choices, in this order: **Add Merchandise, Add Customers,
+    Submit Expenses, More Options** — a request for exact wording, not a suggestion, so the
+    regression test asserts the four strings appear in that order rather than loosely matching
+    "there is a menu." Once they pick Merchandise or Customers, a second short multiple-choice
+    question asks spreadsheet-or-narrate before anything else happens. Both answers reach the same
+    place: point at `/products/batch` or `/customers/batch` for a spreadsheet; for a narrated
+    list, draft and create one item at a time exactly as for a single one — there is no separate
+    "batch" tool — then present every resulting approval link together at the end. Submit Expenses
+    is different on purpose: no second question, no tool call, straight to `/expenses/new`
+    (P0-66) — there is nothing to draft. "More Options" has no fixed submenu; the agent says
+    plainly what else it can do for this role rather than inventing a second rigid menu. The text
+    also says the approval link is a real form to send them to, not something to walk through in
+    chat (P0-63). `buildInstructions(identity)` is a pure function precisely so a test can assert
+    on the words a client actually receives, the same lesson the `/approvals/` 404 already taught
+    this codebase once (P0-35): reading the code and believing it says the right thing is not the
+    same as checking what it sends.
 
 34b. **`Test-PRD-P0-63-editable_approval`** — The `/approvals/` page is a real, editable form for
     the two tools the spreadsheet and narrated-list flows actually produce

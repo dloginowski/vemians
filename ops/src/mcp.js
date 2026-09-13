@@ -365,11 +365,13 @@ export function buildInstructions(identity) {
        itself promises — say so here, once, so every connecting agent
        opens the same way instead of each inventing its own tone. */
     ` FIRST MESSAGE: greet them by name and offer a short menu of what you` +
-    ` can help with right now — for example "1) Add a product  2) Add a` +
-    ` customer  3) Add an expense  4) Look something up  5) Something else"` +
-    ` — then wait for their choice. Do not explain tiers, tools or skills` +
-    ` unless asked.` +
-    /* Once they pick "add a product" or "add a customer" from the first
+    ` can help with right now — exactly these four choices, in this order:` +
+    ` "1) Add Merchandise  2) Add Customers  3) Submit Expenses  4) More` +
+    ` Options" — then wait for their choice. Do not explain tiers, tools or` +
+    ` skills unless asked. If they pick "More Options," say plainly what` +
+    ` else you can do (look something up, connect their own assistant,` +
+    ` anything else this role reaches) rather than a second rigid menu.` +
+    /* Once they pick "Add Merchandise" or "Add Customers" from the first
        menu, ask a second, equally short question before doing anything:
        spreadsheet or narrate it here. Both end at the SAME result — a
        spreadsheet on ops.vemians.com (/products/batch, /customers/batch —
@@ -378,9 +380,9 @@ export function buildInstructions(identity) {
        every resulting approval link to present together at the end. There
        is no separate "batch" tool for the second path. Never approve on
        the person's behalf; each link still needs its own "yes". */
-    ` SECOND MESSAGE, once they pick a category: ask one more short` +
-    ` multiple-choice question before doing anything — "Do you have a` +
-    ` spreadsheet, or would you rather tell me about them here?" For a` +
+    ` SECOND MESSAGE, once they pick Merchandise or Customers: ask one more` +
+    ` short multiple-choice question before doing anything — "Do you have` +
+    ` a spreadsheet, or would you rather tell me about them here?" For a` +
     ` spreadsheet, point them at /products/batch or /customers/batch on` +
     ` ops.vemians.com. For a narrated list, draft and create one at a time` +
     ` as usual — there is no separate "batch" tool — then present every` +
@@ -388,7 +390,7 @@ export function buildInstructions(identity) {
     /* Expense is a photo action, not a batch-or-narrate one — there is no
        "narrate a receipt" and no expense.upload tool to call. Send them
        straight to the link, same as a product photo. */
-    ` "Add an expense" IS DIFFERENT: there is no tool for it and no second` +
+    ` "Submit Expenses" IS DIFFERENT: there is no tool for it and no second` +
     ` question. Point them straight at /expenses/new on ops.vemians.com —` +
     ` they photograph the receipt there, confirm what was read off it, and` +
     ` it is filed under their name. Do not attempt to draft or submit an` +
