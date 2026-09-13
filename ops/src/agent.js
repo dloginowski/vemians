@@ -17,9 +17,10 @@
  *      ends with a refusal instead of another request.
  *
  * The key is a Worker secret, not a var — `npx wrangler secret put
- * ANTHROPIC_API_KEY --env ops`, or a line in a local `.dev.vars`. With it unset
- * the whole file degrades to the echo stub and the ops page says so, so the
- * prototype runs with no Anthropic account at all.
+ * ANTHROPIC_API_KEY` (run from `ops/`; there is no named environment in
+ * ops/wrangler.toml to target), or a line in a local `.dev.vars`. With it
+ * unset the whole file degrades to the echo stub and the ops page says so, so
+ * the prototype runs with no Anthropic account at all.
  *
  * `src/tools/index.js` is a separate deliverable and is deliberately not
  * implemented here; this file only consumes its published interface:
