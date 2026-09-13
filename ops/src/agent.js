@@ -309,6 +309,60 @@ async function dispatch(name, args, { actor, role, env, allowed }) {
   };
 }
 
+/* ---- an attached photo or file ------------------------------------------
+ *
+ * "A row of icons under chat; let the agent figure out what to do with them"
+ * — the owner's own words. The bytes are ALREADY uploaded by the time this
+ * file ever sees them (index.js's ingestAgentAttachment stores a photo in the
+ * media store or a file in the asset store before calling agentTurn at all),
+ * for the same reason catalog.upload_image never takes bytes as a tool
+ * argument: a model cannot usefully re-emit a photo's bytes into a tool call,
+ * only reference a key it was already given.
+ *
+ * A photo therefore reaches Claude TWICE, for two different reasons: as an
+ * `image` content block, so the model can actually look at it and reason
+ * about what it is showing (a coat, a receipt, a shelf) — and as a plain
+ * sentence naming the key it is already stored under, so a tool call that
+ * wants to use it (`catalog.create_product`'s `images`) references that key
+ * directly rather than the model trying to invent one or call
+ * catalog.upload_image a second, redundant time. A file that is not a photo
+ * has no vision block at all — it is EXTRACTED TEXT, read the same way
+ * assets.js already reads one for a person browsing /assets, folded into the
+ * same sentence.
+ */
+function attachmentNote(attachment) {
+  if (!attachment) return "";
+  if (attachment.kind === "photo") {
+    const preview = attachment.image
+      ? ""
+      : " (too large to preview inline here — judge it from the filename and what the person says)";
+    return (
+      `\n\n[Attached photo, filename "${attachment.filename}", already stored at media key ` +
+      `"${attachment.key}"${preview}. If you use it on a product, pass this key directly in a catalog ` +
+      "tool's images argument — it is already uploaded; do not call catalog.upload_image for it.]"
+    );
+  }
+  return (
+    `\n\n[Attached file, filename "${attachment.filename}", stored as asset id "${attachment.id}". ` +
+    (attachment.extractedText
+      ? `Extracted text follows:\n\n${attachment.extractedText}`
+      : "No text could be extracted from this file type — ask the person what it contains if it matters.") +
+    "]"
+  );
+}
+
+export function buildUserContent(q, attachment) {
+  const fallback = attachment ? "I attached a file — take a look and figure out what to do with it." : "";
+  const text = (q || fallback) + attachmentNote(attachment);
+  if (attachment?.kind === "photo" && attachment.image) {
+    return [
+      { type: "text", text },
+      { type: "image", source: { type: "base64", media_type: attachment.image.mediaType, data: attachment.image.base64 } },
+    ];
+  }
+  return text;
+}
+
 /* ---- a turn ------------------------------------------------------------ */
 
 /*
@@ -316,8 +370,12 @@ async function dispatch(name, args, { actor, role, env, allowed }) {
  *   { mode, actor, role, reply, steps: [{tool, tier, ok, auditId}], pending? }
  * `mode` is "stub" when no ANTHROPIC_API_KEY is set — the prototype keeps
  * working with no key and the page says so — or "model" otherwise.
+ *
+ * `attachment` (optional) is already-uploaded, from index.js's
+ * ingestAgentAttachment — see the comment on buildUserContent above for why
+ * this file never receives raw, unstored bytes.
  */
-export async function agentTurn({ q, identity, env }) {
+export async function agentTurn({ q, identity, env, attachment = null }) {
   const actor = identity.email;
   /* `env` is not optional here even though roleFor defaults it. Roles arrive as
      `policy_id`, matched against OWNER_POLICY_ID and its siblings, which live
@@ -333,13 +391,13 @@ export async function agentTurn({ q, identity, env }) {
       role,
       steps: [],
       pending: null,
-      reply: `Echo (ANTHROPIC_API_KEY unset, no model wired): ${q}`,
+      reply: `Echo (ANTHROPIC_API_KEY unset, no model wired): ${q}${attachment ? ` [attached: ${attachment.filename}]` : ""}`,
     };
   }
 
   const defs = toolDefinitions(role);
   const allowed = new Set(defs.map((d) => d.name));
-  const messages = [{ role: "user", content: q }];
+  const messages = [{ role: "user", content: buildUserContent(q, attachment) }];
   const steps = [];
 
   for (let round = 0; ; round++) {

@@ -175,8 +175,21 @@ ${OPS_DARK_CSS}
 .gate dd { margin: 0; white-space: pre-wrap; word-break: break-word; }
 .gate .row { display: flex; gap: 8px; }
 .gate button[disabled] { color: var(--muted); border-color: var(--rule); cursor: default; }
-.chat input { padding: 8px 10px; }
+.chat input { padding: 8px 10px; width: 100%; }
 .chat button { margin-top: 6px; padding: 8px 16px; font-size: var(--eyebrow); }
+
+/* The attachment row — icons only, no label of their own, so they read as a
+   toolbar under the input rather than a second pair of buttons competing
+   with Send. Same neutral-border treatment as .copy button. */
+.attach-row { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.icon-btn {
+  width: 30px; height: 30px; padding: 0; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--rule); background: transparent; color: var(--ink);
+}
+.icon-btn:hover { border-color: var(--accent); color: var(--accent); }
+.icon-btn[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); background: rgba(217, 119, 87, 0.12); }
+.attach-name { font-size: var(--eyebrow); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* The seven-day grid is unreadable under about 640px — two columns there, one
    per day, in the same order. Nothing is hidden, the wrap point is the width. */
@@ -212,6 +225,16 @@ function opsShifts(week) {
 const CLIPBOARD = `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">` +
   `<rect x="4.5" y="2.5" width="7" height="2.5" rx="0.6" fill="none" stroke="currentColor"/>` +
   `<path d="M4.5 3.75H3.5v9.75h9V3.75h-1" fill="none" stroke="currentColor"/></svg>`;
+
+/* The two attachment icons beside the chat input — same stroke-only style as
+   CLIPBOARD above, so a hand-drawn glyph does not read as a different design
+   system from the one copy control already on the page. */
+const CAMERA_ICON = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">` +
+  `<path d="M2 5.5h2.2l0.8-1.3h6l0.8 1.3H14v7.5H2z" fill="none" stroke="currentColor"/>` +
+  `<circle cx="8" cy="9" r="2.4" fill="none" stroke="currentColor"/></svg>`;
+const PAPERCLIP_ICON = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">` +
+  `<path d="M10.5 3.5 4.8 9.2a2.4 2.4 0 0 0 3.4 3.4l5.3-5.3a1.6 1.6 0 0 0-2.3-2.3L6.2 10a0.8 0.8 0 0 0 1.1 1.1l4.3-4.3" ` +
+  `fill="none" stroke="currentColor" stroke-linecap="round"/></svg>`;
 
 /* The behaviour half of copyLine, as a string, so the front page and the
    identity page share one implementation rather than two that drift. */
@@ -322,25 +345,28 @@ ${id}
 
   <section class="greet">
     <h1>Hi ${esc(firstName)} — what would you like to do?</h1>
-    <p class="hint">Ask the assistant right here, or skip straight to a task below.</p>
   </section>
 
   <section class="key chat-top">
     <h1>Ask the ops assistant</h1>
-    <p class="hint">Look something up, describe a product instead of using a spreadsheet, ask a
-       question. Built in, answered right here, nothing to set up.</p>
     ${bindingsLine(bindings, hasKey)}
     <div class="log" id="log"></div>
     <div id="gate"></div>
     <form class="chat" id="chat" method="post" action="/ops/agent">
-      <input name="q" id="q" placeholder="Ask about the catalog, orders, stock or the schedule" autocomplete="off">
+      <input name="q" id="q" placeholder='e.g. &quot;Add a wool coat, $450, Outerwear&quot; or attach a photo' autocomplete="off">
+      <div class="attach-row">
+        <button type="button" class="icon-btn" id="attach-photo-btn" aria-label="Attach a photo" title="Attach a photo">${CAMERA_ICON}</button>
+        <button type="button" class="icon-btn" id="attach-file-btn" aria-label="Attach a file" title="Attach a file">${PAPERCLIP_ICON}</button>
+        <span class="attach-name" id="attach-name" aria-live="polite"></span>
+        <input type="file" id="attach-photo" accept="image/*" hidden>
+        <input type="file" id="attach-file" hidden>
+      </div>
       <button type="submit">Send</button>
     </form>
   </section>
 
   <section class="menu">
     <h1>Or, one click</h1>
-    <p class="hint">No assistant, no typing — the three most common tasks, done directly.</p>
     <div class="choices">
       <a class="btn" href="/products/batch">Add Merchandise</a>
       <a class="btn" href="/customers/batch">Add Customers</a>
@@ -350,18 +376,6 @@ ${id}
   </section>
 
   <div id="more-options">
-
-  <section class="key">
-    <h1>Add a photo</h1>
-    <p class="hint">One photo per click. No assistant needed.</p>
-    <p><a class="btn" href="/media/new">Add a photo</a></p>
-  </section>
-
-  <section class="key">
-    <h1>Drop a file for the team</h1>
-    <p class="hint">A price list, a policy note, meeting notes — any connected assistant can read it back.</p>
-    <p><a class="btn" href="/assets/new">Drop a file</a></p>
-  </section>
 
   <section class="key">
     <h1>Connect your own Claude or ChatGPT instead</h1>
@@ -573,20 +587,74 @@ function card(p) {
   gate.appendChild(el);
 }
 
+/* ---- attachments ---------------------------------------------------------
+ * One row, two icons, one file at a time. Choosing a photo clears anything
+ * already chosen through the file icon and vice versa — the agent gets sent
+ * exactly one attachment, never a stale second one nobody meant to include.
+ * Neither input is required: a photo with no typed text is a normal message,
+ * "figure out what to do with it" being exactly the point of handing it to
+ * the agent instead of a purpose-built upload form.
+ */
+const photoInput = document.getElementById("attach-photo");
+const fileInput = document.getElementById("attach-file");
+const attachName = document.getElementById("attach-name");
+const photoBtn = document.getElementById("attach-photo-btn");
+const fileBtn = document.getElementById("attach-file-btn");
+
+function clearAttachments() {
+  photoInput.value = "";
+  fileInput.value = "";
+  attachName.textContent = "";
+  photoBtn.removeAttribute("aria-pressed");
+  fileBtn.removeAttribute("aria-pressed");
+}
+
+function pickedFile() {
+  return photoInput.files[0] || fileInput.files[0] || null;
+}
+
+photoBtn.addEventListener("click", () => photoInput.click());
+fileBtn.addEventListener("click", () => fileInput.click());
+
+photoInput.addEventListener("change", () => {
+  if (!photoInput.files[0]) return;
+  fileInput.value = "";
+  attachName.textContent = photoInput.files[0].name;
+  photoBtn.setAttribute("aria-pressed", "true");
+  fileBtn.removeAttribute("aria-pressed");
+});
+fileInput.addEventListener("change", () => {
+  if (!fileInput.files[0]) return;
+  photoInput.value = "";
+  attachName.textContent = fileInput.files[0].name;
+  fileBtn.setAttribute("aria-pressed", "true");
+  photoBtn.removeAttribute("aria-pressed");
+});
+
 document.getElementById("chat").addEventListener("submit", async (e) => {
   e.preventDefault();
   const box = document.getElementById("q");
   const q = box.value.trim();
-  if (!q) return;
+  const file = pickedFile();
+  if (!q && !file) return;
   gate.textContent = "";
-  entry("", q);
+  entry("", q || ("(attached " + file.name + ")"));
   box.value = "";
+  clearAttachments();
   try {
-    const res = await fetch("/ops/agent", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ q }),
-    });
+    let res;
+    if (file) {
+      const form = new FormData();
+      form.set("q", q);
+      form.set("file", file);
+      res = await fetch("/ops/agent", { method: "POST", body: form });
+    } else {
+      res = await fetch("/ops/agent", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ q }),
+      });
+    }
     const data = await res.json();
     (data.steps || []).forEach((s) => entry("tool", (s.ok ? "ran " : "refused ") + s.tool + (s.auditId ? " · audit " + s.auditId : "")));
     entry("agent", data.reply || data.error || ("Request failed: " + res.status));
