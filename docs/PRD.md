@@ -1133,6 +1133,16 @@ that does not trace to one of these is a process failure (see §12).
     meets it, and the reference code's own `.tab` never had a border for the same underlying
     reason.
 
+    **A subpixel seam, diagnosed and fixed by the owner directly.** At fractional device pixel
+    ratios, a browser can round the active tab's own border-box edge and the notch pseudo-element's
+    edge to two DIFFERENT physical pixels — a hairline gap opens between them, and the header's own
+    background shows through it as a thin dark line right on the curve, independent of the border
+    conflict fixed above. The owner's own fix: `bottom: -1px` instead of flush `0`, with the
+    pseudo-element's own `height` grown by that same `1px` (`calc(var(--tab-radius) + 1px)`) so its
+    TOP edge — the one that actually meets the tab — lands exactly where it did before; only the
+    bottom now deliberately overlaps the floor by a pixel, closing the gap regardless of which way
+    any given browser's own rounding falls.
+
 47b. **`Test-PRD-P0-72-product_detail_page`** — Every product has its own page at
     `/products/<handle>` — the answer to "how do I see product details", asked directly, of a
     shop whose cards used to be `<article>`s with no click-through at all. `loadProduct(env,
