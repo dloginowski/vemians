@@ -227,9 +227,9 @@ enabled = true
 # Same reason as APPROVALS above: a binding to a bucket that does not exist
 # fails the deploy rather than degrading.
 #
-# [[r2_buckets]]
-# binding     = "MEDIA"
-# bucket_name = "vemians-media"
+[[r2_buckets]]
+binding     = "MEDIA"
+bucket_name = "vemians-media"
 
 # ---------------------------------------------------------------------------
 # The employee asset drop site's original bytes (ops/src/tools/assets.js).
