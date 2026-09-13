@@ -223,3 +223,43 @@ export async function draftCustomerBatch(env, { text, actor, role }) {
   const { parked, skipped } = await parkRows(env, { actor, role, toolName: "customer.create" }, rows);
   return { ready: parked, skipped: skipped.sort((a, b) => a.row - b.row) };
 }
+
+/* ── preview, before anything is parked ──────────────────────────────────
+ *
+ * "The agent should confirm with me about its selections if it is unsure...
+ * a brief preview of the first row and headings before generating the
+ * actual [batch]." Neither draftProductBatch nor draftCustomerBatch is safe
+ * to call speculatively — both mint real T2 approval links the moment a row
+ * resolves cleanly. This reads the same columns the same way (same key
+ * lists, same `pick`), on the FIRST row only, and mints nothing: no
+ * listCategories call, no runTool, no parkForApproval. A wrong column match
+ * is corrected here, before it becomes 400 approval links to click through
+ * or cancel one at a time.
+ *
+ * @returns { headers: string[], rowCount: number, firstRow: object|null }
+ */
+export function previewBatch(text, kind) {
+  const records = csvRecords(parseCsv(text));
+  if (!records.length) return { headers: [], rowCount: 0, firstRow: null };
+
+  const headers = Object.keys(records[0]);
+  const first = records[0];
+  const firstRow =
+    kind === "customers"
+      ? {
+          given_name: pick(first, GIVEN_NAME_KEYS) || null,
+          family_name: pick(first, FAMILY_NAME_KEYS) || null,
+          email_address: pick(first, EMAIL_KEYS) || null,
+          phone_number: pick(first, PHONE_KEYS) || null,
+        }
+      : {
+          title: pick(first, TITLE_KEYS) || null,
+          category: pick(first, CATEGORY_KEYS) || null,
+          price: pick(first, PRICE_KEYS) || null,
+          currency: (pick(first, CURRENCY_KEYS) || "USD").toUpperCase(),
+          description: pick(first, DESCRIPTION_KEYS) || null,
+          sku: pick(first, SKU_KEYS) || null,
+        };
+
+  return { headers, rowCount: records.length, firstRow };
+}

@@ -297,6 +297,17 @@ check("test_PRD_P0_88_spreadsheet_via_chat__a_non_spreadsheet_file_is_unaffected
   assert.match(content, /Ships net 30\./);
 });
 
+/* ── P0-89: the note points at preview before draft ───────────────────────── */
+
+check("test_PRD_P0_89_batch_preview_confirm__the_note_points_at_the_preview_tools_before_the_draft_tools", () => {
+  const content = buildUserContent("", CSV_ATTACHMENT, "manager");
+  assert.match(content, /catalog_preview_product_batch/);
+  assert.match(content, /customer_preview_customer_batch/);
+  /* Preview named before draft, in reading order — the instruction is a
+     sequence, not just a mention of both tools. */
+  assert.ok(content.indexOf("catalog_preview_product_batch") < content.indexOf("catalog_draft_product_batch"));
+});
+
 test("test_PRD_P0_30_prd_traceability__every_label_used_here_exists_in_the_prd", async () => {
   const prd = fs.readFileSync(
     path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "docs", "PRD.md"),

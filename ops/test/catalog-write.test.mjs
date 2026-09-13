@@ -2037,3 +2037,109 @@ check("test_PRD_P0_88_spreadsheet_via_chat__an_unknown_tool_name_still_refuses_b
   const outcome = await dispatch("catalog_draft_product_batch", {}, { actor: "mara@vemians.com", role: "manager", env: {}, allowed: new Set() });
   assert.match(outcome.block.content, /No such tool/);
 });
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-89 — preview a spreadsheet's column mapping before drafting it
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_89_batch_preview_confirm__staff_cannot_call_the_preview_meta_tools_either", async () => {
+  const outcome = await dispatch(
+    "catalog_preview_product_batch",
+    { asset_id: "ast_1" },
+    { actor: "ana@vemians.com", role: "staff", env: { ASSETS: await assetsFixtureWithRow() }, allowed: new Set(["catalog_preview_product_batch"]) },
+  );
+  assert.equal(outcome.block.is_error, true);
+  assert.match(outcome.block.content, /manager or owner/i);
+});
+
+check("test_PRD_P0_89_batch_preview_confirm__previews_the_first_row_and_headings_without_minting_anything", async () => {
+  const f = await fixture();
+  const csv = "title,category,price\nWool Coat,Outerwear,450.00\nAnother Coat,Outerwear,99.00\n";
+  const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
+
+  const outcome = await dispatch(
+    "catalog_preview_product_batch",
+    { asset_id: "ast_1" },
+    { actor: "mara@vemians.com", role: "manager", env, allowed: new Set(["catalog_preview_product_batch"]) },
+  );
+  assert.equal(outcome.block.is_error, false);
+  assert.match(outcome.block.content, /2 rows detected/);
+  assert.match(outcome.block.content, /title, category, price/);
+  assert.match(outcome.block.content, /Wool Coat/);
+  assert.doesNotMatch(outcome.block.content, /https?:\/\/\S+\/approvals\//, "a preview must mint no approval link");
+  assert.deepEqual(f.calls(), [], "a preview must not touch Square at all");
+
+  /* The structured table is what the client renders — a compact,
+     row-per-field mapping of the FIRST row only, not the whole sheet. */
+  assert.equal(outcome.table.columns.length, 2);
+  const titleRow = outcome.table.rows.find(([field]) => field === "title");
+  assert.deepEqual(titleRow, ["title", "Wool Coat"]);
+});
+
+check("test_PRD_P0_89_batch_preview_confirm__customers_preview_maps_the_square_field_names", async () => {
+  const csv = "given_name,family_name,email_address\nAva,Stone,ava@example.com\n";
+  const outcome = await dispatch(
+    "customer_preview_customer_batch",
+    { asset_id: "ast_1" },
+    {
+      actor: "mara@vemians.com",
+      role: "manager",
+      env: { ASSETS: await assetsFixtureWithRow({ extracted_text: csv, filename: "customers.csv" }) },
+      allowed: new Set(["customer_preview_customer_batch"]),
+    },
+  );
+  assert.equal(outcome.block.is_error, false);
+  assert.match(outcome.block.content, /1 row detected/);
+  const emailRow = outcome.table.rows.find(([field]) => field === "email_address");
+  assert.deepEqual(emailRow, ["email_address", "ava@example.com"]);
+});
+
+check("test_PRD_P0_89_batch_preview_confirm__an_empty_spreadsheet_previews_as_nothing_to_show_not_a_crash", async () => {
+  const outcome = await dispatch(
+    "catalog_preview_product_batch",
+    { asset_id: "ast_1" },
+    {
+      actor: "mara@vemians.com",
+      role: "manager",
+      env: { ASSETS: await assetsFixtureWithRow({ extracted_text: "title,category,price\n" }) },
+      allowed: new Set(["catalog_preview_product_batch"]),
+    },
+  );
+  assert.equal(outcome.block.is_error, false);
+  assert.match(outcome.block.content, /no rows to preview/i);
+  assert.equal(outcome.table, null);
+});
+
+check("test_PRD_P0_89_batch_preview_confirm__the_draft_tools_carry_a_structured_table_too", async () => {
+  /* Not just the preview — the real draft result is ALSO structured, since a
+     person cannot review forty skip reasons rendered as one text bubble. */
+  const f = await fixture();
+  const csv = "title,category,price\nWool Coat,Outerwear,450.00\n,Outerwear,10\n";
+  const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
+
+  const outcome = await dispatch(
+    "catalog_draft_product_batch",
+    { asset_id: "ast_1" },
+    { actor: "mara@vemians.com", role: "manager", env, allowed: new Set(["catalog_draft_product_batch"]) },
+  );
+  assert.equal(outcome.table.columns.length, 4);
+  assert.equal(outcome.table.rows.length, 2);
+  const ready = outcome.table.rows.find((r) => r[2] === "ready");
+  assert.equal(ready[1], "Wool Coat");
+  const skipped = outcome.table.rows.find((r) => r[2] === "skipped");
+  assert.match(skipped[3], /no title column/i);
+});
+
+check("test_PRD_P0_89_batch_preview_confirm__too_many_rows_carries_no_table_only_the_cap_message", async () => {
+  const f = await fixture();
+  const rows = Array.from({ length: CAPS.BATCH_MAX_ROWS + 1 }, (_, i) => `Item ${i},Outerwear,10.00`).join("\n");
+  const csv = `title,category,price\n${rows}\n`;
+  const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
+
+  const outcome = await dispatch(
+    "catalog_draft_product_batch",
+    { asset_id: "ast_1" },
+    { actor: "mara@vemians.com", role: "manager", env, allowed: new Set(["catalog_draft_product_batch"]) },
+  );
+  assert.equal(outcome.table, null);
+});

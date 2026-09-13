@@ -1286,6 +1286,46 @@ that does not trace to one of these is a process failure (see §12).
     the identical ready/skipped split with a real approval URL, and the `CAPS.BATCH_MAX_ROWS` cap
     reports itself plainly rather than drafting a partial batch.
 
+34a'''''''''''''''''''. **`Test-PRD-P0-89-batch_preview_confirm`** — The owner's own words, the
+    same turn P0-88 shipped: "The agent should confirm with me about its selections if it is
+    unsure. Giving me a brief preview of the first row and headings before generating the actual
+    product or client ingestion tables. These should appear below the chat in compact format that
+    is easy to review and full screen... (Auto scrolling)." P0-88's two draft meta-tools mint a
+    real T2 approval link per clean row the moment they run — a wrong column match was not one
+    mistake to fix, it was up to `CAPS.BATCH_MAX_ROWS` approval links to click through or cancel
+    one at a time, discovered only after the fact.
+
+    **A preview that mints nothing, ahead of a draft that mints everything.** `batch.js` gains
+    `previewBatch(text, kind)` — read-only, reusing the exact same `pick()`/key-list column
+    matching `draftProductBatch`/`draftCustomerBatch` use, but on the FIRST row only: no
+    `listCategories` call, no `runTool`, no `parkForApproval`. `agent.js` exposes it as two more
+    meta-tools, `catalog_preview_product_batch`/`customer_preview_customer_batch` (same manager+
+    gate as the draft tools, same `asset_id` argument), and `attachmentNote()`'s spreadsheet
+    pointer now names the preview tool first: call it, show the person the detected headings and
+    how the first row maps to title/category/price/etc (or given_name/email/phone/…), and only
+    call the draft tool once they confirm the mapping looks right. Nothing here forces the
+    sequence at the API layer — the model could still call the draft tool directly — the ordering
+    is instructed, the same trust boundary `agent-tool-contract`'s other "ask only a genuine
+    choice" guidance already runs on.
+
+    **A structured `table`, not just prose, is the point of "compact format... full screen."** A
+    person cannot review 40 rows of skip reasons rendered as one text bubble. Both the new preview
+    tools and the existing draft tools now return a `table: {title, columns, rows}` alongside
+    their text summary — `dispatch()` passes it through as a sibling of the `tool_result` block,
+    and `agentTurn()` tracks the most recent one across the round-trip loop (`lastTable`) so it
+    rides along on the turn's own final `{mode, actor, role, steps, reply, table}` shape even
+    though the actual tool call may not be the model's very last step. `index.js`'s existing
+    `{...turn}` spread over the JSON response needed no change at all to carry it.
+
+    **Rendered inline with the chat, not a separate panel.** `views.js`'s client script gains
+    `tableCard()`, appended into the SAME `#log` element the message bubbles already live in —
+    the existing `log.scrollTo({top: log.scrollHeight, behavior:"smooth"})` call that already
+    fires after every bubble now carries the table into view too, for free, rather than needing a
+    second scroll target to keep in sync. A "Full screen" button toggles one CSS class
+    (`.table-card.full`) that switches the same element to a fixed, viewport-covering overlay and
+    back — one element, one piece of state, no second copy of the table to keep matching the
+    first.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -1525,6 +1565,7 @@ Where each feature is enforced today:
 | P0-86 | `ops/test/agent-model-errors.test.mjs` |
 | P0-87 | `ops/test/agent-tool-wire-names.test.mjs` |
 | P0-88 | `ops/test/catalog-write.test.mjs` |
+| P0-89 | `ops/test/catalog-write.test.mjs`; no test yet drives the `views.js` client script's `tableCard()` rendering directly — this file has no browser/DOM harness for any client-side script, not only this one |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
