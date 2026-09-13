@@ -297,7 +297,15 @@ html, body { height: 100%; margin: 0; }
    only 14 of the 15 and left a straight 1px sliver — visible as a
    small flat step (the accent outline made it obvious) rather than a
    clean curve. Sizing both radii to their own matching dimension turns
-   the whole box back into a single unbroken quarter-ellipse. */
+   the whole box back into a single unbroken quarter-ellipse.
+   left/right below carry one extra "- 1px" beyond --tab-radius's own
+   reach: an absolutely positioned element's offsets are measured from
+   its containing block's PADDING edge, which sits one border-width
+   INSIDE the button's actual visible border (box-sizing: border-box
+   draws that 1px border OUTSIDE the padding box) — so without this,
+   the curve's own inner edge started 1px short of the border's outer
+   edge instead of flush against it. The owner's own words: "the right
+   one has to have its left edge aligned and vice versa." */
 .shell-nav button.active::before,
 .shell-nav button.active::after {
   content: "";
@@ -308,14 +316,14 @@ html, body { height: 100%; margin: 0; }
   background: transparent;
 }
 .shell-nav button.active::before {
-  left: calc(var(--tab-radius) * -1);
+  left: calc(var(--tab-radius) * -1 - 1px);
   border-bottom-right-radius: var(--tab-radius) calc(var(--tab-radius) + 1px);
   box-shadow:
     calc(var(--tab-radius) / 2) 0 0 0 var(--ground),
     calc(var(--tab-radius) / 2) 0 0 1px var(--accent);
 }
 .shell-nav button.active::after {
-  right: calc(var(--tab-radius) * -1);
+  right: calc(var(--tab-radius) * -1 - 1px);
   border-bottom-left-radius: var(--tab-radius) calc(var(--tab-radius) + 1px);
   box-shadow:
     calc(var(--tab-radius) / -2) 0 0 0 var(--ground),
