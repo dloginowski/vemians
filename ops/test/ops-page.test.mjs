@@ -236,7 +236,7 @@ check("test_PRD_P0_75_ops_dark_theme__the_front_page_carries_the_dark_palette", 
   assert.match(body, /--ground:\s*#191817/, "the near-black ground must be set");
   assert.match(body, /--ink:\s*#F1EEE6/, "the warm off-white ink must be set");
   assert.match(body, /--accent:\s*#D97757/, "the one accent colour must be set");
-  assert.match(body, /--muted:\s*#9C978C/);
+  assert.match(body, /--muted:\s*#B8B3A8/);
 });
 
 check("test_PRD_P0_75_ops_dark_theme__the_storefront_never_loads_this_palette", async () => {
@@ -289,6 +289,115 @@ check("test_PRD_P0_75_ops_dark_theme__no_hardcoded_grey_survives_the_reskin", as
   const src = fs.readFileSync(path.join(HERE, "..", "src", "views.js"), "utf8");
   const styleOnly = src.replace(/\/\*[\s\S]*?\*\//g, "");
   assert.doesNotMatch(styleOnly, /#666/, "a hardcoded grey survived the dark reskin");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-90 — the dim tokens read in broad daylight, not just indoors
+ * ───────────────────────────────────────────────────────────────────────── */
+
+/* The same relative-luminance formula WCAG itself defines — not a stand-in,
+   so a real ratio is what fails when a colour drifts back under its floor. */
+function relLuminance(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((c) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function contrastRatio(hexA, hexB) {
+  const [l1, l2] = [relLuminance(hexA), relLuminance(hexB)].sort((a, b) => b - a);
+  return (l1 + 0.05) / (l2 + 0.05);
+}
+
+/* theme.css's own light-palette :root block renders FIRST in the page, with
+   OPS_DARK_CSS's override :root block second in the same <style> tag — the
+   cascade takes the LAST declaration, exactly as the real browser would, so
+   this must too rather than grabbing theme.css's untouched light value. */
+function cssVar(body, name) {
+  const matches = [...body.matchAll(new RegExp(`--${name}:\\s*(#[0-9A-Fa-f]{6})`, "g"))];
+  assert.ok(matches.length, `--${name} not found in the rendered page`);
+  return matches[matches.length - 1][1];
+}
+
+check("test_PRD_P0_90_daylight_contrast__muted_text_clears_aaa_against_both_backgrounds_it_sits_on", async () => {
+  /* --muted carries secondary text (hints, tool-step asides, table headers,
+     the attach-file name) over both a plain bubble/page background
+     (--ground) and a panel background (--image-ground, .table-card/.who) —
+     both have to clear the bar, not just whichever one a spot check picks. */
+  const { body } = await frontPage(OWNER);
+  const muted = cssVar(body, "muted");
+  const ground = cssVar(body, "ground");
+  const imageGround = cssVar(body, "image-ground");
+  assert.ok(contrastRatio(muted, ground) >= 7, `muted vs ground must clear WCAG AAA (7:1) for daylight readability`);
+  assert.ok(contrastRatio(muted, imageGround) >= 7, `muted vs image-ground must clear WCAG AAA (7:1) too`);
+});
+
+check("test_PRD_P0_90_daylight_contrast__rule_borders_clear_the_ui_component_minimum", async () => {
+  /* --rule is every border and divider on the page — the chat bar's own
+     outline, a table's row lines, the approval gate's box — which WCAG
+     treats as a UI component boundary (3:1), not body text (4.5:1/7:1). */
+  const { body } = await frontPage(OWNER);
+  const rule = cssVar(body, "rule");
+  const ground = cssVar(body, "ground");
+  const imageGround = cssVar(body, "image-ground");
+  assert.ok(contrastRatio(rule, ground) >= 3, `rule vs ground must clear WCAG's 3:1 non-text/UI-component minimum`);
+  assert.ok(contrastRatio(rule, imageGround) >= 3, `rule vs image-ground must clear it too`);
+});
+
+check("test_PRD_P0_90_daylight_contrast__the_already_strong_tokens_were_left_alone", async () => {
+  /* The report was about the DIM elements specifically — ink, ground and
+     accent were already comfortably above their own thresholds, and a fix
+     that also drifted those would be touching more than was asked. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /--ground:\s*#191817/);
+  assert.match(body, /--ink:\s*#F1EEE6/);
+  assert.match(body, /--accent:\s*#D97757/);
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-91 — a quieter, centred greeting, no redundant assistant heading
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_91_quiet_greeting__the_greet_heading_is_centred_and_no_longer_full_bright_bold", async () => {
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.greet\s*\{[^}]*text-align:\s*center/s, "the greeting must be centred");
+  assert.match(body, /\.greet h1\s*\{[^}]*font-weight:\s*400/s, "no longer bold");
+  assert.match(body, /\.greet h1\s*\{[^}]*color:\s*var\(--muted\)/s, "no longer full-bright --ink");
+  assert.doesNotMatch(body, /\.greet h1\s*\{[^}]*font-weight:\s*700/s, "the old bold weight must not still be set");
+});
+
+check("test_PRD_P0_91_quiet_greeting__the_ask_the_ops_assistant_line_is_gone", async () => {
+  const { body } = await frontPage(OWNER);
+  assert.doesNotMatch(body, /Ask the ops assistant/, "a heading that only restated what the chat widget already is");
+  /* The greeting itself, and the widget it introduces, must both still be
+     on the page — this removes one redundant line, not the surrounding
+     features. */
+  assert.match(body, /Hi Owner — what would you like to do/);
+  const main = body.slice(body.indexOf("<main"));
+  assert.ok(main.indexOf('id="chat"') > -1, "the chat form must still be on the page");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-92 — the chat widget picks up the quick-prompt chips' own accent
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_92_chat_widget_accent__the_widgets_own_frame_matches_the_quick_prompt_chips", async () => {
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.choices \.btn\s*\{[^}]*border:\s*1px solid var\(--accent\)/s, "the chip border this widget must now match");
+  assert.match(body, /\.chat-top\s*\{[^}]*border:\s*1px solid var\(--accent\)/s, "the widget frame must use the same accent border");
+});
+
+check("test_PRD_P0_92_chat_widget_accent__the_entry_lines_own_border_and_the_plus_button_are_brighter", async () => {
+  const { body } = await frontPage(OWNER);
+  /* Brighter than the old --rule, but not a second orange box nested inside
+     the now-accent .chat-top frame — a distinct, plain-neutral bump. */
+  assert.match(body, /\.chat \.chat-bar\s*\{[^}]*border:\s*1px solid var\(--muted\)/s, "the entry line's own border must no longer be the dim --rule");
+  assert.doesNotMatch(body, /\.chat \.chat-bar\s*\{[^}]*border:\s*1px solid var\(--rule\)/s, "the old dim border must not still be set");
+  /* The "+" attach icon, full brightness at rest — matching the composer's
+     own send icon and typed text, not the dim secondary tone. */
+  assert.match(body, /\.chat \.chat-bar \.icon-btn\s*\{[^}]*color:\s*var\(--ink\)/s, "the attach icon must be full-bright at rest");
 });
 
 /* ─────────────────────────────────────────────────────────────────────────

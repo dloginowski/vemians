@@ -1341,6 +1341,65 @@ that does not trace to one of these is a process failure (see §12).
     count, with the title and "Full screen" button pinned in place (`position: sticky; left: 0`)
     so they stay reachable while scrolled right.
 
+34a''''''''''''''''''''. **`Test-PRD-P0-90-daylight_contrast`** — The owner's own words: "Bump up
+    the contrast of the dimmer elements on ops page. Its a little hard to see on a mobile device
+    in broad daylight." Direct sun washes out exactly the mid-tones a "dim, secondary" colour is
+    built from — a ratio that reads comfortably indoors can still disappear outside, which a ratio
+    computed against an indoor assumption never catches.
+
+    **`--muted` and `--rule` (P0-75's own dark-reskin tokens) were both raised, nothing else.**
+    `--muted` (secondary text — the chat log's tool-step asides, the composer hint, table headers
+    and labels, the attach-file name, a disabled gate button) went from `#9C978C` — already a
+    passing 6.1:1 against `--ground` but only 5.4:1 against `--image-ground`, the panel background
+    it also sits on (`.table-card`, `.who`) — to `#B8B3A8`, which clears 7:1 (WCAG AAA for normal
+    text) against BOTH. `--rule` (every border and divider — the chat bar's own outline, a table's
+    row lines, the approval gate's box, a copy button's outline) went from `#3A3733`, a bare 1.5:1
+    against `--ground` and effectively invisible as a boundary, to `#7B7369`, clearing 3:1 (WCAG's
+    own non-text/UI-component minimum) against both backgrounds it appears on. `--ink`, `--ground`,
+    `--image-ground` and `--accent` were already comfortably above their own thresholds (15.3:1,
+    5.7:1 respectively) and are untouched — the report was about the DIM elements specifically, not
+    the whole palette.
+
+    Checked by computing the same relative-luminance contrast formula the WCAG spec itself defines
+    (not a hardcoded "looks fine" assertion) against both `--ground` and `--image-ground` for each
+    token, so a future edit that quietly drifts a colour back under its floor fails the same way a
+    missed feature would.
+
+34a'''''''''''''''''''''. **`Test-PRD-P0-91-quiet_greeting`** — The owner's own words: "Center the
+    welcome heading too (Hi Dimitri — what would you like to do?) And make it less prominent
+    (bright) also remove the 'ask the ops assistant' line." Two redundant "first thing on the
+    page" signals were both fighting for the same attention the chat widget itself (P0-74) is
+    supposed to get: a bold, full-bright, left-aligned name greeting, immediately followed by a
+    second heading that only restated what the widget right below it obviously already was.
+
+    `.greet` is now centred (`text-align: center`) and its `<h1>` drops from `font-weight: 700` in
+    `--ink` (15.3:1, the page's brightest possible text) to `font-weight: 400` in `--muted`
+    (P0-90's own freshly-raised 7:1 token) — still perfectly legible, no longer the loudest thing
+    on the screen. The `<h1>Ask the ops assistant</h1>` inside `.key.chat-top` is deleted outright
+    rather than restyled — a heading that only names what a chat box already visibly is was pure
+    restatement, not information — and the two CSS rules that existed solely to style it
+    (`.key h1`, `.chat-top h1`) are removed with it rather than left as dead rules nothing renders.
+
+34a''''''''''''''''''''''. **`Test-PRD-P0-92-chat_widget_accent`** — The owner's own words: "Make
+    the chat window border same orange color as the quick chat pills. Make the + button in chat
+    box and chat entry line a little brighter too" — then, on being asked to confirm which
+    "entry line" they meant: "The border of chat entry line i mean." Three separate elements had
+    all been drawn in the same flat `--rule` neutral every other box on the page uses, which read
+    as visually disconnected from `.choices .btn`'s own orange outline directly below the widget,
+    and dim enough next to it that the attach icon and the composer's own outline both nearly
+    disappeared.
+
+    `.chat-top` (the widget's own outer frame) goes from a `--rule` border to `var(--accent)` —
+    literally the same token `.choices .btn` already borders itself in, so the widget and the
+    quick-prompt chips beneath it now read as one accent family rather than two unrelated boxes.
+    `.chat .chat-bar` (the composer pill itself — "the entry line") goes from `--rule` to
+    `var(--muted)` — brighter, but a plain neutral rather than a second orange box nested inside
+    the first, so the two borders stay visually distinct rather than doubling up. The `+` attach
+    icon (`.chat .chat-bar .icon-btn`) goes from `--muted` to `--ink` at rest — full brightness,
+    matching the composer's own send icon and typed text — with its hover state moved from `--ink`
+    to `--accent` so hovering still reads as a distinct state now that the resting colour is no
+    longer the dim one.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -1581,6 +1640,9 @@ Where each feature is enforced today:
 | P0-87 | `ops/test/agent-tool-wire-names.test.mjs` |
 | P0-88 | `ops/test/catalog-write.test.mjs` |
 | P0-89 | `ops/test/catalog-write.test.mjs`; no test yet drives the `views.js` client script's `tableCard()` rendering directly — this file has no browser/DOM harness for any client-side script, not only this one |
+| P0-90 | `ops/test/ops-page.test.mjs` |
+| P0-91 | `ops/test/ops-page.test.mjs` |
+| P0-92 | `ops/test/ops-page.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

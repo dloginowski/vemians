@@ -56,6 +56,19 @@ import { firstNameFrom } from "./access.js";
  * hardcode seven times for secondary text) and --accent (the one warm colour
  * a mostly-monochrome dark screen gets, spent on the controls that actually
  * do something — a button, a link, a focus ring — never on a whole section).
+ *
+ * --muted and --rule were both raised once already usable, on the owner's
+ * own report that they were hard to read on a phone in broad daylight —
+ * direct sun washes out exactly the mid-tones a "dim, secondary" colour is
+ * built from, so a ratio that reads fine indoors can still disappear
+ * outside. #9C978C (muted) was already a passing 6.1:1 against --ground
+ * indoors; #B8B3A8 clears 7:1 (WCAG AAA for normal text) against BOTH
+ * --ground and --image-ground, the two backgrounds it actually sits on
+ * (a plain bubble and a panel like .table-card). #3A3733 (rule) was only
+ * 1.5:1 — invisible as a boundary outdoors, never mind a border under one —
+ * #7B7369 clears 3:1 (WCAG's own non-text/UI-component minimum) against
+ * both, enough to actually see the chat bar, a table's row dividers or the
+ * approval gate's own outline in glare.
  */
 const OPS_DARK_CSS = `
 :root {
@@ -63,8 +76,8 @@ const OPS_DARK_CSS = `
   --image-ground: #242220;
   --ink:          #F1EEE6;
   --bar:          #000000;
-  --rule:         #3A3733;
-  --muted:        #9C978C;
+  --rule:         #7B7369;
+  --muted:        #B8B3A8;
   --accent:       #D97757;
 }
 
@@ -91,7 +104,6 @@ ${OPS_DARK_CSS}
 
 .ops .warn { margin: 0 0 14px; }
 
-.key h1 { font-size: var(--type); font-weight: 700; margin: 0 0 4px; }
 .hint { font-size: var(--eyebrow); color: var(--muted); margin: 0 0 8px; }
 .hint a { color: var(--accent); }
 
@@ -100,14 +112,19 @@ ${OPS_DARK_CSS}
    like loose page furniture next to the chips below it. Rounder than a
    typical card, closer to the composer shape it wraps, per the reference
    screenshot of a mobile chat composer this was asked to match. */
+/* Same orange as the quick-prompt chips below it (.choices .btn) — one
+   accent colour tying the widget to the shortcuts that feed it, rather than
+   the plain neutral --rule every other box on the page uses. */
 .chat-top {
-  border: 1px solid var(--rule); border-radius: 20px;
+  border: 1px solid var(--accent); border-radius: 20px;
   padding: 14px; margin-bottom: 16px;
 }
-.chat-top h1 { margin-bottom: 8px; }
 
-.greet { margin: 0 0 12px; }
-.greet h1 { font-size: var(--type); font-weight: 700; margin: 0 0 4px; }
+/* Centred and quiet on purpose — a name check, not the thing on the page
+   asking to be read first. The chat widget right below it is that thing;
+   a bold, full-bright "Hi Dimitri" over it competed for the same attention. */
+.greet { margin: 0 0 12px; text-align: center; }
+.greet h1 { font-size: var(--type); font-weight: 400; color: var(--muted); margin: 0; }
 
 .menu { margin: 0 0 20px; }
 /* Small chips, not CTAs — three routine tasks and a fold, not the thing on
@@ -253,9 +270,12 @@ ${OPS_DARK_CSS}
  * from — so anything here weaker than that would be silently overridden by
  * the shared rule rather than replacing it the way it reads on screen.
  */
+/* Brighter than the page's plain --rule boxes (the entry line itself, and
+   the "+" attach icon at rest) — both were dim enough to disappear next to
+   the now-orange .chat-top frame around them. */
 .chat .chat-bar {
   display: flex; align-items: center; gap: 2px;
-  border: 1px solid var(--rule); border-radius: 24px;
+  border: 1px solid var(--muted); border-radius: 24px;
   padding: 4px 4px 4px 6px; background: var(--image-ground);
 }
 .chat .chat-bar:focus-within { border-color: var(--accent); }
@@ -269,8 +289,8 @@ ${OPS_DARK_CSS}
   display: inline-flex; align-items: center; justify-content: center;
   border: none; border-radius: 50%;
 }
-.chat .chat-bar .icon-btn { width: 32px; height: 32px; background: transparent; color: var(--muted); }
-.chat .chat-bar .icon-btn:hover { background: rgba(255, 255, 255, 0.08); color: var(--ink); }
+.chat .chat-bar .icon-btn { width: 32px; height: 32px; background: transparent; color: var(--ink); }
+.chat .chat-bar .icon-btn:hover { background: rgba(255, 255, 255, 0.08); color: var(--accent); }
 .chat .chat-bar .icon-btn[aria-pressed="true"] { color: var(--accent); background: rgba(217, 119, 87, 0.14); }
 .chat .chat-bar .send-btn { width: 34px; height: 34px; background: var(--accent); color: var(--ground); }
 .chat .chat-bar .send-btn:hover { opacity: 0.85; }
@@ -384,7 +404,6 @@ ${id}
   </section>
 
   <section class="key chat-top">
-    <h1>Ask the ops assistant</h1>
     ${hasKey ? "" : '<p class="hint">No model connected &mdash; set <code>ANTHROPIC_API_KEY</code> to turn this on.</p>'}
     <div class="log" id="log"></div>
     <div id="gate"></div>
