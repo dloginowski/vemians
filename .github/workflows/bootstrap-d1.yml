@@ -68,18 +68,26 @@ jobs:
       - name: Create the databases
         working-directory: ops
         run: |
+          # Checked by NAME against a real listing first, rather than by
+          # guessing from `create`'s error text. This account is now at its
+          # plan's D1 database cap (all nine of these already exist), and
+          # Cloudflare's own error for that case is "you have reached the
+          # maximum number of D1 databases" — not "already exists" — so the
+          # old text-matching fallback never caught it and `create` would
+          # fail this step on every future run, forever, for a database that
+          # was never actually missing.
+          npx wrangler d1 list --json > /tmp/existing.json
+          existing=" $(python3 -c "import json; print(' '.join(d['name'] for d in json.load(open('/tmp/existing.json'))))") "
           for s in $DBS; do
-            echo "::group::vemians-$s"
-            # No pipe here: `cmd | tee` reports tee's status, so a failed
-            # create looked like a success and the "already exists" branch
-            # never ran.
-            if npx wrangler d1 create "vemians-$s" >/tmp/create.log 2>&1; then
+            name="vemians-$s"
+            echo "::group::$name"
+            if [[ "$existing" == *" $name "* ]]; then
+              echo "$name already exists — nothing to do."
+            elif npx wrangler d1 create "$name" >/tmp/create.log 2>&1; then
               cat /tmp/create.log
-            elif grep -qiE 'already exists|already have a database' /tmp/create.log; then
-              echo "vemians-$s already exists — nothing to do."
             else
               cat /tmp/create.log
-              echo "::error::could not create vemians-$s"; exit 1
+              echo "::error::could not create $name"; exit 1
             fi
             echo "::endgroup::"
           done
