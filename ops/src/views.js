@@ -365,8 +365,11 @@ export function copyLine(text, { wrap = false } = {}) {
 function bindingsLine(bindings, hasKey, via) {
   const b = bindings || { role: "staff", tools: [], stores: [], hidden: 0 };
   const stores = b.stores.length ? b.stores.map((s) => `<code>${esc(s)}</code>`).join(", ") : "<code>none</code>";
-  const model = hasKey ? "claude-sonnet-5" : "no model, set <code>ANTHROPIC_API_KEY</code>";
-  return `<div class="bind">role <strong>${esc(b.role || "none")}</strong>${via ? ` (${esc(via)})` : ""} &middot; ${b.tools.length} tool${b.tools.length === 1 ? "" : "s"}${b.hidden ? `, ${b.hidden} hidden` : ""} &middot; ${stores} &middot; ${model}</div>`;
+  /* Which model answers is an implementation detail nobody using the chat
+     needs to see — only whether one is connected at all, since that is the
+     one state (ANTHROPIC_API_KEY unset) where the chat silently just echoes. */
+  const model = hasKey ? "" : " &middot; no model connected";
+  return `<div class="bind">role <strong>${esc(b.role || "none")}</strong>${via ? ` (${esc(via)})` : ""} &middot; ${b.tools.length} tool${b.tools.length === 1 ? "" : "s"}${b.hidden ? `, ${b.hidden} hidden` : ""} &middot; ${stores}${model}</div>`;
 }
 
 /*
@@ -456,22 +459,7 @@ ${id}
     </div>
   </section>
 
-  <div id="more-options">
-
-  <section class="key">
-    <h1>Connect your own Claude or ChatGPT instead</h1>
-    <p class="hint">For someone who prefers their own assistant, or wants to hand it a photo straight from
-       their device. Paste this into it to get started.</p>
-    ${copyLine(mcpUrl)}
-    <p class="hint">Then say this, so it learns how we do things.</p>
-    ${copyLine("Read the vemians skills, then tell me what you can do here.", { wrap: true })}
-    ${copyLine("Find every black boot in the catalog and show me what is out of stock.", { wrap: true })}
-    ${copyLine("Here is a photo. Draft a product from it: brand, name, description, price.", { wrap: true })}
-  </section>
-
-  </div>
-
-  <div class="acc">
+  <div class="acc" id="more-options">
 
     <details>
       <summary>Who has what</summary>

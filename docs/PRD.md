@@ -976,6 +976,27 @@ that does not trace to one of these is a process failure (see §12).
     small outlined chips: this page has exactly one thing asking to be pressed hardest now, and
     P0-74 already put that thing above these chips, not beside them as an equal.
 
+34a'''''''''. **`Test-PRD-P0-79-quick_actions_over_connect_prompt`** — The owner's own direction,
+    read back verbatim: "remove [the connect-your-own-assistant block]... you already have quick
+    actions under the chat, that's what I want to expand." The promotional block P0-69 had put where
+    "More Options" pointed — the `/mcp` address, "paste this into it to get started," and three
+    example prompts to say next — is gone from the page entirely, not merely re-folded: a coworker's
+    own path to the shop is the built-in chat and the one-click chips (P0-68/P0-69/P0-74), not a
+    second client they have to go set up. "More Options" now anchors straight to the existing
+    reference accordion (`ops/src/views.js`'s `.acc` — Who has what, How this works, For assistants
+    and developers, Sample data) instead of to a block that no longer exists, so the chip still does
+    something rather than landing on an empty target. The `/mcp` endpoint itself is unchanged and
+    still fully documented — the connect command, the skills-first instruction, the tier contract —
+    inside the "For assistants and developers" fold (P0-54's own machine contract), for whichever
+    assistant or developer actually goes looking for it; only the top-level, open-at-rest pitch for
+    it is retired.
+
+    The bindings footnote (`bindingsLine`) also stopped naming which model answers — an
+    implementation detail nobody using the chat needs, the owner's own words being "don't need to
+    know which model is being used" — keeping only whether one is connected at all, since an unset
+    `ANTHROPIC_API_KEY` is the one state where the chat silently just echoes and that much is worth
+    knowing.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -1205,6 +1226,7 @@ Where each feature is enforced today:
 | P0-76 | `ops/test/agent-tool-schema.test.mjs` |
 | P0-77 | `ops/test/agent-attachments.test.mjs` |
 | P0-78 | `ops/test/ops-page.test.mjs` |
+| P0-79 | `ops/test/ops-page.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

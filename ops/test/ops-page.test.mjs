@@ -153,27 +153,49 @@ check("test_PRD_P0_54_skill_discovery__the_copyable_command_is_the_whole_command
   assert.equal(parts.length, 7, "name and URL, nothing missing and nothing extra");
 });
 
-check("test_PRD_P0_54_skill_discovery__only_the_address_and_the_prompts_are_open_at_rest", async () => {
-  /* The page has one job for almost everyone: hand over the address to paste
-     into their own assistant, and show them what to say next. Everything else —
-     roster, tier rules, the machine contract, the seed data — is a closed row.
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-79 — the connect-your-own-assistant pitch is retired, not re-folded;
+ *         "More Options" now points at the reference accordion instead
+ * ───────────────────────────────────────────────────────────────────────── */
 
-     The `claude mcp add` invocation is NOT that job. It is a terminal command
-     for the few people who have one, so it belongs in the developer fold; a
-     person told to paste a shell line into a chat window is being asked to
-     debug our vocabulary before they can start. */
+check("test_PRD_P0_79_quick_actions_over_connect_prompt__the_connect_pitch_and_its_example_prompts_are_gone", async () => {
+  /* The literal ask: remove "Connect your own Claude or ChatGPT instead...
+     paste this into it to get started... https://ops.vemians.com/mcp" and
+     the "Then say this" block of three example prompts under it. The
+     built-in chat and the one-click chips are the path now, not a second
+     client someone has to go set up. */
+  const { body } = await frontPage(OWNER);
+  assert.doesNotMatch(body, /Connect your own Claude or ChatGPT instead/);
+  assert.doesNotMatch(body, /Paste this into it to get started/);
+  assert.doesNotMatch(body, /Then say this, so it learns how we do things/);
+  assert.doesNotMatch(body, /Find every black boot in the catalog/);
+  assert.doesNotMatch(body, /Draft a product from it: brand, name, description, price/);
+});
+
+check("test_PRD_P0_79_quick_actions_over_connect_prompt__more_options_now_opens_the_reference_accordion", async () => {
+  /* The chip still has to do something once its old target is gone — it
+     now anchors straight to the existing "Who has what / How this works /
+     For assistants and developers / Sample data" accordion. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /<a class="btn" href="#more-options">More Options<\/a>/);
+  assert.match(body, /<div class="acc" id="more-options">/);
+});
+
+check("test_PRD_P0_79_quick_actions_over_connect_prompt__the_mcp_contract_still_lives_in_the_developer_fold", async () => {
+  /* Retiring the pitch must not take the endpoint away from an assistant or
+     developer who already knows to look for it — only the top-level,
+     open-at-rest promotion of it. */
   const { body } = await frontPage(OWNER);
   assert.doesNotMatch(body, /<details[^>]*\sopen/, "no accordion row may ship expanded");
-
   const main = body.slice(body.indexOf("<main"));
-  const firstFold = main.indexOf("<details");
-  assert.ok(firstFold > -1);
+  const forAssistants = main.indexOf('id="for-assistants"');
+  assert.ok(forAssistants > -1, "the developer fold must still exist");
+  assert.ok(main.slice(forAssistants).includes("claude mcp add"), "and still carry the connect command");
+});
 
-  const open = main.slice(0, firstFold);
-  assert.ok(open.includes("/mcp"), "the address must be above the accordion");
-  assert.ok(open.includes("Read the vemians skills"), "and so must the first thing to say");
-  assert.ok(!open.includes("claude mcp add"), "a shell command is not what a chat user pastes");
-  assert.ok(main.slice(firstFold).includes("claude mcp add"), "but it must still be on the page");
+check("test_PRD_P0_79_quick_actions_over_connect_prompt__the_bindings_footnote_no_longer_names_the_model", async () => {
+  const { body } = await frontPage(OWNER);
+  assert.doesNotMatch(body, /claude-sonnet-5/, "which model answers is not something the chat's own footnote needs to say");
 });
 
 check("test_PRD_P0_69_one_click_welcome_menu__greets_by_first_name_with_the_four_choices_above_everything_else", async () => {
@@ -352,10 +374,13 @@ check("test_PRD_P0_78_chat_widget__the_one_click_tasks_are_small_chips_not_bold_
 });
 
 check("test_PRD_P0_54_skill_discovery__the_copy_control_is_an_icon_with_a_reachable_label", async () => {
-  /* An icon-only control is a control with no name unless it carries one. */
+  /* An icon-only control is a control with no name unless it carries one.
+     Used to require at least 4 (the retired connect-your-own-assistant
+     block alone had 4 of its own); P0-79 dropped that block entirely, so
+     the only one left at rest is the developer fold's own connect command. */
   const { body } = await frontPage(OWNER);
   const buttons = body.match(/<button type="button" data-copy[^>]*>/g) ?? [];
-  assert.ok(buttons.length >= 4, `expected a copy control per line, saw ${buttons.length}`);
+  assert.ok(buttons.length >= 1, `expected at least one copy control, saw ${buttons.length}`);
   for (const b of buttons) {
     assert.match(b, /aria-label="Copy"/, "an icon button must be named for anything not looking at it");
   }
