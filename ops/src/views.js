@@ -114,10 +114,20 @@ ${OPS_DARK_CSS}
    screenshot of a mobile chat composer this was asked to match. */
 /* Same orange as the quick-prompt chips below it (.choices .btn) — one
    accent colour tying the widget to the shortcuts that feed it, rather than
-   the plain neutral --rule every other box on the page uses. */
+   the plain neutral --rule every other box on the page uses.
+ *
+ * Sides and bottom are tight (8px) so the composer pill nested inside sits
+ * close against this frame rather than floating in a wide gap; top stays
+ * roomier (14px) since the hint/log stack sits there, not the pill. The
+ * bottom corners are bigger than the top ones (26px vs 20px) for the same
+ * reason a picture frame's mat is one width: the pill's own radius (18px,
+ * below) plus this tight 8px gap needs a bigger outer curve to still look
+ * concentric — an unequal radius one side and equal padding the other would
+ * make the pill look like it is cutting into the frame at the corner.
+ */
 .chat-top {
-  border: 1px solid var(--accent); border-radius: 20px;
-  padding: 14px; margin-bottom: 16px;
+  border: 1px solid var(--accent); border-radius: 20px 20px 26px 26px;
+  padding: 14px 8px 8px; margin-bottom: 16px;
 }
 
 /* Centred and quiet on purpose — a name check, not the thing on the page
@@ -275,10 +285,14 @@ ${OPS_DARK_CSS}
    the now-orange .chat-top frame around them. */
 .chat .chat-bar {
   display: flex; align-items: center; gap: 2px;
-  border: 1px solid var(--muted); border-radius: 24px;
+  border: 1px solid var(--muted); border-radius: 18px;
   padding: 4px 4px 4px 6px; background: var(--image-ground);
 }
-.chat .chat-bar:focus-within { border-color: var(--accent); }
+/* Stays the same neutral grey on focus — an orange ring here, right inside
+   an already-orange .chat-top frame, doubled up on the one accent colour
+   for no extra information. --ink instead of --muted still reads as a
+   distinct, brighter "active" state without borrowing the frame's colour. */
+.chat .chat-bar:focus-within { border-color: var(--ink); }
 #q {
   flex: 1 1 auto; min-width: 0; border: none; background: transparent;
   padding: 8px 4px; font: inherit; font-size: 14px; color: var(--ink);

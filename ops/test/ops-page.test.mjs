@@ -401,6 +401,42 @@ check("test_PRD_P0_92_chat_widget_accent__the_entry_lines_own_border_and_the_plu
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
+ * P0-93 — the composer pill nests neatly inside the now-orange frame
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_93_nested_chat_frame__focus_stays_gray_rather_than_doubling_up_on_orange", async () => {
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.chat \.chat-bar:focus-within\s*\{[^}]*border-color:\s*var\(--ink\)/s, "focus must stay a neutral colour");
+  assert.doesNotMatch(
+    body,
+    /\.chat \.chat-bar:focus-within\s*\{[^}]*border-color:\s*var\(--accent\)/s,
+    "focus must not still turn the same orange as the frame it already sits inside",
+  );
+});
+
+check("test_PRD_P0_93_nested_chat_frame__the_outer_frame_has_tight_even_padding_on_sides_and_bottom", async () => {
+  const { body } = await frontPage(OWNER);
+  /* Top keeps its own room for the hint/log stack; sides and bottom match
+     each other and are tighter than before, per the owner's own words. */
+  assert.match(body, /\.chat-top\s*\{[^}]*padding:\s*14px 8px 8px/s, "sides and bottom must be tight and equal to each other");
+});
+
+check("test_PRD_P0_93_nested_chat_frame__the_bottom_outer_corners_grew_to_stay_concentric_with_the_smaller_inner_radius", async () => {
+  const { body } = await frontPage(OWNER);
+  /* The pill's own radius must shrink first (it was bigger than the outer
+     frame's own radius before this — already a mismatch) ... */
+  assert.match(body, /\.chat \.chat-bar\s*\{[^}]*border-radius:\s*18px/s, "the composer pill's own radius must be smaller than before");
+  /* ... and only the outer frame's BOTTOM corners grow to match it plus the
+     tightened gap (innerRadius + gap = 18 + 8 = 26) — the top corners are
+     unchanged, since nothing rounded is nested against them. */
+  assert.match(
+    body,
+    /\.chat-top\s*\{[^}]*border-radius:\s*20px 20px 26px 26px/s,
+    "only the bottom corners of the outer frame should have grown",
+  );
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
  * P0-78 — a real scrolling chat widget, and compact one-click chips
  * ───────────────────────────────────────────────────────────────────────── */
 

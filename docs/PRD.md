@@ -1400,6 +1400,39 @@ that does not trace to one of these is a process failure (see §12).
     to `--accent` so hovering still reads as a distinct state now that the resting colour is no
     longer the dim one.
 
+34a'''''''''''''''''''''''. **`Test-PRD-P0-93-nested_chat_frame`** — Immediate follow-up to
+    P0-92, once the accent frame was actually in front of the owner. Their own words: "Keep the
+    inner chatbox a gray color when highlighted. I want it to have less padding on the sides and
+    bottom. Make it even with the outer chat border with slightly smaller radius so that inner
+    chat box container fits neatly into the outer (orange) edge... This means that the bottom
+    outer edge radius is bigger than it currently is." Three separate, compounding fixes.
+
+    **Focus no longer spends the one accent colour on a ring that was already inside one.**
+    `.chat .chat-bar:focus-within` moves from `border-color: var(--accent)` to `var(--ink)` — a
+    focused composer nested inside the now-orange `.chat-top` frame (P0-92) doubling that same
+    orange as its own focus ring said nothing an already-orange frame had not; `--ink` still reads
+    as a distinct, brighter "active" state without borrowing the frame's own colour.
+
+    **Less padding, and an intentionally UNEQUAL gap.** `.chat-top`'s padding goes from a uniform
+    `14px` to `14px 8px 8px` (top/right/bottom shorthand: right and bottom inherit the third
+    value, left is set by the fourth positional value being absent so it repeats the second — in
+    effect top 14px, sides and bottom both 8px) — tight and even on the sides and bottom the owner
+    named, while the top keeps its own 14px since the hint/log stack sits there, not the composer
+    pill.
+
+    **A smaller inner radius alone would have LOOKED wrong at the bottom corners with a tighter
+    gap — the outer radius had to grow to match, not shrink.** `.chat .chat-bar`'s own radius drops
+    from `24px` (bigger than the outer frame's own 20px — already a mismatch before this) to
+    `18px`. Nested rounded corners read as concentric only when outerRadius ≈ innerRadius + gap:
+    with the gap now a tight `8px`, a corner sharing the OLD outer 20px radius would visibly cut
+    into the pill's own curve at the bottom two corners, where the tightened gap actually lives —
+    exactly the "bottom outer edge radius is bigger than it currently is" the owner named after
+    seeing it. `.chat-top`'s radius becomes `20px 20px 26px 26px` (CSS's top-left/top-right/
+    bottom-right/bottom-left order): the top two corners are unchanged, since nothing rounded is
+    nested against them; only the bottom two grow, to `18px + 8px = 26px`, so the pill's own
+    bottom corners and the frame's bottom corners now share a centre and the pill reads as sitting
+    neatly inside the frame rather than floating in an uneven gap or clipping its own edge.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -1643,6 +1676,7 @@ Where each feature is enforced today:
 | P0-90 | `ops/test/ops-page.test.mjs` |
 | P0-91 | `ops/test/ops-page.test.mjs` |
 | P0-92 | `ops/test/ops-page.test.mjs` |
+| P0-93 | `ops/test/ops-page.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
