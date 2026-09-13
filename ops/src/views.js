@@ -99,10 +99,12 @@ ${OPS_DARK_CSS}
 
 /* The widget itself reads as one contained thing — a border around the
    whole assistant, not just around the log inside it — so it does not look
-   like loose page furniture next to the chips below it. */
+   like loose page furniture next to the chips below it. Rounder than a
+   typical card, closer to the composer shape it wraps, per the reference
+   screenshot of a mobile chat composer this was asked to match. */
 .chat-top {
-  border: 1px solid var(--rule); border-radius: 12px;
-  padding: 12px; margin-bottom: 16px;
+  border: 1px solid var(--rule); border-radius: 20px;
+  padding: 14px; margin-bottom: 16px;
 }
 .chat-top h1 { margin-bottom: 8px; }
 
@@ -302,15 +304,12 @@ const CLIPBOARD = `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="
   `<rect x="4.5" y="2.5" width="7" height="2.5" rx="0.6" fill="none" stroke="currentColor"/>` +
   `<path d="M4.5 3.75H3.5v9.75h9V3.75h-1" fill="none" stroke="currentColor"/></svg>`;
 
-/* The two attachment icons beside the chat input — same stroke-only style as
-   CLIPBOARD above, so a hand-drawn glyph does not read as a different design
-   system from the one copy control already on the page. */
-const CAMERA_ICON = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">` +
-  `<path d="M2 5.5h2.2l0.8-1.3h6l0.8 1.3H14v7.5H2z" fill="none" stroke="currentColor"/>` +
-  `<circle cx="8" cy="9" r="2.4" fill="none" stroke="currentColor"/></svg>`;
-const PAPERCLIP_ICON = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">` +
-  `<path d="M10.5 3.5 4.8 9.2a2.4 2.4 0 0 0 3.4 3.4l5.3-5.3a1.6 1.6 0 0 0-2.3-2.3L6.2 10a0.8 0.8 0 0 0 1.1 1.1l4.3-4.3" ` +
-  `fill="none" stroke="currentColor" stroke-linecap="round"/></svg>`;
+/* One attach button, not two — a plain "+" like the reference composer's own,
+   same stroke-only style as CLIPBOARD above. It opens one file picker that
+   takes a photo or any other file; the agent works out which from what
+   actually arrives, so the UI never has to ask first. */
+const ATTACH_ICON = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">` +
+  `<path d="M8 3v10M3 8h10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>`;
 const SEND_ICON = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">` +
   `<path d="M8 12.5V3.5M8 3.5 3.5 8M8 3.5 12.5 8" fill="none" stroke="currentColor" stroke-width="1.4" ` +
   `stroke-linecap="round" stroke-linejoin="round"/></svg>`;
@@ -433,14 +432,12 @@ ${id}
     <div id="gate"></div>
     <form class="chat" id="chat" method="post" action="/ops/agent">
       <div class="chat-bar">
-        <button type="button" class="icon-btn" id="attach-photo-btn" aria-label="Attach a photo" title="Attach a photo">${CAMERA_ICON}</button>
-        <button type="button" class="icon-btn" id="attach-file-btn" aria-label="Attach a file" title="Attach a file">${PAPERCLIP_ICON}</button>
+        <button type="button" class="icon-btn" id="attach-btn" aria-label="Attach a photo or file" title="Attach a photo or file">${ATTACH_ICON}</button>
         <input name="q" id="q" placeholder='e.g. "Add a wool coat, $450, Outerwear"' autocomplete="off">
         <button type="submit" class="send-btn" aria-label="Send" title="Send">${SEND_ICON}</button>
       </div>
       <span class="attach-name" id="attach-name" aria-live="polite"></span>
-      <input type="file" id="attach-photo" accept="image/*" hidden>
-      <input type="file" id="attach-file" hidden>
+      <input type="file" id="attach-input" hidden>
     </form>
   </section>
 
@@ -669,47 +666,32 @@ function card(p) {
 }
 
 /* ---- attachments ---------------------------------------------------------
- * One row, two icons, one file at a time. Choosing a photo clears anything
- * already chosen through the file icon and vice versa — the agent gets sent
- * exactly one attachment, never a stale second one nobody meant to include.
- * Neither input is required: a photo with no typed text is a normal message,
- * "figure out what to do with it" being exactly the point of handing it to
- * the agent instead of a purpose-built upload form.
+ * One button, one file at a time — a photo or any other file, the agent
+ * works out which. Neither the text box nor the attachment is required on
+ * its own: a photo with no typed text is a normal message, "figure out what
+ * to do with it" being exactly the point of handing it to the agent instead
+ * of a purpose-built upload form.
  */
-const photoInput = document.getElementById("attach-photo");
-const fileInput = document.getElementById("attach-file");
+const fileInput = document.getElementById("attach-input");
 const attachName = document.getElementById("attach-name");
-const photoBtn = document.getElementById("attach-photo-btn");
-const fileBtn = document.getElementById("attach-file-btn");
+const attachBtn = document.getElementById("attach-btn");
 
 function clearAttachments() {
-  photoInput.value = "";
   fileInput.value = "";
   attachName.textContent = "";
-  photoBtn.removeAttribute("aria-pressed");
-  fileBtn.removeAttribute("aria-pressed");
+  attachBtn.removeAttribute("aria-pressed");
 }
 
 function pickedFile() {
-  return photoInput.files[0] || fileInput.files[0] || null;
+  return fileInput.files[0] || null;
 }
 
-photoBtn.addEventListener("click", () => photoInput.click());
-fileBtn.addEventListener("click", () => fileInput.click());
+attachBtn.addEventListener("click", () => fileInput.click());
 
-photoInput.addEventListener("change", () => {
-  if (!photoInput.files[0]) return;
-  fileInput.value = "";
-  attachName.textContent = photoInput.files[0].name;
-  photoBtn.setAttribute("aria-pressed", "true");
-  fileBtn.removeAttribute("aria-pressed");
-});
 fileInput.addEventListener("change", () => {
   if (!fileInput.files[0]) return;
-  photoInput.value = "";
   attachName.textContent = fileInput.files[0].name;
-  fileBtn.setAttribute("aria-pressed", "true");
-  photoBtn.removeAttribute("aria-pressed");
+  attachBtn.setAttribute("aria-pressed", "true");
 });
 
 document.getElementById("chat").addEventListener("submit", async (e) => {
