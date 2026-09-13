@@ -16,6 +16,11 @@
  *
  * Test-PRD-P0-82-skills_on_demand. Also covers the immediate follow-up:
  * skills_read is offered, not mandated before every turn.
+ *
+ * Test-PRD-P0-85-chip_skill_trigger. The one deliberate exception to
+ * P0-82: a quick-prompt chip is a known, high-stakes entry point (drafting
+ * a real commercial write), so its exact phrase forces a skill read rather
+ * than leaving it to the model's own confidence.
  */
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -26,7 +31,7 @@ import { register } from "node:module";
 
 register("../../shared/test/text-modules.mjs", import.meta.url);
 
-const { dispatch, canUseDomain, mayUse, toolDefinitions, systemPrompt } = await import("../src/agent.js");
+const { dispatch, canUseDomain, mayUse, toolDefinitions, systemPrompt, buildUserContent } = await import("../src/agent.js");
 const { TOOLS } = await import("../src/tools/index.js");
 
 const usedLabels = new Set();
@@ -122,6 +127,32 @@ check("test_PRD_P0_81_skills_over_mcp__the_meta_tools_are_offered_alongside_the_
   assert.ok(!names.has("skills_list"), "skills_list is a meta-tool, not in TOOLS, so toolDefinitions alone must not carry it");
   const merged = ["skills_list", "skills_read", ...defs.map((d) => d.name)];
   assert.equal(new Set(merged).size, merged.length, "no name collision between the meta-tools and a real tool");
+});
+
+check("test_PRD_P0_85_chip_skill_trigger__the_products_chip_prompt_forces_a_catalog_skills_read", () => {
+  const content = buildUserContent("Add products", null);
+  assert.match(content, /skills_read\("catalog-skills"\)/);
+});
+
+check("test_PRD_P0_85_chip_skill_trigger__the_customers_chip_prompt_forces_a_customer_skills_read", () => {
+  const content = buildUserContent("Add customers", null);
+  assert.match(content, /skills_read\("customer-skills"\)/);
+});
+
+check("test_PRD_P0_85_chip_skill_trigger__free_form_text_that_merely_mentions_products_is_not_forced", () => {
+  /* The trigger is the exact chip phrase, not the word "products" anywhere
+     in a sentence — a person asking "how many products are low on stock"
+     is a read, not a draft, and forcing a skill read on every message that
+     happens to contain the word is exactly the churn P0-82 removed. */
+  const content = buildUserContent("how many products are low on stock", null);
+  assert.doesNotMatch(content, /skills_read/);
+});
+
+check("test_PRD_P0_85_chip_skill_trigger__the_hint_is_appended_not_substituted", () => {
+  /* The person's own words must still reach the model — the hint is extra
+     context, not a replacement for what they actually said. */
+  const content = buildUserContent("Add products", null);
+  assert.match(content, /^Add products/);
 });
 
 test("test_PRD_P0_30_prd_traceability__every_label_used_here_exists_in_the_prd", async () => {

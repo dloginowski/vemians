@@ -358,7 +358,7 @@ ${id}
 
   <section class="menu">
     <div class="choices">
-      <button type="button" class="btn" data-prompt="Add merchandise">+ Merchandise</button>
+      <button type="button" class="btn" data-prompt="Add products">+ Products</button>
       <button type="button" class="btn" data-prompt="Add customers">+ Customers</button>
       <button type="button" class="btn" data-prompt="Submit an expense">+ Expense</button>
     </div>

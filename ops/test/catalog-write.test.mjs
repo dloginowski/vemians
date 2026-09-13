@@ -1699,6 +1699,42 @@ check("test_PRD_P0_24_binding_scoped_tools__authoring_tools_reach_no_customer_pe
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
+ * P0-84 — drafting a product asks only real questions, never a settled one
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_84_efficient_drafting__the_tool_descriptions_say_not_to_ask_about_currency", () => {
+  /* This is a single-currency (USD) shop with no CAPS constant or schema
+     default for it — the field is still required on every call, so the
+     model has to pass something. Without this in the description it has no
+     way to know the answer is always USD, and a human gets asked a question
+     with only one real answer. On BOTH the draft and the real write, since
+     a description read once at draft time and never again would leave the
+     write asking anyway. */
+  for (const name of ["catalog.draft_product", "catalog.create_product"]) {
+    assert.match(TOOLS[name].describe, /USD/, `${name} must say what currency to default to`);
+  }
+});
+
+check("test_PRD_P0_84_efficient_drafting__the_tool_descriptions_say_not_to_ask_about_variations_that_do_not_exist", () => {
+  /* validateProposal() already explains this ("a single-size garment still
+     needs one, conventionally titled 'One size'") — but only AFTER a
+     refusal. Efficient means the model knows this on the FIRST call, from
+     the description every request already carries, not from a failed
+     round-trip. */
+  for (const name of ["catalog.draft_product", "catalog.create_product"]) {
+    assert.match(TOOLS[name].describe, /One size/, `${name} must say how to handle a product with no real options`);
+  }
+});
+
+check("test_PRD_P0_84_efficient_drafting__draft_product_says_to_write_the_description_itself", () => {
+  /* description is a required argument to draft_product — the model has to
+     supply SOMETHING regardless — but "required" must not read as "go ask
+     the person to dictate one." Drafting one from the title/category/photo
+     is exactly what a drafting tool is for. */
+  assert.match(TOOLS["catalog.draft_product"].describe, /write the description yourself/i);
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
  * P0-34 / P0-35 — one registry, and an approval a model cannot mint
  * ───────────────────────────────────────────────────────────────────────── */
 

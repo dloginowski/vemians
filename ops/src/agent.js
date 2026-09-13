@@ -313,6 +313,23 @@ function stashPending(rec) {
 
 /* ---- the Anthropic call ------------------------------------------------ */
 
+/* Anthropic's own error body is JSON: {type:"error", error:{type, message}}.
+   The `message` is the one line that actually says what was wrong — which
+   tool, which argument, what shape it expected — everything a generic
+   status code cannot. Falls back to the raw text for a body that is not
+   that shape (a proxy's own error page, say), and never throws on a body
+   that is not JSON at all. */
+function anthropicErrorDetail(raw) {
+  try {
+    const parsed = JSON.parse(raw);
+    const msg = parsed?.error?.message;
+    if (typeof msg === "string" && msg) return msg.slice(0, 500);
+  } catch {
+    /* Not JSON. Fall through to the raw text below. */
+  }
+  return raw.slice(0, 300) || "(no detail returned)";
+}
+
 async function callClaude(env, body) {
   /* ANTHROPIC_BASE_URL is the SDKs' own override and exists here for the same
      reason: pointing a local run at a recorder to assert on the request that
@@ -336,9 +353,17 @@ async function callClaude(env, body) {
   }
 
   if (!res.ok) {
-    const detail = (await res.text().catch(() => "")).slice(0, 300);
-    console.error(`ERROR agent: Anthropic API ${res.status} — ${detail}`);
-    return { error: `The model service returned ${res.status}.` };
+    const raw = await res.text().catch(() => "");
+    console.error(`ERROR agent: Anthropic API ${res.status} — ${raw.slice(0, 2000)}`);
+    /* A bare status code with the real reason left only in a log neither of
+       us can see live turned one 400 into a guessing exercise across a whole
+       session — this shop's own audit-before-return rule (agent-tool-
+       contract) applied to a call to Anthropic, not only to a call to
+       Square. The detail Anthropic actually sent — which argument, which
+       tool, what it expected — reaches the chat itself now, truncated,
+       rather than only a Worker log someone has to be tailing at the moment
+       it happens. */
+    return { error: `The model service returned ${res.status}: ${anthropicErrorDetail(raw)}` };
   }
 
   try {
@@ -438,9 +463,34 @@ function attachmentNote(attachment) {
   );
 }
 
+/*
+ * The quick-prompt chips (P0-83) send one of these exact phrases as the
+ * person's first message — a known, deliberate entry point, unlike free-form
+ * text where whether a skill is worth reading is a judgment call (P0-82).
+ * For these, it always is: a chip click means "I am about to do this common
+ * task," so the skill's own "ask only a genuine choice" and completeness
+ * rules are worth the one read every time, not something to leave to
+ * confidence. The hint is appended server-side — the person's own chat
+ * bubble still shows the plain chip text, only the model sees the pointer.
+ */
+const CHIP_SKILL_HINTS = {
+  "Add products": "catalog-skills",
+  "Add customers": "customer-skills",
+};
+
+function chipSkillHint(q) {
+  const skill = CHIP_SKILL_HINTS[String(q || "").trim()];
+  if (!skill) return "";
+  return (
+    `\n\n[This is the quick-action prompt for ${skill.replace(/-skills$/, "")} — call skills_read` +
+    `("${skill}") before asking anything, so every question you ask is one the skill says actually ` +
+    "matters, and none are ones it says are already settled.]"
+  );
+}
+
 export function buildUserContent(q, attachment) {
   const fallback = attachment ? "I attached a file — take a look and figure out what to do with it." : "";
-  const text = (q || fallback) + attachmentNote(attachment);
+  const text = (q || fallback) + chipSkillHint(q) + attachmentNote(attachment);
   if (attachment?.kind === "photo" && attachment.image) {
     return [
       { type: "text", text },

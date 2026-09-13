@@ -95,6 +95,15 @@ previous state is always one `git revert` away, and the revert is itself reviewa
    (`ops/src/tools/index.js`) picks between the two stores and announces which at INFO, and the
    exit plan is to export from the provider before leaving rather than to keep a mirror as you
    go.
+10. **Ask only what is genuinely a choice** (Test-PRD-P0-84-efficient_drafting). What it is, the
+    price, and — only if the item truly has them — its sizes or colors. Everything else is
+    either fixed or the model's own job to produce: `currency` is always `"USD"` (this shop has
+    no other), a product with no real size/color options still needs one `variation` object
+    (conventionally titled "One size"), and a `description` is written by the model from the
+    title, category and photo rather than dictated by the person. This is enforced where it
+    actually reaches the model on every call — `catalog.draft_product`'s and
+    `catalog.create_product`'s own `describe` text — not only documented here, because P0-82
+    made reading this skill on-demand rather than mandatory: a confident model may never open it.
 
 ## Absent by design (T3)
 
