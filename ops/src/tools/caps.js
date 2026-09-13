@@ -76,8 +76,8 @@ export const CAPS = Object.freeze({
    * request, one of which reaches Square. A row count with no ceiling is a
    * timeout waiting for a big enough file, not a feature.
    */
-  BATCH_MAX_ROWS: 200,
-  /* Generous for 200 short rows and nowhere near ORIGINAL_IMAGE_MAX_BYTES —
+  BATCH_MAX_ROWS: 400,
+  /* Generous for 400 short rows and nowhere near ORIGINAL_IMAGE_MAX_BYTES —
      a file this size holding fewer rows than the cap above is not a CSV. */
   BATCH_MAX_BYTES: 2 * 1024 * 1024,
 
