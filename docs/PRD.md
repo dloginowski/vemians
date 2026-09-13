@@ -922,6 +922,24 @@ that does not trace to one of these is a process failure (see §12).
     field, a row left blank removes it, and a field left off the form entirely is untouched — one
     edit, one merge, both places.
 
+    **A real shell replaces the two-links-per-page nav above, the same session it shipped.** The
+    owner's own words: "No I WANT tabs in the header. Replace this: the header is always present.
+    Everything else is an iframe." `opsNav()`/`NAV_CSS` — a `<nav>` repeated at the top of `/chat`'s
+    and `/items`' own markup, each page's own full reload the only way to switch — is gone,
+    replaced by `shellPage()`: `/` now renders ONE persistent header (the "employees only" bar, the
+    tab buttons) plus a single `<iframe id="ops-frame">` beneath it, and switching tabs is a
+    client-side `iframe.src` swap plus `history.replaceState`, never a reload of the header itself.
+    `/chat` and `/items` are unchanged content — same routes, same gates, same everything — just no
+    longer drawing their own copy of the tab bar, since the shell is now the only place it exists.
+    The chat widget's own route moved from `/` to `/chat` in the process: `/agent` was already
+    taken, by the chat form's own POST endpoint, and giving the GET page the same path would have
+    made it unreachable, shadowed by that earlier handler. `/?tab=items` starts the iframe on
+    Items instead of Agent, so a link can still point at a specific tab without a second,
+    tab-shaped page existing for each. The shell itself carries no role gate of its own —
+    matching exactly how `/` behaved before the split — a verified-but-unmapped identity still
+    sees it, and `/chat` (loaded into it by default) is what already tells that person plainly
+    they have no role, the same message it always gave.
+
 47b. **`Test-PRD-P0-72-product_detail_page`** — Every product has its own page at
     `/products/<handle>` — the answer to "how do I see product details", asked directly, of a
     shop whose cards used to be `<article>`s with no click-through at all. `loadProduct(env,

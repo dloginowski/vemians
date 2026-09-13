@@ -174,6 +174,19 @@ check("test_PRD_P0_71_items_tab__the_items_tab_shows_every_field_including_custo
   assert.match(body, /Acme Mills/);
 });
 
+check("test_PRD_P0_71_items_tab__items_no_longer_draws_its_own_copy_of_the_tab_bar", async () => {
+  /* The persistent shell (index.js's / route, views.js's shellPage()) is the
+     ONLY place the tab bar renders now — the owner's own words: "the header
+     is always present. Everything else is an iframe." A page loaded INTO
+     that iframe drawing a second one would be exactly the duplication tabs
+     exist to avoid. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  assert.equal(res.status, 200);
+  assert.doesNotMatch(await res.text(), /shell-nav/);
+});
+
 check("test_PRD_P0_71_items_tab__only_manager_and_above_see_the_edit_controls", async () => {
   const mirror = mirrorDb();
   seedProduct(mirror);

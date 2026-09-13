@@ -53,6 +53,7 @@ import {
   itemsPage,
   opsPage,
   refusalPage,
+  shellPage,
   whoamiPage,
 } from "./views.js";
 import { draftCustomerBatch, draftProductBatch, parsePriceToMinor } from "./batch.js";
@@ -936,7 +937,30 @@ async function ops(request, env, path) {
     return wantsJson ? json(body) : html(whoamiPage(body));
   }
 
+  /*
+   * / — the shell. The owner's own words: "I WANT tabs in the header...
+   * the header is always present. Everything else is an iframe." One
+   * persistent header (the tab bar) that never reloads, and one <iframe>
+   * beneath it whose src swaps between the tabs' own ordinary pages —
+   * /chat and /items are unchanged content, just no longer drawing their
+   * OWN copy of the tab bar (shellPage() is the only place it is drawn
+   * now). `?tab=items` picks which one loads first, so a link can still
+   * point at a specific tab without a second, tab-shaped page for each.
+   * Named /chat, not /agent: `/agent` (below) is already the chat form's
+   * OWN POST endpoint, and giving this page the same path would make it
+   * unreachable — shadowed by that earlier, POST-only handler.
+   */
   if (path === "" || path === "/") {
+    /* No role gate here on purpose — matching how this page has always
+       behaved. A verified-but-unmapped identity still gets the shell, and
+       /chat (loaded into it by default) is what already tells that person
+       plainly that they have no role, the same as before this page split
+       into a shell and a tab's own content. */
+    const tab = new URL(request.url).searchParams.get("tab") === "items" ? "items" : "agent";
+    return html(shellPage(tab));
+  }
+
+  if (path === "/chat") {
     /*
      * `env` was missing from this call, and from the two in agent.js. roleFor
      * defaults it to {}, so OWNER_POLICY_ID and its siblings read as undefined
