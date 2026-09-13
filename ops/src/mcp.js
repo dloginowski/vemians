@@ -269,17 +269,30 @@ export async function approvePending(env, id, approver) {
     return { ok: false, error: "Your role cannot approve this write." };
   }
 
-  /* Minted here, from this browser request, never returned to any caller. */
-  const approvalToken = crypto.randomUUID();
   await store.del(id);
 
-  return runTool(pending.tool, pending.args, {
-    actor: pending.requestedBy,
-    approvedBy: approver.email,
-    role: approver.role,
-    env,
-    approvalToken,
-  });
+  /*
+   * THE T2 GATE IS ISSUE-THEN-CONSUME, BOTH KEYED BY (tool, actor, args) —
+   * see approval.js's `fingerprint()`. A random UUID here (what this used to
+   * do) never matches anything `approvals.issue()` ever minted, so
+   * `consume()` always answered "unknown_or_used_token" and runTool always
+   * fell back to issuing yet another token nobody could see — this page's
+   * "Approve and run" button has never actually written to Square. Fixed by
+   * doing the same two-call dance a same-session caller does: call once to
+   * get a token bound to THIS actor, then call again with it.
+   *
+   * The actor for BOTH calls is the APPROVER, not the original requester —
+   * this page's own promise ("This runs under your identity, not the
+   * assistant's") and P0-35 both require it, and the fingerprint match
+   * requires the second call's actor to equal the first's. Who originally
+   * asked is preserved separately via onBehalfOf, which lands in the audit
+   * row's detail rather than overwriting who actually did it.
+   */
+  const ctx = { actor: approver.email, role: approver.role, env, onBehalfOf: pending.requestedBy };
+  const proposal = await runTool(pending.tool, pending.args, ctx);
+  if (!proposal?.needsApproval) return proposal;
+
+  return runTool(pending.tool, pending.args, { ...ctx, approvalToken: proposal.data?.approval?.token });
 }
 
 /* ----------------------------------------------------------------- adapter */

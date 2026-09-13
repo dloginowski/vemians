@@ -53,6 +53,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
+import { register } from "node:module";
 
 import { runTool, TOOLS, STORE_BINDINGS, RESOURCES, describeTools } from "../src/tools/index.js";
 import { createApprovalStore } from "../src/tools/approval.js";
@@ -67,6 +68,13 @@ import {
   verifyUploadTicket,
 } from "../src/tools/media.js";
 import { nearestCategory, suggestCategory, validateProposal } from "../src/tools/catalog-write.js";
+
+/* mcp.js is the one import here that reaches skills.js, which reads
+   SKILL.md files — nothing else in this file needed the text-module loader
+   before, so it is registered here rather than assumed, and the import is
+   dynamic because a static one is resolved before this line ever runs. */
+register("../../shared/test/text-modules.mjs", import.meta.url);
+const { approvePending, parkForApproval } = await import("../src/mcp.js");
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OPS = path.join(HERE, "..");
@@ -340,6 +348,90 @@ async function approvedCall(f, name, args, ctx) {
   assert.equal(gate.needsApproval, true, "a T2 call must ask first");
   return runTool(name, args, { ...(ctx ?? f.ctx), approvalToken: gate.data.approval.token });
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-35 — the browser approval route must actually run the write
+ *
+ * This is the regression for a bug this exact suite would have caught had it
+ * ever driven /approvals/ end to end: approvePending() minted a random,
+ * never-issued token and handed it straight to consume(), which can only
+ * ever answer "unknown_or_used_token". Every browser approval for an
+ * MCP-parked T2 call silently re-issued an invisible internal token and
+ * returned needsApproval again — nothing a person clicked "Approve and run"
+ * on ever reached Square. Fixed by having approvePending() run the same
+ * issue-then-consume dance a same-session caller does.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_35_approval_never_in_band__clicking_approve_actually_creates_the_product", async () => {
+  const f = await fixture({ actor: "assistant-for-mara@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+
+  const args = { ...COAT, category_id: outerwear.id };
+  const gate = await runTool("catalog.create_product", args, f.ctx);
+  assert.equal(gate.needsApproval, true);
+
+  /* What actually happens on the MCP path: the requester's call never holds a
+     token, only a link. */
+  const { id } = await parkForApproval(f.env, {
+    name: "catalog.create_product",
+    args,
+    actor: f.ctx.actor,
+    role: f.ctx.role,
+    tier: "T2",
+    summary: gate.data.would,
+  });
+
+  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await approvePending(f.env, id, approver);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.equal(result.ok, true, result.error);
+  assert.equal(result.data.created, true, "the click must actually create the product, not ask again");
+  assert.ok(f.calls().some((c) => c.path === "/v2/catalog/object"), "Square must have seen a real write");
+
+  /* P0-35's own promise: recorded under the APPROVER, not the assistant that
+     asked. */
+  const rows = f.audit("WHERE tool = 'catalog.create_product' AND result = 'ok'");
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].actor, approver.email, "the write must be recorded under whoever clicked approve");
+  assert.equal(
+    rows[0].on_behalf_of,
+    "assistant-for-mara@vemians.com",
+    "who originally asked is preserved, just not as the actor",
+  );
+
+  /* Single use: the link is gone whether or not the click worked. */
+  const second = await approvePending(f.env, id, approver);
+  assert.equal(second.ok, false);
+  assert.match(second.error, /No such pending approval/);
+});
+
+check("test_PRD_P0_35_approval_never_in_band__a_role_that_cannot_use_the_tool_cannot_approve_it", async () => {
+  const f = await fixture({ actor: "assistant-for-mara@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const args = { ...COAT, category_id: outerwear.id };
+
+  const gate = await runTool("catalog.create_product", args, f.ctx);
+  const { id } = await parkForApproval(f.env, {
+    name: "catalog.create_product",
+    args,
+    actor: f.ctx.actor,
+    role: f.ctx.role,
+    tier: "T2",
+    summary: gate.data.would,
+  });
+
+  const result = await approvePending(f.env, id, { email: "ana@vemians.com", role: "staff", verified: true });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /cannot approve/);
+  assert.deepEqual(f.calls(), [], "a refused approver must never reach Square");
+});
 
 /* ─────────────────────────────────────────────────────────────────────────
  * P0-40 — the category comes from a closed set, with reasoning
