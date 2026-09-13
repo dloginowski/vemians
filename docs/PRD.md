@@ -1156,6 +1156,25 @@ that does not trace to one of these is a process failure (see §12).
     Checked directly against `TOOLS[name].describe`, the same "assert what it sends" standard
     this file keeps returning to — not against a skill document a real call might never read.
 
+34a'''''''''''''''. **`Test-PRD-P0-85-chip_skill_trigger`** — The owner's own words: "Each chip
+    should contain a keyword that will trigger evaluating a skill... + Products is a good
+    trigger." The deliberate exception to P0-82: a quick-prompt chip (P0-83) is a known,
+    high-stakes entry point — a person is about to draft a real commercial write — so leaving
+    whether to read the matching skill to the model's own confidence is the wrong call here,
+    unlike free-form text where it usually is not. `agent.js`'s `buildUserContent` matches the
+    message against an exact-phrase table (`"Add products"` → `catalog-skills`, `"Add customers"`
+    → `customer-skills`) and, on a match, appends a plain instruction naming the skill to read —
+    server-side, after the person's own chat bubble is already rendered, so what they see stays
+    the clean chip text and only the model receives the pointer.
+
+    **Exact phrase, not a keyword search.** A message that merely mentions "products" in passing
+    ("how many products are low on stock") is a read, not a draft, and forcing a skill open on
+    every message containing a common word would reintroduce exactly the churn P0-82 removed.
+    Only the chip's own literal phrase matches — the same phrase `greetingScript()`'s own
+    skip-the-menu clause (P0-83) already treats as a deliberate choice, not a coincidence of
+    wording. The hint is appended, never substituted: the person's actual words still reach the
+    model unchanged, first.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -1391,6 +1410,7 @@ Where each feature is enforced today:
 | P0-82 | `ops/test/agent-skills.test.mjs` |
 | P0-83 | `ops/test/ops-page.test.mjs`, `ops/test/agent-greeting.test.mjs` |
 | P0-84 | `ops/test/catalog-write.test.mjs` |
+| P0-85 | `ops/test/agent-skills.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

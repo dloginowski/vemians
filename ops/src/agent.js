@@ -438,9 +438,34 @@ function attachmentNote(attachment) {
   );
 }
 
+/*
+ * The quick-prompt chips (P0-83) send one of these exact phrases as the
+ * person's first message — a known, deliberate entry point, unlike free-form
+ * text where whether a skill is worth reading is a judgment call (P0-82).
+ * For these, it always is: a chip click means "I am about to do this common
+ * task," so the skill's own "ask only a genuine choice" and completeness
+ * rules are worth the one read every time, not something to leave to
+ * confidence. The hint is appended server-side — the person's own chat
+ * bubble still shows the plain chip text, only the model sees the pointer.
+ */
+const CHIP_SKILL_HINTS = {
+  "Add products": "catalog-skills",
+  "Add customers": "customer-skills",
+};
+
+function chipSkillHint(q) {
+  const skill = CHIP_SKILL_HINTS[String(q || "").trim()];
+  if (!skill) return "";
+  return (
+    `\n\n[This is the quick-action prompt for ${skill.replace(/-skills$/, "")} — call skills_read` +
+    `("${skill}") before asking anything, so every question you ask is one the skill says actually ` +
+    "matters, and none are ones it says are already settled.]"
+  );
+}
+
 export function buildUserContent(q, attachment) {
   const fallback = attachment ? "I attached a file — take a look and figure out what to do with it." : "";
-  const text = (q || fallback) + attachmentNote(attachment);
+  const text = (q || fallback) + chipSkillHint(q) + attachmentNote(attachment);
   if (attachment?.kind === "photo" && attachment.image) {
     return [
       { type: "text", text },

@@ -152,13 +152,13 @@ check("test_PRD_P0_80_minimum_interface__only_chat_and_the_three_common_actions_
   const { body } = await frontPage(OWNER);
   const main = body.slice(body.indexOf("<main"), body.indexOf("<script"));
   assert.match(main, /id="chat"/, "the chat widget must still be there");
-  for (const action of ["+ Merchandise", "+ Customers", "+ Expense"]) {
+  for (const action of ["+ Products", "+ Customers", "+ Expense"]) {
     assert.ok(main.includes(action), `"${action}" must still be a one-click action`);
   }
 });
 
 check("test_PRD_P0_69_one_click_welcome_menu__greets_by_first_name_with_the_choices_above_everything_else", async () => {
-  /* The literal ask: a welcome message, by name, offering + Merchandise /
+  /* The literal ask: a welcome message, by name, offering + Products /
      + Customers / + Expense — reachable without leaving the page, without
      connecting anything, in one click. "More Options" was itself retired
      by P0-80: there is nothing left on the page for it to open. */
@@ -166,7 +166,7 @@ check("test_PRD_P0_69_one_click_welcome_menu__greets_by_first_name_with_the_choi
   const main = body.slice(body.indexOf("<main"));
   assert.match(main, /Hi Owner — what would you like to do/, "greets by the resolved first name");
 
-  const order = ["+ Merchandise", "+ Customers", "+ Expense"];
+  const order = ["+ Products", "+ Customers", "+ Expense"];
   let cursor = -1;
   for (const item of order) {
     const at = main.indexOf(item);
@@ -175,7 +175,7 @@ check("test_PRD_P0_69_one_click_welcome_menu__greets_by_first_name_with_the_choi
     cursor = at;
   }
 
-  assert.match(main, /data-prompt="Add merchandise"[^>]*>\+ Merchandise/);
+  assert.match(main, /data-prompt="Add products"[^>]*>\+ Products/);
   assert.match(main, /data-prompt="Add customers"[^>]*>\+ Customers/);
   assert.match(main, /data-prompt="Submit an expense"[^>]*>\+ Expense/);
 });
@@ -217,7 +217,7 @@ check("test_PRD_P0_74_chat_first__the_one_click_menu_still_carries_all_three_tas
      ahead of the menu must not have quietly dropped or reordered a task. */
   const { body } = await frontPage(OWNER);
   const main = body.slice(body.indexOf("<main"));
-  const order = ["+ Merchandise", "+ Customers", "+ Expense"];
+  const order = ["+ Products", "+ Customers", "+ Expense"];
   let cursor = -1;
   for (const item of order) {
     const at = main.indexOf(item);
