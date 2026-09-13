@@ -69,12 +69,11 @@ import {
 } from "../src/tools/media.js";
 import { nearestCategory, suggestCategory, validateProposal } from "../src/tools/catalog-write.js";
 
-/* mcp.js is the one import here that reaches skills.js, which reads
-   SKILL.md files — nothing else in this file needed the text-module loader
-   before, so it is registered here rather than assumed, and the import is
-   dynamic because a static one is resolved before this line ever runs. */
+/* index.js (imported further down for the real-Worker checks) reaches
+   agent.js, which reaches skills.js, which reads SKILL.md files — so the
+   text-module loader is registered here, before any of those imports run. */
 register("../../shared/test/text-modules.mjs", import.meta.url);
-const { approvePending, parkForApproval } = await import("../src/mcp.js");
+const { approvePending, parkForApproval } = await import("../src/approvals.js");
 const { draftProductBatch } = await import("../src/batch.js");
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -739,7 +738,7 @@ check("test_PRD_P0_63_editable_approval__an_edit_that_will_not_parse_is_refused_
 
   /* And the link survives the refused attempt — peekPending, not consumed,
      so the person can fix it and try again. */
-  const { peekPending } = await import("../src/mcp.js");
+  const { peekPending } = await import("../src/approvals.js");
   const { pending } = await peekPending(f.env, id);
   assert.ok(pending, "an edit that fails to parse must not burn the approval link");
 });

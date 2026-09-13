@@ -732,10 +732,10 @@ that does not trace to one of these is a process failure (see §12).
     Add Customers, Submit Expenses, More Options** — the same four words as the chat greeting
     (P0-62/P0-68), but as real page buttons rather than a conversation someone has to start. (P0-74
     now puts the built-in assistant between the greeting and this menu — see that entry for why;
-    the menu itself, and its four choices in this order, are unchanged.) The first three are direct
-    links to routes that already do the whole job with no assistant at all (`/products/batch`,
-    `/customers/batch`, `/expenses/new`); "More Options" is an in-page anchor to everything else —
-    a single photo, dropping a file, connecting a third-party assistant.
+    the menu itself, and its four choices in this order, are unchanged.) The first three were
+    ORIGINALLY direct links to routes that already did the whole job with no assistant at all
+    (`/products/batch`, `/customers/batch`, `/expenses/new`); "More Options" was an in-page anchor
+    to everything else. **Superseded by P0-83**, which routes all three through chat instead.
 
     **This supersedes P0-54's earlier framing.** The front page used to have "one job for almost
     everyone: hand over the address to paste into their own assistant" — true when the only way
@@ -976,6 +976,153 @@ that does not trace to one of these is a process failure (see §12).
     small outlined chips: this page has exactly one thing asking to be pressed hardest now, and
     P0-74 already put that thing above these chips, not beside them as an equal.
 
+34a'''''''''. **`Test-PRD-P0-79-quick_actions_over_connect_prompt`** — The owner's own direction,
+    read back verbatim: "remove [the connect-your-own-assistant block]... you already have quick
+    actions under the chat, that's what I want to expand." The promotional block P0-69 had put where
+    "More Options" pointed — the `/mcp` address, "paste this into it to get started," and three
+    example prompts to say next — is gone from the page entirely, not merely re-folded: a coworker's
+    own path to the shop is the built-in chat and the one-click chips (P0-68/P0-69/P0-74), not a
+    second client they have to go set up. "More Options" now anchors straight to the existing
+    reference accordion (`ops/src/views.js`'s `.acc` — Who has what, How this works, For assistants
+    and developers, Sample data) instead of to a block that no longer exists, so the chip still does
+    something rather than landing on an empty target. The `/mcp` endpoint itself is unchanged and
+    still fully documented — the connect command, the skills-first instruction, the tier contract —
+    inside the "For assistants and developers" fold (P0-54's own machine contract), for whichever
+    assistant or developer actually goes looking for it; only the top-level, open-at-rest pitch for
+    it is retired.
+
+    The bindings footnote (`bindingsLine`) also stopped naming which model answers — an
+    implementation detail nobody using the chat needs, the owner's own words being "don't need to
+    know which model is being used" — keeping only whether one is connected at all, since an unset
+    `ANTHROPIC_API_KEY` is the one state where the chat silently just echoes and that much is worth
+    knowing.
+
+    **Superseded within the same session by P0-80**, which went further: not just the connect
+    pitch but the whole reference accordion it pointed to, and "More Options" itself, are gone.
+
+34a''''''''''. **`Test-PRD-P0-80-minimum_interface`** — The owner's own words, read back verbatim:
+    "reduce the interface to the minimum necessary interface. No dev. No examples. No mcp. Just
+    chat and common actions. Backed by skills." P0-79 had already retired the connect-your-own-
+    assistant pitch but kept the reference accordion it used to point "More Options" at — Who has
+    what (the roster), How this works, Something is not working, For assistants and developers
+    (the whole MCP/tier/endpoint machine contract), Sample data. All of it is gone now, not
+    re-folded: `ops/src/views.js`'s `opsPage` carries only the greeting, the chat widget, and the
+    three one-click chips (Add Merchandise, Add Customers, Submit Expenses). "More Options" itself
+    is retired along with it — there is nothing left on the page for a fourth chip to open.
+
+    **Nothing here removes a real guarantee, only a page's static explanation of one** — every
+    behaviour the accordion used to describe is enforced regardless of whether anyone reads a
+    paragraph about it, and stays covered by its own test elsewhere: role derivation and its
+    source (`ops/test/skills.test.mjs`'s `explainRole` checks), tool-count-per-role scoping
+    (`ops/test/tools.test.mjs`), the T2-parks-and-returns-a-link contract
+    (`ops/test/catalog-write.test.mjs`, `ops/test/assets-route.test.mjs`,
+    `ops/test/approvals.test.mjs`), and the skills-first connect protocol
+    (`ops/test/skills.test.mjs`, `ops/test/agent-greeting.test.mjs`). At the time this was
+    written, the `/mcp` endpoint was unchanged and still fully documented in the developer fold
+    for whichever assistant went looking for it — **since superseded by P0-81, which removed
+    `/mcp` itself rather than leave it undocumented but reachable.** "Backed by skills" as
+    written here meant the agent conversing over `/ops/agent` or `/mcp` both carried the full
+    contract; P0-81 is the follow-through once only one of those two callers was left.
+
+    `readRoster`, `sessionBindings`/`skillsFor`/`ROLES.map` for page display, `bindingsLine`,
+    `rosterRows` and `opsShifts` are deleted from `ops/src/index.js` and `ops/src/views.js` rather
+    than left unreachable — none had a caller once the sections that used them were gone.
+
+34a'''''''''''. **`Test-PRD-P0-81-skills_over_mcp`** — The owner's own words: "MCP is probably
+    only for me. Even then. I don't think I'll need it." The `/mcp` endpoint — its handler
+    (`ops/src/mcp.js`), the checked-in `.mcp.json` Claude Code registration, and the
+    `@modelcontextprotocol/server` dependency — is deleted outright, not merely left off the page
+    the way P0-80 left it. The built-in chat (`/ops/agent`, already the sole one-click path since
+    P0-68) is now the only way anything talks to these tools at all.
+
+    **Deleting MCP would have deleted skills too, by accident, if nothing moved.** Skills
+    (`skills/*/SKILL.md` — the category-set, price/publish-gate and upload-ticket knowledge a
+    tool name alone does not carry) had exactly one reader: an MCP client's `skills_list` /
+    `skills_read` tool calls. `ops/src/skills.js` had no other caller. Removing MCP without
+    wiring skills in anywhere else would have left `skills.js` and nine `SKILL.md` files as dead
+    weight nothing ever executes — the opposite of "Good skills," which was the owner's own next
+    sentence in the same message. So `agent.js`'s tool loop gained the same two meta-tools an MCP
+    client always had, `skills_list` and `skills_read`, handled in `dispatch()` before either name
+    ever reaches `runTool()` — they touch no store and need no audit row. `systemPrompt()` now
+    carries the "read the skills first" instruction `buildInstructions()` used to.
+
+    **Filtering moves with it, not a rule of its own.** `skillsFor(role, canUseDomain)`
+    (`skills.js`) is unchanged — dependency-injected on purpose, per its own comment, so it holds
+    no opinion about roles. What changed is which `canUseDomain` it is handed: MCP's own
+    (`roleCanUse`/`TIER_FLOOR`/`DOMAIN_FLOOR`, a rule this codebase had never reconciled with the
+    built-in chat's own `mayUse`/`MAX_TIER`) is gone along with the endpoint; `agent.js` now
+    exports its own `canUseDomain`, derived from `allowedTools()` — the same function that already
+    decides which TOOLS this role's chat can call — so a skill for a domain the built-in chat
+    cannot reach is never one this codebase's own rule disagrees with itself about.
+
+    **What survived the split, and why.** `parkForApproval`/`peekPending`/`approvePending` were
+    never MCP-specific — `batch.js`'s CSV upload flow and the `/approvals/<id>` page both reached
+    them the whole time, MCP was only one more caller — so they move to a new `ops/src/approvals.js`
+    rather than disappear with the rest of `mcp.js`. `roleCanUse` and its constants move with them,
+    since `approvePending` re-checks an approver's role against it; nothing new consumes it.
+    `canUseDomain`/`toolsFor` (MCP's tool-listing helpers) and everything protocol-shaped
+    (`buildInstructions`, `buildServer`, `handleMcp`, `isMcpPath`, the OAuth discovery responses)
+    have no reader left anywhere and are deleted outright.
+
+    P0-62's greeting-menu-order guarantee (`buildInstructions()`'s own tests) is not a lost check:
+    `greetingScript()` was always shared verbatim with `systemPrompt()`, already independently
+    covered end to end by `ops/test/agent-greeting.test.mjs`, which is the one surface left to
+    carry it. `ops/test/mcp-instructions.test.mjs` is deleted with `mcp.js` itself, and the
+    `ops/test/skills.test.mjs`/`ops/test/catalog-write.test.mjs`/`ops/test/customer-create.test.mjs`/
+    `ops/test/approvals.test.mjs` imports that reached `mcp.js` are repointed at `agent.js` and
+    `approvals.js`. `ops/test/agent-skills.test.mjs` is new: `skills_list`/`skills_read` through
+    `dispatch()` directly, `canUseDomain` cross-checked against `mayUse()` tool-by-tool, and (as
+    it read at the time — see P0-82) the system prompt's own skills-first instruction, the same
+    "assert what it sends, not what the code means" standard `ops/test/agent-tool-schema.test.mjs`
+    already set for `toolDefinitions()`.
+
+34a''''''''''''. **`Test-PRD-P0-82-skills_on_demand`** — The owner's own words, immediately
+    after asking for MCP's removal: "minimize confusion... solve common problems and present
+    most likely solution... minimizing churn and token use." P0-81's own `systemPrompt()` change
+    had made `skills_list` then `skills_read("agent-tool-contract")` a MANDATORY first step —
+    two guaranteed tool round-trips, and their token cost, before even a one-line lookup like
+    "how many black coats are in stock." That is the churn the owner was describing, for a
+    document whose operational content (the greeting, the tier/approval framing) was already
+    inline in `systemPrompt()`/`greetingScript()` and cost nothing to read there.
+
+    **The fix is the instruction, not the mechanism.** `skills_list`/`skills_read` still exist,
+    unchanged, in `dispatch()` — a domain skill (catalog rules, price/publish gates, an upload
+    flow) is real, non-duplicated knowledge a tool's name and description do not carry, and the
+    model should still reach for one when it is actually unsure. What changed is `systemPrompt()`
+    no longer tells it to read one FIRST, reflexively, on every turn: it names the tool and says
+    to use it "when you are genuinely unsure, not a ritual to run before every call — try the
+    most likely correct action first." A wrong first guess is cheap (the tool refuses and says
+    why, the model tries again informed); a mandatory read before every single turn is not.
+
+    Checked by asserting what the prompt actually says, the same standard `ops/test/agent-tool-
+    schema.test.mjs` already set for `toolDefinitions()`: `skills_read` must still be named, but
+    "before your first write/call" and "call skills_list, then skills_read" must both be gone.
+
+34a'''''''''''''. **`Test-PRD-P0-83-quick_prompts_route_through_chat`** — The owner's own words:
+    "I want them to go to chat. And I want chat to have a skill to address these as efficiently
+    as possible." The three one-click chips (P0-69) were plain links straight to `/products/batch`,
+    `/customers/batch` and `/expenses/new` — real routes, but a second entry point bypassing the
+    assistant entirely. They are now `<button data-prompt="...">` elements: a click fills the chat
+    input with a canned first message ("Add merchandise," "Add customers," "Submit an expense")
+    and submits the same form the person would have typed into by hand, reusing the existing
+    submit handler rather than a second fetch path.
+
+    **Chat is the one entry point now, so a click has to cost the same one round-trip a typed
+    message would, not two.** Landing at a chat with the person's choice already typed is not
+    the same as landing at a chat that still has to ask what they want: `greetingScript()` gained
+    a clause naming exactly this — a first message that already names a choice ("Add
+    merchandise" or similar) skips the greeting-menu step entirely and goes straight to whatever
+    comes next for that choice (P0-62's own second question, or the expense link), greeting the
+    person by name in that same reply rather than as a separate turn first. Submit Expenses still
+    resolves in exactly one round-trip either way — no second question exists for it (P0-66) — so
+    a click there costs no more than the direct link it replaced.
+
+    The routes themselves (`batchUploadPage`, `receiptUploadPage`) are unchanged and unlinked from
+    nowhere else: chat still points a person at them once it knows which one applies (a
+    spreadsheet, or a receipt photo), the same way `greetingScript()` already told a connecting
+    agent to. Checked over the real page (`data-prompt` present with the right text, the old
+    `href`s gone) and over `greetingScript()`'s own text (the new skip-the-menu clause present).
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -1205,6 +1352,11 @@ Where each feature is enforced today:
 | P0-76 | `ops/test/agent-tool-schema.test.mjs` |
 | P0-77 | `ops/test/agent-attachments.test.mjs` |
 | P0-78 | `ops/test/ops-page.test.mjs` |
+| P0-79 | `ops/test/ops-page.test.mjs` |
+| P0-80 | `ops/test/ops-page.test.mjs` |
+| P0-81 | `ops/test/agent-skills.test.mjs`, plus the repointed imports in `ops/test/skills.test.mjs`, `ops/test/catalog-write.test.mjs`, `ops/test/customer-create.test.mjs`, `ops/test/approvals.test.mjs` |
+| P0-82 | `ops/test/agent-skills.test.mjs` |
+| P0-83 | `ops/test/ops-page.test.mjs`, `ops/test/agent-greeting.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

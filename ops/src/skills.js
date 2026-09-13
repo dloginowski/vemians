@@ -1,21 +1,23 @@
 /*
- * The skills, served to whoever connects.
+ * The skills, served to the built-in chat's own tool loop (agent.js).
  *
- * The point of the MCP endpoint is that a COWORKER'S OWN agent — their Claude,
- * their ChatGPT — connects and drives the tools itself. Tool names and
- * one-line descriptions are not enough for that. `catalog.create_product`
- * says what it is called; it does not say that the category set is closed, that
- * price and publish are two gates rather than one, or that a photograph goes
- * through an upload ticket because a phone image is a million output tokens of
- * base64. That knowledge lives in skills/<name>/SKILL.md, and until now it was
- * readable in the repository and nowhere else.
+ * A tool name and a one-line description are not enough to use a tool well.
+ * `catalog.create_product` says what it is called; it does not say that the
+ * category set is closed, that price and publish are two gates rather than
+ * one, or that a photograph goes through an upload ticket because a phone
+ * image is a million output tokens of base64. That knowledge lives in
+ * skills/<name>/SKILL.md.
  *
- * BUNDLED, NOT FETCHED. Each SKILL.md is a Text module import, so the bytes a
- * connected agent reads are the bytes in the repository at deploy time. There
- * is no drift between the documentation and the deployment, because there is no
+ * Originally written for an MCP client to read (P0-54); the MCP endpoint
+ * that served these is gone (P0-81), and agent.js's own tool loop is now the
+ * sole consumer, via its skills_list/skills_read meta-tools.
+ *
+ * BUNDLED, NOT FETCHED. Each SKILL.md is a Text module import, so the bytes
+ * the agent reads are the bytes in the repository at deploy time. There is
+ * no drift between the documentation and the deployment, because there is no
  * copy — the same argument shared/design/*.css is imported for.
  *
- * Test-PRD-P0-54-skill_discovery.
+ * Test-PRD-P0-54-skill_discovery, Test-PRD-P0-81-skills_over_mcp.
  */
 import agentToolContract from "../../skills/agent-tool-contract/SKILL.md";
 import assetSkills from "../../skills/asset-skills/SKILL.md";
@@ -103,8 +105,8 @@ export const skillByName = (name) =>
  * Which skills this role should see.
  *
  * `canUseDomain` is injected rather than imported so this module holds no
- * opinion about roles — mcp.js owns that rule, and one copy of it is the point.
- * A skill with no domain is for everyone.
+ * opinion about roles — agent.js owns that rule, and one copy of it is the
+ * point. A skill with no domain is for everyone.
  */
 export function skillsFor(role, canUseDomain) {
   return SKILLS.filter((s) => s.domain === null || canUseDomain(role, s.domain));

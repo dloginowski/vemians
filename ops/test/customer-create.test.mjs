@@ -16,7 +16,6 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
-import { register } from "node:module";
 
 import { runTool, RESOURCES, TOOLS } from "../src/tools/index.js";
 import { createApprovalStore } from "../src/tools/approval.js";
@@ -29,11 +28,6 @@ const REPO = path.join(HERE, "..", "..");
 const PRD = path.join(REPO, "docs", "PRD.md");
 const AUDIT_SQL = fs.readFileSync(path.join(REPO, "shared", "db", "audit.sql"), "utf8");
 
-/* batch.js reaches mcp.js, which reaches skills.js, which reads SKILL.md
-   files — a static import of batch.js would resolve before this line ever
-   ran, so it is dynamic, after the loader that teaches node what a .md
-   import means is registered. */
-register("../../shared/test/text-modules.mjs", import.meta.url);
 const { draftCustomerBatch } = await import("../src/batch.js");
 
 /* A real AUDIT binding — every runTool call writes one, even a refusal. */

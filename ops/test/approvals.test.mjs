@@ -17,7 +17,7 @@ import { register } from "node:module";
 register("../../shared/test/text-modules.mjs", import.meta.url);
 
 const { approvalPage } = await import("../src/views.js");
-const mcp = await import("../src/mcp.js");
+const approvals = await import("../src/approvals.js");
 
 const usedLabels = new Set();
 const NAME = /^test_PRD_(P[01])_(\d{2})_([a-z0-9_]+?)__([a-z0-9_]+)$/;
@@ -34,7 +34,7 @@ check("test_PRD_P0_35_approval_never_in_band__the_url_a_t2_call_emits_has_a_rout
      the router has somewhere to send it. Reading the code and believing the
      page exists is how this shipped broken. */
   const env = { OPS_HOST: "ops.vemians.com" };
-  const { url } = await mcp.parkForApproval(env, {
+  const { url } = await approvals.parkForApproval(env, {
     name: "catalog.create_product",
     args: { title: "A Coat" },
     actor: "d@vemians.com",

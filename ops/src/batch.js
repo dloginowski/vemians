@@ -21,7 +21,7 @@
  */
 import { runTool } from "./tools/index.js";
 import { listCategories } from "./tools/catalog-writer.js";
-import { parkForApproval } from "./mcp.js";
+import { parkForApproval } from "./approvals.js";
 import { csvRecords, parseCsv } from "./tools/csv.js";
 import { CAPS } from "./tools/caps.js";
 

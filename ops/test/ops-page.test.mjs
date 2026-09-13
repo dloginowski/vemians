@@ -80,27 +80,9 @@ check("test_PRD_P0_23_group_derived_roles__the_front_page_resolves_a_policy_deri
   assert.doesNotMatch(body, /role <strong>none<\/strong>/);
 });
 
-check("test_PRD_P0_23_group_derived_roles__the_page_states_where_the_role_came_from", async () => {
-  const { body } = await frontPage(OWNER);
-  assert.match(body, /Access policy/, "a person must be able to see how they were granted the role");
-});
-
 check("test_PRD_P0_23_group_derived_roles__an_unmapped_policy_is_shown_as_no_role", async () => {
   const { body } = await frontPage({ email: "stranger@example.test", policy_id: "unmapped-policy" });
   assert.match(body, /role <strong>none<\/strong>/, "an unmapped policy must read as no role, not as staff");
-});
-
-check("test_PRD_P0_24_binding_scoped_tools__the_roles_table_counts_tools_from_the_registry", async () => {
-  const { sessionBindings } = await import("../src/agent.js");
-  const { body } = await frontPage(OWNER);
-  for (const role of ["staff", "manager", "owner"]) {
-    const b = sessionBindings(role);
-    assert.match(
-      body,
-      new RegExp(`<td>${role}</td><td>${b.tools.length}</td>`),
-      `the roles table must show ${role}'s real tool count (${b.tools.length}), not a typed-in number`,
-    );
-  }
 });
 
 check("test_PRD_P0_24_binding_scoped_tools__a_staff_page_never_lists_a_tool_staff_cannot_call", async () => {
@@ -124,67 +106,67 @@ check("test_PRD_P0_24_binding_scoped_tools__a_staff_page_never_lists_a_tool_staf
  *         gives them, and an assistant that fetches it finds the contract
  * ───────────────────────────────────────────────────────────────────────── */
 
-check("test_PRD_P0_54_skill_discovery__the_page_offers_the_endpoint_of_the_host_it_was_served_from", async () => {
-  /* Hardcoding ops.vemians.com here would hand a preview deployment's visitor
-     a command pointing at production. */
-  const res = await worker.fetch(
-    new Request("http://localhost/", { headers: { "Cf-Access-Jwt-Assertion": assertion(OWNER) } }),
-    ENV,
-  );
-  const body = await res.text();
-  assert.match(body, /claude mcp add --transport http vemians http:\/\/localhost\/mcp/);
-  assert.doesNotMatch(body, /ops\.vemians\.com\/mcp/, "the endpoint must be derived, not typed");
-});
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-80 — the minimum interface: no dev, no examples, no mcp, no fold at
+ *         all — just chat and the three common actions, backed by skills
+ * ───────────────────────────────────────────────────────────────────────── */
 
-check("test_PRD_P0_54_skill_discovery__the_copyable_command_is_the_whole_command", async () => {
+check("test_PRD_P0_80_minimum_interface__the_connect_pitch_and_its_example_prompts_are_gone", async () => {
+  /* The literal ask: remove "Connect your own Claude or ChatGPT instead...
+     paste this into it to get started... https://ops.vemians.com/mcp" and
+     the "Then say this" block of three example prompts under it. The
+     built-in chat and the one-click chips are the path now, not a second
+     client someone has to go set up. */
   const { body } = await frontPage(OWNER);
-  /* A copy button that copies half a command is worse than no button: the
-     person pastes it, it fails, and they have no way to tell what was lost.
-     The button reads the <pre> beside it, so assert the pre holds a command
-     that runs as written. */
-  const pre = /<pre>(claude mcp add[^<]*)<\/pre>/.exec(body);
-  assert.ok(pre, "the connect command must be inside the copyable block");
-  const parts = pre[1].split(/\s+/);
-  assert.deepEqual(parts.slice(0, 5), ["claude", "mcp", "add", "--transport", "http"]);
-  assert.equal(parts.length, 7, "name and URL, nothing missing and nothing extra");
+  assert.doesNotMatch(body, /Connect your own Claude or ChatGPT instead/);
+  assert.doesNotMatch(body, /Paste this into it to get started/);
+  assert.doesNotMatch(body, /Then say this, so it learns how we do things/);
+  assert.doesNotMatch(body, /Find every black boot in the catalog/);
+  assert.doesNotMatch(body, /Draft a product from it: brand, name, description, price/);
 });
 
-check("test_PRD_P0_54_skill_discovery__only_the_address_and_the_prompts_are_open_at_rest", async () => {
-  /* The page has one job for almost everyone: hand over the address to paste
-     into their own assistant, and show them what to say next. Everything else —
-     roster, tier rules, the machine contract, the seed data — is a closed row.
-
-     The `claude mcp add` invocation is NOT that job. It is a terminal command
-     for the few people who have one, so it belongs in the developer fold; a
-     person told to paste a shell line into a chat window is being asked to
-     debug our vocabulary before they can start. */
+check("test_PRD_P0_80_minimum_interface__no_fold_survives_at_all", async () => {
+  /* The further reduction past P0-79: not just the connect pitch but the
+     whole reference accordion it used to point to — roster, tier rules,
+     the developer contract, the sample data — none of it is a "chat" or a
+     "common action," so none of it stays. "More Options" itself is gone
+     too, since there is nothing left for it to open. */
   const { body } = await frontPage(OWNER);
-  assert.doesNotMatch(body, /<details[^>]*\sopen/, "no accordion row may ship expanded");
-
-  const main = body.slice(body.indexOf("<main"));
-  const firstFold = main.indexOf("<details");
-  assert.ok(firstFold > -1);
-
-  const open = main.slice(0, firstFold);
-  assert.ok(open.includes("/mcp"), "the address must be above the accordion");
-  assert.ok(open.includes("Read the vemians skills"), "and so must the first thing to say");
-  assert.ok(!open.includes("claude mcp add"), "a shell command is not what a chat user pastes");
-  assert.ok(main.slice(firstFold).includes("claude mcp add"), "but it must still be on the page");
+  assert.doesNotMatch(body, /<details/, "no accordion, fold or aside of any kind may remain");
+  assert.doesNotMatch(body, />More Options</);
+  assert.doesNotMatch(body, /for-assistants/);
+  assert.doesNotMatch(body, /claude mcp add/, "no mcp");
+  assert.doesNotMatch(body, /Who has what|How this works|Sample data/, "no dev, no examples");
 });
 
-check("test_PRD_P0_69_one_click_welcome_menu__greets_by_first_name_with_the_four_choices_above_everything_else", async () => {
-  /* The literal ask: a welcome message, by name, offering Add Merchandise /
-     Add Customers / Submit Expenses / More Options — reachable without
-     leaving the page, without connecting anything, in one click. This is
-     the FIRST thing on the page after the identity line, ahead of even the
-     "connect your own assistant" address (P0-54's own prior "one job"
-     framing, superseded: a local one-click menu is the primary path now,
-     the external connector a secondary one for someone who prefers it). */
+check("test_PRD_P0_80_minimum_interface__the_bindings_footnote_and_the_model_name_are_both_gone", async () => {
+  /* The bindings footnote (role/tools/stores) was itself dev-flavoured
+     implementation detail — gone along with everything else, not merely
+     stripped of the model name it named a moment before this. */
+  const { body } = await frontPage(OWNER);
+  assert.doesNotMatch(body, /claude-sonnet-5/, "which model answers is not something the page needs to say");
+  assert.doesNotMatch(body, /class="bind"/);
+});
+
+check("test_PRD_P0_80_minimum_interface__only_chat_and_the_three_common_actions_remain", async () => {
+  const { body } = await frontPage(OWNER);
+  const main = body.slice(body.indexOf("<main"), body.indexOf("<script"));
+  assert.match(main, /id="chat"/, "the chat widget must still be there");
+  for (const action of ["+ Merchandise", "+ Customers", "+ Expense"]) {
+    assert.ok(main.includes(action), `"${action}" must still be a one-click action`);
+  }
+});
+
+check("test_PRD_P0_69_one_click_welcome_menu__greets_by_first_name_with_the_choices_above_everything_else", async () => {
+  /* The literal ask: a welcome message, by name, offering + Merchandise /
+     + Customers / + Expense — reachable without leaving the page, without
+     connecting anything, in one click. "More Options" was itself retired
+     by P0-80: there is nothing left on the page for it to open. */
   const { body } = await frontPage(OWNER);
   const main = body.slice(body.indexOf("<main"));
   assert.match(main, /Hi Owner — what would you like to do/, "greets by the resolved first name");
 
-  const order = ["Add Merchandise", "Add Customers", "Submit Expenses", "More Options"];
+  const order = ["+ Merchandise", "+ Customers", "+ Expense"];
   let cursor = -1;
   for (const item of order) {
     const at = main.indexOf(item);
@@ -192,26 +174,23 @@ check("test_PRD_P0_69_one_click_welcome_menu__greets_by_first_name_with_the_four
     assert.ok(at > cursor, `"${item}" is out of order`);
     cursor = at;
   }
-  assert.ok(cursor < main.indexOf("/mcp"), "the one-click menu must come before the external connector address");
 
-  assert.match(main, /href="\/products\/batch"[^>]*>Add Merchandise/);
-  assert.match(main, /href="\/customers\/batch"[^>]*>Add Customers/);
-  assert.match(main, /href="\/expenses\/new"[^>]*>Submit Expenses/);
+  assert.match(main, /data-prompt="Add merchandise"[^>]*>\+ Merchandise/);
+  assert.match(main, /data-prompt="Add customers"[^>]*>\+ Customers/);
+  assert.match(main, /data-prompt="Submit an expense"[^>]*>\+ Expense/);
 });
 
 check("test_PRD_P0_69_one_click_welcome_menu__the_built_in_chat_is_open_at_rest_not_a_folded_afterthought", async () => {
   /* The chat box used to live in a closed <details> captioned "your own
      assistant is the one worth using" — actively steering away from the one
-     surface that needs no setup at all. It is now open at rest — P0-74 moved
-     it ahead of the one-click menu entirely, but "not folded" is this test's
-     own concern and holds regardless of exactly where above the fold it sits. */
+     surface that needs no setup at all. It is now open at rest — and P0-80
+     removed every fold from the page entirely, so "not folded" now holds
+     trivially as well as by position. */
   const { body } = await frontPage(OWNER);
   assert.doesNotMatch(body, /<summary>Ask here instead<\/summary>/, "no longer folded under its old caption");
+  assert.doesNotMatch(body, /<details/, "there is no accordion left for it to be folded inside of");
   const main = body.slice(body.indexOf("<main"));
-  const chatAt = main.indexOf('id="chat"');
-  const firstFold = main.indexOf("<details");
-  assert.ok(chatAt > -1, "the chat box must still be on the page");
-  assert.ok(chatAt < firstFold, "and it must be open at rest, not inside the accordion");
+  assert.ok(main.indexOf('id="chat"') > -1, "the chat box must still be on the page");
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -238,7 +217,7 @@ check("test_PRD_P0_74_chat_first__the_one_click_menu_still_carries_all_three_tas
      ahead of the menu must not have quietly dropped or reordered a task. */
   const { body } = await frontPage(OWNER);
   const main = body.slice(body.indexOf("<main"));
-  const order = ["Add Merchandise", "Add Customers", "Submit Expenses", "More Options"];
+  const order = ["+ Merchandise", "+ Customers", "+ Expense"];
   let cursor = -1;
   for (const item of order) {
     const at = main.indexOf(item);
@@ -347,48 +326,6 @@ check("test_PRD_P0_78_chat_widget__the_one_click_tasks_are_small_chips_not_bold_
   assert.doesNotMatch(body, /\.choices \.btn\s*\{[^}]*font-weight:\s*700/s, "no longer a bold CTA");
 });
 
-check("test_PRD_P0_54_skill_discovery__the_copy_control_is_an_icon_with_a_reachable_label", async () => {
-  /* An icon-only control is a control with no name unless it carries one. */
-  const { body } = await frontPage(OWNER);
-  const buttons = body.match(/<button type="button" data-copy[^>]*>/g) ?? [];
-  assert.ok(buttons.length >= 4, `expected a copy control per line, saw ${buttons.length}`);
-  for (const b of buttons) {
-    assert.match(b, /aria-label="Copy"/, "an icon button must be named for anything not looking at it");
-  }
-  assert.doesNotMatch(body, /data-copy[^>]*>Copy</, "the label is the aria-label, not visible text");
-});
-
-check("test_PRD_P0_54_skill_discovery__folding_hides_nothing_from_a_machine_reader", async () => {
-  /* Compaction is for the eye. A <details> is in the DOM whether or not anyone
-     opened it, so an assistant that fetches this URL must still get the whole
-     contract — that is what makes folding safe here rather than a second page. */
-  const { body } = await frontPage(OWNER);
-  for (const needed of ["skills_list", "/approvals/", "catalog.draft_product", "WWW-Authenticate"]) {
-    assert.ok(body.includes(needed), `${needed} must survive being folded away`);
-  }
-});
-
-check("test_PRD_P0_54_skill_discovery__an_assistant_fetching_the_page_is_told_to_read_the_skills_first", async () => {
-  const { body } = await frontPage(OWNER);
-  const { skillsFor } = await import("../src/skills.js");
-  const { canUseDomain } = await import("../src/mcp.js");
-
-  assert.match(body, /skills_list/, "the folded block must name the discovery tool");
-  assert.match(body, /skills_read/);
-  for (const s of skillsFor("owner", canUseDomain)) {
-    assert.ok(body.includes(`<code>${s.name}</code>`), `${s.name} is readable at this role but is not listed`);
-  }
-});
-
-check("test_PRD_P0_35_approval_out_of_band__the_page_tells_a_person_a_write_stops_for_them", async () => {
-  const { body } = await frontPage(OWNER);
-  /* The onboarding text is where most people learn the tier rule, so it has to
-     agree with what the tool layer does: a T2 call parks and returns a link. */
-  assert.match(body, /parks the intent/, "the contract block must say a T2 call does not run when called");
-  assert.match(body, /\/approvals\//, "and must name where the link goes");
-  assert.match(body, /under your name/, "and that the write runs as the approver");
-});
-
 /* ─────────────────────────────────────────────────────────────────────────
  * P0-23 — /whoami is the page a person is sent to when their role is wrong,
  *         so it has to answer them, not only a terminal
@@ -447,23 +384,19 @@ check("test_PRD_P0_23_group_derived_roles__a_person_with_a_role_is_not_shown_a_p
 });
 
 check("test_PRD_P0_54_skill_discovery__the_page_explains_itself_without_jargon", async () => {
-  /* The audience is a shopkeeper, not an engineer. These words all appeared in
-     the visible copy and every one of them is ours, not theirs. The folded
-     developer block is exempt — that IS written for a machine. */
+  /* The audience is a shopkeeper, not an engineer. Used to exempt a folded
+     developer block written for a machine reader; P0-80 removed that block
+     (and every other fold) entirely, so the whole page is now the "visible
+     copy" this check reads. */
   const { body } = await frontPage(OWNER);
-  const visible = body.slice(0, body.indexOf('<details class="aside" id="for-assistants">'));
+  const main = body.slice(body.indexOf("<main"), body.indexOf("<script"));
   /* PROSE only. The inlined stylesheet is full of class names a person never
-     sees, and the address itself is the one piece of our vocabulary that has to
-     stay — it is what they paste. Strip both before reading. */
-  const text = visible
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\S*:\/\/\S+/g, " ");
+     sees; strip markup before reading. */
+  const text = main.replace(/<[^>]+>/g, " ");
   for (const jargon of ["Cloudflare Access", "tier", "T0", "T1", "T2", "MCP", "endpoint", "tool"]) {
     assert.ok(
       !new RegExp(`\\b${jargon}\\b`, "i").test(text),
-      `"${jargon}" is our vocabulary, not the reader's — it belongs in the folded block`,
+      `"${jargon}" is our vocabulary, not the reader's`,
     );
   }
 });

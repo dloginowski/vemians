@@ -6,12 +6,11 @@
  *   * Unlabeled tests are not acceptable.
  *   * A behaviour change moves the PRD feature and its labeled check together.
  *
- * These drive the MCP endpoint the way a COWORKER'S OWN assistant does — real
- * JSON-RPC over HTTP against the real handler, with a forged-but-shaped Access
- * identity — rather than calling the registration functions directly. The bug
- * this catches is the one that matters: a skill registered but not reachable
- * over the wire is indistinguishable from a skill that works, until someone
- * connects ChatGPT to it.
+ * These drive the skills the way the built-in chat's own tool loop does
+ * (agent.js's skills_list/skills_read meta-tools) — calling skillsFor()
+ * with agent.js's real canUseDomain, the same rule that governs which
+ * tools that chat actually offers, rather than a rule of the tests' own
+ * invention that could quietly drift from what the chat does.
  */
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -20,7 +19,7 @@ import { register } from "node:module";
 register("../../shared/test/text-modules.mjs", import.meta.url);
 
 const { SKILLS, skillsFor, skillByName } = await import("../src/skills.js");
-const { canUseDomain, roleCanUse } = await import("../src/mcp.js");
+const { canUseDomain, mayUse } = await import("../src/agent.js");
 const { TOOLS } = await import("../src/tools/index.js");
 
 const usedLabels = new Set();
@@ -92,8 +91,8 @@ check("test_PRD_P0_54_skill_discovery__a_skill_is_listed_only_when_its_tools_are
   for (const role of ["staff", "manager", "owner"]) {
     const listed = new Set(skillsFor(role, canUseDomain).map((s) => s.domain).filter(Boolean));
     for (const domain of listed) {
-      const usable = Object.values(TOOLS).some(
-        (t) => String(t.domain || "").toLowerCase() === domain && roleCanUse(role, t),
+      const usable = Object.entries(TOOLS).some(
+        ([name, t]) => String(t.domain || "").toLowerCase() === domain && mayUse(role, name, t),
       );
       assert.ok(usable, `${role} was shown the ${domain} skill with no ${domain} tool to call`);
     }
@@ -330,9 +329,9 @@ check("test_PRD_P0_67_greet_by_first_name__never_throws_and_never_returns_empty"
   assert.equal(firstNameFrom({ given_name: "" }, "d@vemians.com"), "D", "a blank given_name is not used");
 });
 
-check("test_PRD_P0_67_greet_by_first_name__build_instructions_hands_over_the_real_name_not_a_placeholder", async () => {
-  const { buildInstructions } = await import("../src/mcp.js");
-  const text = buildInstructions({ actor: "tomas@vemians.com", role: "staff", claims: { given_name: "Tomás" }, verified: true });
+check("test_PRD_P0_67_greet_by_first_name__system_prompt_hands_over_the_real_name_not_a_placeholder", async () => {
+  const { systemPrompt } = await import("../src/agent.js");
+  const text = systemPrompt("tomas@vemians.com", "staff", [], { given_name: "Tomás" });
   assert.match(text, /first name Tomás/);
   assert.match(text, /Hi Tomás —/);
 });
