@@ -997,6 +997,38 @@ that does not trace to one of these is a process failure (see §12).
     `ANTHROPIC_API_KEY` is the one state where the chat silently just echoes and that much is worth
     knowing.
 
+    **Superseded within the same session by P0-80**, which went further: not just the connect
+    pitch but the whole reference accordion it pointed to, and "More Options" itself, are gone.
+
+34a''''''''''. **`Test-PRD-P0-80-minimum_interface`** — The owner's own words, read back verbatim:
+    "reduce the interface to the minimum necessary interface. No dev. No examples. No mcp. Just
+    chat and common actions. Backed by skills." P0-79 had already retired the connect-your-own-
+    assistant pitch but kept the reference accordion it used to point "More Options" at — Who has
+    what (the roster), How this works, Something is not working, For assistants and developers
+    (the whole MCP/tier/endpoint machine contract), Sample data. All of it is gone now, not
+    re-folded: `ops/src/views.js`'s `opsPage` carries only the greeting, the chat widget, and the
+    three one-click chips (Add Merchandise, Add Customers, Submit Expenses). "More Options" itself
+    is retired along with it — there is nothing left on the page for a fourth chip to open.
+
+    **Nothing here removes a real guarantee, only a page's static explanation of one** — every
+    behaviour the accordion used to describe is enforced regardless of whether anyone reads a
+    paragraph about it, and stays covered by its own test elsewhere: role derivation and its
+    source (`ops/test/skills.test.mjs`'s `explainRole` checks), tool-count-per-role scoping
+    (`ops/test/tools.test.mjs`), the T2-parks-and-returns-a-link contract
+    (`ops/test/catalog-write.test.mjs`, `ops/test/mcp-instructions.test.mjs`,
+    `ops/test/assets-route.test.mjs`, `ops/test/approvals.test.mjs`), and the skills-first
+    connect protocol (`ops/test/skills.test.mjs`, `ops/test/mcp-instructions.test.mjs`). The `/mcp`
+    endpoint and its handler (`ops/src/mcp.js`) are unchanged — an assistant that already knows to
+    connect still can, and still reads the skills first — only the on-page prose that used to
+    explain it, one layer more than P0-79 already went, is gone. "Backed by skills" is exactly
+    this split: the agent conversing over `/ops/agent` or `/mcp` still carries the full contract
+    (`greetingScript`, `agent-tool-contract`, and the rest of `skills/`), it just no longer needs a
+    static wall of text on the page to say so — the assistant says it, when asked, instead.
+
+    `readRoster`, `sessionBindings`/`skillsFor`/`ROLES.map` for page display, `bindingsLine`,
+    `rosterRows` and `opsShifts` are deleted from `ops/src/index.js` and `ops/src/views.js` rather
+    than left unreachable — none had a caller once the sections that used them were gone.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -1227,6 +1259,7 @@ Where each feature is enforced today:
 | P0-77 | `ops/test/agent-attachments.test.mjs` |
 | P0-78 | `ops/test/ops-page.test.mjs` |
 | P0-79 | `ops/test/ops-page.test.mjs` |
+| P0-80 | `ops/test/ops-page.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
