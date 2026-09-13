@@ -211,10 +211,13 @@ const SHELL_CSS = `
 ${OPS_DARK_CSS}
 html, body { height: 100%; margin: 0; }
 .shell { display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; background: var(--ground); }
-/* Side padding matches .ops's own (below, 8px) rather than an unrelated
-   12px, so the tab row's left edge lines up with the content edge in the
-   iframe beneath it instead of sitting further out from the screen edge. */
-.shell-header { flex: 0 0 auto; padding: 10px 16px 0; }
+/* Side padding matched .ops's own 8px, then doubled to 16px for more
+   visible separation — then the owner's own words, more precisely: "First
+   tab on left matches the inner chat left extent." That is not .ops's own
+   edge, it is past it AND past .chat-top's own frame: 8px (.ops) + 1px
+   (.chat-top's own border) + 14px (.chat-top's own padding) = 23px, the
+   point actual chat content (the log, the composer) starts at. */
+.shell-header { flex: 0 0 auto; padding: 10px 23px 0; }
 .shell-nav { display: flex; align-items: flex-end; gap: 3px; }
 .shell-nav button {
   font: inherit; font-size: 12px; font-weight: 600; padding: 7px 16px; cursor: pointer;
@@ -222,7 +225,21 @@ html, body { height: 100%; margin: 0; }
   background: var(--image-ground); color: var(--muted); position: relative;
 }
 .shell-nav button:hover:not(.active) { color: var(--accent); }
-.shell-nav button.active { background: var(--ground); color: var(--ink); border-color: var(--accent); }
+/* "Imagine the bottom orange edge, smoothly curves up the tab. Over the
+   tab and smoothly transitions down and keeps going right" — the owner's
+   own words. .shell-panel's own top border and this tab's own border are
+   both a 1px accent line; pulling the active tab down by exactly that 1px
+   (margin-bottom) makes the two lines occupy the SAME pixel row across
+   the tab's own width rather than sitting stacked, so they read as one
+   continuous accent stroke that follows this tab's own rounded corners
+   up and over rather than two separate lines that merely touch. z-index
+   keeps the tab's own rounded corners drawn over the panel's square one
+   at the overlap, so the curve reads clean rather than a corner peeking
+   through it. */
+.shell-nav button.active {
+  background: var(--ground); color: var(--ink); border-color: var(--accent);
+  margin-bottom: -1px; z-index: 1;
+}
 .shell-panel { flex: 1 1 auto; border-top: 1px solid var(--accent); }
 .shell-frame { width: 100%; height: 100%; border: 0; display: block; background: var(--ground); }
 `;

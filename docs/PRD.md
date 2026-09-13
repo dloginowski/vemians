@@ -1028,6 +1028,19 @@ that does not trace to one of these is a process failure (see §12).
     still uniform on every corner, stays clearly a rounded RECTANGLE — every corner visibly
     softened without the curvature meeting in the middle and erasing the shape it is a corner of.
 
+    **Two more corrections, in the same round.** First, precisely where the tab row's own left
+    edge should sit: "First tab on left matches the inner chat left extent" — not `.ops`'s own
+    edge (`8px`, then doubled to `16px`), but past `.chat-top`'s own frame too: `8px` (`.ops`) +
+    `1px` (`.chat-top`'s own border) + `14px` (`.chat-top`'s own padding) = `23px`, the point
+    actual chat content — the log, the composer — starts at. Second, the active tab's own relation
+    to the panel below it, described directly: "imagine the bottom orange edge, smoothly curves up
+    the tab. Over the tab and smoothly transitions down and keeps going right." The active tab
+    keeps its own full border on every side (unlike the old tabbed-pane merge, which removed the
+    bottom border entirely) — pulling it down by exactly the shared `1px` border width
+    (`margin-bottom: -1px`) makes its own bottom edge and `.shell-panel`'s own top border occupy
+    the SAME pixel row across the tab's width, so the accent line reads as one continuous stroke
+    that follows the tab's own rounded corners up and over rather than two lines that merely touch.
+
 47b. **`Test-PRD-P0-72-product_detail_page`** — Every product has its own page at
     `/products/<handle>` — the answer to "how do I see product details", asked directly, of a
     shop whose cards used to be `<article>`s with no click-through at all. `loadProduct(env,
