@@ -1002,6 +1002,13 @@ that does not trace to one of these is a process failure (see §12).
     tab row's own left edge lines up with the content edge in the iframe beneath it instead of
     sitting further out from the screen edge than what it fronts.
 
+    **Both taken further, once actually in front of the owner.** Their own words: "Double tabs
+    side padding and triple tab radius." `.shell-header`'s own side padding doubles again, `8px`
+    to `16px` — a deliberate departure from matching `.ops`'s own padding exactly, in favour of
+    more visible separation from the screen edge. `.shell-nav button`'s own corner radius triples
+    from `10px` (not the original `6px`) to `30px` — round enough to read as a distinct shape
+    rather than a barely-softened rectangle.
+
 47b. **`Test-PRD-P0-72-product_detail_page`** — Every product has its own page at
     `/products/<handle>` — the answer to "how do I see product details", asked directly, of a
     shop whose cards used to be `<article>`s with no click-through at all. `loadProduct(env,
