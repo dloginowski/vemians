@@ -438,9 +438,9 @@ def test_PRD_P0_20_cross_store_snapshot__an_employee_is_referenced_by_id_plus_a_
 
 
 @holds
-def test_PRD_P0_20_cross_store_snapshot__receipts_are_stored_by_r2_key_never_inline():
+def test_PRD_P0_20_cross_store_snapshot__receipts_are_stored_by_key_never_inline():
     have = set(cols(f, 'expense'))
-    assert 'receipt_r2_key' in have, "receipts must live in R2"
+    assert 'receipt_key' in have, "receipts must live in their own byte store, referenced by key"
     assert not {'receipt_blob', 'receipt_data'} & have, "receipt bytes must not sit in the store"
 
 

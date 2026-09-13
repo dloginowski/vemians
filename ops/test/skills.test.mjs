@@ -169,6 +169,16 @@ check("test_PRD_P0_64_greeting_survives_every_client__agent_tool_contract_carrie
   assert.match(contract, /real form, not a preview/i, "the editable-approval-link framing is missing");
 });
 
+check("test_PRD_P0_66_expense_scanner__the_skill_also_carries_the_no_tool_expense_instruction", () => {
+  /* Same reason as P0-64: buildInstructions() is not reliably seen by every
+     client, so the "there is no tool, send them to the link" instruction for
+     expenses has to survive here too. */
+  const contract = skillByName("agent-tool-contract").text;
+  assert.match(contract, /add an expense.*is different/i);
+  assert.match(contract, /\/expenses\/new/);
+  assert.match(contract, /there is no tool for it and no second question/i);
+});
+
 test("test_PRD_P0_30_prd_traceability__every_label_used_here_exists_in_the_prd", async () => {
   const { readFileSync } = await import("node:fs");
   const { fileURLToPath } = await import("node:url");

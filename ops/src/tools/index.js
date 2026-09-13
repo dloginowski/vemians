@@ -59,7 +59,7 @@ import { createMediaStore, createSquareMediaStore } from "./media.js";
 import { createImageUploader } from "../../../shared/commerce/square/images.js";
 import { createSquareClient } from "../../../shared/commerce/square/client.js";
 import { customerTools } from "./customers.js";
-import { financeTools } from "./finance.js";
+import { financeTools, createReceiptFileStore } from "./finance.js";
 import { peopleTools } from "./people.js";
 import { rateLimiter as defaultRateLimiter } from "./rate.js";
 import { roleAtLeast, isRole } from "./roles.js";
@@ -219,6 +219,12 @@ export function mediaStoreFor(env) {
    reasonably go. */
 export function assetFileStoreFor(env) {
   return createAssetFileStore(env?.ASSET_FILES);
+}
+
+/* The receipt scanner's bytes (finance.js) — src/index.js's /expenses routes
+   only; no tool ever calls this. Its own KV namespace, never ASSET_FILES. */
+export function receiptFileStoreFor(env) {
+  return createReceiptFileStore(env?.RECEIPT_FILES);
 }
 
 function scopedResources(tool, ctx) {

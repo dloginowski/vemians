@@ -20,10 +20,18 @@
  */
 import { CAPS, rowLimit } from "./caps.js";
 import { roleAtLeast } from "./roles.js";
+import { createKvByteStore } from "./kv-store.js";
+
+/* The receipt photo's bytes, in its OWN KV namespace (RECEIPT_FILES) — never
+   ASSET_FILES, never a binding any tool holds. src/index.js's /expenses/new
+   and /expenses/<id> routes only. */
+export function createReceiptFileStore(kv) {
+  return createKvByteStore(kv, { bindingName: "RECEIPT_FILES", maxBytes: CAPS.RECEIPT_MAX_BYTES });
+}
 
 const EXPENSE_COLUMNS =
   "id, budget_id, vendor_id, employee_id, employee_name, description, amount_minor," +
-  " currency, incurred_on, status, approved_by, approved_at, receipt_r2_key, created_at";
+  " currency, incurred_on, status, approved_by, approved_at, receipt_key, created_at";
 
 export const financeTools = {
   "budget.status": {
@@ -133,10 +141,14 @@ export const financeTools = {
   },
 
   /*
-   * T1: the submission is a proposal, not a row. The receipt must already be in
-   * R2 — finance-skills rule "the receipt lands in R2 before the row is
-   * written", so the key is required here and an approval later cannot invent
-   * one.
+   * T1: the submission is a proposal, not a row. The receipt must already be
+   * stored — finance-skills rule "the receipt lands in its own store before
+   * the row is written", so the key is required here and an approval later
+   * cannot invent one. Committing the proposal into a real 'submitted' row is
+   * NOT this tool's job (this file's header: only expense.approve mutates a
+   * store) — it happens in src/index.js's /expenses/new -> /expenses/confirm
+   * flow, the human action that turns a validated proposal into a filed
+   * expense, the same way a merged PR is what commits a catalog.draft_edit.
    */
   "expense.submit": {
     tier: "T1",
@@ -145,7 +157,7 @@ export const financeTools = {
     minRole: "staff",
     describe:
       "Propose an expense. Returns the row to insert, with the submitter taken from " +
-      "the Access identity and the R2 receipt key required. Writes nothing.",
+      "the Access identity and the receipt key required. Writes nothing.",
     undo: "withdraw before approval; after approval, a reversing entry only",
     schema: {
       description: { type: "string", required: true, maxLength: CAPS.MAX_TEXT },
@@ -154,7 +166,7 @@ export const financeTools = {
       incurred_on: { type: "string", required: true, format: "date" },
       budget_id: { type: "string", format: "id" },
       vendor_id: { type: "string", format: "id" },
-      receipt_r2_key: { type: "string", required: true, maxLength: 200 },
+      receipt_key: { type: "string", required: true, maxLength: 200 },
     },
     async check(args, t) {
       if (args.amount_minor > CAPS.EXPENSE_SUBMIT_MAX_MINOR) {
@@ -195,7 +207,7 @@ export const financeTools = {
             currency: args.currency,
             incurred_on: args.incurred_on,
             status: "submitted",
-            receipt_r2_key: args.receipt_r2_key,
+            receipt_key: args.receipt_key,
           },
         },
       };
@@ -225,7 +237,7 @@ export const financeTools = {
     async check(args, t) {
       const row = await t.db.finance
         .prepare(
-          "SELECT id, employee_id, amount_minor, currency, status, receipt_r2_key, description" +
+          "SELECT id, employee_id, amount_minor, currency, status, receipt_key, description" +
             " FROM expense WHERE id = ?",
         )
         .bind(args.expense_id)
@@ -238,8 +250,8 @@ export const financeTools = {
       if (row.employee_id === t.actor) {
         return { denied: "the submitter cannot approve their own expense" };
       }
-      if (!row.receipt_r2_key) {
-        return { denied: "no R2 receipt key on this expense: an approved expense with no receipt is an unauditable payment" };
+      if (!row.receipt_key) {
+        return { denied: "no receipt key on this expense: an approved expense with no receipt is an unauditable payment" };
       }
       if (row.amount_minor > CAPS.EXPENSE_APPROVE_MAX_MINOR) {
         return {

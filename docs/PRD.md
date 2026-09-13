@@ -225,7 +225,41 @@ that does not trace to one of these is a process failure (see §12).
 23. **`Test-PRD-P0-20-cross_store_snapshot`** — An expense references an employee by
     `employee_id` **plus an `employee_name` snapshot**, because `people` is a different database.
     The record stays readable when the other store is unavailable or the referenced row has
-    changed. Receipts live in R2, never inline.
+    changed. Receipts live in their own KV store, never inline.
+
+23b. **`Test-PRD-P0-66-expense_scanner`** — `/expenses/new` photographs a receipt and
+    `/expenses/confirm` files it: any signed-in role, no manager gate, because filing your own
+    expense is not the gated action here — approving one (`expense.approve`, already T2) is.
+    This is also the first thing that actually commits an `expense.submit` proposal into a real
+    row: that tool has always validated and described a write (the amount cap, the budget
+    currency match) without performing one — this file's own header names `expense.approve` as
+    the only tool that mutates the store — and nothing before this confirm flow ever turned a
+    proposal into a row for it to approve.
+
+    **OCR prefills, it never files.** Workers AI (`env.AI`, a native Cloudflare binding — no new
+    vendor, no new secret) takes a best-effort read of the vendor, date and total off the photo,
+    the same way a phone photo becomes a draft product (P0-59) except here the read is text, not
+    a stored image. Every field lands on the confirm page as an editable, pre-filled value, never
+    an `INSERT` — a misread total is a wrong dollar amount, and this codebase does not let a
+    model write money any more than it lets one write a price straight into Square. A field OCR
+    could not read is simply blank, asking to be filled in, not an error.
+
+    The receipt photo is kept: stored in its own KV namespace (`RECEIPT_FILES`, resolved by
+    `bootstrap-resources.yml` the same way `APPROVALS` and the asset drop site's `ASSET_FILES`
+    are) before the row is written, matching the existing finance-skills rule. Not R2 — ADR-013
+    dropped this Worker's one R2 bucket, and reopening it for an unrelated feature risked the
+    same account-level wall; KV is proven live here already. `RECEIPT_FILES` is its own
+    namespace, never shared with `ASSET_FILES`: a financial record and a working document do not
+    belong behind the same binding (agent-tool-contract rule 6).
+
+    **Unverified, stated plainly:** the exact Workers AI model id
+    (`@cf/llava-hf/llava-1.5-7b-hf`) and its request/response shape could not be confirmed
+    against live Cloudflare documentation from this environment — the same
+    `developers.cloudflare.com` wall ADR-007's identity section already hit. A wrong model id
+    fails the AI call; `scanReceipt()` treats that identically to "OCR unavailable" — the confirm
+    form comes back blank rather than the route erroring — so an unverified model choice degrades
+    the feature to manual entry rather than breaking it. Confirming the model against a real
+    account is a follow-up, not a launch blocker, because nothing here depends on OCR succeeding.
 
 ### 3.6 Audit
 
@@ -924,6 +958,7 @@ Where each feature is enforced today:
 | P0-63 | the editable-approval half of `ops/test/catalog-write.test.mjs`, over the real Worker (`worker.fetch`) |
 | P0-64 | `ops/test/skills.test.mjs` |
 | P0-65 | `ops/test/tools.test.mjs` for the tool layer and extraction; `ops/test/assets-route.test.mjs` for the upload/download/list routes, over the real Worker |
+| P0-66 | `ops/test/tools.test.mjs` for `parseReceiptText` and the OCR fallback; `ops/test/expenses-route.test.mjs` for the scan/confirm/file routes, over the real Worker; `ops/test/mcp-instructions.test.mjs` and `ops/test/skills.test.mjs` for the "no tool, send them to the link" instruction |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

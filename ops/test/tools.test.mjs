@@ -37,6 +37,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import { runTool, TOOLS, STORE_BINDINGS, describeTools } from "../src/tools/index.js";
 import { contentTypeForAsset, extractText } from "../src/tools/assets.js";
+import { parseReceiptText, scanReceipt } from "../src/tools/receipt-ocr.js";
 import { createApprovalStore } from "../src/tools/approval.js";
 import { createRateLimiter } from "../src/tools/rate.js";
 import { createSeedCatalogSource } from "../src/tools/catalog-source.js";
@@ -141,11 +142,11 @@ function seed(env) {
   const fi = env.FINANCE._raw;
   fi.exec(`
     INSERT INTO budget(id,name,period,limit_minor,currency) VALUES ('bud_1','Marketing','2026-Q3',500000,'USD');
-    INSERT INTO expense(id,budget_id,employee_id,employee_name,description,amount_minor,currency,incurred_on,status,receipt_r2_key)
-      VALUES ('exp_1','bud_1','ana@vemians.com','ana@vemians.com','Lookbook prints',120000,'USD','2026-09-01','submitted','r2/receipts/exp_1.pdf'),
-             ('exp_2','bud_1','tomas@vemians.com','tomas@vemians.com','Window install',900000,'USD','2026-09-02','submitted','r2/receipts/exp_2.pdf'),
+    INSERT INTO expense(id,budget_id,employee_id,employee_name,description,amount_minor,currency,incurred_on,status,receipt_key)
+      VALUES ('exp_1','bud_1','ana@vemians.com','ana@vemians.com','Lookbook prints',120000,'USD','2026-09-01','submitted','receipts/exp_1.pdf'),
+             ('exp_2','bud_1','tomas@vemians.com','tomas@vemians.com','Window install',900000,'USD','2026-09-02','submitted','receipts/exp_2.pdf'),
              ('exp_3','bud_1','ana@vemians.com','ana@vemians.com','Courier',4500,'USD','2026-09-03','submitted',NULL),
-             ('exp_4','bud_1','ana@vemians.com','ana@vemians.com','Studio hire',60000,'USD','2026-09-04','submitted','r2/receipts/exp_4.pdf');
+             ('exp_4','bud_1','ana@vemians.com','ana@vemians.com','Studio hire',60000,'USD','2026-09-04','submitted','receipts/exp_4.pdf');
   `);
 
   const as = env.ASSETS._raw;
@@ -586,7 +587,7 @@ check("test_PRD_P0_25_write_approval_gate__a_t1_tool_proposes_and_writes_nothing
       amount_minor: 8500,
       currency: "USD",
       incurred_on: "2026-09-05",
-      receipt_r2_key: "r2/receipts/new.pdf",
+      receipt_key: "receipts/new.pdf",
     },
     f.ctx,
   );
@@ -1054,6 +1055,71 @@ check("test_PRD_P0_65_asset_drop_site__content_type_prefers_a_recognised_declare
   assert.equal(contentTypeForAsset("notes.txt", "application/octet-stream"), "text/plain");
   assert.equal(contentTypeForAsset("report.PDF", ""), "application/pdf");
   assert.equal(contentTypeForAsset("archive.zip", "application/zip"), null, "not an accepted type");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-66 — the expense scanner: OCR prefills a form, it never files
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_66_expense_scanner__a_clean_model_reply_parses_into_every_field", () => {
+  const text = "VENDOR: Acme Hardware\nDATE: 2026-09-10\nTOTAL: 42.50\nCURRENCY: usd";
+  const out = parseReceiptText(text);
+  assert.equal(out.vendor, "Acme Hardware");
+  assert.equal(out.incurred_on, "2026-09-10");
+  assert.equal(out.amount_minor, 4250);
+  assert.equal(out.currency, "USD");
+  assert.equal(out.description, "Receipt from Acme Hardware");
+});
+
+check("test_PRD_P0_66_expense_scanner__an_unknown_field_is_absent_not_a_placeholder_string", () => {
+  const text = "VENDOR: UNKNOWN\nDATE: unknown\nTOTAL: UNKNOWN\nCURRENCY: UNKNOWN";
+  const out = parseReceiptText(text);
+  assert.equal(out.vendor, null);
+  assert.equal(out.incurred_on, null);
+  assert.equal(out.amount_minor, null);
+  assert.equal(out.currency, null);
+  assert.equal(out.description, null, "no vendor means no guessed description either");
+});
+
+check("test_PRD_P0_66_expense_scanner__garbled_model_output_parses_to_nothing_not_a_crash", () => {
+  const out = parseReceiptText("this is not a receipt, it is a photo of a cat");
+  assert.deepEqual(out, { vendor: null, incurred_on: null, currency: null, amount_minor: null, description: null });
+});
+
+check("test_PRD_P0_66_expense_scanner__a_malformed_date_or_currency_is_dropped_rather_than_passed_through", () => {
+  const out = parseReceiptText("VENDOR: Acme\nDATE: sometime last week\nTOTAL: 12\nCURRENCY: dollars");
+  assert.equal(out.vendor, "Acme");
+  assert.equal(out.incurred_on, null, "not a YYYY-MM-DD shape");
+  assert.equal(out.currency, null, "not a three-letter code");
+  assert.equal(out.amount_minor, 1200);
+});
+
+check("test_PRD_P0_66_expense_scanner__no_ai_binding_degrades_to_a_blank_form_not_an_error", async () => {
+  const out = await scanReceipt({}, new Uint8Array([1, 2, 3]));
+  assert.deepEqual(out, { vendor: null, incurred_on: null, currency: null, amount_minor: null, description: null });
+});
+
+check("test_PRD_P0_66_expense_scanner__an_ai_call_that_throws_also_degrades_rather_than_propagating", async () => {
+  const env = { AI: { run: async () => { throw new Error("model unavailable"); } } };
+  const out = await scanReceipt(env, new Uint8Array([1, 2, 3]));
+  assert.deepEqual(out, { vendor: null, incurred_on: null, currency: null, amount_minor: null, description: null });
+});
+
+check("test_PRD_P0_66_expense_scanner__expense_submit_still_writes_nothing_itself", async () => {
+  /* The regression this guards: expense.submit looking like it works (it
+     validates, it returns a proposal) is not the same as anything having
+     been written. Confirmed structurally, not just by absence of a row. */
+  const f = fixture(staff);
+  const before = f.env.FINANCE._raw.prepare("SELECT count(*) AS n FROM expense").get().n;
+  const res = await runTool(
+    "expense.submit",
+    { description: "Tape", amount_minor: 500, currency: "USD", incurred_on: "2026-09-10", receipt_key: "receipts/x" },
+    f.ctx,
+  );
+  assert.equal(res.ok, true);
+  assert.equal(res.data.applied, false);
+  const after = f.env.FINANCE._raw.prepare("SELECT count(*) AS n FROM expense").get().n;
+  assert.equal(after, before, "no row was inserted by the propose-only tool");
 });
 
 /* ─────────────────────────────────────────────────────────────────────────

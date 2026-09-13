@@ -289,6 +289,12 @@ ${id}
   </section>
 
   <section class="key">
+    <h1>Scan a receipt</h1>
+    <p class="hint">Photograph it, confirm what we read, and it's filed under your name. No assistant needed.</p>
+    <p><a class="btn" href="/expenses/new">Scan a receipt</a></p>
+  </section>
+
+  <section class="key">
     <h1>Connect your assistant</h1>
     <p class="hint">Paste this into your Claude or ChatGPT to get started.</p>
     ${copyLine(mcpUrl)}
@@ -931,6 +937,90 @@ export function assetListPage(rows) {
            : "<p>Nothing has been dropped yet.</p>"
        }
        <p><a href="/assets/new">Drop a file</a> &middot; <a href="/">Back to ops</a></p>
+     </main>`,
+    APPROVAL_CSS,
+  );
+}
+
+/*
+ * /expenses/new — the receipt scanner. Take or upload a photo; the next page
+ * is where you confirm what it read, not this one.
+ */
+export function receiptUploadPage() {
+  return page(
+    "Scan a receipt",
+    `<main class="wrap">
+       <p class="eyebrow">Files under your name</p>
+       <h1>Scan a receipt</h1>
+       <p>Take a photo, or upload one. We'll read the vendor, date and total and show them to
+          you to confirm before anything is filed — nothing is submitted automatically.</p>
+       <form method="POST" enctype="multipart/form-data">
+         <input type="file" name="file" accept="image/*" capture="environment" required>
+         <p><button type="submit">Scan</button></p>
+       </form>
+       <p><a href="/">Back to ops</a></p>
+     </main>`,
+    APPROVAL_CSS,
+  );
+}
+
+/*
+ * The confirm form. Every field OCR read is here to be checked, not trusted
+ * (finance-skills rule 4) — pre-filled when a guess exists, blank and asking
+ * to be filled in when it does not, exactly the same either way from the
+ * person's side.
+ */
+export function expenseConfirmPage({ receiptKey, description, amount_minor, currency, incurred_on, vendor, error }) {
+  const amountStr = typeof amount_minor === "number" ? (amount_minor / 100).toFixed(2) : "";
+  const today = new Date().toISOString().slice(0, 10);
+  return page(
+    "Confirm this expense",
+    `<main class="wrap">
+       <p class="eyebrow">Check before it's filed</p>
+       <h1>Confirm this expense</h1>
+       ${
+         vendor || description
+           ? `<p class="fine">Read off the photo — fix anything wrong before continuing.</p>`
+           : `<p class="fine">Nothing could be read off this photo. Fill in what you can.</p>`
+       }
+       ${error ? `<div class="warn">${esc(error)}</div>` : ""}
+       <form method="POST" action="/expenses/confirm">
+         <input type="hidden" name="receipt_key" value="${esc(receiptKey)}">
+         <div class="field">
+           <label for="description">What was it</label>
+           <input id="description" name="description" type="text" value="${esc(description || (vendor ? `Receipt from ${vendor}` : ""))}" required>
+         </div>
+         <div class="field">
+           <label for="amount">Total</label>
+           <input id="amount" name="amount" type="text" inputmode="decimal" value="${esc(amountStr)}" placeholder="42.50" required>
+         </div>
+         <div class="field">
+           <label for="currency">Currency</label>
+           <input id="currency" name="currency" type="text" value="${esc(currency || "USD")}" maxlength="3" required>
+         </div>
+         <div class="field">
+           <label for="incurred_on">Date</label>
+           <input id="incurred_on" name="incurred_on" type="date" value="${esc(incurred_on || today)}" required>
+         </div>
+         <p><button type="submit">File this expense</button></p>
+       </form>
+       <p class="fine">Filing does not pay it out — a manager still approves it, and cannot be the
+          person who filed it.</p>
+       <p><a href="/expenses/new">Scan a different receipt</a> &middot; <a href="/">Back to ops</a></p>
+     </main>`,
+    APPROVAL_CSS,
+  );
+}
+
+export function expenseFiledPage({ id, description, amount_minor, currency }) {
+  return page(
+    "Expense filed",
+    `<main class="wrap">
+       <p class="eyebrow">Filed</p>
+       <h1>${esc(description)}</h1>
+       <p>${(amount_minor / 100).toFixed(2)} ${esc(currency)} &middot; waiting on a manager's approval.</p>
+       <p class="fine">Reference: ${esc(id)}</p>
+       <p><a href="/expenses/new">Scan another</a> &middot; <a href="/">Back to ops</a></p>
      </main>`,
     APPROVAL_CSS,
   );

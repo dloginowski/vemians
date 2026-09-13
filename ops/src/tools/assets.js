@@ -27,6 +27,7 @@
  *   not vet against the Workers runtime; deferred on purpose, not forgotten.
  */
 import { CAPS } from "./caps.js";
+import { createKvByteStore } from "./kv-store.js";
 
 const TEXT_TYPES = new Set(["text/plain", "text/markdown", "text/csv", "application/json"]);
 
@@ -73,29 +74,7 @@ export function extractText(contentType, bytes) {
  * media.js there is no ticket to mint ahead of the bytes arriving.
  */
 export function createAssetFileStore(kv) {
-  if (!kv || typeof kv.put !== "function") {
-    console.error("ERROR assets: no ASSET_FILES (KV) binding — refusing to construct an asset file store");
-    throw new Error("binding ASSET_FILES is not attached to this Worker");
-  }
-  return {
-    /** Refuses an occupied key rather than replacing what is there — keys
-        carry a uuid, so a collision means a bug, not a re-upload. */
-    async put(key, bytes) {
-      const body = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes ?? []);
-      if (body.byteLength === 0) throw new Error("refusing to store zero bytes as a file");
-      if (body.byteLength > CAPS.ASSET_MAX_BYTES) {
-        throw new Error(`larger than the ${CAPS.ASSET_MAX_BYTES}-byte limit for one file`);
-      }
-      const existing = await kv.get(key, "arrayBuffer");
-      if (existing !== null) throw new Error(`${key} already holds bytes`);
-      await kv.put(key, body);
-      return { key, bytes: body.byteLength };
-    },
-    async bytes(key) {
-      const buf = await kv.get(key, "arrayBuffer");
-      return buf === null ? null : new Uint8Array(buf);
-    },
-  };
+  return createKvByteStore(kv, { bindingName: "ASSET_FILES", maxBytes: CAPS.ASSET_MAX_BYTES });
 }
 
 export const assetTools = {

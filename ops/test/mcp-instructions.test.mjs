@@ -51,6 +51,16 @@ check("test_PRD_P0_62_onboarding_greeting__a_narrated_list_is_told_apart_from_a_
   assert.match(text, /present every.*approval link together/i);
 });
 
+check("test_PRD_P0_66_expense_scanner__adding_an_expense_points_at_the_scanner_not_a_tool_call", () => {
+  const text = buildInstructions(VERIFIED);
+  assert.match(text, /add an expense/i);
+  assert.match(text, /\/expenses\/new/);
+  /* The whole point: unlike products/customers, there is no second question
+     and no tool to call — an agent that tries to draft or submit an expense
+     itself missed the instruction. */
+  assert.match(text, /there is no tool for it and no second/i);
+});
+
 check("test_PRD_P0_62_onboarding_greeting__the_actor_and_role_still_say_who_is_connected", () => {
   const text = buildInstructions(VERIFIED);
   assert.match(text, /ana@vemians\.com \(staff\)/);

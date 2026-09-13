@@ -4,9 +4,11 @@
 # R2 WAS HERE AND IS NOT ANY MORE. ADR-013 dropped the bucket: Square holds the
 # photographs. Leaving the bucket step in place meant a permission we no longer
 # need could fail the run BEFORE it reached the namespace we do need — which is
-# exactly what happened, twice. The employee asset drop site (assets.js) also
-# stores its bytes in KV rather than reopening that R2 permission, for the same
-# reason — see the ASSET_FILES comment in ops/wrangler.toml.
+# exactly what happened, twice. The employee asset drop site (assets.js) and
+# the expense receipt scanner (finance.js) both store their bytes in KV rather
+# than reopening that R2 permission, for the same reason — see the ASSET_FILES
+# and RECEIPT_FILES comments in ops/wrangler.toml. Two SEPARATE namespaces, on
+# purpose: a working document and a financial record do not share one.
 #
 # Everything for agentic catalog authoring was written and none of it was
 # wired: `catalog.upload_image` had no bucket to put a photograph in, and every
@@ -17,7 +19,7 @@
 # the loop variable IS the resource name, a create that fails is not allowed to
 # read as success, and anything left that is not a real id fails the step.
 #
-# TWO KV NAMESPACES, ONE LOOP. Title and binding travel together as
+# THREE KV NAMESPACES, ONE LOOP. Title and binding travel together as
 # "title:BINDING" — a KV title is not a legal binding name (the ops Worker
 # calls it env.APPROVALS, not env["vemians-approvals"]) and a namespace's
 # title and its binding have always been two different strings here, so the
@@ -36,7 +38,7 @@ permissions:
   contents: write
 
 env:
-  KV_NAMESPACES: "vemians-approvals:APPROVALS vemians-asset-files:ASSET_FILES"
+  KV_NAMESPACES: "vemians-approvals:APPROVALS vemians-asset-files:ASSET_FILES vemians-receipt-files:RECEIPT_FILES"
 
 jobs:
   bootstrap:
@@ -90,9 +92,9 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add ops/wrangler.toml
-          git commit -m "Activate the APPROVALS and ASSET_FILES KV bindings
+          git commit -m "Activate the APPROVALS, ASSET_FILES and RECEIPT_FILES KV bindings
 
-          Both ship COMMENTED, because wrangler rejects a binding to a
+          All three ship COMMENTED, because wrangler rejects a binding to a
           namespace that does not exist and fails the whole deploy with it.
           They are written live here, after the resources exist. MEDIA (R2)
           stays commented — ADR-013 dropped that bucket on purpose."

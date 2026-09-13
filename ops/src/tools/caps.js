@@ -127,6 +127,13 @@ export const CAPS = Object.freeze({
      saying so is not. */
   ASSET_TEXT_MAX_CHARS: 100_000,
   ASSET_LIST_MAX_ROWS: 100,
+
+  /*
+   * Receipt scanning (receipt-ocr.js). A photograph, so the same ceiling as
+   * an original catalog image — comfortably past what a phone camera
+   * produces, nowhere near a KV value's 25 MB ceiling.
+   */
+  RECEIPT_MAX_BYTES: 15 * 1024 * 1024,
 });
 
 /* Clamp a caller-supplied row count into the cap. Never trust the argument. */

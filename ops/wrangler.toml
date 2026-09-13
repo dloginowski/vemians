@@ -241,6 +241,33 @@ enabled = true
 # id      = "<id>"
 
 # ---------------------------------------------------------------------------
+# The expense receipt scanner's original photos (ops/src/tools/finance.js).
+# Its OWN KV namespace — never ASSET_FILES — for the same reason a receipt
+# never lands in the CUSTOMERS store: a financial record and a working
+# document do not share a blast radius (agent-tool-contract rule 6).
+#
+# Created and resolved by .github/workflows/bootstrap-resources.yml, the same
+# way APPROVALS and ASSET_FILES are. Commented for the same reason: a binding
+# to a namespace that does not exist fails the deploy rather than degrading.
+#
+# [[kv_namespaces]]
+# binding = "RECEIPT_FILES"
+# id      = "<id>"
+
+# ---------------------------------------------------------------------------
+# Workers AI — reads a receipt photo for the expense scanner
+# (ops/src/tools/receipt-ocr.js). A native Cloudflare binding, not a third
+# vendor: no separate account, no API key to rotate, usage billed on this
+# same Cloudflare account. Nothing else in this Worker uses it, and nothing
+# here trusts what it reads — receipt-ocr.js's own header says plainly that
+# the exact model id and request shape are UNVERIFIED against a live account
+# (the same developers.cloudflare.com wall ADR-007 already hit), and every
+# field it produces reaches a human confirm page before it is filed, never
+# an INSERT (finance-skills rule 4).
+[ai]
+binding = "AI"
+
+# ---------------------------------------------------------------------------
 # D1 bindings.
 #
 # These blocks are the enforcement behind Test-PRD-P0-24-binding_scoped_tools.

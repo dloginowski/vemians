@@ -34,8 +34,9 @@ import { skillsFor } from "./skills.js";
 import { CAPS } from "./tools/caps.js";
 import { ROLES, roleAtLeast } from "./tools/roles.js";
 import { contentTypeFor, mediaKey, mintUploadTicket, verifyUploadTicket } from "./tools/media.js";
-import { mediaStoreFor, assetFileStoreFor } from "./tools/index.js";
+import { mediaStoreFor, assetFileStoreFor, receiptFileStoreFor, runTool } from "./tools/index.js";
 import { contentTypeForAsset, extractText } from "./tools/assets.js";
+import { scanReceipt } from "./tools/receipt-ocr.js";
 import { listCategories } from "./tools/catalog-writer.js";
 import { applyFormEdits } from "./approval-forms.js";
 import { syncFromSquare } from "./sync.js";
@@ -47,11 +48,14 @@ import {
   assetUploadPage,
   batchReviewPage,
   batchUploadPage,
+  expenseConfirmPage,
+  expenseFiledPage,
+  receiptUploadPage,
   opsPage,
   refusalPage,
   whoamiPage,
 } from "./views.js";
-import { draftCustomerBatch, draftProductBatch } from "./batch.js";
+import { draftCustomerBatch, draftProductBatch, parsePriceToMinor } from "./batch.js";
 
 const html = (body, status = 200) =>
   new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8" } });
@@ -447,6 +451,151 @@ async function ops(request, env, path) {
         "content-disposition": `inline; filename="${row.filename.replace(/["\\]/g, "_")}"`,
       },
     });
+  }
+
+  /*
+   * /expenses/new -> /expenses/confirm — scan a receipt, file an expense.
+   *
+   * Any signed-in role, same as /assets: filing your OWN expense is not the
+   * gated action here, approving one is (expense.approve, manager+, already
+   * T2). A photo is stored first, then Workers AI takes a best-effort read
+   * of it (finance-skills rule 4: OCR prefills, it never files) — the person
+   * always sees and can correct every field on the confirm page before
+   * anything reaches the `finance` store, exactly the same "review, then
+   * submit" shape as the approval-forms.js editable fields.
+   */
+  if (path === "/expenses/new" || path === "/expenses/confirm") {
+    const email = identity.claims?.email;
+    if (typeof email !== "string" || !email.includes("@")) {
+      return html(refusalPage(403, "This page requires signing in as a person, not a service token."), 403);
+    }
+    const role = roleFor(identity, env);
+    if (!role) {
+      return html(refusalPage(403, "Your Access identity is in no group this application maps to a role."), 403);
+    }
+
+    if (path === "/expenses/new") {
+      if (request.method === "GET") return html(receiptUploadPage());
+      if (request.method !== "POST") {
+        return html(refusalPage(405, "Upload a photo to this page, or open it in a browser."), 405);
+      }
+      if (!env.FINANCE) {
+        return html(refusalPage(503, "The expense store is not configured on this deployment yet."), 503);
+      }
+
+      let file;
+      try {
+        const form = await request.formData();
+        file = form.get("file");
+      } catch (err) {
+        return html(refusalPage(400, `Unreadable upload — ${err.message}`), 400);
+      }
+      if (!(file instanceof File) || file.size === 0) {
+        return html(refusalPage(400, "No photo was attached."), 400);
+      }
+      if (file.size > CAPS.RECEIPT_MAX_BYTES) {
+        return html(refusalPage(413, `That photo is larger than the ${CAPS.RECEIPT_MAX_BYTES}-byte limit.`), 413);
+      }
+      const contentType = contentTypeFor(file.name, file.type);
+      if (!contentType) {
+        return html(refusalPage(415, `"${file.name}" is not a photo type this scanner takes. Try a JPEG, PNG or HEIC.`), 415);
+      }
+
+      let receipts;
+      try {
+        receipts = receiptFileStoreFor(env);
+      } catch (err) {
+        console.error(`ERROR ops/expenses: ${err.message}`);
+        return html(refusalPage(503, "Receipt storage is not configured on this deployment yet."), 503);
+      }
+
+      const key = `receipts/${crypto.randomUUID()}`;
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      try {
+        await receipts.put(key, bytes);
+      } catch (err) {
+        return html(refusalPage(413, err.message), 413);
+      }
+
+      const ocr = await scanReceipt(env, bytes);
+      return html(expenseConfirmPage({ receiptKey: key, ...ocr }));
+    }
+
+    /* /expenses/confirm — a person accepting or correcting the OCR guess. */
+    if (request.method !== "POST") {
+      return html(refusalPage(405, "This page is reached from /expenses/new."), 405);
+    }
+    let form;
+    try {
+      form = await request.formData();
+    } catch (err) {
+      return html(refusalPage(400, `Unreadable submission — ${err.message}`), 400);
+    }
+    const receiptKey = String(form.get("receipt_key") || "");
+    const description = String(form.get("description") || "").trim();
+    const currency = String(form.get("currency") || "").trim().toUpperCase();
+    const incurredOn = String(form.get("incurred_on") || "").trim();
+    const amountMinor = parsePriceToMinor(form.get("amount"));
+    if (amountMinor === null) {
+      return html(
+        expenseConfirmPage({
+          receiptKey,
+          description,
+          currency,
+          incurred_on: incurredOn,
+          amount_minor: null,
+          error: `"${form.get("amount")}" is not a plain amount like 42.50`,
+        }),
+        400,
+      );
+    }
+
+    const res = await runTool(
+      "expense.submit",
+      { description, amount_minor: amountMinor, currency, incurred_on: incurredOn, receipt_key: receiptKey },
+      { actor: email, role, env },
+    );
+    if (!res.ok) {
+      return html(
+        expenseConfirmPage({
+          receiptKey,
+          description,
+          currency,
+          incurred_on: incurredOn,
+          amount_minor: amountMinor,
+          error: res.error,
+        }),
+        400,
+      );
+    }
+
+    const id = crypto.randomUUID();
+    const v = res.data.proposal.values;
+    try {
+      await env.FINANCE.prepare(
+        "INSERT INTO expense(id, budget_id, vendor_id, employee_id, employee_name, description," +
+          " amount_minor, currency, incurred_on, status, receipt_key) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+      )
+        .bind(
+          id,
+          v.budget_id,
+          v.vendor_id,
+          v.employee_id,
+          v.employee_name,
+          v.description,
+          v.amount_minor,
+          v.currency,
+          v.incurred_on,
+          v.status,
+          v.receipt_key,
+        )
+        .run();
+    } catch (err) {
+      console.error(`ERROR ops/expenses: proposal validated but the row could not be written — ${err.message}`);
+      return html(refusalPage(500, "Validated but could not be filed. Try again."), 500);
+    }
+
+    return html(expenseFiledPage({ id, description: v.description, amount_minor: v.amount_minor, currency: v.currency }));
   }
 
   if (path === "/agent") {
