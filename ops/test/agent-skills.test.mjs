@@ -13,6 +13,9 @@
  * agent-tool-schema.test.mjs exercises toolDefinitions() directly, rather
  * than driving the whole Anthropic call loop (which nothing in this
  * codebase mocks yet — see agentTurn's own PRD note).
+ *
+ * Test-PRD-P0-82-skills_on_demand. Also covers the immediate follow-up:
+ * skills_read is offered, not mandated before every turn.
  */
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -97,11 +100,18 @@ check("test_PRD_P0_81_skills_over_mcp__canusedomain_agrees_with_the_tool_layer_i
   }
 });
 
-check("test_PRD_P0_81_skills_over_mcp__the_system_prompt_tells_the_model_to_read_skills_first", () => {
+check("test_PRD_P0_82_skills_on_demand__the_system_prompt_offers_skills_read_without_mandating_it_first", () => {
+  /* P0-82: a mandatory skills_list -> skills_read("agent-tool-contract")
+     before every turn added two guaranteed round-trips (latency and
+     tokens) to even a trivial lookup, for a document whose operational
+     content (tiers, the greeting, the approval-link framing) is already
+     inline here and in greetingScript(). Skills are available, not a
+     ritual: the prompt must still tell the model the tool exists, but must
+     not tell it to call skills_list/skills_read before anything else. */
   const text = systemPrompt("ana@vemians.test", "staff", toolDefinitions("staff"), { given_name: "Ana" });
-  assert.match(text, /skills_list/);
-  assert.match(text, /skills_read/);
-  assert.match(text, /agent-tool-contract/);
+  assert.match(text, /skills_read/, "the model must still be told the tool exists");
+  assert.doesNotMatch(text, /before your first (write|call)/i, "no mandatory skills-first ritual");
+  assert.doesNotMatch(text, /call skills_list, then skills_read/i, "no forced two-step sequence");
 });
 
 check("test_PRD_P0_81_skills_over_mcp__the_meta_tools_are_offered_alongside_the_domain_tools", () => {

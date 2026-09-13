@@ -1071,9 +1071,32 @@ that does not trace to one of these is a process failure (see §12).
     `ops/test/skills.test.mjs`/`ops/test/catalog-write.test.mjs`/`ops/test/customer-create.test.mjs`/
     `ops/test/approvals.test.mjs` imports that reached `mcp.js` are repointed at `agent.js` and
     `approvals.js`. `ops/test/agent-skills.test.mjs` is new: `skills_list`/`skills_read` through
-    `dispatch()` directly, `canUseDomain` cross-checked against `mayUse()` tool-by-tool, and the
-    system prompt's own skills-first instruction — the same "assert what it sends, not what the
-    code means" standard `ops/test/agent-tool-schema.test.mjs` already set for `toolDefinitions()`.
+    `dispatch()` directly, `canUseDomain` cross-checked against `mayUse()` tool-by-tool, and (as
+    it read at the time — see P0-82) the system prompt's own skills-first instruction, the same
+    "assert what it sends, not what the code means" standard `ops/test/agent-tool-schema.test.mjs`
+    already set for `toolDefinitions()`.
+
+34a''''''''''''. **`Test-PRD-P0-82-skills_on_demand`** — The owner's own words, immediately
+    after asking for MCP's removal: "minimize confusion... solve common problems and present
+    most likely solution... minimizing churn and token use." P0-81's own `systemPrompt()` change
+    had made `skills_list` then `skills_read("agent-tool-contract")` a MANDATORY first step —
+    two guaranteed tool round-trips, and their token cost, before even a one-line lookup like
+    "how many black coats are in stock." That is the churn the owner was describing, for a
+    document whose operational content (the greeting, the tier/approval framing) was already
+    inline in `systemPrompt()`/`greetingScript()` and cost nothing to read there.
+
+    **The fix is the instruction, not the mechanism.** `skills_list`/`skills_read` still exist,
+    unchanged, in `dispatch()` — a domain skill (catalog rules, price/publish gates, an upload
+    flow) is real, non-duplicated knowledge a tool's name and description do not carry, and the
+    model should still reach for one when it is actually unsure. What changed is `systemPrompt()`
+    no longer tells it to read one FIRST, reflexively, on every turn: it names the tool and says
+    to use it "when you are genuinely unsure, not a ritual to run before every call — try the
+    most likely correct action first." A wrong first guess is cheap (the tool refuses and says
+    why, the model tries again informed); a mandatory read before every single turn is not.
+
+    Checked by asserting what the prompt actually says, the same standard `ops/test/agent-tool-
+    schema.test.mjs` already set for `toolDefinitions()`: `skills_read` must still be named, but
+    "before your first write/call" and "call skills_list, then skills_read" must both be gone.
 
 ## 4. P1 features
 
@@ -1307,6 +1330,7 @@ Where each feature is enforced today:
 | P0-79 | `ops/test/ops-page.test.mjs` |
 | P0-80 | `ops/test/ops-page.test.mjs` |
 | P0-81 | `ops/test/agent-skills.test.mjs`, plus the repointed imports in `ops/test/skills.test.mjs`, `ops/test/catalog-write.test.mjs`, `ops/test/customer-create.test.mjs`, `ops/test/approvals.test.mjs` |
+| P0-82 | `ops/test/agent-skills.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

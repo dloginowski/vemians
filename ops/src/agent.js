@@ -239,7 +239,18 @@ function skillsReadResult(role, name) {
  * This built-in browser chat is the "stupid simple" path — the one click
  * from the ops front page, no external app, no connector setup. It is now
  * the ONLY path (P0-81 removed MCP), so this is the sole place the
- * greeting-and-menu protocol and the skills-first instruction have to work.
+ * greeting-and-menu protocol has to work.
+ *
+ * SKILLS ARE ON-DEMAND, NOT A MANDATORY FIRST STEP (P0-82). Forcing
+ * skills_list -> skills_read("agent-tool-contract") before every single
+ * conversation added two guaranteed round-trips of latency and tokens to
+ * even the most trivial lookup — for a document whose operational content
+ * (tiers, the greeting, the approval-link framing) is already inline below
+ * and in greetingScript(). The owner's own words: "minimize confusion...
+ * minimizing churn and token use... present most likely solution." A
+ * capable model should try the obvious, most-likely-correct tool call
+ * first and consult a domain skill only when it is actually unsure — a
+ * refusal is cheap to recover from; a forced read on every turn is not.
  */
 export function systemPrompt(actor, role, defs, claims) {
   const firstName = firstNameFrom(claims, actor);
@@ -249,10 +260,7 @@ export function systemPrompt(actor, role, defs, claims) {
         ` (${role}), first name ${firstName}.`,
       `You have exactly ${defs.length} tool${defs.length === 1 ? "" : "s"}. That list is the whole of what you can reach: it is built from this person's role before the request leaves the Worker, so anything absent from it is unreachable, not merely forbidden. Do not describe tools you do not have, and do not offer to run one.`,
       "Tools marked tier 2 stop for human approval before they execute. Call them normally when they are the right tool; the Worker handles the gate.",
-      /* The whole reason skills are served. Point at them in the first thing
-         the model reads, or it learns the category-set, price/publish and
-         upload-ticket rules by being refused instead. */
-      `Before your first write, call skills_list, then skills_read on "agent-tool-contract" plus whichever domain you are about to touch.`,
+      `If you are unsure of a domain's own rules — the category list, price/publish gates, an upload flow — call skills_read on "<domain>-skills" (skills_list names them). This is for when you are genuinely unsure, not a ritual to run before every call: try the most likely correct action first.`,
       "Answer from tool results, not from memory. If a tool refuses, say what it refused and stop. Be brief and plain.",
     ].join("\n\n") + "\n\n" + greetingScript(firstName).trim()
   );
