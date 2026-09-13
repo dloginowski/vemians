@@ -40,6 +40,7 @@ import { scanReceipt } from "./tools/receipt-ocr.js";
 import { listCategories } from "./tools/catalog-writer.js";
 import { applyFormEdits } from "./approval-forms.js";
 import { syncFromSquare } from "./sync.js";
+import { backfillMedia } from "./media-backfill.js";
 import {
   approvalPage,
   approvalResultPage,
@@ -841,6 +842,35 @@ export default {
     /* Already logged in detail, with the reason named, inside syncFromSquare.
        This line is the one a `wrangler tail` filtered to "scheduled" sees. */
     console.info(`INFO ops/scheduled: ${event?.cron ?? "manual"} -> ${out.ok ? "ok" : out.reason}`);
+
+    /*
+     * The media backfill (Test-PRD-P0-73-real_photography) is a SEPARATE step
+     * with its own failure mode, run after the sync rather than folded into
+     * it: a photograph that fails to fetch must never mark the catalog sync
+     * itself as failed, and a sync that fails must not stop the previous
+     * run's photographs from still backfilling on schedule. try/catch here,
+     * not inside backfillMedia, so a bug in this wiring cannot take the cron
+     * down with it — the next run tries again regardless.
+     */
+    try {
+      /* Checked directly rather than via mediaStoreFor(env): with no bucket
+         bound, mediaStoreFor falls back to constructing a Square uploader,
+         which throws with no SQUARE_ACCESS_TOKEN — a real, if unlikely,
+         possibility on a Worker whose sync has never run. There is nothing
+         for this step to do without a bucket regardless, so it never needs
+         to reach that construction at all. */
+      if (env.MEDIA) {
+        const backfill = await backfillMedia(env, { media: mediaStoreFor(env) });
+        if (backfill.attempted > 0) {
+          console.info(
+            `INFO ops/scheduled: media backfill -> ${backfill.backfilled}/${backfill.attempted} ok, ${backfill.failed} failed`,
+          );
+        }
+      }
+    } catch (err) {
+      console.error(`ERROR ops/scheduled: media backfill step did not run — ${err.message}`);
+    }
+
     return out;
   },
 };

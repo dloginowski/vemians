@@ -860,6 +860,39 @@ that does not trace to one of these is a process failure (see §12).
     description and points to `/visit` to see the piece in person or ask about it, honestly,
     rather than rendering a "Buy" button that does nothing.
 
+47c. **`Test-PRD-P0-73-real_photography`** — The storefront now CAN render a genuine photograph,
+    not only the placeholder tone-shift SVG. `shared/commerce/square/schema.sql`'s `mirror_image`
+    already carried the column for this — `media_key`, "our R2 key, once mirrored" — and
+    `ops/src/media-backfill.js` is the fetch-and-store job that column was always waiting
+    on: for every synced image with a `source_url` and no `media_key`, fetch the bytes off
+    Square's CDN once and `.put()` them into OUR OWN bucket under OUR OWN key, then record it.
+    `syncCatalog`'s own `INSERT`/`UPDATE` for `mirror_image` never names `media_key` — the same
+    "a column this job doesn't touch survives every re-sync" guarantee `channel` (P0-71) and
+    `handle` already rely on. The job runs once per scheduled sync
+    (Test-PRD-P0-48-scheduled_mirror_sync), capped at `CAPS.MEDIA_BACKFILL_MAX_PER_RUN` per run so
+    a first-time backfill of an existing catalog spreads across several runs rather than spending
+    one cron's whole budget; a single photograph's failed fetch is reported and retried on the
+    next run, never allowed to abort the rest of the batch.
+
+    **This reverses the one part of ADR-013 that needed reversing.** That ADR's own text predicted
+    exactly this: "binding a bucket later restores the original behaviour with no code change" —
+    `mediaStoreFor(env)` already picked R2 the instant `MEDIA` is bound, before this feature
+    existed. `.github/workflows/bootstrap-media.yml` creates the bucket and gives it a public
+    custom domain (`media.vemians.com`), kept as a SEPARATE workflow from bootstrap-resources.yml
+    on purpose — an R2 permission failure must not take the KV namespaces down with it a third
+    time, which is the exact failure ADR-013 itself records happening twice.
+
+    `store/src/catalog.js` builds the real `<img src>` straight from `media_key` at that public
+    domain — a subdomain of vemians.com, so Test-PRD-P0-28-image_contract's "no image loaded from
+    anybody else" still holds, and the storefront still makes no fetch of its own and binds
+    nothing but `CATALOG_MIRROR`: this is string concatenation over a fact already in the mirror
+    row, not a network call. A product with no synced photograph yet still gets the placeholder,
+    exactly as before. `store/src/views.js`'s `shotUrl` will not pair a real primary photograph
+    with a FABRICATED placeholder hover-alt (a photograph that turns into a cartoon rectangle on
+    hover reads as a bug) — a real primary with no second real photo simply has no hover swap;
+    only a fully-placeholder product keeps the placeholder swap on both shots, unchanged from
+    before this feature.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -1083,6 +1116,7 @@ Where each feature is enforced today:
 | P0-69 | `ops/test/ops-page.test.mjs`, over the real Worker |
 | P0-71 | `ops/test/catalog-write.test.mjs` for `catalog.set_channel`; the channel-filter half of `store/test/storefront.test.mjs` |
 | P0-72 | the product-detail half of `store/test/storefront.test.mjs`, over the real mirror schema |
+| P0-73 | `ops/test/media-backfill.test.mjs` for the fetch-and-store job; the real-photo half of `store/test/storefront.test.mjs` for rendering and the hover-alt fallback rule |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

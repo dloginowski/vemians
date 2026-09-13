@@ -205,15 +205,25 @@ enabled = true
 
 # ---------------------------------------------------------------------------
 # R2 — our photographic originals, and the authoritative copy of them
-# (Test-PRD-P0-28-image_contract, Test-PRD-P0-29-exit_test). Square gets a copy
-# so the item looks right on the till; losing Square must not lose our
-# photography, which is only true while the original never lived only there.
+# (Test-PRD-P0-28-image_contract, Test-PRD-P0-29-exit_test, Test-PRD-P0-73-
+# real_photography). Square gets a copy so the item looks right on the till;
+# losing Square must not lose our photography, which is only true while the
+# original never lived only there. It is also what lets the STOREFRONT show a
+# real photograph at all: store/src/catalog.js builds an <img src> straight
+# from a media_key in the mirror, at this bucket's own public custom domain
+# (media.vemians.com) — never a fetch of its own, and never Square's CDN.
 #
-# Created by .github/workflows/bootstrap-resources.yml. An R2 binding is by
-# NAME, not by id, so there is nothing to resolve afterwards — the bucket
-# either exists or the deploy says so.
+# ADR-013 dropped this bucket; the ADR's own text says binding one back later
+# "restores the original behaviour with no code change" — mediaStoreFor(env)
+# already picks R2 the instant this binding is live, and
+# ops/src/media-backfill.js already exists to fill it in from whatever
+# Square holds. Created by .github/workflows/bootstrap-media.yml (kept
+# separate from bootstrap-resources.yml on purpose — see that workflow's own
+# header for why an R2 step that fails must not take the KV namespaces down
+# with it). An R2 binding is by NAME, not by id, so there is nothing to
+# resolve afterwards — the bucket either exists or the deploy says so.
 
-# LIVE FORM, written in by bootstrap-resources.yml once the bucket exists.
+# LIVE FORM, written in by bootstrap-media.yml once the bucket exists.
 # Same reason as APPROVALS above: a binding to a bucket that does not exist
 # fails the deploy rather than degrading.
 #

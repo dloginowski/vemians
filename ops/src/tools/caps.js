@@ -69,6 +69,15 @@ export const CAPS = Object.freeze({
   ORIGINAL_IMAGE_MAX_BYTES: 15 * 1024 * 1024,
   /* A signed upload ticket is a link a human opens now, not a share link. */
   MEDIA_TICKET_TTL_MS: 15 * 60 * 1000,
+  /*
+   * The fetch-and-store backfill (media-backfill.js), run once per scheduled
+   * sync (every 15 minutes). Capped so a first-time backfill of a large
+   * existing catalog spreads itself across many runs rather than spending the
+   * whole cron budget — and the cron's own timeout — fetching a hundred
+   * photographs in one invocation. A steady-state catalog backfills whatever
+   * Square added since the last run, which is almost always far fewer.
+   */
+  MEDIA_BACKFILL_MAX_PER_RUN: 20,
 
   /*
    * Batch spreadsheet upload (batch.js). Each row calls runTool and, for a

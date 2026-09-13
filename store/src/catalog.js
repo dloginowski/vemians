@@ -44,6 +44,23 @@
 import { products as seedProducts } from "../../shared/seed/catalog.js";
 
 /*
+ * Where a mirrored photograph actually lives, once the backfill job
+ * (ops/src/media-backfill.js) has fetched it off Square's CDN and
+ * `.put()` it into OUR bucket under OUR key. This is a Cloudflare R2 bucket
+ * with its own public custom domain — the bytes are served by Cloudflare's
+ * edge directly, so this file still makes no outbound request and the
+ * storefront Worker still binds nothing but CATALOG_MIRROR (Test-PRD-P0-24-
+ * binding_scoped_tools): building this URL is string concatenation over a
+ * fact already sitting in the mirror row, not a fetch.
+ *
+ * A subdomain of vemians.com on purpose (Test-PRD-P0-28-image_contract: "no
+ * external URL in anything that fetches" — this must read as OURS, not as a
+ * third party's CDN, to the same check that would refuse a Square or R2.dev
+ * URL here).
+ */
+const MEDIA_BASE_URL = "https://media.vemians.com";
+
+/*
  * The read. One statement, the INDEX VIEWS rather than the base tables
  * (ADR-008 / Test-PRD-P0-36-working_set_index), so an archived product is
  * absent from the shop without anything here knowing what "archived" means.
@@ -51,6 +68,12 @@ import { products as seedProducts } from "../../shared/seed/catalog.js";
  * The price is the LOWEST-ORDINAL variation, which is how "from" pricing works
  * on a card that shows one number for a garment with five sizes. Ordering by
  * title keeps the default grid stable between renders; `sort` then reorders it.
+ *
+ * `image0`/`image1` are the R2 keys for the product's first two synced
+ * photographs (Test-PRD-P0-73-real_photography), NULL until the backfill job
+ * has fetched them — `fromMirror` falls back to the placeholder shot per
+ * missing slot, exactly as it always has for a product with no photography
+ * mirrored at all.
  */
 const MIRROR_SQL = `
   SELECT p.handle                                    AS handle,
@@ -59,7 +82,11 @@ const MIRROR_SQL = `
          (SELECT v.price_minor FROM mirror_variant_index v
            WHERE v.product_id = p.id ORDER BY v.ordinal, v.id LIMIT 1) AS minor,
          (SELECT v.currency FROM mirror_variant_index v
-           WHERE v.product_id = p.id ORDER BY v.ordinal, v.id LIMIT 1) AS currency
+           WHERE v.product_id = p.id ORDER BY v.ordinal, v.id LIMIT 1) AS currency,
+         (SELECT i.media_key FROM mirror_image_index i
+           WHERE i.product_id = p.id AND i.ordinal = 0 LIMIT 1) AS image0,
+         (SELECT i.media_key FROM mirror_image_index i
+           WHERE i.product_id = p.id AND i.ordinal = 1 LIMIT 1) AS image1
     FROM mirror_product_index p
     LEFT JOIN mirror_category_index c ON c.id = p.category_id
    WHERE p.status = 'active' AND p.channel = 'website'
@@ -81,7 +108,11 @@ const PRODUCT_SQL = `
          (SELECT v.price_minor FROM mirror_variant_index v
            WHERE v.product_id = p.id ORDER BY v.ordinal, v.id LIMIT 1) AS minor,
          (SELECT v.currency FROM mirror_variant_index v
-           WHERE v.product_id = p.id ORDER BY v.ordinal, v.id LIMIT 1) AS currency
+           WHERE v.product_id = p.id ORDER BY v.ordinal, v.id LIMIT 1) AS currency,
+         (SELECT i.media_key FROM mirror_image_index i
+           WHERE i.product_id = p.id AND i.ordinal = 0 LIMIT 1) AS image0,
+         (SELECT i.media_key FROM mirror_image_index i
+           WHERE i.product_id = p.id AND i.ordinal = 1 LIMIT 1) AS image1
     FROM mirror_product_index p
     LEFT JOIN mirror_category_index c ON c.id = p.category_id
    WHERE p.status = 'active' AND p.channel IN ('website', 'direct_link') AND p.handle = ?`;
@@ -101,7 +132,12 @@ export function toneFor(handle) {
   return (h % 25) / 100;
 }
 
-/* A mirror row -> the shape views.js and query.js already render. */
+/* A mirror row -> the shape views.js and query.js already render.
+   `photos` is a fixed two-slot array, index-aligned with the shot variant
+   (0 = primary, 1 = the hover alt) — NOT `.filter(Boolean)`, which would
+   shift a lone ordinal-1 photo into slot 0. A slot is `null` until the
+   backfill job has mirrored that photograph; `shotUrl` (views.js) is what
+   turns a null slot into the placeholder. */
 function fromMirror(row) {
   return {
     handle: row.handle,
@@ -112,6 +148,7 @@ function fromMirror(row) {
     category: row.category || null,
     eyebrow: "",
     tone: toneFor(row.handle),
+    photos: [row.image0 ? `${MEDIA_BASE_URL}/${row.image0}` : null, row.image1 ? `${MEDIA_BASE_URL}/${row.image1}` : null],
   };
 }
 

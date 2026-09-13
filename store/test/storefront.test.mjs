@@ -647,7 +647,16 @@ labeled("test_PRD_P0_28_image_contract__imagery_is_ours_and_addressable", () => 
   for (const u of external) {
     assert.ok(inAnchor(u), `${u} is fetched by this page rather than linked from it`);
   }
-  assert.doesNotMatch(html, /<img[^>]+src="https?:\/\/(?!vemians)/, "no image is loaded from anybody else");
+  /* Same "ours" test the `external` filter above already applies — a real
+     mirrored photograph now lives at a vemians.com subdomain (media.vemians.
+     com, Test-PRD-P0-73-real_photography), and a stricter regex that only
+     tolerated a bare https://vemians.com/ would flag our own bucket as
+     somebody else's. */
+  assert.doesNotMatch(
+    html,
+    /<img[^>]+src="https?:\/\/(?!(?:[^/]*\.)?vemians\.com\/)/,
+    "no image is loaded from anybody else",
+  );
   assert.match(read("shared", "design", "theme.css"), /--image-ground: #EFF0F4;/);
 });
 
@@ -1087,6 +1096,73 @@ labeled("test_PRD_P0_72_product_detail_page__the_grid_card_links_to_the_product_
     heartIdx < linkIdx || heartIdx > linkCloseIdx,
     "the wishlist heart must not be nested inside the product link, or tapping it would also navigate",
   );
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Test-PRD-P0-73-real_photography
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+labeled("test_PRD_P0_73_real_photography__shotUrl_prefers_a_real_photo_over_the_placeholder", () => {
+  const withBoth = { handle: "coat", photos: ["https://media.vemians.com/a.jpg", "https://media.vemians.com/b.jpg"] };
+  assert.equal(shotUrl(withBoth, 0), "https://media.vemians.com/a.jpg");
+  assert.equal(shotUrl(withBoth, 1), "https://media.vemians.com/b.jpg");
+});
+
+labeled("test_PRD_P0_73_real_photography__a_real_primary_with_no_real_alt_has_no_fabricated_hover_swap", () => {
+  /* A real photograph swapping to a generated cartoon rectangle on hover
+     would read as a bug, not a feature — so this is deliberately "" (no
+     swap at all), never the placeholder SVG route. */
+  const primaryOnly = { handle: "coat", photos: ["https://media.vemians.com/a.jpg", null] };
+  assert.equal(shotUrl(primaryOnly, 0), "https://media.vemians.com/a.jpg");
+  assert.equal(shotUrl(primaryOnly, 1), "", "no real alt exists, and none may be fabricated");
+});
+
+labeled("test_PRD_P0_73_real_photography__a_fully_placeholder_product_keeps_todays_behaviour_on_both_shots", () => {
+  const noPhotos = { handle: "coat", photos: [null, null] };
+  assert.equal(shotUrl(noPhotos, 0), "/img/coat-0.svg");
+  assert.equal(shotUrl(noPhotos, 1), "/img/coat-1.svg");
+  /* Same result again with no `photos` field at all — the seed catalog's
+     shape, unchanged by any of this. */
+  const seedShape = { handle: "coat" };
+  assert.equal(shotUrl(seedShape, 0), "/img/coat-0.svg");
+  assert.equal(shotUrl(seedShape, 1), "/img/coat-1.svg");
+});
+
+labeled("test_PRD_P0_73_real_photography__a_mirrored_product_with_a_backfilled_photo_renders_it", async () => {
+  const db = mirrorWith(SQUARE_STOCK);
+  const product = db._raw.prepare("SELECT id FROM mirror_product WHERE handle = ?").get(SQUARE_STOCK[0].handle);
+  db._raw
+    .prepare(
+      "INSERT INTO mirror_image (id, external_ref, product_id, source_url, ordinal, media_key) VALUES ('img-1','SQ_IMG_1',?,?,0,?)",
+    )
+    .run(product.id, "https://square-cdn.example/x.jpg", "catalog/originals/2026/09/deadbeef.jpg");
+
+  const { products: served } = (await saying(() => loadCatalog({ CATALOG_MIRROR: db }))).value;
+  const withPhoto = served.find((p) => p.handle === SQUARE_STOCK[0].handle);
+  assert.equal(withPhoto.photos[0], "https://media.vemians.com/catalog/originals/2026/09/deadbeef.jpg");
+  assert.equal(withPhoto.photos[1], null, "no second photograph was mirrored for this product");
+
+  const untouched = served.find((p) => p.handle === SQUARE_STOCK[1].handle);
+  assert.deepEqual(untouched.photos, [null, null], "a product with nothing backfilled must still fall back cleanly");
+
+  const html = catalogPage(brandsOf(served), categoriesOf(served), parseQuery(new URL("http://x/")), select(served, parseQuery(new URL("http://x/"))), "mirror");
+  assert.match(html, /<img class="shot" src="https:\/\/media\.vemians\.com\/catalog\/originals\/2026\/09\/deadbeef\.jpg"/);
+});
+
+labeled("test_PRD_P0_73_real_photography__a_backfilled_photo_reaches_the_product_page_too", async () => {
+  const db = mirrorWith(SQUARE_STOCK);
+  const product = db._raw.prepare("SELECT id FROM mirror_product WHERE handle = ?").get(SQUARE_STOCK[0].handle);
+  db._raw
+    .prepare(
+      "INSERT INTO mirror_image (id, external_ref, product_id, source_url, ordinal, media_key) VALUES ('img-1','SQ_IMG_1',?,?,0,?)",
+    )
+    .run(product.id, "https://square-cdn.example/x.jpg", "catalog/originals/2026/09/deadbeef.jpg");
+
+  const found = await loadProduct({ CATALOG_MIRROR: db }, SQUARE_STOCK[0].handle);
+  assert.equal(found.product.photos[0], "https://media.vemians.com/catalog/originals/2026/09/deadbeef.jpg");
+
+  const html = productPage([], {}, found.product, found.source);
+  assert.match(html, /<img class="shot" src="https:\/\/media\.vemians\.com\/catalog\/originals\/2026\/09\/deadbeef\.jpg"/);
 });
 
 /* ═══════════════════════════════════════════════════════════════════════════
