@@ -112,13 +112,14 @@ ${OPS_DARK_CSS}
 .greet h1 { font-size: var(--type); font-weight: 700; margin: 0 0 4px; }
 
 .menu { margin: 0 0 20px; }
-.menu h1 { font-size: var(--type); font-weight: 700; margin: 0 0 4px; }
 /* Small chips, not CTAs — three routine tasks and a fold, not the thing on
-   the page asking to be pressed hardest. The chat above is that thing now. */
-.choices { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+   the page asking to be pressed hardest. The chat above is that thing now.
+   No heading of their own: centred right under the chat widget, they read
+   as quick prompts for it rather than a second menu competing with it. */
+.choices { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
 .choices .btn {
-  display: inline-block; font: inherit; font-size: 13px; line-height: 1.2;
-  padding: 5px 10px; border: 1px solid var(--accent); border-radius: 999px;
+  display: inline-block; font: inherit; font-size: 11px; line-height: 1.2;
+  padding: 4px 9px; border: 1px solid var(--accent); border-radius: 999px;
   background: transparent; color: var(--accent); text-decoration: none; font-weight: 400;
 }
 .choices .btn:hover { background: var(--accent); color: var(--ground); }
@@ -442,7 +443,6 @@ ${id}
   </section>
 
   <section class="menu">
-    <h1>Or, one click</h1>
     <div class="choices">
       <a class="btn" href="/products/batch">Add Merchandise</a>
       <a class="btn" href="/customers/batch">Add Customers</a>
