@@ -667,6 +667,24 @@ that does not trace to one of these is a process failure (see §12).
     this codebase once (P0-35): reading the code and believing it says the right thing is not the
     same as checking what it sends.
 
+34a'. **`Test-PRD-P0-67-greet_by_first_name`** — The greeting uses the coworker's ACTUAL first
+    name, not one the model guesses from an email address. `firstNameFrom(claims, email)`
+    (`ops/src/access.js`) tries `given_name` first (the OIDC claim Google Workspace sign-in
+    typically carries), then the first token of a full `name` claim, then derives one from the
+    email's local part (`ana.garcia@` → `Ana`) — never throwing, never returning empty, because
+    "there" beats a crash when nothing at all is available. Whether Cloudflare Access actually
+    forwards `given_name` on a real assertion is unconfirmed against a live tenant — the same
+    unresolved claim-shape question ADR-007 already raised for `groups` — which is exactly why
+    every plausible source is tried rather than assuming one specific field is present.
+
+    Surfaced in **two** places, for the P0-64 reason: `buildInstructions()`'s connect-time
+    `instructions` field names it directly ("greet them BY THEIR ACTUAL FIRST NAME — Ana, given
+    above") for the client that reliably shows that field (Claude Code); `skills_list`'s own
+    tool response now also carries `you: { email, first_name, role }`, because that is the first
+    real tool call every onboarding script already tells a connecting agent to make, and a tool
+    result reaches the model on every client, `instructions` or not. Both read from the same
+    `firstNameFrom()`, so there is one answer, not two that can disagree.
+
 34b. **`Test-PRD-P0-63-editable_approval`** — The `/approvals/` page is a real, editable form for
     the two tools the spreadsheet and narrated-list flows actually produce
     (`catalog.create_product`, `customer.create`): a coworker can fix a typo'd title or a wrong
@@ -966,6 +984,7 @@ Where each feature is enforced today:
 | P0-64 | `ops/test/skills.test.mjs` |
 | P0-65 | `ops/test/tools.test.mjs` for the tool layer and extraction; `ops/test/assets-route.test.mjs` for the upload/download/list routes, over the real Worker |
 | P0-66 | `ops/test/tools.test.mjs` for `parseReceiptText` and the OCR fallback; `ops/test/expenses-route.test.mjs` for the scan/confirm/file routes, over the real Worker; `ops/test/mcp-instructions.test.mjs` and `ops/test/skills.test.mjs` for the "no tool, send them to the link" instruction |
+| P0-67 | `ops/test/skills.test.mjs` for `firstNameFrom` and `buildInstructions()`; no round-trip test yet exercises `skills_list`'s wire response directly — this file has no harness that calls a registered MCP tool handler, for any tool, not only this one |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

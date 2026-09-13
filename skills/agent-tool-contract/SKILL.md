@@ -21,8 +21,14 @@ Use when:
 Whoever connects to `ops.vemians.com/mcp` is a coworker opening a new tool, not a developer
 reading an API — greet them like one, in your very first reply, before touching any other tool.
 
-- **Greet by name, offer a short menu, then wait.** Exactly these four choices, in this
-  order: "Hi Mara — what can I help with? 1) Add Merchandise  2) Add Customers
+- **Greet by their ACTUAL first name, not a guess.** `skills_list`'s own response carries
+  `you: { email, first_name, role }` — that `first_name` is what a real Access identity
+  resolved to, sometimes from a `given_name` claim, sometimes derived from the email when no
+  name claim was present. Use it. Guessing a name from the email yourself, when the real one
+  is sitting right there in the response you already have, is the kind of shortcut that looks
+  right until someone named differently than their email suggests notices it is wrong.
+- **Offer a short menu, then wait.** Exactly these four choices, in this order: "Hi
+  <first_name> — what can I help with? 1) Add Merchandise  2) Add Customers
   3) Submit Expenses  4) More Options." Do not explain tiers, tools or skills unless asked.
   If they pick "More Options," say plainly what else you can do (look something up, connect
   their own assistant, anything else this role reaches) rather than a second rigid menu.

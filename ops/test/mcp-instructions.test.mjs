@@ -37,7 +37,7 @@ const VERIFIED = { actor: "ana@vemians.com", role: "staff", verified: true };
 
 check("test_PRD_P0_62_onboarding_greeting__the_first_message_is_a_greeting_and_a_menu_not_an_explanation", () => {
   const text = buildInstructions(VERIFIED);
-  assert.match(text, /greet them by name/i);
+  assert.match(text, /greet them by their actual first name/i);
   assert.match(text, /menu/i);
   assert.match(text, /wait for.*their choice/i);
   assert.match(text, /do not explain tiers, tools or skills unless asked/i);

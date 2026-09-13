@@ -159,7 +159,7 @@ check("test_PRD_P0_64_greeting_survives_every_client__agent_tool_contract_carrie
      client — so the same greeting protocol has to live here too, not only in
      buildInstructions(). */
   const contract = skillByName("agent-tool-contract").text;
-  assert.match(contract, /greet.*by name/i, "the opening greeting is not documented in the skill");
+  assert.match(contract, /greet.*by their actual first name/i, "the opening greeting is not documented in the skill");
   assert.match(contract, /short menu/i, "the numbered menu is not documented in the skill");
   assert.match(
     contract,
@@ -299,4 +299,40 @@ check("test_PRD_P0_23_group_derived_roles__an_unset_policy_var_never_matches_an_
   assert.equal(out.role, null);
   const out2 = explainRole({ claims: { email: "x@vemians.com", policy_id: "" } }, {});
   assert.equal(out2.role, null);
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-67 — greet by a real first name, not a guess
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_67_greet_by_first_name__a_given_name_claim_wins_over_everything_else", () => {
+  const { firstNameFrom } = accessMod;
+  const claims = { given_name: "MARA", name: "Mara Fuentes Lopez", email: "m@vemians.com" };
+  assert.equal(firstNameFrom(claims, "m@vemians.com"), "Mara", "capitalised, first token only");
+});
+
+check("test_PRD_P0_67_greet_by_first_name__falls_back_to_the_first_token_of_a_full_name", () => {
+  const { firstNameFrom } = accessMod;
+  assert.equal(firstNameFrom({ name: "ana garcia", email: "a@vemians.com" }, "a@vemians.com"), "Ana");
+});
+
+check("test_PRD_P0_67_greet_by_first_name__falls_back_to_the_email_local_part_when_no_name_claim_exists", () => {
+  const { firstNameFrom } = accessMod;
+  assert.equal(firstNameFrom({ email: "dimitri@handsome.la" }, "dimitri@handsome.la"), "Dimitri");
+  assert.equal(firstNameFrom({}, "ana.garcia@vemians.com"), "Ana", "split on a separator in the local part");
+  assert.equal(firstNameFrom({}, "tomas_r@vemians.com"), "Tomas");
+});
+
+check("test_PRD_P0_67_greet_by_first_name__never_throws_and_never_returns_empty", () => {
+  const { firstNameFrom } = accessMod;
+  assert.equal(firstNameFrom({}, ""), "there", "no claim and no email at all is still a real answer");
+  assert.equal(firstNameFrom(undefined, undefined), "there");
+  assert.equal(firstNameFrom({ given_name: "" }, "d@vemians.com"), "D", "a blank given_name is not used");
+});
+
+check("test_PRD_P0_67_greet_by_first_name__build_instructions_hands_over_the_real_name_not_a_placeholder", async () => {
+  const { buildInstructions } = await import("../src/mcp.js");
+  const text = buildInstructions({ actor: "tomas@vemians.com", role: "staff", claims: { given_name: "Tomás" }, verified: true });
+  assert.match(text, /first name Tomás/);
+  assert.match(text, /Hi Tomás —/);
 });

@@ -77,7 +77,7 @@ function groupsFrom(claims) {
 
 /* Imported, not re-exported blind: `export … from` creates no local
    binding, so the module could not call it. */
-import { roleFor } from "./access.js";
+import { roleFor, firstNameFrom } from "./access.js";
 export { roleFor };
 
 
@@ -347,8 +347,9 @@ function describe(id, tool) {
  * you meant to a live client.
  */
 export function buildInstructions(identity) {
+  const firstName = firstNameFrom(identity.claims, identity.actor);
   return (
-    `Vemians ops tools for ${identity.actor} (${identity.role}).` +
+    `Vemians ops tools for ${identity.actor} (${identity.role}), first name ${firstName}.` +
     ` Only the tools this role may use are listed.` +
     ` T2 writes are never executed by this endpoint: they return a link a human approves in a browser.` +
     /* The whole reason skills are served. A tool name says what it is
@@ -364,13 +365,15 @@ export function buildInstructions(identity) {
        opposite of the plain, short-choices experience the ops front page
        itself promises — say so here, once, so every connecting agent
        opens the same way instead of each inventing its own tone. */
-    ` FIRST MESSAGE: greet them by name and offer a short menu of what you` +
-    ` can help with right now — exactly these four choices, in this order:` +
-    ` "1) Add Merchandise  2) Add Customers  3) Submit Expenses  4) More` +
-    ` Options" — then wait for their choice. Do not explain tiers, tools or` +
-    ` skills unless asked. If they pick "More Options," say plainly what` +
-    ` else you can do (look something up, connect their own assistant,` +
-    ` anything else this role reaches) rather than a second rigid menu.` +
+    ` FIRST MESSAGE: greet them BY THEIR ACTUAL FIRST NAME — ${firstName},` +
+    ` given above, not a guess of your own — and offer a short menu of what` +
+    ` you can help with right now — exactly these four choices, in this` +
+    ` order: "Hi ${firstName} — 1) Add Merchandise  2) Add Customers` +
+    ` 3) Submit Expenses  4) More Options" — then wait for their choice. Do` +
+    ` not explain tiers, tools or skills unless asked. If they pick "More` +
+    ` Options," say plainly what else you can do (look something up,` +
+    ` connect their own assistant, anything else this role reaches) rather` +
+    ` than a second rigid menu.` +
     /* Once they pick "Add Merchandise" or "Add Customers" from the first
        menu, ask a second, equally short question before doing anything:
        spreadsheet or narrate it here. Both end at the SAME result — a
@@ -455,6 +458,18 @@ function buildServer(identity, env) {
           type: "text",
           text: JSON.stringify(
             {
+              /* The same reliability fix as the greeting itself (P0-64): the
+                 connect-time `instructions` field is not reliably shown to
+                 the model by every client (confirmed absent on Claude.ai's
+                 own web connector and ChatGPT), but a tool RESULT always
+                 reaches the model. skills_list is the first tool this
+                 identity's own instructions tell it to call, so the actual
+                 first name — not a guess from the model — lands here too. */
+              you: {
+                email: identity.actor,
+                first_name: firstNameFrom(identity.claims, identity.actor),
+                role: identity.role,
+              },
               skills: visibleSkills.map(({ name, title, description, version, bytes, uri }) => ({
                 name,
                 title,
@@ -466,7 +481,8 @@ function buildServer(identity, env) {
               start_with: "agent-tool-contract",
               note:
                 "Filtered to this role. A skill for tools you cannot call is not listed, " +
-                "for the same reason those tools are not listed.",
+                "for the same reason those tools are not listed. Greet 'you.first_name', not a " +
+                "name guessed from the email.",
             },
             null,
             2,
