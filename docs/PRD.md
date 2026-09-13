@@ -1007,7 +1007,9 @@ that does not trace to one of these is a process failure (see §12).
     to `16px` — a deliberate departure from matching `.ops`'s own padding exactly, in favour of
     more visible separation from the screen edge. `.shell-nav button`'s own corner radius triples
     from `10px` (not the original `6px`) to `30px` — round enough to read as a distinct shape
-    rather than a barely-softened rectangle.
+    rather than a barely-softened rectangle. Corrected immediately after, seeing it rendered:
+    "Double ratius padding not triple" — the radius overshot; `10px` doubles to `20px` instead,
+    the padding already right and left untouched.
 
 47b. **`Test-PRD-P0-72-product_detail_page`** — Every product has its own page at
     `/products/<handle>` — the answer to "how do I see product details", asked directly, of a

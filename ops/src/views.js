@@ -208,7 +208,7 @@ html, body { height: 100%; margin: 0; }
 .shell-nav { display: flex; align-items: flex-end; gap: 3px; }
 .shell-nav button {
   font: inherit; font-size: 12px; font-weight: 600; padding: 7px 16px; cursor: pointer;
-  border: 1px solid var(--rule); border-bottom: none; border-radius: 30px 30px 0 0;
+  border: 1px solid var(--rule); border-bottom: none; border-radius: 20px 20px 0 0;
   background: var(--image-ground); color: var(--muted); position: relative;
 }
 .shell-nav button:hover:not(.active) { color: var(--accent); }
