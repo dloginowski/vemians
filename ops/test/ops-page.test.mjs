@@ -216,7 +216,7 @@ check("test_PRD_P0_71_items_tab__the_active_tab_structurally_merges_into_the_pan
      it structurally opens into what it fronts rather than floating
      above it as an independent, fully-bordered piece. */
   const { body } = await shell(OWNER);
-  assert.match(body, /\.shell-nav button\.active\s*\{[^}]*border-top:\s*1px solid var\(--accent\)/s);
+  assert.match(body, /\.shell-nav button\.active\s*\{[^}]*border:\s*1px solid var\(--accent\); border-bottom:\s*none/s);
   assert.match(body, /\.shell-nav button\.active\s*\{[^}]*margin-bottom:\s*-1px/s);
   assert.match(body, /\.shell-panel\s*\{[^}]*border-top:\s*1px solid var\(--accent\)/s, "the panel's own line the active tab merges into must still be there");
 });
