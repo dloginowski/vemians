@@ -140,16 +140,26 @@ check("test_PRD_P0_71_items_tab__chat_no_longer_draws_its_own_copy_of_the_tab_ba
   assert.doesNotMatch(body, /class="bar"/, "the employees-only strip must not be drawn a second time inside the iframe");
 });
 
-check("test_PRD_P0_71_items_tab__the_shell_carries_a_link_to_the_public_site_as_the_last_item", async () => {
-  /* The owner's own words: "add a link to the public facing site as the
-     last link." Opens in a new tab — leaving ops entirely inside the same
-     iframe would strand whichever tab the person was on. */
+check("test_PRD_P0_71_items_tab__the_public_site_is_the_last_tab_loaded_in_the_same_iframe", async () => {
+  /* The owner's own words, emphatically, after a first attempt made this
+     an <a target="_blank">: "A link!!! Its inside a tab! Iframe are you
+     listening??? Header is tabs and everything in tab body is an
+     iframe." No exception for the storefront: it is a real tab button
+     with a cross-origin src, swapped into #ops-frame exactly like every
+     other tab — never a plain link, never a new browser tab. */
   const { body } = await shell(OWNER);
   const nav = body.match(/<nav class="shell-nav">[\s\S]*?<\/nav>/)[0];
-  const items = [...nav.matchAll(/<(?:button|a)[^>]*>/g)];
+  const items = [...nav.matchAll(/<button[^>]*>[^<]*<\/button>/g)];
   const last = items.at(-1)[0];
-  assert.match(last, /href="https:\/\/vemians\.com"/, "the storefront link must be the LAST item, not just present somewhere");
-  assert.match(last, /target="_blank"/);
+  assert.match(last, /data-src="https:\/\/vemians\.com"/, "the storefront tab must be the LAST tab, not just present somewhere");
+  assert.match(last, /^<button type="button"/, "it must be a real tab button, not an <a>, so it swaps the SAME iframe rather than navigating away");
+  assert.doesNotMatch(last, /target="_blank"/);
+});
+
+check("test_PRD_P0_71_items_tab__tab_equals_website_starts_the_iframe_on_the_public_site", async () => {
+  const { body } = await shell(OWNER, "/?tab=website");
+  assert.match(body, /id="ops-frame" src="https:\/\/vemians\.com"/);
+  assert.match(body, /data-src="https:\/\/vemians\.com"[^>]*class="active"/);
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -353,6 +363,24 @@ check("test_PRD_P0_75_ops_dark_theme__every_approval_style_page_carries_it_too",
   ]) {
     assert.match(html, /--accent:\s*#D97757/);
   }
+});
+
+check("test_PRD_P0_71_items_tab__a_non_identity_refusal_does_not_tell_the_reader_to_sign_in", async () => {
+  /* The bug this guards: refusalPage() appended "sign in with your Vemians
+     email" UNCONDITIONALLY, so the Items mirror-read 500 — a data problem,
+     nothing to do with who is signed in — read as "...run this SQL against
+     the mirror. Sign in with your Vemians email and try again," which is
+     actively misleading right under a reason that already named the real,
+     unrelated fix. Only an actual identity refusal (401/403) gets the note. */
+  const { refusalPage } = await import("../src/views.js");
+  const dataError = refusalPage(500, "The Items tab could not read the catalog mirror.");
+  assert.doesNotMatch(dataError, /sign in with your Vemians email/i);
+
+  const notConfigured = refusalPage(503, "The catalog mirror is not configured on this deployment yet.");
+  assert.doesNotMatch(notConfigured, /sign in with your Vemians email/i);
+
+  const identityRefusal = refusalPage(403, "Your Access identity is in no group this application maps to a role.");
+  assert.match(identityRefusal, /sign in with your Vemians email/i);
 });
 
 check("test_PRD_P0_89_batch_preview_confirm__the_batch_review_page_uses_the_same_table_card_as_chat", async () => {
