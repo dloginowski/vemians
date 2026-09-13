@@ -463,21 +463,30 @@ check("test_PRD_P0_93_nested_chat_frame__the_send_button_gets_the_same_clearance
      "make the padding on the chat submit button a little more even so it
      fit better." The bar's own left/right padding used to be 6px/4px — the
      send button sat measurably tighter against the edge than the attach
-     button on the other side. Tightened once more since, from 6px to a
-     uniform 4px all around: "submit button's padding could use a bit of
-     tightening too" — still even, just closer to the edge than before. */
+     button on the other side. Both buttons must have the SAME left/right
+     clearance — a uniform 4px round in between made that clearance too
+     tight relative to the vertical gap and was corrected back to 4px 6px
+     (see the P0-93 vertical-vs-sides check below); either way, left and
+     right must always match each other. */
   const { body } = await frontPage(OWNER);
-  assert.match(body, /\.chat \.chat-bar\s*\{[^}]*padding:\s*4px;/s, "padding around the buttons must be uniform on every side");
   assert.doesNotMatch(
     body,
     /\.chat \.chat-bar\s*\{[^}]*padding:\s*4px 4px 4px 6px/s,
-    "the old asymmetric 4px/6px split must not still be set",
+    "the old asymmetric 4px/6px split (send tighter than attach) must not still be set",
   );
-  assert.doesNotMatch(
-    body,
-    /\.chat \.chat-bar\s*\{[^}]*padding:\s*4px 6px;/s,
-    "the old, less-tight 4px/6px even split must not still be set",
-  );
+});
+
+check("test_PRD_P0_93_nested_chat_frame__the_sides_are_wider_than_the_vertical_gap_again", async () => {
+  /* The owner's own direct measurement, once a uniform 4px was actually in
+     front of them: "Sides is less than vertical. I don't think that's an
+     optical illusion. Side padding probably needs like 2 more pixels."
+     Vertical stays 4px (it already matches the button height exactly, no
+     room to spare); sides go back to 6px — the same value this carried
+     before the brief uniform-4px round, restored on their own read of it
+     rather than further guessing. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.chat \.chat-bar\s*\{[^}]*padding:\s*4px 6px;/s, "sides must be wider than the vertical gap, not uniform");
+  assert.doesNotMatch(body, /\.chat \.chat-bar\s*\{[^}]*padding:\s*4px;/s, "the uniform 4px round must not still be set");
 });
 
 /* ─────────────────────────────────────────────────────────────────────────

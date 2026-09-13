@@ -340,17 +340,20 @@ ${OPS_DARK_CSS}
    value would exceed it — a full stadium either way, but .chat-top's own
    radius above has to be sized against this real ~21px shape, not the
    nominal 24, or the two frames stop looking concentric on an actual
-   screen. Padding is a further-tightened, still-EVEN 4px all around
-   (down from 6px left/right) — "submit button's padding could use a bit
-   of tightening too," the owner's own words — not a return to the
-   uneven 4px/6px split this carried before P0-93, which sat the send
-   button measurably tighter against the bar's own edge than the attach
-   button on the other side; both buttons are equally close to their own
-   edge here, just closer than before. */
+   screen.
+ *
+ * Padding is 4px 6px — vertical 4px (matching the button height exactly,
+ * no room to spare), sides 6px. A brief uniform-4px round ("submit
+ * button's padding could use a bit of tightening too") made the sides
+ * read as tighter than the vertical gap once it was actually in front of
+ * the owner again: "Sides is less than vertical. I don't think that's an
+ * optical illusion. Side padding probably needs like 2 more pixels." Back
+ * to the wider 6px sides this carried before that round, on their own
+ * direct measurement rather than continuing to guess. */
 .chat .chat-bar {
   display: flex; align-items: center; gap: 2px;
   border: 1px solid var(--muted); border-radius: 24px;
-  padding: 4px; background: var(--image-ground);
+  padding: 4px 6px; background: var(--image-ground);
 }
 /* Stays the same neutral grey on focus — an orange ring here, right inside
    an already-orange .chat-top frame, doubled up on the one accent colour

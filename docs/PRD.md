@@ -1579,6 +1579,16 @@ that does not trace to one of these is a process failure (see §12).
     the top corner keeps its own independently-liked `20px`, since nothing rounded is nested
     against it regardless of what the gap itself is.
 
+    **A separate, smaller-scale version of the same "sides vs. the other axis" question, this
+    time on `.chat .chat-bar` itself.** The uniform `4px` round above ("submit button's padding
+    could use a bit of tightening too") made the sides read as tighter than the vertical gap once
+    it was actually in front of the owner again: "Sides is less than vertical. I don't think
+    that's an optical illusion. Side padding probably needs like 2 more pixels." Vertical stays
+    `4px` (it already matches the button height exactly — no room to spare there without shrinking
+    the buttons themselves); sides return to `6px`, the same value this padding carried before
+    that uniform round, restored on the owner's own direct measurement rather than further
+    guessing at a number.
+
 34a''''''''''''''''''''''''''''. **`Test-PRD-P0-97-placeholder_names_the_attachment`** — The
     owner's own words: "When adding an attachment, instead of adding a line under the inner chat
     box. Just update the default text inside of the chat box to indicate that I'm adding a file
