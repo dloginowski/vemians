@@ -148,6 +148,24 @@ ${OPS_DARK_CSS}
   border: 1px solid var(--accent); border-radius: 20px 20px 35px 35px;
   padding: 14px; margin-bottom: 16px;
 }
+/* The SAME class of bug P0-96 found on the bottom edge, on the top edge
+   instead — the owner's own words: "match the outer chat box top padding
+   to its side padding. So that content is evenly spaced out from the
+   edge." .chat-top's own padding was already a literal, uniform 14px on
+   every side; what was NOT accounted for is theme.css's own .chat rule
+   (margin-top: 12px, shared/design/theme.css) — the composer <form>
+   below carries class="chat" (reused deliberately so the approval gate's
+   own buttons elsewhere inherit from it, per the comment on .chat
+   .chat-bar below), and inherits that margin regardless. With the hint
+   paragraph absent (the common case) and .log/#gate both empty and
+   collapsed to nothing, the form is the FIRST thing in .chat-top's own
+   padded box — so its inherited margin-top stacked directly on top of
+   the 14px padding, making the effective top gap ~26px against the
+   sides' plain 14px. Scoped to #chat specifically (not a blanket .chat
+   override, which would also zero the gate's OWN use of class="chat"
+   for its button row, a few hundred lines down) since only this form's
+   top margin was ever the problem. */
+#chat { margin-top: 0; }
 
 /* Centred and quiet on purpose — a name check, not the thing on the page
    asking to be read first. The chat widget right below it is that thing;

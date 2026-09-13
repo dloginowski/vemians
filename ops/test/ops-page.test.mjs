@@ -613,6 +613,33 @@ check("test_PRD_P0_98_cancellable_attachment__the_icon_and_accessible_name_swap_
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
+ * P0-99 — the composer form's own inherited top margin is zeroed
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_99_chat_form_inherited_margin__the_composer_forms_own_margin_top_is_zeroed", async () => {
+  /* THE SAME CLASS OF BUG P0-96 found on the bottom edge, on the top edge
+     instead: .chat-top's own padding was already a literal, uniform 14px
+     on every side — shared/design/theme.css's own ".chat { margin-top:
+     12px }" (written for the storefront's unrelated contact-form chat
+     block) was stacking on top of it, since the composer <form> carries
+     class="chat" deliberately (so the gate's own button row inherits
+     from it too). The owner's own words: "match the outer chat box top
+     padding to its side padding. So that content is evenly spaced out
+     from the edge." */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /#chat\s*\{[^}]*margin-top:\s*0/s, "the composer form's own inherited top margin must be zeroed");
+});
+
+check("test_PRD_P0_99_chat_form_inherited_margin__the_gates_own_button_row_still_gets_its_margin", async () => {
+  /* The fix must be scoped to #chat specifically — a blanket .chat
+     override would also remove the approval gate's own, separately-
+     wanted spacing above its button row (class='chat row', a few hundred
+     lines further down in the same script). */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /class='chat row'/, "the gate's own button row must still carry the plain .chat class, unaffected by the #chat override");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
  * P0-78 — a real scrolling chat widget, and compact one-click chips
  * ───────────────────────────────────────────────────────────────────────── */
 
