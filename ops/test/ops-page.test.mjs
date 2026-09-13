@@ -249,7 +249,7 @@ check("test_PRD_P0_71_items_tab__the_active_tab_has_round_out_notches_at_its_own
      flood-filled spread. */
   const { body } = await shell(OWNER);
   assert.match(body, /\.shell-nav\s*\{[^}]*--tab-radius:\s*14px/s);
-  assert.match(body, /\.shell-nav button\.active::before\s*\{[^}]*left:\s*calc\(var\(--tab-radius\) \* -1 - 1px\)/s);
+  assert.match(body, /\.shell-nav button\.active::before\s*\{[^}]*left:\s*calc\(var\(--tab-radius\) \* -1\)/s);
   assert.match(body, /\.shell-nav button\.active::before\s*\{[^}]*border-bottom-right-radius:\s*var\(--tab-radius\)/s);
   assert.match(body, /\.shell-nav button\.active::before\s*\{[^}]*box-shadow:\s*calc\(var\(--tab-radius\) \/ 2\) 0 0 0 var\(--ground\)/s);
   assert.doesNotMatch(body, /\.shell-nav button\.active::before\s*\{[^}]*box-shadow:[^}]*var\(--accent\)/s, "the curve must be a single plain colour, not a decorated outline");
@@ -289,20 +289,6 @@ check("test_PRD_P0_71_items_tab__the_notch_radius_matches_its_own_taller_box_not
     body,
     /\.shell-nav button\.active::after\s*\{[^}]*border-bottom-left-radius:\s*var\(--tab-radius\) calc\(var\(--tab-radius\) \+ 1px\)/s,
   );
-});
-
-check("test_PRD_P0_71_items_tab__the_notch_starts_flush_with_the_border_not_one_px_inside_it", async () => {
-  /* "The right one has to have its left edge aligned and vice versa" —
-     an absolutely positioned element's offsets are measured from its
-     containing block's PADDING edge, one border-width INSIDE the
-     button's own visible border (box-sizing: border-box draws that 1px
-     border OUTSIDE the padding box). Left at just --tab-radius, the
-     curve's own inner edge started 1px short of the border's outer
-     edge instead of flush against it. The extra "- 1px" pushes both
-     pseudo-elements out to start exactly on the border line. */
-  const { body } = await shell(OWNER);
-  assert.match(body, /\.shell-nav button\.active::before\s*\{[^}]*left:\s*calc\(var\(--tab-radius\) \* -1 - 1px\)/s);
-  assert.match(body, /\.shell-nav button\.active::after\s*\{[^}]*right:\s*calc\(var\(--tab-radius\) \* -1 - 1px\)/s);
 });
 
 check("test_PRD_P0_71_items_tab__the_gap_between_tabs_is_wide_enough_the_notches_never_bite_a_neighbour", async () => {

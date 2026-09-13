@@ -315,12 +315,12 @@ html, body { height: 100%; margin: 0; }
   background: transparent;
 }
 .shell-nav button.active::before {
-  left: calc(var(--tab-radius) * -1 - 1px);
+  left: calc(var(--tab-radius) * -1);
   border-bottom-right-radius: var(--tab-radius) calc(var(--tab-radius) + 1px);
   box-shadow: calc(var(--tab-radius) / 2) 0 0 0 var(--ground);
 }
 .shell-nav button.active::after {
-  right: calc(var(--tab-radius) * -1 - 1px);
+  right: calc(var(--tab-radius) * -1);
   border-bottom-left-radius: var(--tab-radius) calc(var(--tab-radius) + 1px);
   box-shadow: calc(var(--tab-radius) / -2) 0 0 0 var(--ground);
 }
