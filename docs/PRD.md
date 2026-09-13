@@ -1078,6 +1078,21 @@ that does not trace to one of these is a process failure (see §12).
     notch reaches further than the `8px` one did, so `.shell-nav`'s own gap widened again, `12px`
     to `16px`, to keep it clear of a neighbouring tab.
 
+    **The notch's own mechanism, made literal.** Even with the right numbers, the round above still
+    hand-computed every value (`14px`, `7px`, `-7px`) as pixel literals rather than using the
+    owner's own mechanism — a single radius variable driving every other number through `calc()`.
+    The owner's own words, after seeing that this still did not match: "I gave you exact css and
+    html." `.shell-nav` now declares `--tab-radius: 14px` once, and every dependent number is
+    `calc()`-derived from it exactly as the reference code was — `border-radius: var(--tab-radius)
+    var(--tab-radius) 0 0` on the tab itself, `width`/`height: var(--tab-radius)` on each notch,
+    `left: calc(var(--tab-radius) * -1)` / `right: calc(var(--tab-radius) * -1)`, `border-bottom-
+    *-radius: var(--tab-radius)`, and `box-shadow: calc(var(--tab-radius) / 2) 0 0 0 var(--ground)`
+    / `calc(var(--tab-radius) / -2) 0 0 0 var(--ground))` in place of `var(--tab-color)` (`.shell-
+    header` has no background of its own, so `--ground` has to be named explicitly rather than
+    inherited). Same rendered result as the literal-pixel round before it, but now one number
+    change to `--tab-radius` moves every dependent value together, the way the owner's own code
+    was written to work.
+
 47b. **`Test-PRD-P0-72-product_detail_page`** — Every product has its own page at
     `/products/<handle>` — the answer to "how do I see product details", asked directly, of a
     shop whose cards used to be `<article>`s with no click-through at all. `loadProduct(env,
