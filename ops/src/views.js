@@ -17,52 +17,95 @@ import { firstNameFrom } from "./access.js";
 /*
  * ---- the front page -------------------------------------------------------
  *
- * One screen. A phone should show the whole thing without scrolling, and the
- * only thing above the fold that asks anything of the reader is the command
- * that connects their assistant — because that is what almost everyone is here
- * to do, once, and then never again.
+ * One screen. A phone should show the whole thing without scrolling. In order:
+ * a greeting by first name, the built-in assistant — open, typing, no setup,
+ * the first thing anyone can actually use (Test-PRD-P0-74-chat_first) — then
+ * the same three one-click tasks P0-69 put on the page directly, then
+ * everything else folded under "More Options".
  *
- * EVERYTHING ELSE IS A CLOSED ROW. Short label, no preamble, opened by the few
- * people who want it: the roster, the tier rules, the machine-readable contract
- * for a developer, the seed data. Out of sight, not out of mind. Nothing is
- * removed and nothing is a second page.
+ * EVERYTHING PAST THAT IS A CLOSED ROW. Short label, no preamble, opened by
+ * the few people who want it: the roster, the tier rules, the machine-readable
+ * contract for a developer, the seed data. Out of sight, not out of mind.
+ * Nothing is removed and nothing is a second page.
  *
  * An assistant that fetches this URL still reads all of it — `<details>` folds
  * are in the DOM whether or not a person opened them — so the compaction costs
  * the machine reader nothing.
  *
- * Nothing here is a second design system. The tokens are theme.css; the rules
- * below are layout only, integer px, no new colour and no new type size.
+ * Nothing here is a second design system beyond the dark reskin two blocks
+ * down (Test-PRD-P0-75-ops_dark_theme) — layout stays integer px, and no new
+ * type size was added for it.
  */
+/*
+ * ---- the dark reskin --------------------------------------------------
+ *
+ * ops.vemians.com only. Prepended to both OPS_CSS and APPROVAL_CSS (never to
+ * shared/design/theme.css, which the storefront also loads) so the shop keeps
+ * its own light, warm-cream palette untouched — this is a second `:root`
+ * block in the SAME <style> tag, and a later declaration of a variable
+ * theme.css already named simply wins the cascade.
+ *
+ * THE COLOURS ARE AN INTERPRETATION, NOT A LOGO FILE. Nobody handed this
+ * codebase Anthropic's brand kit, so "near-black ground, warm off-white ink,
+ * one clay-orange accent" is a reasonable reading of the asked-for look, not
+ * a value lifted from an official source — said out loud the way this
+ * repository already marks a placeholder or an inferred design choice
+ * (compare shared/view/enhance.client.js's own INFERRED markers).
+ *
+ * Two variables theme.css never had: --muted (the `#666` this file used to
+ * hardcode seven times for secondary text) and --accent (the one warm colour
+ * a mostly-monochrome dark screen gets, spent on the controls that actually
+ * do something — a button, a link, a focus ring — never on a whole section).
+ */
+const OPS_DARK_CSS = `
+:root {
+  --ground:       #191817;
+  --image-ground: #242220;
+  --ink:          #F1EEE6;
+  --bar:          #000000;
+  --rule:         #3A3733;
+  --muted:        #9C978C;
+  --accent:       #D97757;
+}
+
+a { color: var(--accent); }
+a:hover { opacity: 0.82; }
+`;
+
 const OPS_CSS = `
+${OPS_DARK_CSS}
 .ops { max-width: 34rem; padding: 12px 16px 32px; }
 
-.id { font-size: var(--eyebrow); margin: 0 0 16px; color: #666; }
+.id { font-size: var(--eyebrow); margin: 0 0 16px; color: var(--muted); }
 .ops .warn { margin: 0 0 14px; }
 .id strong { color: var(--ink); }
 
 .key h1 { font-size: var(--type); font-weight: 700; margin: 0 0 4px; }
-.hint { font-size: var(--eyebrow); color: #666; margin: 0 0 8px; }
-.hint a { color: var(--ink); }
+.hint { font-size: var(--eyebrow); color: var(--muted); margin: 0 0 8px; }
+.hint a { color: var(--accent); }
 
-/* Neutral: border and text, never a filled colour (the same rule
-   shared/design/interaction.css states for the storefront's own .btn). */
+/* The one filled colour on the page, spent on the controls that do
+   something — a button that only outlines never reads as "press me" on a
+   near-black ground the way it did bordered in ink on cream. */
 .key .btn {
   display: inline-block; font: inherit; font-size: var(--eyebrow);
-  padding: 10px 16px; border: 1px solid var(--ink); color: var(--ink);
-  text-decoration: none;
+  padding: 10px 16px; border: 1px solid var(--accent); background: var(--accent);
+  color: var(--ground); text-decoration: none; font-weight: 700;
 }
-.key .btn:hover { background: var(--ink); color: var(--ground); }
+.key .btn:hover { background: transparent; color: var(--accent); }
+
+.greet { margin: 0 0 16px; }
+.greet h1 { font-size: var(--type); font-weight: 700; margin: 0 0 4px; }
 
 .menu { margin: 0 0 20px; }
 .menu h1 { font-size: var(--type); font-weight: 700; margin: 0 0 4px; }
 .choices { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .choices .btn {
   display: inline-block; font: inherit; font-size: var(--eyebrow);
-  padding: 10px 16px; border: 1px solid var(--ink); color: var(--ink);
-  text-decoration: none;
+  padding: 10px 16px; border: 1px solid var(--accent); background: var(--accent);
+  color: var(--ground); text-decoration: none; font-weight: 700;
 }
-.choices .btn:hover { background: var(--ink); color: var(--ground); }
+.choices .btn:hover { background: transparent; color: var(--accent); }
 
 /* One copyable line. The <pre> scrolls rather than wrapping, so a long command
    never reflows the page on a phone; the button stays beside it at every width
@@ -115,7 +158,7 @@ const OPS_CSS = `
 
 /* The last two rows are for nobody in particular — a developer once, and the
    seed data almost never. Quieter than the rest, still one tap away. */
-.acc > details.aside > summary { font-size: var(--eyebrow); color: #666; padding: 8px 0; }
+.acc > details.aside > summary { font-size: var(--eyebrow); color: var(--muted); padding: 8px 0; }
 
 .scroll { overflow-x: auto; }
 .you td { font-weight: 700; }
@@ -123,15 +166,15 @@ const OPS_CSS = `
 .bind { background: var(--image-ground); padding: 8px 10px; margin: 0 0 8px; }
 .log { margin-top: 8px; }
 .log p { margin: 0 0 6px; }
-.log .agent { color: #666; }
-.log .tool { color: #666; }
+.log .agent { color: var(--muted); }
+.log .tool { color: var(--muted); }
 .gate { border: 1px solid var(--ink); padding: 12px; margin: 12px 0; }
 .gate h3 { margin: 0 0 8px; }
 .gate dl { margin: 0; }
 .gate dt { font-weight: 700; margin-top: 8px; }
 .gate dd { margin: 0; white-space: pre-wrap; word-break: break-word; }
 .gate .row { display: flex; gap: 8px; }
-.gate button[disabled] { color: #666; border-color: var(--rule); cursor: default; }
+.gate button[disabled] { color: var(--muted); border-color: var(--rule); cursor: default; }
 .chat input { padding: 8px 10px; }
 .chat button { margin-top: 6px; padding: 8px 16px; font-size: var(--eyebrow); }
 
@@ -277,9 +320,27 @@ export function opsPage(identity, { customers, week, bindings, hasKey, role, rol
 <main class="ops">
 ${id}
 
-  <section class="menu">
+  <section class="greet">
     <h1>Hi ${esc(firstName)} — what would you like to do?</h1>
-    <p class="hint">Pick one. No assistant, no setup — this is the whole interaction.</p>
+    <p class="hint">Ask the assistant right here, or skip straight to a task below.</p>
+  </section>
+
+  <section class="key chat-top">
+    <h1>Ask the ops assistant</h1>
+    <p class="hint">Look something up, describe a product instead of using a spreadsheet, ask a
+       question. Built in, answered right here, nothing to set up.</p>
+    ${bindingsLine(bindings, hasKey)}
+    <div class="log" id="log"></div>
+    <div id="gate"></div>
+    <form class="chat" id="chat" method="post" action="/ops/agent">
+      <input name="q" id="q" placeholder="Ask about the catalog, orders, stock or the schedule" autocomplete="off">
+      <button type="submit">Send</button>
+    </form>
+  </section>
+
+  <section class="menu">
+    <h1>Or, one click</h1>
+    <p class="hint">No assistant, no typing — the three most common tasks, done directly.</p>
     <div class="choices">
       <a class="btn" href="/products/batch">Add Merchandise</a>
       <a class="btn" href="/customers/batch">Add Customers</a>
@@ -300,19 +361,6 @@ ${id}
     <h1>Drop a file for the team</h1>
     <p class="hint">A price list, a policy note, meeting notes — any connected assistant can read it back.</p>
     <p><a class="btn" href="/assets/new">Drop a file</a></p>
-  </section>
-
-  <section class="key">
-    <h1>Ask the ops assistant</h1>
-    <p class="hint">Anything not covered above — look something up, describe a product instead of using a
-       spreadsheet, ask a question. Built in, answered right here, nothing to set up.</p>
-    ${bindingsLine(bindings, hasKey)}
-    <div class="log" id="log"></div>
-    <div id="gate"></div>
-    <form class="chat" id="chat" method="post" action="/ops/agent">
-      <input name="q" id="q" placeholder="Ask about the catalog, orders, stock or the schedule" autocomplete="off">
-      <button type="submit">Send</button>
-    </form>
   </section>
 
   <section class="key">
@@ -633,8 +681,9 @@ h2 { font-size: var(--type); font-weight: 700; margin: 24px 0 8px; }
 .lead { margin: 0 0 16px; max-width: 34rem; }
 .me { border-collapse: collapse; width: 100%; max-width: 34rem; margin-bottom: 20px; }
 .me th, .me td { text-align: left; padding: 8px 16px 8px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
-.me th { font-weight: 400; color: #666; font-size: var(--eyebrow); width: 40%; }
-.signout { display: inline-block; border: 1px solid var(--ink); padding: 10px 20px; text-decoration: none; color: var(--ink); margin-top: 4px; }
+.me th { font-weight: 400; color: var(--muted); font-size: var(--eyebrow); width: 40%; }
+.signout { display: inline-block; border: 1px solid var(--accent); background: var(--accent); font-weight: 700; padding: 10px 20px; text-decoration: none; color: var(--ground); margin-top: 4px; }
+.signout:hover { background: transparent; color: var(--accent); }
 `;
 
 export function refusalPage(status, reason) {
@@ -647,6 +696,7 @@ export function refusalPage(status, reason) {
   <p class="note">This page is for Vemians staff and asks you to sign in first. If you are staff and
      landed here, sign in with your Vemians email and try again.</p>
 </main>`,
+    OPS_DARK_CSS,
   );
 }
 
@@ -1038,6 +1088,7 @@ export function expenseFiledPage({ id, description, amount_minor, currency }) {
 }
 
 const APPROVAL_CSS = `
+${OPS_DARK_CSS}
 .wrap{max-width:44rem;margin:0 auto;padding:2rem 1.25rem}
 .eyebrow{text-transform:uppercase;letter-spacing:.08em;font-size:.75rem;opacity:.7;margin:0}
 h1{margin:.25rem 0 1rem;font-size:1.5rem;word-break:break-word}
@@ -1046,12 +1097,12 @@ h2{font-size:.9rem;text-transform:uppercase;letter-spacing:.06em;opacity:.7;marg
 dl{margin:0}
 dt{font-weight:600;margin-top:.75rem}
 dd{margin:.25rem 0 0}
-pre{white-space:pre-wrap;word-break:break-word;background:rgba(127,127,127,.12);padding:.6rem .7rem;border-radius:.4rem;margin:0;font-size:.85rem}
-button{margin-top:1.5rem;padding:.85rem 1.4rem;font-size:1rem;border-radius:.5rem;border:0;background:#111;color:#fff;width:100%;max-width:20rem}
+pre{white-space:pre-wrap;word-break:break-word;background:rgba(255,255,255,.06);padding:.6rem .7rem;border-radius:.4rem;margin:0;font-size:.85rem}
+button{margin-top:1.5rem;padding:.85rem 1.4rem;font-size:1rem;border-radius:.5rem;border:0;background:var(--accent);color:var(--ground);font-weight:700;width:100%;max-width:20rem}
 .fine{font-size:.85rem;opacity:.75;margin-top:.75rem}
 .warn{font-size:.85rem;border-left:3px solid #c60;padding-left:.75rem;margin-top:1.25rem}
 .field{margin:0 0 1rem}
 .field label{display:block;font-weight:600;font-size:.85rem;margin-bottom:.3rem}
-.field input,.field select,.field textarea{width:100%;font:inherit;font-size:1rem;padding:.6rem .7rem;border:1px solid rgba(127,127,127,.4);border-radius:.4rem;background:transparent;color:inherit;box-sizing:border-box}
+.field input,.field select,.field textarea{width:100%;font:inherit;font-size:1rem;padding:.6rem .7rem;border:1px solid rgba(255,255,255,.25);border-radius:.4rem;background:transparent;color:inherit;box-sizing:border-box}
 .field textarea{resize:vertical}
 `;

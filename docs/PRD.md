@@ -727,14 +727,15 @@ that does not trace to one of these is a process failure (see §12).
     once that secret exists on this deployment — unconfirmed from this environment, the same as
     every other secret-gated behaviour in this codebase.
 
-34a'''. **`Test-PRD-P0-69-one_click_welcome_menu`** — The FIRST thing on the ops front page,
-    immediately after the identity line, is a literal welcome message by first name with four
-    clickable choices — **Add Merchandise, Add Customers, Submit Expenses, More Options** — the
-    same four words as the chat greeting (P0-62/P0-68), but as real page buttons rather than a
-    conversation someone has to start. The first three are direct links to routes that already
-    do the whole job with no assistant at all (`/products/batch`, `/customers/batch`,
-    `/expenses/new`); "More Options" is an in-page anchor to everything else — a single photo,
-    dropping a file, the built-in chat, connecting a third-party assistant.
+34a'''. **`Test-PRD-P0-69-one_click_welcome_menu`** — Immediately after the identity line, a
+    literal welcome message by first name leads into four clickable choices — **Add Merchandise,
+    Add Customers, Submit Expenses, More Options** — the same four words as the chat greeting
+    (P0-62/P0-68), but as real page buttons rather than a conversation someone has to start. (P0-74
+    now puts the built-in assistant between the greeting and this menu — see that entry for why;
+    the menu itself, and its four choices in this order, are unchanged.) The first three are direct
+    links to routes that already do the whole job with no assistant at all (`/products/batch`,
+    `/customers/batch`, `/expenses/new`); "More Options" is an in-page anchor to everything else —
+    a single photo, dropping a file, connecting a third-party assistant.
 
     **This supersedes P0-54's earlier framing.** The front page used to have "one job for almost
     everyone: hand over the address to paste into their own assistant" — true when the only way
@@ -892,6 +893,38 @@ that does not trace to one of these is a process failure (see §12).
     hover reads as a bug) — a real primary with no second real photo simply has no hover swap;
     only a fully-placeholder product keeps the placeholder swap on both shots, unchanged from
     before this feature.
+
+34a''''. **`Test-PRD-P0-74-chat_first`** — The owner's own direction, asked for directly: the
+    built-in ops assistant leads the page. The greeting still comes first — it names who is
+    signed in before anything asks for input — but the "Ask the ops assistant" section
+    (`ops/src/views.js`'s `opsPage()`) now renders between the greeting and P0-69's one-click
+    menu, not after it and not behind "More Options". **This narrows P0-69's own framing without
+    reversing it**: the three direct-link buttons are still real, still one click, still on the
+    page with no assistant required — they simply no longer claim to be the first thing offered,
+    because the person who asked for this explicitly wanted the assistant to be. Nothing about
+    the chat itself changed — same open-at-rest box, same tier-2 approval gate underneath it —
+    only where it sits.
+
+34a'''''. **`Test-PRD-P0-75-ops_dark_theme`** — The employee area gets its own dark palette —
+    near-black ground, warm off-white ink, one clay-orange accent for anything a person actually
+    presses — asked for as "the anthropic black theme". **This is an interpretation, not a brand
+    asset**: nobody supplied this codebase an official colour file, so the three values
+    (`ops/src/views.js`'s `OPS_DARK_CSS`) are a reasonable reading of the ask, named as such in
+    the comment beside them, the same honesty this codebase already applies to an inferred
+    interaction-design choice (`shared/view/enhance.client.js`'s own INFERRED markers) or an
+    unresolved contact detail (`shared/site.js`'s PLACEHOLDER markers).
+
+    **Scoped to `ops.vemians.com` alone, structurally.** The override lives in a SECOND `:root`
+    block inside the ops Worker's own stylesheet — prepended to both `OPS_CSS` (the front page
+    and `/whoami`) and `APPROVAL_CSS` (every other ops page: approvals, batch upload, asset
+    drop, the expense scanner) — and never touches `shared/design/theme.css`, which the
+    storefront also loads. A later declaration of a variable theme.css already named simply wins
+    the cascade in the same `<style>` tag; nothing here could leak into the shop's own warm-cream
+    palette (P0-26/P0-56) without a second `:root` block appearing in a file the storefront
+    actually imports, which none of this touches. Every hardcoded `#666` this file used for
+    secondary text — seven of them, none of it ever having gone through a variable — became
+    `var(--muted)`, a token theme.css never had, for the same reason: a colour tuned to sit quietly
+    on cream reads as barely-visible on near-black.
 
 ## 4. P1 features
 
@@ -1117,6 +1150,8 @@ Where each feature is enforced today:
 | P0-71 | `ops/test/catalog-write.test.mjs` for `catalog.set_channel`; the channel-filter half of `store/test/storefront.test.mjs` |
 | P0-72 | the product-detail half of `store/test/storefront.test.mjs`, over the real mirror schema |
 | P0-73 | `ops/test/media-backfill.test.mjs` for the fetch-and-store job; the real-photo half of `store/test/storefront.test.mjs` for rendering and the hover-alt fallback rule |
+| P0-74 | `ops/test/ops-page.test.mjs` |
+| P0-75 | `ops/test/ops-page.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
