@@ -252,19 +252,17 @@ html, body { height: 100%; margin: 0; }
    merge, not two colour-matched lines standing in for one. Only the
    active tab gets a fill or a radius at all — inactive tabs stay flat
    per the reference's own .tab / .tab.active split.
-   TOP border only, not the sides: a left/right border on the active tab
-   sits exactly where the round-out notch below crosses the tab's own
-   edge, so the notch's near-black shadow painted straight over the
-   bottom of that border — a visible "black smudge on top of the orange
-   edge," the owner's own words. The notch's whole job is to blend
-   across that boundary, so any border drawn ON it will always get
-   partly overpainted; the reference code's own .tab has no border at
-   all for the same reason. Keeping the accent line on the TOP edge
-   only avoids the conflict entirely, since the notch never reaches
-   there. */
+   The accent border runs top AND sides again — dropping the sides
+   entirely (the previous round's fix for the black smudge) also hid
+   the tab's own outline, when the owner's original request was never
+   "no border on the sides," it was a border that CONTINUES through the
+   curve instead of clashing with it: "imagine the bottom orange edge,
+   smoothly curves up the tab... and keeps going right." The notch
+   below now draws that continuation itself, so the side border and the
+   curve read as one unbroken line again. */
 .shell-nav button.active {
   background: var(--ground); color: var(--ink);
-  border-top: 1px solid var(--accent);
+  border: 1px solid var(--accent); border-bottom: none;
   border-radius: var(--tab-radius) var(--tab-radius) 0 0;
   margin-bottom: -1px; padding-bottom: 8px; z-index: 1;
 }
@@ -272,14 +270,16 @@ html, body { height: 100%; margin: 0; }
    verbatim mechanism (a --tab-radius custom property driving every
    number below through calc(), not hand-computed pixel literals): each
    pseudo-element is a --tab-radius box sitting just outside the tab's
-   own edge, one corner cut into a quarter-circle (border-*-radius),
-   then a ZERO-blur, ZERO-spread box-shadow of that same cut shape
-   offset sideways by exactly HALF --tab-radius — not a flood-filled
-   spread, an offset copy of the shape itself — painted in the active
-   tab's own colour (--ground, standing in for the reference's own
-   --tab-color) over the header's own --bar background, which is what
-   makes the header's flat edge read as curving smoothly UP into the
-   tab's own straight side.
+   own edge, one corner cut into a quarter-circle (border-*-radius). The
+   reference draws this as a single flat-colour shadow; ours layers TWO
+   zero-blur shadows of the same cut shape, both offset sideways by
+   exactly HALF --tab-radius: the tab's own fill colour (--ground) on
+   top, at zero spread, exactly the reference's own shape; a 1px-wider
+   copy in --accent BEHIND it, via a 1px spread, so only the sliver the
+   front shape doesn't cover shows through — a thin accent outline that
+   traces the curve, continuing the tab's own top/side border smoothly
+   around its base instead of the border just stopping dead into a
+   flood of near-black.
    bottom: -1px and one extra 1px of height (rather than flush at 0,
    exactly --tab-radius tall) are the owner's own follow-up fix: at
    fractional device pixel ratios the browser can round the tab's own
@@ -300,12 +300,16 @@ html, body { height: 100%; margin: 0; }
 .shell-nav button.active::before {
   left: calc(var(--tab-radius) * -1);
   border-bottom-right-radius: var(--tab-radius);
-  box-shadow: calc(var(--tab-radius) / 2) 0 0 0 var(--ground);
+  box-shadow:
+    calc(var(--tab-radius) / 2) 0 0 0 var(--ground),
+    calc(var(--tab-radius) / 2) 0 0 1px var(--accent);
 }
 .shell-nav button.active::after {
   right: calc(var(--tab-radius) * -1);
   border-bottom-left-radius: var(--tab-radius);
-  box-shadow: calc(var(--tab-radius) / -2) 0 0 0 var(--ground);
+  box-shadow:
+    calc(var(--tab-radius) / -2) 0 0 0 var(--ground),
+    calc(var(--tab-radius) / -2) 0 0 1px var(--accent);
 }
 .shell-panel { flex: 1 1 auto; border-top: 1px solid var(--accent); }
 .shell-frame { width: 100%; height: 100%; border: 0; display: block; background: var(--ground); }
