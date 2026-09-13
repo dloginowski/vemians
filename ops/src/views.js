@@ -176,24 +176,46 @@ const TABLE_CARD_CSS = `
  * always present. Everything else is an iframe." One persistent header
  * (this CSS, this markup) that never reloads; the tab CONTENT is an
  * <iframe> whose src swaps between /chat and /items, each an otherwise
- * ordinary page that no longer draws its own copy of the tab bar. Buttons,
- * not links: nothing here should navigate the shell itself away, only
- * change what the iframe shows and update the address bar to match
- * (history.replaceState), so a reload or a shared link still lands on the
- * right tab without a second, tab-shaped page existing for each.
+ * ordinary page that no longer draws its own copy of the tab bar (nor, now,
+ * its own copy of the "employees only" strip — this is the only place
+ * either one is drawn, so the two are not stacked on top of each other the
+ * moment this loads inside the iframe below).
+ *
+ * "Think of tabs in a filing cabinet" — the owner's own words. The active
+ * tab merges into the panel below it (matching background, its own bottom
+ * edge pulled down 1px to sit exactly on the panel's top border and hide
+ * the seam, the classic tabbed-pane trick); an inactive one sits a little
+ * lower and a little dimmer, like a folder pushed back in the drawer. The
+ * storefront link is the last item on purpose (the owner's own words: "add
+ * a link to the public facing site as the last link") and reads as a
+ * label on the cabinet rather than another folder in it — pushed to the
+ * far right, plain rather than tab-shaped, opening in a new tab since
+ * leaving ops entirely inside the same iframe would strand the person's
+ * place in it.
  */
 const SHELL_CSS = `
+${OPS_DARK_CSS}
 html, body { height: 100%; margin: 0; }
-.shell { display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; }
-.shell-header { flex: 0 0 auto; }
-.shell-nav { display: flex; gap: 6px; padding: 10px 12px 0; }
+.shell { display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; background: var(--ground); }
+.shell-header { flex: 0 0 auto; padding: 10px 12px 0; }
+.shell-nav { display: flex; align-items: flex-end; gap: 3px; }
 .shell-nav button {
-  font: inherit; font-size: 12px; font-weight: 600; padding: 6px 14px; border-radius: 999px;
-  border: 1px solid var(--rule); background: none; color: var(--muted); cursor: pointer;
+  font: inherit; font-size: 12px; font-weight: 600; padding: 7px 16px; cursor: pointer;
+  border: 1px solid var(--rule); border-bottom: none; border-radius: 6px 6px 0 0;
+  background: var(--image-ground); color: var(--muted); position: relative;
 }
-.shell-nav button:hover { border-color: var(--accent); color: var(--accent); }
-.shell-nav button.active { border-color: var(--accent); color: var(--accent); background: rgba(217, 119, 87, 0.14); }
-.shell-frame { flex: 1 1 auto; width: 100%; border: 0; display: block; background: var(--ground); }
+.shell-nav button:hover:not(.active) { color: var(--accent); }
+.shell-nav button.active {
+  background: var(--ground); color: var(--ink); border-color: var(--accent);
+  margin-bottom: -1px; padding-bottom: 8px; z-index: 1;
+}
+.shell-nav .visit {
+  margin-left: auto; align-self: center; font-size: 12px; color: var(--muted);
+  text-decoration: none; padding: 4px 2px;
+}
+.shell-nav .visit:hover { color: var(--accent); }
+.shell-panel { flex: 1 1 auto; border-top: 1px solid var(--accent); }
+.shell-frame { width: 100%; height: 100%; border: 0; display: block; background: var(--ground); }
 `;
 
 const SHELL_TABS = [
@@ -213,9 +235,11 @@ export function shellPage(active = "agent") {
     `<div class="shell">
   <div class="shell-header">
     <div class="bar">ops.vemians.com &middot; employees only</div>
-    <nav class="shell-nav">${nav}</nav>
+    <nav class="shell-nav">${nav}<a class="visit" href="https://vemians.com" target="_blank" rel="noopener">Visit site &#8599;</a></nav>
   </div>
-  <iframe class="shell-frame" id="ops-frame" src="${esc(initial.src)}" title="Vemians ops"></iframe>
+  <div class="shell-panel">
+    <iframe class="shell-frame" id="ops-frame" src="${esc(initial.src)}" title="Vemians ops"></iframe>
+  </div>
 </div>
 <script>
 document.querySelectorAll(".shell-nav button").forEach((btn) => {
@@ -614,8 +638,11 @@ export function opsPage(identity, { hasKey, role }) {
 
   return page(
     "Vemians ops",
-    `<div class="bar">ops.vemians.com &middot; employees only</div>
-<main class="ops">
+    /* No "ops.vemians.com · employees only" bar here — this page now loads
+       ONLY inside the shell's own iframe (shellPage(), above), which
+       already draws that strip once, in its own header. A second copy
+       here stacked directly on top of it, every time this loaded. */
+    `<main class="ops">
 ${id}
 
   <section class="greet">
@@ -1092,8 +1119,8 @@ export function itemsPage({ role }, products) {
 
   return page(
     "Items — Vemians ops",
-    `<div class="bar">ops.vemians.com &middot; employees only</div>
-<main class="ops">
+    /* No bar here either — see the same note on opsPage(). */
+    `<main class="ops">
   <section class="greet"><h1>Items</h1></section>
   <input type="text" class="items-search" id="item-search" placeholder="Search title, handle, category, SKU, custom fields...">
   <div class="items-grid" id="items-grid">

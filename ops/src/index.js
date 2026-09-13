@@ -405,7 +405,30 @@ async function ops(request, env, path) {
     if (!env.CATALOG_MIRROR) {
       return html(refusalPage(503, "The catalog mirror is not configured on this deployment yet."), 503);
     }
-    const products = await listAllProducts(env.CATALOG_MIRROR, { limit: CAPS.CATALOG_ITEMS_PAGE_MAX_ROWS });
+    let products;
+    try {
+      products = await listAllProducts(env.CATALOG_MIRROR, { limit: CAPS.CATALOG_ITEMS_PAGE_MAX_ROWS });
+    } catch (err) {
+      /* The most likely real cause, named plainly rather than surfacing a
+         raw Worker exception: custom_fields was added to mirror_product by
+         hand (ALTER TABLE, run once against production D1 — this schema
+         has no migration runner), but mirror_product_index is a VIEW, and
+         SQLite compiles a view's own column list at CREATE VIEW time. Adding
+         a column to the base table does not change an already-existing
+         view — the view has to be dropped and recreated with the new
+         column named, same as schema.sql's own definition. */
+      console.error(`ERROR ops/items: listAllProducts failed — ${err.message}`);
+      return html(
+        refusalPage(
+          500,
+          "The Items tab could not read the catalog mirror. If custom_fields was just added to " +
+            "mirror_product by hand, mirror_product_index also needs recreating — ALTER TABLE does not " +
+            "update an existing view's own column list. Run: DROP VIEW mirror_product_index; then the " +
+            "CREATE VIEW statement from shared/commerce/square/schema.sql, against vemians-catalog-mirror.",
+        ),
+        500,
+      );
+    }
     return html(itemsPage({ role }, products));
   }
 

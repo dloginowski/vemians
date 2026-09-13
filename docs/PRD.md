@@ -940,6 +940,38 @@ that does not trace to one of these is a process failure (see §12).
     sees it, and `/chat` (loaded into it by default) is what already tells that person plainly
     they have no role, the same message it always gave.
 
+    **Real folder-tab styling, a link out to the storefront, and a duplicated banner fixed —
+    the first round of feedback on the shell itself.** The owner's own words: "Think of tabs in a
+    filing cabinet," and separately, seeing the actual page: "ops.vemians.com &middot; employees
+    only / Replace this. Also add a link to the public facing site as the last link." Two real
+    bugs in the first cut, both from the same cause — `/chat` and `/items` kept their OWN
+    `<div class="bar">ops.vemians.com &middot; employees only</div>`, so it rendered TWICE:
+    once in the shell's own header, once again inside the iframe's own content, stacked directly
+    on top of each other. Removed from both pages — the shell is now the only place either the
+    banner or the tab bar exists, matching how the tab bar itself was already handled. Separately,
+    `SHELL_CSS` never included `OPS_DARK_CSS` at all, so the shell rendered in the storefront's
+    LIGHT theme while the iframe beneath it rendered dark — a real visual mismatch nobody had
+    reported yet, caught while fixing the banner. The tabs themselves now read as folder tabs, not
+    pills: the active one shares the panel's own background and its bottom edge is pulled up 1px
+    to sit exactly on the panel's top border (the classic tabbed-pane trick, hiding the seam so it
+    reads as one continuous surface), while an inactive tab sits a little lower and a little
+    dimmer, like a folder pushed back in the drawer. `https://vemians.com` — the storefront — is
+    the last item in the row, pushed to the far right and styled as a plain link rather than a
+    tab, opening in a new tab: leaving ops entirely inside the same iframe would strand whichever
+    tab the person was on.
+
+    **A third, unrelated bug found from the owner's own bug report ("Items isnt working. Error
+    101") while fixing the two above**: `mirror_product_index` is a VIEW, and SQLite compiles a
+    view's own column list at `CREATE VIEW` time — the `ALTER TABLE mirror_product ADD COLUMN
+    custom_fields` run once by hand against production (P0-71's own migration note) altered the
+    base table but left the ALREADY-EXISTING view still missing the column, so `listAllProducts()`
+    threw on every `/items` request the moment it selected `custom_fields` from that view. The
+    fix at the data layer is a manual `DROP VIEW` plus the `CREATE VIEW` statement from
+    `shared/commerce/square/schema.sql`, the same one-off, run-by-hand-once shape as the original
+    `ALTER TABLE`. The code-layer fix stands regardless of when that runs: the `/items` route now
+    wraps `listAllProducts()` in a `try/catch` and names the actual likely cause and its fix
+    on-screen, rather than a raw, unhandled exception reaching the person reading the page.
+
 47b. **`Test-PRD-P0-72-product_detail_page`** — Every product has its own page at
     `/products/<handle>` — the answer to "how do I see product details", asked directly, of a
     shop whose cards used to be `<article>`s with no click-through at all. `loadProduct(env,

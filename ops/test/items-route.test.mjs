@@ -174,17 +174,43 @@ check("test_PRD_P0_71_items_tab__the_items_tab_shows_every_field_including_custo
   assert.match(body, /Acme Mills/);
 });
 
-check("test_PRD_P0_71_items_tab__items_no_longer_draws_its_own_copy_of_the_tab_bar", async () => {
+check("test_PRD_P0_71_items_tab__items_no_longer_draws_its_own_copy_of_the_tab_bar_or_banner", async () => {
   /* The persistent shell (index.js's / route, views.js's shellPage()) is the
-     ONLY place the tab bar renders now — the owner's own words: "the header
-     is always present. Everything else is an iframe." A page loaded INTO
-     that iframe drawing a second one would be exactly the duplication tabs
-     exist to avoid. */
+     ONLY place the tab bar AND the "employees only" strip render now — the
+     owner's own words: "the header is always present. Everything else is
+     an iframe." A page loaded INTO that iframe drawing either a second
+     time would be exactly the duplication tabs exist to avoid. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const res = await get("/items", STAFF, env(mirror));
   assert.equal(res.status, 200);
-  assert.doesNotMatch(await res.text(), /shell-nav/);
+  const body = await res.text();
+  assert.doesNotMatch(body, /shell-nav/);
+  assert.doesNotMatch(body, /class="bar"/);
+});
+
+check("test_PRD_P0_71_items_tab__a_broken_mirror_index_fails_plainly_not_as_a_raw_exception", async () => {
+  /* The real regression this guards: custom_fields was added to
+     mirror_product by hand (ALTER TABLE, run once against production —
+     this schema has no migration runner), but mirror_product_index is a
+     VIEW, and SQLite compiles a view's own column list at CREATE VIEW
+     time — altering the base table does not update it. Modelled here by
+     using the OLD view shape (no custom_fields) against the NEW code that
+     expects the column, exactly what production looked like right after
+     the table alone was migrated. */
+  const mirror = mirrorDb();
+  mirror.db.exec("DROP VIEW mirror_product_index");
+  mirror.db.exec(
+    `CREATE VIEW mirror_product_index AS
+     SELECT id, external_ref, handle, title, source_description, status, channel, category_id, source_version, synced_at
+     FROM mirror_product WHERE archived_at IS NULL`,
+  );
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  assert.equal(res.status, 500);
+  const body = await res.text();
+  assert.match(body, /mirror_product_index also needs recreating/, "the fix, not just the fact of failure, must be on screen");
+  assert.doesNotMatch(body, /no such column/i, "a raw SQL error must not reach the person reading this page");
 });
 
 check("test_PRD_P0_71_items_tab__only_manager_and_above_see_the_edit_controls", async () => {
