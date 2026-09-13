@@ -288,3 +288,30 @@ export function roleFor(identity, env = {}) {
      them — the failure this repository has produced three times. */
   return explainRole(identity, env).role;
 }
+
+const capitalize = (s) => (s.length ? s[0].toUpperCase() + s.slice(1).toLowerCase() : s);
+
+/*
+ * A first name to greet someone by, best-effort. `given_name` is the OIDC
+ * claim Google Workspace sign-in typically carries; whether Cloudflare
+ * Access actually forwards it has not been confirmed against a live
+ * tenant — the same unresolved claim-shape question ADR-007 already raised
+ * for `groups` — so every plausible field is tried before falling back to
+ * the email itself, rather than assuming any one of them is there.
+ *
+ * Never throws and never returns empty: worst case is a one-letter name
+ * from a one-letter email local part, which is still a real answer and not
+ * "undefined" in a greeting.
+ */
+export function firstNameFrom(claims = {}, emailFallback = "") {
+  const given = String(claims.given_name || "").trim();
+  if (given) return capitalize(given.split(/\s+/)[0]);
+
+  const full = String(claims.name || "").trim();
+  if (full) return capitalize(full.split(/\s+/)[0]);
+
+  const email = String(claims.email || emailFallback || "").trim();
+  const local = email.split("@")[0] || "";
+  const first = local.split(/[._-]+/)[0] || local;
+  return first ? capitalize(first) : "there";
+}

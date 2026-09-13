@@ -17,9 +17,10 @@
  *      ends with a refusal instead of another request.
  *
  * The key is a Worker secret, not a var — `npx wrangler secret put
- * ANTHROPIC_API_KEY --env ops`, or a line in a local `.dev.vars`. With it unset
- * the whole file degrades to the echo stub and the ops page says so, so the
- * prototype runs with no Anthropic account at all.
+ * ANTHROPIC_API_KEY` (run from `ops/`; there is no named environment in
+ * ops/wrangler.toml to target), or a line in a local `.dev.vars`. With it
+ * unset the whole file degrades to the echo stub and the ops page says so, so
+ * the prototype runs with no Anthropic account at all.
  *
  * `src/tools/index.js` is a separate deliverable and is deliberately not
  * implemented here; this file only consumes its published interface:
@@ -55,7 +56,8 @@ const ROLES = ["staff", "manager", "owner"];
    exactly one. Re-exported so existing callers keep working. */
 /* Imported, not re-exported blind: `export … from` creates no local
    binding, so the module could not call it. */
-import { roleFor } from "./access.js";
+import { roleFor, firstNameFrom } from "./access.js";
+import { greetingScript } from "./greeting.js";
 export { roleFor };
 
 
@@ -117,21 +119,74 @@ function describeTool(tool, name, args) {
   return name;
 }
 
+/*
+ * `tool.schema` is THIS CODEBASE'S OWN validation DSL (tools/validate.js) — a
+ * flat map of field name to spec, with validate.js-specific keys (`required`
+ * living on the FIELD, not a top-level array; `format` naming our own
+ * patterns like "handle" or "currency"; `of` for array items). It is not, and
+ * was never, the JSON Schema object Anthropic's tool-use API requires for
+ * `input_schema`: `{type:"object", properties:{...}, required:[...]}`.
+ *
+ * Sending the raw DSL straight through validated correctly against our OWN
+ * runTool() — a completely separate code path — but was never valid input to
+ * Claude at all. Every real call was going to get a 400 back from Anthropic
+ * the first time a real API key made it reach them, because no test in this
+ * codebase calls the actual Messages API; the stub and every mocked test
+ * exercise runTool()'s own validate(), not this shape. Test-PRD-P0-76-
+ * valid_tool_schema.
+ */
+function fieldToJsonSchema(spec) {
+  const out = { type: spec.type === "integer" ? "integer" : spec.type };
+  if (spec.enum) out.enum = spec.enum;
+  if (spec.maxLength !== undefined) out.maxLength = spec.maxLength;
+  if (spec.min !== undefined) out.minimum = spec.min;
+  if (spec.max !== undefined) out.maximum = spec.max;
+  if (spec.maxItems !== undefined) out.maxItems = spec.maxItems;
+  if (spec.format) out.description = `Format: ${spec.format}`;
+  if (spec.type === "array" && spec.of) {
+    out.items = spec.of.type === "object" ? toJsonSchema(spec.of.schema) : fieldToJsonSchema(spec.of);
+  }
+  return out;
+}
+
+export function toJsonSchema(schema) {
+  const properties = {};
+  const required = [];
+  for (const [field, spec] of Object.entries(schema || {})) {
+    properties[field] = fieldToJsonSchema(spec);
+    if (spec.required) required.push(field);
+  }
+  const out = { type: "object", properties };
+  if (required.length) out.required = required;
+  return out;
+}
+
 export function toolDefinitions(role) {
   return allowedTools(role).map(([name, tool]) => ({
     name,
     description: `${describeTool(tool, name)} [tier ${tool.tier}, domain ${tool.domain}, stores ${(tool.stores || []).join(", ") || "none"}]`,
-    input_schema: tool.schema || { type: "object", properties: {} },
+    input_schema: toJsonSchema(tool.schema),
   }));
 }
 
-function systemPrompt(actor, role, defs) {
-  return [
-    `You are the Vemians ops assistant on ops.vemians.com. The person you are talking to is ${actor}, role ${role}.`,
-    `You have exactly ${defs.length} tool${defs.length === 1 ? "" : "s"}. That list is the whole of what you can reach: it is built from this person's role before the request leaves the Worker, so anything absent from it is unreachable, not merely forbidden. Do not describe tools you do not have, and do not offer to run one.`,
-    "Tools marked tier 2 stop for human approval before they execute. Call them normally when they are the right tool; the Worker handles the gate.",
-    "Answer from tool results, not from memory. If a tool refuses, say what it refused and stop. Be brief and plain.",
-  ].join("\n\n");
+/*
+ * This built-in browser chat is the "stupid simple" path — the one click
+ * from the ops front page, no external app, no connector setup. It has to
+ * open the SAME way the MCP path does (P0-62/P0-68), or "one click from ops"
+ * quietly means "a worse, unbranded version of the real thing" instead of
+ * the primary experience it is meant to be.
+ */
+export function systemPrompt(actor, role, defs, claims) {
+  const firstName = firstNameFrom(claims, actor);
+  return (
+    [
+      `You are the Vemians ops assistant on ops.vemians.com. The person you are talking to is ${actor}` +
+        ` (${role}), first name ${firstName}.`,
+      `You have exactly ${defs.length} tool${defs.length === 1 ? "" : "s"}. That list is the whole of what you can reach: it is built from this person's role before the request leaves the Worker, so anything absent from it is unreachable, not merely forbidden. Do not describe tools you do not have, and do not offer to run one.`,
+      "Tools marked tier 2 stop for human approval before they execute. Call them normally when they are the right tool; the Worker handles the gate.",
+      "Answer from tool results, not from memory. If a tool refuses, say what it refused and stop. Be brief and plain.",
+    ].join("\n\n") + "\n\n" + greetingScript(firstName).trim()
+  );
 }
 
 /* ---- the approval gate (P0-25) ----------------------------------------- *
@@ -291,7 +346,7 @@ export async function agentTurn({ q, identity, env }) {
     const { message, error } = await callClaude(env, {
       model: MODEL,
       max_tokens: MAX_TOKENS,
-      system: systemPrompt(actor, role, defs),
+      system: systemPrompt(actor, role, defs, identity),
       tools: defs,
       messages,
     });

@@ -69,10 +69,12 @@ Then paste each returned `database_id` into `wrangler.toml`.
 `vemians-ops` correctly refuses every request with 401 — no assertion is reaching it. That is
 the resting state, not a fault.
 
-**Set `ANTHROPIC_API_KEY`.** A Worker secret rather than a repository secret:
+**Set `ANTHROPIC_API_KEY`.** A Worker secret rather than a repository secret, run from `ops/`
+— there is no named environment in `ops/wrangler.toml` (`--env ops` was stale; the Worker is
+just `vemians-ops`, the top-level config):
 
 ```sh
-npx wrangler secret put ANTHROPIC_API_KEY --env ops
+cd ops && npx wrangler secret put ANTHROPIC_API_KEY
 ```
 
 Without it the agent falls back to its echo stub and says so on screen, so nothing breaks.

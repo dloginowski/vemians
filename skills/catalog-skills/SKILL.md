@@ -25,7 +25,7 @@ Use when:
 |---|---|---|
 | `catalog` | Git, JSON shards — one file per product | Editorial copy: diffs, review, revert for free (ADR-001, ADR-003) |
 | derived index | Build artefact | Read path for search. **Never committed** |
-| `catalog_mirror` | D1, **read only** | Our copy of the provider's authoritative catalog (ADR-009): the closed category set, the price band, a product by handle |
+| `catalog_mirror` | D1, **read only, with one named exception** | Our copy of the provider's authoritative catalog (ADR-009): the closed category set, the price band, a product by handle. The exception is `channel` — see Rule 6 |
 | `media` | R2 | Photographic originals. **Ours**, authoritative; the provider gets a copy |
 | the provider | Square, **write** | Where a commercial fact is written. Declared as a resource, not a store |
 
@@ -50,6 +50,7 @@ and ours is the copy that is wrong.
 | `catalog.create_product` | **T2** | ITEM + ITEM_VARIATIONs at the provider, images, then the mirror sync | Withdraw at the provider; nothing is deleted |
 | `catalog.update_product` | **T2** | The same path for an edit | Another edit |
 | `catalog.create_category` | **T2** | Rarely right. Refuses a near-duplicate | Withdraw at the provider |
+| `catalog.set_channel` | **T2** | Which audience sees a product — `in_store`, `website` or `direct_link`. **Ours, not the provider's**: writes `catalog_mirror` directly and calls the provider for nothing, because the provider has no notion of our storefront to diverge from | Another `catalog.set_channel` call |
 
 **Undo path:** revert the commit. Nothing in this domain is overwritten in place, so the
 previous state is always one `git revert` away, and the revert is itself reviewable.
@@ -71,7 +72,12 @@ previous state is always one `git revert` away, and the revert is itself reviewa
    direction, and only for the second half: copy, imagery selection, ordering and collections
    stay in Git and stay reviewable, while price, SKU, variations and existence are written to
    the provider, because the till writes them without asking us. An agent tool that wrote a
-   product row into our own mirror would be the second writer into one copy of that.
+   product row into our own mirror would be the second writer into one copy of that — **for a
+   fact the provider has.** `channel` (which audience sees a product: `in_store` / `website` /
+   `direct_link`) is not one — the provider has no notion of our storefront at all, so there is
+   no second writer for `catalog.set_channel` to diverge from. It is the one named exception,
+   and the sync job itself never names that column in its own writes, on purpose, so a value set
+   here survives every future sync untouched.
 7. **The category comes from a closed set.** Authoring picks from the categories that already
    exist, and the pick arrives as a suggestion with its reasoning rather than as a silent
    assignment. Creating a category is a separate, gated action. A model that may mint one will
@@ -81,9 +87,14 @@ previous state is always one `git revert` away, and the revert is itself reviewa
    or 300-character title — refused here, with a message that says what to do instead.
    Forwarding a bad write so the provider can bounce it turns our validation into their error
    string, and the refusal arrives after the approval was already spent.
-9. **The original is ours.** Photographs go to R2 under our key first; the provider gets a
-   copy so the item looks right on the till. A format the provider will not take is still
-   stored — losing the provider must not lose our photography.
+9. **The original is ours, when we hold a copy at all.** With an R2 bucket bound, photographs
+   go there under our key first and the provider gets a copy so the item looks right on the
+   till, and a format the provider will not take is still stored — losing the provider must not
+   lose our photography. **ADR-013 changed the default**: with no bucket bound, there is no R2
+   leg at all and the provider holds the only copy of the photograph — `mediaStoreFor(env)`
+   (`ops/src/tools/index.js`) picks between the two stores and announces which at INFO, and the
+   exit plan is to export from the provider before leaving rather than to keep a mirror as you
+   go.
 
 ## Absent by design (T3)
 
@@ -93,7 +104,7 @@ previous state is always one `git revert` away, and the revert is itself reviewa
 | Bulk / percentage price change | One approval covering unbounded money |
 | Product deletion | Discontinue by status; Git keeps the history regardless |
 | Index write | Derived data is not writable — rebuild it |
-| Writing a product row into `catalog_mirror` | Two writers into one copy of the provider's catalog; the till wins and we are silently wrong |
+| Writing a **provider-sourced** fact into `catalog_mirror` (price, SKU, title, existence, …) | Two writers into one copy of the provider's catalog; the till wins and we are silently wrong. `channel` is the one named exception — see Rule 6 |
 | Category creation as a side effect of authoring | How a navigation dies: forty near-duplicates and no decision behind any of them |
 | Bulk product creation | One approval covering an unbounded number of new commercial facts |
 | Deleting a stored original | A photograph is evidence of what was sold; withdraw the product instead |
@@ -107,7 +118,7 @@ previous state is always one `git revert` away, and the revert is itself reviewa
 | Committing `index.json` | Guaranteed conflict on concurrent PRs | Build at deploy |
 | Writing back from search results | Stale, provenance-free | Re-read the shard |
 | A `catalog.delete` tool | No undo, and the data survives in history anyway | Status transition |
-| An agent writing the mirror directly | Diverges from the provider silently, in the direction that oversells | Write the provider; the mirror follows by sync |
+| An agent writing a provider-sourced fact into the mirror directly | Diverges from the provider silently, in the direction that oversells | Write the provider; the mirror follows by sync |
 | Creating a category because none quite fits | Navigation stops meaning anything, one reasonable-looking decision at a time | Choose the nearest existing one, or ask a manager |
 | Base64 bytes as a tool argument for a real photograph | The model would have to emit one to two million output tokens of it | Signed upload link the human opens |
 | Storing an original only at the provider | Losing the provider loses the photography | R2 first, provider second |
@@ -118,7 +129,9 @@ previous state is always one `git revert` away, and the revert is itself reviewa
 - [ ] `set_price` refuses without both a PR and an in-session approval by a manager or owner
 - [ ] The index is `.gitignore`d and rebuilt in CI
 - [ ] No catalog tool holds a customer, order, people or finance binding
-- [ ] No `INSERT`/`UPDATE` against a `mirror_*` table exists anywhere in the tool layer
+- [ ] No `INSERT`/`UPDATE` against a `mirror_*` table exists anywhere in the tool layer, for any
+      column the provider itself supplies — `catalog.set_channel`'s `UPDATE mirror_product SET
+      channel = ...` is the one named exception and touches nothing else
 - [ ] `create_product` refuses a category id outside the set the mirror holds
 - [ ] Every stored original exists in R2 before the provider is called
 - [ ] A revert of any agent PR restores the previous shard byte for byte

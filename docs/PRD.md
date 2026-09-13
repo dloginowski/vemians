@@ -225,7 +225,41 @@ that does not trace to one of these is a process failure (see §12).
 23. **`Test-PRD-P0-20-cross_store_snapshot`** — An expense references an employee by
     `employee_id` **plus an `employee_name` snapshot**, because `people` is a different database.
     The record stays readable when the other store is unavailable or the referenced row has
-    changed. Receipts live in R2, never inline.
+    changed. Receipts live in their own KV store, never inline.
+
+23b. **`Test-PRD-P0-66-expense_scanner`** — `/expenses/new` photographs a receipt and
+    `/expenses/confirm` files it: any signed-in role, no manager gate, because filing your own
+    expense is not the gated action here — approving one (`expense.approve`, already T2) is.
+    This is also the first thing that actually commits an `expense.submit` proposal into a real
+    row: that tool has always validated and described a write (the amount cap, the budget
+    currency match) without performing one — this file's own header names `expense.approve` as
+    the only tool that mutates the store — and nothing before this confirm flow ever turned a
+    proposal into a row for it to approve.
+
+    **OCR prefills, it never files.** Workers AI (`env.AI`, a native Cloudflare binding — no new
+    vendor, no new secret) takes a best-effort read of the vendor, date and total off the photo,
+    the same way a phone photo becomes a draft product (P0-59) except here the read is text, not
+    a stored image. Every field lands on the confirm page as an editable, pre-filled value, never
+    an `INSERT` — a misread total is a wrong dollar amount, and this codebase does not let a
+    model write money any more than it lets one write a price straight into Square. A field OCR
+    could not read is simply blank, asking to be filled in, not an error.
+
+    The receipt photo is kept: stored in its own KV namespace (`RECEIPT_FILES`, resolved by
+    `bootstrap-resources.yml` the same way `APPROVALS` and the asset drop site's `ASSET_FILES`
+    are) before the row is written, matching the existing finance-skills rule. Not R2 — ADR-013
+    dropped this Worker's one R2 bucket, and reopening it for an unrelated feature risked the
+    same account-level wall; KV is proven live here already. `RECEIPT_FILES` is its own
+    namespace, never shared with `ASSET_FILES`: a financial record and a working document do not
+    belong behind the same binding (agent-tool-contract rule 6).
+
+    **Unverified, stated plainly:** the exact Workers AI model id
+    (`@cf/llava-hf/llava-1.5-7b-hf`) and its request/response shape could not be confirmed
+    against live Cloudflare documentation from this environment — the same
+    `developers.cloudflare.com` wall ADR-007's identity section already hit. A wrong model id
+    fails the AI call; `scanReceipt()` treats that identically to "OCR unavailable" — the confirm
+    form comes back blank rather than the route erroring — so an unverified model choice degrades
+    the feature to manual entry rather than breaking it. Confirming the model against a real
+    account is a follow-up, not a launch blocker, because nothing here depends on OCR succeeding.
 
 ### 3.6 Audit
 
@@ -470,6 +504,68 @@ that does not trace to one of these is a process failure (see §12).
     path. `bytes()` on the Square path **refuses by name** rather than returning empty, so a caller
     cannot read "we hold no pixels" as "there is no image".
 
+29b. **`Test-PRD-P0-59-one_click_photo`** — Adding a photo does not require an assistant.
+    `/media/new` on the front page mints one signed upload ticket and sends the browser straight
+    to the picker `catalog.upload_image` already uses — same key shape, same signature, same
+    `MEDIA_SIGNING_KEY`, one shared path rather than a second one to keep in agreement. Each click
+    is its own ticket for its own R2 key: two clicks are never the same slot, and a slot is never
+    reused for a second photo. No Access role, or no `MEDIA_SIGNING_KEY` configured, refuses with a
+    plain page rather than a link that would 403 or 503 further down.
+
+29c. **`Test-PRD-P0-60-spreadsheet_products`** — `/products/batch` and `/customers/batch` each turn
+    one CSV into one T2 approval per row that resolves cleanly — `catalog.create_product` for the
+    first, `customer.create` (P0-61) for the second — the exact same tool, the exact same checks a
+    chat-drafted call goes through, re-derived nowhere. `batch.js` holds the two column-to-`args`
+    mappings; parking an approval is the one shared step underneath both. One record per row: a
+    spreadsheet cell cannot describe a product with several sizes at several prices, or a customer
+    with two phone numbers, without a schema of its own, so anything needing that still goes
+    through the chat tools. Photos are out of scope for products for the same reason a cell cannot
+    hold image bytes — added afterward, per product, the same way a one-off product's photo is
+    (P0-59).
+
+    A row that cannot even be attempted — a product with no title, a category that is not exactly
+    one of the closed set's names, a price that is not a plain decimal — is reported with the
+    reason and never reaches `runTool`, because the tool layer has no way to say "that is not a
+    number"; a customer row's own refusals (no identifying field, a malformed email) come straight
+    from `customer.create`'s own check(), relayed rather than re-derived. A file over
+    `CAPS.BATCH_MAX_ROWS` is refused whole, before any row is touched, rather than silently
+    truncated. Uploading a spreadsheet mints approvals; it does not consume any of them — each one
+    is still opened and said yes to individually, on the same `/approvals/` page a single record's
+    draft produces, so there is one confirmation screen in this codebase, not two. Both routes are
+    manager+ only, at the route itself: either tool's own `minRole` would otherwise turn a staff
+    upload into the same refusal repeated once per row.
+
+29c'. **`Test-PRD-P0-70-flexible_spreadsheet_columns`** — A real spreadsheet is not typed to our
+    sample file. `pick()` (`ops/src/batch.js`) now normalizes both the uploaded header and the
+    synonym list to letters-and-digits only before comparing, so "Item Name", "item_name" and
+    "ITEM-NAME:" all match the same column — punctuation, casing and an underscore are not a
+    different column, the same rule `csvRecords()` already applied to whitespace. The synonym
+    lists themselves are also wider (`item`, `style`, `product type`, `retail price`, and
+    others), covering headers a real export is likely to use rather than only the ones this
+    codebase's own sample file happens to name. **This still refuses, honestly, past that
+    point**: a column this codebase has never heard of (a completely different word, not a
+    formatting variant) is still an unmatched title and a plain "no title column" skip — the
+    fix is broader matching, not a guess at an unfamiliar word. For a spreadsheet shaped
+    differently enough that no synonym list will ever cover it, the ops assistant chat (any
+    role, one click from the front page — P0-69) already has full `catalog.*` tool access and
+    can be handed the same rows as plain text to interpret with actual judgement, which no
+    fixed column list can do.
+
+29d. **`Test-PRD-P0-61-square_customer_intake`** — `customer.create` writes a new customer into
+    SQUARE's own Customer Directory — the same directory the till and the storefront's contact form
+    (P0-58/ADR-015) already write to — using Square's own field names (`given_name`, `family_name`,
+    `email_address`, `phone_number`, `note`, `reference_id`) rather than inventing our own. **This is
+    not P0-33.** The `customer.*` family above it (`profile`, `fit`, `history`, `update_fit`) reads
+    and writes OUR OWN `customers` store, keyed by an opaque `customer_id`, and P0-08 promises that
+    family never returns a name, email or phone number; `customer.create` holds no `customers` or
+    `identity` binding at all; a Square customer id is not a `customer_id` any tool in that family
+    will ever accept. P0-33's encrypted vault with per-purpose consent remains unbuilt and deliberately
+    deferred (identity-skills: build it last) — this is the smaller thing ADR-015 already established
+    is fine, leaning on Square's own directory rather than building a second place to hold the same
+    kind of data. Square's own rule is enforced before Square ever sees the call: at least one of
+    `given_name`, `family_name`, `email_address` or `phone_number`. Minimum role manager, same T2 gate
+    as every other write in this codebase.
+
 30. **`Test-PRD-P0-30-prd_traceability`** — Every check in a PRD-backed test file carries a
     `Test-PRD-*` label, and every label used must exist in this PRD. The test files enforce this
     themselves, so a renamed or invented label fails the run rather than drifting silently.
@@ -490,6 +586,24 @@ that does not trace to one of these is a process failure (see §12).
     Comments are append-only. Links to orders, customers, products and shifts are id plus a
     non-identifying label, never a foreign key, so a ticket survives the erasure of what it
     points at and reading a ticket does not confer access to the linked record.
+
+31b. **`Test-PRD-P0-65-asset_drop_site`** — Staff drop a working document (a vendor price list, a
+    policy note, meeting notes) at `/assets/new` — a plain browser upload, no assistant needed,
+    same shape as `/media/new` — and any role can then have their own agent read it back through
+    `assets.list` / `assets.read`. Its own store (`shared/db/assets.sql`), on the same blast-radius
+    rule as `tickets`: a dropped file is not customer data, not commerce, not people, and belongs
+    nowhere else. The original bytes live in R2 (`ASSET_FILES`), reachable only from the upload and
+    download routes in `src/index.js` — `assets.list` and `assets.read` declare no resource at all,
+    so the tool layer holds no binding that could return raw bytes to a model even by mistake
+    (P0-24). Text is extracted once, at upload, for the formats with no ambiguity about what "text"
+    means — `.txt`, `.md`, `.csv`, `.json` — and stored in the index; a PDF, a spreadsheet workbook
+    or a Word document is accepted and listed like everything else, but `assets.read` returns `text:
+    null` and a plain note rather than guessing at content it never parsed. Extending extraction to
+    those formats needs an edge-runtime-compatible parser this codebase has not vetted, and is a
+    deliberate follow-up, not an oversight. Extracted text is capped in characters
+    (`CAPS.ASSET_TEXT_MAX_CHARS`) and marked `truncated` past it — a limit an agent is told about,
+    not one it silently loses content to. The index row is append-only at the database (no
+    `UPDATE`, no `DELETE`): a newer version of a document is a new row, never an edit to an old one.
 
 32. **`Test-PRD-P0-33-customer_intake`** — Creating a customer writes the profile and the
     encrypted identity as one operation, records consent per purpose at intake, and is a T2
@@ -548,6 +662,147 @@ that does not trace to one of these is a process failure (see §12).
     tool layer would refuse. Checked by `ops/test/ops-page.test.mjs`, which fetches the real page
     from the real Worker rather than asserting over the template.
 
+34a. **`Test-PRD-P0-62-onboarding_greeting`** — The MCP server's own `instructions` — the one
+    thing every connecting agent reads before its first reply, regardless of which chat client it
+    is — tell it to greet the coworker by name and offer a short numbered menu of what it can help
+    with right now, then wait, rather than opening with an explanation of tiers or tools. The menu
+    is a specific, pinned set of four choices, in this order: **Add Merchandise, Add Customers,
+    Submit Expenses, More Options** — a request for exact wording, not a suggestion, so the
+    regression test asserts the four strings appear in that order rather than loosely matching
+    "there is a menu." Once they pick Merchandise or Customers, a second short multiple-choice
+    question asks spreadsheet-or-narrate before anything else happens. Both answers reach the same
+    place: point at `/products/batch` or `/customers/batch` for a spreadsheet; for a narrated
+    list, draft and create one item at a time exactly as for a single one — there is no separate
+    "batch" tool — then present every resulting approval link together at the end. Submit Expenses
+    is different on purpose: no second question, no tool call, straight to `/expenses/new`
+    (P0-66) — there is nothing to draft. "More Options" has no fixed submenu; the agent says
+    plainly what else it can do for this role rather than inventing a second rigid menu. The text
+    also says the approval link is a real form to send them to, not something to walk through in
+    chat (P0-63). `buildInstructions(identity)` is a pure function precisely so a test can assert
+    on the words a client actually receives, the same lesson the `/approvals/` 404 already taught
+    this codebase once (P0-35): reading the code and believing it says the right thing is not the
+    same as checking what it sends.
+
+34a'. **`Test-PRD-P0-67-greet_by_first_name`** — The greeting uses the coworker's ACTUAL first
+    name, not one the model guesses from an email address. `firstNameFrom(claims, email)`
+    (`ops/src/access.js`) tries `given_name` first (the OIDC claim Google Workspace sign-in
+    typically carries), then the first token of a full `name` claim, then derives one from the
+    email's local part (`ana.garcia@` → `Ana`) — never throwing, never returning empty, because
+    "there" beats a crash when nothing at all is available. Whether Cloudflare Access actually
+    forwards `given_name` on a real assertion is unconfirmed against a live tenant — the same
+    unresolved claim-shape question ADR-007 already raised for `groups` — which is exactly why
+    every plausible source is tried rather than assuming one specific field is present.
+
+    Surfaced in **two** places, for the P0-64 reason: `buildInstructions()`'s connect-time
+    `instructions` field names it directly ("greet them BY THEIR ACTUAL FIRST NAME — Ana, given
+    above") for the client that reliably shows that field (Claude Code); `skills_list`'s own
+    tool response now also carries `you: { email, first_name, role }`, because that is the first
+    real tool call every onboarding script already tells a connecting agent to make, and a tool
+    result reaches the model on every client, `instructions` or not. Both read from the same
+    `firstNameFrom()`, so there is one answer, not two that can disagree.
+
+34a''. **`Test-PRD-P0-68-one_click_ops_chat`** — Connecting a third-party assistant (Claude,
+    ChatGPT) is a real, deliberate option, but it is not the ONE-CLICK path: it needs the person
+    to leave `ops.vemians.com`, open their own client's connector settings, paste a URL, and
+    complete a separate sign-in. The built-in browser chat already on the ops front page (`/agent`,
+    `agent.js`) is the one-click path — a coworker is already signed in to see the page at all,
+    so asking a question there is the whole interaction. It existed all session with its own
+    bare system prompt and none of the greeting-and-menu work — a person using it got a plain
+    Q&A assistant while the "real" experience lived only in the MCP path nobody reaches without
+    leaving the page first.
+
+    `greetingScript(firstName)` (`ops/src/greeting.js`) is the fix: the FIRST MESSAGE / SECOND
+    MESSAGE / "Submit Expenses is different" / "that link is a real form" protocol, extracted
+    into its own dependency-free module and shared VERBATIM by `buildInstructions()` (MCP) and
+    `agent.js`'s `systemPrompt()` (the built-in chat) — one text, not two prompts describing the
+    same four choices in almost the same words until one of them drifts. `systemPrompt()` also
+    now resolves the person's real first name the same way (`firstNameFrom`), so the one-click
+    chat opens exactly like the MCP path: "Hi Ana — 1) Add Merchandise 2) Add Customers
+    3) Submit Expenses 4) More Options."
+
+    **This surface has a real dependency the others do not.** `/agent` calls the Anthropic
+    Messages API directly and needs `ANTHROPIC_API_KEY` set as a Worker secret; with it unset,
+    `agentTurn()` degrades to an echo stub rather than erroring, which is correct behaviour for a
+    prototype with no key configured but means "one click, stupid simple" is only actually true
+    once that secret exists on this deployment — unconfirmed from this environment, the same as
+    every other secret-gated behaviour in this codebase.
+
+34a'''. **`Test-PRD-P0-69-one_click_welcome_menu`** — Immediately after the identity line, a
+    literal welcome message by first name leads into four clickable choices — **Add Merchandise,
+    Add Customers, Submit Expenses, More Options** — the same four words as the chat greeting
+    (P0-62/P0-68), but as real page buttons rather than a conversation someone has to start. (P0-74
+    now puts the built-in assistant between the greeting and this menu — see that entry for why;
+    the menu itself, and its four choices in this order, are unchanged.) The first three are direct
+    links to routes that already do the whole job with no assistant at all (`/products/batch`,
+    `/customers/batch`, `/expenses/new`); "More Options" is an in-page anchor to everything else —
+    a single photo, dropping a file, connecting a third-party assistant.
+
+    **This supersedes P0-54's earlier framing.** The front page used to have "one job for almost
+    everyone: hand over the address to paste into their own assistant" — true when the only way
+    to use this surface was to leave it for someone else's client. It is no longer true: the
+    one-click menu is the primary path and sits above even that address, and the built-in chat
+    (P0-68) that used to live captioned "your own assistant is the one worth using" inside a
+    closed accordion is now open at rest, right where "More Options" points, because steering
+    people away from the one surface that needs no setup at all was the opposite of "stupid
+    simple." Connecting a third-party assistant is still there, still real, just demoted to what
+    it actually is now: an option for someone who prefers their own client or wants to hand it a
+    photo from their own device, not the thing everyone is assumed to want.
+
+34b. **`Test-PRD-P0-63-editable_approval`** — The `/approvals/` page is a real, editable form for
+    the two tools the spreadsheet and narrated-list flows actually produce
+    (`catalog.create_product`, `customer.create`): a coworker can fix a typo'd title or a wrong
+    price right there before saying yes, not only accept or reject exactly what was proposed. Every
+    other T2 tool keeps the plain read-only view — building a correct generic editor for an
+    arbitrary schema is a different, larger project, and a wrong guess at one is worse than the
+    honest raw view. An edit still goes through the tool's own `check()`: one that will not parse
+    (a price that is not a plain number) is refused before Square ever sees it, exactly like a bad
+    CSV row, and the link survives to be tried again rather than being burned on a failed attempt.
+
+    **The regressions this exists for — two of them, stacked in the same handler:** the POST
+    handler referenced `email` without ever declaring it in scope, so every real browser submission
+    of "Yes, do this" for an MCP-parked approval threw `ReferenceError: email is not defined` rather
+    than running anything. Once that was fixed, the same handler still built the approver it passes
+    to `approvePending()` as `{ email, role }` — never `verified` — so `approvePending()`'s own "no
+    unverified assertion" guard refused every submission unconditionally, including one carrying a
+    genuinely signed, JWKS-verified Cloudflare Access token. Neither bug was caught earlier because
+    every prior test of this path called `approvePending()` directly from a test file, never through
+    the actual Worker route a browser hits, and neither bug alone was sufficient to notice the
+    other — the real approval flow had, in effect, never executed a write end-to-end until both were
+    found and fixed together. `ops/test/catalog-write.test.mjs`'s P0-63 checks now drive
+    `worker.fetch()` against `/approvals/<id>` for real, POST included, with a genuinely RS256-signed
+    and JWKS-verified assertion — the same lesson P0-35's own history already taught this file once
+    about a link nobody actually followed.
+
+34c. **`Test-PRD-P0-64-greeting_survives_every_client`** — The greeting-and-menu opening (P0-62)
+    is stated twice, in two different places, on purpose. `buildInstructions()`'s connect-time
+    `instructions` field is the version Claude Code's own CLI actually shows the model before its
+    first reply; the `agent-tool-contract` skill's new "First message to a person" section is the
+    version every other client sees, because it arrives as the result of a real `skills_read` call
+    rather than a field a client is free to drop. **The regression this exists for:** a coworker
+    said "hello" in a fresh session and got the generic assistant identity line, not the menu —
+    because the client they were using does not surface server `instructions` at all (confirmed for
+    at least the ChatGPT and Claude.ai web connectors). Relying on `instructions` alone made the
+    entire onboarding promise true for one client and silently false for the two the ops page's own
+    visible instructions point most people at ("paste this into your Claude or ChatGPT"). Every
+    role reads `agent-tool-contract` first (P0-54), so the fix is not a new mechanism — it is
+    putting the same words somewhere every client is already guaranteed to read. The `.mcp.json`
+    checked into the repo root additionally lets a Claude Code session opened in a clone of this
+    repository connect after one manual, one-time approval instead of the `claude mcp add` line;
+    a remote or headless Claude Code session still cannot complete the interactive Access sign-in
+    on its own, and the ops page's developer section says so rather than implying otherwise.
+
+34d. **Prompt-based editing on the approval page — deferred, not built.** The click-to-edit fields
+    of P0-63 are the click-and-type half of "review, edit manually, or use prompts"; the third
+    option, telling the page in plain language what to change and having it edit the fields for
+    you, is deliberately not part of this change. It needs a new server-side LLM call from the ops
+    Worker itself — a new API key/secret, an ongoing per-call cost, and a new prompt-injection
+    surface sitting directly on a page whose submit button triggers a real write to Square — and is
+    a separate decision from the editable form it would sit on top of, same as P0-33's encrypted
+    vault is a separate decision from the Square customer intake it would sit next to. No tool, no
+    route and no field for it exists yet; when it is built it still goes through the same
+    `applyFormEdits` → tool `check()` path P0-63 already established, so a prompt can suggest a
+    field value but never bypass validation.
+
 35. **`Test-PRD-P0-35-approval_never_in_band`** — A T2 action requested through MCP does not
     execute in the model's context. It returns an approval URL on `ops.vemians.com`; the token is
     minted server-side from the human's browser action and is never returned to, nor accepted
@@ -574,6 +829,115 @@ that does not trace to one of these is a process failure (see §12).
     or stale category is **dropped rather than filtered on**, so a bad link shows the whole
     catalog rather than an empty grid — which reads as a broken shop, not a bad link. The
     current category carries `aria-current="page"`.
+
+47a. **`Test-PRD-P0-71-product_channel`** — Not every product Square knows about is for the public
+    website. `mirror_product` (`shared/commerce/square/schema.sql`) carries a `channel` column —
+    `in_store` (the shop only, not shown at any storefront URL), `website` (in the grid and has
+    its own page), or `direct_link` (has its own page, left out of the grid, for someone with the
+    link). **Fail closed, the same way every other permission in this codebase defaults**: a new
+    or freshly-synced product is `in_store` until a person says otherwise, so nothing reaches the
+    public site by an omission rather than a decision. This is deliberately **ours, not Square's**
+    — Square has no notion of our storefront at all — so `catalog.set_channel` (T2, manager+,
+    `ops/src/tools/catalog-write.js`) writes `mirror_product` directly and calls Square for
+    nothing; `syncCatalog` (`shared/commerce/square/mirror.js`) never names this column in its
+    `UPDATE`, on purpose, so a value set here survives every future sync untouched — exactly the
+    guarantee `handle` already relies on. `store/src/catalog.js`'s grid query filters
+    `channel = 'website'`; a product's own page (P0-72) accepts `website` and `direct_link` alike
+    and refuses `in_store` in the query's own `WHERE` clause, not by a check the caller could
+    forget to make.
+
+47b. **`Test-PRD-P0-72-product_detail_page`** — Every product has its own page at
+    `/products/<handle>` — the answer to "how do I see product details", asked directly, of a
+    shop whose cards used to be `<article>`s with no click-through at all. `loadProduct(env,
+    handle)` (`store/src/catalog.js`) is a second, dedicated read alongside the grid's — a
+    `direct_link` product must resolve here while never once appearing in the grid's own query,
+    which only a separate statement can guarantee. It falls back to the seed catalog under the
+    same "mirror not synced yet" case `loadCatalog` already treats as seed-served (P0-49), so a
+    fresh `wrangler dev --local` can open a seeded product's page with no Square account; a handle
+    that is simply wrong, or that names a real `in_store` product, is an honest 404 either way.
+    The grid's card (`store/src/views.js`) now wraps its image and name in a link to that page —
+    the wishlist heart stays a sibling control outside it, so tapping the glyph never also
+    navigates. **This is not a cart or a checkout** (see Non-goals): the page states the price and
+    description and points to `/visit` to see the piece in person or ask about it, honestly,
+    rather than rendering a "Buy" button that does nothing.
+
+47c. **`Test-PRD-P0-73-real_photography`** — The storefront now CAN render a genuine photograph,
+    not only the placeholder tone-shift SVG. `shared/commerce/square/schema.sql`'s `mirror_image`
+    already carried the column for this — `media_key`, "our R2 key, once mirrored" — and
+    `ops/src/media-backfill.js` is the fetch-and-store job that column was always waiting
+    on: for every synced image with a `source_url` and no `media_key`, fetch the bytes off
+    Square's CDN once and `.put()` them into OUR OWN bucket under OUR OWN key, then record it.
+    `syncCatalog`'s own `INSERT`/`UPDATE` for `mirror_image` never names `media_key` — the same
+    "a column this job doesn't touch survives every re-sync" guarantee `channel` (P0-71) and
+    `handle` already rely on. The job runs once per scheduled sync
+    (Test-PRD-P0-48-scheduled_mirror_sync), capped at `CAPS.MEDIA_BACKFILL_MAX_PER_RUN` per run so
+    a first-time backfill of an existing catalog spreads across several runs rather than spending
+    one cron's whole budget; a single photograph's failed fetch is reported and retried on the
+    next run, never allowed to abort the rest of the batch.
+
+    **This reverses the one part of ADR-013 that needed reversing.** That ADR's own text predicted
+    exactly this: "binding a bucket later restores the original behaviour with no code change" —
+    `mediaStoreFor(env)` already picked R2 the instant `MEDIA` is bound, before this feature
+    existed. `.github/workflows/bootstrap-media.yml` creates the bucket and gives it a public
+    custom domain (`media.vemians.com`), kept as a SEPARATE workflow from bootstrap-resources.yml
+    on purpose — an R2 permission failure must not take the KV namespaces down with it a third
+    time, which is the exact failure ADR-013 itself records happening twice.
+
+    `store/src/catalog.js` builds the real `<img src>` straight from `media_key` at that public
+    domain — a subdomain of vemians.com, so Test-PRD-P0-28-image_contract's "no image loaded from
+    anybody else" still holds, and the storefront still makes no fetch of its own and binds
+    nothing but `CATALOG_MIRROR`: this is string concatenation over a fact already in the mirror
+    row, not a network call. A product with no synced photograph yet still gets the placeholder,
+    exactly as before. `store/src/views.js`'s `shotUrl` will not pair a real primary photograph
+    with a FABRICATED placeholder hover-alt (a photograph that turns into a cartoon rectangle on
+    hover reads as a bug) — a real primary with no second real photo simply has no hover swap;
+    only a fully-placeholder product keeps the placeholder swap on both shots, unchanged from
+    before this feature.
+
+34a''''. **`Test-PRD-P0-74-chat_first`** — The owner's own direction, asked for directly: the
+    built-in ops assistant leads the page. The greeting still comes first — it names who is
+    signed in before anything asks for input — but the "Ask the ops assistant" section
+    (`ops/src/views.js`'s `opsPage()`) now renders between the greeting and P0-69's one-click
+    menu, not after it and not behind "More Options". **This narrows P0-69's own framing without
+    reversing it**: the three direct-link buttons are still real, still one click, still on the
+    page with no assistant required — they simply no longer claim to be the first thing offered,
+    because the person who asked for this explicitly wanted the assistant to be. Nothing about
+    the chat itself changed — same open-at-rest box, same tier-2 approval gate underneath it —
+    only where it sits.
+
+34a'''''. **`Test-PRD-P0-75-ops_dark_theme`** — The employee area gets its own dark palette —
+    near-black ground, warm off-white ink, one clay-orange accent for anything a person actually
+    presses — asked for as "the anthropic black theme". **This is an interpretation, not a brand
+    asset**: nobody supplied this codebase an official colour file, so the three values
+    (`ops/src/views.js`'s `OPS_DARK_CSS`) are a reasonable reading of the ask, named as such in
+    the comment beside them, the same honesty this codebase already applies to an inferred
+    interaction-design choice (`shared/view/enhance.client.js`'s own INFERRED markers) or an
+    unresolved contact detail (`shared/site.js`'s PLACEHOLDER markers).
+
+    **Scoped to `ops.vemians.com` alone, structurally.** The override lives in a SECOND `:root`
+    block inside the ops Worker's own stylesheet — prepended to both `OPS_CSS` (the front page
+    and `/whoami`) and `APPROVAL_CSS` (every other ops page: approvals, batch upload, asset
+    drop, the expense scanner) — and never touches `shared/design/theme.css`, which the
+    storefront also loads. A later declaration of a variable theme.css already named simply wins
+    the cascade in the same `<style>` tag; nothing here could leak into the shop's own warm-cream
+    palette (P0-26/P0-56) without a second `:root` block appearing in a file the storefront
+    actually imports, which none of this touches. Every hardcoded `#666` this file used for
+    secondary text — seven of them, none of it ever having gone through a variable — became
+    `var(--muted)`, a token theme.css never had, for the same reason: a colour tuned to sit quietly
+    on cream reads as barely-visible on near-black.
+
+34a''''''. **`Test-PRD-P0-76-valid_tool_schema`** — Found the first time a real
+    `ANTHROPIC_API_KEY` reached a real request: every call to the built-in chat answered "The
+    model service returned 400." `toolDefinitions()` (`ops/src/agent.js`) was handing Claude's
+    Messages API `tool.schema` UNCONVERTED as `input_schema` — this codebase's own validation DSL
+    (`tools/validate.js`: a flat `{field: {type, required, format, of}}` map, `required` living on
+    each field rather than a top-level array) rather than the JSON Schema object
+    (`{type:"object", properties:{...}, required:[...]}`) the API actually requires. The DSL
+    validated correctly against runTool()'s own `validate()` — a completely separate code path —
+    which is exactly why nothing caught this: every existing test exercised that path or a stubbed
+    Anthropic response, and none of them called the real API with a real schema. `toJsonSchema()`
+    now converts every tool's schema, recursively for a nested array-of-objects field (`variations`
+    on `catalog.create_product`, the one shape that most needed it), before it ever reaches Claude.
 
 ## 4. P1 features
 
@@ -784,6 +1148,24 @@ Where each feature is enforced today:
 | P0-22 – P0-25 | Access policy review + `ops` integration tests (M5) |
 | P0-54 | `ops/test/skills.test.mjs`, `ops/test/ops-page.test.mjs` |
 | P0-55 | `ops/test/media-square.test.mjs`, over a stubbed Square uploader |
+| P0-59 | `ops/test/media-new.test.mjs`, over the real Worker |
+| P0-60 | `ops/test/csv.test.mjs` for the parser; the product-batch half of `ops/test/catalog-write.test.mjs`; the customer-batch half of `ops/test/customer-create.test.mjs`; `ops/test/batch-route.test.mjs` for both HTTP routes |
+| P0-70 | the flexible-header half of `ops/test/catalog-write.test.mjs` |
+| P0-61 | `ops/test/customer-create.test.mjs`, over a fake Square client — no Square account, token or network call is involved |
+| P0-62 | `ops/test/mcp-instructions.test.mjs` |
+| P0-63 | the editable-approval half of `ops/test/catalog-write.test.mjs`, over the real Worker (`worker.fetch`) |
+| P0-64 | `ops/test/skills.test.mjs` |
+| P0-65 | `ops/test/tools.test.mjs` for the tool layer and extraction; `ops/test/assets-route.test.mjs` for the upload/download/list routes, over the real Worker |
+| P0-66 | `ops/test/tools.test.mjs` for `parseReceiptText` and the OCR fallback; `ops/test/expenses-route.test.mjs` for the scan/confirm/file routes, over the real Worker; `ops/test/mcp-instructions.test.mjs` and `ops/test/skills.test.mjs` for the "no tool, send them to the link" instruction |
+| P0-67 | `ops/test/skills.test.mjs` for `firstNameFrom` and `buildInstructions()`; no round-trip test yet exercises `skills_list`'s wire response directly — this file has no harness that calls a registered MCP tool handler, for any tool, not only this one |
+| P0-68 | `ops/test/agent-greeting.test.mjs` for `systemPrompt()`'s greeting; no test yet drives `agentTurn()` end to end (the whole file has no test coverage of the Anthropic call loop itself, not only the greeting) |
+| P0-69 | `ops/test/ops-page.test.mjs`, over the real Worker |
+| P0-71 | `ops/test/catalog-write.test.mjs` for `catalog.set_channel`; the channel-filter half of `store/test/storefront.test.mjs` |
+| P0-72 | the product-detail half of `store/test/storefront.test.mjs`, over the real mirror schema |
+| P0-73 | `ops/test/media-backfill.test.mjs` for the fetch-and-store job; the real-photo half of `store/test/storefront.test.mjs` for rendering and the hover-alt fallback rule |
+| P0-74 | `ops/test/ops-page.test.mjs` |
+| P0-75 | `ops/test/ops-page.test.mjs` |
+| P0-76 | `ops/test/agent-tool-schema.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

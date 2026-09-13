@@ -77,7 +77,8 @@ function groupsFrom(claims) {
 
 /* Imported, not re-exported blind: `export … from` creates no local
    binding, so the module could not call it. */
-import { roleFor } from "./access.js";
+import { roleFor, firstNameFrom } from "./access.js";
+import { greetingScript } from "./greeting.js";
 export { roleFor };
 
 
@@ -199,7 +200,7 @@ const opsOrigin = (env) => `https://${env.OPS_HOST || "ops.vemians.com"}`;
 /* Exported so a test can assert the URL this ACTUALLY emits has a route. It
    was not, and the 404 that followed shipped unnoticed for exactly that
    reason: every test asked the code what it meant, none asked what it sent. */
-export async function parkForApproval(env, { name, args, actor, role, tier }) {
+export async function parkForApproval(env, { name, args, actor, role, tier, summary }) {
   const id = crypto.randomUUID();
   const store = pendingStore(env);
   if (!store.durable) {
@@ -211,6 +212,11 @@ export async function parkForApproval(env, { name, args, actor, role, tier }) {
     id,
     tool: name,
     args,
+    /* The one-line plain-English description the tool's own check() already
+       wrote (e.g. `create "Necklace" in Jewellery — 1 variation(s): ...`) —
+       carried through so the approval page can lead with that instead of a
+       raw argument dump only a developer would parse on sight. */
+    summary: summary ?? null,
     /* Who asked. The approver is a different person on a different request, and
        the audit row for the execution names both. */
     requestedBy: actor,
@@ -243,7 +249,7 @@ export async function peekPending(env, id) {
   return { pending: await store.get(id), durable: store.durable };
 }
 
-export async function approvePending(env, id, approver) {
+export async function approvePending(env, id, approver, argsOverride) {
   if (!approver?.email || !approver?.role) {
     console.error("ERROR mcp/approve: called without a verified approver identity");
     return { ok: false, error: "Approval requires a verified Access identity." };
@@ -264,17 +270,37 @@ export async function approvePending(env, id, approver) {
     return { ok: false, error: "Your role cannot approve this write." };
   }
 
-  /* Minted here, from this browser request, never returned to any caller. */
-  const approvalToken = crypto.randomUUID();
   await store.del(id);
 
-  return runTool(pending.tool, pending.args, {
-    actor: pending.requestedBy,
-    approvedBy: approver.email,
-    role: approver.role,
-    env,
-    approvalToken,
-  });
+  /*
+   * THE T2 GATE IS ISSUE-THEN-CONSUME, BOTH KEYED BY (tool, actor, args) —
+   * see approval.js's `fingerprint()`. A random UUID here (what this used to
+   * do) never matches anything `approvals.issue()` ever minted, so
+   * `consume()` always answered "unknown_or_used_token" and runTool always
+   * fell back to issuing yet another token nobody could see — this page's
+   * "Approve and run" button has never actually written to Square. Fixed by
+   * doing the same two-call dance a same-session caller does: call once to
+   * get a token bound to THIS actor, then call again with it.
+   *
+   * The actor for BOTH calls is the APPROVER, not the original requester —
+   * this page's own promise ("This runs under your identity, not the
+   * assistant's") and P0-35 both require it, and the fingerprint match
+   * requires the second call's actor to equal the first's. Who originally
+   * asked is preserved separately via onBehalfOf, which lands in the audit
+   * row's detail rather than overwriting who actually did it.
+   */
+  /* A person reviewing the prefilled form may have fixed a typo'd title or a
+     wrong price before clicking "Yes, do this" — argsOverride carries that
+     edit. It still goes through the SAME check() as the originally parked
+     args did (a bad edit is refused exactly like a bad CSV row), and the
+     audit row ends up recording what was actually created, not what was
+     first proposed. */
+  const args = argsOverride ?? pending.args;
+  const ctx = { actor: approver.email, role: approver.role, env, onBehalfOf: pending.requestedBy };
+  const proposal = await runTool(pending.tool, args, ctx);
+  if (!proposal?.needsApproval) return proposal;
+
+  return runTool(pending.tool, args, { ...ctx, approvalToken: proposal.data?.approval?.token });
 }
 
 /* ----------------------------------------------------------------- adapter */
@@ -313,24 +339,37 @@ function describe(id, tool) {
   return `${base}\n\n[T0 read]`;
 }
 
+/*
+ * A pure string builder, kept apart from buildServer() so a test can assert
+ * on exactly what a connecting agent is told without a full MCP handshake —
+ * "the code was asked what it meant, not what it sent" is the recurring bug
+ * class this whole codebase tests against, and instructions text is exactly
+ * the kind of thing that reads fine in review and never actually says what
+ * you meant to a live client.
+ */
+export function buildInstructions(identity) {
+  const firstName = firstNameFrom(identity.claims, identity.actor);
+  return (
+    `Vemians ops tools for ${identity.actor} (${identity.role}), first name ${firstName}.` +
+    ` Only the tools this role may use are listed.` +
+    ` T2 writes are never executed by this endpoint: they return a link a human approves in a browser.` +
+    /* The whole reason skills are served. A tool name says what it is
+       called; the skill says that the category set is closed, that price
+       and publish are two gates, that a photograph goes through an upload
+       ticket. Point at it in the first thing the model reads, or it will
+       learn those rules by being refused. */
+    ` START BY READING THE SKILLS: call skills_list, then skills_read on` +
+    ` "agent-tool-contract" plus whichever domain you are about to touch.` +
+    ` They are also exposed as MCP resources under skill://<name>.` +
+    greetingScript(firstName) +
+    (identity.verified ? "" : " WARNING: the Access assertion was decoded but NOT signature-verified on this deployment.")
+  );
+}
+
 function buildServer(identity, env) {
   const server = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
-    {
-      instructions:
-        `Vemians ops tools for ${identity.actor} (${identity.role}).` +
-        ` Only the tools this role may use are listed.` +
-        ` T2 writes are never executed by this endpoint: they return a link a human approves in a browser.` +
-        /* The whole reason skills are served. A tool name says what it is
-           called; the skill says that the category set is closed, that price
-           and publish are two gates, that a photograph goes through an upload
-           ticket. Point at it in the first thing the model reads, or it will
-           learn those rules by being refused. */
-        ` START BY READING THE SKILLS: call skills_list, then skills_read on` +
-        ` "agent-tool-contract" plus whichever domain you are about to touch.` +
-        ` They are also exposed as MCP resources under skill://<name>.` +
-        (identity.verified ? "" : " WARNING: the Access assertion was decoded but NOT signature-verified on this deployment."),
-    },
+    { instructions: buildInstructions(identity) },
   );
 
   /*
@@ -374,6 +413,18 @@ function buildServer(identity, env) {
           type: "text",
           text: JSON.stringify(
             {
+              /* The same reliability fix as the greeting itself (P0-64): the
+                 connect-time `instructions` field is not reliably shown to
+                 the model by every client (confirmed absent on Claude.ai's
+                 own web connector and ChatGPT), but a tool RESULT always
+                 reaches the model. skills_list is the first tool this
+                 identity's own instructions tell it to call, so the actual
+                 first name — not a guess from the model — lands here too. */
+              you: {
+                email: identity.actor,
+                first_name: firstNameFrom(identity.claims, identity.actor),
+                role: identity.role,
+              },
               skills: visibleSkills.map(({ name, title, description, version, bytes, uri }) => ({
                 name,
                 title,
@@ -385,7 +436,8 @@ function buildServer(identity, env) {
               start_with: "agent-tool-contract",
               note:
                 "Filtered to this role. A skill for tools you cannot call is not listed, " +
-                "for the same reason those tools are not listed.",
+                "for the same reason those tools are not listed. Greet 'you.first_name', not a " +
+                "name guessed from the email.",
             },
             null,
             2,
@@ -496,9 +548,13 @@ function buildServer(identity, env) {
             actor: identity.actor,
             role: identity.role,
             tier,
+            summary: result?.data?.would ?? null,
           });
           return {
-            content: [text(`Requires human approval, which happens in a browser:\n${url}`)],
+            /* A markdown link, not a bare URL on its own line: most chat clients
+               render `[text](url)` as one clickable element, which is what
+               makes this the shortest possible prompt AND the clickable one. */
+            content: [text(`[Approve and run](${url})`)],
             _meta: { "vemians.com/needs_approval": true, "vemians.com/approval_url": url },
           };
         }

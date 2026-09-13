@@ -16,6 +16,45 @@ Use when:
 - Someone proposes a "delete", "force", "override" or "raw query" tool
 - Writing the domain skills: every one of them inherits this file
 
+## First message to a person
+
+Whoever connects to `ops.vemians.com/mcp` is a coworker opening a new tool, not a developer
+reading an API — greet them like one, in your very first reply, before touching any other tool.
+
+- **Greet by their ACTUAL first name, not a guess.** `skills_list`'s own response carries
+  `you: { email, first_name, role }` — that `first_name` is what a real Access identity
+  resolved to, sometimes from a `given_name` claim, sometimes derived from the email when no
+  name claim was present. Use it. Guessing a name from the email yourself, when the real one
+  is sitting right there in the response you already have, is the kind of shortcut that looks
+  right until someone named differently than their email suggests notices it is wrong.
+- **Offer a short menu, then wait.** Exactly these four choices, in this order: "Hi
+  <first_name> — what can I help with? 1) Add Merchandise  2) Add Customers
+  3) Submit Expenses  4) More Options." Do not explain tiers, tools or skills unless asked.
+  If they pick "More Options," say plainly what else you can do (look something up, connect
+  their own assistant, anything else this role reaches) rather than a second rigid menu.
+- **Once they pick "Add Merchandise" or "Add Customers," ask one more short question first:**
+  "Do you have a spreadsheet, or would you rather tell me about them here?" A spreadsheet goes
+  to `/products/batch` or `/customers/batch` on `ops.vemians.com` — one file, one approval link
+  per row. A narrated list is drafted and created one item at a time exactly as for a single
+  one — there is no separate "batch" tool — then every resulting approval link is presented
+  together at the end.
+- **"Submit Expenses" is different: there is no tool for it and no second question.** Point
+  them straight at `/expenses/new` on `ops.vemians.com` — they photograph the receipt there, a
+  vision model takes a best-effort read of the vendor, date and total, and they confirm or
+  correct every field before anything is filed. Do not attempt to draft or submit an expense
+  yourself; there is nothing to call, and inventing an argument shape for it is worse than
+  saying "photograph the receipt at this link."
+- **The approval link is a real form, not a preview.** The person reviews what you proposed,
+  fixes anything wrong right there (a typo'd title, a wrong price), and submits — all on that
+  page. Do not ask them to confirm details in this chat; send them to the link for that. Never
+  approve on the person's behalf; each link still needs its own "yes."
+
+This section, not the transport-level `instructions` a server can offer at connect time, is the
+one place every connecting agent is guaranteed to actually see the greeting protocol: some MCP
+clients silently drop server `instructions` (confirmed for at least the ChatGPT and Claude.ai
+web connectors — only Claude Code's own CLI reliably surfaces that field), but nothing drops
+the words of a skill the person's own onboarding script just told the agent to read.
+
 ## Core principle
 
 **Scope is enforced by binding, not by prompt instruction.** Each skill declares the

@@ -53,6 +53,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
+import { register } from "node:module";
 
 import { runTool, TOOLS, STORE_BINDINGS, RESOURCES, describeTools } from "../src/tools/index.js";
 import { createApprovalStore } from "../src/tools/approval.js";
@@ -67,6 +68,14 @@ import {
   verifyUploadTicket,
 } from "../src/tools/media.js";
 import { nearestCategory, suggestCategory, validateProposal } from "../src/tools/catalog-write.js";
+
+/* mcp.js is the one import here that reaches skills.js, which reads
+   SKILL.md files — nothing else in this file needed the text-module loader
+   before, so it is registered here rather than assumed, and the import is
+   dynamic because a static one is resolved before this line ever runs. */
+register("../../shared/test/text-modules.mjs", import.meta.url);
+const { approvePending, parkForApproval } = await import("../src/mcp.js");
+const { draftProductBatch } = await import("../src/batch.js");
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OPS = path.join(HERE, "..");
@@ -340,6 +349,431 @@ async function approvedCall(f, name, args, ctx) {
   assert.equal(gate.needsApproval, true, "a T2 call must ask first");
   return runTool(name, args, { ...(ctx ?? f.ctx), approvalToken: gate.data.approval.token });
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-35 — the browser approval route must actually run the write
+ *
+ * This is the regression for a bug this exact suite would have caught had it
+ * ever driven /approvals/ end to end: approvePending() minted a random,
+ * never-issued token and handed it straight to consume(), which can only
+ * ever answer "unknown_or_used_token". Every browser approval for an
+ * MCP-parked T2 call silently re-issued an invisible internal token and
+ * returned needsApproval again — nothing a person clicked "Approve and run"
+ * on ever reached Square. Fixed by having approvePending() run the same
+ * issue-then-consume dance a same-session caller does.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_35_approval_never_in_band__clicking_approve_actually_creates_the_product", async () => {
+  const f = await fixture({ actor: "assistant-for-mara@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+
+  const args = { ...COAT, category_id: outerwear.id };
+  const gate = await runTool("catalog.create_product", args, f.ctx);
+  assert.equal(gate.needsApproval, true);
+
+  /* What actually happens on the MCP path: the requester's call never holds a
+     token, only a link. */
+  const { id } = await parkForApproval(f.env, {
+    name: "catalog.create_product",
+    args,
+    actor: f.ctx.actor,
+    role: f.ctx.role,
+    tier: "T2",
+    summary: gate.data.would,
+  });
+
+  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await approvePending(f.env, id, approver);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.equal(result.ok, true, result.error);
+  assert.equal(result.data.created, true, "the click must actually create the product, not ask again");
+  assert.ok(f.calls().some((c) => c.path === "/v2/catalog/object"), "Square must have seen a real write");
+
+  /* P0-35's own promise: recorded under the APPROVER, not the assistant that
+     asked. */
+  const rows = f.audit("WHERE tool = 'catalog.create_product' AND result = 'ok'");
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].actor, approver.email, "the write must be recorded under whoever clicked approve");
+  assert.equal(
+    rows[0].on_behalf_of,
+    "assistant-for-mara@vemians.com",
+    "who originally asked is preserved, just not as the actor",
+  );
+
+  /* Single use: the link is gone whether or not the click worked. */
+  const second = await approvePending(f.env, id, approver);
+  assert.equal(second.ok, false);
+  assert.match(second.error, /No such pending approval/);
+});
+
+check("test_PRD_P0_35_approval_never_in_band__a_role_that_cannot_use_the_tool_cannot_approve_it", async () => {
+  const f = await fixture({ actor: "assistant-for-mara@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const args = { ...COAT, category_id: outerwear.id };
+
+  const gate = await runTool("catalog.create_product", args, f.ctx);
+  const { id } = await parkForApproval(f.env, {
+    name: "catalog.create_product",
+    args,
+    actor: f.ctx.actor,
+    role: f.ctx.role,
+    tier: "T2",
+    summary: gate.data.would,
+  });
+
+  const result = await approvePending(f.env, id, { email: "ana@vemians.com", role: "staff", verified: true });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /cannot approve/);
+  assert.deepEqual(f.calls(), [], "a refused approver must never reach Square");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-60 — a spreadsheet mints one approval per row, never a write
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_60_spreadsheet_products__a_clean_row_becomes_one_ready_to_review_approval", async () => {
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const csv =
+    "title,description,category,price,sku\n" +
+    `Wool Coat,Warm and heavy,${outerwear.name},450.00,VEM-100\n`;
+
+  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  assert.equal(result.skipped.length, 0);
+  assert.equal(result.ready.length, 1);
+  assert.equal(result.ready[0].title, "Wool Coat");
+  assert.match(result.ready[0].url, /\/approvals\//);
+  assert.match(result.ready[0].summary, /Wool Coat/);
+
+  /* Uploading is not approving: nothing reaches Square until someone opens
+     that link and says yes. */
+  assert.deepEqual(f.calls(), []);
+});
+
+check("test_PRD_P0_60_spreadsheet_products__a_bad_row_is_reported_with_why_not_silently_dropped", async () => {
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const csv =
+    "title,category,price\n" +
+    ",Outerwear,45.00\n" +
+    "Sun Hat,Millinery,20.00\n" +
+    "Silk Scarf,Outerwear,free\n";
+
+  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  assert.equal(result.ready.length, 0);
+  assert.equal(result.skipped.length, 3);
+  assert.match(result.skipped[0].reason, /no title/);
+  assert.match(result.skipped[1].reason, /"Millinery" does not exist/);
+  assert.match(result.skipped[2].reason, /"free" is not a plain number/);
+  /* Rows are 1-based and counted past the header, so a person can find row 2
+     in the spreadsheet they actually uploaded. */
+  assert.deepEqual(result.skipped.map((s) => s.row), [2, 3, 4]);
+});
+
+check("test_PRD_P0_70_flexible_spreadsheet_columns__a_real_world_header_row_still_matches", async () => {
+  /* A coworker's actual export, not our own sample file: "Item Name" instead
+     of "title", "Product Type" instead of "category", "Retail Price"
+     instead of "price", punctuation and casing nobody typed to a spec. */
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const csv =
+    "Item Name,Product_Type,Retail Price\n" +
+    "Wool Coat,Outerwear,245.00\n";
+
+  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.ready.length, 1);
+  assert.equal(result.ready[0].title, "Wool Coat");
+});
+
+check("test_PRD_P0_60_spreadsheet_products__catalog_create_product_still_gates_on_role_even_from_a_spreadsheet", async () => {
+  /* draftProductBatch adds no role check of its own — catalog.create_product's own
+     minRole is the only gate, same as every other caller. This is what the
+     /products/batch route itself refuses BEFORE reading the file, so a staff
+     upload never gets this far; documented here so a change to that tool's
+     minRole is felt in exactly one place, not silently in two. */
+  const f = await fixture({ actor: "ana@vemians.com", role: "staff" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const csv = `title,category,price\nWool Coat,${outerwear.name},450.00\n`;
+
+  const result = await draftProductBatch(f.env, { text: csv, actor: "ana@vemians.com", role: "staff" });
+  assert.equal(result.ready.length, 0);
+  assert.equal(result.skipped.length, 1);
+  assert.match(result.skipped[0].reason, /requires the manager role/);
+});
+
+check("test_PRD_P0_60_spreadsheet_products__more_rows_than_the_cap_is_refused_before_any_row_runs", async () => {
+  const f = await fixture();
+  const tooMany = CAPS.BATCH_MAX_ROWS + 1;
+  const csv = "title,category,price\n" + Array.from({ length: tooMany }, (_, i) => `Item ${i},Outerwear,10.00`).join("\n");
+
+  const result = await draftProductBatch(f.env, { text: csv, actor: f.ctx.actor, role: f.ctx.role });
+  assert.equal(result.tooMany, tooMany);
+  assert.deepEqual(result.ready, []);
+  assert.deepEqual(result.skipped, []);
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-63 — the /approvals/ page is a real form, driven the way a browser
+ * actually drives it (worker.fetch, not runTool/approvePending called
+ * directly) — the exact gap that let a ReferenceError on `email` ship
+ * undetected in the POST handler: every earlier test of this path called
+ * approvePending() straight from the test file, never through index.js's
+ * own route, so nothing ever exercised the line that crashed.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+/* GET only reads `role` from the claims — decoded-but-unverified is enough,
+   the same shortcut every other worker.fetch test in this repo already
+   takes on localhost. */
+function assertion(claims) {
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  return `${b64({ alg: "RS256" })}.${b64(claims)}.signature`;
+}
+
+const HTTP_ENV_EXTRA = { SURFACE: "ops", MANAGER_POLICY_ID: "policy-manager", STAFF_POLICY_ID: "policy-staff" };
+const MANAGER_CLAIMS = { email: "mara@vemians.com", policy_id: "policy-manager" };
+
+async function getApproval(env, id, claims = MANAGER_CLAIMS) {
+  const worker = (await import("../src/index.js")).default;
+  return worker.fetch(
+    new Request(`http://localhost/approvals/${id}`, { headers: { "Cf-Access-Jwt-Assertion": assertion(claims) } }),
+    { ...env, ...HTTP_ENV_EXTRA },
+  );
+}
+
+/*
+ * approvePending() REFUSES an unverified assertion outright ("An unverified
+ * assertion may read. It may not authorise a write.") — so a POST test has
+ * to produce the real thing: a genuinely RS256-signed assertion plus a JWKS
+ * endpoint that serves the matching public key, exactly what access.js's
+ * verifySignature() actually checks. A fresh team domain (and so a fresh
+ * JWKS URL) per call sidesteps access.js's own hour-long JWKS cache, which
+ * is keyed by URL and module-level — reusing one across tests would verify
+ * the SECOND test's token against the FIRST test's key.
+ */
+async function verifiedPost(env, claims) {
+  const teamDomain = `test-${crypto.randomUUID()}.cloudflareaccess.com`;
+  const aud = "test-aud";
+  const kid = "k1";
+
+  const keyPair = await crypto.subtle.generateKey(
+    { name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
+    true,
+    ["sign", "verify"],
+  );
+  const jwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
+  const jwksUrl = `https://${teamDomain}/cdn-cgi/access/certs`;
+  const jwksBody = { keys: [{ kty: jwk.kty, n: jwk.n, e: jwk.e, kid, alg: "RS256" }] };
+
+  const b64url = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const header = b64url({ alg: "RS256", kid });
+  const payload = b64url({ ...claims, aud });
+  const sig = await crypto.subtle.sign(
+    "RSASSA-PKCS1-v1_5",
+    keyPair.privateKey,
+    new TextEncoder().encode(`${header}.${payload}`),
+  );
+  const token = `${header}.${payload}.${Buffer.from(sig).toString("base64url")}`;
+
+  /* Layered over whatever fetch is already installed (a test's own fake
+     Square fetch), so a JWKS request is served here and everything else
+     falls through unchanged. */
+  const under = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    if (String(url) === jwksUrl) return new Response(JSON.stringify(jwksBody), { status: 200 });
+    return under(url, init);
+  };
+
+  return {
+    token,
+    env: { ...env, ACCESS_TEAM_DOMAIN: teamDomain, ACCESS_AUD: aud },
+    restore: () => {
+      globalThis.fetch = under;
+    },
+  };
+}
+
+async function postApproval(env, id, formFields, claims = MANAGER_CLAIMS) {
+  const worker = (await import("../src/index.js")).default;
+  const { token, env: verifiedEnv, restore } = await verifiedPost(env, claims);
+  try {
+    const form = new FormData();
+    for (const [k, v] of Object.entries(formFields)) form.set(k, v);
+    return await worker.fetch(
+      new Request(`http://localhost/approvals/${id}`, {
+        method: "POST",
+        headers: { "Cf-Access-Jwt-Assertion": token },
+        body: form,
+      }),
+      { ...verifiedEnv, ...HTTP_ENV_EXTRA },
+    );
+  } finally {
+    restore();
+  }
+}
+
+check("test_PRD_P0_63_editable_approval__submitting_unchanged_actually_creates_the_product", async () => {
+  /* THE REGRESSION. A real POST through the real Worker route, with no
+     edits — this is what "just click submit" has to do, and it is exactly
+     what crashed with `email is not defined` before this was fixed. */
+  const f = await fixture({ actor: "assistant@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const args = { ...COAT, category_id: outerwear.id };
+  const gate = await runTool("catalog.create_product", args, f.ctx);
+  const { id } = await parkForApproval(f.env, {
+    name: "catalog.create_product",
+    args,
+    actor: f.ctx.actor,
+    role: f.ctx.role,
+    tier: "T2",
+    summary: gate.data.would,
+  });
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let res;
+  try {
+    /* The form's own prefilled values, submitted back unchanged — no edits,
+       just "yes". */
+    res = await postApproval(f.env, id, {
+      title: COAT.title,
+      description: COAT.description,
+      category_id: outerwear.id,
+      price: (COAT.variations[0].price_minor / 100).toFixed(2),
+      sku: COAT.variations[0].sku,
+    });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.equal(res.status, 200, await res.text());
+  assert.ok(f.calls().some((c) => c.path === "/v2/catalog/object"), "the product must actually reach Square");
+});
+
+check("test_PRD_P0_63_editable_approval__the_get_page_shows_editable_fields_prefilled", async () => {
+  const f = await fixture({ actor: "assistant@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const args = { ...COAT, category_id: outerwear.id };
+  const gate = await runTool("catalog.create_product", args, f.ctx);
+  const { id } = await parkForApproval(f.env, {
+    name: "catalog.create_product",
+    args,
+    actor: f.ctx.actor,
+    role: f.ctx.role,
+    tier: "T2",
+    summary: gate.data.would,
+  });
+
+  const res = await getApproval(f.env, id);
+  const html = await res.text();
+  assert.equal(res.status, 200);
+  assert.match(html, /name="title"[^>]*value="Belted gabardine trench coat"/);
+  assert.match(html, /<option value="[^"]+" selected>Outerwear<\/option>/);
+  assert.match(html, /name="price"[^>]*value="1890\.00"/);
+});
+
+check("test_PRD_P0_63_editable_approval__an_edited_price_is_what_actually_gets_created", async () => {
+  const f = await fixture({ actor: "assistant@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const args = { ...COAT, category_id: outerwear.id };
+  const gate = await runTool("catalog.create_product", args, f.ctx);
+  const { id } = await parkForApproval(f.env, {
+    name: "catalog.create_product",
+    args,
+    actor: f.ctx.actor,
+    role: f.ctx.role,
+    tier: "T2",
+    summary: gate.data.would,
+  });
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let res;
+  try {
+    res = await postApproval(f.env, id, {
+      title: "Belted gabardine trench coat — sample",
+      category_id: outerwear.id,
+      price: "225.00",
+      sku: COAT.variations[0].sku,
+    });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.equal(res.status, 200, await res.text());
+  const upsert = f.calls().find((c) => c.path === "/v2/catalog/object");
+  assert.ok(upsert, "the edited proposal must still reach Square");
+  const variation = upsert.body.object.item_data.variations[0];
+  assert.equal(variation.item_variation_data.price_money.amount, 22500, "the EDITED price, not the original 189000");
+  assert.equal(upsert.body.object.item_data.name, "Belted gabardine trench coat — sample");
+});
+
+check("test_PRD_P0_63_editable_approval__an_edit_that_will_not_parse_is_refused_before_square_sees_it", async () => {
+  const f = await fixture({ actor: "assistant@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const args = { ...COAT, category_id: outerwear.id };
+  const gate = await runTool("catalog.create_product", args, f.ctx);
+  const { id } = await parkForApproval(f.env, {
+    name: "catalog.create_product",
+    args,
+    actor: f.ctx.actor,
+    role: f.ctx.role,
+    tier: "T2",
+    summary: gate.data.would,
+  });
+
+  const res = await postApproval(f.env, id, {
+    title: COAT.title,
+    category_id: outerwear.id,
+    price: "not a number",
+    sku: COAT.variations[0].sku,
+  });
+  assert.equal(res.status, 400);
+  assert.match(await res.text(), /not a plain number/);
+  assert.deepEqual(f.calls(), [], "a refusal on the way in must never reach Square");
+
+  /* And the link survives the refused attempt — peekPending, not consumed,
+     so the person can fix it and try again. */
+  const { peekPending } = await import("../src/mcp.js");
+  const { pending } = await peekPending(f.env, id);
+  assert.ok(pending, "an edit that fails to parse must not burn the approval link");
+});
+
+check("test_PRD_P0_63_editable_approval__a_tool_with_no_friendly_form_still_just_works", async () => {
+  /* catalog.create_category has no editableFieldsFor() entry — the plain
+     read-only view from before this change, and a submit with no relevant
+     form fields must still run the parked args unchanged. */
+  const f = await fixture({ actor: "assistant@vemians.com", role: "manager" });
+  const args = { name: "Outerwear — Heavy", reason: "a genuinely new seasonal sub-line" };
+  const gate = await runTool("catalog.create_category", args, f.ctx);
+  if (!gate.needsApproval) return; /* near-duplicate refusal is a different, already-covered path */
+  const { id } = await parkForApproval(f.env, {
+    name: "catalog.create_category",
+    args,
+    actor: f.ctx.actor,
+    role: f.ctx.role,
+    tier: "T2",
+    summary: gate.data.would,
+  });
+
+  const html = await (await getApproval(f.env, id)).text();
+  assert.doesNotMatch(html, /class="field"/, "no friendly editor for an unlisted tool");
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let res;
+  try {
+    res = await postApproval(f.env, id, {});
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(res.status, 200, await res.text());
+});
 
 /* ─────────────────────────────────────────────────────────────────────────
  * P0-40 — the category comes from a closed set, with reasoning
@@ -684,21 +1118,41 @@ check("test_PRD_P0_37_mirror_is_ours__an_approved_create_writes_square_first_and
   assert.equal(f.mirror("SELECT * FROM mirror_sync WHERE id = 'catalog'").length, 1);
 });
 
-check("test_PRD_P0_37_mirror_is_ours__no_authoring_tool_writes_a_catalog_row_directly", async () => {
+check("test_PRD_P0_37_mirror_is_ours__no_authoring_tool_writes_a_square_fact_to_the_mirror_directly", async () => {
   /*
-   * The structural half of "Square is the write target". Two writers into one
-   * copy — the till's sync and ours — diverge silently, so the ops tool layer
-   * contains no INSERT or UPDATE against a mirror table at all. The only writer
-   * is shared/commerce/square/mirror.js, reading back what Square now says.
+   * The structural half of "Square is the write target" — for a FACT SQUARE
+   * ALSO HAS. Two writers into one copy of such a fact — the till's sync and
+   * ours — diverge silently, so the ops tool layer contains no INSERT or
+   * UPDATE against a mirror table for anything Square could also write. The
+   * only writer of a Square-sourced column is shared/commerce/square/mirror.js,
+   * reading back what Square now says.
+   *
+   * ONE DELIBERATE EXCEPTION, allowlisted by name below rather than left to
+   * widen this regex's blind spot: catalog.set_channel's own
+   * `UPDATE mirror_product SET channel = ...` (Test-PRD-P0-71-product_channel).
+   * `channel` is not a fact Square has any notion of at all — Square does not
+   * know our storefront exists — so there is no second writer to diverge
+   * from, and mirror.js's own sync deliberately never names this column in
+   * its UPDATE or INSERT, for exactly this reason (see the comment on
+   * `channel` in shared/commerce/square/schema.sql). The assertion below still
+   * forbids that same file touching any OTHER mirror column.
    */
   const offenders = [];
   for (const file of fs.readdirSync(TOOLS_DIR).filter((n) => n.endsWith(".js"))) {
     const src = fs.readFileSync(path.join(TOOLS_DIR, file), "utf8");
     for (const m of src.matchAll(/\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+mirror_\w+/gi)) {
+      if (file === "catalog-write.js" && /^UPDATE\s+mirror_product$/i.test(m[0])) continue;
       offenders.push(`${file}: ${m[0]}`);
     }
   }
-  assert.deepEqual(offenders, [], "an agent tool must not write the mirror; it writes Square");
+  assert.deepEqual(offenders, [], "an agent tool must not write a Square-sourced fact into the mirror");
+
+  /* The one exception really does touch only `channel`, and nothing an
+     incremental sync would ever also write. */
+  const writer = fs.readFileSync(path.join(TOOLS_DIR, "catalog-write.js"), "utf8");
+  const stmt = /UPDATE mirror_product SET ([\s\S]*?) WHERE/.exec(writer);
+  assert.ok(stmt, "catalog.set_channel's UPDATE has moved or been removed");
+  assert.equal(stmt[1].trim(), "channel = ?", `catalog.set_channel touches more than 'channel': ${stmt[1]}`);
 
   /* And the mirror schema itself refuses deletion, whatever anyone writes. */
   const f = await fixture();
@@ -767,6 +1221,87 @@ check("test_PRD_P0_37_mirror_is_ours__an_edit_goes_to_square_and_the_mirror_foll
   );
   assert.equal(zeroed.ok, false);
   assert.match(zeroed.error, /Zero is not a discount/);
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-71 — channel: which audience sees a product. Ours, not Square's.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_71_product_channel__a_freshly_synced_product_defaults_to_in_store", async () => {
+  /* Fail closed: a product that just arrived from Square, with nobody having
+     said anything about the website at all, must not be reachable there. */
+  const f = await fixture();
+  const row = f.mirror("SELECT channel FROM mirror_product WHERE handle = 'shearling-trimmed-wool-blend-coat'")[0];
+  assert.equal(row.channel, "in_store");
+});
+
+check("test_PRD_P0_71_product_channel__set_channel_writes_the_mirror_directly_and_calls_square_for_nothing", async () => {
+  const f = await fixture();
+  const res = await approvedCall(f, "catalog.set_channel", {
+    handle: "shearling-trimmed-wool-blend-coat",
+    channel: "website",
+  });
+  assert.equal(res.ok, true, res.error);
+  assert.equal(res.data.updated, true);
+  assert.equal(res.data.channel, "website");
+  assert.equal(res.data.previous_channel, "in_store");
+  assert.equal(res.data.authority, "ours");
+
+  /* No Square call at all — this concept does not exist on Square's side. */
+  assert.deepEqual(f.calls(), []);
+
+  const row = f.mirror("SELECT channel FROM mirror_product WHERE handle = 'shearling-trimmed-wool-blend-coat'")[0];
+  assert.equal(row.channel, "website");
+});
+
+check("test_PRD_P0_71_product_channel__direct_link_and_in_store_are_the_only_other_choices", async () => {
+  const f = await fixture();
+  const bad = await runTool(
+    "catalog.set_channel",
+    { handle: "shearling-trimmed-wool-blend-coat", channel: "everywhere" },
+    f.ctx,
+  );
+  assert.equal(bad.ok, false);
+  assert.match(bad.error, /must be one of in_store, website, direct_link/);
+
+  const ok = await approvedCall(f, "catalog.set_channel", {
+    handle: "shearling-trimmed-wool-blend-coat",
+    channel: "direct_link",
+  });
+  assert.equal(ok.ok, true, ok.error);
+  assert.equal(
+    f.mirror("SELECT channel FROM mirror_product WHERE handle = 'shearling-trimmed-wool-blend-coat'")[0].channel,
+    "direct_link",
+  );
+});
+
+check("test_PRD_P0_71_product_channel__an_unknown_handle_is_refused", async () => {
+  const f = await fixture();
+  const res = await runTool("catalog.set_channel", { handle: "does-not-exist", channel: "website" }, f.ctx);
+  assert.equal(res.ok, false);
+  assert.match(res.error, /no product with handle/);
+});
+
+check("test_PRD_P0_71_product_channel__setting_the_same_channel_again_is_refused_as_a_no_op", async () => {
+  const f = await fixture();
+  const res = await runTool(
+    "catalog.set_channel",
+    { handle: "shearling-trimmed-wool-blend-coat", channel: "in_store" },
+    f.ctx,
+  );
+  assert.equal(res.ok, false);
+  assert.match(res.error, /already in_store/);
+});
+
+check("test_PRD_P0_71_product_channel__the_tool_holds_no_square_resource_at_all", () => {
+  /* Structural, like every other "this tool cannot reach X" guarantee in this
+     codebase: a missing declaration, not a promise the body keeps. */
+  const tool = TOOLS["catalog.set_channel"];
+  assert.ok(tool, "catalog.set_channel is not registered");
+  assert.deepEqual(tool.resources ?? [], []);
+  assert.deepEqual(tool.stores, ["catalog_mirror"]);
+  assert.equal(tool.tier, "T2");
+  assert.equal(tool.minRole, "manager");
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -1131,7 +1666,7 @@ check("test_PRD_P0_24_binding_scoped_tools__the_draft_tool_holds_no_square_write
 
   /* And the registry refuses the mistake at assembly rather than at a request:
      a T0 declaring the write path cannot be built (src/tools/index.js). */
-  assert.deepEqual(RESOURCES, ["square", "media"]);
+  assert.deepEqual(RESOURCES, ["square", "square_client", "media"]);
   assert.equal(TOOLS["catalog.categories"].tier, "T0");
 });
 
@@ -1180,8 +1715,9 @@ check("test_PRD_P0_34_multi_client_tools__the_authoring_tools_are_one_registry_f
   assert.ok(!forStaff.includes("catalog.create_product"));
   assert.ok(!forStaff.includes("catalog.update_product"));
   assert.ok(!forStaff.includes("catalog.create_category"));
+  assert.ok(!forStaff.includes("catalog.set_channel"));
 
-  for (const name of ["catalog.create_product", "catalog.update_product", "catalog.create_category"]) {
+  for (const name of ["catalog.create_product", "catalog.update_product", "catalog.create_category", "catalog.set_channel"]) {
     assert.ok(forManager.includes(name));
     assert.equal(TOOLS[name].tier, "T2", "every catalog write is T2 — these are commercial facts");
   }

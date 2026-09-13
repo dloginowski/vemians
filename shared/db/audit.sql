@@ -8,7 +8,7 @@ CREATE TABLE audit_log (
   on_behalf_of TEXT,                        -- the human, when the actor is an agent
   domain       TEXT NOT NULL                -- which store the action touched
                  CHECK (domain IN ('catalog','commerce','customers','identity',
-                                   'people','finance','knowledge','tickets')),
+                                   'people','finance','knowledge','tickets','assets')),
   tool         TEXT NOT NULL,
   arguments    TEXT NOT NULL DEFAULT '{}',  -- JSON
   result       TEXT NOT NULL

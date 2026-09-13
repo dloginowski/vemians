@@ -18,6 +18,7 @@
  * Test-PRD-P0-54-skill_discovery.
  */
 import agentToolContract from "../../skills/agent-tool-contract/SKILL.md";
+import assetSkills from "../../skills/asset-skills/SKILL.md";
 import catalogSkills from "../../skills/catalog-skills/SKILL.md";
 import commerceSkills from "../../skills/commerce-skills/SKILL.md";
 import customerSkills from "../../skills/customer-skills/SKILL.md";
@@ -38,6 +39,7 @@ import peopleSkills from "../../skills/people-skills/SKILL.md";
  */
 const SOURCES = [
   ["agent-tool-contract", null, agentToolContract],
+  ["asset-skills", "assets", assetSkills],
   ["catalog-skills", "catalog", catalogSkills],
   ["commerce-skills", "commerce", commerceSkills],
   /* "customers", PLURAL, because that is what the tools call it. Written

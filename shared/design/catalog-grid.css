@@ -46,6 +46,16 @@
   padding-inline: var(--margin);
 }
 
+/* The image and name are the click-through to the product's own page; the
+   heart stays a sibling control outside it, so tapping the wishlist glyph
+   never also navigates. Plain <a> defaults (blue, underlined) would read as
+   a text link sitting on top of a photograph, so both are reset here. */
+.card-link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+}
+
 /* Reserve the slot before the image loads. With a fixed ratio and a flat ground
    colour, an unloaded card is visually identical to a loaded one, so the grid
    never reflows. */

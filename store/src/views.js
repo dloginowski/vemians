@@ -34,10 +34,9 @@ import { href, PAGE, SORTS } from "./query.js";
 /*
  * Placeholder imagery. SVG on the #EFF0F4 ground at the 8:9 contract ratio,
  * generated from the product's own tone value — deterministic, weightless and
- * ours. Real photography arrives from R2 via Cloudflare Images with a `srcset`
- * and a `sizes` attribute mirroring --card-min (design-direction.md §6, and the
- * comment at the foot of catalog-grid.css); nothing here hotlinks anybody
- * else's pictures.
+ * ours. It is what renders when a product has no mirrored photography at all
+ * (Test-PRD-P0-73-real_photography) — it never disappears, because a product
+ * whose photos have not synced yet, or never will, still needs a card.
  *
  * It is served from a URL rather than inlined into the markup because the
  * interaction layer needs images to BE images: something that loads, decodes,
@@ -62,7 +61,30 @@ export function shotSvg(product, variant = 0) {
 </svg>`;
 }
 
-export const shotUrl = (product, variant = 0) => `/img/${product.handle}-${variant}.svg`;
+/*
+ * The shot actually shown, real or placeholder — `product.photos` (a fixed
+ * two-slot array store/src/catalog.js builds from the mirror, `[primary,
+ * alt]`) wins whenever that slot is populated.
+ *
+ * Slot 0 (the card's own <img src>) ALWAYS resolves to something, so it falls
+ * back to the placeholder the moment it is empty — a bare `src=""` is a
+ * broken image, never an acceptable placeholder. Slot 1 is different: it is
+ * only ever the HOVER ALTERNATE, and a real primary photo paired with a
+ * fabricated placeholder swap would read as a bug the moment a visitor
+ * hovers — a photograph that turns into a cartoon rectangle. So a real
+ * primary with no real alternate returns "" for slot 1 (armHoverSwap in
+ * enhance.client.js already treats an empty data-alt as "no swap", the exact
+ * behaviour wanted here) rather than inventing one. Only a FULLY placeholder
+ * product — no real photography mirrored at all — still gets the placeholder
+ * swap on both slots, which is the behaviour this had before any product had
+ * a real photograph.
+ */
+export function shotUrl(product, variant = 0) {
+  const real = product.photos?.[variant];
+  if (real) return real;
+  if (variant > 0 && product.photos?.[0]) return "";
+  return `/img/${product.handle}-${variant}.svg`;
+}
 
 /*
  * One card. `eager` is true for the first row's worth: those get
@@ -84,12 +106,15 @@ function card(product, index) {
   const brand = product.brand || "";
   const eyebrow = product.eyebrow || "";
   const label = brand ? `${esc(brand)} &mdash; ${esc(product.name)}` : esc(product.name);
+  const href = `/products/${esc(product.handle)}`;
   return `<article class="card" data-handle="${esc(product.handle)}">
   <div class="card-head"><span class="eyebrow">${esc(eyebrow)}</span><span class="heart" data-heart="${esc(product.handle)}" data-name="${brand ? `${esc(brand)} ` : ""}${esc(product.name)}" aria-hidden="true">&#9825;</span></div>
-  <div class="card-media" data-alt="${esc(shotUrl(product, 1))}">
-    <img class="shot" src="${esc(shotUrl(product, 0))}" alt="${label}" width="800" height="900" decoding="async"${eager ? ' fetchpriority="high"' : ' loading="lazy"'}>
-  </div>
-${brand ? `  <p class="brand">${esc(brand)}</p>\n` : ""}  <p class="name">${esc(product.name)}</p>
+  <a class="card-link" href="${href}">
+    <div class="card-media" data-alt="${esc(shotUrl(product, 1))}">
+      <img class="shot" src="${esc(shotUrl(product, 0))}" alt="${label}" width="800" height="900" decoding="async"${eager ? ' fetchpriority="high"' : ' loading="lazy"'}>
+    </div>
+${brand ? `    <p class="brand">${esc(brand)}</p>\n` : ""}    <p class="name">${esc(product.name)}</p>
+  </a>
   <p class="price">${esc(money(product.minor, product.currency))}</p>
 </article>`;
 }

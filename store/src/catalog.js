@@ -44,6 +44,23 @@
 import { products as seedProducts } from "../../shared/seed/catalog.js";
 
 /*
+ * Where a mirrored photograph actually lives, once the backfill job
+ * (ops/src/media-backfill.js) has fetched it off Square's CDN and
+ * `.put()` it into OUR bucket under OUR key. This is a Cloudflare R2 bucket
+ * with its own public custom domain — the bytes are served by Cloudflare's
+ * edge directly, so this file still makes no outbound request and the
+ * storefront Worker still binds nothing but CATALOG_MIRROR (Test-PRD-P0-24-
+ * binding_scoped_tools): building this URL is string concatenation over a
+ * fact already sitting in the mirror row, not a fetch.
+ *
+ * A subdomain of vemians.com on purpose (Test-PRD-P0-28-image_contract: "no
+ * external URL in anything that fetches" — this must read as OURS, not as a
+ * third party's CDN, to the same check that would refuse a Square or R2.dev
+ * URL here).
+ */
+const MEDIA_BASE_URL = "https://media.vemians.com";
+
+/*
  * The read. One statement, the INDEX VIEWS rather than the base tables
  * (ADR-008 / Test-PRD-P0-36-working_set_index), so an archived product is
  * absent from the shop without anything here knowing what "archived" means.
@@ -51,6 +68,12 @@ import { products as seedProducts } from "../../shared/seed/catalog.js";
  * The price is the LOWEST-ORDINAL variation, which is how "from" pricing works
  * on a card that shows one number for a garment with five sizes. Ordering by
  * title keeps the default grid stable between renders; `sort` then reorders it.
+ *
+ * `image0`/`image1` are the R2 keys for the product's first two synced
+ * photographs (Test-PRD-P0-73-real_photography), NULL until the backfill job
+ * has fetched them — `fromMirror` falls back to the placeholder shot per
+ * missing slot, exactly as it always has for a product with no photography
+ * mirrored at all.
  */
 const MIRROR_SQL = `
   SELECT p.handle                                    AS handle,
@@ -59,11 +82,40 @@ const MIRROR_SQL = `
          (SELECT v.price_minor FROM mirror_variant_index v
            WHERE v.product_id = p.id ORDER BY v.ordinal, v.id LIMIT 1) AS minor,
          (SELECT v.currency FROM mirror_variant_index v
-           WHERE v.product_id = p.id ORDER BY v.ordinal, v.id LIMIT 1) AS currency
+           WHERE v.product_id = p.id ORDER BY v.ordinal, v.id LIMIT 1) AS currency,
+         (SELECT i.media_key FROM mirror_image_index i
+           WHERE i.product_id = p.id AND i.ordinal = 0 LIMIT 1) AS image0,
+         (SELECT i.media_key FROM mirror_image_index i
+           WHERE i.product_id = p.id AND i.ordinal = 1 LIMIT 1) AS image1
     FROM mirror_product_index p
     LEFT JOIN mirror_category_index c ON c.id = p.category_id
-   WHERE p.status = 'active'
+   WHERE p.status = 'active' AND p.channel = 'website'
    ORDER BY p.title`;
+
+/*
+ * One product, read by handle rather than filtered from the grid's own list —
+ * `direct_link` belongs at its own URL without ever appearing in `MIRROR_SQL`'s
+ * results, which is the entire point of that channel (Test-PRD-P0-71-product_
+ * channel). `in_store` is excluded here in the WHERE clause, not by the caller
+ * checking a field afterward: the one query a product's own page runs must
+ * already refuse to return a product nobody said the public could see.
+ */
+const PRODUCT_SQL = `
+  SELECT p.handle                                    AS handle,
+         p.title                                     AS name,
+         p.source_description                        AS description,
+         COALESCE(c.name, '')                        AS category,
+         (SELECT v.price_minor FROM mirror_variant_index v
+           WHERE v.product_id = p.id ORDER BY v.ordinal, v.id LIMIT 1) AS minor,
+         (SELECT v.currency FROM mirror_variant_index v
+           WHERE v.product_id = p.id ORDER BY v.ordinal, v.id LIMIT 1) AS currency,
+         (SELECT i.media_key FROM mirror_image_index i
+           WHERE i.product_id = p.id AND i.ordinal = 0 LIMIT 1) AS image0,
+         (SELECT i.media_key FROM mirror_image_index i
+           WHERE i.product_id = p.id AND i.ordinal = 1 LIMIT 1) AS image1
+    FROM mirror_product_index p
+    LEFT JOIN mirror_category_index c ON c.id = p.category_id
+   WHERE p.status = 'active' AND p.channel IN ('website', 'direct_link') AND p.handle = ?`;
 
 /*
  * A deterministic 0.00–0.24, the range the seed's hand-picked tones sit in.
@@ -80,7 +132,12 @@ export function toneFor(handle) {
   return (h % 25) / 100;
 }
 
-/* A mirror row -> the shape views.js and query.js already render. */
+/* A mirror row -> the shape views.js and query.js already render.
+   `photos` is a fixed two-slot array, index-aligned with the shot variant
+   (0 = primary, 1 = the hover alt) — NOT `.filter(Boolean)`, which would
+   shift a lone ordinal-1 photo into slot 0. A slot is `null` until the
+   backfill job has mirrored that photograph; `shotUrl` (views.js) is what
+   turns a null slot into the placeholder. */
 function fromMirror(row) {
   return {
     handle: row.handle,
@@ -91,7 +148,13 @@ function fromMirror(row) {
     category: row.category || null,
     eyebrow: "",
     tone: toneFor(row.handle),
+    photos: [row.image0 ? `${MEDIA_BASE_URL}/${row.image0}` : null, row.image1 ? `${MEDIA_BASE_URL}/${row.image1}` : null],
   };
+}
+
+/* The grid's shape, plus the one field only a product's own page needs. */
+function fromMirrorDetail(row) {
+  return { ...fromMirror(row), description: row.description || "" };
 }
 
 /**
@@ -157,4 +220,58 @@ export async function loadCatalog(env) {
 
   console.info(`INFO store: serving ${priced.length} products from the catalog mirror`);
   return { source: "mirror", products: priced.map(fromMirror) };
+}
+
+/**
+ * One product's own page, by handle. `website` and `direct_link` both
+ * resolve here — a direct link is still a real, open URL, just one this
+ * function's caller (loadCatalog's grid) never lists. `in_store` is refused
+ * in PRODUCT_SQL's own WHERE clause, the same fail-closed shape as the grid's
+ * `channel = 'website'`: a hidden product has no address, not a page that
+ * happens not to be linked from anywhere.
+ *
+ * Falls back to the seed catalog under the same "mirror not ready" cases
+ * loadCatalog treats as seed-served, so a fresh `wrangler dev --local` can
+ * open a seeded product's page with no Square account at all. A handle that
+ * is simply wrong, or that names a real `in_store` product, is an honest 404
+ * — the seed fallback only fires when the mirror itself holds nothing yet.
+ *
+ * @returns {Promise<{source: "mirror"|"seed", product: object}|null>} null means 404.
+ */
+export async function loadProduct(env, handle) {
+  const seeded = () => seedProducts.find((p) => p.handle === handle) ?? null;
+
+  const db = env?.CATALOG_MIRROR;
+  if (!db?.prepare) {
+    const product = seeded();
+    return product ? { source: "seed", product } : null;
+  }
+
+  let row;
+  try {
+    row = await db.prepare(PRODUCT_SQL).bind(handle).first();
+  } catch (err) {
+    if (/no such table|no such view/i.test(err?.message ?? "")) {
+      console.warn(
+        "WARNING store: CATALOG_MIRROR has no schema yet — run `npm run db:local` in store/, serving the seed catalog",
+      );
+    } else {
+      console.error(`ERROR store: reading a product from the catalog mirror failed — ${err.message}`);
+    }
+    const product = seeded();
+    return product ? { source: "seed", product } : null;
+  }
+
+  if (row && row.minor !== null && row.minor !== undefined && row.currency) {
+    return { source: "mirror", product: fromMirrorDetail(row) };
+  }
+
+  /* No visible, priced product at that handle in the mirror — could be a
+     genuinely unknown handle, an `in_store` product doing exactly what it is
+     set to do, or a mirror that has not synced anything at all yet. Only the
+     last of those falls back to the seed; the other two are an honest 404. */
+  const product = seeded();
+  if (!product) return null;
+  const anySynced = await db.prepare("SELECT 1 FROM mirror_product_index LIMIT 1").first();
+  return anySynced ? null : { source: "seed", product };
 }

@@ -32,11 +32,31 @@ import { approvePending, canUseDomain, handleMcp, isMcpPath, peekPending } from 
 import { customers, week } from "./seed.js";
 import { skillsFor } from "./skills.js";
 import { CAPS } from "./tools/caps.js";
-import { ROLES } from "./tools/roles.js";
-import { contentTypeFor, verifyUploadTicket } from "./tools/media.js";
-import { mediaStoreFor } from "./tools/index.js";
+import { ROLES, roleAtLeast } from "./tools/roles.js";
+import { contentTypeFor, mediaKey, mintUploadTicket, verifyUploadTicket } from "./tools/media.js";
+import { mediaStoreFor, assetFileStoreFor, receiptFileStoreFor, runTool } from "./tools/index.js";
+import { contentTypeForAsset, extractText } from "./tools/assets.js";
+import { scanReceipt } from "./tools/receipt-ocr.js";
+import { listCategories } from "./tools/catalog-writer.js";
+import { applyFormEdits } from "./approval-forms.js";
 import { syncFromSquare } from "./sync.js";
-import { approvalPage, approvalResultPage, opsPage, refusalPage, whoamiPage } from "./views.js";
+import { backfillMedia } from "./media-backfill.js";
+import {
+  approvalPage,
+  approvalResultPage,
+  assetListPage,
+  assetUploadedPage,
+  assetUploadPage,
+  batchReviewPage,
+  batchUploadPage,
+  expenseConfirmPage,
+  expenseFiledPage,
+  receiptUploadPage,
+  opsPage,
+  refusalPage,
+  whoamiPage,
+} from "./views.js";
+import { draftCustomerBatch, draftProductBatch, parsePriceToMinor } from "./batch.js";
 
 const html = (body, status = 200) =>
   new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8" } });
@@ -198,6 +218,102 @@ async function ops(request, env, path) {
       : html(refusalPage(identity.status, identity.reason), identity.status);
   }
 
+  /*
+   * /products/batch and /customers/batch — one CSV, many drafts, each still
+   * approved one at a time on its own /approvals/ page. See batch.js for what
+   * a row needs per kind and why photos are out of scope for either route.
+   */
+  if (path === "/products/batch" || path === "/customers/batch") {
+    const kind = path === "/products/batch" ? "products" : "customers";
+    const draftFn = kind === "products" ? draftProductBatch : draftCustomerBatch;
+    const noun = kind === "products" ? "products" : "customers";
+
+    const email = identity.claims?.email;
+    if (typeof email !== "string" || !email.includes("@")) {
+      return html(refusalPage(403, "This page requires signing in as a person, not a service token."), 403);
+    }
+    const role = roleFor(identity, env);
+    if (!role) {
+      return html(refusalPage(403, "Your Access identity is in no group this application maps to a role."), 403);
+    }
+    /*
+     * Both catalog.create_product and customer.create refuse below manager,
+     * whether the call is asking to park an approval or to run one — a staff
+     * upload would get every single row back as "requires the manager role",
+     * one confusing message repeated N times rather than one clear one said
+     * before any row is even read.
+     */
+    if (!roleAtLeast(role, "manager")) {
+      return html(
+        refusalPage(
+          403,
+          `Adding ${noun} needs the manager role. Ask a manager to upload this, or draft it with your assistant instead.`,
+        ),
+        403,
+      );
+    }
+
+    if (request.method === "GET") {
+      return html(batchUploadPage(kind));
+    }
+    if (request.method !== "POST") {
+      return html(refusalPage(405, "Upload a file to this page, or open it in a browser."), 405);
+    }
+
+    let file;
+    try {
+      const form = await request.formData();
+      file = form.get("file");
+    } catch (err) {
+      return html(refusalPage(400, `Unreadable upload — ${err.message}`), 400);
+    }
+    if (!(file instanceof File) || file.size === 0) {
+      return html(refusalPage(400, "No file was attached."), 400);
+    }
+    if (file.size > CAPS.BATCH_MAX_BYTES) {
+      return html(
+        refusalPage(413, `That file is larger than the ${CAPS.BATCH_MAX_BYTES}-byte limit for one upload.`),
+        413,
+      );
+    }
+
+    const text = await file.text();
+    const result = await draftFn(env, { text, actor: email, role });
+    return html(batchReviewPage(result, kind));
+  }
+
+  /*
+   * /media/new — a one-click way to add a photo, for a coworker who is not
+   * talking to an assistant at all. It mints exactly ONE ticket for exactly
+   * ONE photo and sends the browser straight to the picker below, so "add a
+   * photo" is a single link on the front page rather than something that
+   * only exists as a step inside catalog.upload_image.
+   *
+   * The extension in the minted key is cosmetic (a bucket listing is easier
+   * to read with one): the real type is decided from what the browser
+   * actually uploads, in mediaUpload() below, so guessing "jpeg" here before
+   * a file is even chosen costs nothing if the photo turns out to be a PNG.
+   */
+  if (path === "/media/new") {
+    const email = identity.claims?.email;
+    if (typeof email !== "string" || !email.includes("@")) {
+      return html(refusalPage(403, "Your Access identity is in no group this application maps to a role."), 403);
+    }
+    if (!roleFor(identity, env)) {
+      return html(refusalPage(403, "Your Access identity is in no group this application maps to a role."), 403);
+    }
+    if (!env.MEDIA_SIGNING_KEY) {
+      return html(refusalPage(503, "Photo uploads are not configured on this deployment yet."), 503);
+    }
+    const key = mediaKey("image/jpeg");
+    const ticket = await mintUploadTicket({ secret: env.MEDIA_SIGNING_KEY, key, actor: email });
+    const dest = new URL("/media/upload", request.url);
+    dest.searchParams.set("key", ticket.key);
+    dest.searchParams.set("exp", String(ticket.expiresAt));
+    dest.searchParams.set("sig", ticket.signature);
+    return new Response(null, { status: 302, headers: { Location: dest.pathname + dest.search } });
+  }
+
   if (path === "/media/upload") {
     /*
      * A machine may not upload a photograph: the audit trail and the ticket
@@ -214,6 +330,273 @@ async function ops(request, env, path) {
       return json({ error: "Your Access identity is in no group this application maps to a role." }, 403);
     }
     return mediaUpload(request, env, identity, email);
+  }
+
+  /*
+   * /assets — the employee asset drop site. Any signed-in role, no manager
+   * gate: these are working documents, not a Square write (unlike
+   * /products/batch and /customers/batch, which do gate on manager because
+   * catalog.create_product and customer.create refuse below it anyway).
+   *
+   *   /assets/new    GET the upload form, POST a file      (a person, browser only)
+   *   /assets/<id>   GET the original bytes back            (a person, or a link an agent hands out)
+   *   /assets        GET a plain list, for a person browsing without an assistant
+   */
+  if (path === "/assets/new" || path === "/assets" || (path.startsWith("/assets/") && path !== "/assets/new")) {
+    const email = identity.claims?.email;
+    if (typeof email !== "string" || !email.includes("@")) {
+      return html(refusalPage(403, "This page requires signing in as a person, not a service token."), 403);
+    }
+    if (!roleFor(identity, env)) {
+      return html(refusalPage(403, "Your Access identity is in no group this application maps to a role."), 403);
+    }
+
+    if (path === "/assets") {
+      if (!env.ASSETS) return html(refusalPage(503, "The asset drop site is not configured on this deployment yet."), 503);
+      const { results } = await env.ASSETS.prepare(
+        "SELECT id, filename, content_type, size_bytes, uploaded_by, uploaded_at FROM asset ORDER BY uploaded_at DESC LIMIT ?",
+      )
+        .bind(CAPS.ASSET_LIST_MAX_ROWS)
+        .all();
+      return html(assetListPage(results ?? []));
+    }
+
+    if (path === "/assets/new") {
+      if (request.method === "GET") return html(assetUploadPage());
+      if (request.method !== "POST") {
+        return html(refusalPage(405, "Upload a file to this page, or open it in a browser."), 405);
+      }
+      if (!env.ASSETS) {
+        return html(refusalPage(503, "The asset drop site is not configured on this deployment yet."), 503);
+      }
+
+      let file;
+      try {
+        const form = await request.formData();
+        file = form.get("file");
+      } catch (err) {
+        return html(refusalPage(400, `Unreadable upload — ${err.message}`), 400);
+      }
+      if (!(file instanceof File) || file.size === 0) {
+        return html(refusalPage(400, "No file was attached."), 400);
+      }
+      if (file.size > CAPS.ASSET_MAX_BYTES) {
+        return html(refusalPage(413, `That file is larger than the ${CAPS.ASSET_MAX_BYTES}-byte limit.`), 413);
+      }
+      const contentType = contentTypeForAsset(file.name, file.type);
+      if (!contentType) {
+        return html(
+          refusalPage(
+            415,
+            `"${file.name}" is not a file type this drop site takes yet. Try .txt, .md, .csv, .json, .pdf, ` +
+              "a spreadsheet, or a Word document.",
+          ),
+          415,
+        );
+      }
+
+      let files;
+      try {
+        files = assetFileStoreFor(env);
+      } catch (err) {
+        console.error(`ERROR ops/assets: ${err.message}`);
+        return html(refusalPage(503, "File storage is not configured on this deployment yet."), 503);
+      }
+
+      const id = crypto.randomUUID();
+      const key = `assets/${id}`;
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      try {
+        await files.put(key, bytes);
+      } catch (err) {
+        return html(refusalPage(413, err.message), 413);
+      }
+
+      const extracted = extractText(contentType, bytes);
+      try {
+        await env.ASSETS.prepare(
+          "INSERT INTO asset(id, store_key, filename, content_type, size_bytes, uploaded_by, extracted_text, text_truncated)" +
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+          .bind(id, key, file.name, contentType, bytes.byteLength, email, extracted?.text ?? null, extracted?.truncated ? 1 : 0)
+          .run();
+      } catch (err) {
+        console.error(`ERROR ops/assets: stored ${key} but could not record it — ${err.message}`);
+        return html(refusalPage(500, "Stored the file but could not record it. Try again."), 500);
+      }
+
+      return html(assetUploadedPage({ id, filename: file.name, hasText: Boolean(extracted) }));
+    }
+
+    /* /assets/<id> — the download route. */
+    const id = path.slice("/assets/".length);
+    if (!env.ASSETS) return html(refusalPage(503, "The asset drop site is not configured on this deployment yet."), 503);
+    const row = await env.ASSETS.prepare("SELECT store_key, filename, content_type FROM asset WHERE id = ?").bind(id).first();
+    if (!row) return html(refusalPage(404, "No such file."), 404);
+
+    let files;
+    try {
+      files = assetFileStoreFor(env);
+    } catch (err) {
+      console.error(`ERROR ops/assets: ${err.message}`);
+      return html(refusalPage(503, "File storage is not configured on this deployment yet."), 503);
+    }
+    const bytes = await files.bytes(row.store_key);
+    if (!bytes) {
+      console.error(`ERROR ops/assets: asset ${id} has a record but no bytes at ${row.store_key}`);
+      return html(refusalPage(404, "The file's record exists but its bytes are missing."), 404);
+    }
+    return new Response(bytes, {
+      headers: {
+        "content-type": row.content_type,
+        "content-disposition": `inline; filename="${row.filename.replace(/["\\]/g, "_")}"`,
+      },
+    });
+  }
+
+  /*
+   * /expenses/new -> /expenses/confirm — scan a receipt, file an expense.
+   *
+   * Any signed-in role, same as /assets: filing your OWN expense is not the
+   * gated action here, approving one is (expense.approve, manager+, already
+   * T2). A photo is stored first, then Workers AI takes a best-effort read
+   * of it (finance-skills rule 4: OCR prefills, it never files) — the person
+   * always sees and can correct every field on the confirm page before
+   * anything reaches the `finance` store, exactly the same "review, then
+   * submit" shape as the approval-forms.js editable fields.
+   */
+  if (path === "/expenses/new" || path === "/expenses/confirm") {
+    const email = identity.claims?.email;
+    if (typeof email !== "string" || !email.includes("@")) {
+      return html(refusalPage(403, "This page requires signing in as a person, not a service token."), 403);
+    }
+    const role = roleFor(identity, env);
+    if (!role) {
+      return html(refusalPage(403, "Your Access identity is in no group this application maps to a role."), 403);
+    }
+
+    if (path === "/expenses/new") {
+      if (request.method === "GET") return html(receiptUploadPage());
+      if (request.method !== "POST") {
+        return html(refusalPage(405, "Upload a photo to this page, or open it in a browser."), 405);
+      }
+      if (!env.FINANCE) {
+        return html(refusalPage(503, "The expense store is not configured on this deployment yet."), 503);
+      }
+
+      let file;
+      try {
+        const form = await request.formData();
+        file = form.get("file");
+      } catch (err) {
+        return html(refusalPage(400, `Unreadable upload — ${err.message}`), 400);
+      }
+      if (!(file instanceof File) || file.size === 0) {
+        return html(refusalPage(400, "No photo was attached."), 400);
+      }
+      if (file.size > CAPS.RECEIPT_MAX_BYTES) {
+        return html(refusalPage(413, `That photo is larger than the ${CAPS.RECEIPT_MAX_BYTES}-byte limit.`), 413);
+      }
+      const contentType = contentTypeFor(file.name, file.type);
+      if (!contentType) {
+        return html(refusalPage(415, `"${file.name}" is not a photo type this scanner takes. Try a JPEG, PNG or HEIC.`), 415);
+      }
+
+      let receipts;
+      try {
+        receipts = receiptFileStoreFor(env);
+      } catch (err) {
+        console.error(`ERROR ops/expenses: ${err.message}`);
+        return html(refusalPage(503, "Receipt storage is not configured on this deployment yet."), 503);
+      }
+
+      const key = `receipts/${crypto.randomUUID()}`;
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      try {
+        await receipts.put(key, bytes);
+      } catch (err) {
+        return html(refusalPage(413, err.message), 413);
+      }
+
+      const ocr = await scanReceipt(env, bytes);
+      return html(expenseConfirmPage({ receiptKey: key, ...ocr }));
+    }
+
+    /* /expenses/confirm — a person accepting or correcting the OCR guess. */
+    if (request.method !== "POST") {
+      return html(refusalPage(405, "This page is reached from /expenses/new."), 405);
+    }
+    let form;
+    try {
+      form = await request.formData();
+    } catch (err) {
+      return html(refusalPage(400, `Unreadable submission — ${err.message}`), 400);
+    }
+    const receiptKey = String(form.get("receipt_key") || "");
+    const description = String(form.get("description") || "").trim();
+    const currency = String(form.get("currency") || "").trim().toUpperCase();
+    const incurredOn = String(form.get("incurred_on") || "").trim();
+    const amountMinor = parsePriceToMinor(form.get("amount"));
+    if (amountMinor === null) {
+      return html(
+        expenseConfirmPage({
+          receiptKey,
+          description,
+          currency,
+          incurred_on: incurredOn,
+          amount_minor: null,
+          error: `"${form.get("amount")}" is not a plain amount like 42.50`,
+        }),
+        400,
+      );
+    }
+
+    const res = await runTool(
+      "expense.submit",
+      { description, amount_minor: amountMinor, currency, incurred_on: incurredOn, receipt_key: receiptKey },
+      { actor: email, role, env },
+    );
+    if (!res.ok) {
+      return html(
+        expenseConfirmPage({
+          receiptKey,
+          description,
+          currency,
+          incurred_on: incurredOn,
+          amount_minor: amountMinor,
+          error: res.error,
+        }),
+        400,
+      );
+    }
+
+    const id = crypto.randomUUID();
+    const v = res.data.proposal.values;
+    try {
+      await env.FINANCE.prepare(
+        "INSERT INTO expense(id, budget_id, vendor_id, employee_id, employee_name, description," +
+          " amount_minor, currency, incurred_on, status, receipt_key) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+      )
+        .bind(
+          id,
+          v.budget_id,
+          v.vendor_id,
+          v.employee_id,
+          v.employee_name,
+          v.description,
+          v.amount_minor,
+          v.currency,
+          v.incurred_on,
+          v.status,
+          v.receipt_key,
+        )
+        .run();
+    } catch (err) {
+      console.error(`ERROR ops/expenses: proposal validated but the row could not be written — ${err.message}`);
+      return html(refusalPage(500, "Validated but could not be filed. Try again."), 500);
+    }
+
+    return html(expenseFiledPage({ id, description: v.description, amount_minor: v.amount_minor, currency: v.currency }));
   }
 
   if (path === "/agent") {
@@ -273,13 +656,37 @@ async function ops(request, env, path) {
    */
   if (path.startsWith("/approvals/")) {
     const id = path.slice("/approvals/".length);
+    const email = identity.claims?.email;
     const role = roleFor(identity, env);
     if (!role) {
       return html(refusalPage(403, "Your Access identity is in no group this application maps to a role."), 403);
     }
 
     if (request.method === "POST") {
-      const out = await approvePending(env, id, { email, role });
+      /*
+       * The person reviewing may have edited a field on the prefilled form —
+       * applyFormEdits() merges that over what was originally parked, and
+       * refuses cleanly (no different from a bad CSV row) if an edit does
+       * not parse. A tool with no friendly form just gets its args back
+       * unchanged. Either way runTool's own check() gets the final say.
+       */
+      const pendingBefore = await peekPending(env, id);
+      let overrideArgs;
+      if (pendingBefore.pending) {
+        let form;
+        try {
+          form = await request.formData();
+        } catch (err) {
+          return html(approvalResultPage(false, `Unreadable submission — ${err.message}`), 400);
+        }
+        const edited = applyFormEdits(pendingBefore.pending.tool, pendingBefore.pending.args, form);
+        if (!edited.ok) {
+          return html(approvalResultPage(false, edited.error), 400);
+        }
+        overrideArgs = edited.args;
+      }
+
+      const out = await approvePending(env, id, { email, role, verified: identity.verified }, overrideArgs);
       if (!out.ok) console.error(`ERROR ops/approvals: ${email} could not approve ${id} — ${out.error}`);
       return html(approvalResultPage(Boolean(out.ok), out.ok ? out.result ?? out : out.error), out.ok ? 200 : 403);
     }
@@ -290,7 +697,13 @@ async function ops(request, env, path) {
         "WARNING ops/approvals: approvals are held per-isolate on this deployment — bind APPROVALS (KV) to make an approval link outlive the request that minted it",
       );
     }
-    return html(approvalPage(id, pending, { durable }), pending ? 200 : 404);
+    /* Only fetched for a tool whose approval page actually shows a category
+       picker — a DB read nothing else on this page needs. */
+    const categories =
+      pending?.tool === "catalog.create_product" && env.CATALOG_MIRROR
+        ? await listCategories(env.CATALOG_MIRROR)
+        : [];
+    return html(approvalPage(id, pending, { durable, categories }), pending ? 200 : 404);
   }
 
   if (path === "/whoami") {
@@ -429,6 +842,35 @@ export default {
     /* Already logged in detail, with the reason named, inside syncFromSquare.
        This line is the one a `wrangler tail` filtered to "scheduled" sees. */
     console.info(`INFO ops/scheduled: ${event?.cron ?? "manual"} -> ${out.ok ? "ok" : out.reason}`);
+
+    /*
+     * The media backfill (Test-PRD-P0-73-real_photography) is a SEPARATE step
+     * with its own failure mode, run after the sync rather than folded into
+     * it: a photograph that fails to fetch must never mark the catalog sync
+     * itself as failed, and a sync that fails must not stop the previous
+     * run's photographs from still backfilling on schedule. try/catch here,
+     * not inside backfillMedia, so a bug in this wiring cannot take the cron
+     * down with it — the next run tries again regardless.
+     */
+    try {
+      /* Checked directly rather than via mediaStoreFor(env): with no bucket
+         bound, mediaStoreFor falls back to constructing a Square uploader,
+         which throws with no SQUARE_ACCESS_TOKEN — a real, if unlikely,
+         possibility on a Worker whose sync has never run. There is nothing
+         for this step to do without a bucket regardless, so it never needs
+         to reach that construction at all. */
+      if (env.MEDIA) {
+        const backfill = await backfillMedia(env, { media: mediaStoreFor(env) });
+        if (backfill.attempted > 0) {
+          console.info(
+            `INFO ops/scheduled: media backfill -> ${backfill.backfilled}/${backfill.attempted} ok, ${backfill.failed} failed`,
+          );
+        }
+      }
+    } catch (err) {
+      console.error(`ERROR ops/scheduled: media backfill step did not run — ${err.message}`);
+    }
+
     return out;
   },
 };

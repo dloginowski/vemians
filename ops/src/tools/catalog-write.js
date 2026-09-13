@@ -2,7 +2,7 @@
  * catalog.* authoring — a staff member describes a garment to their own AI
  * client, and it lands in Square, priced and categorised.
  *
- * Inherits agent-tool-contract, then catalog-skills. Five tools:
+ * Inherits agent-tool-contract, then catalog-skills. Six tools:
  *
  *   catalog.categories       T0  the closed set of categories that EXIST
  *   catalog.upload_image     T1  an original into OUR bucket; returns our key
@@ -10,10 +10,11 @@
  *   catalog.create_product   T2  ITEM + ITEM_VARIATIONs in Square, then sync
  *   catalog.update_product   T2  the same path for an edit
  *   catalog.create_category  T2  separate, deliberate, and rarely right
+ *   catalog.set_channel      T2  which audience sees a product — OURS, not Square's
  *
  * ─── THREE DECISIONS, AND WHY EACH IS THE WAY IT IS ────────────────────────
  *
- * 1. THE AGENT WRITES TO SQUARE, NEVER TO OUR MIRROR.
+ * 1. THE AGENT WRITES TO SQUARE, NEVER TO OUR MIRROR — FOR A FACT SQUARE HAS.
  *    ADR-009 makes Square authoritative for the commercial facts of the
  *    catalog because the till changes them without asking us. The till and the
  *    agent therefore share ONE write target, and the mirror follows by sync and
@@ -21,6 +22,15 @@
  *    Enforcement is in catalog-writer.js — every write ends at Square and the
  *    mirror is only ever read back — and structurally here: a tool that must
  *    not write declares no `square` resource, so it holds nothing that could.
+ *
+ *    `catalog.set_channel` is the one deliberate exception, and it is one
+ *    because `channel` (website / in_store / direct_link — Test-PRD-P0-71-
+ *    product_channel) is not a fact Square has any notion of: Square does not
+ *    know our storefront exists, so there is no second writer for it to
+ *    diverge from. It writes `mirror_product` directly and declares no
+ *    `square` resource at all — the tool that must not call Square holds
+ *    nothing that could, the same structural argument as above, pointed the
+ *    other way.
  *
  * 2. EVERY CATALOG WRITE IS T2.
  *    A price, a SKU and whether a thing is for sale are commercial facts.
@@ -117,6 +127,13 @@ function coverage(catTokens, textTokens) {
  * set; the lexical score is a CROSS-CHECK reported beside it, loud when the two
  * disagree, and the fallback when the model offers no pick at all.
  */
+/* A-B-C-D-E instead of prose. `alternatives` already carries everything a
+   caller needs; `choices` is the same top five, shaped so an agent can put
+   the question to a human as a multiple-choice list rather than composing
+   one out of a sentence. */
+const lettered = (ranked) =>
+  ranked.slice(0, 5).map((c, i) => ({ letter: String.fromCharCode(65 + i), id: c.id, name: c.name }));
+
 export function suggestCategory({ hint, title, description, categories, chosenId = null }) {
   const hintT = tokens(hint);
   const textT = tokens(`${title ?? ""} ${description ?? ""}`);
@@ -157,6 +174,7 @@ export function suggestCategory({ hint, title, description, categories, chosenId
         `(${ranked.map((c) => c.name).join(", ") || "none yet"}). catalog.create_product will refuse it. ` +
         "Call catalog.categories and choose from that list.",
       alternatives: ranked.slice(0, 5),
+      choices: lettered(ranked),
       closed_set_size: ranked.length,
       note,
     };
@@ -180,6 +198,7 @@ export function suggestCategory({ hint, title, description, categories, chosenId
           ? ` NOTE: on wording alone "${best.name}" scored higher (${best.score}); if that reads better to the human, say so.`
           : ""),
       alternatives: ranked.slice(0, 5),
+      choices: lettered(ranked),
       closed_set_size: ranked.length,
       note,
     };
@@ -209,6 +228,7 @@ export function suggestCategory({ hint, title, description, categories, chosenId
     confidence,
     reasoning,
     alternatives: ranked.slice(0, 5),
+    choices: lettered(ranked),
     closed_set_size: ranked.length,
     note,
   };
@@ -450,10 +470,9 @@ export const catalogWriteTools = {
           upload_url: link.url,
           expires_at: link.expires_at,
           square_will_accept: squareAcceptsType(contentType),
-          how:
-            "Give this link to the human. They open it in the browser they are already signed into on " +
-            "ops.vemians.com and choose the file; the bytes go straight to our bucket and never pass " +
-            "through this conversation. The key above is where it lands.",
+          /* A markdown link the human can click straight from chat, not a
+             paragraph explaining what a link is. */
+          how: `[Upload the photo](${link.url}) — opens already signed into ops.vemians.com.`,
         };
       }
 
@@ -808,6 +827,51 @@ export const catalogWriteTools = {
         existing_before: t.preflight.existing,
         mirror_sync: out.sync,
         authority: "square",
+      };
+    },
+  },
+
+  "catalog.set_channel": {
+    tier: "T2",
+    domain: "catalog",
+    stores: ["catalog_mirror"],
+    minRole: "manager",
+    describe:
+      "Set which audience sees a product, by handle: `website` (shown in the storefront grid and has its " +
+      "own page), `direct_link` (has its own page, but left out of the grid — for someone with the link, " +
+      "not for browsing), or `in_store` (not shown on the storefront at all, at any URL). This is OURS, " +
+      "not Square's — Square has no idea our storefront exists, so this never calls Square and never " +
+      "triggers a mirror sync; it writes the mirror directly and the value survives every future sync " +
+      "untouched. Every product starts `in_store` (fail closed): nothing reaches the public site until a " +
+      "person says so here.",
+    undo: "another catalog.set_channel call, back to the previous value",
+    schema: {
+      handle: { type: "string", required: true, format: "handle" },
+      channel: { type: "string", required: true, enum: ["in_store", "website", "direct_link"] },
+    },
+    async check(args, t) {
+      const existing = await productByHandle(t.db.catalog_mirror, args.handle);
+      if (!existing) return { denied: `no product with handle '${args.handle}' in the mirror` };
+      if (existing.channel === args.channel) {
+        return { denied: `'${args.handle}' is already ${args.channel}` };
+      }
+      return {
+        ok: true,
+        summary: `set "${existing.title}" (${args.handle}) from ${existing.channel} to ${args.channel}`,
+        preflight: { existing },
+      };
+    },
+    async run(args, t) {
+      await t.db.catalog_mirror
+        .prepare("UPDATE mirror_product SET channel = ? WHERE handle = ?")
+        .bind(args.channel, args.handle)
+        .run();
+      return {
+        updated: true,
+        handle: args.handle,
+        channel: args.channel,
+        previous_channel: t.preflight.existing.channel,
+        authority: "ours",
       };
     },
   },

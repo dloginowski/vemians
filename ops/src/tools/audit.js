@@ -43,7 +43,7 @@
    cannot afford, so the schema was widened instead of the map kept. */
 export const AUDIT_DOMAINS = Object.freeze([
   "catalog", "commerce", "customers", "identity",
-  "people", "finance", "knowledge", "tickets",
+  "people", "finance", "knowledge", "tickets", "assets",
 ]);
 
 export const RESULTS = Object.freeze(["ok", "error", "denied", "pending_approval"]);

@@ -10,37 +10,102 @@
  */
 
 import { esc, money, page } from "../../shared/view/html.js";
+import { CAPS } from "./tools/caps.js";
+import { editableFieldsFor } from "./approval-forms.js";
+import { firstNameFrom } from "./access.js";
 
 /*
  * ---- the front page -------------------------------------------------------
  *
- * One screen. A phone should show the whole thing without scrolling, and the
- * only thing above the fold that asks anything of the reader is the command
- * that connects their assistant — because that is what almost everyone is here
- * to do, once, and then never again.
+ * One screen. A phone should show the whole thing without scrolling. In order:
+ * a greeting by first name, the built-in assistant — open, typing, no setup,
+ * the first thing anyone can actually use (Test-PRD-P0-74-chat_first) — then
+ * the same three one-click tasks P0-69 put on the page directly, then
+ * everything else folded under "More Options".
  *
- * EVERYTHING ELSE IS A CLOSED ROW. Short label, no preamble, opened by the few
- * people who want it: the roster, the tier rules, the machine-readable contract
- * for a developer, the seed data. Out of sight, not out of mind. Nothing is
- * removed and nothing is a second page.
+ * EVERYTHING PAST THAT IS A CLOSED ROW. Short label, no preamble, opened by
+ * the few people who want it: the roster, the tier rules, the machine-readable
+ * contract for a developer, the seed data. Out of sight, not out of mind.
+ * Nothing is removed and nothing is a second page.
  *
  * An assistant that fetches this URL still reads all of it — `<details>` folds
  * are in the DOM whether or not a person opened them — so the compaction costs
  * the machine reader nothing.
  *
- * Nothing here is a second design system. The tokens are theme.css; the rules
- * below are layout only, integer px, no new colour and no new type size.
+ * Nothing here is a second design system beyond the dark reskin two blocks
+ * down (Test-PRD-P0-75-ops_dark_theme) — layout stays integer px, and no new
+ * type size was added for it.
  */
+/*
+ * ---- the dark reskin --------------------------------------------------
+ *
+ * ops.vemians.com only. Prepended to both OPS_CSS and APPROVAL_CSS (never to
+ * shared/design/theme.css, which the storefront also loads) so the shop keeps
+ * its own light, warm-cream palette untouched — this is a second `:root`
+ * block in the SAME <style> tag, and a later declaration of a variable
+ * theme.css already named simply wins the cascade.
+ *
+ * THE COLOURS ARE AN INTERPRETATION, NOT A LOGO FILE. Nobody handed this
+ * codebase Anthropic's brand kit, so "near-black ground, warm off-white ink,
+ * one clay-orange accent" is a reasonable reading of the asked-for look, not
+ * a value lifted from an official source — said out loud the way this
+ * repository already marks a placeholder or an inferred design choice
+ * (compare shared/view/enhance.client.js's own INFERRED markers).
+ *
+ * Two variables theme.css never had: --muted (the `#666` this file used to
+ * hardcode seven times for secondary text) and --accent (the one warm colour
+ * a mostly-monochrome dark screen gets, spent on the controls that actually
+ * do something — a button, a link, a focus ring — never on a whole section).
+ */
+const OPS_DARK_CSS = `
+:root {
+  --ground:       #191817;
+  --image-ground: #242220;
+  --ink:          #F1EEE6;
+  --bar:          #000000;
+  --rule:         #3A3733;
+  --muted:        #9C978C;
+  --accent:       #D97757;
+}
+
+a { color: var(--accent); }
+a:hover { opacity: 0.82; }
+`;
+
 const OPS_CSS = `
+${OPS_DARK_CSS}
 .ops { max-width: 34rem; padding: 12px 16px 32px; }
 
-.id { font-size: var(--eyebrow); margin: 0 0 16px; color: #666; }
+.id { font-size: var(--eyebrow); margin: 0 0 16px; color: var(--muted); }
 .ops .warn { margin: 0 0 14px; }
 .id strong { color: var(--ink); }
 
 .key h1 { font-size: var(--type); font-weight: 700; margin: 0 0 4px; }
-.hint { font-size: var(--eyebrow); color: #666; margin: 0 0 8px; }
-.hint a { color: var(--ink); }
+.hint { font-size: var(--eyebrow); color: var(--muted); margin: 0 0 8px; }
+.hint a { color: var(--accent); }
+
+/* The one filled colour on the page, spent on the controls that do
+   something — a button that only outlines never reads as "press me" on a
+   near-black ground the way it did bordered in ink on cream. */
+.key .btn {
+  display: inline-block; font: inherit; font-size: var(--eyebrow);
+  padding: 10px 16px; border: 1px solid var(--accent); background: var(--accent);
+  color: var(--ground); text-decoration: none; font-weight: 700;
+}
+.key .btn:hover { background: transparent; color: var(--accent); }
+
+.greet { margin: 0 0 16px; }
+.greet h1 { font-size: var(--type); font-weight: 700; margin: 0 0 4px; }
+
+.menu { margin: 0 0 20px; }
+.menu h1 { font-size: var(--type); font-weight: 700; margin: 0 0 4px; }
+.choices { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.choices .btn {
+  display: inline-block; font: inherit; font-size: var(--eyebrow);
+  padding: 10px 16px; border: 1px solid var(--accent); background: var(--accent);
+  color: var(--ground); text-decoration: none; font-weight: 700;
+}
+.choices .btn:hover { background: transparent; color: var(--accent); }
 
 /* One copyable line. The <pre> scrolls rather than wrapping, so a long command
    never reflows the page on a phone; the button stays beside it at every width
@@ -93,7 +158,7 @@ const OPS_CSS = `
 
 /* The last two rows are for nobody in particular — a developer once, and the
    seed data almost never. Quieter than the rest, still one tap away. */
-.acc > details.aside > summary { font-size: var(--eyebrow); color: #666; padding: 8px 0; }
+.acc > details.aside > summary { font-size: var(--eyebrow); color: var(--muted); padding: 8px 0; }
 
 .scroll { overflow-x: auto; }
 .you td { font-weight: 700; }
@@ -101,15 +166,15 @@ const OPS_CSS = `
 .bind { background: var(--image-ground); padding: 8px 10px; margin: 0 0 8px; }
 .log { margin-top: 8px; }
 .log p { margin: 0 0 6px; }
-.log .agent { color: #666; }
-.log .tool { color: #666; }
+.log .agent { color: var(--muted); }
+.log .tool { color: var(--muted); }
 .gate { border: 1px solid var(--ink); padding: 12px; margin: 12px 0; }
 .gate h3 { margin: 0 0 8px; }
 .gate dl { margin: 0; }
 .gate dt { font-weight: 700; margin-top: 8px; }
 .gate dd { margin: 0; white-space: pre-wrap; word-break: break-word; }
 .gate .row { display: flex; gap: 8px; }
-.gate button[disabled] { color: #666; border-color: var(--rule); cursor: default; }
+.gate button[disabled] { color: var(--muted); border-color: var(--rule); cursor: default; }
 .chat input { padding: 8px 10px; }
 .chat button { margin-top: 6px; padding: 8px 16px; font-size: var(--eyebrow); }
 
@@ -247,21 +312,69 @@ export function opsPage(identity, { customers, week, bindings, hasKey, role, rol
     ? `<p class="id"><strong>${esc(identity.email)}</strong> &middot; role <strong>${esc(role || "none")}</strong> &middot; ${esc(source)}</p>`
     : `<div class="warn">Unsigned assertion accepted — ACCESS_TEAM_DOMAIN and ACCESS_AUD are unset. Prototype mode only. Claimed: <strong>${esc(identity.email)}</strong> &middot; role <strong>${esc(role || "none")}</strong>.</div>`;
 
+  const firstName = firstNameFrom(identity.claims, identity.email);
+
   return page(
     "Vemians ops",
     `<div class="bar">ops.vemians.com &middot; employees only</div>
 <main class="ops">
 ${id}
 
+  <section class="greet">
+    <h1>Hi ${esc(firstName)} — what would you like to do?</h1>
+    <p class="hint">Ask the assistant right here, or skip straight to a task below.</p>
+  </section>
+
+  <section class="key chat-top">
+    <h1>Ask the ops assistant</h1>
+    <p class="hint">Look something up, describe a product instead of using a spreadsheet, ask a
+       question. Built in, answered right here, nothing to set up.</p>
+    ${bindingsLine(bindings, hasKey)}
+    <div class="log" id="log"></div>
+    <div id="gate"></div>
+    <form class="chat" id="chat" method="post" action="/ops/agent">
+      <input name="q" id="q" placeholder="Ask about the catalog, orders, stock or the schedule" autocomplete="off">
+      <button type="submit">Send</button>
+    </form>
+  </section>
+
+  <section class="menu">
+    <h1>Or, one click</h1>
+    <p class="hint">No assistant, no typing — the three most common tasks, done directly.</p>
+    <div class="choices">
+      <a class="btn" href="/products/batch">Add Merchandise</a>
+      <a class="btn" href="/customers/batch">Add Customers</a>
+      <a class="btn" href="/expenses/new">Submit Expenses</a>
+      <a class="btn" href="#more-options">More Options</a>
+    </div>
+  </section>
+
+  <div id="more-options">
+
   <section class="key">
-    <h1>Connect your assistant</h1>
-    <p class="hint">Paste this into your Claude or ChatGPT to get started.</p>
+    <h1>Add a photo</h1>
+    <p class="hint">One photo per click. No assistant needed.</p>
+    <p><a class="btn" href="/media/new">Add a photo</a></p>
+  </section>
+
+  <section class="key">
+    <h1>Drop a file for the team</h1>
+    <p class="hint">A price list, a policy note, meeting notes — any connected assistant can read it back.</p>
+    <p><a class="btn" href="/assets/new">Drop a file</a></p>
+  </section>
+
+  <section class="key">
+    <h1>Connect your own Claude or ChatGPT instead</h1>
+    <p class="hint">For someone who prefers their own assistant, or wants to hand it a photo straight from
+       their device. Paste this into it to get started.</p>
     ${copyLine(mcpUrl)}
     <p class="hint">Then say this, so it learns how we do things.</p>
     ${copyLine("Read the vemians skills, then tell me what you can do here.", { wrap: true })}
     ${copyLine("Find every black boot in the catalog and show me what is out of stock.", { wrap: true })}
     ${copyLine("Here is a photo. Draft a product from it: brand, name, description, price.", { wrap: true })}
   </section>
+
+  </div>
 
   <div class="acc">
 
@@ -334,12 +447,25 @@ ${perRole
       <p><strong>Endpoint.</strong> <code>${esc(mcpUrl)}</code>, MCP over HTTP, behind Cloudflare
          Access. Unauthenticated requests get 401 with a <code>WWW-Authenticate</code> challenge and
          the protected-resource metadata.</p>
-      <p><strong>Claude Code.</strong> One line, once per machine:</p>
+      <p><strong>Claude Code.</strong> Working from a clone of the <code>vemians</code> repo, the
+         server is already registered in the checked-in <code>.mcp.json</code> at its root — the
+         first session in that clone shows a one-time pending-approval prompt (run
+         <code>claude</code>, or <code>/mcp</code> inside a session, to approve it), then every
+         later session there connects on its own. From anywhere else, one line, once per machine:</p>
       ${copyLine(`claude mcp add --transport http vemians ${mcpUrl}`)}
+      <p><strong>A remote or headless Claude Code session cannot finish the sign-in itself.</strong>
+         The first connection needs an interactive browser to complete Cloudflare Access, so a
+         cloud or CI session sees the server listed but unauthenticated until a person approves it
+         from an interactive one, or the session is given a pre-issued token.</p>
       <p><strong>Start by reading the skills.</strong> Call <code>skills_list</code>, then
          <code>skills_read</code> for each one, before calling anything else. They carry the argument
          shapes, the refusal rules and the house conventions that are not inferable from the tool
-         schemas${skills.length ? `: ${skills.map((s) => `<code>${esc(s.name)}</code>`).join(", ")}` : ""}.</p>
+         schemas${skills.length ? `: ${skills.map((s) => `<code>${esc(s.name)}</code>`).join(", ")}` : ""}.
+         <strong>This is also where the greeting comes from</strong> — <code>agent-tool-contract</code>
+         spells out the "greet by name, offer a short menu" opening, because the server's own
+         connect-time <code>instructions</code> are not reliably shown to the model on every
+         client: read the skill and every client behaves the same way; wait on <code>instructions</code>
+         alone and some clients (Claude.ai and ChatGPT's own web connectors, at least) never show it at all.</p>
       <p><strong>Tiers.</strong> T0 reads and returns. T1 proposes — it writes nothing and its output
          is a draft for a human. T2 writes, and does not run when you call it: it parks the intent
          and returns a URL under <code>/approvals/</code> for a person to open. Do not ask the user
@@ -351,19 +477,6 @@ ${perRole
          }</p>
       <p><strong>Identity.</strong> The actor and the role come from the Access assertion on every
          request. They are never arguments; a call whose arguments mention either is refused.</p>
-    </details>
-
-    <details class="aside">
-      <summary>Ask here instead</summary>
-      <p>A box for a quick question without connecting anything. Your own assistant, set up at the
-         top of this page, is the one worth using.</p>
-      ${bindingsLine(bindings, hasKey)}
-      <div class="log" id="log"></div>
-      <div id="gate"></div>
-      <form class="chat" id="chat" method="post" action="/ops/agent">
-        <input name="q" id="q" placeholder="Ask about the catalog, orders, stock or the schedule" autocomplete="off">
-        <button type="submit">Send</button>
-      </form>
     </details>
 
     <details class="aside">
@@ -568,8 +681,9 @@ h2 { font-size: var(--type); font-weight: 700; margin: 24px 0 8px; }
 .lead { margin: 0 0 16px; max-width: 34rem; }
 .me { border-collapse: collapse; width: 100%; max-width: 34rem; margin-bottom: 20px; }
 .me th, .me td { text-align: left; padding: 8px 16px 8px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
-.me th { font-weight: 400; color: #666; font-size: var(--eyebrow); width: 40%; }
-.signout { display: inline-block; border: 1px solid var(--ink); padding: 10px 20px; text-decoration: none; color: var(--ink); margin-top: 4px; }
+.me th { font-weight: 400; color: var(--muted); font-size: var(--eyebrow); width: 40%; }
+.signout { display: inline-block; border: 1px solid var(--accent); background: var(--accent); font-weight: 700; padding: 10px 20px; text-decoration: none; color: var(--ground); margin-top: 4px; }
+.signout:hover { background: transparent; color: var(--accent); }
 `;
 
 export function refusalPage(status, reason) {
@@ -582,6 +696,7 @@ export function refusalPage(status, reason) {
   <p class="note">This page is for Vemians staff and asks you to sign in first. If you are staff and
      landed here, sign in with your Vemians email and try again.</p>
 </main>`,
+    OPS_DARK_CSS,
   );
 }
 
@@ -601,7 +716,37 @@ export function refusalPage(status, reason) {
  * identity — which is why the button is a form and not a fetch, and why the id
  * alone is not enough to run anything.
  */
-export function approvalPage(id, pending, { durable = true } = {}) {
+/* Plain words for a non-technical coworker, not the tool's own dotted name.
+   Falls back to the raw name for anything not listed rather than guessing at
+   one — an unlabeled tool is rare enough that it should look unfamiliar, not
+   be papered over with a wrong-sounding guess. */
+const PLAIN_ACTION = Object.freeze({
+  "catalog.create_product": "Add a new product",
+  "catalog.update_product": "Change a product",
+  "catalog.create_category": "Add a new category",
+});
+
+function renderEditableField(f) {
+  if (f.kind === "select") {
+    return `<div class="field"><label for="f_${esc(f.name)}">${esc(f.label)}</label>
+      <select id="f_${esc(f.name)}" name="${esc(f.name)}">
+        ${f.options
+          .map(
+            (o) =>
+              `<option value="${esc(o.value)}"${o.value === f.value ? " selected" : ""}>${esc(o.label)}</option>`,
+          )
+          .join("")}
+      </select></div>`;
+  }
+  if (f.kind === "textarea") {
+    return `<div class="field"><label for="f_${esc(f.name)}">${esc(f.label)}</label>
+      <textarea id="f_${esc(f.name)}" name="${esc(f.name)}" rows="3">${esc(f.value)}</textarea></div>`;
+  }
+  return `<div class="field"><label for="f_${esc(f.name)}">${esc(f.label)}</label>
+    <input id="f_${esc(f.name)}" name="${esc(f.name)}" type="text" value="${esc(f.value)}"></div>`;
+}
+
+export function approvalPage(id, pending, { durable = true, categories = [] } = {}) {
   if (!pending) {
     return page(
       "Nothing to approve",
@@ -623,37 +768,54 @@ export function approvalPage(id, pending, { durable = true } = {}) {
   }
 
   const args = Object.entries(pending.args ?? {});
+  const label = PLAIN_ACTION[pending.tool] ?? pending.tool;
+  const fields = editableFieldsFor(pending.tool, pending.args, categories);
   return page(
     `Approve ${esc(pending.tool)}`,
     `<main class="wrap">
-       <p class="eyebrow">Approval required</p>
-       <h1>${esc(pending.tool)}</h1>
-       <p class="who">Proposed by <strong>${esc(pending.actor ?? "unknown")}</strong>
-          as <strong>${esc(pending.role ?? "?")}</strong>.</p>
+       <p class="eyebrow">Someone is asking you to say yes</p>
+       <h1>${esc(label)}</h1>
+       <p class="who">Asked by <strong>${esc(pending.actor ?? "unknown")}</strong>.</p>
 
-       <h2>What will happen</h2>
        ${
-         args.length
-           ? `<dl>${args
-               .map(
-                 ([k, v]) =>
-                   `<dt>${esc(k)}</dt><dd><pre>${esc(
-                     typeof v === "string" ? v : JSON.stringify(v, null, 2),
-                   )}</pre></dd>`,
-               )
-               .join("")}</dl>`
-           : "<p>No arguments.</p>"
+         pending.summary
+           ? `<p class="summary"><strong>In short:</strong> ${esc(pending.summary)}</p>`
+           : ""
        }
 
        <form method="POST" action="/approvals/${esc(id)}">
-         <button type="submit">Approve and run</button>
+         ${
+           fields
+             ? `<p class="fine">Review it below — change anything that is wrong, then submit.</p>
+                ${fields.map(renderEditableField).join("")}`
+             : ""
+         }
+
+         <details${pending.summary || fields ? "" : " open"}>
+           <summary>Full details (${esc(pending.tool)})</summary>
+           ${
+             args.length
+               ? `<dl>${args
+                   .map(
+                     ([k, v]) =>
+                       `<dt>${esc(k)}</dt><dd><pre>${esc(
+                         typeof v === "string" ? v : JSON.stringify(v, null, 2),
+                       )}</pre></dd>`,
+                   )
+                   .join("")}</dl>`
+               : "<p>No arguments.</p>"
+           }
+         </details>
+
+         <button type="submit">Yes, do this</button>
        </form>
-       <p class="fine">Nothing has been written yet. This runs under <em>your</em> identity,
-          not the assistant's, and is recorded against your name.</p>
+       <p><a href="/">No, do nothing</a></p>
+       <p class="fine">Nothing has been written yet. Clicking "Yes" does it as <em>you</em>,
+          not the assistant, and saves your name with it.</p>
        ${
          durable
            ? ""
-           : `<p class="warn">Approvals are held in memory on this deployment — approve promptly.</p>`
+           : `<p class="warn">This link can go stale fast on this setup — click "Yes" soon after opening it.</p>`
        }
      </main>`,
     APPROVAL_CSS,
@@ -672,7 +834,261 @@ export function approvalResultPage(ok, detail) {
   );
 }
 
+/*
+ * "Add products/customers from a spreadsheet" — the other half of batch.js.
+ * One shape, two kinds, so the two pages cannot say different things about
+ * how uploading works while agreeing about what a row needs.
+ *
+ * GET is one file input and nothing else. Column names, what a row needs, an
+ * example — kept OUT of this page and said once, in the CSV template a person
+ * downloads, so there is exactly one place the two can drift apart from.
+ */
+const BATCH_KINDS = Object.freeze({
+  products: {
+    noun: "product",
+    path: "/products/batch",
+    columns:
+      "Columns: <strong>title</strong>, <strong>category</strong>, <strong>price</strong> — required. " +
+      "<strong>description</strong> and <strong>sku</strong> — optional. Category must be spelled " +
+      "exactly like one that already exists.",
+    createVerb: "create",
+  },
+  customers: {
+    noun: "customer",
+    path: "/customers/batch",
+    columns:
+      "Columns are Square's own names — the same shape a spreadsheet exported from Square, or typed " +
+      "at the till, already has: <strong>given_name</strong>, <strong>family_name</strong>, " +
+      "<strong>email_address</strong>, <strong>phone_number</strong>, <strong>note</strong>, " +
+      "<strong>reference_id</strong>. Every column is optional, but each row needs at least a name, " +
+      "an email, or a phone number.",
+    createVerb: "add",
+  },
+});
+
+export function batchUploadPage(kind = "products") {
+  const k = BATCH_KINDS[kind];
+  return page(
+    `Add ${k.noun}s from a spreadsheet`,
+    `<main class="wrap">
+       <p class="eyebrow">One ${k.noun} per row</p>
+       <h1>Add ${k.noun}s from a spreadsheet</h1>
+       <p>${k.columns}</p>
+       <form method="POST" enctype="multipart/form-data">
+         <input type="file" name="file" accept=".csv,text/csv" required>
+         <p><button type="submit">Upload</button></p>
+       </form>
+       <p class="fine">Nothing is added yet. The next page shows what you are about to
+          ${k.createVerb}, one at a time, before anything reaches Square.</p>
+       <p><a href="/">Back to ops</a></p>
+     </main>`,
+    APPROVAL_CSS,
+  );
+}
+
+/*
+ * The result of one upload: a link to review per row that resolved cleanly,
+ * and a plain reason for every row that did not. Each link is a normal
+ * /approvals/ page — the same prefilled confirmation screen a single chat
+ * draft produces, so there is one approval screen in this codebase, not two.
+ */
+export function batchReviewPage({ ready, skipped, tooMany }, kind = "products") {
+  const k = BATCH_KINDS[kind];
+  if (tooMany) {
+    return page(
+      "Too many rows",
+      `<main class="wrap">
+         <p class="eyebrow">Nothing was added</p>
+         <h1>Too many rows</h1>
+         <p>This file has ${tooMany} rows. The most one upload can take at once is ${CAPS.BATCH_MAX_ROWS} —
+            split it and upload the rest separately.</p>
+         <p><a href="${k.path}">Try again</a> &middot; <a href="/">Back to ops</a></p>
+       </main>`,
+      APPROVAL_CSS,
+    );
+  }
+  return page(
+    "Spreadsheet uploaded",
+    `<main class="wrap">
+       <p class="eyebrow">Spreadsheet uploaded</p>
+       <h1>${ready.length} ready to review</h1>
+       ${
+         ready.length
+           ? `<ol>${ready
+               .map(
+                 (r) =>
+                   `<li><a href="${esc(r.url)}">${esc(r.title)}</a>
+                      <span class="fine">${esc(r.summary)}</span></li>`,
+               )
+               .join("")}</ol>
+              <p class="fine">Each one is its own approval — nothing is created until you open it and
+                 say yes, the same as ${k.createVerb === "add" ? "adding" : "creating"} one ${k.noun} by hand.</p>`
+           : "<p>Nothing in this file was ready to add.</p>"
+       }
+       ${
+         skipped.length
+           ? `<h2>${skipped.length} not added</h2>
+              <ul>${skipped
+                .map((s) => `<li>Row ${s.row}, "${esc(s.title)}": ${esc(s.reason)}</li>`)
+                .join("")}</ul>`
+           : ""
+       }
+       <p><a href="${k.path}">Upload another spreadsheet</a> &middot; <a href="/">Back to ops</a></p>
+     </main>`,
+    APPROVAL_CSS,
+  );
+}
+
+/*
+ * /assets/new — drop a file for the team, no assistant needed. Same "no
+ * confirmation screen, just do it" shape as /media/new: there is nothing
+ * here for a human to approve, because dropping a document changes nothing
+ * else in the business.
+ */
+export function assetUploadPage() {
+  return page(
+    "Drop a file for the team",
+    `<main class="wrap">
+       <p class="eyebrow">Anyone can drop one</p>
+       <h1>Drop a file for the team</h1>
+       <p>A vendor price list, a policy note, meeting notes — anyone you work with, and any
+          assistant connected here, can read it back afterward.</p>
+       <p class="fine">Works today: .txt, .md, .csv, .json (read back as text), plus .pdf, spreadsheets
+          and Word documents (stored and listed, but not yet readable as text — open the file
+          itself for those).</p>
+       <form method="POST" enctype="multipart/form-data">
+         <input type="file" name="file" required>
+         <p><button type="submit">Upload</button></p>
+       </form>
+       <p><a href="/assets">See what has been dropped</a> &middot; <a href="/">Back to ops</a></p>
+     </main>`,
+    APPROVAL_CSS,
+  );
+}
+
+export function assetUploadedPage({ id, filename, hasText }) {
+  return page(
+    "File added",
+    `<main class="wrap">
+       <p class="eyebrow">Added</p>
+       <h1>${esc(filename)}</h1>
+       <p>${hasText ? "Any assistant connected here can already read its text." : "Stored and listed. There is no text extraction for this file type yet — open it directly to read it."}</p>
+       <p><a href="/assets/${esc(id)}">Open the file</a></p>
+       <p><a href="/assets/new">Drop another</a> &middot; <a href="/">Back to ops</a></p>
+     </main>`,
+    APPROVAL_CSS,
+  );
+}
+
+export function assetListPage(rows) {
+  return page(
+    "Files dropped for the team",
+    `<main class="wrap">
+       <p class="eyebrow">${rows.length} file${rows.length === 1 ? "" : "s"}</p>
+       <h1>Files dropped for the team</h1>
+       ${
+         rows.length
+           ? `<ul>${rows
+               .map(
+                 (r) =>
+                   `<li><a href="/assets/${esc(r.id)}">${esc(r.filename)}</a>
+                      <span class="fine">${esc(r.uploaded_by)} &middot; ${esc(r.uploaded_at)}</span></li>`,
+               )
+               .join("")}</ul>`
+           : "<p>Nothing has been dropped yet.</p>"
+       }
+       <p><a href="/assets/new">Drop a file</a> &middot; <a href="/">Back to ops</a></p>
+     </main>`,
+    APPROVAL_CSS,
+  );
+}
+
+/*
+ * /expenses/new — the receipt scanner. Take or upload a photo; the next page
+ * is where you confirm what it read, not this one.
+ */
+export function receiptUploadPage() {
+  return page(
+    "Scan a receipt",
+    `<main class="wrap">
+       <p class="eyebrow">Files under your name</p>
+       <h1>Scan a receipt</h1>
+       <p>Take a photo, or upload one. We'll read the vendor, date and total and show them to
+          you to confirm before anything is filed — nothing is submitted automatically.</p>
+       <form method="POST" enctype="multipart/form-data">
+         <input type="file" name="file" accept="image/*" capture="environment" required>
+         <p><button type="submit">Scan</button></p>
+       </form>
+       <p><a href="/">Back to ops</a></p>
+     </main>`,
+    APPROVAL_CSS,
+  );
+}
+
+/*
+ * The confirm form. Every field OCR read is here to be checked, not trusted
+ * (finance-skills rule 4) — pre-filled when a guess exists, blank and asking
+ * to be filled in when it does not, exactly the same either way from the
+ * person's side.
+ */
+export function expenseConfirmPage({ receiptKey, description, amount_minor, currency, incurred_on, vendor, error }) {
+  const amountStr = typeof amount_minor === "number" ? (amount_minor / 100).toFixed(2) : "";
+  const today = new Date().toISOString().slice(0, 10);
+  return page(
+    "Confirm this expense",
+    `<main class="wrap">
+       <p class="eyebrow">Check before it's filed</p>
+       <h1>Confirm this expense</h1>
+       ${
+         vendor || description
+           ? `<p class="fine">Read off the photo — fix anything wrong before continuing.</p>`
+           : `<p class="fine">Nothing could be read off this photo. Fill in what you can.</p>`
+       }
+       ${error ? `<div class="warn">${esc(error)}</div>` : ""}
+       <form method="POST" action="/expenses/confirm">
+         <input type="hidden" name="receipt_key" value="${esc(receiptKey)}">
+         <div class="field">
+           <label for="description">What was it</label>
+           <input id="description" name="description" type="text" value="${esc(description || (vendor ? `Receipt from ${vendor}` : ""))}" required>
+         </div>
+         <div class="field">
+           <label for="amount">Total</label>
+           <input id="amount" name="amount" type="text" inputmode="decimal" value="${esc(amountStr)}" placeholder="42.50" required>
+         </div>
+         <div class="field">
+           <label for="currency">Currency</label>
+           <input id="currency" name="currency" type="text" value="${esc(currency || "USD")}" maxlength="3" required>
+         </div>
+         <div class="field">
+           <label for="incurred_on">Date</label>
+           <input id="incurred_on" name="incurred_on" type="date" value="${esc(incurred_on || today)}" required>
+         </div>
+         <p><button type="submit">File this expense</button></p>
+       </form>
+       <p class="fine">Filing does not pay it out — a manager still approves it, and cannot be the
+          person who filed it.</p>
+       <p><a href="/expenses/new">Scan a different receipt</a> &middot; <a href="/">Back to ops</a></p>
+     </main>`,
+    APPROVAL_CSS,
+  );
+}
+
+export function expenseFiledPage({ id, description, amount_minor, currency }) {
+  return page(
+    "Expense filed",
+    `<main class="wrap">
+       <p class="eyebrow">Filed</p>
+       <h1>${esc(description)}</h1>
+       <p>${(amount_minor / 100).toFixed(2)} ${esc(currency)} &middot; waiting on a manager's approval.</p>
+       <p class="fine">Reference: ${esc(id)}</p>
+       <p><a href="/expenses/new">Scan another</a> &middot; <a href="/">Back to ops</a></p>
+     </main>`,
+    APPROVAL_CSS,
+  );
+}
+
 const APPROVAL_CSS = `
+${OPS_DARK_CSS}
 .wrap{max-width:44rem;margin:0 auto;padding:2rem 1.25rem}
 .eyebrow{text-transform:uppercase;letter-spacing:.08em;font-size:.75rem;opacity:.7;margin:0}
 h1{margin:.25rem 0 1rem;font-size:1.5rem;word-break:break-word}
@@ -681,8 +1097,12 @@ h2{font-size:.9rem;text-transform:uppercase;letter-spacing:.06em;opacity:.7;marg
 dl{margin:0}
 dt{font-weight:600;margin-top:.75rem}
 dd{margin:.25rem 0 0}
-pre{white-space:pre-wrap;word-break:break-word;background:rgba(127,127,127,.12);padding:.6rem .7rem;border-radius:.4rem;margin:0;font-size:.85rem}
-button{margin-top:1.5rem;padding:.85rem 1.4rem;font-size:1rem;border-radius:.5rem;border:0;background:#111;color:#fff;width:100%;max-width:20rem}
+pre{white-space:pre-wrap;word-break:break-word;background:rgba(255,255,255,.06);padding:.6rem .7rem;border-radius:.4rem;margin:0;font-size:.85rem}
+button{margin-top:1.5rem;padding:.85rem 1.4rem;font-size:1rem;border-radius:.5rem;border:0;background:var(--accent);color:var(--ground);font-weight:700;width:100%;max-width:20rem}
 .fine{font-size:.85rem;opacity:.75;margin-top:.75rem}
 .warn{font-size:.85rem;border-left:3px solid #c60;padding-left:.75rem;margin-top:1.25rem}
+.field{margin:0 0 1rem}
+.field label{display:block;font-weight:600;font-size:.85rem;margin-bottom:.3rem}
+.field input,.field select,.field textarea{width:100%;font:inherit;font-size:1rem;padding:.6rem .7rem;border:1px solid rgba(255,255,255,.25);border-radius:.4rem;background:transparent;color:inherit;box-sizing:border-box}
+.field textarea{resize:vertical}
 `;

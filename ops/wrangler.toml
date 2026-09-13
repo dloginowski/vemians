@@ -131,13 +131,25 @@ SQUARE_LOCATION_ID = "L846PQNSM9TF4"
 LOCATION_ID = "main"
 
 # ---------------------------------------------------------------------------
-# Custom Domain. Commented out because `wrangler deploy` will try to create it,
-# which fails until the zone is on Cloudflare (deploy-cloudflare.md §1).
-# Uncomment once the nameservers have moved, then deploy.
+# Custom Domain. The zone is on Cloudflare: vemians.com, www.vemians.com and
+# staging.vemians.com all deploy and answer 200 today (deploy-workers.yml runs
+# #32-41), so the precondition this used to be commented out for no longer
+# holds. `deploy-cloudflare.md` §3 still describes attaching this one by hand
+# in the dashboard because that is how it was first done for the other three
+# hostnames — this stanza is the same result, declared in code instead, so a
+# redeploy cannot silently lose the attachment the way a dashboard click can.
 #
-# [[routes]]
-# pattern      = "ops.vemians.com"
-# custom_domain = true
+# Uncommented but NOT YET DEPLOYED as of this commit — deploying it attaches
+# a public Custom Domain on live infrastructure, which is worth a deliberate
+# `wrangler deploy` (or a deploy-workers.yml run) rather than happening as a
+# side effect of an unrelated push. It also does nothing on its own for
+# Access: `deploy-cloudflare.md` §4-8 (Zero Trust, Google Workspace login,
+# the Access application and its AUD tag) are separate dashboard steps this
+# file cannot do or verify, and until they exist every request here answers
+# 401 with no assertion to check — the documented, correct resting state.
+[[routes]]
+pattern      = "ops.vemians.com"
+custom_domain = true
 
 # ---------------------------------------------------------------------------
 # Pending T2 approvals for POST /mcp (ADR-007). A T2 tool called over MCP parks
@@ -193,15 +205,25 @@ enabled = true
 
 # ---------------------------------------------------------------------------
 # R2 — our photographic originals, and the authoritative copy of them
-# (Test-PRD-P0-28-image_contract, Test-PRD-P0-29-exit_test). Square gets a copy
-# so the item looks right on the till; losing Square must not lose our
-# photography, which is only true while the original never lived only there.
+# (Test-PRD-P0-28-image_contract, Test-PRD-P0-29-exit_test, Test-PRD-P0-73-
+# real_photography). Square gets a copy so the item looks right on the till;
+# losing Square must not lose our photography, which is only true while the
+# original never lived only there. It is also what lets the STOREFRONT show a
+# real photograph at all: store/src/catalog.js builds an <img src> straight
+# from a media_key in the mirror, at this bucket's own public custom domain
+# (media.vemians.com) — never a fetch of its own, and never Square's CDN.
 #
-# Created by .github/workflows/bootstrap-resources.yml. An R2 binding is by
-# NAME, not by id, so there is nothing to resolve afterwards — the bucket
-# either exists or the deploy says so.
+# ADR-013 dropped this bucket; the ADR's own text says binding one back later
+# "restores the original behaviour with no code change" — mediaStoreFor(env)
+# already picks R2 the instant this binding is live, and
+# ops/src/media-backfill.js already exists to fill it in from whatever
+# Square holds. Created by .github/workflows/bootstrap-media.yml (kept
+# separate from bootstrap-resources.yml on purpose — see that workflow's own
+# header for why an R2 step that fails must not take the KV namespaces down
+# with it). An R2 binding is by NAME, not by id, so there is nothing to
+# resolve afterwards — the bucket either exists or the deploy says so.
 
-# LIVE FORM, written in by bootstrap-resources.yml once the bucket exists.
+# LIVE FORM, written in by bootstrap-media.yml once the bucket exists.
 # Same reason as APPROVALS above: a binding to a bucket that does not exist
 # fails the deploy rather than degrading.
 #
@@ -210,11 +232,57 @@ enabled = true
 # bucket_name = "vemians-media"
 
 # ---------------------------------------------------------------------------
+# The employee asset drop site's original bytes (ops/src/tools/assets.js).
+# NOT an R2 bucket, ON PURPOSE: ADR-013 dropped this ops Worker's one R2
+# bucket after two failed workflow runs and a token permission that was never
+# granted, and reintroducing R2 for a second, unrelated feature would risk
+# hitting the exact same account-level wall. KV is already live here —
+# APPROVALS above is the proof — and a KV value holds up to 25 MB, comfortably
+# past CAPS.ASSET_MAX_BYTES (20 MB) for a document rather than a video.
+#
+# Created and resolved by .github/workflows/bootstrap-resources.yml, the same
+# way APPROVALS is. Commented for the same reason: a binding to a namespace
+# that does not exist fails the deploy rather than degrading. Without this
+# binding the upload route refuses with 503 rather than accepting a file it
+# cannot actually keep.
+#
+[[kv_namespaces]]
+binding = "ASSET_FILES"
+id      = "dcdc9d082ba5472b9accd36639398db3"
+
+# ---------------------------------------------------------------------------
+# The expense receipt scanner's original photos (ops/src/tools/finance.js).
+# Its OWN KV namespace — never ASSET_FILES — for the same reason a receipt
+# never lands in the CUSTOMERS store: a financial record and a working
+# document do not share a blast radius (agent-tool-contract rule 6).
+#
+# Created and resolved by .github/workflows/bootstrap-resources.yml, the same
+# way APPROVALS and ASSET_FILES are. Commented for the same reason: a binding
+# to a namespace that does not exist fails the deploy rather than degrading.
+#
+[[kv_namespaces]]
+binding = "RECEIPT_FILES"
+id      = "55305dca477d4f2cb7b8385d07641afb"
+
+# ---------------------------------------------------------------------------
+# Workers AI — reads a receipt photo for the expense scanner
+# (ops/src/tools/receipt-ocr.js). A native Cloudflare binding, not a third
+# vendor: no separate account, no API key to rotate, usage billed on this
+# same Cloudflare account. Nothing else in this Worker uses it, and nothing
+# here trusts what it reads — receipt-ocr.js's own header says plainly that
+# the exact model id and request shape are UNVERIFIED against a live account
+# (the same developers.cloudflare.com wall ADR-007 already hit), and every
+# field it produces reaches a human confirm page before it is filed, never
+# an INSERT (finance-skills rule 4).
+[ai]
+binding = "AI"
+
+# ---------------------------------------------------------------------------
 # D1 bindings.
 #
 # These blocks are the enforcement behind Test-PRD-P0-24-binding_scoped_tools.
-# The seven stores below — customers, identity, commerce, people, finance,
-# audit, tickets — are bound HERE AND NOWHERE ELSE: a customer profile is not
+# The eight stores below — customers, identity, commerce, people, finance,
+# audit, tickets, assets — are bound HERE AND NOWHERE ELSE: a customer profile is not
 # reachable from the storefront by any code path, because the binding does not
 # exist there and neither does the code. That is the whole reason the two
 # surfaces are two Workers: scope is structural, not a query filter.
@@ -270,6 +338,17 @@ database_id   = "178ae750-75b0-479b-bbed-14ddb2e5035a"
 binding       = "TICKETS"            # company-wide issues; closed, never deleted
 database_name = "vemians-tickets"
 database_id   = "9addc2c1-7f22-44be-bf93-f8e831905ce7"
+
+# The employee asset drop site's index (shared/db/assets.sql) — filename,
+# uploader, extracted text. NOT YET CREATED: added to the bootstrap-d1
+# workflow's $DBS list, but that run has not happened yet, so the id below is
+# a PLACEHOLDER rather than the real UUID every store above already has.
+# `wrangler deploy` will fail loudly on it rather than silently accepting it
+# (bootstrap-d1.yml's own id-resolution step checks for exactly this shape).
+[[d1_databases]]
+binding       = "ASSETS"             # asset-drop-site index; append-only, see shared/db/assets.sql
+database_name = "vemians-assets"
+database_id   = "e8788eab-50b1-4639-a7a1-9bde14bc8005"
 
 # Our copy of Square's authoritative catalog (shared/commerce/square/schema.sql,
 # ADR-009). READ by the agent tools — the closed set of categories, the price

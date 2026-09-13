@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "vemians": {
+      "type": "http",
+      "url": "https://ops.vemians.com/mcp"
+    }
+  }
+}

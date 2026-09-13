@@ -28,12 +28,13 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "${HERE}/.." && pwd)"          # ops/
 DB_DIR="$(cd "${ROOT}/../shared/db" && pwd)"  # shared/db
 
-# The six D1 stores, in dependency-free order — they have none, by design. The
-# order below is the one PRD §3.1 lists them in. `catalog_mirror` is the seventh
-# and is handled separately below: its schema is not in shared/db, it lives with
-# the adapter that fills it (shared/commerce/square/schema.sql), because it is a
-# copy of a vendor's data rather than a store of our own record.
-STORES=(customers identity commerce people finance audit catalog_mirror)
+# The D1 stores, in dependency-free order — they have none, by design. The
+# order below starts with the ones PRD §3.1 lists. `catalog_mirror` is handled
+# separately below: its schema is not in shared/db, it lives with the adapter
+# that fills it (shared/commerce/square/schema.sql), because it is a copy of a
+# vendor's data rather than a store of our own record. `tickets` and `assets`
+# came later, added here for the same reason every other store is.
+STORES=(customers identity commerce people finance audit tickets assets catalog_mirror)
 
 # store -> schema file, for the ones that are not shared/db/<store>.sql.
 schema_for() {

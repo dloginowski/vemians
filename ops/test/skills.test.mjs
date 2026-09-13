@@ -40,7 +40,7 @@ function check(name, fn) {
  * ───────────────────────────────────────────────────────────────────────── */
 
 check("test_PRD_P0_54_skill_discovery__every_skill_file_is_bundled_with_its_front_matter", () => {
-  assert.equal(SKILLS.length, 8, "all eight SKILL.md files should be bundled");
+  assert.equal(SKILLS.length, 9, "all nine SKILL.md files should be bundled");
   for (const s of SKILLS) {
     assert.ok(s.text.length > 500, `${s.name} looks truncated (${s.text.length} bytes)`);
     assert.ok(s.description.length > 20, `${s.name} has no usable description`);
@@ -144,6 +144,51 @@ check("test_PRD_P0_54_skill_discovery__lookup_accepts_the_name_or_the_uri", () =
   assert.equal(skillByName("catalog-skills")?.name, "catalog-skills");
   assert.equal(skillByName("skill://catalog-skills")?.name, "catalog-skills");
   assert.equal(skillByName("no-such-skill"), null);
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-64 — the greeting protocol survives a client that drops `instructions`
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_64_greeting_survives_every_client__agent_tool_contract_carries_the_opening_script", () => {
+  /* buildInstructions()'s FIRST MESSAGE / SECOND MESSAGE text (P0-62) is a
+     connect-time `instructions` field, and at least two real MCP clients
+     (Claude.ai's own web connector, ChatGPT) do not surface that field to the
+     model at all. agent-tool-contract is read by every role (asserted above)
+     via a real skills_read call, whose result reaches the model on every
+     client — so the same greeting protocol has to live here too, not only in
+     buildInstructions(). */
+  const contract = skillByName("agent-tool-contract").text;
+  assert.match(contract, /greet.*by their actual first name/i, "the opening greeting is not documented in the skill");
+  assert.match(contract, /short menu/i, "the numbered menu is not documented in the skill");
+  assert.match(
+    contract,
+    /spreadsheet, or would you rather tell me about them here/i,
+    "the spreadsheet-or-narrate follow-up question is not documented in the skill",
+  );
+  assert.match(contract, /real form, not a preview/i, "the editable-approval-link framing is missing");
+});
+
+check("test_PRD_P0_62_onboarding_greeting__the_skill_menu_matches_the_four_choices_exactly", () => {
+  const contract = skillByName("agent-tool-contract").text;
+  const order = ["Add Merchandise", "Add Customers", "Submit Expenses", "More Options"];
+  let cursor = -1;
+  for (const item of order) {
+    const at = contract.indexOf(item);
+    assert.ok(at !== -1, `"${item}" is missing from the skill's greeting menu`);
+    assert.ok(at > cursor, `"${item}" is out of order in the skill's greeting menu`);
+    cursor = at;
+  }
+});
+
+check("test_PRD_P0_66_expense_scanner__the_skill_also_carries_the_no_tool_expense_instruction", () => {
+  /* Same reason as P0-64: buildInstructions() is not reliably seen by every
+     client, so the "there is no tool, send them to the link" instruction for
+     expenses has to survive here too. */
+  const contract = skillByName("agent-tool-contract").text;
+  assert.match(contract, /submit expenses.*is different/i);
+  assert.match(contract, /\/expenses\/new/);
+  assert.match(contract, /there is no tool for it and no second question/i);
 });
 
 test("test_PRD_P0_30_prd_traceability__every_label_used_here_exists_in_the_prd", async () => {
@@ -254,4 +299,40 @@ check("test_PRD_P0_23_group_derived_roles__an_unset_policy_var_never_matches_an_
   assert.equal(out.role, null);
   const out2 = explainRole({ claims: { email: "x@vemians.com", policy_id: "" } }, {});
   assert.equal(out2.role, null);
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-67 — greet by a real first name, not a guess
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_67_greet_by_first_name__a_given_name_claim_wins_over_everything_else", () => {
+  const { firstNameFrom } = accessMod;
+  const claims = { given_name: "MARA", name: "Mara Fuentes Lopez", email: "m@vemians.com" };
+  assert.equal(firstNameFrom(claims, "m@vemians.com"), "Mara", "capitalised, first token only");
+});
+
+check("test_PRD_P0_67_greet_by_first_name__falls_back_to_the_first_token_of_a_full_name", () => {
+  const { firstNameFrom } = accessMod;
+  assert.equal(firstNameFrom({ name: "ana garcia", email: "a@vemians.com" }, "a@vemians.com"), "Ana");
+});
+
+check("test_PRD_P0_67_greet_by_first_name__falls_back_to_the_email_local_part_when_no_name_claim_exists", () => {
+  const { firstNameFrom } = accessMod;
+  assert.equal(firstNameFrom({ email: "dimitri@handsome.la" }, "dimitri@handsome.la"), "Dimitri");
+  assert.equal(firstNameFrom({}, "ana.garcia@vemians.com"), "Ana", "split on a separator in the local part");
+  assert.equal(firstNameFrom({}, "tomas_r@vemians.com"), "Tomas");
+});
+
+check("test_PRD_P0_67_greet_by_first_name__never_throws_and_never_returns_empty", () => {
+  const { firstNameFrom } = accessMod;
+  assert.equal(firstNameFrom({}, ""), "there", "no claim and no email at all is still a real answer");
+  assert.equal(firstNameFrom(undefined, undefined), "there");
+  assert.equal(firstNameFrom({ given_name: "" }, "d@vemians.com"), "D", "a blank given_name is not used");
+});
+
+check("test_PRD_P0_67_greet_by_first_name__build_instructions_hands_over_the_real_name_not_a_placeholder", async () => {
+  const { buildInstructions } = await import("../src/mcp.js");
+  const text = buildInstructions({ actor: "tomas@vemians.com", role: "staff", claims: { given_name: "Tomás" }, verified: true });
+  assert.match(text, /first name Tomás/);
+  assert.match(text, /Hi Tomás —/);
 });

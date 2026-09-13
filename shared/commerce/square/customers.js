@@ -56,6 +56,32 @@ export function splitName(full) {
  * createPaymentLink uses, so this file never reads env or SQUARE_ACCESS_TOKEN
  * itself and cannot get the wrong one by accident.
  *
+ * ONE CALLER OF CreateCustomer, TWO SHAPES OF INPUT. The contact form has a
+ * single "name" box and a message to fold into a note (below); ops's batch
+ * customer intake already has Square's own field names apart, because that is
+ * the structure a spreadsheet or a staff member typing at the till uses. Both
+ * end at this function so there is one place that builds the request body,
+ * one idempotency convention, one note-length cap — not two that could drift.
+ *
+ * Square's own rule: at least one of given_name, family_name, company_name,
+ * email_address or phone_number. Enforced by the CALLER (ops's customer.create
+ * checks it before this ever runs; the contact form's required name+email
+ * fields already satisfy it) — this function does not repeat that check, the
+ * same way createProduct does not re-validate a category id its caller already
+ * resolved.
+ */
+export async function createCustomer(client, { given_name, family_name, email_address, phone_number, note, reference_id } = {}) {
+  const body = { idempotency_key: idempotencyKey() };
+  if (given_name) body.given_name = given_name;
+  if (family_name) body.family_name = family_name;
+  if (email_address) body.email_address = email_address;
+  if (phone_number) body.phone_number = phone_number;
+  if (note) body.note = String(note).slice(0, NOTE_MAX);
+  if (reference_id) body.reference_id = reference_id;
+  return client.post(CUSTOMERS, body);
+}
+
+/*
  * The idempotency key is fresh per call (no seed): a retry of the SAME HTTP
  * request reuses it because the caller generates one key and passes it once,
  * so the client's own retry loop (client.js, 429/5xx) cannot double-create a
@@ -65,14 +91,5 @@ export function splitName(full) {
 export async function createContactCustomer(client, { name, email, phone, message, source = "vemians.com/visit" }) {
   const stamp = new Date().toISOString();
   const note = `${source} · ${stamp}\n${String(message ?? "").slice(0, NOTE_MAX)}`;
-
-  const body = {
-    idempotency_key: idempotencyKey(),
-    ...splitName(name),
-    note,
-  };
-  if (email) body.email_address = email;
-  if (phone) body.phone_number = phone;
-
-  return client.post(CUSTOMERS, body);
+  return createCustomer(client, { ...splitName(name), email_address: email, phone_number: phone, note });
 }

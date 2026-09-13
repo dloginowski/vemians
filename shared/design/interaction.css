@@ -613,6 +613,20 @@ button.heart::before { content: ""; position: absolute; inset: -8px; }
 
 .address { font-size: var(--type); }
 
+/* One product's own page. The image keeps the grid's 8:9 ratio and ground
+   colour so the page does not change shape once real photography arrives —
+   the same reasoning as .tile-media above. */
+.product-media {
+  aspect-ratio: 8 / 9;
+  max-width: 26rem;
+  background: var(--image-ground);
+  overflow: hidden;
+}
+.product-media img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.product-info { padding-top: 20px; }
+.product-info h1 { font-size: var(--type); font-weight: 700; margin: 0; }
+.product-info .description { max-width: 34rem; padding-top: 12px; }
+
 /* Tiles — the four ways out of an empty bag. The image ground stands in for
    photography at the same 8:9 the cards use, so the page does not change shape
    when real pictures arrive. */

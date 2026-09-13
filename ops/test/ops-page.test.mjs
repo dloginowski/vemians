@@ -172,6 +172,137 @@ check("test_PRD_P0_54_skill_discovery__only_the_address_and_the_prompts_are_open
   assert.ok(main.slice(firstFold).includes("claude mcp add"), "but it must still be on the page");
 });
 
+check("test_PRD_P0_69_one_click_welcome_menu__greets_by_first_name_with_the_four_choices_above_everything_else", async () => {
+  /* The literal ask: a welcome message, by name, offering Add Merchandise /
+     Add Customers / Submit Expenses / More Options — reachable without
+     leaving the page, without connecting anything, in one click. This is
+     the FIRST thing on the page after the identity line, ahead of even the
+     "connect your own assistant" address (P0-54's own prior "one job"
+     framing, superseded: a local one-click menu is the primary path now,
+     the external connector a secondary one for someone who prefers it). */
+  const { body } = await frontPage(OWNER);
+  const main = body.slice(body.indexOf("<main"));
+  assert.match(main, /Hi Owner — what would you like to do/, "greets by the resolved first name");
+
+  const order = ["Add Merchandise", "Add Customers", "Submit Expenses", "More Options"];
+  let cursor = -1;
+  for (const item of order) {
+    const at = main.indexOf(item);
+    assert.ok(at !== -1, `"${item}" is missing from the welcome menu`);
+    assert.ok(at > cursor, `"${item}" is out of order`);
+    cursor = at;
+  }
+  assert.ok(cursor < main.indexOf("/mcp"), "the one-click menu must come before the external connector address");
+
+  assert.match(main, /href="\/products\/batch"[^>]*>Add Merchandise/);
+  assert.match(main, /href="\/customers\/batch"[^>]*>Add Customers/);
+  assert.match(main, /href="\/expenses\/new"[^>]*>Submit Expenses/);
+});
+
+check("test_PRD_P0_69_one_click_welcome_menu__the_built_in_chat_is_open_at_rest_not_a_folded_afterthought", async () => {
+  /* The chat box used to live in a closed <details> captioned "your own
+     assistant is the one worth using" — actively steering away from the one
+     surface that needs no setup at all. It is now open at rest — P0-74 moved
+     it ahead of the one-click menu entirely, but "not folded" is this test's
+     own concern and holds regardless of exactly where above the fold it sits. */
+  const { body } = await frontPage(OWNER);
+  assert.doesNotMatch(body, /<summary>Ask here instead<\/summary>/, "no longer folded under its old caption");
+  const main = body.slice(body.indexOf("<main"));
+  const chatAt = main.indexOf('id="chat"');
+  const firstFold = main.indexOf("<details");
+  assert.ok(chatAt > -1, "the chat box must still be on the page");
+  assert.ok(chatAt < firstFold, "and it must be open at rest, not inside the accordion");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-74 — the assistant leads the page, ahead of the one-click menu itself
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_74_chat_first__the_assistant_is_the_first_interactive_thing_after_the_greeting", async () => {
+  /* The owner's own direction, in as many words: chat assistant on top. The
+     greeting still leads (it names who is signed in before anything asks for
+     input), but the assistant now comes before even the one-click menu
+     P0-69 put directly on the page — not after it, and not behind a fold. */
+  const { body } = await frontPage(OWNER);
+  const main = body.slice(body.indexOf("<main"));
+  const greetAt = main.indexOf("Hi Owner — what would you like to do");
+  const chatAt = main.indexOf('id="chat"');
+  const menuAt = main.indexOf('<section class="menu"');
+  assert.ok(greetAt > -1 && chatAt > -1 && menuAt > -1, "greeting, chat and menu must all be on the page");
+  assert.ok(greetAt < chatAt, "the greeting must still lead the page");
+  assert.ok(chatAt < menuAt, "the assistant must come before the one-click menu, not after it");
+});
+
+check("test_PRD_P0_74_chat_first__the_one_click_menu_still_carries_all_three_tasks_in_order", async () => {
+  /* P0-69's own guarantee, re-checked after the reorder: moving the assistant
+     ahead of the menu must not have quietly dropped or reordered a task. */
+  const { body } = await frontPage(OWNER);
+  const main = body.slice(body.indexOf("<main"));
+  const order = ["Add Merchandise", "Add Customers", "Submit Expenses", "More Options"];
+  let cursor = -1;
+  for (const item of order) {
+    const at = main.indexOf(item);
+    assert.ok(at !== -1, `"${item}" is missing from the one-click menu`);
+    assert.ok(at > cursor, `"${item}" is out of order`);
+    cursor = at;
+  }
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-75 — the ops surface's own dark theme, never the storefront's
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_75_ops_dark_theme__the_front_page_carries_the_dark_palette", async () => {
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /--ground:\s*#191817/, "the near-black ground must be set");
+  assert.match(body, /--ink:\s*#F1EEE6/, "the warm off-white ink must be set");
+  assert.match(body, /--accent:\s*#D97757/, "the one accent colour must be set");
+  assert.match(body, /--muted:\s*#9C978C/);
+});
+
+check("test_PRD_P0_75_ops_dark_theme__the_storefront_never_loads_this_palette", async () => {
+  /* The override lives in a SECOND `:root` block inside the ops Worker's own
+     stylesheet, never in shared/design/theme.css — a shop rendered in
+     near-black with a clay-orange accent is not what P0-26/P0-56's own
+     warm-cream design language asked for, and this is the one file that
+     could leak it there by accident. */
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const theme = fs.readFileSync(path.join(HERE, "..", "..", "shared", "design", "theme.css"), "utf8");
+  assert.doesNotMatch(theme, /#191817|#D97757|#F1EEE6/, "the ops dark palette leaked into the shared theme");
+});
+
+check("test_PRD_P0_75_ops_dark_theme__every_approval_style_page_carries_it_too", async () => {
+  /* "The entire ops section" means every page rendered there, not only the
+     front door — the approval screen, the batch upload forms, the expense
+     scanner, all share APPROVAL_CSS rather than OPS_CSS, so the override has
+     to reach both rather than only the one this suite otherwise exercises. */
+  const { approvalPage, batchUploadPage, refusalPage } = await import("../src/views.js");
+  for (const html of [
+    approvalPage("id1", null),
+    batchUploadPage("products"),
+    refusalPage(401, "sign in first"),
+  ]) {
+    assert.match(html, /--accent:\s*#D97757/);
+  }
+});
+
+check("test_PRD_P0_75_ops_dark_theme__no_hardcoded_grey_survives_the_reskin", async () => {
+  /* #666 was this file's own stand-in for secondary text under the light
+     theme; left in place it reads as a barely-visible dark grey on the new
+     near-black ground. Every one of them had to become var(--muted), which
+     this same reskin defines and which theme.css never did. */
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const src = fs.readFileSync(path.join(HERE, "..", "src", "views.js"), "utf8");
+  const styleOnly = src.replace(/\/\*[\s\S]*?\*\//g, "");
+  assert.doesNotMatch(styleOnly, /#666/, "a hardcoded grey survived the dark reskin");
+});
+
 check("test_PRD_P0_54_skill_discovery__the_copy_control_is_an_icon_with_a_reachable_label", async () => {
   /* An icon-only control is a control with no name unless it carries one. */
   const { body } = await frontPage(OWNER);

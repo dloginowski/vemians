@@ -69,6 +69,26 @@ export const CAPS = Object.freeze({
   ORIGINAL_IMAGE_MAX_BYTES: 15 * 1024 * 1024,
   /* A signed upload ticket is a link a human opens now, not a share link. */
   MEDIA_TICKET_TTL_MS: 15 * 60 * 1000,
+  /*
+   * The fetch-and-store backfill (media-backfill.js), run once per scheduled
+   * sync (every 15 minutes). Capped so a first-time backfill of a large
+   * existing catalog spreads itself across many runs rather than spending the
+   * whole cron budget — and the cron's own timeout — fetching a hundred
+   * photographs in one invocation. A steady-state catalog backfills whatever
+   * Square added since the last run, which is almost always far fewer.
+   */
+  MEDIA_BACKFILL_MAX_PER_RUN: 20,
+
+  /*
+   * Batch spreadsheet upload (batch.js). Each row calls runTool and, for a
+   * row that resolves, parkForApproval — sequentially, inside one Worker
+   * request, one of which reaches Square. A row count with no ceiling is a
+   * timeout waiting for a big enough file, not a feature.
+   */
+  BATCH_MAX_ROWS: 400,
+  /* Generous for 400 short rows and nowhere near ORIGINAL_IMAGE_MAX_BYTES —
+     a file this size holding fewer rows than the cap above is not a CSV. */
+  BATCH_MAX_BYTES: 2 * 1024 * 1024,
 
   /*
    * Category near-duplicate refusal. Two names whose normalised token sets
@@ -102,6 +122,27 @@ export const CAPS = Object.freeze({
 
   /* Free text an agent can put into a store, per field. */
   MAX_TEXT: 500,
+
+  /*
+   * Employee asset drop site (assets.js). A working document, not a photo —
+   * generous enough for a real spreadsheet or PDF, nowhere near what a store
+   * would need to hold video or a full media library.
+   */
+  ASSET_MAX_BYTES: 20 * 1024 * 1024,
+  /* Extracted TEXT an agent tool can hand back in one call. A cap in
+     characters, not bytes — this is what a model actually reads, and the
+     same "a warning in the prompt is not a cap" rule applies to it. Refusing
+     is wrong here (the file is still worth having on record); truncating and
+     saying so is not. */
+  ASSET_TEXT_MAX_CHARS: 100_000,
+  ASSET_LIST_MAX_ROWS: 100,
+
+  /*
+   * Receipt scanning (receipt-ocr.js). A photograph, so the same ceiling as
+   * an original catalog image — comfortably past what a phone camera
+   * produces, nowhere near a KV value's 25 MB ceiling.
+   */
+  RECEIPT_MAX_BYTES: 15 * 1024 * 1024,
 });
 
 /* Clamp a caller-supplied row count into the cap. Never trust the argument. */

@@ -26,6 +26,15 @@ on:
         description: Apply the schemas to databases that are still empty
         type: boolean
         default: true
+      add_channel_column:
+        description: >-
+          One-off: ADD COLUMN channel to vemians-catalog-mirror's mirror_product,
+          for a database that was already populated before P0-71 added the
+          column to schema.sql (a fresh database gets it for free from
+          apply_schemas above; this is only for one that predates it). Checks
+          for the column first — safe to leave on by mistake.
+        type: boolean
+        default: false
 
 concurrency:
   group: bootstrap-d1
@@ -36,7 +45,7 @@ permissions:
 
 env:
   # The database-name suffixes, exactly as the wrangler.toml files spell them.
-  DBS: customers identity commerce people finance audit tickets catalog-mirror
+  DBS: customers identity commerce people finance audit tickets catalog-mirror assets
 
 jobs:
   bootstrap:
@@ -59,18 +68,26 @@ jobs:
       - name: Create the databases
         working-directory: ops
         run: |
+          # Checked by NAME against a real listing first, rather than by
+          # guessing from `create`'s error text. This account is now at its
+          # plan's D1 database cap (all nine of these already exist), and
+          # Cloudflare's own error for that case is "you have reached the
+          # maximum number of D1 databases" — not "already exists" — so the
+          # old text-matching fallback never caught it and `create` would
+          # fail this step on every future run, forever, for a database that
+          # was never actually missing.
+          npx wrangler d1 list --json > /tmp/existing.json
+          existing=" $(python3 -c "import json; print(' '.join(d['name'] for d in json.load(open('/tmp/existing.json'))))") "
           for s in $DBS; do
-            echo "::group::vemians-$s"
-            # No pipe here: `cmd | tee` reports tee's status, so a failed
-            # create looked like a success and the "already exists" branch
-            # never ran.
-            if npx wrangler d1 create "vemians-$s" >/tmp/create.log 2>&1; then
+            name="vemians-$s"
+            echo "::group::$name"
+            if [[ "$existing" == *" $name "* ]]; then
+              echo "$name already exists — nothing to do."
+            elif npx wrangler d1 create "$name" >/tmp/create.log 2>&1; then
               cat /tmp/create.log
-            elif grep -qiE 'already exists|already have a database' /tmp/create.log; then
-              echo "vemians-$s already exists — nothing to do."
             else
               cat /tmp/create.log
-              echo "::error::could not create vemians-$s"; exit 1
+              echo "::error::could not create $name"; exit 1
             fi
             echo "::endgroup::"
           done
@@ -155,6 +172,24 @@ jobs:
               echo "::error::schema failed for vemians-$s"; exit 1; }
             echo "::endgroup::"
           done
+
+      - name: Add the channel column to an already-populated catalog-mirror
+        if: inputs.add_channel_column
+        working-directory: ops
+        run: |
+          npx wrangler d1 execute vemians-catalog-mirror --remote --yes --json \
+            --command "SELECT name FROM pragma_table_info('mirror_product') WHERE name = 'channel'" \
+            > /tmp/col.json 2>/tmp/col.err || {
+              cat /tmp/col.err; echo "::error::could not read vemians-catalog-mirror"; exit 1; }
+
+          if python3 -c "import json,sys; r=json.load(open('/tmp/col.json')); sys.exit(0 if r[0]['results'] else 1)"; then
+            echo "channel already exists on mirror_product — nothing to do."
+          else
+            npx wrangler d1 execute vemians-catalog-mirror --remote --yes \
+              --command "ALTER TABLE mirror_product ADD COLUMN channel TEXT NOT NULL DEFAULT 'in_store' CHECK (channel IN ('in_store','website','direct_link'));" || {
+                echo "::error::could not add the channel column"; exit 1; }
+            echo "channel added, defaulting every existing row to in_store (fail closed — Test-PRD-P0-71-product_channel)."
+          fi
 
       - name: Commit the ids
         run: |

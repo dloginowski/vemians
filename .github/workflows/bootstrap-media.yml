@@ -1,0 +1,138 @@
+# One-time: create the R2 bucket that holds our own copies of catalog
+# photography, give it a public custom domain, and write the real binding
+# into ops/wrangler.toml.
+#
+# ADR-013 dropped R2 on purpose — "no bucket, Square holds the only copy" —
+# and its own text says why a bucket can come back with no code change:
+# `mediaStoreFor(env)` (ops/src/tools/index.js) already picks R2 the moment
+# `MEDIA` is bound, and ops/src/media-backfill.js already exists to fill
+# it from what Square already has. This workflow is the one piece that was
+# genuinely missing: the bucket itself, and a domain the storefront can build
+# an <img src> against without ever calling Square directly
+# (Test-PRD-P0-37-mirror_is_ours; store/src/catalog.js makes no fetch of its
+# own, mirrored or not).
+#
+# SEPARATE FROM bootstrap-resources.yml, on purpose, and that separation is
+# itself the lesson bootstrap-resources.yml's own header comment records: an
+# R2 step that fails on a missing token permission used to fail the WHOLE run
+# before it reached the KV namespaces this ops Worker actually needs, twice.
+# If this workflow hits the same wall, it fails alone and reports the exact
+# permission to add — it does not take bootstrap-resources.yml down with it.
+#
+# Safe to re-run: an existing bucket or an already-attached domain is success,
+# not a retry of something that already happened.
+
+name: bootstrap-media
+
+on:
+  workflow_dispatch:
+    inputs:
+      domain:
+        description: Public custom domain for the bucket
+        default: media.vemians.com
+      zone:
+        description: The Cloudflare zone the domain lives in
+        default: vemians.com
+
+concurrency:
+  group: bootstrap-media
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  BUCKET: vemians-media
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ops/package-lock.json
+
+      - run: npm ci
+        working-directory: ops
+
+      - name: Create the bucket
+        working-directory: ops
+        run: |
+          if npx wrangler r2 bucket create "$BUCKET" >/tmp/create.log 2>&1; then
+            cat /tmp/create.log
+          elif grep -qiE 'already exists|10004' /tmp/create.log; then
+            echo "$BUCKET already exists — nothing to do."
+          else
+            cat /tmp/create.log
+            echo "::error::could not create $BUCKET. This is the exact wall ADR-013 hit — the token likely needs Account -> R2 -> Edit."
+            exit 1
+          fi
+
+      - name: Resolve the zone id
+        id: zone
+        run: |
+          resp=$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/zones?name=${{ inputs.zone }}")
+          id=$(echo "$resp" | python3 -c 'import json,sys; r=json.load(sys.stdin)["result"]; print(r[0]["id"] if r else "")')
+          if [ -z "$id" ]; then
+            echo "::error::zone ${{ inputs.zone }} was not found on this account. Response: $resp"
+            exit 1
+          fi
+          echo "zone ${{ inputs.zone }} -> $id"
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+
+      - name: Attach the custom domain
+        working-directory: ops
+        run: |
+          if npx wrangler r2 bucket domain get "$BUCKET" 2>/dev/null | grep -q "${{ inputs.domain }}"; then
+            echo "${{ inputs.domain }} is already attached to $BUCKET — nothing to do."
+          else
+            npx wrangler r2 bucket domain add "$BUCKET" \
+              --domain "${{ inputs.domain }}" \
+              --zone-id "${{ steps.zone.outputs.id }}" \
+              --min-tls 1.2 -y || {
+                echo "::error::could not attach ${{ inputs.domain }}. If this is a permission error, the token needs Zone -> SSL and Certificates -> Edit and Account -> R2 -> Edit for this zone."
+                exit 1
+              }
+          fi
+
+      - name: Activate the MEDIA binding in ops/wrangler.toml
+        run: |
+          python3 - <<'PY'
+          import pathlib, re
+          p = pathlib.Path("ops/wrangler.toml")
+          s = p.read_text()
+          commented = '# [[r2_buckets]]\n# binding     = "MEDIA"\n# bucket_name = "vemians-media"'
+          live = '[[r2_buckets]]\nbinding     = "MEDIA"\nbucket_name = "vemians-media"'
+          if live in s:
+              print("MEDIA binding is already live — nothing to change.")
+          elif commented in s:
+              p.write_text(s.replace(commented, live))
+              print("MEDIA binding activated.")
+          else:
+              raise SystemExit("::error::could not find the expected R2 block in ops/wrangler.toml — it may have moved")
+          PY
+
+      - name: Commit
+        run: |
+          if git diff --quiet -- ops/wrangler.toml; then
+            echo "ops/wrangler.toml already correct — nothing to commit."; exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ops/wrangler.toml
+          git commit -m "Activate the MEDIA (R2) binding — the bucket now exists
+
+          Reverses the one part of ADR-013 that needed reversing: 'binding a
+          bucket later restores the original behaviour with no code change'
+          was the ADR's own prediction. mediaStoreFor(env) picks R2 the moment
+          this binding is live, and the media-backfill job starts copying
+          Square-hosted photographs into it on the next scheduled sync."
+          git push

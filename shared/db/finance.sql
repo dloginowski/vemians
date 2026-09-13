@@ -36,7 +36,7 @@ CREATE TABLE expense (
                    CHECK (status IN ('draft','submitted','approved','rejected','reimbursed')),
   approved_by    TEXT,                       -- Access identity of the approver
   approved_at    TEXT,
-  receipt_r2_key TEXT,                       -- receipts live in R2, never inline
+  receipt_key TEXT,                       -- the RECEIPT_FILES (KV) key; receipts never live inline
   created_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX idx_expense_budget ON expense (budget_id);
