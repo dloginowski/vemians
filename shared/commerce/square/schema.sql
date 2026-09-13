@@ -94,6 +94,21 @@ CREATE TABLE mirror_product (
   --                someone with the link, not for browsing
   channel            TEXT NOT NULL DEFAULT 'in_store'
                        CHECK (channel IN ('in_store','website','direct_link')),
+  -- WHATEVER A SPREADSHEET IMPORT CARRIED THAT SQUARE HAS NO FIELD FOR AT
+  -- ALL. The owner's own words: "I want to preserve all fields when
+  -- ingesting spreadsheets. Even if they are not surfaced in square or ui
+  -- for now... Our workers need more data tracking than square offers."
+  -- Unit cost, a vendor name, a fabric note, a reorder date — none of it is
+  -- a Square catalog concept, so there is no second writer for it to
+  -- diverge from, the same argument `channel` above already rests on.
+  -- A flat JSON object of field name -> string value, not a fixed set of
+  -- named columns: the whole point is that neither this schema nor the ops
+  -- UI has to know a field's name in advance to keep it. The sync job
+  -- (mirror.js) never names this column in its UPDATE, on purpose, so a
+  -- value set here survives every future re-sync untouched, exactly like
+  -- `channel`. ops-only: the public storefront's own read of this mirror
+  -- (P0-24) has no reason to select it, and never should.
+  custom_fields      TEXT NOT NULL DEFAULT '{}',
   category_id        TEXT REFERENCES mirror_category(id),
   source_version     INTEGER NOT NULL DEFAULT 0,  -- Square's optimistic-concurrency version
   archived_at        TEXT,
@@ -103,7 +118,7 @@ CREATE INDEX idx_mirror_product_active ON mirror_product (archived_at, handle);
 
 CREATE VIEW mirror_product_index AS
 SELECT id, external_ref, handle, title, source_description, status, channel,
-       category_id, source_version, synced_at
+       custom_fields, category_id, source_version, synced_at
 FROM mirror_product WHERE archived_at IS NULL;
 
 -- ── variants  (Square ITEM_VARIATION) ──────────────────────────────────────

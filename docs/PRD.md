@@ -551,6 +551,26 @@ that does not trace to one of these is a process failure (see §12).
     can be handed the same rows as plain text to interpret with actual judgement, which no
     fixed column list can do.
 
+    **A column with no synonym anywhere is now KEPT, not dropped.** The owner's own words: "I
+    want to preserve all fields when ingesting spreadsheets. Even if they are not surfaced in
+    square or ui for now... Our workers need more data tracking than square offers." Before this,
+    any header `pick()` did not recognise simply never appeared again — the value was read off
+    the record and then nothing referenced it. `extraFields()` (`ops/src/batch.js`) now computes
+    the complement: every column NOT consumed by a known synonym list, keyed by the header text
+    `csvRecords()` already trims and lowercases before this file ever sees it (still readable —
+    "unit cost", not the further alphanumeric-only "unitcost" `pick()` matches synonyms against —
+    just not the exact original capitalization from the file), becomes `catalog.create_product`'s
+    `custom_fields` argument — see P0-71 below for where that argument actually lands. Capped the
+    same way every other free-text field in this codebase is (`CAPS.CATALOG_CUSTOM_FIELDS_MAX_KEYS`
+    distinct columns, `CATALOG_CUSTOM_FIELD_KEY_MAX`/`_VALUE_MAX` characters each) rather than
+    failing a whole row over one unusually wide sheet or one long note. `previewBatch`'s own
+    `mapProductRow` spreads the same extra fields into the preview row, so a person sees exactly
+    what will be kept as a custom field before confirming, not only after. One related fix in the
+    same change: `"cost"` was, until now, a PRICE synonym (`PRICE_KEYS`) — a sheet with its own
+    "Cost" column (what we pay, not what a customer pays) was silently read as the SALE price.
+    Removed from that list, a "Cost" column now falls through to `custom_fields` like any other
+    unrecognised one, preserved and clearly separate rather than conflated with retail price.
+
 29d. **`Test-PRD-P0-61-square_customer_intake`** — `customer.create` writes a new customer into
     SQUARE's own Customer Directory — the same directory the till and the storefront's contact form
     (P0-58/ADR-015) already write to — using Square's own field names (`given_name`, `family_name`,
@@ -845,6 +865,28 @@ that does not trace to one of these is a process failure (see §12).
     `channel = 'website'`; a product's own page (P0-72) accepts `website` and `direct_link` alike
     and refuses `in_store` in the query's own `WHERE` clause, not by a check the caller could
     forget to make.
+
+    **`custom_fields` is the second column in this family, for the same reason and by the same
+    mechanism.** The owner's own words: "Our workers need more data tracking than square offers...
+    these fields should be visible and editable to agents." A flat JSON object of field name ->
+    string value on `mirror_product` — unit cost, a vendor name, anything else Square has no
+    concept of at all, the same argument `channel` already rests on: no second writer exists to
+    diverge from a fact Square never had, so `syncCatalog`'s own `UPDATE`/`INSERT` never names this
+    column either, and a value survives every future sync untouched. Three tools reach it, none of
+    them touching Square: `catalog.create_product` (T2) accepts an optional `custom_fields` argument
+    and writes it directly to the mirror right after the item itself is created in Square;
+    `catalog.set_custom_fields` (T2, manager+) PATCHES it on an existing product by handle — a real
+    value adds or updates a key, an empty string `""` removes one, and every key not mentioned is
+    left alone, so editing one field never requires restating the rest; `catalog.product` (T0,
+    staff+) is the read path both of them, and a person asking the chat about a product, depend on
+    — nothing else in this file exposed a REAL, mirrored product to the model as a callable result
+    before this (catalog.draft_product reasons about a product that does not exist yet). Capped at
+    `CAPS.CATALOG_CUSTOM_FIELDS_MAX_KEYS` distinct fields, `CATALOG_CUSTOM_FIELD_KEY_MAX`/
+    `_VALUE_MAX` characters each — the same "a cap enforced in code, not a sentence in the prompt"
+    rule every other ceiling in this codebase follows. Deliberately **ops-only**: the storefront's
+    own reads (`store/src/catalog.js`) list their columns explicitly and neither names
+    `custom_fields`, so nothing here reaches the public site by accident the way `channel`'s own
+    fail-closed default already prevents for visibility itself.
 
 47b. **`Test-PRD-P0-72-product_detail_page`** — Every product has its own page at
     `/products/<handle>` — the answer to "how do I see product details", asked directly, of a

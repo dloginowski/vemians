@@ -148,6 +148,16 @@ function describeTool(tool, name, args) {
  * valid_tool_schema.
  */
 function fieldToJsonSchema(spec) {
+  /* "record" (validate.js) is our own name for a free-form field-name ->
+     string-value map — JSON Schema has no such primitive type, but expresses
+     the identical shape as a plain "object" with no fixed `properties` and
+     a schema on `additionalProperties` instead. */
+  if (spec.type === "record") {
+    const out = { type: "object", additionalProperties: { type: "string" } };
+    if (spec.valueMaxLength !== undefined) out.additionalProperties.maxLength = spec.valueMaxLength;
+    if (spec.maxKeys !== undefined) out.maxProperties = spec.maxKeys;
+    return out;
+  }
   const out = { type: spec.type === "integer" ? "integer" : spec.type };
   if (spec.enum) out.enum = spec.enum;
   if (spec.maxLength !== undefined) out.maxLength = spec.maxLength;

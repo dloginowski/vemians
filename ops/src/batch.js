@@ -72,9 +72,53 @@ const TITLE_KEYS = [
 ];
 const DESCRIPTION_KEYS = ["description", "desc", "details", "product description", "copy"];
 const CATEGORY_KEYS = ["category", "category name", "type", "product type", "collection", "department"];
-const PRICE_KEYS = ["price", "cost", "price (usd)", "retail price", "unit price", "sale price", "msrp"];
+/* "cost" is deliberately NOT a price synonym. The owner's own words: "Every
+   product has a price and a unit cost" — two different numbers (what a
+   customer pays vs. what we paid), and a sheet with its own "Cost" column
+   was previously read as the SALE price, silently discarding the actual
+   retail price synonym sitting next to it. A "Cost" column now falls
+   through to custom_fields below instead, preserved rather than
+   misinterpreted. */
+const PRICE_KEYS = ["price", "price (usd)", "retail price", "unit price", "sale price", "msrp"];
 const CURRENCY_KEYS = ["currency"];
 const SKU_KEYS = ["sku", "style number", "item number", "product code"];
+
+/* Every column name draftProductBatch/previewBatch already knows what to do
+   with. Anything else in the sheet is CUSTOM — ours, not Square's, and not
+   dropped just because neither of us has a named field for it yet. */
+const PRODUCT_KNOWN_KEYS = [...TITLE_KEYS, ...DESCRIPTION_KEYS, ...CATEGORY_KEYS, ...PRICE_KEYS, ...CURRENCY_KEYS, ...SKU_KEYS];
+
+/*
+ * "I want to preserve all fields when ingesting spreadsheets. Even if they
+ * are not surfaced in square or ui for now... Our workers need more data
+ * tracking than square offers" — the owner's own words. Whatever a row
+ * carries beyond the columns above (a unit cost, a vendor, a fabric note —
+ * anything) is captured here and becomes catalog.create_product's
+ * `custom_fields`. Keyed by the header text csvRecords() already handed us
+ * (trimmed and lowercased, spaces and punctuation intact) rather than the
+ * further alphanumeric-only form `pick()` matches synonyms against below —
+ * still human-readable ("unit cost", not "unitcost"), just not the exact
+ * original capitalization from the file, which csvRecords() never keeps
+ * either. Capped the same way every other free-text field in this codebase
+ * is: silently, rather than failing the whole row over one long note or an
+ * unusually wide sheet.
+ */
+function extraFields(record, knownKeys) {
+  const known = new Set(knownKeys.map(normalizeKey));
+  const seen = new Set();
+  const extra = {};
+  for (const [rawKey, rawValue] of Object.entries(record)) {
+    const key = rawKey.trim();
+    const normalized = normalizeKey(key);
+    if (!key || known.has(normalized) || seen.has(normalized)) continue;
+    seen.add(normalized);
+    const value = String(rawValue ?? "").trim();
+    if (!value) continue;
+    if (Object.keys(extra).length >= CAPS.CATALOG_CUSTOM_FIELDS_MAX_KEYS) break;
+    extra[key.slice(0, CAPS.CATALOG_CUSTOM_FIELD_KEY_MAX)] = value.slice(0, CAPS.CATALOG_CUSTOM_FIELD_VALUE_MAX);
+  }
+  return extra;
+}
 
 /*
  * "45", "45.00", "$45.00", "1,045.50" — never a float multiplication, which
@@ -143,6 +187,7 @@ export async function draftProductBatch(env, { text, actor, role }) {
     }
 
     const description = pick(record, DESCRIPTION_KEYS);
+    const customFields = extraFields(record, PRODUCT_KNOWN_KEYS);
     rows.push({
       rowNumber,
       title,
@@ -158,6 +203,7 @@ export async function draftProductBatch(env, { text, actor, role }) {
             ...(pick(record, SKU_KEYS) ? { sku: pick(record, SKU_KEYS) } : {}),
           },
         ],
+        ...(Object.keys(customFields).length ? { custom_fields: customFields } : {}),
       },
     });
   });
@@ -244,6 +290,10 @@ export async function draftCustomerBatch(env, { text, actor, role }) {
  */
 const PREVIEW_SAMPLE_ROWS = 3;
 
+/* Extra columns are spread in AFTER the known ones, so the preview table
+   shows exactly what draftProductBatch will actually keep as custom_fields
+   — "preserve all fields" means visible before confirming, not just kept
+   silently in the background. */
 function mapProductRow(record) {
   return {
     title: pick(record, TITLE_KEYS) || null,
@@ -252,6 +302,7 @@ function mapProductRow(record) {
     currency: (pick(record, CURRENCY_KEYS) || "USD").toUpperCase(),
     description: pick(record, DESCRIPTION_KEYS) || null,
     sku: pick(record, SKU_KEYS) || null,
+    ...extraFields(record, PRODUCT_KNOWN_KEYS),
   };
 }
 
@@ -270,7 +321,17 @@ export function previewBatch(text, kind) {
 
   const headers = Object.keys(records[0]);
   const mapRow = kind === "customers" ? mapCustomerRow : mapProductRow;
-  const sampleRows = records.slice(0, PREVIEW_SAMPLE_ROWS).map(mapRow);
+  const mapped = records.slice(0, PREVIEW_SAMPLE_ROWS).map(mapRow);
+
+  /* mapProductRow's extra (custom) fields are per-row: a sheet's own extra
+     columns are normally consistent, but one row missing a value nobody
+     else left blank must not shift what column N means in the table.
+     Every sampled row gets the SAME keys, in the SAME order, so
+     previewTable()'s columns (this file's own first row's keys) describe
+     every row correctly — a key a later row lacks reads "(not found)",
+     the same as a known field that was left blank, not a raw "undefined". */
+  const allKeys = [...new Set(mapped.flatMap((row) => Object.keys(row)))];
+  const sampleRows = mapped.map((row) => Object.fromEntries(allKeys.map((k) => [k, k in row ? row[k] : null])));
 
   return { headers, rowCount: records.length, sampleRows };
 }

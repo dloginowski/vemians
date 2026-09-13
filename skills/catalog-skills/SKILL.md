@@ -51,6 +51,8 @@ and ours is the copy that is wrong.
 | `catalog.update_product` | **T2** | The same path for an edit | Another edit |
 | `catalog.create_category` | **T2** | Rarely right. Refuses a near-duplicate | Withdraw at the provider |
 | `catalog.set_channel` | **T2** | Which audience sees a product — `in_store`, `website` or `direct_link`. **Ours, not the provider's**: writes `catalog_mirror` directly and calls the provider for nothing, because the provider has no notion of our storefront to diverge from | Another `catalog.set_channel` call |
+| `catalog.product` | T0 | Read one real product from the mirror by handle — title, variations, channel, and `custom_fields`. The read path a person's ordinary question ("what's the cost on X?") and `catalog.set_custom_fields` alike depend on | — |
+| `catalog.set_custom_fields` | **T2** | Add, update or remove OUR OWN extra fields on a product by handle — whatever we track that the provider has no field for at all (unit cost, a vendor, anything else). A patch: a key set to `""` removes it, every key not mentioned is untouched. **Ours, not the provider's**, same as `set_channel` | Another `catalog.set_custom_fields` call, patching the previous values back |
 
 **Undo path:** revert the commit. Nothing in this domain is overwritten in place, so the
 previous state is always one `git revert` away, and the revert is itself reviewable.
@@ -75,9 +77,12 @@ previous state is always one `git revert` away, and the revert is itself reviewa
    product row into our own mirror would be the second writer into one copy of that — **for a
    fact the provider has.** `channel` (which audience sees a product: `in_store` / `website` /
    `direct_link`) is not one — the provider has no notion of our storefront at all, so there is
-   no second writer for `catalog.set_channel` to diverge from. It is the one named exception,
-   and the sync job itself never names that column in its own writes, on purpose, so a value set
-   here survives every future sync untouched.
+   no second writer for `catalog.set_channel` to diverge from. Neither is `custom_fields` (unit
+   cost, a vendor, anything else "we need more data tracking than the provider offers" — the
+   owner's own words): the provider has no field for a fact we invented, so `catalog.
+   set_custom_fields` and `catalog.create_product`'s own optional `custom_fields` argument write
+   it directly too. Both are the named exceptions, and the sync job itself never names either
+   column in its own writes, on purpose, so a value set here survives every future sync untouched.
 7. **The category comes from a closed set.** Authoring picks from the categories that already
    exist, and the pick arrives as a suggestion with its reasoning rather than as a silent
    assignment. Creating a category is a separate, gated action. A model that may mint one will
@@ -113,7 +118,7 @@ previous state is always one `git revert` away, and the revert is itself reviewa
 | Bulk / percentage price change | One approval covering unbounded money |
 | Product deletion | Discontinue by status; Git keeps the history regardless |
 | Index write | Derived data is not writable — rebuild it |
-| Writing a **provider-sourced** fact into `catalog_mirror` (price, SKU, title, existence, …) | Two writers into one copy of the provider's catalog; the till wins and we are silently wrong. `channel` is the one named exception — see Rule 6 |
+| Writing a **provider-sourced** fact into `catalog_mirror` (price, SKU, title, existence, …) | Two writers into one copy of the provider's catalog; the till wins and we are silently wrong. `channel` and `custom_fields` are the named exceptions — see Rule 6 |
 | Category creation as a side effect of authoring | How a navigation dies: forty near-duplicates and no decision behind any of them |
 | Bulk product creation | One approval covering an unbounded number of new commercial facts |
 | Deleting a stored original | A photograph is evidence of what was sold; withdraw the product instead |
@@ -140,7 +145,8 @@ previous state is always one `git revert` away, and the revert is itself reviewa
 - [ ] No catalog tool holds a customer, order, people or finance binding
 - [ ] No `INSERT`/`UPDATE` against a `mirror_*` table exists anywhere in the tool layer, for any
       column the provider itself supplies — `catalog.set_channel`'s `UPDATE mirror_product SET
-      channel = ...` is the one named exception and touches nothing else
+      channel = ...` and `catalog.set_custom_fields`'/`catalog.create_product`'s own `UPDATE
+      mirror_product SET custom_fields = ...` are the named exceptions and touch nothing else
 - [ ] `create_product` refuses a category id outside the set the mirror holds
 - [ ] Every stored original exists in R2 before the provider is called
 - [ ] A revert of any agent PR restores the previous shard byte for byte
