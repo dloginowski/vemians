@@ -721,6 +721,34 @@ check("test_PRD_P0_78_chat_widget__the_logs_max_height_scales_with_the_viewport_
   assert.doesNotMatch(body, /\.log\s*\{[^}]*max-height:\s*320px/s, "the old flat 320px cap must not still be set");
 });
 
+check("test_PRD_P0_78_chat_widget__the_inline_client_script_is_valid_javascript", async () => {
+  /* A live regression this suite had zero coverage for: `\"` inside the
+     OUTER server-side template literal that builds this whole page is not
+     a recognised escape in a template literal, so the engine silently
+     drops the backslash while EVALUATING that literal — a line written
+     as `"Attached \"" + name + "\" ..."` in the source reached the
+     browser as `"Attached "" + name + "" ...`, a syntax error. Because
+     it's a parse error, the WHOLE inline <script> failed silently in
+     every browser — not just the attachment code near the broken line,
+     but everything after it in the same script, including the quick-
+     prompt chip listeners and the chat form's own submit handler. The
+     owner's own words: "That last deploy broke the quick prompt buttons
+     and submit chat button." `node --check` on this file's own source
+     never catches this class of bug — it validates ops/src/views.js as
+     a Node module, not the STRING CONTENT of the client script embedded
+     inside it, which only ever gets parsed by an actual browser. This
+     test parses that string directly (`new Function(script)`, which
+     throws SyntaxError on invalid JS without needing `document` or
+     `window` to exist) so a future escaping mistake here fails the test
+     suite instead of shipping silently broken to every visitor. */
+  const { body } = await frontPage(OWNER);
+  const start = body.indexOf("<script>") + "<script>".length;
+  const end = body.indexOf("</script>", start);
+  const script = body.slice(start, end);
+  assert.ok(script.length > 1000, "sanity check: the script block must actually contain the real client code");
+  assert.doesNotThrow(() => new Function(script), "the inline client script must be syntactically valid JavaScript");
+});
+
 check("test_PRD_P0_78_chat_widget__mine_agent_and_tool_are_three_distinct_bubble_styles", async () => {
   const { body } = await frontPage(OWNER);
   for (const cls of ["you", "agent", "tool"]) {

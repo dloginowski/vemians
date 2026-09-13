@@ -989,6 +989,28 @@ that does not trace to one of these is a process failure (see §12).
     `max-height: 240px` (P0-89) is untouched — a wide or long table still scrolls within its own
     card either way; this only grows the OUTER column that card sits inside.
 
+    **A live regression this suite had zero coverage for: a deploy that broke every button on the
+    page, silently.** The owner's own words: "That last deploy broke the quick prompt buttons and
+    submit chat button." Root cause: a line added for P0-97 wrote `qInput.placeholder = "Attached
+    \"" + fileInput.files[0].name + "\" ..."` — inside the OUTER server-side template literal that
+    builds this whole page. `\"` is not a recognised escape in a template literal (only `` \` ``,
+    `\${`, `\\`, and the universal escapes like `\n` are), so the engine silently drops the
+    backslash while evaluating that outer literal, and the text that actually reached the browser
+    was `"Attached "" + name + "" ...` — a syntax error. Because it is a PARSE error, the entire
+    inline `<script>` failed in every browser, not just the one broken line: everything textually
+    AFTER it in the same script never ran either, including the quick-prompt chip listeners and
+    the chat form's own submit handler, defined further down the same file. `node --check` on this
+    file's own source could not have caught this — it validates `ops/src/views.js` as a Node
+    module, not the STRING CONTENT of the client script embedded inside it, which only a browser
+    (or something that parses it the same way) ever actually parses.
+
+    Fixed by switching to single quotes for the string literal itself (`'Attached "' + name + '"
+    ...'`), which needs no backslash at all and so has nothing for the outer template literal to
+    eat. A new test parses the actual rendered `<script>` content with `new Function(script)` —
+    which throws `SyntaxError` on invalid JavaScript without needing `document` or `window` to
+    exist — so a future escaping mistake here fails the suite instead of shipping broken to every
+    visitor silently.
+
 34a'''''''''. **`Test-PRD-P0-79-quick_actions_over_connect_prompt`** — The owner's own direction,
     read back verbatim: "remove [the connect-your-own-assistant block]... you already have quick
     actions under the chat, that's what I want to expand." The promotional block P0-69 had put where
