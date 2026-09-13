@@ -34,7 +34,8 @@
  * Contract: skills/agent-tool-contract/SKILL.md.
  */
 
-import { TOOLS, runTool } from "./tools/index.js";
+import { TOOLS, runTool, CAPS } from "./tools/index.js";
+import { draftProductBatch, draftCustomerBatch, previewBatch } from "./batch.js";
 
 const MODEL = "claude-sonnet-5";
 const API_BASE = "https://api.anthropic.com";
@@ -251,6 +252,202 @@ function skillsReadResult(role, name) {
 }
 
 /*
+ * A dropped spreadsheet used to reach the model as a wall of raw extracted
+ * text (attachmentNote below, before this) — a model doing its own ad hoc
+ * column-matching and price parsing on free-form text, with none of the
+ * closed-category-set validation or per-row approval linking /products/batch
+ * and /customers/batch already do deterministically. "Not the dumb uploading
+ * pathway... I want the chat to be the main interface" — the owner's own
+ * words: these meta-tools call the SAME draftProductBatch/draftCustomerBatch/
+ * previewBatch functions the page routes use, so a spreadsheet dropped in
+ * chat gets the identical column-heading matching, category and price
+ * validation, and one T2 approval link per clean row — just presented
+ * conversationally instead of behind a page visit.
+ *
+ * PREVIEW BEFORE DRAFT. "The agent should confirm with me about its
+ * selections if it is unsure... a brief preview of the first row and
+ * headings before generating the actual [batch]" — the owner's own words.
+ * Drafting mints a real T2 approval link per clean row the moment it runs;
+ * a wrong column match is 400 approval links to click through or cancel one
+ * at a time, not one mistake to fix. The preview tools below read only the
+ * first row and mint nothing, so a person can catch a wrong mapping before
+ * the real draft ever runs.
+ *
+ * Manager+ only for both, matching catalog.create_product's and
+ * customer.create's own tier — offered only to roles that could actually
+ * approve what the draft tools mint.
+ */
+const PREVIEW_TOOL_DEFS = [
+  {
+    name: "catalog_preview_product_batch",
+    description:
+      "Read only the column headings and first row of an attached spreadsheet (asset id from the attachment " +
+      "note) and show how they map to title/category/price/description/sku — without drafting or approving " +
+      "anything. Call this FIRST for any spreadsheet of products: show the person the mapping, and only " +
+      "call catalog_draft_product_batch once they confirm it looks right.",
+    input_schema: {
+      type: "object",
+      properties: { asset_id: { type: "string", description: "The asset id named in the attachment note." } },
+      required: ["asset_id"],
+    },
+  },
+  {
+    name: "customer_preview_customer_batch",
+    description: "The same as catalog_preview_product_batch, for a spreadsheet of customers instead of products.",
+    input_schema: {
+      type: "object",
+      properties: { asset_id: { type: "string", description: "The asset id named in the attachment note." } },
+      required: ["asset_id"],
+    },
+  },
+];
+
+const BATCH_TOOL_DEFS = [
+  {
+    name: "catalog_draft_product_batch",
+    description:
+      "Parse an attached spreadsheet (already uploaded — pass the asset id from the attachment note) " +
+      "into products: matches column headings (title/name/item/style, category, price, description, sku " +
+      "— any reasonable spelling) the same way /products/batch does, validates each row against the " +
+      "closed category set and the price format, and mints a T2 approval link for every row that " +
+      "resolves cleanly. Reports the rest with a plain reason. Call catalog_preview_product_batch on the " +
+      "same asset first and get the person's confirmation on the column mapping before calling this — " +
+      "this is the same deterministic logic the dedicated upload page uses, just reached from chat.",
+    input_schema: {
+      type: "object",
+      properties: { asset_id: { type: "string", description: "The asset id named in the attachment note." } },
+      required: ["asset_id"],
+    },
+  },
+  {
+    name: "customer_draft_customer_batch",
+    description: "The same as catalog_draft_product_batch, for a spreadsheet of customers instead of products.",
+    input_schema: {
+      type: "object",
+      properties: { asset_id: { type: "string", description: "The asset id named in the attachment note." } },
+      required: ["asset_id"],
+    },
+  },
+];
+
+function canDraftBatches(role) {
+  return role === "manager" || role === "owner";
+}
+
+async function readAssetText(env, assetId) {
+  if (!env.ASSETS) {
+    return { isError: true, text: "No asset store is bound on this deployment, so an uploaded spreadsheet cannot be read back." };
+  }
+  let row;
+  try {
+    row = await env.ASSETS.prepare("SELECT extracted_text, content_type, filename FROM asset WHERE id = ?")
+      .bind(assetId)
+      .first();
+  } catch (err) {
+    console.error(`ERROR agent: reading asset ${assetId} failed — ${err.message}`);
+    return { isError: true, text: "Could not read that asset back." };
+  }
+  if (!row) return { isError: true, text: `No asset '${assetId}'. Use the id from the attachment note, not a guess.` };
+  if (!row.extracted_text) {
+    return { isError: true, text: `"${row.filename}" has no readable text — is it actually a spreadsheet (.csv)?` };
+  }
+  return { isError: false, row };
+}
+
+/* One line per row, so the model has something plain to relay rather than
+   re-deriving prose from a JSON blob — the same reason describeTool exists
+   for a single-item proposal. `table` is the same information shaped for
+   the client's own compact review table, not for the model at all. */
+function formatBatchDraft(kind, result) {
+  if (result.tooMany !== undefined) {
+    return `The spreadsheet has ${result.tooMany} rows, past the ${CAPS.BATCH_MAX_ROWS}-row cap for one upload. Split it and try again.`;
+  }
+  const lines = [`${result.ready.length} ${kind} ready, ${result.skipped.length} skipped.`];
+  for (const r of result.ready) lines.push(`- Row ${r.row} "${r.title}": ${r.summary} — ${r.url}`);
+  for (const s of result.skipped) lines.push(`- Row ${s.row} "${s.title}": skipped — ${s.reason}`);
+  return lines.join("\n");
+}
+
+function batchDraftTable(kind, result) {
+  if (result.tooMany !== undefined) return null;
+  const rows = [
+    ...result.ready.map((r) => [String(r.row), r.title, "ready", `${r.summary} — ${r.url}`]),
+    ...result.skipped.map((s) => [String(s.row), s.title, "skipped", s.reason]),
+  ].sort((a, b) => Number(a[0]) - Number(b[0]));
+  return {
+    title: `${kind[0].toUpperCase()}${kind.slice(1)}: ${result.ready.length} ready, ${result.skipped.length} skipped`,
+    columns: ["Row", "Title", "Status", "Detail"],
+    rows,
+  };
+}
+
+async function dispatchBatchDraft(name, args, { actor, role, env }) {
+  if (!canDraftBatches(role)) {
+    return { isError: true, text: "Your role cannot approve what this would create — a manager or owner has to do this one." };
+  }
+  const asset = await readAssetText(env, args?.asset_id);
+  if (asset.isError) return asset;
+
+  const draft = name === "catalog_draft_product_batch" ? draftProductBatch : draftCustomerBatch;
+  const kind = name === "catalog_draft_product_batch" ? "products" : "customers";
+  try {
+    const result = await draft(env, { text: asset.row.extracted_text, actor, role });
+    return { isError: false, text: formatBatchDraft(kind, result), table: batchDraftTable(kind, result) };
+  } catch (err) {
+    console.error(`ERROR agent: ${name} failed — ${err.message}`);
+    return { isError: true, text: `Drafting from "${asset.row.filename}" failed: ${err.message}` };
+  }
+}
+
+/* Preview relays previewBatch's own {headers, rowCount, sampleRows} — a
+   read-only look at column headings and the first few rows, so a wrong
+   mapping is caught before the draft tools mint anything. Only as many
+   rows as previewBatch actually sampled — "just top 2 or 3 rows to see the
+   headings," not the whole sheet. */
+function formatBatchPreview(kind, preview) {
+  if (!preview.rowCount) return "That spreadsheet has no rows to preview.";
+  const noun = kind === "customers" ? "customers" : "products";
+  const lines = preview.sampleRows.map((row, i) => {
+    const fields = Object.entries(row)
+      .map(([field, value]) => `${field}=${value === null ? "(not found)" : value}`)
+      .join(", ");
+    return `  Row ${i + 1}: ${fields}`;
+  });
+  return (
+    `${preview.rowCount} row${preview.rowCount === 1 ? "" : "s"} detected. Columns found: ${preview.headers.join(", ")}.\n\n` +
+    `First ${preview.sampleRows.length} of them, as ${noun} would read:\n${lines.join("\n")}\n\n` +
+    "Show this mapping to the person before drafting the rest — if anything above looks wrong, it will be wrong for every row."
+  );
+}
+
+function previewTable(kind, preview) {
+  if (!preview.rowCount) return null;
+  const columns = Object.keys(preview.sampleRows[0]);
+  return {
+    title: `Preview: first ${preview.sampleRows.length} of ${preview.rowCount} row${preview.rowCount === 1 ? "" : "s"}`,
+    columns,
+    rows: preview.sampleRows.map((row) => columns.map((c) => (row[c] === null ? "(not found)" : String(row[c])))),
+  };
+}
+
+async function dispatchBatchPreview(name, args, { role, env }) {
+  if (!canDraftBatches(role)) {
+    return { isError: true, text: "Your role cannot approve what this would create — a manager or owner has to do this one." };
+  }
+  const asset = await readAssetText(env, args?.asset_id);
+  if (asset.isError) return asset;
+
+  const kind = name === "catalog_preview_product_batch" ? "products" : "customers";
+  try {
+    const preview = previewBatch(asset.row.extracted_text, kind);
+    return { isError: false, text: formatBatchPreview(kind, preview), table: previewTable(kind, preview) };
+  } catch (err) {
+    console.error(`ERROR agent: ${name} failed — ${err.message}`);
+    return { isError: true, text: `Previewing "${asset.row.filename}" failed: ${err.message}` };
+  }
+}
+
+/*
  * This built-in browser chat is the "stupid simple" path — the one click
  * from the ops front page, no external app, no connector setup. It is now
  * the ONLY path (P0-81 removed MCP), so this is the sole place the
@@ -415,6 +612,14 @@ export async function dispatch(name, args, { actor, role, env, allowed }) {
     const { isError, text } = skillsReadResult(role, args?.name);
     return { kind: "result", block: { type: "tool_result", tool_use_id: null, content: text, is_error: isError } };
   }
+  if (name === "catalog_draft_product_batch" || name === "customer_draft_customer_batch") {
+    const { isError, text, table } = await dispatchBatchDraft(name, args, { actor, role, env });
+    return { kind: "result", table, block: { type: "tool_result", tool_use_id: null, content: text, is_error: isError } };
+  }
+  if (name === "catalog_preview_product_batch" || name === "customer_preview_customer_batch") {
+    const { isError, text, table } = await dispatchBatchPreview(name, args, { role, env });
+    return { kind: "result", table, block: { type: "tool_result", tool_use_id: null, content: text, is_error: isError } };
+  }
 
   let out;
   try {
@@ -457,7 +662,12 @@ export async function dispatch(name, args, { actor, role, env, allowed }) {
  * assets.js already reads one for a person browsing /assets, folded into the
  * same sentence.
  */
-function attachmentNote(attachment) {
+const SPREADSHEET_TYPE = "text/csv";
+function looksLikeSpreadsheet(attachment) {
+  return attachment.contentType === SPREADSHEET_TYPE || /\.csv$/i.test(attachment.filename || "");
+}
+
+function attachmentNote(attachment, role) {
   if (!attachment) return "";
   if (attachment.kind === "photo") {
     const preview = attachment.image
@@ -467,6 +677,25 @@ function attachmentNote(attachment) {
       `\n\n[Attached photo, filename "${attachment.filename}", already stored at media key ` +
       `"${attachment.key}"${preview}. If you use it on a product, pass this key directly in a catalog ` +
       "tool's images argument — it is already uploaded; do not call catalog.upload_image for it.]"
+    );
+  }
+  /* A spreadsheet gets a pointer at catalog_draft_product_batch/
+     customer_draft_customer_batch instead of its raw text — reading a CSV's
+     rows out of a wall of text and hand-drafting each one is the "dumb
+     uploading pathway" the owner asked to stop going through; the batch
+     tools apply the same deterministic column-matching and validation
+     /products/batch and /customers/batch already do. Only offered when the
+     role can actually reach those tools (manager+, matching the writes they
+     mint) — for staff, the plain extracted-text note is still the honest
+     answer, same as any other file. */
+  if (looksLikeSpreadsheet(attachment) && canDraftBatches(role)) {
+    return (
+      `\n\n[Attached spreadsheet, filename "${attachment.filename}", stored as asset id "${attachment.id}". ` +
+      "Do not read its rows out of raw text yourself. First call catalog_preview_product_batch if this is a " +
+      "list of products, or customer_preview_customer_batch if it is a list of customers, with this asset id " +
+      "— ask the person which if it is not already obvious from what they said. Show them the column mapping " +
+      "it returns, and only call catalog_draft_product_batch / customer_draft_customer_batch once they confirm " +
+      "it looks right.]"
     );
   }
   return (
@@ -503,9 +732,9 @@ function chipSkillHint(q) {
   );
 }
 
-export function buildUserContent(q, attachment) {
+export function buildUserContent(q, attachment, role) {
   const fallback = attachment ? "I attached a file — take a look and figure out what to do with it." : "";
-  const text = (q || fallback) + chipSkillHint(q) + attachmentNote(attachment);
+  const text = (q || fallback) + chipSkillHint(q) + attachmentNote(attachment, role);
   if (attachment?.kind === "photo" && attachment.image) {
     return [
       { type: "text", text },
@@ -547,15 +776,24 @@ export async function agentTurn({ q, identity, env, attachment = null }) {
     };
   }
 
-  const defs = [...SKILLS_TOOL_DEFS, ...toolDefinitions(role)];
+  const defs = [
+    ...SKILLS_TOOL_DEFS,
+    ...(canDraftBatches(role) ? [...PREVIEW_TOOL_DEFS, ...BATCH_TOOL_DEFS] : []),
+    ...toolDefinitions(role),
+  ];
   const allowed = new Set(defs.map((d) => d.name));
   /* Only the outbound shape changes — everything downstream (allowed, TOOLS
      lookups, the pending record, the audit steps) keeps using the real,
      dotted name via this reverse lookup. */
   const nameForWire = new Map(defs.map((d) => [wireName(d.name), d.name]));
   const wireDefs = defs.map((d) => ({ ...d, name: wireName(d.name) }));
-  const messages = [{ role: "user", content: buildUserContent(q, attachment) }];
+  const messages = [{ role: "user", content: buildUserContent(q, attachment, role) }];
   const steps = [];
+  /* The most recent tool call that produced a `table` — a preview or a batch
+     draft result. Carried into the turn's final reply so the client can
+     render it as a compact review table alongside the chat bubble, per the
+     owner's own request; nothing else in this file's return shape needs it. */
+  let lastTable = null;
 
   for (let round = 0; ; round++) {
     const { message, error } = await callClaude(env, {
@@ -573,7 +811,7 @@ export async function agentTurn({ q, identity, env, attachment = null }) {
 
     const uses = (message.content || []).filter((b) => b.type === "tool_use");
     if (!uses.length) {
-      return { mode: "model", actor, role, steps, pending: null, reply: textOf(message) || "(no reply)" };
+      return { mode: "model", actor, role, steps, pending: null, reply: textOf(message) || "(no reply)", table: lastTable };
     }
 
     if (round >= MAX_ROUND_TRIPS) {
@@ -586,6 +824,7 @@ export async function agentTurn({ q, identity, env, attachment = null }) {
         steps,
         pending: null,
         reply: `Stopped after ${MAX_ROUND_TRIPS} tool calls without an answer. Nothing further was run.`,
+        table: lastTable,
       };
     }
 
@@ -601,6 +840,7 @@ export async function agentTurn({ q, identity, env, attachment = null }) {
          content pushed above keeps the wire name untouched, as it must. */
       const name = nameForWire.get(use.name) || use.name;
       const outcome = await dispatch(name, use.input, { actor, role, env, allowed });
+      if (outcome.table) lastTable = outcome.table;
 
       if (outcome.kind === "approval") {
         /* A T2 tool wants a human. The turn stops here — including any sibling
@@ -613,6 +853,7 @@ export async function agentTurn({ q, identity, env, attachment = null }) {
           role,
           steps,
           reply: textOf(message) || `${name} needs your approval before it runs.`,
+          table: lastTable,
           pending: {
             id,
             tool: name,

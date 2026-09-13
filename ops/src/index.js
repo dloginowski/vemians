@@ -255,7 +255,7 @@ async function ingestAgentAttachment(env, { file, email }) {
     console.error(`ERROR ops/agent: stored ${key} but could not record it — ${err.message}`);
     return { error: "Stored the file but could not record it. Try again.", status: 500 };
   }
-  return { kind: "file", id, filename: file.name, extractedText: extracted?.text ?? null };
+  return { kind: "file", id, filename: file.name, contentType, extractedText: extracted?.text ?? null };
 }
 
 async function ops(request, env, path) {

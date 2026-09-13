@@ -1242,6 +1242,105 @@ that does not trace to one of these is a process failure (see §12).
     real, dotted name in `steps` — not a "no such tool" refusal, which is what an untranslated
     wire name would have produced.
 
+34a''''''''''''''''''. **`Test-PRD-P0-88-spreadsheet_via_chat`** — The owner's own words: "When I
+    upload a spreadsheet to the agent I expect it to process and generate the preview,
+    interpreting all of the column headings for me. Not going through the dumb uploading
+    pathway! I want the chat to be the main interface!" Before this, a dropped `.csv` reached the
+    model as a wall of raw extracted text (the generic file-attachment note every other document
+    type already got) — a model doing its own ad hoc column-matching and price parsing on
+    free-form text, with none of the closed-category-set validation or per-row approval linking
+    `/products/batch` and `/customers/batch` already do deterministically. That generic path is
+    "the dumb uploading pathway" the owner meant.
+
+    **The fix reuses the tested logic, it does not reinvent it.** `agent.js` gains two meta-tools
+    — `catalog_draft_product_batch`, `customer_draft_customer_batch` — that call the SAME
+    `draftProductBatch()`/`draftCustomerBatch()` (`ops/src/batch.js`) the dedicated upload pages
+    call directly: identical column-heading matching (title/name/item/style, category, price,
+    description, sku — any reasonable spelling), identical validation against the closed category
+    set and the price format, identical one-T2-approval-link-per-clean-row output. A spreadsheet
+    dropped in chat gets the exact same "preview" — ready rows with their links, skipped rows with
+    their plain reasons — just narrated conversationally instead of behind a page visit, which is
+    the "interpreting all of the column headings for me" and "generate the preview" the owner
+    asked for in the same breath.
+
+    **Manager+ only, matching the tier of what these mint.** `catalog.create_product` and
+    `customer.create` are both manager-gated (P0-60's own rule, mirrored here rather than
+    re-decided); the two meta-tools are added to the tool list `agentTurn()` sends only when
+    `canDraftBatches(role)` is true, and `dispatchBatchDraft()` re-checks the same rule as
+    defense in depth — the same "second enforcement of the same set" principle already governing
+    every other tool in `dispatch()` (P0-24).
+
+    **The CSV text itself is never re-typed by the model, the same reason a photo's bytes never
+    are (P0-77).** `ingestAgentAttachment` (`ops/src/index.js`) already stores an uploaded
+    non-image file in the `assets` store and extracts its text at upload time; the meta-tool takes
+    only the `asset_id` and reads the text back from that row itself. `attachmentNote()`
+    (`ops/agent.js`) recognises a `.csv`/`text/csv` attachment for a role that can reach these
+    tools and points at them by name instead of dumping the extracted text inline — a coworker
+    without that role still gets the honest, unchanged plain-text note, since they could not call
+    the batch tools regardless.
+
+    Checked by driving `dispatch()` itself, the same "assert what it sends/does, not what the code
+    means" standard this file keeps returning to: the role gate refuses staff plainly, a missing
+    `ASSETS` binding or an unknown or textless asset id all refuse with a clear reason rather than
+    throwing, a real CSV against the same fixture `draftProductBatch()`'s own tests use produces
+    the identical ready/skipped split with a real approval URL, and the `CAPS.BATCH_MAX_ROWS` cap
+    reports itself plainly rather than drafting a partial batch.
+
+34a'''''''''''''''''''. **`Test-PRD-P0-89-batch_preview_confirm`** — The owner's own words, the
+    same turn P0-88 shipped: "The agent should confirm with me about its selections if it is
+    unsure. Giving me a brief preview of the first row and headings before generating the actual
+    product or client ingestion tables. These should appear below the chat in compact format that
+    is easy to review and full screen... (Auto scrolling)." P0-88's two draft meta-tools mint a
+    real T2 approval link per clean row the moment they run — a wrong column match was not one
+    mistake to fix, it was up to `CAPS.BATCH_MAX_ROWS` approval links to click through or cancel
+    one at a time, discovered only after the fact.
+
+    **A preview that mints nothing, ahead of a draft that mints everything.** `batch.js` gains
+    `previewBatch(text, kind)` — read-only, reusing the exact same `pick()`/key-list column
+    matching `draftProductBatch`/`draftCustomerBatch` use, but on the first `PREVIEW_SAMPLE_ROWS`
+    (3) rows only: no `listCategories` call, no `runTool`, no `parkForApproval`. "Just top 2 or 3
+    rows to see the headings" — the owner's own words, once a first version previewing only row 1
+    was actually in front of them — is why 3 rather than 1: enough to see the mapping hold across
+    more than a single row, not the whole sheet. `agent.js` exposes it as two more meta-tools,
+    `catalog_preview_product_batch`/`customer_preview_customer_batch` (same manager+ gate as the
+    draft tools, same `asset_id` argument), and `attachmentNote()`'s spreadsheet pointer now names
+    the preview tool first: call it, show the person the detected headings and how the sampled
+    rows map to title/category/price/etc (or given_name/email/phone/…), and only call the draft
+    tool once they confirm the mapping looks right. Nothing here forces the sequence at the API
+    layer — the model could still call the draft tool directly — the ordering is instructed, the
+    same trust boundary `agent-tool-contract`'s other "ask only a genuine choice" guidance already
+    runs on.
+
+    **A structured `table`, not just prose, is the point of "compact format... full screen."** A
+    person cannot review 40 rows of skip reasons rendered as one text bubble. The preview table's
+    columns are the real detected headings (`title`, `category`, `price`, …) with one row per
+    sampled record — a normal spreadsheet snippet, not a field-by-field list — and the draft
+    tools' own table is `Row`/`Title`/`Status`/`Detail`, one row per actual CSV row. Both return a
+    `table: {title, columns, rows}` alongside their text summary — `dispatch()` passes it through
+    as a sibling of the `tool_result` block,
+    and `agentTurn()` tracks the most recent one across the round-trip loop (`lastTable`) so it
+    rides along on the turn's own final `{mode, actor, role, steps, reply, table}` shape even
+    though the actual tool call may not be the model's very last step. `index.js`'s existing
+    `{...turn}` spread over the JSON response needed no change at all to carry it.
+
+    **Rendered inline with the chat, not a separate panel.** `views.js`'s client script gains
+    `tableCard()`, appended into the SAME `#log` element the message bubbles already live in —
+    the existing `log.scrollTo({top: log.scrollHeight, behavior:"smooth"})` call that already
+    fires after every bubble now carries the table into view too, for free, rather than needing a
+    second scroll target to keep in sync. A "Full screen" button toggles one CSS class
+    (`.table-card.full`) that switches the same element to a fixed, viewport-covering overlay and
+    back — one element, one piece of state, no second copy of the table to keep matching the
+    first.
+
+    **Scrolls sideways rather than squeezing a real approval URL into an unreadable wrapped
+    column.** The owner's own words, once the table was actually in front of them: "the ability
+    to scroll the element sideways if it exceeds the chat box width." The table keeps its natural
+    column widths (`width: max-content` inside a `min-width: 100%` card, cells `white-space:
+    nowrap`) instead of being forced to the card's own width with wrapped text — a wide table
+    scrolls horizontally within the same card that already scrolls vertically for a long row
+    count, with the title and "Full screen" button pinned in place (`position: sticky; left: 0`)
+    so they stay reachable while scrolled right.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -1480,6 +1579,8 @@ Where each feature is enforced today:
 | P0-85 | `ops/test/agent-skills.test.mjs` |
 | P0-86 | `ops/test/agent-model-errors.test.mjs` |
 | P0-87 | `ops/test/agent-tool-wire-names.test.mjs` |
+| P0-88 | `ops/test/catalog-write.test.mjs` |
+| P0-89 | `ops/test/catalog-write.test.mjs`; no test yet drives the `views.js` client script's `tableCard()` rendering directly — this file has no browser/DOM harness for any client-side script, not only this one |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

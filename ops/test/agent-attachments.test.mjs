@@ -256,6 +256,58 @@ check("test_PRD_P0_77_chat_attachments__a_file_with_no_extractable_text_says_so_
   assert.match(content, /no text could be extracted/i);
 });
 
+/* ── P0-88: a spreadsheet points at the batch tools, not raw text ────────── */
+
+const CSV_ATTACHMENT = { kind: "file", id: "ast_9", filename: "products.csv", contentType: "text/csv", extractedText: "title,category,price\nWool Coat,Outerwear,450\n" };
+
+check("test_PRD_P0_88_spreadsheet_via_chat__a_manager_gets_pointed_at_the_batch_tools_not_raw_text", () => {
+  const content = buildUserContent("", CSV_ATTACHMENT, "manager");
+  assert.match(content, /catalog_draft_product_batch/);
+  assert.match(content, /customer_draft_customer_batch/);
+  assert.match(content, /ast_9/);
+  assert.doesNotMatch(content, /title,category,price/, "the raw rows must not be dumped for a role that can draft properly");
+});
+
+check("test_PRD_P0_88_spreadsheet_via_chat__an_owner_gets_the_same_pointer_as_a_manager", () => {
+  const content = buildUserContent("", CSV_ATTACHMENT, "owner");
+  assert.match(content, /catalog_draft_product_batch/);
+});
+
+check("test_PRD_P0_88_spreadsheet_via_chat__staff_still_get_the_plain_extracted_text_note", () => {
+  /* Staff cannot call the batch tools at all (P0-88, matching P0-60's own
+     manager gate on the tools they would mint) — pointing them at a tool
+     they don't have would be a worse dead end than the honest, unchanged
+     plain-text note every other file already gets. */
+  const content = buildUserContent("", CSV_ATTACHMENT, "staff");
+  assert.doesNotMatch(content, /catalog_draft_product_batch/);
+  assert.match(content, /title,category,price/, "falls back to the ordinary extracted-text note");
+});
+
+check("test_PRD_P0_88_spreadsheet_via_chat__a_csv_detected_by_extension_alone_is_still_recognised", () => {
+  /* A form or client that never set contentType (or set something generic)
+     must not fall back to the raw-text path just because the browser's own
+     MIME sniffing was vague — the filename is the fallback signal. */
+  const content = buildUserContent("", { kind: "file", id: "ast_10", filename: "roster.CSV", extractedText: "given_name\nAna\n" }, "manager");
+  assert.match(content, /customer_draft_customer_batch/);
+});
+
+check("test_PRD_P0_88_spreadsheet_via_chat__a_non_spreadsheet_file_is_unaffected", () => {
+  const content = buildUserContent("", { kind: "file", id: "ast_1", filename: "notes.txt", extractedText: "Ships net 30." }, "manager");
+  assert.doesNotMatch(content, /catalog_draft_product_batch/);
+  assert.match(content, /Ships net 30\./);
+});
+
+/* ── P0-89: the note points at preview before draft ───────────────────────── */
+
+check("test_PRD_P0_89_batch_preview_confirm__the_note_points_at_the_preview_tools_before_the_draft_tools", () => {
+  const content = buildUserContent("", CSV_ATTACHMENT, "manager");
+  assert.match(content, /catalog_preview_product_batch/);
+  assert.match(content, /customer_preview_customer_batch/);
+  /* Preview named before draft, in reading order — the instruction is a
+     sequence, not just a mention of both tools. */
+  assert.ok(content.indexOf("catalog_preview_product_batch") < content.indexOf("catalog_draft_product_batch"));
+});
+
 test("test_PRD_P0_30_prd_traceability__every_label_used_here_exists_in_the_prd", async () => {
   const prd = fs.readFileSync(
     path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "docs", "PRD.md"),

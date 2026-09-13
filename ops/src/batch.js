@@ -223,3 +223,54 @@ export async function draftCustomerBatch(env, { text, actor, role }) {
   const { parked, skipped } = await parkRows(env, { actor, role, toolName: "customer.create" }, rows);
   return { ready: parked, skipped: skipped.sort((a, b) => a.row - b.row) };
 }
+
+/* ── preview, before anything is parked ──────────────────────────────────
+ *
+ * "The agent should confirm with me about its selections if it is unsure...
+ * a brief preview of the first row and headings before generating the
+ * actual [batch]" — then, once that preview was actually in front of them:
+ * "Don't need to see it all. Just top 2 or 3 rows to see the headings."
+ * Neither draftProductBatch nor draftCustomerBatch is safe to call
+ * speculatively — both mint real T2 approval links the moment a row
+ * resolves cleanly. This reads the same columns the same way (same key
+ * lists, same `pick`), on the first few rows only, and mints nothing: no
+ * listCategories call, no runTool, no parkForApproval. A wrong column match
+ * is corrected here, before it becomes 400 approval links to click through
+ * or cancel one at a time.
+ *
+ * @returns { headers: string[], rowCount: number, sampleRows: object[] }
+ *   sampleRows has at most PREVIEW_SAMPLE_ROWS entries (fewer if the sheet
+ *   itself has fewer data rows), each mapped the same way one draft row is.
+ */
+const PREVIEW_SAMPLE_ROWS = 3;
+
+function mapProductRow(record) {
+  return {
+    title: pick(record, TITLE_KEYS) || null,
+    category: pick(record, CATEGORY_KEYS) || null,
+    price: pick(record, PRICE_KEYS) || null,
+    currency: (pick(record, CURRENCY_KEYS) || "USD").toUpperCase(),
+    description: pick(record, DESCRIPTION_KEYS) || null,
+    sku: pick(record, SKU_KEYS) || null,
+  };
+}
+
+function mapCustomerRow(record) {
+  return {
+    given_name: pick(record, GIVEN_NAME_KEYS) || null,
+    family_name: pick(record, FAMILY_NAME_KEYS) || null,
+    email_address: pick(record, EMAIL_KEYS) || null,
+    phone_number: pick(record, PHONE_KEYS) || null,
+  };
+}
+
+export function previewBatch(text, kind) {
+  const records = csvRecords(parseCsv(text));
+  if (!records.length) return { headers: [], rowCount: 0, sampleRows: [] };
+
+  const headers = Object.keys(records[0]);
+  const mapRow = kind === "customers" ? mapCustomerRow : mapProductRow;
+  const sampleRows = records.slice(0, PREVIEW_SAMPLE_ROWS).map(mapRow);
+
+  return { headers, rowCount: records.length, sampleRows };
+}

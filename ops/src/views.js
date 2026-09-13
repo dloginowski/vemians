@@ -189,6 +189,49 @@ ${OPS_DARK_CSS}
   align-self: center; max-width: 100%; background: transparent;
   color: var(--muted); font-size: 12px; padding: 2px 8px; text-align: center;
 }
+/*
+ * A batch preview or draft result — column mapping, or ready/skipped rows —
+ * rendered as a real table rather than a wall of text, per the owner's own
+ * words: "a brief preview... in compact format that is easy to review and
+ * full screen." Lives INSIDE .log, as a sibling of the message bubbles, so
+ * it scrolls with the conversation and the existing scrollTo call already
+ * carries it into view — no separate scroll region to keep in sync. Still
+ * IN CHAT, not a separate panel — this is the one place it renders.
+ *
+ * The table keeps its own natural width (no forced 100%, no wrapped cells)
+ * and the card scrolls sideways when that is wider than the chat box —
+ * "the ability to scroll... if it exceeds the chat box width," the owner's
+ * own words — rather than squeezing a real approval URL or a long skip
+ * reason into an unreadable wrapped column.
+ */
+.log .table-card {
+  align-self: stretch; max-width: 100%; box-sizing: border-box;
+  border: 1px solid var(--rule); border-radius: 10px; padding: 8px 10px;
+  background: var(--image-ground); font-size: 12px;
+  max-height: 240px; overflow: auto;
+}
+.log .table-card h4 {
+  margin: 0 0 6px; padding: 0; font-size: 11px; font-weight: 700;
+  color: var(--muted); display: flex; justify-content: space-between;
+  align-items: center; gap: 8px; position: sticky; left: 0;
+}
+.log .table-card table { width: max-content; min-width: 100%; border-collapse: collapse; }
+.log .table-card th, .log .table-card td {
+  text-align: left; padding: 4px 10px; border-bottom: 1px solid var(--rule);
+  white-space: nowrap; vertical-align: top;
+}
+.log .table-card th { color: var(--muted); font-weight: 700; }
+.log .table-card button {
+  flex: 0 0 auto; font: inherit; font-size: 11px; padding: 2px 8px; cursor: pointer;
+  border: 1px solid var(--rule); border-radius: 12px; background: var(--ground); color: var(--ink);
+}
+.log .table-card button:hover { border-color: var(--accent); color: var(--accent); }
+/* Full screen is a fixed overlay, not a new scroll container elsewhere on
+   the page — the same element just grows to cover the viewport in place. */
+.table-card.full {
+  position: fixed; inset: 12px; z-index: 50; max-height: none;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+}
 .gate { border: 1px solid var(--ink); padding: 12px; margin: 12px 0; border-radius: 10px; }
 .gate h3 { margin: 0 0 8px; }
 .gate dl { margin: 0; }
@@ -382,6 +425,59 @@ function entry(kind, text) {
   return p;
 }
 
+/* One builder for a preview/draft result table — column headings on the
+   left, values on the right for a preview; row/title/status/detail for a
+   draft result. Lives in the same scrolling log as the message bubbles
+   (see .log .table-card above), so the existing scrollTo call below already
+   carries it into view. The full-screen toggle just grows the same element
+   in place — no second element, no separate scroll state to track. */
+function tableCard(t) {
+  const wrap = document.createElement("div");
+  wrap.className = "table-card";
+
+  const head = document.createElement("h4");
+  const title = document.createElement("span");
+  title.textContent = t.title || "";
+  const full = document.createElement("button");
+  full.type = "button";
+  full.textContent = "Full screen";
+  full.addEventListener("click", () => {
+    const isFull = wrap.classList.toggle("full");
+    full.textContent = isFull ? "Close" : "Full screen";
+  });
+  head.appendChild(title);
+  head.appendChild(full);
+  wrap.appendChild(head);
+
+  const table = document.createElement("table");
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  (t.columns || []).forEach((c) => {
+    const th = document.createElement("th");
+    th.textContent = c;
+    headRow.appendChild(th);
+  });
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  (t.rows || []).forEach((row) => {
+    const tr = document.createElement("tr");
+    row.forEach((cell) => {
+      const td = document.createElement("td");
+      td.textContent = cell;
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+
+  log.appendChild(wrap);
+  log.scrollTo({ top: log.scrollHeight, behavior: "smooth" });
+  return wrap;
+}
+
 /* One builder for the approval card. The card carries the pending id and
    nothing else — the tool name and arguments shown here are the server's copy,
    and the server re-reads its own copy when it runs. Nothing the page sends
@@ -487,6 +583,7 @@ document.getElementById("chat").addEventListener("submit", async (e) => {
     const data = await res.json();
     (data.steps || []).forEach((s) => entry("tool", (s.ok ? "ran " : "refused ") + s.tool + (s.auditId ? " · audit " + s.auditId : "")));
     entry("agent", data.reply || data.error || ("Request failed: " + res.status));
+    if (data.table) tableCard(data.table);
     if (data.pending) card(data.pending);
   } catch (err) {
     console.error("agent request failed", err);
