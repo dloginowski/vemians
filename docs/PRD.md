@@ -1464,6 +1464,20 @@ that does not trace to one of these is a process failure (see §12).
     had, "fit better" being exactly the plain, correct way to describe closing a two-pixel
     asymmetry nobody had a reason for in the first place.
 
+    **A further round tightened both gaps once more, together.** The owner's own words: "Submit
+    buttons padding / chat radius could use a bit of tightening too. Button feels like it could
+    use a slight nudge to the right or the inner chat edge has a tiny bit uneven padding on the
+    sides." The actual numbers were already even on both sides (`.chat .chat-bar`'s `4px 6px` is a
+    genuine 6px/6px split, `.chat-top`'s `14px 4px 4px` a genuine 4px/4px one) — the send button
+    likely reads as sitting closer to the frame than the attach button simply because it shares
+    the frame's own orange, an optical effect rather than a numeric bug this time. Rather than
+    introduce a deliberate asymmetry to chase that impression, both gaps were tightened together,
+    which brings both buttons closer to their own edge and keeps them exactly matched: `.chat
+    .chat-bar`'s own padding drops from `4px 6px` to a uniform `4px` (the button's own padding, as
+    named); `.chat-top`'s sides/bottom drop from `4px` to `3px`. `.chat-top`'s radius is
+    recomputed for the new gap using the same formula as before — `pillRadius (21, the pill's true
+    rendered shape) + thisGap` — from `21 + 4 = 25px` to `21 + 3 = 24px`.
+
 34a''''''''''''''''''''''''. **`Test-PRD-P0-94-mobile_edge_to_edge`** — The owner's own words:
     "Overall reduce the overall page padding on the sides and let the chat fill more of the
     horizontal space. I want to maximize the use of space on mobile devices." `.ops`'s own side

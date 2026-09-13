@@ -123,28 +123,20 @@ ${OPS_DARK_CSS}
    accent colour tying the widget to the shortcuts that feed it, rather than
    the plain neutral --rule every other box on the page uses.
  *
- * Sides and bottom are tight (4px) so the composer pill nested inside sits
- * close against this frame rather than floating in a gap; top stays
+ * Sides and bottom are tight (3px, tightened once more from 4px) so the
+ * composer pill nested inside sits close against this frame; top stays
  * roomier (14px) since the hint/log stack sits there, not the pill.
  *
- * ONE uniform radius (25px) on every corner now, not a smaller top paired
- * with a bigger bottom. A per-corner split (20px top, growing the bottom
- * to "stay concentric" with the pill) went through two rounds here and
- * still rendered visibly uneven on a real phone — the owner's own words:
- * "Make sure there is an even gap between chat and outer edges!!! Make
- * sides match the bottom!" The root cause both previous rounds missed:
- * .chat .chat-bar DECLARES a 24px radius below, but at its own actual
- * height (4px+4px padding + a 34px button = 42px) CSS caps border-radius
- * at half the box's own dimension — the pill really renders at ~21px, a
- * full stadium, never the nominal 24 the earlier arithmetic used. 21 + 4
- * (this gap) = 25 is the radius that is ACTUALLY concentric with the
- * pill's real rendered shape, and using it on every corner — not just a
- * "bottom" this document kept recomputing differently from the rest —
- * is what finally keeps every edge of the gap the same width, sides
- * included, the way the owner asked for from the start. */
+ * ONE uniform radius on every corner, not a smaller top paired with a
+ * bigger bottom (a per-corner split rendered visibly uneven here twice —
+ * see the long comment on .chat .chat-bar below for why). The pill's own
+ * TRUE rendered radius is ~21px (also explained below); this frame's own
+ * radius has to stay pillRadius + thisGap to read as concentric, so it
+ * moves from 21 + 4 = 25 to 21 + 3 = 24 now that the gap itself
+ * tightened again — recompute this every time either number changes. */
 .chat-top {
-  border: 1px solid var(--accent); border-radius: 25px;
-  padding: 14px 4px 4px; margin-bottom: 16px;
+  border: 1px solid var(--accent); border-radius: 24px;
+  padding: 14px 3px 3px; margin-bottom: 16px;
 }
 
 /* Centred and quiet on purpose — a name check, not the thing on the page
@@ -305,18 +297,23 @@ ${OPS_DARK_CSS}
    corrected: the owner's own words, "I liked how it flowed around the
    chat buttons," the round 32-34px icon buttons sitting inside it. It
    ACTUALLY renders around 21px, though: this bar is only ~42px tall
-   (4px+4px padding plus a 34px button), and CSS caps border-radius at
-   half a box's own dimension once the declared value would exceed it —
-   a full stadium either way, but .chat-top's own radius above has to be
-   sized against this real ~21px shape, not the nominal 24, or the two
-   frames stop looking concentric on an actual screen. Padding is EVEN
-   left and right (6px each) rather than the 4px/6px split this used to
-   carry, which left the send button sitting measurably tighter against
-   the bar's own edge than the attach button was on the other side. */
+   (4px+4px padding plus a 34px button — unchanged by the left/right
+   padding below, which does not affect the bar's own height), and CSS
+   caps border-radius at half a box's own dimension once the declared
+   value would exceed it — a full stadium either way, but .chat-top's own
+   radius above has to be sized against this real ~21px shape, not the
+   nominal 24, or the two frames stop looking concentric on an actual
+   screen. Padding is a further-tightened, still-EVEN 4px all around
+   (down from 6px left/right) — "submit button's padding could use a bit
+   of tightening too," the owner's own words — not a return to the
+   uneven 4px/6px split this carried before P0-93, which sat the send
+   button measurably tighter against the bar's own edge than the attach
+   button on the other side; both buttons are equally close to their own
+   edge here, just closer than before. */
 .chat .chat-bar {
   display: flex; align-items: center; gap: 2px;
   border: 1px solid var(--muted); border-radius: 24px;
-  padding: 4px 6px; background: var(--image-ground);
+  padding: 4px; background: var(--image-ground);
 }
 /* Stays the same neutral grey on focus — an orange ring here, right inside
    an already-orange .chat-top frame, doubled up on the one accent colour

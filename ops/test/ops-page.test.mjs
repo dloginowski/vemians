@@ -416,11 +416,10 @@ check("test_PRD_P0_93_nested_chat_frame__focus_stays_gray_rather_than_doubling_u
 check("test_PRD_P0_93_nested_chat_frame__the_outer_frame_has_tight_even_padding_on_sides_and_bottom", async () => {
   const { body } = await frontPage(OWNER);
   /* Top keeps its own room for the hint/log stack; sides and bottom match
-     each other and are tighter than before, per the owner's own words —
-     tightened again, from an already-tight 8px down to 4px, on a direct
-     follow-up: "I would even reduce the padding from 8 to 4px - to
-     tighten the inner chat and outer edge gap." */
-  assert.match(body, /\.chat-top\s*\{[^}]*padding:\s*14px 4px 4px/s, "sides and bottom must be tight and equal to each other");
+     each other and have been tightened twice more since — 8px, then 4px
+     ("I would even reduce the padding from 8 to 4px"), then 3px ("chat
+     radius could use a bit of tightening too"). */
+  assert.match(body, /\.chat-top\s*\{[^}]*padding:\s*14px 3px 3px/s, "sides and bottom must be tight and equal to each other");
 });
 
 check("test_PRD_P0_93_nested_chat_frame__the_pills_own_radius_never_changes__only_the_outer_frame_matches_it", async () => {
@@ -441,7 +440,9 @@ check("test_PRD_P0_93_nested_chat_frame__the_pills_own_radius_never_changes__onl
      same width all the way around, sides included. */
   const { body } = await frontPage(OWNER);
   assert.match(body, /\.chat \.chat-bar\s*\{[^}]*border-radius:\s*24px/s, "the composer pill's own declared radius must never change");
-  assert.match(body, /\.chat-top\s*\{[^}]*border-radius:\s*25px;/s, "the outer frame must use one uniform radius, sized to the pill's true rendered shape plus the gap");
+  /* The formula is pillRadius (21, true/rendered) + thisGap: 21 + 3 = 24
+     once the gap itself tightened again from 4px to 3px. */
+  assert.match(body, /\.chat-top\s*\{[^}]*border-radius:\s*24px;/s, "the outer frame must use one uniform radius, recomputed for the current gap");
   assert.doesNotMatch(
     body,
     /\.chat-top\s*\{[^}]*border-radius:\s*\d+px \d+px \d+px \d+px/s,
@@ -454,13 +455,20 @@ check("test_PRD_P0_93_nested_chat_frame__the_send_button_gets_the_same_clearance
      "make the padding on the chat submit button a little more even so it
      fit better." The bar's own left/right padding used to be 6px/4px — the
      send button sat measurably tighter against the edge than the attach
-     button on the other side. */
+     button on the other side. Tightened once more since, from 6px to a
+     uniform 4px all around: "submit button's padding could use a bit of
+     tightening too" — still even, just closer to the edge than before. */
   const { body } = await frontPage(OWNER);
-  assert.match(body, /\.chat \.chat-bar\s*\{[^}]*padding:\s*4px 6px;/s, "left and right padding around the buttons must now match");
+  assert.match(body, /\.chat \.chat-bar\s*\{[^}]*padding:\s*4px;/s, "padding around the buttons must be uniform on every side");
   assert.doesNotMatch(
     body,
     /\.chat \.chat-bar\s*\{[^}]*padding:\s*4px 4px 4px 6px/s,
     "the old asymmetric 4px/6px split must not still be set",
+  );
+  assert.doesNotMatch(
+    body,
+    /\.chat \.chat-bar\s*\{[^}]*padding:\s*4px 6px;/s,
+    "the old, less-tight 4px/6px even split must not still be set",
   );
 });
 
