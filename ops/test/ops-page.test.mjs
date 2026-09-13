@@ -163,10 +163,12 @@ check("test_PRD_P0_71_items_tab__tab_equals_website_starts_the_iframe_on_the_pub
 });
 
 check("test_PRD_P0_71_items_tab__the_tabs_have_visibly_rounded_corners", async () => {
-  /* 6px, then 10px, then — "triple tab radius," the owner's own words,
-     tripling that 10px rather than the original 6px — 30px. */
+  /* 6px, then 10px, then briefly 30px ("triple tab radius") — corrected
+     immediately after: "Double ratius [radius]... not triple." Doubling
+     the same 10px this was tripled from gives 20px, not a third value
+     invented from scratch. */
   const { body } = await shell(OWNER);
-  assert.match(body, /\.shell-nav button\s*\{[^}]*border-radius:\s*30px 30px 0 0/s);
+  assert.match(body, /\.shell-nav button\s*\{[^}]*border-radius:\s*20px 20px 0 0/s);
 });
 
 check("test_PRD_P0_71_items_tab__the_tab_rows_own_side_padding_is_doubled_again", async () => {
