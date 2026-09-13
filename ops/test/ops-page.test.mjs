@@ -424,24 +424,28 @@ check("test_PRD_P0_93_nested_chat_frame__the_outer_frame_has_tight_even_padding_
 });
 
 check("test_PRD_P0_93_nested_chat_frame__the_pills_own_radius_never_changes__only_the_outer_frame_matches_it", async () => {
-  /* The pill's own radius is never touched — the owner's own words: "Dont
-     change the inner chat radius! I liked how it flowed around the chat
-     buttons!" A first pass here mistakenly shrank the pill's radius to
-     18px and grew the outer frame's bottom corners to match THAT — wrong,
-     since the pill was never meant to change. The correct read, once
-     clarified: the pill stays 24px, and the outer frame's BOTTOM corners
-     grow to stay concentric with the pill's true, unchanged radius plus
-     the tightened gap — 24 + 4 = 28 once the gap itself was tightened
-     further to 4px — "the bottom of the outer chat box edge radius is
-     slightly bigger than the inner chat edge so that it has a neat, even
-     padding." Top corners stay at 20px, since nothing rounded is nested
-     against them. */
+  /* The pill's own DECLARED radius is never touched — the owner's own
+     words: "Dont change the inner chat radius! I liked how it flowed
+     around the chat buttons!" — but two rounds of per-corner arithmetic
+     on the outer frame (20/20/26/26, then 20/20/28/28) still rendered
+     visibly uneven on a real phone: "Make sure there is an even gap
+     between chat and outer edges!!! Make sides match the bottom!" The
+     bug both rounds missed — the pill's declared 24px never actually
+     renders at 24px. At the bar's own real height (~42px: 4px+4px
+     padding plus a 34px button), CSS caps border-radius at half the
+     box's own dimension, so the pill is a true stadium at ~21px, not the
+     nominal 24 the earlier arithmetic used. 21 + 4 (the current gap) = 25
+     is what is actually concentric — and using ONE uniform radius on
+     every corner of the outer frame, rather than a smaller top paired
+     with a separately-computed bottom, is what finally keeps the gap the
+     same width all the way around, sides included. */
   const { body } = await frontPage(OWNER);
-  assert.match(body, /\.chat \.chat-bar\s*\{[^}]*border-radius:\s*24px/s, "the composer pill's own radius must never change");
-  assert.match(
+  assert.match(body, /\.chat \.chat-bar\s*\{[^}]*border-radius:\s*24px/s, "the composer pill's own declared radius must never change");
+  assert.match(body, /\.chat-top\s*\{[^}]*border-radius:\s*25px;/s, "the outer frame must use one uniform radius, sized to the pill's true rendered shape plus the gap");
+  assert.doesNotMatch(
     body,
-    /\.chat-top\s*\{[^}]*border-radius:\s*20px 20px 28px 28px/s,
-    "only the outer frame's bottom corners should be bigger, matching the pill's own unchanged radius plus the current gap",
+    /\.chat-top\s*\{[^}]*border-radius:\s*\d+px \d+px \d+px \d+px/s,
+    "a per-corner split is exactly what rendered unevenly — it must not still be set",
   );
 });
 
@@ -477,7 +481,7 @@ check("test_PRD_P0_94_mobile_edge_to_edge__the_page_containers_side_padding_matc
  * P0-95 — the attach button is a filled circle, matching the send button
  * ───────────────────────────────────────────────────────────────────────── */
 
-check("test_PRD_P0_95_filled_attach_button__the_plus_button_is_a_filled_circle_the_same_size_as_send", async () => {
+check("test_PRD_P0_95_filled_attach_button__the_plus_button_matches_the_send_buttons_own_size", async () => {
   const { body } = await frontPage(OWNER);
   /* Same size as .send-btn (34px, up from 32px) so both round buttons nest
      into the bar's own rounded ends identically — "flows neatly inside of
@@ -485,24 +489,29 @@ check("test_PRD_P0_95_filled_attach_button__the_plus_button_is_a_filled_circle_t
      words. */
   assert.match(body, /\.chat \.chat-bar \.icon-btn\s*\{[^}]*width:\s*34px/s, "the attach button must match the send button's own size");
   assert.match(body, /\.chat \.chat-bar \.icon-btn\s*\{[^}]*height:\s*34px/s, "the attach button must match the send button's own size");
-  /* Filled with --ink (the brightest neutral short of the accent colour,
-     which stays reserved for send/active), --ground for the glyph on top
-     — the same contrast direction .send-btn's own icon already uses. */
-  assert.match(body, /\.chat \.chat-bar \.icon-btn\s*\{[^}]*background:\s*var\(--ink\)/s, "the button's own background must be brightened, not just its glyph");
-  assert.match(body, /\.chat \.chat-bar \.icon-btn\s*\{[^}]*color:\s*var\(--ground\)/s, "the glyph must contrast against its new filled background");
 });
 
-check("test_PRD_P0_95_filled_attach_button__hover_and_pressed_states_match_the_send_buttons_own_pattern", async () => {
+check("test_PRD_P0_95_filled_attach_button__the_fill_is_a_faint_overlay_not_an_opaque_circle", async () => {
+  /* A first pass filled it solid with --ink, matching .send-btn's own
+     opaque circle — corrected on the spot: "A faint gray fill for the
+     attachment button. Needs to be just a little brighter than the bg."
+     A translucent white overlay over the bar's own --image-ground reads
+     as "a little brighter," not a second bold circle competing with Send. */
   const { body } = await frontPage(OWNER);
-  /* Literally .send-btn:hover's own rule — the two buttons now behave
-     identically on interaction, not just at rest. */
-  assert.match(body, /\.chat \.chat-bar \.icon-btn:hover\s*\{[^}]*opacity:\s*0\.85/s, "hover must match the send button's own opacity dim, not a translucent overlay");
-  /* An attachment currently staged swaps the fill to the accent colour
-     rather than a plain rgba tint, keeping --ground for the glyph. */
+  assert.match(body, /\.chat \.chat-bar \.icon-btn\s*\{[^}]*background:\s*rgba\(255, 255, 255, 0\.08\)/s, "the fill must be a faint overlay, not an opaque colour");
+  assert.doesNotMatch(body, /\.chat \.chat-bar \.icon-btn\s*\{[^}]*background:\s*var\(--ink\)/s, "the old opaque --ink fill must not still be set");
+  assert.match(body, /\.chat \.chat-bar \.icon-btn\s*\{[^}]*color:\s*var\(--ink\)/s, "the glyph itself stays bright against the now-faint fill");
+});
+
+check("test_PRD_P0_95_filled_attach_button__hover_and_pressed_states_are_also_faint_tints_not_opaque_fills", async () => {
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.chat \.chat-bar \.icon-btn:hover\s*\{[^}]*background:\s*rgba\(255, 255, 255, 0\.16\)/s, "hover must brighten the same faint overlay, not switch to opacity dimming");
+  /* An attachment currently staged gets a faint accent tint, matching the
+     same "faint fill" language as the resting and hover states. */
   assert.match(
     body,
-    /\.chat \.chat-bar \.icon-btn\[aria-pressed="true"\]\s*\{[^}]*background:\s*var\(--accent\)/s,
-    "the pressed/active state must fill with the accent colour, not a translucent tint",
+    /\.chat \.chat-bar \.icon-btn\[aria-pressed="true"\]\s*\{[^}]*background:\s*rgba\(217, 119, 87, 0\.14\)/s,
+    "the pressed/active state must be a faint accent tint, not an opaque accent fill",
   );
 });
 

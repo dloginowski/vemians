@@ -1439,11 +1439,22 @@ that does not trace to one of these is a process failure (see §12).
     rather than the mistaken `18px`. `.chat .chat-bar` stays `24px`, untouched throughout; `.chat-
     top`'s radius was `20px 20px 32px 32px` against the original `8px` gap (`24 + 8 = 32`), then
     recomputed to `20px 20px 28px 28px` (`24 + 4 = 28`) once the gap itself was tightened further
-    to `4px` above — the arithmetic has to be redone every time the gap changes, since the whole
-    point is staying concentric with it, not landing on one fixed "big" number. Top corners stay
-    unchanged throughout (nothing rounded sits against them), so the frame's own bottom curve and
-    the pill's bottom curve keep sharing a centre exactly the way the owner asked for from the
-    start, at whatever gap the padding happens to be tightened to next.
+    to `4px` above.
+
+    **A THIRD round was needed — the per-corner split itself was the bug, not just its numbers.**
+    Even `20px 20px 28px 28px` still rendered visibly uneven on a real phone: "Make sure there is
+    an even gap between chat and outer edges!!! Make sides match the bottom!" The root cause both
+    earlier rounds missed: `.chat .chat-bar`'s DECLARED `24px` radius never actually renders at
+    `24px`. The bar is only about `42px` tall (`4px + 4px` padding plus a `34px` button), and CSS
+    caps `border-radius` at half a box's own dimension once the declared value would exceed it — a
+    full stadium either way, visually, but the pill's TRUE rendered radius is `~21px`, not the
+    nominal `24` every prior round of arithmetic here used. `21 + 4 = 25` is what is actually
+    concentric with the pill's real shape — and rather than keep tracking a separately-computed
+    "smaller top, bigger bottom" split that has now produced a visible mismatch twice, `.chat-top`
+    moves to ONE uniform `25px` on every corner. Top corners being slightly rounder than their old
+    `20px` costs nothing (nothing rounded is nested against them to begin with), and removing the
+    per-corner distinction entirely is what actually keeps the gap the same width all the way
+    around — sides included — the way the owner asked for from the start.
 
     **What the owner actually wanted instead: even padding around the send button.** `.chat-bar`'s
     own padding was `4px 4px 4px 6px` — 6px on the left (in front of the attach icon), only 4px on
@@ -1474,17 +1485,21 @@ that does not trace to one of these is a process failure (see §12).
     stayed a bare glyph on a transparent background — visually a different kind of control from
     `.send-btn`'s own solid, filled accent circle sitting in the bar's other rounded end.
 
-    `.chat .chat-bar .icon-btn` now gets the exact same treatment `.send-btn` already has: a
-    filled `34px` circle (up from `32px`, matching the send button's own size so both round
-    buttons nest into the bar's left and right ends identically) with `--ink` as its background —
-    the page's brightest neutral short of the accent colour itself, which stays reserved for
-    send/active states — and `--ground` for the glyph on top of it, the same contrast direction
-    `.send-btn`'s own `--ground`-on-`--accent` icon already uses, not the reverse. Hover moves from
-    a translucent white overlay to `opacity: 0.85`, literally `.send-btn:hover`'s own rule, so the
-    two buttons behave identically on interaction as well as at rest. The `aria-pressed="true"`
-    state (an attachment is currently staged) swaps the fill to `--accent` instead of the plain
-    `rgba` tint it used before, keeping `--ground` for the glyph — the same fill-plus-contrasting-
-    glyph pattern, just with the accent colour standing in for "this is now the active choice."
+    `.chat .chat-bar .icon-btn` becomes a `34px` circle (up from `32px`, matching the send
+    button's own size so both round buttons nest into the bar's left and right ends identically) —
+    the SIZE half of "flows neatly... like the chat submit button" stands. The FILL half went
+    through a direct correction: a first pass gave it the exact treatment `.send-btn` already has
+    — an opaque `--ink` background with a `--ground` glyph on top, `.send-btn:hover`'s own
+    `opacity: 0.85` — which read as a second bold, competing circle rather than a quieter sibling
+    to Send. The owner's own words once it was in front of them: "A faint gray fill for the
+    attachment button. Needs to be just a little brighter than the bg." It becomes a translucent
+    white overlay, `rgba(255, 255, 255, 0.08)` at rest over the bar's own `--image-ground`,
+    brightening to `0.16` on hover — "a little brighter than the bg," read literally, rather than
+    an opaque colour of its own — with the glyph itself staying `--ink` (bright) since the fill
+    underneath it is faint rather than solid. The `aria-pressed="true"` state (an attachment
+    currently staged) reverts to its own original faint accent tint, `rgba(217, 119, 87, 0.14)`,
+    for the same reason: an opaque `--accent` fill would have been the one loud circle this entry
+    was correcting away from, just recoloured.
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
    inventory, schedule and knowledge, scoped by the caller's bindings.

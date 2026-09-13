@@ -123,22 +123,27 @@ ${OPS_DARK_CSS}
    accent colour tying the widget to the shortcuts that feed it, rather than
    the plain neutral --rule every other box on the page uses.
  *
- * Sides and bottom are tight (4px, tightened further from an already-tight
- * 8px on the owner's own follow-up) so the composer pill nested inside
- * sits close against this frame rather than floating in a gap; top stays
- * roomier (14px) since the hint/log stack sits there, not the pill. The
- * bottom corners are bigger than the top ones (28px vs 20px) so the frame
- * stays concentric with the pill's own UNCHANGED 24px radius plus this
- * tight 4px gap (24 + 4 = 28) — the owner's own words, once this was
- * right: "the bottom of the outer chat box edge radius is slightly bigger
- * than the inner chat edge so that it has a neat, even padding." The
- * pill's own radius never changes (see .chat .chat-bar below), and this
- * arithmetic has to be redone every time the gap itself changes — only the
- * outer frame grows to match the pill, the same idea as evening out the
- * send button's own padding rather than shrinking the button to fit a
- * tighter box. */
+ * Sides and bottom are tight (4px) so the composer pill nested inside sits
+ * close against this frame rather than floating in a gap; top stays
+ * roomier (14px) since the hint/log stack sits there, not the pill.
+ *
+ * ONE uniform radius (25px) on every corner now, not a smaller top paired
+ * with a bigger bottom. A per-corner split (20px top, growing the bottom
+ * to "stay concentric" with the pill) went through two rounds here and
+ * still rendered visibly uneven on a real phone — the owner's own words:
+ * "Make sure there is an even gap between chat and outer edges!!! Make
+ * sides match the bottom!" The root cause both previous rounds missed:
+ * .chat .chat-bar DECLARES a 24px radius below, but at its own actual
+ * height (4px+4px padding + a 34px button = 42px) CSS caps border-radius
+ * at half the box's own dimension — the pill really renders at ~21px, a
+ * full stadium, never the nominal 24 the earlier arithmetic used. 21 + 4
+ * (this gap) = 25 is the radius that is ACTUALLY concentric with the
+ * pill's real rendered shape, and using it on every corner — not just a
+ * "bottom" this document kept recomputing differently from the rest —
+ * is what finally keeps every edge of the gap the same width, sides
+ * included, the way the owner asked for from the start. */
 .chat-top {
-  border: 1px solid var(--accent); border-radius: 20px 20px 28px 28px;
+  border: 1px solid var(--accent); border-radius: 25px;
   padding: 14px 4px 4px; margin-bottom: 16px;
 }
 
@@ -295,14 +300,19 @@ ${OPS_DARK_CSS}
 /* Brighter than the page's plain --rule boxes (the entry line itself, and
    the "+" attach icon at rest) — both were dim enough to disappear next to
    the now-orange .chat-top frame around them. */
-/* Radius stays 24px — never touched by .chat-top's own bottom-corner
-   adjustment above — because it is what the outer frame is being kept
-   concentric WITH, not a value being corrected: the owner's own words,
-   "I liked how it flowed around the chat buttons," the round 32-34px icon
-   buttons sitting inside it. Padding is EVEN left and right (6px each)
-   rather than the 4px/6px split this used to carry, which left the send
-   button sitting measurably tighter against the bar's own edge than the
-   attach button was on the other side. */
+/* Declared 24px, never touched by .chat-top's own corner radius above —
+   it is what the outer frame is kept concentric WITH, not a value being
+   corrected: the owner's own words, "I liked how it flowed around the
+   chat buttons," the round 32-34px icon buttons sitting inside it. It
+   ACTUALLY renders around 21px, though: this bar is only ~42px tall
+   (4px+4px padding plus a 34px button), and CSS caps border-radius at
+   half a box's own dimension once the declared value would exceed it —
+   a full stadium either way, but .chat-top's own radius above has to be
+   sized against this real ~21px shape, not the nominal 24, or the two
+   frames stop looking concentric on an actual screen. Padding is EVEN
+   left and right (6px each) rather than the 4px/6px split this used to
+   carry, which left the send button sitting measurably tighter against
+   the bar's own edge than the attach button was on the other side. */
 .chat .chat-bar {
   display: flex; align-items: center; gap: 2px;
   border: 1px solid var(--muted); border-radius: 24px;
@@ -323,18 +333,21 @@ ${OPS_DARK_CSS}
   display: inline-flex; align-items: center; justify-content: center;
   border: none; border-radius: 50%;
 }
-/* A filled circle now, the same treatment as .send-btn below rather than a
-   bare glyph on a transparent background — the owner's own words: "Make
-   sure that it also flows neatly inside of the inner chat border (like
-   the chat submit button)." Same 34px size as the send button too, so the
-   two round buttons nest into the bar's own left and right ends the same
-   way. --ink is the brightest neutral on the page (short of the accent
-   itself, reserved for send/active) — --ground for the glyph on top of it
-   for the same contrast reason .send-btn's own icon is --ground on
-   --accent, not the other way round. */
-.chat .chat-bar .icon-btn { width: 34px; height: 34px; background: var(--ink); color: var(--ground); }
-.chat .chat-bar .icon-btn:hover { opacity: 0.85; }
-.chat .chat-bar .icon-btn[aria-pressed="true"] { background: var(--accent); color: var(--ground); }
+/* A filled circle, same 34px size as .send-btn so the two round buttons
+   nest into the bar's own left and right ends identically — "flows neatly
+   inside of the inner chat border (like the chat submit button)," the
+   owner's own words. The fill itself is deliberately NOT a bold solid
+   colour like .send-btn's own accent: a first pass tried exactly that
+   (var(--ink), full brightness) and the owner's own correction was "A
+   faint gray fill for the attachment button. Needs to be just a little
+   brighter than the bg" — a translucent white overlay over the bar's own
+   --image-ground, not an opaque circle competing with Send for attention.
+   The glyph stays --ink (bright) since the fill underneath it is now
+   faint rather than opaque, the same contrast pairing --ink text always
+   has against a dark ground on this page. */
+.chat .chat-bar .icon-btn { width: 34px; height: 34px; background: rgba(255, 255, 255, 0.08); color: var(--ink); }
+.chat .chat-bar .icon-btn:hover { background: rgba(255, 255, 255, 0.16); color: var(--accent); }
+.chat .chat-bar .icon-btn[aria-pressed="true"] { color: var(--accent); background: rgba(217, 119, 87, 0.14); }
 .chat .chat-bar .send-btn { width: 34px; height: 34px; background: var(--accent); color: var(--ground); }
 .chat .chat-bar .send-btn:hover { opacity: 0.85; }
 .chat .chat-bar .send-btn:disabled { opacity: 0.4; cursor: default; }
