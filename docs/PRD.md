@@ -2907,6 +2907,43 @@ that does not trace to one of these is a process failure (see §12).
     change, keeping the two in step rather than quietly breaking a feature this request never
     mentioned.
 
+54. **`Test-PRD-P0-119-table_headers_never_wrap`** — Two reversals in one request about the same
+    `.table-card` (P0-89's own batch preview / draft-result table), the owner's own words in
+    order: first "I would rather have the table expand and scroll horizontally than expand
+    vertically... bump up the font, so it's more legible"; then "actually, cancel that, let it
+    wrap, wrapping is fine, just make a bigger font, since you're wrapping, might as well just
+    make the font bigger a couple sizes"; then the final correction: "actually, scratch that
+    again, do prevent the headings from wrapping because they're kind of hard to read, the data I
+    don't care so much about, but the headings should all expand to fit content, horizontally."
+
+    **Headers never wrap; data cells still do.** Superseding P0-89's own `table-layout: fixed` +
+    `width: 100%` (which forced every column, headers included, into an equal-ish share of the
+    card's own width to guarantee it never exceeded the card) and its own explicit "cells must no
+    longer be forced onto a single line": `table-layout` goes back to `auto` and `width: 100%` is
+    dropped, so `.table-card th`'s own new `white-space: nowrap` can actually claim its column's
+    full natural width instead of being squeezed like every other column. `.table-card td` keeps
+    P0-89's own `overflow-wrap: anywhere; word-break: break-word` exactly as before — wrapping
+    there was never the complaint, only the headers'. The card's own pre-existing `overflow: auto`
+    (untouched) is what delivers "scroll sideways rather than crop" now that a row of nowrap
+    headers can legitimately push the table past the card's own width.
+
+    **A guard the request itself didn't ask for but needed regardless, found by testing the real
+    rendered page rather than assuming the CSS alone would behave**: without a floor, a data
+    column that can break anywhere (a long product title, no spaces to wrap on) gets squeezed down
+    to a near-unreadable, one-character width the instant a neighboring nowrap header claims most
+    of the row's space. `.table-card td { min-width: 6em; }` (never on `th`, which already has its
+    own nowrap floor) keeps every data column at least a handful of characters wide before it
+    starts wrapping.
+
+    **The font is bigger too.** "Bump up the sizes of the font so it's more readable... might as
+    well just make the font bigger a couple sizes" survived both reversals above untouched — 9px
+    (P0-89's own smallest round) becomes 12px everywhere in the card: the box, the title bar, the
+    button, every cell, matching in step exactly the way every earlier round of this card's own
+    sizing already did. Padding is untouched; only the font was ever asked to grow. `max-height`
+    (P0-89's own 58px, tuned for a header plus two rows at the smaller font) is recomputed to 86px
+    — measured directly against a real header-plus-two-row table at the new font, not guessed by
+    scaling the old number.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -3176,6 +3213,7 @@ Where each feature is enforced today:
 | P0-116 | `ops/test/dashboard-route.test.mjs` |
 | P0-117 | `ops/test/catalog-write.test.mjs`, `ops/test/ops-page.test.mjs` |
 | P0-118 | `ops/test/ops-page.test.mjs` |
+| P0-119 | `ops/test/ops-page.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

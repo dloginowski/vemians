@@ -539,20 +539,20 @@ check("test_PRD_P0_89_batch_preview_confirm__the_table_matches_a_plain_rendered_
   assert.match(body, /\.table-card th\s*\{[^}]*background:\s*var\(--ground\)/s, "the header row must be visually shaded, matching an ordinary rendered table");
 });
 
-check("test_PRD_P0_89_batch_preview_confirm__the_compact_card_fits_a_header_and_two_rows_not_a_flat_guess", async () => {
+check("test_PRD_P0_119_table_headers_never_wrap__the_compact_card_height_is_recomputed_for_the_bigger_font", async () => {
   /* The owner's own words: "make it fit to content vertically. I only
      need to see 2 rows. The header and the content cells when in chat
-     preview." — recomputed through several rounds of smaller fonts and
-     padding since: 118px, then 84px, then 70px, now 58px at this
-     round's 9px font and 1px 2px cell padding. Still the SAME specific
-     target (one header row + two data rows), not an earlier round's
-     bigger-font number carried over. Full screen must still drop the
-     cap entirely so it shows the WHOLE table, not just a bit more of it. */
+     preview." — recomputed through several rounds since: 118px, 84px,
+     70px, 58px at a 9px font, now 86px once Test-PRD-P0-119-table_headers_never_wrap
+     bumped the font back up to 12px ("bump up the sizes of the font so
+     it's more readable... might as well just make the font bigger a
+     couple sizes"). Measured directly against a real header-plus-two-row
+     table at the new font, not guessed by scaling the old number. Full
+     screen must still drop the cap entirely so it shows the WHOLE table,
+     not just a bit more of it. */
   const { body } = await frontPage(OWNER);
-  assert.match(body, /\.table-card\s*\{[^}]*max-height:\s*58px/s, "the compact card must be sized to roughly a header plus two rows at the smaller font");
-  assert.doesNotMatch(body, /\.table-card\s*\{[^}]*max-height:\s*70px/s, "the previous round's 70px target must not still be set");
-  assert.doesNotMatch(body, /\.table-card\s*\{[^}]*max-height:\s*84px/s, "the previous round's 84px target must not still be set");
-  assert.doesNotMatch(body, /\.table-card\s*\{[^}]*max-height:\s*118px/s, "the old, bigger-font 118px target must not still be set");
+  assert.match(body, /\.table-card\s*\{[^}]*max-height:\s*86px/s, "the compact card must be sized to roughly a header plus two rows at the new, bigger font");
+  assert.doesNotMatch(body, /\.table-card\s*\{[^}]*max-height:\s*58px/s, "the previous round's smaller-font 58px target must not still be set");
   assert.match(body, /\.table-card\.full\s*\{[^}]*max-height:\s*none/s, "full screen must remove the height cap entirely");
 });
 
@@ -566,45 +566,78 @@ check("test_PRD_P0_117_batch_preview_one_row_fits_without_scrolling__the_preview
      PREVIEW_SAMPLE_ROWS in batch.js) drops the cap entirely via its own
      .preview modifier class — tableCard() in views.js adds it whenever the
      table data carries compact: true. batchDraftTable()'s own full result
-     table is untouched: still plain .table-card, still capped at 58px and
-     scrolling, since that one can carry hundreds of rows. */
+     table is untouched: still plain .table-card, still capped (at
+     whatever height Test-PRD-P0-119-table_headers_never_wrap's own font
+     bump later recomputed that to) and scrolling, since that one can
+     carry hundreds of rows. */
   const { body } = await frontPage(OWNER);
   assert.match(body, /\.table-card\.preview\s*\{[^}]*max-height:\s*none/s, "the preview card must have no height cap at all");
   assert.match(body, /className = t\.compact \? "table-card preview" : "table-card"/, "tableCard() must add the modifier only for compact table data");
 });
 
 check("test_PRD_P0_89_batch_preview_confirm__the_table_is_as_space_efficient_as_possible", async () => {
-  /* The owner's own words: "Make padding half and font size to 9" — the
-     latest of several rounds asking for less padding and smaller fonts.
-     Every size in the card — its own box, every cell — must be tighter
-     than the previous round, not just one of them. */
+  /* The owner's own words, that round: "Make padding half and font size
+     to 9" — the padding half of that stayed exactly this tight even
+     once the font itself grew back (Test-PRD-P0-119-table_headers_never_wrap,
+     "bump up the sizes of the font so it's more readable... might as
+     well just make the font bigger a couple sizes"): only the font was
+     ever asked to grow again, never the padding around it. */
   const { body } = await frontPage(OWNER);
-  assert.match(body, /\.table-card\s*\{[^}]*padding:\s*2px/s, "the card's own padding must be half the previous flat 4px");
-  assert.match(body, /\.table-card\s*\{[^}]*font-size:\s*9px/s, "the card's own base font must be 9px");
-  assert.match(body, /\.table-card th, \.table-card td\s*\{[^}]*padding:\s*1px 2px/s, "cell padding must be half the previous 1px 4px");
-  assert.match(body, /\.table-card th, \.table-card td\s*\{[^}]*font-size:\s*9px/s, "cell font-size must be 9px");
+  assert.match(body, /\.table-card\s*\{[^}]*padding:\s*2px/s, "the card's own padding must still be the half-flat 2px this test was originally about");
+  assert.match(body, /\.table-card th, \.table-card td\s*\{[^}]*padding:\s*1px 2px/s, "cell padding must still be the half-flat 1px 2px this test was originally about");
 });
 
-check("test_PRD_P0_89_batch_preview_confirm__the_table_scales_to_full_width_instead_of_cropping", async () => {
-  /* The owner's own words: "You can scale the table to fit full width
-     if possible! The goal is to avoid cropping as much as possible while
-     retaining readability." A previous round deliberately sized the
-     table to its own natural content width (no forced stretch); this
-     reverses that on purpose, now for the opposite reason — a table
-     wider than the card used to need sideways scrolling to see the
-     cropped-off columns, which reads as "cropped" even though the rest
-     is one scroll away. "width: 100%" with "table-layout: fixed"
-     guarantees the table never exceeds the card's own width regardless
-     of column count, and "overflow-wrap: anywhere" lets long content
-     (a full URL, a long title) wrap onto more lines instead of being
-     cut off or forcing the table wider — readability kept via wrapping,
-     not via truncation or a horizontal scrollbar. */
+check("test_PRD_P0_119_table_headers_never_wrap__the_font_is_bumped_a_couple_sizes_everywhere_in_the_card", async () => {
+  /* The owner's own words: "bump up the sizes of the font so it's more
+     readable... might as well just make the font bigger a couple
+     sizes." 9px (Test-PRD-P0-89-batch_preview_confirm's own smallest
+     round) becomes 12px everywhere in the card — the box, the title
+     bar, the button, every cell — matching in step exactly the way
+     every earlier round of this card's own sizing already did. */
   const { body } = await frontPage(OWNER);
-  assert.match(body, /\.table-card table\s*\{[^}]*width:\s*100%/s, "the table must stretch to the card's own full width");
-  assert.match(body, /\.table-card table\s*\{[^}]*table-layout:\s*fixed/s, "fixed layout keeps the table from ever exceeding the card's width");
-  assert.doesNotMatch(body, /\.table-card table\s*\{[^}]*width:\s*max-content/s, "the old natural-width sizing must be gone");
-  assert.match(body, /\.table-card th, \.table-card td\s*\{[^}]*overflow-wrap:\s*anywhere/s, "long content must wrap instead of overflowing or getting cropped");
-  assert.doesNotMatch(body, /\.table-card th, \.table-card td\s*\{[^}]*white-space:\s*nowrap/s, "cells must no longer be forced onto a single line");
+  assert.match(body, /\.table-card\s*\{[^}]*font-size:\s*12px/s, "the card's own base font must be bumped to 12px");
+  assert.match(body, /\.table-card h4\s*\{[^}]*font-size:\s*12px/s, "the title bar must stay in step at 12px");
+  assert.match(body, /\.table-card th, \.table-card td\s*\{[^}]*font-size:\s*12px/s, "cell font-size must be bumped to 12px");
+  assert.match(body, /\.table-card button\s*\{[^}]*font-size:\s*12px/s, "the Full screen button must stay in step at 12px");
+  assert.doesNotMatch(body, /\.table-card\s*\{[^}]*font-size:\s*9px/s, "the old, smaller 9px round must not still be set");
+});
+
+check("test_PRD_P0_119_table_headers_never_wrap__headers_stay_on_one_line_and_expand_to_fit_their_own_text", async () => {
+  /* Two reversals in one request, the owner's own words in order: first
+     "I would rather have the table expand and scroll horizontally than
+     expand vertically... bump up the font" — then "actually, cancel
+     that, let it wrap, just make a bigger font" — then the final
+     correction: "do prevent the headings from wrapping because they're
+     hard to read. The data I don't care so much about, but the headings
+     should all expand to fit content, horizontally." Superseding
+     Test-PRD-P0-89-batch_preview_confirm's own "table-layout: fixed" +
+     "width: 100%" (which forced every column, headers included, into an
+     equal-ish share of the card's own width) and its own explicit
+     "cells must no longer be forced onto a single line" — that ban on
+     nowrap is lifted for headers specifically, staying in force for data. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.table-card table\s*\{[^}]*table-layout:\s*auto/s, "auto layout lets a nowrap header claim its own natural width");
+  assert.doesNotMatch(body, /\.table-card table\s*\{[^}]*table-layout:\s*fixed/s, "fixed layout is what squeezed headers to begin with; it must be gone");
+  assert.doesNotMatch(body, /\.table-card table\s*\{[^}]*width:\s*100%/s, "forcing the table to the card's own width defeats letting headers expand past it");
+  assert.match(body, /\.table-card th\s*\{[^}]*white-space:\s*nowrap/s, "headers must never wrap onto a second line");
+  assert.match(body, /\.table-card td\s*\{[^}]*overflow-wrap:\s*anywhere; word-break:\s*break-word/s, "data cells keep wrapping — the owner's own words, this round: \"the data I don't care so much about\"");
+  assert.doesNotMatch(body, /\.table-card th\s*\{[^}]*overflow-wrap/s, "a header must never wrap, so it has no need of overflow-wrap either");
+});
+
+check("test_PRD_P0_119_table_headers_never_wrap__a_wide_header_row_scrolls_sideways_instead_of_cropping_or_shrinking_data_to_nothing", async () => {
+  /* Verified directly in a real headless browser, not assumed: with
+     table-layout back to auto, a data column that can break anywhere
+     (a long title with no spaces to wrap on) gets squeezed to a
+     near-unreadable, one-character width the instant a neighboring
+     nowrap header claims most of the row's space. min-width on data
+     cells only (never on th, which already has its own nowrap floor)
+     keeps every column at least a handful of characters wide before it
+     starts wrapping, while the card's own pre-existing "overflow: auto"
+     is what actually delivers the sideways scroll for whatever a nowrap
+     header pushes past the card's own edge. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.table-card td\s*\{[^}]*min-width:\s*6em/s, "data cells need a floor so a nowrap header doesn't squeeze them to nothing");
+  assert.doesNotMatch(body, /\.table-card th\s*\{[^}]*min-width/s, "a nowrap header already has its own natural-width floor; it needs no separate one");
 });
 
 check("test_PRD_P0_89_batch_preview_confirm__the_table_renders_right_under_its_own_tool_step_not_after_the_reply", async () => {
