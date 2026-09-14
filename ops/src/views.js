@@ -918,6 +918,40 @@ function dictationScript({ btnId, inputId }) {
 })();`;
 }
 
+/* Open/close-dropdown behaviour (a filter button reveals a `.category-item`
+   menu; clicking outside or Escape closes it) — itemsPage()'s own category
+   menu and dashboardPage()'s own mode menu had this exact same ~15 lines
+   copy-pasted, differing only in what happens when an item inside the menu
+   is actually picked. Self-contained (its own getElementById lookups, its
+   own local names) so it drops in next to whatever OUTER `const menuEl =
+   document.getElementById(...)` a page already keeps around for its own
+   other uses (marking the active item, reading known values back out),
+   the same reasoning dictationScript() above is already built on. */
+function dropdownMenuScript({ btnId, menuId, onSelect }) {
+  return `(function () {
+  const btn = document.getElementById(${JSON.stringify(btnId)});
+  const menu = document.getElementById(${JSON.stringify(menuId)});
+  if (!btn || !menu) return;
+  btn.addEventListener("click", () => {
+    menu.hidden = !menu.hidden;
+  });
+  menu.addEventListener("click", (e) => {
+    const item = e.target.closest(".category-item");
+    if (!item) return;
+    ${onSelect}
+  });
+  document.addEventListener("click", (e) => {
+    if (menu.hidden) return;
+    if (menu.contains(e.target) || btn.contains(e.target)) return;
+    menu.hidden = true;
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || menu.hidden) return;
+    menu.hidden = true;
+  });
+})();`;
+}
+
 /* The behaviour half of copyLine, as a string, so the front page and the
    identity page share one implementation rather than two that drift. */
 export const COPY_JS = `/* One delegated listener for every copy button on the page. The button reads
@@ -1557,7 +1591,6 @@ ${tiles}
 <script>
 const itemSearch = document.getElementById("item-search");
 const categoryLabel = document.getElementById("category-label");
-const categoryBtn = document.getElementById("category-btn");
 const categoryMenuEl = document.getElementById("category-menu");
 /* The category filter lives here, never in the search box's own value —
    the owner's own words: "I don't wanna eat up the input area with text...
@@ -1626,26 +1659,11 @@ document.getElementById("item-search-btn").addEventListener("click", () => {
    line above no longer shares this spot (it moved to the top of the
    page, see updateCategoryLabel()'s own comment), so opening or closing
    the menu has nothing to do with it any more. */
-if (categoryBtn && categoryMenuEl) {
-  categoryBtn.addEventListener("click", () => {
-    categoryMenuEl.hidden = !categoryMenuEl.hidden;
-  });
-  categoryMenuEl.addEventListener("click", (e) => {
-    const btn = e.target.closest(".category-item");
-    if (!btn) return;
-    toggleCategory(btn.dataset.category);
-    filterItems();
-  });
-  document.addEventListener("click", (e) => {
-    if (categoryMenuEl.hidden) return;
-    if (categoryMenuEl.contains(e.target) || categoryBtn.contains(e.target)) return;
-    categoryMenuEl.hidden = true;
-  });
-  document.addEventListener("keydown", (e) => {
-    if (e.key !== "Escape" || categoryMenuEl.hidden) return;
-    categoryMenuEl.hidden = true;
-  });
-}
+${dropdownMenuScript({
+  btnId: "category-btn",
+  menuId: "category-menu",
+  onSelect: "toggleCategory(item.dataset.category); filterItems();",
+})}
 
 /* Voice search — the owner's own words: "by holding that microphone
    input, you can... describe what items you're looking for, and then
@@ -2243,7 +2261,6 @@ const DASH_KIND_LABEL = { ticket: "Tickets", task: "Tasks", expense: "Expenses",
 const DASH_MODE_ACTION = { ticket: "/tickets/new", task: "/tickets/new", expense: "/expenses/new", upload: "/assets/new" };
 const DASH_MODE_PLACEHOLDER = { ticket: "Start a new ticket...", task: "Add a task...", expense: "Tap + to attach a receipt photo", upload: "Tap + to choose a file" };
 const kindMenuEl = document.getElementById("kind-menu");
-const kindBtn = document.getElementById("kind-btn");
 const kindLabel = document.getElementById("kind-label");
 const dashGroups = document.querySelectorAll("#dash-feed .dash-group");
 const statusFilter = document.getElementById("status-filter");
@@ -2424,26 +2441,11 @@ fileInput.addEventListener("change", () => {
    closes the menu — unlike Items' own multi-select category picker,
    exactly one mode is ever active, so there is nothing a second click
    could add. */
-if (kindBtn && kindMenuEl) {
-  kindBtn.addEventListener("click", () => {
-    kindMenuEl.hidden = !kindMenuEl.hidden;
-  });
-  kindMenuEl.addEventListener("click", (e) => {
-    const btn = e.target.closest(".category-item");
-    if (!btn) return;
-    setMode(btn.dataset.kind);
-    kindMenuEl.hidden = true;
-  });
-  document.addEventListener("click", (e) => {
-    if (kindMenuEl.hidden) return;
-    if (kindMenuEl.contains(e.target) || kindBtn.contains(e.target)) return;
-    kindMenuEl.hidden = true;
-  });
-  document.addEventListener("keydown", (e) => {
-    if (e.key !== "Escape" || kindMenuEl.hidden) return;
-    kindMenuEl.hidden = true;
-  });
-}
+${dropdownMenuScript({
+  btnId: "kind-btn",
+  menuId: "kind-menu",
+  onSelect: "setMode(item.dataset.kind); menu.hidden = true;",
+})}
 
 statusFilter.addEventListener("change", () => {
   currentStatus = statusFilter.value;
