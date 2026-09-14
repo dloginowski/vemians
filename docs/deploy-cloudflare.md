@@ -233,9 +233,11 @@ for "Login page" or "Branding" under Settings if it has moved again) offers a ba
 and a logo image, on Cloudflare's own fixed layout. No custom HTML, no font, no button colour, no
 password field — One-time PIN has no password to ask for.
 
-- **Background colour**: `#000000` — the exact black `--bar` already uses across the ops shell
-  and header (`ops/src/views.js`), so the login page reads as the same surface rather than a
-  visibly different black.
+- **Background colour**: `#191817` — `--ground`, the actual page background behind `.shell` and
+  the iframe content (`ops/src/views.js`), a warm near-black, **not pure black**. `--bar`
+  (`#000000`, true black) is a different, narrower token: it colours only the thin header strip
+  the tabs sit in, not the page itself — using it here would visibly mismatch the surface it's
+  meant to match.
 - **Logo**: upload one if you have it. Nothing in this repository ships a logo file today; supply
   your own image (a square mark fits Cloudflare's fixed layout best).
 
