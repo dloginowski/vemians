@@ -581,3 +581,14 @@ check("test_PRD_P0_112_dashboard_status_filter__expenses_and_uploads_sort_newest
   const oldAt = expenseGroup.indexOf("Old expense");
   assert.ok(newAt > -1 && oldAt > -1 && newAt < oldAt, "the newer expense must render before the older one");
 });
+
+check("test_PRD_P0_114_dashboard_default_mode__an_empty_group_carries_no_redundant_placeholder_text", async () => {
+  /* The owner's own words: "get rid of 'Nothing here yet.' It's
+     redundant." The summary's own (0) already says so in All mode, and
+     the status line's own "No Results" swap already says so for a
+     narrowed-down single mode (P0-112) — an empty group's own body is
+     now just empty, not a third repetition of the same fact. */
+  const res = await get("/dashboard", STAFF, env({ finance: null, assets: null }));
+  const body = await res.text();
+  assert.doesNotMatch(body, /Nothing here yet/);
+});

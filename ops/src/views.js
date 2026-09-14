@@ -1947,9 +1947,13 @@ function dashboardGroup({ kind, label, rows, dateOf, isMine, tileFn, open, mineO
   const mineHtml = mine.length ? `<div class="dash-mine">${mine.map(tileFn).join("\n")}</div>` : "";
   const sep = mine.length && rest.length ? `<hr class="dash-mine-sep">` : "";
   const restHtml = rest.length ? `<div class="dash-rest">${rest.map(tileFn).join("\n")}</div>` : "";
-  const body = rows.length
-    ? `<div class="ticket-list">${mineHtml}${sep}${restHtml}</div>`
-    : `<p class="ticket-empty">Nothing here yet.</p>`;
+  /* No "Nothing here yet." placeholder for an empty group — the owner's
+     own words: "get rid of it. It's redundant." The summary's own (0)
+     already says so in All mode, and the status line's own "No Results"
+     swap already says so for a single narrowed-down mode (P0-112) — a
+     third, third-time repetition of the same fact inside the group
+     itself added nothing an empty space didn't already say. */
+  const body = rows.length ? `<div class="ticket-list">${mineHtml}${sep}${restHtml}</div>` : "";
   return `<details class="dash-group" data-kind="${kind}"${open ? " open" : ""}>
     <summary><span class="dash-group-label">${esc(label)}</span> (<span class="dash-group-count">${rows.length}</span>)</summary>
     ${body}

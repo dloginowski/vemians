@@ -2819,6 +2819,12 @@ that does not trace to one of these is a process failure (see §12).
     `[hidden]`-vs-explicit-`display` bugs already justify, applied pre-emptively this time instead
     of after a confirmed break.
 
+    **"Get rid of 'Nothing here yet.' It's redundant."** An empty group's own placeholder
+    paragraph is gone — `dashboardGroup()`'s own `<summary>` already says `(0)` in All mode, and
+    the status line's own "No Results" swap (P0-112) already says so for a narrowed-down single
+    mode; a third repetition of the same fact inside the group's own body added nothing an empty
+    space didn't already say.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
