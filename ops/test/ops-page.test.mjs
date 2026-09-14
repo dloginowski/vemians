@@ -810,11 +810,28 @@ check("test_PRD_P0_91_quiet_greeting__the_heading_shrank_to_the_smallest_meta_te
   /* The owner's own words, once every quick-action click also started
      repeating this heading's own name in the chat reply (P0-83): "it needs
      to be very, very small because it's eating up too much space." 11px
-     matches the smallest de-emphasised meta text already used elsewhere
-     (.ticket-meta, badges), not a value invented for this alone. */
+     (then, later, Test-PRD-P0-125-status_headings_all_match's own 15px —
+     see that check for why) matches the smallest de-emphasised meta text
+     already used elsewhere at the time (.ticket-meta, badges), not a
+     value invented for this alone. */
   const { body } = await frontPage(OWNER);
-  assert.match(body, /\.greet h1\s*\{[^}]*font-size:\s*11px/s, "the greeting must be shrunk to 11px");
+  assert.match(body, /\.greet h1\s*\{[^}]*font-size:\s*15px/s, "the greeting must share the current, consistent size across every page");
   assert.doesNotMatch(body, /\.greet h1\s*\{[^}]*font-size:\s*var\(--type\)/s, "must not still be base body size");
+});
+
+check("test_PRD_P0_125_status_headings_all_match__the_agent_greeting_and_items_status_share_the_bumped_size", async () => {
+  /* The owner's own words: "make sure that the agents and the items
+     also have the bigger font size for the top header, the one that
+     says like Hi Dimitri, what you'd like to do today, just so it's all
+     consistent." Dashboard's own #dash-status-heading (Test-PRD-P0-116-dashboard_status_line_refinements)
+     had already been bumped to 15px on its own; rather than leave
+     opsPage's "Hi Dimitri" and Items' "All categories" smaller, the
+     SHARED .greet h1 rule itself now carries that same 15px — one size,
+     one place to look, not the same number declared on a second,
+     page-specific selector. */
+  const { body: opsBody } = await frontPage(OWNER);
+  assert.match(opsBody, /<h1>Hi \S+ — what would you like to do\?<\/h1>/, "sanity check: this is really the greeting heading");
+  assert.match(opsBody, /\.greet h1\s*\{[^}]*font-size:\s*15px/s, "the greeting must share the Dashboard's own 15px");
 });
 
 check("test_PRD_P0_91_quiet_greeting__the_ask_the_ops_assistant_line_is_gone", async () => {
