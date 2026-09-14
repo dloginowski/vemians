@@ -332,45 +332,66 @@ const INPUT_BAR_CSS = `
    being changed — "still use a scrolling frame so I can see the entire
    table if cropped" — only the table's own visual grammar is. */
 const TABLE_CARD_CSS = `
-/* The table now SCALES to the card's own full width instead of sizing to
-   its natural content width — the owner's own words: "You can scale the
-   table to fit full width if possible! The goal is to avoid cropping as
-   much as possible while retaining readability." A previous round
-   dropped "min-width: 100%" so a narrow table would not stretch; this
-   reverses that on purpose, now for the opposite reason — a table wider
-   than the card used to need sideways scrolling to see the cropped-off
-   columns at all, which reads as "cropped" even though the rest is one
-   scroll away. "width: 100%" with "table-layout: fixed" instead
-   guarantees the table never exceeds the card's own width regardless of
-   column count, so there is nothing left to scroll past; long content
-   (a full URL, a long product title) WRAPS onto more lines within its
-   own column ("overflow-wrap: anywhere") instead of being cut off or
-   pushing the table wider. Padding is halved again (card 4px -> 2px,
-   every cell and the "Full screen" button 1px 4px -> 1px 2px) and the
-   font drops to a flat 9px everywhere in the card, matching the title
-   bar and button's own size instead of a bigger size just for cells.
-   max-height is recomputed once more for the smaller row height this
-   produces. */
+/* Headers no longer wrap; data cells still do — the owner's own words,
+   after trying it the other way twice: first "I would rather have the
+   table expand and scroll horizontally than expand vertically... bump
+   up the font," then "actually, cancel that, let it wrap, just make a
+   bigger font," then the final correction: "do prevent the headings
+   from wrapping because they're hard to read. The data I don't care so
+   much about, but the headings should all expand to fit content,
+   horizontally." So table-layout goes back from "fixed" to "auto" and
+   "width: 100%" is dropped — a header cell's own "white-space: nowrap"
+   (below) can only force the column wide enough for its own text if the
+   table is actually free to size columns by content again, not forced
+   to squeeze every column into one fixed, equal-ish share of the card's
+   width. Data cells keep "overflow-wrap: anywhere" / "word-break:
+   break-word" exactly as before — wrapping there was never the
+   complaint — so a table with one long header and short data still
+   reads as mostly narrow columns with one wide one, not every column
+   forced as wide as the widest header. The card's own existing
+   "overflow: auto" (unchanged) is what actually delivers the "scroll
+   sideways rather than crop" the owner asked for, now that a row of
+   nowrap headers can legitimately push the table past the card's own
+   width.
+
+   One guard the request itself didn't ask for but needs regardless:
+   without a floor, a data column that CAN break anywhere (a long title,
+   no spaces to wrap on) gets squeezed down to a near-zero, one-character
+   width the moment a neighboring nowrap header claims most of the row's
+   space — verified directly in a real browser, not assumed, and it read
+   as far less legible than simply wrapping onto more lines at a sane
+   width would. "min-width: 6em" on data cells only (never on th, which
+   already has its own nowrap floor) keeps every column at least a
+   handful of characters wide before it starts wrapping.
+
+   The font is bigger too — "bump up the sizes of the font so it's more
+   readable... might as well just make the font bigger a couple sizes" —
+   9px (this card's smallest round yet) becomes 12px everywhere in the
+   card, matching title bar and button as every previous round of this
+   card's own sizing already kept in step. Padding is untouched; only
+   the font asked to grow. max-height is recomputed once more for the
+   taller row height a bigger font produces. */
 .table-card {
   align-self: stretch; max-width: 100%; box-sizing: border-box;
   border: 1px solid var(--rule); border-radius: 0; padding: 2px;
-  background: var(--image-ground); font-size: 9px;
-  max-height: 58px; overflow: auto;
+  background: var(--image-ground); font-size: 12px;
+  max-height: 86px; overflow: auto;
 }
 .table-card h4 {
-  margin: 0 0 2px; padding: 0; font-size: 9px; font-weight: 700;
+  margin: 0 0 2px; padding: 0; font-size: 12px; font-weight: 700;
   color: var(--muted); display: flex; justify-content: space-between;
   align-items: center; gap: 6px; position: sticky; left: 0;
 }
-.table-card table { width: 100%; table-layout: fixed; border-collapse: collapse; }
+.table-card table { table-layout: auto; border-collapse: collapse; }
 .table-card th, .table-card td {
   text-align: left; padding: 1px 2px; border: 1px solid var(--rule);
-  overflow-wrap: anywhere; word-break: break-word; vertical-align: top; font-size: 9px;
+  vertical-align: top; font-size: 12px;
 }
-.table-card th { color: var(--ink); font-weight: 700; background: var(--ground); }
+.table-card td { overflow-wrap: anywhere; word-break: break-word; min-width: 6em; }
+.table-card th { color: var(--ink); font-weight: 700; background: var(--ground); white-space: nowrap; }
 .table-card a { color: var(--accent); overflow-wrap: anywhere; }
 .table-card button {
-  flex: 0 0 auto; font: inherit; font-size: 9px; padding: 1px 2px; cursor: pointer;
+  flex: 0 0 auto; font: inherit; font-size: 12px; padding: 1px 2px; cursor: pointer;
   border: 1px solid var(--rule); border-radius: 12px; background: var(--ground); color: var(--ink);
 }
 .table-card button:hover { border-color: var(--accent); color: var(--accent); }
