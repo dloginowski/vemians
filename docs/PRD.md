@@ -2626,6 +2626,63 @@ that does not trace to one of these is a process failure (see §12).
     ops page gets it; `opsPage()`'s own `OPS_CSS` now only adds `padding-bottom: 108px`, the
     extra clearance its own floating `.menu` (quick-action chips) alone still needs.
 
+45. **`Test-PRD-P0-110-dashboard_modes`** — A correction to P0-108's own design, right after it
+    shipped. The owner's own words: "we are not dealing with selections and filtering items. We
+    are dealing with modes... when we type in something in the bar and then hit submit, that's
+    a new ticket... in a task, that's a new task... but they should not be the same thing...
+    uploads should look different... we're not necessarily putting in text. We are literally
+    selecting... instead of the voice, the microphone, we have a plus button... select [a file]
+    and then hit upload on the right. Like, the submit button always stays the same... same
+    goes for invoices... these are all modes, and they define what happens and what buttons are
+    available in the rest of the bar."
+
+    **Exactly one mode is active at a time — a plain string, not a `Set`.** The first cut of
+    P0-108 treated Tickets/Tasks/Expenses/Uploads as a multi-select filter, the same shape
+    Items' own categories use; the owner's correction makes clear that was the wrong model here
+    — a "mode" is exclusive by nature, and it drives the compose bar's own behaviour, which
+    multiple simultaneous selections cannot coherently do. `selectedKinds` (`Set`) is replaced
+    by `currentMode` (one string, `""` meaning All); `setMode()` replaces `toggleKind()`, and
+    picking a mode from the menu now closes it immediately — unlike Items' own multi-select
+    picker, there is nothing a second click could add to an exclusive choice.
+
+    **A mode decides four things together, not just what the feed shows.** `setMode()`
+    re-points the SAME compose `<form>` (`enctype="multipart/form-data"` throughout, which
+    encodes plain text fields exactly as well as a file) at the right route, and reshapes the
+    bar around what that route needs:
+      - Tickets / Tasks — a text field plus the existing plain dictation mic (P0-108); Send
+        posts to `/tickets/new`. A hidden `mode` field tells that route whether to leave the
+        new ticket unassigned (Tickets) or assign it to the viewer (Tasks) — a task IS a
+        ticket, just assigned at creation, never a fourth store or a new `category` value (see
+        P0-108's own CHECK-constraint reasoning). `assigned_to` is written from the
+        AUTHENTICATED actor only; a client-supplied `assigned_to` field in the same submission
+        is silently ignored — the form can ask "assign this to me," never name anyone else.
+      - Uploads / Expenses — "instead of the voice, the microphone, we have a plus button": the
+        mic slot is replaced by a plain `+` attach button (`ATTACH_ICON`, the same one the
+        agent composer already uses, with the same click-to-pick / click-to-clear toggle
+        against `CANCEL_ICON`), and the text field becomes a read-only display of the picked
+        filename. Send posts the file, multipart, straight to `/assets/new` (Uploads) or
+        `/expenses/new` (Expenses — the existing receipt-scan-then-confirm flow, unchanged;
+        landing on that review page IS what "uploading" a receipt has always meant here, not a
+        new, sight-unseen filing path). Expense mode's file input reuses the receipt scanner's
+        own `accept="image/*" capture="environment"`, so a phone offers its camera directly;
+        Upload mode leaves the picker unrestricted, matching what `assets.list` already
+        accepts. The file input itself is never marked `required` — it is permanently hidden
+        (opened only via the `+` button's own `.click()`), and a hidden-but-required field is a
+        genuine native-validation footgun in some browsers (an attempt to focus it to report
+        the error silently fails, blocking submission with no visible message at all); checked
+        instead in a `submit` listener, which can `preventDefault()` and show a real signal.
+      - All — browsing only. There is nothing an "All" submission would mean, so the bar is
+        disabled (`sendBtn.disabled`, `titleInput.disabled`) rather than silently defaulting to
+        either action.
+
+    **A second `[hidden]`-vs-explicit-`display` bug, the same class P0-103 already fixed for
+    `.category-menu`.** `.input-bar button` sets `display: inline-flex`, which always beats the
+    browser's own default `[hidden] { display: none }` regardless of specificity — invisible
+    until the mic/attach swap became the first `.input-bar` button ever toggled via the
+    `hidden` ATTRIBUTE (every earlier case removed an unsupported mic outright, or used a
+    `categories.length` check that happened to always be true in practice). Fixed the same way:
+    `.input-bar button[hidden] { display: none; }` restated explicitly.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -2886,6 +2943,7 @@ Where each feature is enforced today:
 | P0-107 | `ops/test/items-search-intent.test.mjs`, `ops/test/items-route.test.mjs`, `ops/test/ops-page.test.mjs` |
 | P0-108 | `ops/test/dashboard-route.test.mjs`, `ops/test/tickets-route.test.mjs`, `ops/test/ops-page.test.mjs` |
 | P0-109 | `ops/test/items-route.test.mjs`, `ops/test/dashboard-route.test.mjs` |
+| P0-110 | `ops/test/dashboard-route.test.mjs`, `ops/test/tickets-route.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

@@ -169,12 +169,43 @@ check("test_PRD_P0_100_ticket_messaging__starting_a_ticket_creates_a_row_and_red
   const location = res.headers.get("location");
   assert.match(location, /^\/tickets\/[a-z0-9-]+$/);
 
-  const row = tickets.db.prepare("SELECT title, category, priority, status, created_by FROM ticket").get();
+  const row = tickets.db.prepare("SELECT title, category, priority, status, created_by, assigned_to FROM ticket").get();
   assert.equal(row.title, "Window display needs refreshing");
   assert.equal(row.category, "other");
   assert.equal(row.priority, "normal");
   assert.equal(row.status, "open");
   assert.equal(row.created_by, "ana@example.test");
+  assert.equal(row.assigned_to, null, "a plain ticket (no mode=task) must not be assigned to anyone");
+});
+
+check("test_PRD_P0_110_dashboard_modes__the_dashboards_own_task_mode_assigns_the_new_ticket_to_the_viewer", async () => {
+  /* The owner's own words: "when we type in something in the bar and
+     then hit submit, that's a new ticket... in a task, that's a new
+     task... but they should not be the same thing." A task IS a ticket,
+     just assigned at creation to whoever filed it — the same "assigned
+     to me" signal the Dashboard's own Tasks view already reads. */
+  const tickets = ticketsDb();
+  const res = await postForm("/tickets/new", STAFF, env(tickets), { title: "Restock the window display", mode: "task" });
+  assert.equal(res.status, 303);
+  const row = tickets.db.prepare("SELECT title, assigned_to FROM ticket").get();
+  assert.equal(row.title, "Restock the window display");
+  assert.equal(row.assigned_to, "ana@example.test");
+});
+
+check("test_PRD_P0_110_dashboard_modes__the_assignee_always_comes_from_the_verified_actor_never_the_form", async () => {
+  /* assigned_to can only ever become the AUTHENTICATED caller's own email
+     — the form can ask for "assign this to me" (mode=task) but can never
+     name anyone else, the same "identity from Access, never an argument"
+     rule every tool in this codebase already follows. */
+  const tickets = ticketsDb();
+  const res = await postForm("/tickets/new", STAFF, env(tickets), {
+    title: "Reorder tissue paper",
+    mode: "task",
+    assigned_to: "someone-else@example.test",
+  });
+  assert.equal(res.status, 303);
+  const row = tickets.db.prepare("SELECT assigned_to FROM ticket").get();
+  assert.equal(row.assigned_to, "ana@example.test", "a spoofed assigned_to field in the form must be ignored");
 });
 
 check("test_PRD_P0_100_ticket_messaging__starting_a_ticket_with_no_title_is_refused_not_filed", async () => {

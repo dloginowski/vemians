@@ -189,6 +189,14 @@ const INPUT_BAR_CSS = `
   display: inline-flex; align-items: center; justify-content: center;
   border: none; border-radius: 50%;
 }
+/* The same [hidden]-vs-explicit-display trap .category-menu was caught by
+   earlier: an explicit display: inline-flex above always beats the
+   browser's own default [hidden] { display: none }, regardless of
+   specificity, so a bar button toggled via the hidden ATTRIBUTE (the
+   Dashboard's own mic/attach swap per mode — Test-PRD-P0-110-
+   dashboard_modes) would render anyway. Restated here so JS toggling
+   .hidden actually hides it. */
+.input-bar button[hidden] { display: none; }
 /* A filled circle, same 34px size as .send-btn so the two round buttons
    nest into the bar's own left and right ends identically — "flows neatly
    inside of the inner chat border (like the chat submit button)," the
@@ -1942,24 +1950,46 @@ function dashboardUploadTile(asset) {
  *   their own submissions) is untouched — this page reads it exactly as
  *   every other caller does, never widening it.
  *
+ * MODES, NOT A FILTER OVER A SELECTION (Test-PRD-P0-110-dashboard_modes)
+ *   The owner's own correction, after the first cut treated this as a
+ *   multi-select filter like Items' own categories: "we are not dealing
+ *   with selections and filtering items. We are dealing with modes...
+ *   these are all modes, and they define what happens and what buttons
+ *   are available in the rest of the bar." Exactly one mode is active at
+ *   a time (a plain string, not a Set) — it both filters the feed AND
+ *   decides what the compose bar below does:
+ *     - Tickets / Tasks: a text field plus the plain dictation mic; Send
+ *       posts to /tickets/new. "When we type in something in the bar and
+ *       then hit submit, that's a new ticket... in a task, that's a new
+ *       task... but they should not be the same thing" — a hidden `mode`
+ *       field tells /tickets/new whether to leave the new ticket
+ *       unassigned (Tickets) or assign it to the viewer (Tasks), the same
+ *       assigned-to-me signal the feed's own Tasks filter already reads.
+ *     - Uploads / Expenses: "we're not necessarily putting in text. We
+ *       are literally selecting... instead of the voice, the microphone,
+ *       we have a plus button... select [a file] and then hit upload."
+ *       The mic slot becomes a plain "+" attach button (ATTACH_ICON, the
+ *       same one the agent composer already uses); Send posts the picked
+ *       file, multipart, straight to /assets/new (Uploads) or /expenses/
+ *       new (Expenses — the existing receipt-scan-then-confirm flow,
+ *       unchanged; "uploading" a receipt has always meant landing on its
+ *       own review page here, not filing it sight unseen). The submit
+ *       button itself never changes — "the submit button always stays
+ *       the same" — only what sits to its left does.
+ *     - All: browsing only. The bar has nothing to submit, so it is
+ *       disabled rather than defaulting to either action.
+ *
  * DEFAULT VIEW IS A SERVER-COMPUTED HINT, NOT A HARD RULE
  *   The owner's own words: "by default, it should be on tasks... however,
  *   if there are any tickets, say from a customer, that should take
  *   precedence over tasks." src/index.js's /dashboard route decides which
  *   one before this function ever runs (an open ticket in the 'customer'
  *   category anywhere in the working set switches the default from "task"
- *   to "ticket") and hands the answer in as `defaultKind` — this function
- *   only seeds the filter's initial Set with it. Nothing here is fixed:
- *   the filter menu (the same shape Items' own category picker already
+ *   to "ticket") and hands the answer in as `defaultMode` — this function
+ *   only seeds the mode selector's starting value with it. Nothing here
+ *   is fixed: the mode menu (the same shape Items' own category picker
  *   established, reusing its CSS literally rather than a second copy)
- *   lets anyone switch to any of the four views, or "All", at any time.
- *
- * THE MIC HERE IS PLAIN DICTATION, NOT THE AGENTIC ONE
- *   The owner's own words: "it's not an agentic microphone. It's just a
- *   normal microphone where you can speak to make a comment." class=
- *   "icon-btn" alone (no "mic-btn"), so it never borrows the orange
- *   reserved for the two genuinely agentic mics (the agent composer,
- *   Items' own voice search) — see dictationScript()'s own comment.
+ *   lets anyone switch to any of the four modes, or "All", at any time.
  */
 export function dashboardPage({ tickets, expenses, uploads, viewerEmail, defaultKind }) {
   const items = [
@@ -1970,7 +2000,7 @@ export function dashboardPage({ tickets, expenses, uploads, viewerEmail, default
 
   const feed = items.length
     ? `<div class="ticket-list" id="dash-feed">${items.map((i) => i.html).join("\n")}</div>
-  <p class="ticket-empty" id="dash-feed-empty" hidden>Nothing to show for this filter.</p>`
+  <p class="ticket-empty" id="dash-feed-empty" hidden>Nothing to show for this mode.</p>`
     : `<p class="ticket-empty">Nothing here yet.</p>`;
 
   return page(
@@ -1996,63 +2026,138 @@ export function dashboardPage({ tickets, expenses, uploads, viewerEmail, default
     <button type="button" class="category-item" data-kind="expense">Expenses</button>
     <button type="button" class="category-item" data-kind="upload">Uploads</button>
   </div>
-  <form class="chat" method="post" action="/tickets/new">
+  <form class="chat" method="post" action="/tickets/new" enctype="multipart/form-data" id="dash-compose">
     <div class="chat-bar input-bar">
-      <button type="button" class="icon-btn" id="kind-btn" aria-label="Filter" title="Filter">${FILTER_ICON}</button>
-      <input type="text" name="title" id="dash-title" placeholder="Start a new ticket..." required maxlength="200">
-      <button type="button" class="icon-btn" id="dash-mic" aria-label="Dictate" title="Dictate">${MIC_ICON}</button>
-      <button type="submit" class="send-btn" aria-label="Create" title="Create">${SEND_ICON}</button>
+      <button type="button" class="icon-btn" id="kind-btn" aria-label="Mode" title="Mode">${FILTER_ICON}</button>
+      <input type="hidden" name="mode" id="dash-mode-field" value="">
+      <input type="text" name="title" id="dash-title" placeholder="Pick a mode above to add something" maxlength="200" disabled>
+      <input type="file" name="file" id="dash-file-input" hidden>
+      <button type="button" class="icon-btn" id="dash-mic" aria-label="Dictate" title="Dictate" hidden>${MIC_ICON}</button>
+      <button type="button" class="icon-btn" id="dash-attach" aria-label="Attach a file" title="Attach a file" hidden>${ATTACH_ICON}</button>
+      <button type="submit" class="send-btn" aria-label="Submit" title="Submit" id="dash-send" disabled>${SEND_ICON}</button>
     </div>
   </form>
 </main>
 <script>
 const DASH_KIND_LABEL = { ticket: "Tickets", task: "Tasks", expense: "Expenses", upload: "Uploads" };
+const DASH_MODE_ACTION = { ticket: "/tickets/new", task: "/tickets/new", expense: "/expenses/new", upload: "/assets/new" };
+const DASH_MODE_PLACEHOLDER = { ticket: "Start a new ticket...", task: "Add a task...", expense: "Tap + to attach a receipt photo", upload: "Tap + to choose a file" };
 const kindMenuEl = document.getElementById("kind-menu");
 const kindBtn = document.getElementById("kind-btn");
 const kindLabel = document.getElementById("kind-label");
 const feedEmpty = document.getElementById("dash-feed-empty");
-/* Seeded server-side (see this function's own header) — "by default, it
-   should be on tasks... however, if there are any tickets, say from a
-   customer, that should take precedence." Still just a starting Set: any
-   view below is one click away. */
-const selectedKinds = new Set(${JSON.stringify(defaultKind ? [defaultKind] : [])});
+const composeForm = document.getElementById("dash-compose");
+const modeField = document.getElementById("dash-mode-field");
+const titleInput = document.getElementById("dash-title");
+const fileInput = document.getElementById("dash-file-input");
+const micBtn = document.getElementById("dash-mic");
+const attachBtn = document.getElementById("dash-attach");
+const sendBtn = document.getElementById("dash-send");
+const ATTACH_ICON_HTML = ${JSON.stringify(ATTACH_ICON)};
+const CANCEL_ICON_HTML = ${JSON.stringify(CANCEL_ICON)};
+
+/* Exactly one mode at a time — a plain string, not a Set (see this
+   function's own header for why that changed). "" means All: browsing
+   only, nothing to submit. Seeded server-side — "by default, it should
+   be on tasks... however, if there are any tickets, say from a customer,
+   that should take precedence." */
+let currentMode = ${JSON.stringify(defaultKind || "")};
+
+function resetAttachment() {
+  fileInput.value = "";
+  attachBtn.removeAttribute("aria-pressed");
+  attachBtn.innerHTML = ATTACH_ICON_HTML;
+}
 
 function markKindMenu() {
   kindMenuEl.querySelectorAll(".category-item").forEach((btn) => {
-    const isAll = btn.dataset.kind === "";
-    btn.classList.toggle("active", isAll ? selectedKinds.size === 0 : selectedKinds.has(btn.dataset.kind));
+    btn.classList.toggle("active", btn.dataset.kind === currentMode);
   });
 }
-function updateKindLabel() {
-  kindLabel.textContent = selectedKinds.size
-    ? "Showing: " + [...selectedKinds].map((k) => DASH_KIND_LABEL[k] || k).join(", ")
-    : "Showing: All";
+
+/* "These are all modes, and they define what happens and what buttons
+   are available... in the rest of the bar" — the owner's own words. A
+   mode switch changes four things together: which feed tiles show,
+   where Send submits, whether the bar takes typed text or a picked
+   file, and the status line's own wording. */
+function setMode(mode) {
+  currentMode = mode;
+  modeField.value = mode === "task" ? "task" : "";
+  composeForm.action = DASH_MODE_ACTION[mode] || "/tickets/new";
+  kindLabel.textContent = mode ? "Showing: " + (DASH_KIND_LABEL[mode] || mode) : "Showing: All";
+
+  const isFileMode = mode === "upload" || mode === "expense";
+  const isTextMode = mode === "ticket" || mode === "task";
+  resetAttachment();
+  titleInput.value = "";
+  titleInput.disabled = !isTextMode && !isFileMode;
+  titleInput.readOnly = isFileMode;
+  /* Never required on fileInput itself: it is permanently hidden (only
+     ever opened via the + button's own .click()), and a hidden-but-
+     required field is a real native-validation footgun — some browsers
+     try to focus it to report the error and silently fail instead,
+     blocking submission with no visible message at all. Checked in the
+     submit handler below instead, where a real message can be shown. */
+  titleInput.required = isTextMode;
+  titleInput.placeholder = DASH_MODE_PLACEHOLDER[mode] || "Pick a mode above to add something";
+  /* Expenses is the existing receipt scanner (receiptUploadPage()) — same
+     accept/capture as its own <input>, so the picker offers the camera
+     directly on a phone. Uploads takes any file type assets.list already
+     accepts, so no restriction. */
+  fileInput.accept = mode === "expense" ? "image/*" : "";
+  if (mode === "expense") fileInput.setAttribute("capture", "environment");
+  else fileInput.removeAttribute("capture");
+  micBtn.hidden = !isTextMode;
+  attachBtn.hidden = !isFileMode;
+  sendBtn.disabled = !isTextMode && !isFileMode;
+
   markKindMenu();
+  filterFeed();
 }
-function toggleKind(name) {
-  if (!name) selectedKinds.clear();
-  else if (selectedKinds.has(name)) selectedKinds.delete(name);
-  else selectedKinds.add(name);
-  updateKindLabel();
-}
+
+composeForm.addEventListener("submit", (e) => {
+  const isFileMode = currentMode === "upload" || currentMode === "expense";
+  if (isFileMode && !fileInput.files[0]) {
+    e.preventDefault();
+    attachBtn.animate([{ transform: "scale(1.15)" }, { transform: "scale(1)" }], { duration: 180 });
+  }
+});
+
 /* A ticket assigned to the viewer carries BOTH "ticket" and "task" in its
    own data-kind (space-separated, like a class list) — this is what lets
-   the same tile satisfy either filter without a second, duplicate row. */
+   the same tile satisfy either mode's own view without a second,
+   duplicate row. "" (All) shows every kind. */
 function filterFeed() {
   let visible = 0;
   document.querySelectorAll("#dash-feed .ticket-tile").forEach((el) => {
     const kinds = (el.dataset.kind || "").split(" ");
-    const show = selectedKinds.size === 0 || kinds.some((k) => selectedKinds.has(k));
+    const show = !currentMode || kinds.includes(currentMode);
     el.hidden = !show;
     if (show) visible++;
   });
   if (feedEmpty) feedEmpty.hidden = visible !== 0;
 }
 
+attachBtn.addEventListener("click", () => {
+  if (fileInput.files[0]) {
+    resetAttachment();
+    return;
+  }
+  fileInput.click();
+});
+fileInput.addEventListener("change", () => {
+  if (!fileInput.files[0]) return;
+  titleInput.value = fileInput.files[0].name;
+  attachBtn.setAttribute("aria-pressed", "true");
+  attachBtn.innerHTML = CANCEL_ICON_HTML;
+});
+
 /* The status line lives at the top of the page now (the .greet section
-   above), not sharing this floating spot with the menu any more — see
-   updateKindLabel()'s own comment — so opening or closing the menu has
-   nothing to do with it. */
+   above), not sharing this floating spot with the menu any more, so
+   opening or closing the menu has nothing to do with it. Picking a mode
+   closes the menu — unlike Items' own multi-select category picker,
+   exactly one mode is ever active, so there is nothing a second click
+   could add. */
 if (kindBtn && kindMenuEl) {
   kindBtn.addEventListener("click", () => {
     kindMenuEl.hidden = !kindMenuEl.hidden;
@@ -2060,8 +2165,8 @@ if (kindBtn && kindMenuEl) {
   kindMenuEl.addEventListener("click", (e) => {
     const btn = e.target.closest(".category-item");
     if (!btn) return;
-    toggleKind(btn.dataset.kind);
-    filterFeed();
+    setMode(btn.dataset.kind);
+    kindMenuEl.hidden = true;
   });
   document.addEventListener("click", (e) => {
     if (kindMenuEl.hidden) return;
@@ -2074,8 +2179,7 @@ if (kindBtn && kindMenuEl) {
   });
 }
 
-updateKindLabel();
-filterFeed();
+setMode(currentMode);
 
 ${dictationScript({ btnId: "dash-mic", inputId: "dash-title" })}
 </script>`,
@@ -2465,7 +2569,7 @@ export function assetUploadedPage({ id, filename, hasText }) {
        <h1>${esc(filename)}</h1>
        <p>${hasText ? "Any assistant connected here can already read its text." : "Stored and listed. There is no text extraction for this file type yet — open it directly to read it."}</p>
        <p><a href="/assets/${esc(id)}">Open the file</a></p>
-       <p><a href="/assets/new">Drop another</a> &middot; <a href="/">Back to ops</a></p>
+       <p><a href="/assets/new">Drop another</a> &middot; <a href="/dashboard">Back to the Dashboard</a></p>
      </main>`,
     APPROVAL_CSS,
   );
@@ -2558,7 +2662,7 @@ export function expenseConfirmPage({ receiptKey, description, amount_minor, curr
        </form>
        <p class="fine">Filing does not pay it out — a manager still approves it, and cannot be the
           person who filed it.</p>
-       <p><a href="/expenses/new">Scan a different receipt</a> &middot; <a href="/">Back to ops</a></p>
+       <p><a href="/expenses/new">Scan a different receipt</a> &middot; <a href="/dashboard">Back to the Dashboard</a></p>
      </main>`,
     APPROVAL_CSS,
   );
@@ -2572,7 +2676,7 @@ export function expenseFiledPage({ id, description, amount_minor, currency }) {
        <h1>${esc(description)}</h1>
        <p>${(amount_minor / 100).toFixed(2)} ${esc(currency)} &middot; waiting on a manager's approval.</p>
        <p class="fine">Reference: ${esc(id)}</p>
-       <p><a href="/expenses/new">Scan another</a> &middot; <a href="/">Back to ops</a></p>
+       <p><a href="/expenses/new">Scan another</a> &middot; <a href="/dashboard">Back to the Dashboard</a></p>
      </main>`,
     APPROVAL_CSS,
   );

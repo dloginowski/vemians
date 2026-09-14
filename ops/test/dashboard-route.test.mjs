@@ -181,7 +181,7 @@ check("test_PRD_P0_108_ops_dashboard__default_kind_is_task_with_no_open_customer
 
   const res = await get("/dashboard", STAFF, env({ tickets, finance: null, assets: null }));
   const body = await res.text();
-  assert.match(body, /new Set\(\["task"\]\)/);
+  assert.match(body, /let currentMode = "task"/);
 });
 
 check("test_PRD_P0_108_ops_dashboard__an_open_customer_ticket_switches_the_default_to_tickets", async () => {
@@ -190,7 +190,7 @@ check("test_PRD_P0_108_ops_dashboard__an_open_customer_ticket_switches_the_defau
 
   const res = await get("/dashboard", STAFF, env({ tickets, finance: null, assets: null }));
   const body = await res.text();
-  assert.match(body, /new Set\(\["ticket"\]\)/);
+  assert.match(body, /let currentMode = "ticket"/);
 });
 
 check("test_PRD_P0_108_ops_dashboard__a_resolved_customer_ticket_does_not_switch_the_default", async () => {
@@ -199,7 +199,7 @@ check("test_PRD_P0_108_ops_dashboard__a_resolved_customer_ticket_does_not_switch
 
   const res = await get("/dashboard", STAFF, env({ tickets, finance: null, assets: null }));
   const body = await res.text();
-  assert.match(body, /new Set\(\["task"\]\)/);
+  assert.match(body, /let currentMode = "task"/);
 });
 
 check("test_PRD_P0_108_ops_dashboard__expenses_stay_scoped_to_the_viewer_for_staff", async () => {
@@ -226,7 +226,7 @@ check("test_PRD_P0_108_ops_dashboard__a_missing_finance_or_assets_binding_degrad
 check("test_PRD_P0_108_ops_dashboard__the_compose_bar_still_posts_to_tickets_new", async () => {
   const res = await get("/dashboard", STAFF, env({ finance: null, assets: null }));
   const body = await res.text();
-  assert.match(body, /<form class="chat" method="post" action="\/tickets\/new">/);
+  assert.match(body, /<form class="chat" method="post" action="\/tickets\/new"[^>]*id="dash-compose">/);
 });
 
 check("test_PRD_P0_108_ops_dashboard__the_compose_mic_is_plain_dictation_not_agentic", async () => {
@@ -267,9 +267,9 @@ check("test_PRD_P0_109_status_line_matches_greeting__the_mode_indicator_sits_at_
 check("test_PRD_P0_109_status_line_matches_greeting__the_mode_indicator_is_always_shown_never_hidden", async () => {
   const res = await get("/dashboard", STAFF, env({ finance: null, assets: null }));
   const body = await res.text();
-  const updateFn = body.slice(body.indexOf("function updateKindLabel"), body.indexOf("function updateKindLabel") + 300);
-  assert.doesNotMatch(updateFn, /kindLabel\.hidden/, "the mode indicator must never be toggled hidden");
-  assert.match(updateFn, /"Showing: All"/);
+  const setModeFn = body.slice(body.indexOf("function setMode"), body.indexOf("function setMode") + 700);
+  assert.doesNotMatch(setModeFn, /kindLabel\.hidden/, "the mode indicator must never be toggled hidden");
+  assert.match(setModeFn, /"Showing: All"/);
 });
 
 check("test_PRD_P0_109_status_line_matches_greeting__the_page_container_shares_the_agent_pages_own_top_and_side_padding", async () => {
@@ -284,4 +284,94 @@ check("test_PRD_P0_109_status_line_matches_greeting__the_page_container_shares_t
      longer decides anything here: this tightened rule comes later in the
      cascade at equal specificity, so it wins regardless. */
   assert.match(body, /\.ops\s*\{[^}]*max-width:\s*64rem;\s*padding:\s*12px 8px 76px/s);
+});
+
+check("test_PRD_P0_110_dashboard_modes__exactly_one_mode_is_active_a_plain_string_not_a_set", async () => {
+  /* The owner's own correction: "we are not dealing with selections and
+     filtering items. We are dealing with modes." Multi-select (a Set) is
+     gone; the current mode is one plain string. */
+  const res = await get("/dashboard", STAFF, env({ finance: null, assets: null }));
+  const body = await res.text();
+  assert.doesNotMatch(body, /new Set\(/, "there must be no multi-select Set left in the mode selector's own script");
+  assert.match(body, /let currentMode = /);
+});
+
+check("test_PRD_P0_110_dashboard_modes__each_mode_posts_to_its_own_route", async () => {
+  /* "When we type in something in the bar and then hit submit, that's a
+     new ticket... in a task, that's a new task... uploads should look
+     different... same goes for invoices." One shared compose form,
+     re-pointed per mode rather than four separate forms. */
+  const res = await get("/dashboard", STAFF, env({ finance: null, assets: null }));
+  const body = await res.text();
+  assert.match(body, /DASH_MODE_ACTION = \{ ticket: "\/tickets\/new", task: "\/tickets\/new", expense: "\/expenses\/new", upload: "\/assets\/new" \}/);
+});
+
+check("test_PRD_P0_110_dashboard_modes__ticket_and_task_modes_show_text_input_and_mic_not_attach", async () => {
+  const res = await get("/dashboard", STAFF, env({ finance: null, assets: null }));
+  const body = await res.text();
+  const setModeFn = body.slice(body.indexOf("function setMode"), body.indexOf("function setMode") + 1600);
+  assert.match(setModeFn, /const isTextMode = mode === "ticket" \|\| mode === "task"/);
+  assert.match(setModeFn, /micBtn\.hidden = !isTextMode/);
+});
+
+check("test_PRD_P0_110_dashboard_modes__upload_and_expense_modes_show_a_plus_button_not_the_mic", async () => {
+  /* The owner's own words: "we're not necessarily putting in text. We are
+     literally selecting... instead of the voice, the microphone, we have
+     a plus button." */
+  const res = await get("/dashboard", STAFF, env({ finance: null, assets: null }));
+  const body = await res.text();
+  assert.match(body, /<button type="button" class="icon-btn" id="dash-attach" aria-label="Attach a file" title="Attach a file" hidden>/);
+  const setModeFn = body.slice(body.indexOf("function setMode"), body.indexOf("function setMode") + 1600);
+  assert.match(setModeFn, /const isFileMode = mode === "upload" \|\| mode === "expense"/);
+  assert.match(setModeFn, /attachBtn\.hidden = !isFileMode/);
+});
+
+check("test_PRD_P0_110_dashboard_modes__the_attach_button_is_never_styled_agentic_orange", async () => {
+  const res = await get("/dashboard", STAFF, env({ finance: null, assets: null }));
+  const body = await res.text();
+  assert.doesNotMatch(body, /id="dash-attach"[^>]*mic-btn/, "the + button must stay the neutral icon-btn look, never the orange mic-btn one");
+});
+
+check("test_PRD_P0_110_dashboard_modes__all_mode_disables_the_bar_instead_of_defaulting_to_an_action", async () => {
+  /* Browsing only — there is nothing an "All" submission would even mean,
+     so the bar is disabled rather than silently defaulting to Tickets. */
+  const res = await get("/dashboard", STAFF, env({ finance: null, assets: null }));
+  const body = await res.text();
+  const setModeFn = body.slice(body.indexOf("function setMode"), body.indexOf("function setMode") + 2200);
+  assert.match(setModeFn, /sendBtn\.disabled = !isTextMode && !isFileMode/);
+  assert.match(setModeFn, /titleInput\.disabled = !isTextMode && !isFileMode/);
+});
+
+check("test_PRD_P0_110_dashboard_modes__a_file_mode_submission_with_no_file_picked_is_blocked_client_side", async () => {
+  /* fileInput itself is never marked required — it is permanently hidden
+     (only ever opened via the + button), and a hidden-but-required field
+     is a real native-validation footgun. Checked in the submit handler
+     instead, where preventDefault() actually stops the request. */
+  const res = await get("/dashboard", STAFF, env({ finance: null, assets: null }));
+  const body = await res.text();
+  assert.doesNotMatch(body, /fileInput\.required = /, "the hidden file input itself must never carry a required attribute");
+  const submitHandler = body.slice(body.indexOf('composeForm.addEventListener("submit"'), body.indexOf('composeForm.addEventListener("submit"') + 300);
+  assert.match(submitHandler, /e\.preventDefault\(\)/);
+  assert.match(submitHandler, /!fileInput\.files\[0\]/);
+});
+
+check("test_PRD_P0_110_dashboard_modes__the_bar_button_hidden_attribute_actually_hides_it", async () => {
+  /* The same [hidden]-vs-explicit-display trap .category-menu was caught
+     by earlier this session: .input-bar button sets display: inline-flex,
+     which always beats the browser's own [hidden] { display: none }
+     default regardless of specificity. Needed here for the first time
+     because this is the first .input-bar button ever toggled via the
+     hidden ATTRIBUTE (mic/attach swap per mode) rather than .remove()d
+     outright. */
+  const res = await get("/dashboard", STAFF, env({ finance: null, assets: null }));
+  const body = await res.text();
+  assert.match(body, /\.input-bar button\[hidden\]\s*\{\s*display:\s*none;\s*\}/);
+});
+
+check("test_PRD_P0_110_dashboard_modes__the_expense_mode_reuses_the_receipt_scanners_own_accept_and_capture", async () => {
+  const res = await get("/dashboard", STAFF, env({ finance: null, assets: null }));
+  const body = await res.text();
+  const setModeFn = body.slice(body.indexOf("function setMode"), body.indexOf("function setMode") + 1600);
+  assert.match(setModeFn, /fileInput\.accept = mode === "expense" \? "image\/\*" : ""/);
+  assert.match(setModeFn, /setAttribute\("capture", "environment"\)/);
 });
