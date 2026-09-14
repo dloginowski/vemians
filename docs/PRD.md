@@ -2363,6 +2363,22 @@ that does not trace to one of these is a process failure (see §12).
     same `8px + 42px + 8px = 58px` arithmetic — closed by picking a category, clicking anywhere
     else, or Escape.
 
+    **Caught live: the menu rendered permanently open.** `.category-menu`'s own `display: flex`
+    is an author style, and an author style beats the browser's default `[hidden] { display: none
+    }` UA rule regardless of specificity — so the `hidden` attribute on the element did nothing at
+    all without an explicit override restating `none` for `.category-menu[hidden]`. Fixed by
+    adding that rule; the element's own `hidden` property (never `style.display`) is still what
+    the script toggles.
+
+    **Orange is reserved for the agent, and this button is not the agent.** The owner's own
+    words, once Send's shared `.input-bar .send-btn` rule made Items' search button the same
+    accent orange as the chat composer's own Send: "don't style the search button orange, because
+    orange indicates AI input... agentic input... that's the only thing that should have that
+    orange decoration." `.input-bar .send-btn` is now the same neutral faint fill `.icon-btn`
+    already uses; only `#chat .send-btn` — the id ONLY the real agent composer's form carries,
+    never the ticket compose/comment forms or Items' search bar, all of which reuse `class="chat"`
+    or `class="input-bar"` purely for the shared shape — stays accent-coloured.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
