@@ -220,9 +220,21 @@ const INPUT_BAR_CSS = `
    dedicated class rather than a change to .icon-btn's own shared rule, so
    the attach button (a plain file picker, not agentic) keeps its neutral
    faint fill. Declared after .icon-btn so it wins the tie — both are a
-   single class on the same element, so source order decides. */
+   single class on the same element, so source order decides.
+   :hover restates color: var(--ground) explicitly — the owner's own
+   words, reporting a real bug: "after recording something with the
+   microphone and pressing stop, the glyph disappears... it should be
+   coming back to that dark gray glyph." Root cause, found by rendering
+   and inspecting computed styles rather than assumed: clicking a button
+   leaves the cursor hovering over it, and .mic-btn:hover never redeclared
+   its own color — with only background/opacity here, .icon-btn:hover's
+   own "color: var(--accent)" (equal specificity, but that's the only
+   rule setting color for a hovered state) won by default, painting the
+   icon the SAME orange as its own background and camouflaging it
+   completely. Every state of this button needs its own explicit color,
+   the same lesson .mic-btn[aria-pressed] already had right. */
 .input-bar .mic-btn { background: var(--accent); color: var(--ground); }
-.input-bar .mic-btn:hover { background: var(--accent); opacity: 0.85; }
+.input-bar .mic-btn:hover { background: var(--accent); color: var(--ground); opacity: 0.85; }
 .input-bar .mic-btn[aria-pressed="true"] { background: var(--accent); color: var(--ground); opacity: 0.7; }
 /* Send is the SAME faint neutral fill as icon-btn by default now, not the
    accent orange it used to always be — the owner's own words: "don't

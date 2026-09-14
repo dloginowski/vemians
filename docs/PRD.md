@@ -3098,6 +3098,24 @@ that does not trace to one of these is a process failure (see §12).
     Rather than a third guess at a new gray, the disabled send glyph now points at the SAME token
     the reference itself already uses — one color, matched directly, not approximated.
 
+63. **`Test-PRD-P0-128-mic_glyph_survives_hover`** — A real, pre-existing bug the previous round's
+    close look at the mic button as a color reference actually surfaced: the owner's own words,
+    "after recording something with the microphone and pressing stop, the glyph disappears... it
+    should be coming back to that dark gray glyph that was when nothing was recorded."
+
+    **Root cause, found by rendering and inspecting computed styles rather than assumed**: clicking
+    a button leaves the cursor hovering over it in a real browser, and `.mic-btn:hover` only ever
+    set `background` and `opacity` — never `color`. With nothing there to win the `color` property
+    on hover, `.input-bar .icon-btn:hover`'s own `color: var(--accent)` (equal specificity, but the
+    only rule actually setting `color` for a hovered state) applied by default, painting the icon
+    the SAME orange as its own background and camouflaging it completely — not a JS bug (the
+     correct icon was verifiably still in the DOM the whole time), a missing CSS declaration.
+
+    **`.input-bar .mic-btn:hover` now restates `color: var(--ground)` explicitly**, the same
+    lesson `.mic-btn[aria-pressed="true"]` already had right. Fixes both mic buttons that share
+    this class: the agent chat's own toggle-to-record mic and Items' own press-and-hold voice
+    search mic (`item-mic-btn`) — one shared rule, one fix.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -3376,6 +3394,7 @@ Where each feature is enforced today:
 | P0-125 | `ops/test/ops-page.test.mjs`, `ops/test/dashboard-route.test.mjs` |
 | P0-126 | `ops/test/ops-page.test.mjs` |
 | P0-127 | `ops/test/ops-page.test.mjs` |
+| P0-128 | `ops/test/ops-page.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
