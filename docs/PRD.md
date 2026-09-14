@@ -3308,6 +3308,26 @@ that does not trace to one of these is a process failure (see §12).
     rendered beside `.item-share` in `.item-top-right` and hidden the same way — `display: none`
     until the tile itself carries `.full`.
 
+69. **`Test-PRD-P0-134-deep_link_by_sku`** — The owner's own words: "you made a deep link to black
+    dress, and that's not going to work for us. It needs to be to the SKU number, right? Because
+    the SKU is always going to be a unique number, a unique location, a unique product... we do not
+    want to be making our deep links based on item names. The titles and descriptions may change
+    in the future, and that's going to break our linking."
+
+    **P0-132's own `#item-<handle>` becomes `#item-<sku>`.** `data-sku` (the same `primarySku` the
+    bottom row already renders — the first variation's own, P0-131's convention) joins `data-handle`
+    on the tile rather than replacing it: `data-handle` still drives the edit forms' own
+    `/items/<handle>/channel` and `/items/<handle>/custom-fields` POST targets, which are keyed on
+    handle for an unrelated reason (that is what `catalog.set_channel`/`catalog.set_custom_fields`
+    already take); `data-sku` is the one thing the link itself reads, in `shareLink()` and the
+    hash-matching block alike. A handle is derived from the title (P0-26's own owned-storefront
+    slug) and a title can change; a SKU cannot without becoming a different, deliberately reissued
+    number — exactly the stability the owner is asking for.
+
+    **A product with no SKU (no variations yet) disables `.item-share` outright**, rather than
+    copying an empty `#item-` link that would collide with every other SKU-less product — there is
+    no stable identifier to hand anyone until the product has one.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -3592,6 +3612,7 @@ Where each feature is enforced today:
 | P0-131 | `ops/test/items-route.test.mjs` |
 | P0-132 | `ops/test/items-route.test.mjs`, `ops/test/approvals.test.mjs` |
 | P0-133 | `ops/test/items-route.test.mjs` |
+| P0-134 | `ops/test/items-route.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

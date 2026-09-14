@@ -957,13 +957,49 @@ check("test_PRD_P0_132_item_deep_link__clicking_share_does_not_also_collapse_the
 check("test_PRD_P0_132_item_deep_link__the_link_is_a_hash_not_a_server_route", async () => {
   /* The owner's own words: "I want to get a deep link into that expanded
      view so I can send it to somebody." The whole catalog already renders
-     in one response, so #item-<handle> costs nothing a real route would
+     in one response, so #item-<sku> costs nothing a real route would
      otherwise fetch. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const res = await get("/items", STAFF, env(mirror));
   const body = await res.text();
-  assert.match(body, /"#item-" \+ encodeURIComponent\(handle\)/);
+  assert.match(body, /"#item-" \+ encodeURIComponent\(sku\)/);
+});
+
+check("test_PRD_P0_134_deep_link_by_sku__the_link_is_keyed_on_sku_not_the_handle_or_title", async () => {
+  /* The owner's own words: "you made a deep link to black dress, and
+     that's not going to work for us. It needs to be to the SKU number...
+     the SKU is always going to be a unique number, a unique location, a
+     unique product... we do not want to be making our deep links based
+     on item names. The titles and descriptions may change in the future,
+     and that's going to break our linking." */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.match(body, /data-sku="VEM-100"/);
+  assert.match(body, /const sku = btn\.closest\("\.item-tile"\)\.dataset\.sku;/, "shareLink must copy the tile's own SKU, not its handle");
+  assert.match(
+    body,
+    /const sku = decodeURIComponent\(location\.hash\.slice\("#item-"\.length\)\);\s*\n\s*const linked = \[\.\.\.document\.querySelectorAll\("\.item-tile"\)\]\.find\(\(el\) => el\.dataset\.sku === sku\);/,
+    "opening a link must match the tile by SKU, not handle",
+  );
+});
+
+check("test_PRD_P0_134_deep_link_by_sku__a_product_with_no_sku_disables_the_share_button", async () => {
+  /* No variations means no stable identifier to copy — a disabled button,
+     not a link that would collide with every other SKU-less product. */
+  const mirror = mirrorDb();
+  mirror.db.exec(
+    "INSERT INTO mirror_product (id, external_ref, handle, title, status, channel, custom_fields) " +
+      "VALUES ('p2', 'sqitem2', 'no-sku-yet', 'No SKU Yet', 'active', 'direct_link', '{}')",
+  );
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  const tileAt = body.indexOf('data-handle="no-sku-yet"');
+  const tile = body.slice(Math.max(0, tileAt - 300), tileAt + 600);
+  assert.match(tile, /data-sku=""/);
+  assert.match(tile, /<button type="button" class="item-share"[^>]* disabled>/);
 });
 
 check("test_PRD_P0_132_item_deep_link__opening_a_linked_item_forces_it_visible_and_expanded", async () => {
