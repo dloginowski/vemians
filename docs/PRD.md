@@ -3255,17 +3255,23 @@ that does not trace to one of these is a process failure (see §12).
     somewhere, maybe top right, when I expand the product. I want to get a deep link into that
     expanded view so I can send it to somebody."
 
-    **`.item-share` — a plain clipboard icon, reusing the same `CLIPBOARD` glyph and copy-feedback
-    convention `copyLine()`/`COPY_JS` already established for a code block in the chat log — sits
-    beside the price in `.item-top`, hidden on a collapsed tile and shown only once it carries
-    `.full`.** A link to an unexpanded tile would have nothing to point at that a plain visit to
-    `/items` doesn't already show, so the button simply does not exist until there is something
-    worth linking to. Clicking it copies `location.origin + location.pathname + "#item-" +
-    encodeURIComponent(handle)` — a URL **fragment**, not a server route: the whole catalog already
-    renders in one response (P0-71's own architecture), so a real `/items/<handle>` fetch would
-    return data this page already holds. The click-delegation handler on `#items-grid` special-cases
-    `.item-share` the same way it already special-cases `.item-edit` — otherwise the very click that
-    copies the link would also toggle the tile it just expanded further shut.
+    **`.item-share` — reusing the copy-feedback convention `copyLine()`/`COPY_JS` already
+    established for a code block in the chat log — sits beside the price in `.item-top`, hidden on
+    a collapsed tile and shown only once it carries `.full`.** A link to an unexpanded tile would
+    have nothing to point at that a plain visit to `/items` doesn't already show, so the button
+    simply does not exist until there is something worth linking to. Clicking it copies
+    `location.origin + location.pathname + "#item-" + encodeURIComponent(handle)` — a URL
+    **fragment**, not a server route: the whole catalog already renders in one response (P0-71's
+    own architecture), so a real `/items/<handle>` fetch would return data this page already holds.
+    The click-delegation handler on `#items-grid` special-cases `.item-share` the same way it
+    already special-cases `.item-edit` — otherwise the very click that copies the link would also
+    toggle the tile it just expanded further shut. **Revised: `LINK_ICON` (a chain-link glyph)
+    replaces `CLIPBOARD` on this one button.** The owner's own words, seeing it live: "pick
+    something better, some better icon for a URL, like a share button... you have like a window
+    button." `CLIPBOARD`'s own rectangle-with-a-tab shape reads fine beside the `<pre>` it always
+    sits next to elsewhere, but alone on a button with nothing adjacent to give it context, it read
+    as a little window rather than anything to do with a link — a new, dedicated icon, not a
+    second meaning stacked onto the old one.
 
     **Opening the link is the other half — a plain page load, then a hash check.** `#item-<handle>`
     is read once the grid's own listeners are wired: the matching tile is forced `hidden = false`

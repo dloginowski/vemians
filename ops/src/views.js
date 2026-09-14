@@ -881,6 +881,20 @@ const CLIPBOARD = `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="
   `<rect x="4.5" y="2.5" width="7" height="2.5" rx="0.6" fill="none" stroke="currentColor"/>` +
   `<path d="M4.5 3.75H3.5v9.75h9V3.75h-1" fill="none" stroke="currentColor"/></svg>`;
 
+/* A chain link, not CLIPBOARD above — the owner's own words, on Items' own
+   "copy a link to this item" button: "pick something better, some better
+   icon for a URL, like a share button... you have like a window button."
+   CLIPBOARD's own rectangle-with-a-tab reads as a little window or a
+   document, not a link, once it is the only thing on the button (no
+   adjacent <pre> to give it context the way copyLine()'s own use of it
+   always has). Two hooked strokes overlapping on the diagonal is the
+   universal "link"/"chain" glyph — what "copy a link" means everywhere
+   else this action shows up. */
+const LINK_ICON = `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">` +
+  `<path d="M7.1 4.4 8.3 3.2a2.3 2.3 0 0 1 3.3 3.3L10.3 7.7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>` +
+  `<path d="M8.9 11.6 7.7 12.8a2.3 2.3 0 0 1-3.3-3.3l1.2-1.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>` +
+  `<path d="M6.4 9.6 9.6 6.4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>`;
+
 /* One attach button, not two — a plain "+" like the reference composer's own,
    same stroke-only style as CLIPBOARD above. It opens one file picker that
    takes a photo or any other file; the agent works out which from what
@@ -1731,7 +1745,7 @@ function itemTile(product, canEdit) {
       <div class="item-top"><h3>${esc(product.title)}</h3>
         <div class="item-top-right">
           <span class="item-price">${esc(priceText)}</span>
-          <button type="button" class="item-share" aria-label="Copy a link to this item" title="Copy a link to this item">${CLIPBOARD}</button>
+          <button type="button" class="item-share" aria-label="Copy a link to this item" title="Copy a link to this item">${LINK_ICON}</button>
           <button type="button" class="item-close" aria-label="Close" title="Close">${CANCEL_ICON}</button>
         </div>
       </div>
