@@ -260,21 +260,19 @@ check("test_PRD_P0_71_items_tab__the_active_tab_structurally_merges_into_the_pan
 
 check("test_PRD_P0_71_items_tab__the_first_tab_lines_up_with_the_inner_chat_content_not_ops_own_edge", async () => {
   /* .ops's own 8px, doubled to 16px, then the owner's own words, more
-     precisely: "First tab on left matches the inner chat left extent."
-     That is not .ops's own edge — it is past .chat-top's own frame too:
-     8px (.ops) + 7px (.chat-top's own side padding, halved from 14px by
-     Test-PRD-P0-118-chat_top_side_padding_halved) = 15px, where actual
-     chat content (.log) starts. (.chat-top's own border used to add a
-     3rd, 1px term here — removed along with the border itself; the
-     composer also no longer lives in this same padding stack at all, now
-     that it is fixed to the screen's own bottom instead, so this aligns
-     with .log's own edge specifically rather than a shared
-     log-and-composer one.) */
+     precisely: "First tab on left matches the inner chat left extent" —
+     recomputed through several rounds since (7px side padding on
+     .chat-top, then 0) until, per Test-PRD-P0-121-chat_matches_items_flush_padding,
+     the chat's own content edge and .ops's own edge became the same
+     point again: 8px (.ops) + 0 (.chat-top's own side padding, dropped
+     entirely) + 0 (.log's own padding, also dropped) = 8px, exactly
+     where .items-grid's own content starts too. */
   const { body } = await shell(OWNER);
-  assert.match(body, /\.shell-header\s*\{[^}]*padding:\s*10px 15px 0/s);
+  assert.match(body, /\.shell-header\s*\{[^}]*padding:\s*10px 8px 0/s);
 
   const { body: chatBody } = await frontPage(OWNER);
-  assert.match(chatBody, /\.chat-top\s*\{[^}]*padding:\s*14px 7px/s, "sanity check: .chat-top's own side padding is really 7px now");
+  assert.match(chatBody, /\.chat-top\s*\{[^}]*padding:\s*14px 0/s, "sanity check: .chat-top's own side padding is really 0 now");
+  assert.match(chatBody, /\.log\s*\{[^}]*padding:\s*0/s, "sanity check: .log's own padding is really 0 now");
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -873,15 +871,13 @@ check("test_PRD_P0_93_nested_chat_frame__the_outer_frame_padding_is_the_same_on_
      original value this padding carried before any tightening request
      in this whole thread touched it, and trivially "sides match bottom"
      since there was only one number.
-     Superseded in part by Test-PRD-P0-118-chat_top_side_padding_halved:
-     sides and top/bottom no longer match on purpose — the owner's own
-     later words, comparing the chat body to the composer just below it:
-     "the chat entry field has less padding around it on the sides than
-     the actual chat body... the chat body could use like half the
-     padding." Top/bottom keep the 14px this test was originally about;
-     only the sides moved. */
+     Superseded in part, first by Test-PRD-P0-118-chat_top_side_padding_halved
+     (sides halved to 7px) and then by Test-PRD-P0-121-chat_matches_items_flush_padding
+     (sides dropped to 0 entirely, matching the Items grid's own flush
+     layout): sides and top/bottom no longer match on purpose. Top/bottom
+     keep the 14px this test was originally about; only the sides moved. */
   const { body } = await frontPage(OWNER);
-  assert.match(body, /\.chat-top\s*\{[^}]*padding:\s*14px 7px;/s, "top/bottom stay the generous 14px; sides are now half that");
+  assert.match(body, /\.chat-top\s*\{[^}]*padding:\s*14px 0;/s, "top/bottom stay the generous 14px; sides are now flush at 0");
 });
 
 check("test_PRD_P0_118_chat_top_side_padding_halved__the_shell_tabs_stay_aligned_with_the_new_edge", async () => {
@@ -889,13 +885,36 @@ check("test_PRD_P0_118_chat_top_side_padding_halved__the_shell_tabs_stay_aligned
      section... the chat entry field has less padding around it on the
      sides than the actual chat body... the chat body could use like half
      the padding." .chat-top's own side padding is verified directly by
-     the P0-93 check above (14px 7px); this one covers the knock-on effect
-     P0-71 already cared about — the shell's own first tab lining up with
-     where .log's content actually starts, which moves the moment
-     .chat-top's own side padding does. */
+     the P0-93 check above; this one covers the knock-on effect P0-71
+     already cared about — the shell's own first tab lining up with where
+     .log's content actually starts, which moves the moment .chat-top's
+     own side padding does. Recomputed again by
+     Test-PRD-P0-121-chat_matches_items_flush_padding once that side
+     padding dropped all the way to 0. */
   const { body } = await shell(OWNER);
-  assert.match(body, /\.shell-header\s*\{[^}]*padding:\s*10px 15px 0/s, "the tab row's own left padding must track .chat-top's new 8px + 7px = 15px inset");
-  assert.doesNotMatch(body, /\.shell-header\s*\{[^}]*padding:\s*10px 22px 0/s, "the old 22px inset (matching the pre-halving 14px side padding) must be gone");
+  assert.match(body, /\.shell-header\s*\{[^}]*padding:\s*10px 8px 0/s, "the tab row's own left padding must track the chat's own now-flush 8px inset");
+  assert.doesNotMatch(body, /\.shell-header\s*\{[^}]*padding:\s*10px 22px 0/s, "the old 22px inset (matching the original 14px side padding) must be gone");
+  assert.doesNotMatch(body, /\.shell-header\s*\{[^}]*padding:\s*10px 15px 0/s, "the intermediate 15px inset (matching the halved 7px side padding) must be gone too");
+});
+
+check("test_PRD_P0_121_chat_matches_items_flush_padding__the_chat_body_sits_exactly_as_flush_as_the_items_grid", async () => {
+  /* The owner's own words, still not satisfied after P0-118's own
+     halving: "I'm still seeing more padding on the agent chat... if you
+     look at the items page, the items have much less side padding than
+     the agent chat does. Match the agent chat padding to the items, and
+     make sure all of them match the items padding." Items' own grid
+     (.items-grid) carries no padding of its own at all — it sits flush
+     against .ops's own 8px side inset, with only each item-tile's own
+     border and padding providing any visual spacing. .chat-top's own
+     side padding and .log's own padding both drop to 0 for the same
+     reason: a message bubble already carries its own padding and
+     background exactly the way an item-tile does, so an outer frame
+     serves no purpose the Items grid doesn't already do without one. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.chat-top\s*\{[^}]*padding:\s*14px 0;/s, "chat-top's own side padding must be dropped to 0, matching .items-grid's own lack of padding");
+  assert.match(body, /\.log\s*\{[^}]*padding:\s*0;/s, "log's own padding must be dropped to 0 too, so nothing sits between .chat-top's edge and a bubble");
+  assert.doesNotMatch(body, /\.chat-top\s*\{[^}]*padding:\s*14px 7px/s, "the intermediate 7px round must be gone");
+  assert.doesNotMatch(body, /\.log\s*\{[^}]*padding:\s*2px/s, "the old uniform 2px round must be gone");
 });
 
 check("test_PRD_P0_93_nested_chat_frame__the_pills_own_radius_never_changes__only_the_outer_frame_matches_it", async () => {
@@ -1294,10 +1313,17 @@ check("test_PRD_P0_78_chat_widget__the_first_bubble_sits_the_same_distance_from_
      padding 2px), stacking on top of .chat-top's own uniform 14px padding.
      The owner's own words, pointing at a real screenshot: "Its too far
      from top edge of outer chat box. Needs to match [the] side." margin
-     now carries only the bottom gap before the composer form; padding is
-     a uniform 2px matching the side value exactly. */
+     carries only the bottom gap before the composer form. Padding was a
+     uniform 2px matching the side value exactly; superseded by
+     Test-PRD-P0-121-chat_matches_items_flush_padding, which drops it to a
+     uniform 0 instead — .log matching the Items grid's own flush layout
+     (no padding of its own at all) took priority over keeping top and
+     side distances equal to each other at a nonzero value. Uniform
+     either way: 0 still matches on every edge, it just also happens to
+     be the value that lines the bubble up with .ops's own 8px, same as
+     an item-tile. */
   const { body } = await frontPage(OWNER);
-  assert.match(body, /\.log\s*\{[^}]*padding:\s*2px;/s, "padding must be uniform, matching the side value on every edge");
+  assert.match(body, /\.log\s*\{[^}]*padding:\s*0;/s, "padding must be uniform (0), matching the side value on every edge");
   assert.match(body, /\.log\s*\{[^}]*margin:\s*0 0 8px;/s, "margin must carry only the bottom gap, none on top");
   assert.doesNotMatch(body, /\.log\s*\{[^}]*margin:\s*8px 0/s, "the old top-heavy margin must not still be set");
 });
