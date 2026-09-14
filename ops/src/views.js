@@ -380,7 +380,18 @@ ${OPS_DARK_CSS}
    override, which would also zero the gate's OWN use of class="chat"
    for its button row, a few hundred lines down) since only this form's
    top margin was ever the problem. */
-#chat { margin-top: 0; }
+/* Sticks to the bottom of the viewport once scrolled past its own normal
+   position, instead of only ever being structurally last on the page —
+   the owner's own reference, a screenshot of Claude Code's own chat
+   interface: "notice how the text entry is on the bottom, right, where
+   it should be... it should look similar for items and chat." position:
+   sticky (not fixed) keeps the composer occupying its normal space in
+   the document while short, and pins it to the viewport's own bottom
+   edge only once real content (a long conversation) would otherwise
+   scroll it out of view — no compensating bottom padding needed
+   elsewhere, unlike fixed positioning would require. z-index keeps it
+   above .log's own bubbles as they scroll underneath it. */
+#chat { margin-top: 0; position: sticky; bottom: 8px; z-index: 5; }
 
 /* Centred and quiet on purpose — a name check, not the thing on the page
    asking to be read first. The chat widget right below it is that thing;
@@ -1055,10 +1066,20 @@ document.querySelectorAll(".choices .btn[data-prompt]").forEach((btn) => {
  */
 const ITEMS_CSS = `
 ${OPS_DARK_CSS}
+/* The same rounded pill, colours, and sticky-bottom behaviour as the
+   chat composer's own .chat-bar (OPS_CSS, opsPage()) — the owner's own
+   words, pointing at a screenshot of Claude Code's own interface: "we
+   should have the same kind of look. We should not be having a
+   different UI for every single tab." position: sticky (not fixed)
+   keeps this occupying its normal space while the grid is short, and
+   pins it to the viewport's own bottom edge once a long list of tiles
+   would otherwise scroll it out of view — matching #chat's own
+   technique exactly, for the same reason. */
 .items-search {
   width: 100%; box-sizing: border-box; font: inherit; font-size: 14px;
-  padding: 8px 12px; margin: 0 0 16px; border: 1px solid var(--muted);
-  border-radius: 8px; background: var(--image-ground); color: var(--ink);
+  padding: 8px 12px; margin: 16px 0 0; border: 1px solid var(--muted);
+  border-radius: 24px; background: var(--image-ground); color: var(--ink);
+  position: sticky; bottom: 8px; z-index: 5;
 }
 .items-search:focus { outline: none; border-color: var(--ink); }
 /* Two columns down to phone width — the owner's own words: "on my

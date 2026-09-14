@@ -1031,6 +1031,18 @@ check("test_PRD_P0_99_chat_form_inherited_margin__the_gates_own_button_row_still
   assert.match(body, /class='chat row'/, "the gate's own button row must still carry the plain .chat class, unaffected by the #chat override");
 });
 
+check("test_PRD_P0_71_items_tab__the_composer_sticks_to_the_bottom_of_the_screen_like_the_reference_app", async () => {
+  /* The owner's own reference, a screenshot of Claude Code's own chat
+     interface: "notice how the text entry is on the bottom, right,
+     where it should be." position: sticky keeps the composer in its
+     normal document position while short, and pins it to the
+     viewport's own bottom edge once a real conversation would
+     otherwise scroll it out of view. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /#chat\s*\{[^}]*position:\s*sticky/s);
+  assert.match(body, /#chat\s*\{[^}]*bottom:\s*8px/s);
+});
+
 /* ─────────────────────────────────────────────────────────────────────────
  * P0-78 — a real scrolling chat widget, and compact one-click chips
  * ───────────────────────────────────────────────────────────────────────── */
