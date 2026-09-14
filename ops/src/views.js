@@ -388,7 +388,14 @@ const TABLE_CARD_CSS = `
   vertical-align: top; font-size: 12px;
 }
 .table-card td { overflow-wrap: anywhere; word-break: break-word; min-width: 6em; }
-.table-card th { color: var(--ink); font-weight: 700; background: var(--ground); white-space: nowrap; }
+/* Headers centered, data left — the owner's own words: "center the
+   heading... so there's some spacing between [them], just center it so
+   it looks nicer." A header's own column is usually wider than its own
+   nowrap text (sized by the data underneath it, or by a neighboring
+   wider header), so centering gives it real breathing room from the
+   column's own edges instead of sitting flush against the left border
+   the way left-aligned data still does. */
+.table-card th { color: var(--ink); font-weight: 700; background: var(--ground); white-space: nowrap; text-align: center; }
 .table-card a { color: var(--accent); overflow-wrap: anywhere; }
 .table-card button {
   flex: 0 0 auto; font: inherit; font-size: 12px; padding: 1px 2px; cursor: pointer;
