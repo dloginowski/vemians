@@ -2379,6 +2379,43 @@ that does not trace to one of these is a process failure (see §12).
     never the ticket compose/comment forms or Items' search bar, all of which reuse `class="chat"`
     or `class="input-bar"` purely for the shared shape — stays accent-coloured.
 
+38. **`Test-PRD-P0-103-voice_search_fills_the_search_box`** — The owner's own words: "let's also
+    add a microphone to the search bar. The microphone should be orange because that is an
+    agentic input... by holding that microphone input, you can... describe what items you're
+    looking for, and then the agent will just fill in the search bar with the proper filters or
+    search pattern... it's not an agentic chat per se... I don't want to have a chat inside of the
+    items view." Also, retroactively: "make sure that the microphone in the agentic agent window
+    is orange as well because that's an agentic input as well" — reversing P0-98's own original
+    choice to match the mic's colour to the neutral attach button.
+
+    **A dedicated `.mic-btn` class, not a change to `.icon-btn`'s shared fill.** `.input-bar
+    .mic-btn` is accent orange in its resting state (not only on hover/press like every other
+    icon button); the attach button — a plain file picker, not agentic — keeps `.icon-btn`'s
+    neutral faint fill. Applied to both mics: the existing agent composer's own (`opsPage()`,
+    `#mic-btn`) and the new one on Items' search bar (`#item-mic-btn`), between the search input
+    and the search button — the same left-to-right order the chat composer's own attach/input/
+    mic/send already establishes.
+
+    **`searchIntent()` (agent.js) is one completion, never a tool call and never a chat turn.**
+    The owner's own point, made twice: this is not a second chatbot living inside Items. Given the
+    categories actually on file (the same list `.category-menu` already shows) and a transcript,
+    the model replies with a short search string — or, if a category name matches exactly, just
+    that category — nothing else; `tools` is not even sent on this request, unlike every
+    `agentTurn()` call. `SEARCH_INTENT_MAX_TOKENS` (30) reflects that a few words is a ceiling, not
+    a starting point. No key configured falls back to the benign, already-established pattern:
+    the literal utterance becomes the search itself, so holding the mic still does something
+    rather than nothing.
+
+    **Held, not toggled** — deliberately different from the agent composer's own click-to-record
+    mic (P0-98): `mousedown`/`touchstart` starts `SpeechRecognition`, releasing it
+    (`mouseup`/`mouseleave`/`touchend`/`touchcancel`) stops it. The transcript goes to
+    `/items/search-intent` (a new route, requiring the same role every other Items action does);
+    the search box's own placeholder reads "Listening…" then "Thinking…" while the round trip is
+    in flight, and is restored either way — nothing else on the page changes, no reply is ever
+    rendered anywhere. `categories` travels from the client's own already-rendered filter menu
+    rather than a second query, so the model's own suggestions can never name a category the page
+    does not also show.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -2632,6 +2669,7 @@ Where each feature is enforced today:
 | P0-100 | `ops/test/tools.test.mjs` for `ticket.*`; `ops/test/tickets-route.test.mjs` for the `/tickets` routes, over the real Worker; `ops/test/contact-intake.test.mjs` for the scheduled contact-form-to-ticket pickup |
 | P0-101 | `ops/test/skills.test.mjs` for `explainRole()`'s own roster path, over the real `people.sql` schema; `.github/scripts/sync-roster-from-square.mjs` (the SQL-generation and role-mapping half) has no automated test, matching every other `.github/scripts/*` provisioning script in this repository |
 | P0-102 | `ops/test/items-route.test.mjs` |
+| P0-103 | `ops/test/items-search-intent.test.mjs`, `ops/test/items-route.test.mjs`, `ops/test/ops-page.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

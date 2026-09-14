@@ -27,7 +27,7 @@
 
 import { notFoundPage } from "../../shared/view/html.js";
 import { explainRole, readAccessIdentity } from "./access.js";
-import { agentTurn, approve, roleFor } from "./agent.js";
+import { agentTurn, approve, roleFor, searchIntent } from "./agent.js";
 import { approvePending, parkForApproval, peekPending } from "./approvals.js";
 import { CAPS } from "./tools/caps.js";
 import { roleAtLeast } from "./tools/roles.js";
@@ -433,6 +433,34 @@ async function ops(request, env, path) {
       );
     }
     return html(itemsPage({ role }, products));
+  }
+
+  /*
+   * The Items search bar's own mic (P0-103) — a single, non-agentic model
+   * call turning a spoken description into a search string, never a tool
+   * call and never a chat turn. `categories` comes from the client, not a
+   * fresh query here: it is exactly the list rendered into the filter menu
+   * the person is already looking at, so the model's own suggestions can
+   * never drift from what the page shows as an actual category.
+   */
+  if (path === "/items/search-intent") {
+    if (request.method !== "POST") return json({ error: "POST only" }, 405);
+    const role = await roleFor(identity, env);
+    if (!role) {
+      return json({ error: "Your Access identity is in no group this application maps to a role." }, 403);
+    }
+    let q = "";
+    let categories = [];
+    try {
+      const parsed = await body(request);
+      q = String(parsed.q || "");
+      if (Array.isArray(parsed.categories)) categories = parsed.categories.map(String).slice(0, 200);
+    } catch (err) {
+      console.error(`ERROR items/search-intent: unreadable body — ${err.message}`);
+      return json({ error: "Unreadable request body." }, 400);
+    }
+    const result = await searchIntent({ q, env, categories });
+    return json(result);
   }
 
   if (path.startsWith("/items/") && (path.endsWith("/channel") || path.endsWith("/custom-fields"))) {
