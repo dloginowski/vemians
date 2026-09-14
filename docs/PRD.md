@@ -1103,6 +1103,31 @@ that does not trace to one of these is a process failure (see §12).
     the phone" — the search box moved from above the grid to below it, since a thumb reaches the
     bottom of a phone screen far more easily than the top.
 
+    **A redundant title, wasting the vertical space a phone can least afford.** The owner's own
+    words: "you're eating up way too much space on top with that item's title. We have the tab, we
+    know we're in items right now. Get rid of all that stuff." `itemsPage()`'s own `<section
+    class="greet"><h1>Items</h1></section>` duplicated exactly what the shell's own tab bar already
+    said, at the cost of real screen height on the device that has the least of it. Removed
+    entirely — the grid now starts right at `.ops`'s own existing top padding (12px, shared with
+    every other ops page), with no extra title block eating into it first. The thin accent line
+    `.shell-panel` already draws above the iframe (unrelated to this page's own content) still
+    supplies the "little border on top" the owner asked to keep.
+
+    **The header losing its own bottom edge while scrolling the Website tab.** The owner's own
+    words: "the tabs should be in a header, and it should not lose its edge at all because it's
+    part of the header. It's not on pages. It belongs to the header." `.shell`'s own `height: 100vh`
+    is measured on a phone against the LARGEST possible viewport (address bar collapsed), not the
+    one actually visible when the page loads (address bar expanded) — the flex layout could end up
+    taller than the real visible area, letting `.shell-header` (meant to stay fixed via `flex: 0 0
+    auto`) drift partly out of view until the browser's own chrome height was accounted for.
+    `.shell` now declares `height: 100vh; height: 100dvh;` — the `100vh` kept first as a fallback
+    for browsers that predate the dynamic-viewport unit, `100dvh` tracking the real, ACTUAL visible
+    viewport as the address bar shows and hides, keeping the header's own bottom border pinned
+    exactly where the real viewport ends.
+
+    **The one-click menu moved back above the chat on this same pass — see the new paragraph under
+    `Test-PRD-P0-74-chat_first` for why "entry at the bottom" wins on a phone specifically.**
+
 47b. **`Test-PRD-P0-72-product_detail_page`** — Every product has its own page at
     `/products/<handle>` — the answer to "how do I see product details", asked directly, of a
     shop whose cards used to be `<article>`s with no click-through at all. `loadProduct(env,
@@ -1161,6 +1186,20 @@ that does not trace to one of these is a process failure (see §12).
     because the person who asked for this explicitly wanted the assistant to be. Nothing about
     the chat itself changed — same open-at-rest box, same tier-2 approval gate underneath it —
     only where it sits.
+
+    **Reversed on a phone: the menu moved back above the chat, not because chat-first was wrong,
+    but because "entry at the bottom" wins on a phone specifically.** The owner's own words: "I
+    really should have the entry at the bottom of the phone... I can't be reaching to the top of
+    the phone just to put in stuff. You can put the quick chat buttons on top of the chat... not on
+    the bottom." With the one-click menu BELOW `.chat-top`, the composer was never actually the
+    bottom-most element on the page — a phone user reaching for it had to reach up past the menu
+    first. `.log`'s own internal scroll (`max-height`, `overflow-y: auto`, unchanged) already keeps
+    `.chat-top` a fixed height regardless of message count, so moving `<section class="menu">`
+    above `.chat-top` is what actually pins the composer to the true bottom of the page. The
+    assistant still leads the page ahead of the greeting-adjacent menu in the sense that mattered
+    to P0-74 — it is still the primary, unfolded, no-extra-click surface — but the account here of
+    *document order* is superseded: the composer, not the menu, is now deliberately the last thing
+    on the page.
 
 34a'''''. **`Test-PRD-P0-75-ops_dark_theme`** — The employee area gets its own dark palette —
     near-black ground, warm off-white ink, one clay-orange accent for anything a person actually
