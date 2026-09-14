@@ -1535,6 +1535,17 @@ that does not trace to one of these is a process failure (see §12).
     agent to. Checked over the real page (`data-prompt` present with the right text, the old
     `href`s gone) and over `greetingScript()`'s own text (the new skip-the-menu clause present).
 
+    **Superseded in part, once the page itself started saying the person's name too.** P0-91 later
+    kept `.greet`'s own "Hi {name}" heading on the page permanently, above the chat — so the
+    "greeting the person by name in that same reply" half of this clause became a second copy of
+    something already on screen, every single time a chip was clicked. The owner's own words:
+    "you keep on adding 'Hi Dimitri' to all of your responses, but I don't really need that — they
+    already have it at the top." `greetingScript()`'s skip-the-menu clause no longer asks the model
+    to re-greet by name; it still skips straight to the next question. `.greet h1` itself also
+    dropped from `--type` (16px) to 11px — the smallest de-emphasised meta size already used
+    elsewhere (`.ticket-meta`, badges) — per the same complaint: "it needs to be very, very small
+    because it's eating up too much space."
+
 34a''''''''''''''. **`Test-PRD-P0-84-efficient_drafting`** — The owner's own words: "I want chat
     to ask all the right questions to add products. As efficiently and smoothly as possible...
     if not, we learn from our mistakes and refine the skill." Auditing `catalog.draft_product`'s
@@ -1904,6 +1915,14 @@ that does not trace to one of these is a process failure (see §12).
     rather than restyled — a heading that only names what a chat box already visibly is was pure
     restatement, not information — and the two CSS rules that existed solely to style it
     (`.key h1`, `.chat-top h1`) are removed with it rather than left as dead rules nothing renders.
+
+    **Shrunk further once it started sitting alongside a name-check repeated in chat.** Every
+    quick-action click's reply also greeted by name (P0-83) — with this heading now a permanent
+    fixture above it, the two together read as saying "Hi Dimitri" twice for one visit. The
+    owner's own words: "it needs to be very, very small because it's eating up too much space."
+    `.greet h1` drops again, from `var(--type)` (16px, base body size) to 11px — the smallest
+    de-emphasised meta size already in use elsewhere (`.ticket-meta`, badges) — while P0-83's own
+    reply-time greeting is removed outright rather than shrunk, since the page already says it.
 
 34a''''''''''''''''''''''. **`Test-PRD-P0-92-chat_widget_accent`** — The owner's own words: "Make
     the chat window border same orange color as the quick chat pills. Make the + button in chat

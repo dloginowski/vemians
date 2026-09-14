@@ -62,6 +62,21 @@ check("test_PRD_P0_83_quick_prompts_route_through_chat__a_first_message_that_alr
   assert.match(text, /skip the greeting.*menu/i);
 });
 
+check("test_PRD_P0_83_quick_prompts_route_through_chat__the_skip_menu_reply_does_not_re_greet_by_name", () => {
+  /* The owner's own words, once .greet's own "Hi {name}" heading (P0-90)
+     started living on the page permanently: "you keep on adding 'Hi
+     Dimitri' to all of your responses... they already have it at the
+     top." The skip-the-menu clause used to tell the model to greet by name
+     in that same reply; it no longer does, though the clause itself (the
+     assertion above) still stands. */
+  const text = systemPrompt("ana@vemians.com", "staff", [], { given_name: "Ana" });
+  const clauseStart = text.search(/already names a choice/i);
+  assert.ok(clauseStart !== -1);
+  const clause = text.slice(clauseStart, clauseStart + 400);
+  assert.doesNotMatch(clause, /greet them by name in that same reply/i);
+  assert.match(clause, /do not greet them by name/i);
+});
+
 test("test_PRD_P0_30_prd_traceability__every_label_used_here_exists_in_the_prd", async () => {
   const { readFileSync } = await import("node:fs");
   const { fileURLToPath } = await import("node:url");

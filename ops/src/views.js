@@ -446,9 +446,14 @@ ${INPUT_BAR_CSS}
 
 /* Centred and quiet on purpose — a name check, not the thing on the page
    asking to be read first. The chat widget right below it is that thing;
-   a bold, full-bright "Hi Dimitri" over it competed for the same attention. */
-.greet { margin: 0 0 12px; text-align: center; }
-.greet h1 { font-size: var(--type); font-weight: 400; color: var(--muted); margin: 0; }
+   a bold, full-bright "Hi Dimitri" over it competed for the same attention.
+   Shrunk again per the owner's own words, once the chat itself started
+   repeating the same greeting on every quick-action reply: "it needs to
+   be very, very small because it's eating up too much space" — 11px
+   matches the smallest de-emphasised meta text already used elsewhere
+   (.ticket-meta, badges), not a new size invented for this alone. */
+.greet { margin: 0 0 6px; text-align: center; }
+.greet h1 { font-size: 11px; font-weight: 400; color: var(--muted); margin: 0; }
 
 /* Floats directly above the composer now, not in normal document flow above
    the greeting — the owner's own words: "those quick actions to fill the
