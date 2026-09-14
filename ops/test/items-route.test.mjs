@@ -91,9 +91,9 @@ function seedProduct(mirror, overrides = {}) {
   mirror.db
     .prepare(
       `INSERT INTO mirror_product (id, external_ref, handle, title, status, channel, custom_fields, category_id)
-       VALUES ('p1', 'sqitem1', 'wool-coat', 'Wool Coat', 'active', ?, ?, 'cat1')`,
+       VALUES ('p1', 'sqitem1', 'wool-coat', 'Wool Coat', ?, ?, ?, 'cat1')`,
     )
-    .run(overrides.channel ?? "direct_link", custom);
+    .run(overrides.status ?? "active", overrides.channel ?? "direct_link", custom);
   mirror.db.exec(
     "INSERT INTO mirror_variant (id, external_ref, product_id, sku, title, price_minor, currency) " +
       "VALUES ('v1', 'sqvar1', 'p1', 'VEM-100', 'One size', 45000, 'USD')",
@@ -402,7 +402,7 @@ check("test_PRD_P0_106_search_plan_has_a_category_and_keywords__picking_a_catego
   seedProduct(mirror);
   const res = await get("/items", STAFF, env(mirror));
   const body = await res.text();
-  assert.match(body, /<h1 id="category-label">All categories<\/h1>/);
+  assert.match(body, /<span id="category-label">All categories<\/span>/);
   /* The toggle/outside-click/escape wiring itself now lives in the
      shared dropdownMenuScript() helper (views.js) — itemsPage() only
      supplies what happens when an item is picked. This is the rendered
@@ -500,7 +500,7 @@ check("test_PRD_P0_109_status_line_matches_greeting__the_status_line_sits_at_the
   seedProduct(mirror);
   const res = await get("/items", STAFF, env(mirror));
   const body = await res.text();
-  assert.match(body, /<section class="greet">\s*<h1 id="category-label">All categories<\/h1>\s*<\/section>/);
+  assert.match(body, /<section class="greet">\s*<h1><span id="category-label">All categories<\/span>/);
   const greetAt = body.indexOf('<section class="greet">');
   const gridAt = body.indexOf('<div class="items-grid"');
   assert.ok(greetAt > -1 && gridAt > -1 && greetAt < gridAt, "the status line must sit above the grid, not below it");
@@ -774,13 +774,18 @@ check("test_PRD_P0_130_item_tile_photo__no_synced_image_falls_back_to_the_plain_
   assert.match(body, /<div class="item-photo">/, "no image_key must render with no inline background-image style at all");
 });
 
-check("test_PRD_P0_130_item_tile_photo__the_collapsed_tile_shows_only_the_title_sku_and_category", async () => {
+check("test_PRD_P0_131_item_status_filter__the_collapsed_tile_shows_title_price_sku_and_short_tags", async () => {
+  /* The owner's own words: "title on top left, price top right, SKU
+     bottom left, and then a few of the tags, but shorten them." */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const res = await get("/items", STAFF, env(mirror));
   const body = await res.text();
-  assert.match(body, /<div class="item-top"><h3>Wool Coat<\/h3><\/div>/);
-  assert.match(body, /<div class="item-bottom"><span class="item-sku">VEM-100<\/span><span class="item-cat">Outerwear<\/span><\/div>/);
+  assert.match(body, /<div class="item-top"><h3>Wool Coat<\/h3><span class="item-price">\$ 450<\/span><\/div>/);
+  assert.match(
+    body,
+    /<div class="item-bottom"><span class="item-sku">VEM-100<\/span><div class="item-tags"><span class="item-tag channel-direct_link">In store<\/span><span class="item-tag">Outerwear<\/span><\/div><\/div>/,
+  );
 });
 
 check("test_PRD_P0_130_item_tile_photo__everything_else_moves_into_the_expanded_only_detail_section", async () => {
@@ -833,6 +838,90 @@ check("test_PRD_P0_130_item_tile_photo__leaving_the_checkbox_unchecked_sets_dire
   assert.equal(approved.ok, true, approved.error);
   const updated = mirror.db.prepare("SELECT channel FROM mirror_product WHERE handle = 'wool-coat'").get();
   assert.equal(updated.channel, "direct_link");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-131 — In Store / Web / Inactive status filter; inactive tiles show
+ * only an "Inactive" tag; letterbox bars are a flat translucent fill.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_131_item_status_filter__the_dropdown_defaults_to_in_store", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  const select = /<select id="item-status-filter" class="dash-status-select">([\s\S]*?)<\/select>/.exec(body);
+  assert.ok(select, "the status filter must render");
+  assert.match(select[1], /<option value="in_store" selected>In Store<\/option>/);
+  assert.match(select[1], /<option value="web">Web<\/option>/);
+  assert.match(select[1], /<option value="inactive">Inactive<\/option>/);
+});
+
+check("test_PRD_P0_131_item_status_filter__in_store_shows_every_active_item_any_channel_web_narrows_to_website", async () => {
+  /* The owner's own words: "in store, which will show all of the items
+     that we have in store that are active, basically... web, which will
+     show us just the items that are on the web." */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  const fn = body.slice(body.indexOf("function matchesStatusFilter"), body.indexOf("function filterItems"));
+  assert.match(fn, /statusFilter === "web" \? el\.dataset\.channel === "website" : true/, "In Store ignores channel; Web narrows to website");
+});
+
+check("test_PRD_P0_131_item_status_filter__inactive_items_are_excluded_from_the_other_two_views", async () => {
+  /* "By default, neither this in store nor the web view should show the
+     inactive items." */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  const fn = body.slice(body.indexOf("function matchesStatusFilter"), body.indexOf("function filterItems"));
+  assert.match(fn, /if \(el\.dataset\.status === "inactive"\) return false;/);
+  assert.match(fn, /if \(statusFilter === "inactive"\) return el\.dataset\.status === "inactive";/);
+});
+
+check("test_PRD_P0_131_item_status_filter__the_default_filter_is_applied_the_moment_the_page_loads", async () => {
+  /* Inactive items must start hidden without anyone touching the dropdown
+     — a bare filterItems() call after the listeners are wired, not only
+     one triggered by a later "change" or "input" event. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  const afterWiring = body.slice(body.indexOf('itemStatusFilterEl.addEventListener("change"'));
+  assert.match(afterWiring, /\}\);\s*\n(?:\/\*[\s\S]*?\*\/\s*\n)?filterItems\(\);/, "filterItems() must run once, unconditionally, right after the dropdown is wired");
+});
+
+check("test_PRD_P0_131_item_status_filter__an_inactive_products_tile_carries_data_status_and_shows_only_the_inactive_tag", async () => {
+  /* "When the item is not activated, I don't need to see any of the
+     other tags... it's just inactive." Draft and archived both collapse
+     into the same "inactive" bucket — the owner thinks of status as a
+     two-state thing, not Square's own three-value lifecycle. */
+  const mirror = mirrorDb();
+  seedProduct(mirror, { status: "draft", channel: "website" });
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.match(body, /data-status="inactive" data-channel="website"/);
+  assert.match(
+    body,
+    /<div class="item-bottom"><span class="item-sku">VEM-100<\/span><div class="item-tags"><span class="item-tag item-tag-inactive">Inactive<\/span><\/div><\/div>/,
+    "an inactive tile must show only the Inactive tag, not its channel or category",
+  );
+});
+
+check("test_PRD_P0_131_item_status_filter__the_overlay_bars_are_a_flat_translucent_fill_not_a_gradient", async () => {
+  /* The owner's own words: "a dim half transparent gray background for
+     the text on top and bottom... almost like we're looking at a
+     letterbox" — a flat fill reads evenly regardless of what part of the
+     photo sits behind it, unlike a gradient that fades toward one edge. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.match(body, /\.item-top, \.item-bottom \{[^}]*background:\s*rgba\(25, 24, 23, 0\.5\)/s);
+  assert.doesNotMatch(body, /\.item-top\s*\{[^}]*linear-gradient/s);
+  assert.doesNotMatch(body, /\.item-bottom\s*\{[^}]*linear-gradient/s);
 });
 
 test("test_PRD_P0_30_prd_traceability__every_label_used_in_this_file_exists_in_the_prd", async () => {

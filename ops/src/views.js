@@ -349,6 +349,17 @@ const INPUT_BAR_CSS = `
    twice. */
 .greet { margin: 0 0 6px; text-align: center; }
 .greet h1 { font-size: 15px; font-weight: 400; color: var(--muted); margin: 0; }
+/* The status filter sits inline in the same "Showing: X" line — the
+   owner's own words: "add to the Showing: [mode] - [status dropdown]."
+   font: inherit off .greet h1 keeps it the same muted look rather than
+   the browser's own default control styling. Shared here (not left in
+   TICKETS_CSS, its original home) once Items grew a status filter of its
+   own (P0-131) — the same select styling, not a second copy. */
+.dash-status-select {
+  font: inherit; font-size: 11px; color: var(--muted);
+  background: transparent; border: 1px solid var(--rule); border-radius: 4px;
+  padding: 1px 4px; vertical-align: baseline;
+}
 `;
 
 /*
@@ -1491,29 +1502,50 @@ ${INPUT_BAR_CSS}
   position: absolute; inset: 0; background-color: var(--image-ground);
   background-size: cover; background-position: center;
 }
-/* Title on top, SKU + category on the bottom — the owner's own words: "the
-   bottom row should have the SKU in it... and just like some of the
-   category indicators, like the tags you have right now in the middle."
-   Everything else (channel, status, every variation, custom fields, the
-   edit form) moves into .item-detail, shown only once the tile is expanded
-   — "everything else we want to remove... all of that should be visible in
-   the full expanded view." Gradient scrims rather than a flat bar so the
-   overlay reads over any photograph, and over the plain fill color when
-   there is none. */
+/* Title + price on top, SKU + tags on the bottom — the owner's own words:
+   "title on top left, price top right, SKU bottom left, and then a few
+   of the tags." Everything else (channel, status, every variation, custom
+   fields, the edit form) moves into .item-detail, shown only once the
+   tile is expanded — "everything else we want to remove... all of that
+   should be visible in the full expanded view." A flat, half-transparent
+   dark fill rather than a fading gradient — the owner's own words: "a dim
+   half transparent gray background for the text on top and bottom... so
+   it's almost like we're looking at a letterbox" — so the WHOLE bar reads
+   evenly regardless of what part of the photograph sits behind it, not
+   just the edge closest to it. (A pure CSS filter that inverted the text
+   against the image directly — the owner's own, openly unsure, suggestion
+   — was considered and set aside: mix-blend-mode/invert reads reliably
+   only against a flat color, not a real photograph, and would go illegible
+   on exactly the busy images this tile exists to show.) rgba(25, 24, 23,
+   0.5) is --ground itself at 50% opacity, not a separate color to keep in
+   sync by hand. */
 .item-top, .item-bottom {
-  position: absolute; left: 0; right: 0; display: flex; align-items: center; gap: 6px; padding: 6px 8px;
+  position: absolute; left: 0; right: 0; display: flex; align-items: center;
+  justify-content: space-between; gap: 6px; padding: 6px 8px;
+  background: rgba(25, 24, 23, 0.5);
 }
-.item-top { top: 0; background: linear-gradient(to bottom, rgba(0, 0, 0, 0.7), transparent); }
-.item-bottom { bottom: 0; justify-content: space-between; background: linear-gradient(to top, rgba(0, 0, 0, 0.7), transparent); }
+.item-top { top: 0; }
+.item-bottom { bottom: 0; }
 .item-tile h3 {
   margin: 0; font-size: 13px; color: #fff; line-height: 1.3;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.item-price { flex: 0 0 auto; font-size: 11px; color: #fff; }
 .item-sku { font-size: 11px; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.item-cat {
+/* As short as the owner's own words ask: "shorten them, make them as
+   short as possible" — CHANNEL_LABEL itself carries "Web"/"In store" now,
+   not "Website"/"Not listed", and the tag list collapses to just
+   "Inactive" — nothing else — the moment the product itself is not
+   active: "when the item is not activated, I don't need to see any of
+   the other tags... it's just inactive." */
+.item-tags { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+.item-tag {
   flex: 0 0 auto; font-size: 10px; padding: 1px 6px; border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.6); color: #fff;
+  max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.item-tag.channel-website { border-color: var(--accent); color: var(--accent); }
+.item-tag-inactive { border-color: rgba(255, 255, 255, 0.35); color: rgba(255, 255, 255, 0.75); }
 /* Expanding one tile to the full screen instead of leaving every field
    crammed into a small grid cell — the owner's own words: "when I
    click on the item, it's gonna expand to my entire phone screen, and
@@ -1558,7 +1590,11 @@ ${INPUT_BAR_CSS}
 .item-edit button:hover { border-color: var(--accent); color: var(--accent); }
 `;
 
-const CHANNEL_LABEL = { website: "Website", direct_link: "Not listed" };
+/* As short as it gets — the owner's own words: "shorten them, make them
+   as short as possible. You don't have to say in-store only, just say
+   in-store." Used both on the compact tile's own tag and the full view's
+   badge, one label, not a short/long pair to keep in sync. */
+const CHANNEL_LABEL = { website: "Web", direct_link: "In store" };
 
 /* Where a mirrored photograph actually lives, once the backfill job
    (media-backfill.js) has fetched it off Square's CDN and .put() it into
@@ -1583,12 +1619,29 @@ function itemTile(product, canEdit) {
     .join(" ")
     .toLowerCase();
 
-  /* The bottom row shows ONE sku — the owner's own words: "the bottom row
-     should have the SKU in it," singular, not every variation's own (that
-     full list still lives in .item-detail). The first variation's own,
-     matching how a multi-size garment is already priced "from" its
-     lowest-ordinal variation everywhere else in this codebase. */
-  const primarySku = product.variations[0]?.sku || product.variations[0]?.title || "";
+  /* The bottom row shows ONE sku, the top row ONE price — the owner's own
+     words: "the bottom row should have the SKU in it," singular, not every
+     variation's own (that full list still lives in .item-detail). The
+     first variation's own, matching how a multi-size garment is already
+     priced "from" its lowest-ordinal variation everywhere else in this
+     codebase. */
+  const primaryVariant = product.variations[0];
+  const primarySku = primaryVariant?.sku || primaryVariant?.title || "";
+  const priceText = primaryVariant ? money(primaryVariant.price_minor, primaryVariant.currency) : "";
+
+  /* isActive drives BOTH the status filter (data-status below) and which
+     tags a collapsed tile shows at all — the owner's own words: "when the
+     item is not activated, I don't need to see any of the other tags...
+     it's just inactive," and conversely no "Active" tag either, since
+     active is the assumed, unremarkable state. Draft and archived both
+     collapse into the same "inactive" bucket — the owner thinks of the
+     catalog as a two-state thing (live or not), not Square's own
+     three-value status lifecycle. */
+  const isActive = product.status === "active";
+  const tags = isActive
+    ? `<span class="item-tag channel-${esc(product.channel)}">${esc(CHANNEL_LABEL[product.channel] ?? product.channel)}</span>` +
+      (product.category_name ? `<span class="item-tag">${esc(product.category_name)}</span>` : "")
+    : `<span class="item-tag item-tag-inactive">Inactive</span>`;
 
   const variantRows = product.variations.length
     ? product.variations
@@ -1644,10 +1697,10 @@ function itemTile(product, canEdit) {
 
   const photoStyle = product.image_key ? ` style="background-image:url('${MEDIA_BASE_URL}/${esc(product.image_key)}')"` : "";
 
-  return `<article class="item-tile" data-search="${esc(searchText)}" data-category="${esc(product.category_name || "")}">
+  return `<article class="item-tile" data-search="${esc(searchText)}" data-category="${esc(product.category_name || "")}" data-status="${isActive ? "active" : "inactive"}" data-channel="${esc(product.channel)}">
     <div class="item-photo"${photoStyle}>
-      <div class="item-top"><h3>${esc(product.title)}</h3></div>
-      <div class="item-bottom"><span class="item-sku">${esc(primarySku)}</span><span class="item-cat">${esc(product.category_name || "Uncategorized")}</span></div>
+      <div class="item-top"><h3>${esc(product.title)}</h3><span class="item-price">${esc(priceText)}</span></div>
+      <div class="item-bottom"><span class="item-sku">${esc(primarySku)}</span><div class="item-tags">${tags}</div></div>
     </div>
     <div class="item-detail">
       <div class="item-badges">
@@ -1711,7 +1764,13 @@ export function itemsPage({ role }, products) {
        enough content to make them on the bottom." */
     `<main class="ops">
   <section class="greet">
-    <h1 id="category-label">All categories</h1>
+    <h1><span id="category-label">All categories</span>
+      <select id="item-status-filter" class="dash-status-select">
+        <option value="in_store" selected>In Store</option>
+        <option value="web">Web</option>
+        <option value="inactive">Inactive</option>
+      </select>
+    </h1>
   </section>
   <div class="items-grid" id="items-grid">
 ${tiles}
@@ -1770,15 +1829,40 @@ function setAgentCategories(names) {
   names.forEach((n) => selectedCategories.add(n));
   updateCategoryLabel("Agent");
 }
+/* In Store / Web / Inactive — the owner's own words: "let's have a
+   dropdown that's in store, which will show all of the items that we
+   have in store that are active... then we have a web, which will show
+   us just the items that are on the web... and then we have inactive,
+   which will show all of the items that are inactive. By default,
+   neither this in store nor the web view should show the inactive
+   items." In Store is every active product regardless of channel (the
+   owner's own reasoning elsewhere: everything is physically on premises
+   anyway); Web narrows that to the website channel; Inactive is the
+   complement (draft or archived), hidden from the other two either way. */
+function matchesStatusFilter(el) {
+  if (statusFilter === "inactive") return el.dataset.status === "inactive";
+  if (el.dataset.status === "inactive") return false;
+  return statusFilter === "web" ? el.dataset.channel === "website" : true;
+}
 function filterItems() {
   const q = itemSearch.value.trim().toLowerCase();
   document.querySelectorAll(".item-tile").forEach((el) => {
     const matchesCategory = selectedCategories.size === 0 || selectedCategories.has(el.dataset.category);
     const matchesSearch = !q || el.dataset.search.includes(q);
-    el.hidden = !matchesCategory || !matchesSearch;
+    el.hidden = !matchesCategory || !matchesSearch || !matchesStatusFilter(el);
   });
 }
 itemSearch.addEventListener("input", filterItems);
+const itemStatusFilterEl = document.getElementById("item-status-filter");
+let statusFilter = itemStatusFilterEl.value;
+itemStatusFilterEl.addEventListener("change", () => {
+  statusFilter = itemStatusFilterEl.value;
+  filterItems();
+});
+/* In Store is the selected default, and it already hides every inactive
+   product — that has to take effect the moment the page loads, before
+   anyone touches the dropdown or types a single character. */
+filterItems();
 /* A visual match for the chat composer's own Send, not a second way to
    submit something the input already filters live on every keystroke —
    clicking it re-applies the same filter and returns focus to typing. */
@@ -2037,19 +2121,13 @@ ${INPUT_BAR_CSS}
    one group — the owner's own words: "sort all items assigned or
    related to me at the top with a horizontal separator." */
 .dash-mine-sep { border: none; border-top: 1px solid var(--rule); margin: 8px 0; }
-/* The status filter sits inline in the same "Showing: X" line — the
-   owner's own words: "add to the Showing: [mode] - [status dropdown]."
-   font: inherit off .greet h1 keeps it the same muted look rather than
-   the browser's own default control styling. "No Results" appends
-   alongside the dropdown rather than replacing it — "no results still
-   needs a menu selector, no results is appended on the end" — once
-   nothing matches the current mode and status together, so the
-   selector itself is never taken away; only #status-no-results toggles. */
-.dash-status-select {
-  font: inherit; font-size: 11px; color: var(--muted);
-  background: transparent; border: 1px solid var(--rule); border-radius: 4px;
-  padding: 1px 4px; vertical-align: baseline;
-}
+/* .dash-status-select itself moved into INPUT_BAR_CSS (shared with Items'
+   own status filter, P0-131) — "No Results" still appends alongside the
+   dropdown rather than replacing it, specific to Dashboard's own filter:
+   "no results still needs a menu selector, no results is appended on the
+   end" — once nothing matches the current mode and status together, so
+   the selector itself is never taken away; only #status-no-results
+   toggles. */
 `;
 
 function ticketBadges(ticket) {

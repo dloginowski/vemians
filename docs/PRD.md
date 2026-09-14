@@ -3193,6 +3193,62 @@ that does not trace to one of these is a process failure (see §12).
     index.js`'s handler reads `form.get("on_website")` and writes `"direct_link"` when it is
     absent rather than trusting a select's own value.
 
+66. **`Test-PRD-P0-131-item_status_filter`** — A follow-up to P0-130's own tile, from the same
+    conversation. The owner's own words: "title on top left, price top right, SKU bottom left, and
+    then a few of the tags, but shorten them, make them as short as possible... I'd rather have an
+    inactive tag [than an active one]... when the item is not activated, I don't need to see any of
+    the other tags... let's have a dropdown that's in store, which will show all of the items that
+    we have in store that are active... web, which will show us just the items that are on the
+    web... and inactive, which will show all of the items that are inactive. By default, neither
+    this in store nor the web view should show the inactive items."
+
+    **The top row now reads title / price, the bottom row SKU / tags — CHANNEL_LABEL itself
+    shrank to "Web" / "In store".** One label map, not a short-and-long pair to keep in sync: the
+    same shortened text renders both the compact tile's own tag and the full view's badge.
+    `primaryVariant` (the lowest-ordinal variation, same convention as `primarySku` already used)
+    supplies the price via the existing `money()` helper.
+
+    **A collapsed tile shows an "Inactive" tag INSTEAD of its channel/category tags, never an
+    "Active" one** — active is the assumed, unremarkable state, so it earns no tag at all.
+    `isActive` (`product.status === "active"`) drives both the tag list and a new `data-status`
+    attribute (`"active"`/`"inactive"`) on the tile itself; draft and archived both collapse into
+    the same "inactive" bucket, matching how the owner talks about status as a two-state thing,
+    not Square's own three-value lifecycle.
+
+    **A new status filter, styled and structured exactly like the Dashboard's own status dropdown
+    (P0-109/P0-112) rather than a second, custom-built control** — `.dash-status-select` moved out
+    of `TICKETS_CSS` into the shared `INPUT_BAR_CSS` so Items could reuse the identical rule rather
+    than duplicating it. `<select id="item-status-filter">` sits inline in the same `.greet h1`
+    line as the category status, the same way Dashboard's own `#status-filter` sits beside
+    `#kind-label` — which meant moving `id="category-label"` off the `<h1>` itself and onto an
+    inner `<span>`, so `updateCategoryLabel()`'s own `categoryLabel.textContent = ...` keeps
+    rewriting just the category text instead of wiping out the sibling `<select>` along with it.
+
+    Three options, client-side only (`data-channel` joins `data-status`/`data-category`/
+    `data-search` on every tile), matching the existing category filter's own architecture — the
+    whole catalog already renders in one response, so there is nothing a server round trip would
+    add: **In Store** (every active product, any channel — "everything is in our database is
+    accessible... basically" the owner's own reasoning from P0-71's own revision, extended here to
+    mean the whole active catalog is "in store" regardless of whether it is ALSO on the web),
+    **Web** (narrows that to `channel === "website"`), **Inactive** (the complement — anything not
+    `data-status="active"`). In Store is both the default (`selected`) and the one applied the
+    moment the page loads — a bare `filterItems()` call right after the dropdown's own listener is
+    wired, the same reasoning Dashboard's own initial render already worked out: an inactive
+    product must not be visible for even one frame before a person touches anything.
+
+    **The letterbox bars are a flat translucent fill now, not a fading gradient.** The owner's own
+    words: "a dim, half-transparent gray background for the text on top and bottom... it's almost
+    like we're looking at a letterbox." `rgba(25, 24, 23, 0.5)` is `--ground` itself at 50%
+    opacity — not a second color to keep in sync by hand — replacing `.item-top`'s and
+    `.item-bottom`'s own `linear-gradient(...)`, so the WHOLE bar reads evenly regardless of which
+    part of the photograph sits behind it, rather than only the edge nearest the gradient's own
+    solid stop. A pure CSS inversion filter — the owner's own, openly unsure, suggestion, so the
+    text would "just invert" against whatever color sits behind it — was considered and set aside
+    in the same commit: `mix-blend-mode`/`filter: invert()` reads reliably only against a flat
+    color, not a real photograph, and would go illegible on exactly the busy images this tile
+    exists to show; the flat translucent bar reads correctly against anything, photo or no photo,
+    with no per-pixel guessing involved.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -3474,6 +3530,7 @@ Where each feature is enforced today:
 | P0-128 | `ops/test/ops-page.test.mjs` |
 | P0-129 | `ops/test/dashboard-route.test.mjs` |
 | P0-130 | `ops/test/items-route.test.mjs` |
+| P0-131 | `ops/test/items-route.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
