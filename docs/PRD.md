@@ -1128,6 +1128,19 @@ that does not trace to one of these is a process failure (see §12).
     **The one-click menu moved back above the chat on this same pass — see the new paragraph under
     `Test-PRD-P0-74-chat_first` for why "entry at the bottom" wins on a phone specifically.**
 
+    **"Sitting on the bottom" meant STICKY, and the same look everywhere — the owner's own
+    reference, a screenshot of Claude Code's own chat interface.** Being structurally last on the
+    page (the previous fix) is not the same as staying visible at the bottom of the screen once a
+    real conversation or a long list of tiles scrolls past it — the owner's own words: "notice how
+    the text entry is on the bottom, right, where it should be... we should have the same kind of
+    look. We should not be having a different UI for every single tab." Both `#chat` (the chat
+    composer) and `.items-search` now carry `position: sticky; bottom: 8px;` — normal document flow
+    while short, pinned to the viewport's own bottom edge once scrolled past. `.items-search` also
+    picked up the chat composer's own rounded-pill shape (`border-radius: 24px`, up from a plain
+    `8px` box) and the same `--image-ground`/`--muted` colour pairing it already had, so the two
+    surfaces genuinely read as the same control rather than two different ones that happen to sit
+    in the same place.
+
 47b. **`Test-PRD-P0-72-product_detail_page`** — Every product has its own page at
     `/products/<handle>` — the answer to "how do I see product details", asked directly, of a
     shop whose cards used to be `<article>`s with no click-through at all. `loadProduct(env,

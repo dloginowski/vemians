@@ -217,6 +217,22 @@ check("test_PRD_P0_71_items_tab__the_search_box_sits_below_the_grid_not_above_it
   assert.ok(searchAt > gridAt, "the search box must come after the grid in document order");
 });
 
+check("test_PRD_P0_71_items_tab__the_search_box_sticks_to_the_bottom_like_the_chat_composer", async () => {
+  /* The owner's own words, pointing at a screenshot of Claude Code's
+     own interface: "we should have the same kind of look. We should
+     not be having a different UI for every single tab." Same pill
+     shape (border-radius: 24px, matching the chat composer's own
+     .chat-bar) and the same position: sticky; bottom technique as
+     #chat, so both surfaces behave and look the same way. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.match(body, /\.items-search\s*\{[^}]*border-radius:\s*24px/s);
+  assert.match(body, /\.items-search\s*\{[^}]*position:\s*sticky/s);
+  assert.match(body, /\.items-search\s*\{[^}]*bottom:\s*8px/s);
+});
+
 check("test_PRD_P0_71_items_tab__no_redundant_title_wastes_space_the_tab_bar_already_spent", async () => {
   /* The owner's own words: "we have the tab, we know we're in items
      right now. Get rid of all that stuff." The tab bar itself already
