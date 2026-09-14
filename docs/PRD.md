@@ -2944,6 +2944,39 @@ that does not trace to one of these is a process failure (see §12).
     — measured directly against a real header-plus-two-row table at the new font, not guessed by
     scaling the old number.
 
+55. **`Test-PRD-P0-120-preview_data_ellipsis_not_wrap`** — A correction to P0-119's own test
+    scenario and, with it, to the CSV preview card's own actual behavior — the owner's own words:
+    "your test is a little unrealistic — a real heading is never more than a couple dash-separated
+    words. The description, I would maybe add ellipses to it to just prevent it from wrapping...
+    this is a preview, I don't care to see all of the data inside the table cells. Our number one
+    concern is making sure the data in the CSV matches the headings — a legible view of the entire
+    heading, and a preview of the data underneath, even if it's cropped by ellipses, as long as we
+    get the idea of what's in there. We should never have to scroll vertically."
+
+    **Scoped to the CSV column-mapping preview only** (`.table-card.preview`, `previewTable()`'s
+    own `compact: true` flag) — `batchDraftTable()`'s own full ready/skipped result table (still
+    plain `.table-card`, potentially hundreds of real rows where a skip reason genuinely needs to
+    be read in full) keeps P0-119's own wrapping + `min-width: 6em` behavior untouched. Only the
+    preview needed this correction; the request was never about the final results table.
+
+    **The preview's own data cells crop with an ellipsis instead of wrapping onto more lines.**
+    `.table-card.preview td` overrides the general rule with `white-space: nowrap; overflow:
+    hidden; text-overflow: ellipsis; max-width: 10em` (and cancels `overflow-wrap: anywhere` /
+    `word-break: break-word` / `min-width: 6em`, which would otherwise still let a cell wrap rather
+    than truncate). Headers are untouched — `white-space: nowrap` with no cap, still fully legible
+    and never cropped, exactly as P0-119 already made them. The net result, verified directly in a
+    real browser: a preview with several long, wrapping-prone data values now renders as one
+    single-line header row plus one single-line data row — the card's own height stays fixed at
+    two short lines regardless of how long any individual value is, so there is never anything to
+    scroll vertically, while a wide row of headers can still legitimately need the card's own
+    pre-existing horizontal scroll (P0-119) — exactly the trade the owner asked for: "if we need to
+    scroll it horizontally, that's okay, we should never have to scroll it vertically though."
+
+    **"Full screen" is the one escape hatch that still shows a cropped value in full** —
+    `.table-card.preview.full td` lifts the ellipsis crop back to ordinary wrapping while active,
+    matching how every other `.table-card`'s own cells already read, so nothing is ever
+    permanently hidden, only cropped by default.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -3214,6 +3247,7 @@ Where each feature is enforced today:
 | P0-117 | `ops/test/catalog-write.test.mjs`, `ops/test/ops-page.test.mjs` |
 | P0-118 | `ops/test/ops-page.test.mjs` |
 | P0-119 | `ops/test/ops-page.test.mjs` |
+| P0-120 | `ops/test/ops-page.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

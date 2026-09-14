@@ -409,6 +409,38 @@ const TABLE_CARD_CSS = `
    height fits all the data." No cap at all for this one — the outer .log
    scroll frame already bounds the whole chat column if it ever runs long. */
 .table-card.preview { max-height: none; }
+/* The preview's own data cells crop with an ellipsis instead of wrapping
+   — the owner's own correction, after Test-PRD-P0-119-table_headers_never_wrap
+   let data wrap onto as many lines as it needed: "your test is a little
+   unrealistic... a real heading is never more than a couple dash-
+   separated words. The description, I would maybe add ellipses to it to
+   just prevent it from wrapping... this is a preview, I don't care to
+   see all of the data inside the table cells. Our number one concern is
+   making sure the data in the CSV matches the headings — a legible view
+   of the entire heading, and a preview of the data underneath, even if
+   it's cropped by ellipses, as long as we get the idea of what's in
+   there. We should never have to scroll vertically." Cancels
+   .table-card td's own general "overflow-wrap: anywhere; word-break:
+   break-word; min-width: 6em" for the PREVIEW card only — that base
+   behavior is untouched for batchDraftTable()'s own full ready/skipped
+   result (still plain .table-card, still wrapping, since reading a real
+   skip reason in full still matters there). "white-space: nowrap" plus
+   "overflow: hidden; text-overflow: ellipsis" needs a hard "max-width" to
+   have anything to clip against — table-layout: auto alone would just
+   let an unwrapped cell claim its own full natural width, the same as a
+   header now does. 10em is enough to recognize what a value is without
+   guaranteeing the whole thing is visible; "Full screen" is the escape
+   hatch for anyone who needs a cropped value in full — it lifts the
+   ellipsis crop back to plain wrapping while active, the same as every
+   other .table-card's own cells already read. */
+.table-card.preview td {
+  overflow-wrap: normal; word-break: normal; min-width: 0; max-width: 10em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.table-card.preview.full td {
+  overflow-wrap: anywhere; word-break: break-word; max-width: none;
+  white-space: normal; overflow: visible; text-overflow: clip;
+}
 `;
 
 /*

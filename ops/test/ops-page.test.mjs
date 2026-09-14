@@ -625,19 +625,57 @@ check("test_PRD_P0_119_table_headers_never_wrap__headers_stay_on_one_line_and_ex
 });
 
 check("test_PRD_P0_119_table_headers_never_wrap__a_wide_header_row_scrolls_sideways_instead_of_cropping_or_shrinking_data_to_nothing", async () => {
-  /* Verified directly in a real headless browser, not assumed: with
-     table-layout back to auto, a data column that can break anywhere
-     (a long title with no spaces to wrap on) gets squeezed to a
-     near-unreadable, one-character width the instant a neighboring
-     nowrap header claims most of the row's space. min-width on data
-     cells only (never on th, which already has its own nowrap floor)
-     keeps every column at least a handful of characters wide before it
-     starts wrapping, while the card's own pre-existing "overflow: auto"
-     is what actually delivers the sideways scroll for whatever a nowrap
-     header pushes past the card's own edge. */
+  /* This is the BASE .table-card rule — batchDraftTable()'s own full
+     ready/skipped result, which keeps wrapping (Test-PRD-P0-120-preview_data_ellipsis_not_wrap
+     scopes the ellipsis-instead-of-wrap correction to the CSV preview
+     card specifically, leaving this one untouched). Verified directly
+     in a real headless browser, not assumed: with table-layout back to
+     auto, a data column that can break anywhere (a long title with no
+     spaces to wrap on) gets squeezed to a near-unreadable, one-character
+     width the instant a neighboring nowrap header claims most of the
+     row's space. min-width on data cells only (never on th, which
+     already has its own nowrap floor) keeps every column at least a
+     handful of characters wide before it starts wrapping, while the
+     card's own pre-existing "overflow: auto" is what actually delivers
+     the sideways scroll for whatever a nowrap header pushes past the
+     card's own edge. */
   const { body } = await frontPage(OWNER);
   assert.match(body, /\.table-card td\s*\{[^}]*min-width:\s*6em/s, "data cells need a floor so a nowrap header doesn't squeeze them to nothing");
   assert.doesNotMatch(body, /\.table-card th\s*\{[^}]*min-width/s, "a nowrap header already has its own natural-width floor; it needs no separate one");
+});
+
+check("test_PRD_P0_120_preview_data_ellipsis_not_wrap__the_preview_cards_own_data_cells_crop_with_an_ellipsis", async () => {
+  /* The owner's own words, correcting P0-119's own test scenario as
+     unrealistic: "a real heading is never more than a couple dash-
+     separated words. The description, I would maybe add ellipses to it
+     to just prevent it from wrapping... this is a preview, I don't care
+     to see all of the data inside the table cells." Scoped to
+     .table-card.preview specifically — batchDraftTable()'s own full
+     result table (plain .table-card, tested above) is untouched. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.table-card\.preview td\s*\{[^}]*white-space:\s*nowrap/s, "the preview's own data cells must never wrap onto a second line");
+  assert.match(body, /\.table-card\.preview td\s*\{[^}]*overflow:\s*hidden/s, "overflow must be clipped for text-overflow to have anything to crop");
+  assert.match(body, /\.table-card\.preview td\s*\{[^}]*text-overflow:\s*ellipsis/s, "a cropped value must read as cropped, not silently cut off");
+  assert.match(body, /\.table-card\.preview td\s*\{[^}]*max-width:\s*10em/s, "a hard cap is what actually gives ellipsis something to clip against");
+  assert.match(body, /\.table-card\.preview td\s*\{[^}]*overflow-wrap:\s*normal/s, "overflow-wrap: anywhere would still force a break instead of a clean single-line crop");
+});
+
+check("test_PRD_P0_120_preview_data_ellipsis_not_wrap__full_screen_is_the_escape_hatch_back_to_reading_a_cropped_value_in_full", async () => {
+  /* The owner's own words: "we should never have to scroll it
+     vertically" — satisfied structurally: with data cells single-line
+     (white-space: nowrap, no wrapping) and the preview card's own
+     max-height already dropped entirely (Test-PRD-P0-117-batch_preview_one_row_fits_without_scrolling),
+     a header-plus-one-row preview never has more than two short lines
+     to show, so there is nothing left to scroll to vertically. "Full
+     screen" still exists as the one way to read a cropped value in
+     full: .table-card.preview.full td lifts the crop back to ordinary
+     wrapping, the same as every other .table-card's own cells already
+     read, rather than a value being permanently hidden. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.table-card\.preview\.full td\s*\{[^}]*white-space:\s*normal/s, "full screen must restore normal wrapping");
+  assert.match(body, /\.table-card\.preview\.full td\s*\{[^}]*overflow:\s*visible/s, "full screen must un-clip the cell");
+  assert.match(body, /\.table-card\.preview\.full td\s*\{[^}]*max-width:\s*none/s, "full screen must remove the width cap the ellipsis crop depended on");
+  assert.match(body, /\.table-card\.preview\.full td\s*\{[^}]*overflow-wrap:\s*anywhere/s, "full screen must restore the ability to wrap a spaceless value like a URL");
 });
 
 check("test_PRD_P0_89_batch_preview_confirm__the_table_renders_right_under_its_own_tool_step_not_after_the_reply", async () => {
