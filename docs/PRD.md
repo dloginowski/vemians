@@ -756,6 +756,9 @@ that does not trace to one of these is a process failure (see §12).
     ORIGINALLY direct links to routes that already did the whole job with no assistant at all
     (`/products/batch`, `/customers/batch`, `/expenses/new`); "More Options" was an in-page anchor
     to everything else. **Superseded by P0-83**, which routes all three through chat instead.
+    **The clickable buttons themselves are superseded again, by P0-113**, once the Dashboard gave
+    the same three actions an actual place to happen — the model's own text menu (still these
+    same four choices) is what is left of this entry.
 
     **This supersedes P0-54's earlier framing.** The front page used to have "one job for almost
     everyone: hand over the address to paste into their own assistant" — true when the only way
@@ -2759,6 +2762,52 @@ that does not trace to one of these is a process failure (see §12).
     specificity tie while a checked button is hovered) keeps "checked" as the only thing orange
     means in that menu.
 
+48. **`Test-PRD-P0-113-quick_actions_removed`** — Superseding P0-69/P0-74/P0-78/P0-80's own
+    one-click quick-action chips (`.menu`/`.choices`, `+ Products`/`+ Customers`/`+ Expense`),
+    once the Dashboard gave those same three actions an actual place to happen. The owner's own
+    words: "remove the quick action buttons from agent, I think they're redundant now that we
+    have an actual mechanism to add things in our dashboard... it's just clutter at this point.
+    So, I mean, the functionality should still exist. It should still be there, right? Maybe you
+    can suggest... when you say hi to agent or something, but there don't need to be an actual
+    button that you click on."
+
+    **The clickable chips are gone; the model's own suggestion is not — it was already there.**
+    `<section class="menu">` and its `<div class="choices">` (opsPage()), the `.menu`/`.choices`
+    CSS, and the click handler that filled and submitted the composer from a chip's own
+    `data-prompt` are all removed. `greeting.js`'s `greetingScript()` is untouched: its own FIRST
+    MESSAGE instruction already has the model greet by name and offer "1) Add Merchandise 2) Add
+    Customers 3) Submit Expenses 4) More Options" as plain numbered text, waiting for a typed
+    reply — exactly the "suggest... when you say hi" the owner asked for, needing no new code,
+    since a button was never what made that suggestion exist in the first place.
+
+    **A collateral cleanup**: `opsPage()`'s own `OPS_CSS` no longer widens `.ops`'s bottom padding
+    to 108px for `.menu`'s own floating row — with that row gone, it falls back to the shared
+    76px every other ops page already uses (`OPS_DARK_CSS`, Test-PRD-P0-109-
+    status_line_matches_greeting), needing no override of its own any more.
+
+49. **`Test-PRD-P0-114-dashboard_default_mode`** — Two further Dashboard refinements, landed in
+    the same round: "no need for accordion for selected modes. Accordion is only when showing
+    all," and "you should auto select mode which has something to show. In general you should
+    default to tasks or tickets (whichever is not empty)."
+
+    **The accordion is All mode's own look, not every mode's.** Narrowing to one specific mode
+    (P0-110's own mode selector) now hides that group's `<summary>` (`summary.hidden = true`,
+    never removed outright) rather than leaving a collapsible header with a chevron and nothing
+    else to reveal — a real browser falls back to no marker at all for a present-but-hidden
+    summary (verified directly, not assumed: no default "Details" label appears), so the single
+    visible group reads as a plain list. Switching back to All restores every summary
+    (`summary.hidden = false`).
+
+    **The default mode is now computed against what would actually show, not a fixed order.**
+    Superseding P0-108's own `hasOpenCustomerTicket ? "ticket" : "task"`: an open customer ticket
+    still wins outright when one exists (unchanged — "that should take precedence over tasks");
+    otherwise the default now auto-selects whichever of Tasks or Tickets is non-empty, rather
+    than landing on Tasks by fixed default even when it has nothing to show. Judged against the
+    same "open only" predicate the client's own default status filter applies (P0-112), not the
+    raw row count, so the default never picks a mode that would immediately render empty once
+    that filter takes effect — a dashboard with only closed tickets still falls back to Tasks,
+    the same harmless empty-state default as having nothing at all.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -3022,6 +3071,8 @@ Where each feature is enforced today:
 | P0-110 | `ops/test/dashboard-route.test.mjs`, `ops/test/tickets-route.test.mjs` |
 | P0-111 | `ops/test/dashboard-route.test.mjs` |
 | P0-112 | `ops/test/dashboard-route.test.mjs`, `ops/test/items-route.test.mjs` |
+| P0-113 | `ops/test/ops-page.test.mjs` |
+| P0-114 | `ops/test/dashboard-route.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

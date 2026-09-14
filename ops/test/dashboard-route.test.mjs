@@ -178,9 +178,42 @@ check("test_PRD_P0_108_ops_dashboard__a_ticket_assigned_to_the_viewer_carries_bo
   assert.match(body, /data-kind="ticket" data-status="open" href="\/tickets\/tik_2"/);
 });
 
-check("test_PRD_P0_108_ops_dashboard__default_kind_is_task_with_no_open_customer_ticket", async () => {
+check("test_PRD_P0_114_dashboard_default_mode__with_nothing_at_all_the_default_falls_back_to_task", async () => {
+  const res = await get("/dashboard", STAFF, env({ finance: null, assets: null }));
+  const body = await res.text();
+  assert.match(body, /let currentMode = "task"/);
+});
+
+check("test_PRD_P0_114_dashboard_default_mode__auto_selects_ticket_when_tasks_are_empty_but_tickets_are_not", async () => {
+  /* The owner's own words: "you should auto select mode which has
+     something to show... in general you should default to tasks or
+     tickets, whichever is not empty." A ticket that exists but is not
+     assigned to the viewer means Tasks is empty while Tickets is not, so
+     the default must not land on the empty one. */
   const tickets = sqliteDb("tickets");
   seedTicket(tickets, "tik_1", { category: "facilities", status: "open" });
+
+  const res = await get("/dashboard", STAFF, env({ tickets, finance: null, assets: null }));
+  const body = await res.text();
+  assert.match(body, /let currentMode = "ticket"/);
+});
+
+check("test_PRD_P0_114_dashboard_default_mode__a_task_assigned_to_the_viewer_still_wins_the_default", async () => {
+  const tickets = sqliteDb("tickets");
+  seedTicket(tickets, "tik_1", { category: "facilities", status: "open", assigned_to: "ana@example.test" });
+
+  const res = await get("/dashboard", STAFF, env({ tickets, finance: null, assets: null }));
+  const body = await res.text();
+  assert.match(body, /let currentMode = "task"/);
+});
+
+check("test_PRD_P0_114_dashboard_default_mode__only_closed_tickets_still_counts_as_empty", async () => {
+  /* Judged against what the client's own default status filter will
+     actually show (open only), not the raw row count — a dashboard with
+     only closed tickets must not default to a mode that then renders
+     empty once that filter applies. */
+  const tickets = sqliteDb("tickets");
+  seedTicket(tickets, "tik_1", { category: "facilities", status: "closed" });
 
   const res = await get("/dashboard", STAFF, env({ tickets, finance: null, assets: null }));
   const body = await res.text();
@@ -196,13 +229,19 @@ check("test_PRD_P0_108_ops_dashboard__an_open_customer_ticket_switches_the_defau
   assert.match(body, /let currentMode = "ticket"/);
 });
 
-check("test_PRD_P0_108_ops_dashboard__a_resolved_customer_ticket_does_not_switch_the_default", async () => {
+check("test_PRD_P0_108_ops_dashboard__a_resolved_customer_ticket_does_not_trigger_customer_precedence", async () => {
+  /* Customer precedence is for an OPEN customer ticket specifically — a
+     resolved one falls through to the ordinary "whichever is not empty"
+     rule (Test-PRD-P0-114-dashboard_default_mode) instead: Tasks is
+     still empty here, but Tickets is not (the resolved ticket itself
+     still counts — it is not closed), so the default lands on "ticket"
+     via that rule, not on "task" via a false customer-precedence match. */
   const tickets = sqliteDb("tickets");
   seedTicket(tickets, "tik_1", { category: "customer", status: "resolved" });
 
   const res = await get("/dashboard", STAFF, env({ tickets, finance: null, assets: null }));
   const body = await res.text();
-  assert.match(body, /let currentMode = "task"/);
+  assert.match(body, /let currentMode = "ticket"/);
 });
 
 check("test_PRD_P0_108_ops_dashboard__expenses_stay_scoped_to_the_viewer_for_staff", async () => {
@@ -456,6 +495,20 @@ check("test_PRD_P0_111_dashboard_all_mode_grouping__narrowing_to_one_mode_hides_
   const filterFn = body.slice(body.indexOf("function filterFeed"), body.indexOf("function filterFeed") + 400);
   assert.match(filterFn, /group\.hidden = !show/);
   assert.match(filterFn, /group\.open = true/, "the single remaining visible group must be forced open");
+});
+
+check("test_PRD_P0_114_dashboard_default_mode__the_accordion_chrome_only_shows_in_all_mode", async () => {
+  /* The owner's own words: "no need for accordion for selected modes.
+     Accordion is only when showing all." Narrowing to one mode hides
+     that group's own <summary> (rather than removing it) — a browser
+     falls back to no marker at all for a present-but-hidden summary, so
+     the content shows plainly with no collapse chevron and nothing left
+     to click; switching back to All restores it. */
+  const res = await get("/dashboard", STAFF, env({ finance: null, assets: null }));
+  const body = await res.text();
+  const filterFn = body.slice(body.indexOf("function filterFeed"), body.indexOf("function filterFeed") + 900);
+  assert.match(filterFn, /summary\.hidden = true/);
+  assert.match(filterFn, /summary\.hidden = false/);
 });
 
 check("test_PRD_P0_112_dashboard_status_filter__closed_tickets_carry_their_own_data_status", async () => {
