@@ -2808,6 +2808,17 @@ that does not trace to one of these is a process failure (see §12).
     that filter takes effect — a dashboard with only closed tickets still falls back to Tasks,
     the same harmless empty-state default as having nothing at all.
 
+    **Hardened after a follow-up report** ("I should not see a tasks accordion when in task
+    mode!") that could not be reproduced directly (a real headless-browser check of the exact
+    scenario showed the summary correctly hidden, both by the `hidden` attribute and by computed
+    `display: none`) — most likely a stale, pre-deploy page still open in a browser tab, or a
+    cross-browser `<details>`/`<summary>` rendering quirk this environment has no way to test
+    (only Chromium is available here). Either way, `summary.hidden = true` now also sets
+    `summary.style.display = "none"` directly, rather than relying solely on the `hidden`
+    attribute and cascade order — the same "pin it directly" instinct this session's own repeated
+    `[hidden]`-vs-explicit-`display` bugs already justify, applied pre-emptively this time instead
+    of after a confirmed break.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

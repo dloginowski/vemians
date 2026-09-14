@@ -506,7 +506,7 @@ check("test_PRD_P0_114_dashboard_default_mode__the_accordion_chrome_only_shows_i
      to click; switching back to All restores it. */
   const res = await get("/dashboard", STAFF, env({ finance: null, assets: null }));
   const body = await res.text();
-  const filterFn = body.slice(body.indexOf("function filterFeed"), body.indexOf("function filterFeed") + 900);
+  const filterFn = body.slice(body.indexOf("function filterFeed"), body.indexOf("function filterFeed") + 1300);
   assert.match(filterFn, /summary\.hidden = true/);
   assert.match(filterFn, /summary\.hidden = false/);
 });
