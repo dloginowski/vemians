@@ -793,7 +793,7 @@ export async function agentTurn({ q, identity, env, attachment = null }) {
      `policy_id`, matched against OWNER_POLICY_ID and its siblings, which live
      in env — without it every caller resolved to no role and the model was
      handed an empty tool list. */
-  const role = roleFor(identity, env);
+  const role = await roleFor(identity, env);
 
   if (!env.ANTHROPIC_API_KEY) {
     /* Benign, configured fallback: no key, no model. Quiet, per RULES.md. */
@@ -915,7 +915,7 @@ export async function agentTurn({ q, identity, env, attachment = null }) {
  */
 export async function approve({ id, identity, env }) {
   const actor = identity.email;
-  const role = roleFor(identity, env);
+  const role = await roleFor(identity, env);
 
   sweepPending(Date.now());
   const rec = PENDING.get(id);

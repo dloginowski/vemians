@@ -2226,6 +2226,58 @@ that does not trace to one of these is a process failure (see §12).
     signing in to see the thread) stays the one piece genuinely left open, needing its own
     identity decision if it is ever wanted.
 
+36. **`Test-PRD-P0-101-square_sourced_roster`** — `docs/adr/012-ops-is-a-delegate.md`'s own
+    decision, proposed and unbuilt since it was written, wired in: "Square's staff list is the
+    roster... nobody is added to ops who is not employed in Square." The owner's own words,
+    resolving that ADR's one flagged gap (Square's `email_address` can be personal or
+    inconsistent): "we have all the emails in there." A `.github/workflows/list-team.yml`
+    (read-only) confirms `SQUARE_ACCESS_TOKEN` can actually read the Team API — unverified when
+    ADR-012 was written, since Square answered 401 to everything at the time.
+
+    **The owner's own explicit choice of mechanism, after a shorter path was offered and
+    declined.** The obvious alternative — a scheduled job pushing Square's roster straight into
+    the Cloudflare Access Groups that already gate `ops.vemians.com` — keeps "refused before the
+    Worker even runs" for a stranger, the strongest shape this codebase has. The owner's own
+    words, explicit and repeated: "I want github to push these to a database." `people.sql`'s own
+    `employee` table (`email UNIQUE COLLATE NOCASE`, `role CHECK IN staff/manager/owner`,
+    `is_active`) was already built for exactly this and had never been read by anything — its own
+    comment says so: "matches the Access identity." `.github/scripts/sync-roster-from-square.mjs`
+    (workflow: `sync-roster-from-square`) reads Square's active Team list and writes a SQL script
+    upserting each member into that table, run via `wrangler d1 execute --file=`, the same
+    mechanism `bootstrap-d1.yml` already uses to load a schema — no Cloudflare Access API call
+    anywhere in this path, only a Square read and a D1 write.
+
+    **What this costs, named plainly, because the owner chose it with the tradeoff stated.**
+    Cloudflare's own Access policy stays exactly what it already is — a plain list of individual
+    emails (P0-99's own migration) — so `ops.vemians.com` still refuses an unrecognised address
+    before the Worker runs. What moves is the finer-grained ROLE: `ops/src/access.js`'s
+    `explainRole()` now checks `PEOPLE.employee` first, and once that table holds even one row it
+    is fully authoritative — a stale Access Group claim or `DEFAULT_ROLE` cannot resurrect a role
+    for someone the roster does not name. `roleFor`/`explainRole` became `async` for this (11
+    call sites in `index.js`, 2 in `agent.js`, all already inside `async` functions — a mechanical
+    change, not a new failure mode).
+
+    **A roster that has never synced must not lock out the owner.** `roleFromRoster()` treats an
+    UNBOUND `PEOPLE` and a BOUND-BUT-EMPTY one identically: both fall through to the legacy
+    group/`policy_id`/`DEFAULT_ROLE` rules, exactly as before this shipped. Shipping this code and
+    running the sync are two separate events on purpose — the first changes nothing observable
+    until the second actually happens, the same "a mistake here cannot lock anyone out" property
+    `setup-policies.py`'s own catch-all preserves for a different mistake.
+
+    **Square exposes no permission data (ADR-012's own finding), so job title -> role is a small,
+    explicit map, not something Square hands over.** `sync-roster-from-square.mjs` takes
+    `MANAGER_JOB_TITLES` as a workflow input (comma-separated, exact match) — `is_owner` grants
+    owner, a listed title grants manager, everyone else active grants staff. `list-team.yml`
+    exists specifically so the real titles are visible before anyone has to type this list from
+    memory.
+
+    **Revocation is automatic; nothing is ever deleted.** `status: INACTIVE` (or removal) in
+    Square is not read as "delete the row" — `shift.employee_id` references `employee(id)`, and a
+    past shift's attendance record must survive whoever worked it leaving. The generated SQL sets
+    `is_active = 0` for anyone Square no longer lists as active, guarded so an empty or failed
+    Square response can never read as "deactivate the entire company": the deactivating `UPDATE`
+    only runs when Square actually returned at least one active member with an email on file.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -2477,6 +2529,7 @@ Where each feature is enforced today:
 | P0-98 | `ops/test/ops-page.test.mjs` |
 | P0-99 | `ops/test/ops-page.test.mjs` |
 | P0-100 | `ops/test/tools.test.mjs` for `ticket.*`; `ops/test/tickets-route.test.mjs` for the `/tickets` routes, over the real Worker; `ops/test/contact-intake.test.mjs` for the scheduled contact-form-to-ticket pickup |
+| P0-101 | `ops/test/skills.test.mjs` for `explainRole()`'s own roster path, over the real `people.sql` schema; `.github/scripts/sync-roster-from-square.mjs` (the SQL-generation and role-mapping half) has no automated test, matching every other `.github/scripts/*` provisioning script in this repository |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
