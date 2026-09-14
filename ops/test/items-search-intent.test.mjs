@@ -5,12 +5,15 @@
  *     Test-PRD-P0-NN-short_id.
  *   * Unlabeled tests are not acceptable.
  *
- * Test-PRD-P0-103-voice_search_fills_the_search_box. searchIntent() (agent.js)
- * is a single, non-agentic model call — never a tool call, never a chat turn
- * — that turns a spoken description into a search string for Items' own
- * client-side filter. Driven both directly (agent.js's own export, the same
- * way agent-model-errors.test.mjs drives agentTurn against a fake Anthropic
- * over ANTHROPIC_BASE_URL) and over the real Worker route it sits behind.
+ * Test-PRD-P0-106-search_plan_has_a_category_and_keywords, superseding
+ * P0-103's original single-string contract. searchIntent() (agent.js) is a
+ * single, non-agentic model call — never a tool call, never a chat turn —
+ * that turns a spoken description into a two-part search PLAN: a category
+ * (applied through the same selector a manual click uses) and keywords (a
+ * plain substring search), never one blended string. Driven both directly
+ * (agent.js's own export, the same way agent-model-errors.test.mjs drives
+ * agentTurn against a fake Anthropic over ANTHROPIC_BASE_URL) and over the
+ * real Worker route it sits behind.
  */
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -64,30 +67,49 @@ function textMessage(text) {
   return JSON.stringify({ id: "msg_1", type: "message", role: "assistant", content: [{ type: "text", text }], stop_reason: "end_turn" });
 }
 
-check("test_PRD_P0_103_voice_search_fills_the_search_box__no_api_key_falls_back_to_the_literal_transcript", async () => {
+check("test_PRD_P0_106_search_plan_has_a_category_and_keywords__no_api_key_falls_back_to_a_keyword_only_plan", async () => {
   /* The same benign, configured fallback agentTurn() gives with no key —
-     voice search still does something (the literal utterance becomes the
-     search) rather than nothing at all. */
+     voice search still does something (the literal utterance becomes a
+     keyword search, no category switch) rather than nothing at all. */
   const out = await searchIntent({ q: "wool coats", env: {}, categories: ["Outerwear"] });
-  assert.deepEqual(out, { mode: "stub", query: "wool coats" });
+  assert.deepEqual(out, { mode: "stub", category: "", keywords: "wool coats" });
 });
 
-check("test_PRD_P0_103_voice_search_fills_the_search_box__an_empty_utterance_is_a_no_op", async () => {
+check("test_PRD_P0_106_search_plan_has_a_category_and_keywords__an_empty_utterance_is_a_no_op", async () => {
   const out = await searchIntent({ q: "   ", env: { ANTHROPIC_API_KEY: "test-key" }, categories: [] });
-  assert.deepEqual(out, { mode: "stub", query: "" });
+  assert.deepEqual(out, { mode: "stub", category: "", keywords: "" });
 });
 
-check("test_PRD_P0_103_voice_search_fills_the_search_box__the_models_own_answer_becomes_the_query_quotes_stripped", async () => {
+check("test_PRD_P0_106_search_plan_has_a_category_and_keywords__the_two_line_reply_is_parsed_into_both_fields", async () => {
   await withFakeAnthropic(
-    () => ({ status: 200, body: textMessage('"Outerwear"') }),
+    () => ({ status: 200, body: textMessage("CATEGORY: Dresses\nKEYWORDS: blue") }),
     async (base) => {
       const out = await searchIntent({
-        q: "show me the coats",
+        q: "find all blue dresses",
         env: { ANTHROPIC_API_KEY: "test-key", ANTHROPIC_BASE_URL: base },
-        categories: ["Outerwear", "Footwear"],
+        categories: ["Dresses", "Shoes", "Jewelry"],
       });
       assert.equal(out.mode, "model");
-      assert.equal(out.query, "Outerwear", "surrounding quotes the model added must not leak into the search box");
+      assert.equal(out.category, "Dresses");
+      assert.equal(out.keywords, "blue");
+    },
+  );
+});
+
+check("test_PRD_P0_106_search_plan_has_a_category_and_keywords__a_blank_category_line_leaves_it_empty", async () => {
+  /* Naming no category is a deliberate signal, not a formatting miss —
+     the client leaves whatever is currently selected alone when this
+     comes back empty, per the owner's own worked example. */
+  await withFakeAnthropic(
+    () => ({ status: 200, body: textMessage('CATEGORY: \nKEYWORDS: "Gucci"') }),
+    async (base) => {
+      const out = await searchIntent({
+        q: "anything by Gucci",
+        env: { ANTHROPIC_API_KEY: "test-key", ANTHROPIC_BASE_URL: base },
+        categories: ["Dresses", "Shoes", "Jewelry"],
+      });
+      assert.equal(out.category, "", "no category named must stay blank, not guess one");
+      assert.equal(out.keywords, "Gucci", "surrounding quotes the model added must not leak into the search box");
     },
   );
 });
@@ -187,18 +209,19 @@ check("test_PRD_P0_103_voice_search_fills_the_search_box__an_unreadable_body_is_
   assert.equal(res.status, 400);
 });
 
-check("test_PRD_P0_103_voice_search_fills_the_search_box__a_signed_in_staff_member_gets_a_query_back", async () => {
+check("test_PRD_P0_106_search_plan_has_a_category_and_keywords__a_signed_in_staff_member_gets_a_plan_back", async () => {
   await withFakeAnthropic(
-    () => ({ status: 200, body: textMessage("Outerwear") }),
+    () => ({ status: 200, body: textMessage("CATEGORY: Dresses\nKEYWORDS: blue") }),
     async (base) => {
       const res = await postJson("/items/search-intent", STAFF, routeEnv({ ANTHROPIC_API_KEY: "test-key", ANTHROPIC_BASE_URL: base }), {
-        q: "show me the coats",
-        categories: ["Outerwear"],
+        q: "find all blue dresses",
+        categories: ["Dresses", "Shoes", "Jewelry"],
       });
       assert.equal(res.status, 200);
       const data = await res.json();
       assert.equal(data.mode, "model");
-      assert.equal(data.query, "Outerwear");
+      assert.equal(data.category, "Dresses");
+      assert.equal(data.keywords, "blue");
     },
   );
 });

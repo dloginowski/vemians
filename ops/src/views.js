@@ -1208,6 +1208,20 @@ ${INPUT_BAR_CSS}
   background: var(--ground); color: var(--ink); cursor: pointer;
 }
 .category-menu .category-item:hover { border-color: var(--accent); color: var(--accent); }
+/* The active category, named above the bar instead of living in the
+   search box's own value — the owner's own words: "I don't wanna eat up
+   the input area with text... it's part of the actual selector." Same
+   58px anchor .category-menu itself uses (never both visible at once —
+   see the script), so a picked category and the menu that picks it share
+   one spot rather than two competing floating rows. No explicit display
+   is set here, unlike .category-menu's own display: flex, so the
+   browser's own [hidden] { display: none } default is never overridden
+   and needs no extra rule to restate it. */
+.category-label {
+  position: fixed; left: 8px; bottom: 58px; z-index: 19;
+  font-size: 11px; color: var(--muted);
+  padding: 4px 10px; background: var(--image-ground); border: 1px solid var(--rule); border-radius: 999px;
+}
 /* Two columns down to phone width — the owner's own words: "on my
    phone, I want a two column layout... as it gets wider, it will just
    fill the entire screen." auto-fill's own minmax(240px, 1fr) never
@@ -1347,7 +1361,7 @@ function itemTile(product, canEdit) {
        </details>`
     : "";
 
-  return `<article class="item-tile" data-search="${esc(searchText)}">
+  return `<article class="item-tile" data-search="${esc(searchText)}" data-category="${esc(product.category_name || "")}">
     <h3><span>${esc(product.title)}</span><button type="button" class="item-expand">Expand</button></h3>
     <div class="item-badges">
       <span class="channel-${product.channel}">${esc(CHANNEL_LABEL[product.channel] ?? product.channel)}</span>
@@ -1407,19 +1421,39 @@ export function itemsPage({ role }, products) {
 ${tiles}
   </div>
   ${categoryMenu}
+  <div class="category-label" id="category-label" hidden></div>
   <div class="input-bar">
     <button type="button" class="icon-btn" id="category-btn" aria-label="Filter by category" title="Filter by category"${categories.length ? "" : " hidden"}>${FILTER_ICON}</button>
-    <input type="text" id="item-search" placeholder="Search title, handle, category, SKU, custom fields...">
+    <input type="text" id="item-search" placeholder="Search title, handle, SKU, custom fields...">
     <button type="button" class="icon-btn mic-btn" id="item-mic-btn" aria-label="Hold and describe what you're looking for" title="Hold and describe what you're looking for">${MIC_ICON}</button>
     <button type="button" class="send-btn" id="item-search-btn" aria-label="Search" title="Search">${SEARCH_ICON}</button>
   </div>
 </main>
 <script>
 const itemSearch = document.getElementById("item-search");
+const categoryLabel = document.getElementById("category-label");
+/* The category filter lives here, never in the search box's own value —
+   the owner's own words: "I don't wanna eat up the input area with text...
+   it's part of the actual selector. It's not necessarily me putting text."
+   A small dim line above the bar names it instead ("Category: X" picked
+   by hand, "Agent: X" when the mic below picked it). "All categories"
+   (or nothing selected) clears it and hides the line entirely. */
+let selectedCategory = "";
+function setCategory(name, source) {
+  selectedCategory = name;
+  if (name) {
+    categoryLabel.textContent = source + ": " + name;
+    categoryLabel.hidden = false;
+  } else {
+    categoryLabel.hidden = true;
+  }
+}
 function filterItems() {
   const q = itemSearch.value.trim().toLowerCase();
   document.querySelectorAll(".item-tile").forEach((el) => {
-    el.hidden = Boolean(q) && !el.dataset.search.includes(q);
+    const matchesCategory = !selectedCategory || el.dataset.category === selectedCategory;
+    const matchesSearch = !q || el.dataset.search.includes(q);
+    el.hidden = !matchesCategory || !matchesSearch;
   });
 }
 itemSearch.addEventListener("input", filterItems);
@@ -1440,12 +1474,17 @@ const categoryBtn = document.getElementById("category-btn");
 const categoryMenuEl = document.getElementById("category-menu");
 if (categoryBtn && categoryMenuEl) {
   categoryBtn.addEventListener("click", () => {
+    const opening = categoryMenuEl.hidden;
     categoryMenuEl.hidden = !categoryMenuEl.hidden;
+    /* The label and the menu never show at once — both anchor to the same
+       spot above the bar. */
+    if (opening) categoryLabel.hidden = true;
+    else if (selectedCategory) categoryLabel.hidden = false;
   });
   categoryMenuEl.addEventListener("click", (e) => {
     const btn = e.target.closest(".category-item");
     if (!btn) return;
-    itemSearch.value = btn.dataset.category;
+    setCategory(btn.dataset.category, "Category");
     filterItems();
     categoryMenuEl.hidden = true;
   });
@@ -1453,9 +1492,12 @@ if (categoryBtn && categoryMenuEl) {
     if (categoryMenuEl.hidden) return;
     if (categoryMenuEl.contains(e.target) || categoryBtn.contains(e.target)) return;
     categoryMenuEl.hidden = true;
+    if (selectedCategory) categoryLabel.hidden = false;
   });
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") categoryMenuEl.hidden = true;
+    if (e.key !== "Escape" || categoryMenuEl.hidden) return;
+    categoryMenuEl.hidden = true;
+    if (selectedCategory) categoryLabel.hidden = false;
   });
 }
 
@@ -1463,12 +1505,21 @@ if (categoryBtn && categoryMenuEl) {
    input, you can... describe what items you're looking for, and then
    the agent will just fill in the search bar with the proper filters
    or search pattern... it's not an agentic chat per se... I don't want
-   to have a chat inside of the items view." HELD, not toggled like the
-   agent page's own mic — speech is transcribed client-side the same
-   way, but the transcript goes to /items/search-intent (a single,
-   non-agentic model call, agent.js's searchIntent()) instead of a
-   chat turn; nothing renders anywhere except the search box itself
-   being filled in with whatever it returns. */
+   to have a chat inside of the items view." Worked example: "let's say
+   we have categories dresses, shoes, and jewelry... I'm currently set
+   to jewelry... if I ask the agent to find all blue dresses, it knows
+   that I need to switch my category to dresses... and then it's gonna
+   do a filter for the color... blue." HELD, not toggled like the agent
+   page's own mic — speech is transcribed client-side the same way, but
+   the transcript goes to /items/search-intent (a single, non-agentic
+   model call, agent.js's searchIntent()), which answers with a category
+   and/or keywords rather than one blended string: a category switch
+   applies through the SAME selector a manual click uses (labelled
+   "Agent:" instead of "Category:", so it's visibly the agent's own
+   call), and keywords fill the search box. Naming no category leaves
+   whatever is already selected alone, matching the worked example:
+   the model is told switching is expected only when the request
+   actually names a different one. */
 const DEFAULT_ITEM_SEARCH_PLACEHOLDER = itemSearch.placeholder;
 const MIC_ICON_HTML = ${JSON.stringify(MIC_ICON)};
 const MIC_STOP_ICON_HTML = ${JSON.stringify(MIC_STOP_ICON)};
@@ -1492,20 +1543,25 @@ if (!ItemSpeechRecognitionCtor) {
 
   async function sendToAgent(transcript) {
     itemSearch.placeholder = "Thinking...";
-    const categories = categoryMenuEl
+    const knownCategories = categoryMenuEl
       ? [...categoryMenuEl.querySelectorAll(".category-item[data-category]")].map((b) => b.dataset.category).filter(Boolean)
       : [];
     try {
       const res = await fetch("/items/search-intent", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ q: transcript, categories }),
+        body: JSON.stringify({ q: transcript, categories: knownCategories }),
       });
       const data = await res.json();
-      itemSearch.value = (data && data.query) || transcript;
+      const match = data && data.category
+        ? knownCategories.find((c) => c.toLowerCase() === data.category.toLowerCase())
+        : null;
+      if (match) setCategory(match, "Agent");
+      if (data && data.keywords) itemSearch.value = data.keywords;
+      else if (!match) itemSearch.value = transcript;
     } catch (err) {
       /* The model or the network failed — the literal transcript still
-         becomes the search, so holding the mic never does nothing. */
+         becomes a keyword search, so holding the mic never does nothing. */
       itemSearch.value = transcript;
     }
     itemSearch.placeholder = DEFAULT_ITEM_SEARCH_PLACEHOLDER;

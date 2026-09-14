@@ -388,6 +388,51 @@ check("test_PRD_P0_102_items_search_matches_chat__no_category_menu_or_filter_but
   assert.match(body, /id="category-btn"[^>]* hidden/, "the filter button must be hidden with nothing to filter by");
 });
 
+check("test_PRD_P0_106_search_plan_has_a_category_and_keywords__picking_a_category_never_types_into_the_search_box", async () => {
+  /* The owner's own words: "I don't wanna eat up the input area with
+     text... it's part of the actual selector. It's not necessarily me
+     putting text." A dedicated #category-label line above the bar names
+     the pick instead — itemSearch.value is never touched by it. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.match(body, /<div class="category-label" id="category-label" hidden><\/div>/);
+  const clickHandler = body.slice(body.indexOf('categoryMenuEl.addEventListener("click"'), body.indexOf('categoryMenuEl.addEventListener("click"') + 300);
+  assert.doesNotMatch(clickHandler, /itemSearch\.value/, "picking a category must not write into the search box");
+  assert.match(clickHandler, /setCategory\(btn\.dataset\.category, "Category"\)/, "picking a category must go through the shared selector, labelled as a manual pick");
+});
+
+check("test_PRD_P0_106_search_plan_has_a_category_and_keywords__the_filter_combines_category_and_free_text", async () => {
+  /* Both apply at once (AND, not either/or) — the owner's own worked
+     example layers a category switch with a colour keyword in the same
+     request. Each tile's own data-category (exact) is checked alongside
+     data-search (substring), matching the real category_name column
+     rather than a second guess parsed out of the combined search blob. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.match(body, /data-category="Outerwear"/, "each tile needs its own clean category attribute, not only inside the combined search blob");
+  const filterFn = body.slice(body.indexOf("function filterItems"), body.indexOf("function filterItems") + 400);
+  assert.match(filterFn, /el\.dataset\.category === selectedCategory/);
+  assert.match(filterFn, /el\.dataset\.search\.includes\(q\)/);
+});
+
+check("test_PRD_P0_106_search_plan_has_a_category_and_keywords__a_voice_driven_category_switch_is_labelled_agent_not_category", async () => {
+  /* The owner's own words: "I want to see... the necessary combination of
+     categories and/or search pattern created by the agent... add an
+     agent colon before the search." Distinguishes an agent-picked
+     category from a manually clicked one in the same label slot. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  const sendToAgentFn = body.slice(body.indexOf("async function sendToAgent"), body.indexOf("async function sendToAgent") + 900);
+  assert.match(sendToAgentFn, /setCategory\(match, "Agent"\)/, "a category switch from voice must be labelled Agent, not Category");
+  assert.match(sendToAgentFn, /data\.keywords/, "leftover keywords from the plan must still reach the search box");
+});
+
 check("test_PRD_P0_71_items_tab__no_redundant_title_wastes_space_the_tab_bar_already_spent", async () => {
   /* The owner's own words: "we have the tab, we know we're in items
      right now. Get rid of all that stuff." The tab bar itself already
