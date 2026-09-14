@@ -41,6 +41,13 @@ const MANAGER_POLICY = "56e4eee0-0000-4000-8000-000000000003";
 const STAFF_POLICY = "f6e1649c-0000-4000-8000-000000000002";
 const STAFF = { email: "ana@example.test", policy_id: STAFF_POLICY };
 const STRANGER = { email: "stranger@example.test", policy_id: "unmapped-policy" };
+/* A distinct identity from STAFF, only for the P0-129 checks below — see
+   P0_115_STAFF's own comment, further down this file, for why: this
+   file's own runTool calls all share ONE module-level rate limiter
+   (src/tools/rate.js) keyed by actor email, and these checks land early
+   enough in the file that using the heavily-shared "ana@example.test"
+   pushed an unrelated, later check in this same file over that budget. */
+const P0_129_STAFF = { email: "dana@example.test", policy_id: STAFF_POLICY };
 
 function assertion(claims) {
   const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
@@ -379,11 +386,14 @@ check("test_PRD_P0_110_dashboard_modes__the_attach_button_is_never_styled_agenti
 
 check("test_PRD_P0_110_dashboard_modes__all_mode_disables_the_bar_instead_of_defaulting_to_an_action", async () => {
   /* Browsing only — there is nothing an "All" submission would even mean,
-     so the bar is disabled rather than silently defaulting to Tickets. */
+     so the bar is disabled rather than silently defaulting to Tickets.
+     Send's own disabling is now updateSendState()'s job (Test-PRD-P0-129-dashboard_send_requires_content) —
+     it still ends up disabled in All mode (updateSendState()'s own "else
+     disabled = true" branch), just no longer via this direct assignment. */
   const res = await get("/dashboard", STAFF, env({ finance: null, assets: null }));
   const body = await res.text();
   const setModeFn = body.slice(body.indexOf("function setMode"), body.indexOf("function setMode") + 2200);
-  assert.match(setModeFn, /sendBtn\.disabled = !isTextMode && !isFileMode/);
+  assert.match(setModeFn, /updateSendState\(\);/);
   assert.match(setModeFn, /titleInput\.disabled = !isTextMode && !isFileMode/);
 });
 
@@ -419,6 +429,59 @@ check("test_PRD_P0_110_dashboard_modes__the_expense_mode_reuses_the_receipt_scan
   const setModeFn = body.slice(body.indexOf("function setMode"), body.indexOf("function setMode") + 1600);
   assert.match(setModeFn, /fileInput\.accept = mode === "expense" \? "image\/\*" : ""/);
   assert.match(setModeFn, /setAttribute\("capture", "environment"\)/);
+});
+
+check("test_PRD_P0_129_dashboard_send_requires_content__picking_a_mode_alone_does_not_enable_send", async () => {
+  /* The owner's own words: "the send arrow in dashboard also needs a
+     disabled state (same dark gray glyph) when there is no entry." The
+     same bug P0-124 already fixed on #chat's own Send: setMode() used to
+     enable Send purely by mode (any valid mode, empty field or not).
+     updateSendState() checks the mode-appropriate content instead —
+     titleInput's own value for a text mode, a picked file for a file
+     mode — disabled outright when no mode is picked at all. */
+  const res = await get("/dashboard", P0_129_STAFF, env({ finance: null, assets: null }));
+  const body = await res.text();
+  const stateFn = body.slice(body.indexOf("function updateSendState"), body.indexOf("function updateSendState") + 400);
+  assert.match(stateFn, /sendBtn\.disabled = !fileInput\.files\[0\]/, "a file mode must require an actual picked file");
+  assert.match(stateFn, /sendBtn\.disabled = !titleInput\.value\.trim\(\)/, "a text mode must require actual typed content");
+  assert.match(stateFn, /sendBtn\.disabled = true/, "no mode at all must stay disabled outright");
+  const setModeFn = body.slice(body.indexOf("function setMode"), body.indexOf("function setMode") + 1600);
+  assert.match(setModeFn, /updateSendState\(\);/, "setMode() must delegate to updateSendState() rather than assign disabled by mode alone");
+  assert.doesNotMatch(setModeFn, /sendBtn\.disabled = !isTextMode && !isFileMode/, "the old mode-only assignment must be gone");
+});
+
+check("test_PRD_P0_129_dashboard_send_requires_content__typing_attaching_and_dictation_all_re_check_the_buttons_own_state", async () => {
+  /* updateSendState() only helps if it actually runs after everything
+     that can change either input — the same class of gap #chat's own
+     composer already had to close. */
+  const res = await get("/dashboard", P0_129_STAFF, env({ finance: null, assets: null }));
+  const body = await res.text();
+  assert.match(body, /titleInput\.addEventListener\("input", updateSendState\)/, "typing a title must re-check the button's own state");
+  const changeHandler = body.slice(body.indexOf("fileInput.addEventListener"), body.indexOf("fileInput.addEventListener") + 300);
+  assert.match(changeHandler, /updateSendState\(\);/, "picking a file must re-check the button's own state");
+  const resetFn = body.slice(body.indexOf("function resetAttachment"), body.indexOf("function resetAttachment") + 300);
+  assert.match(resetFn, /updateSendState\(\);/, "clearing an attachment must re-check the button's own state too");
+  /* Dictation fills dash-title via the shared dictationScript() helper,
+     which sets .value directly (no native "input" event) — it must
+     dispatch one itself so this page's own listener above still fires. */
+  const resultHandler = body.slice(body.indexOf('addEventListener("result"'), body.indexOf('addEventListener("result"') + 700);
+  assert.match(resultHandler, /field\.dispatchEvent\(new Event\("input", \{ bubbles: true \}\)\)/, "a dictation result must dispatch a real input event for the page's own listener to react to");
+});
+
+check("test_PRD_P0_129_dashboard_send_requires_content__dash_send_shares_the_agent_composers_own_orange_scheme", async () => {
+  /* Rather than duplicate four declarations under a second selector,
+     #dash-send joins #chat .send-btn in the same grouped rule — one
+     dim-orange-plus-dark-gray-glyph disabled look, one
+     bright-orange-plus-white-glyph active look, for both. --ground only
+     reads as a deliberate dark gray against something bright enough to
+     contrast it — verified directly before assuming otherwise that
+     #dash-send's own previous neutral fill would still show a glyph at
+     all (it would not: near-black on near-black, the same
+     disappearing-icon failure mode P0-128 diagnosed on the mic). */
+  const res = await get("/dashboard", P0_129_STAFF, env({ finance: null, assets: null }));
+  const body = await res.text();
+  assert.match(body, /#chat \.send-btn, #dash-send \{ background: var\(--accent\); color: var\(--ink\); \}/, "dash-send must share the active look");
+  assert.match(body, /#chat \.send-btn:disabled, #dash-send:disabled \{ background: rgba\(217, 119, 87, 0\.35\); color: var\(--ground\)/, "dash-send must share the disabled look");
 });
 
 check("test_PRD_P0_111_dashboard_all_mode_grouping__all_mode_renders_a_section_for_every_kind_with_something_in_it", async () => {
