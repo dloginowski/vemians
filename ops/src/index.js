@@ -626,12 +626,23 @@ async function ops(request, env, path) {
       }
       const v = gate.data.proposal.values;
       const id = crypto.randomUUID();
+      /* Dashboard mode selector (Test-PRD-P0-110-dashboard_modes): "when we
+         type in something in the bar and then hit submit, that's a new
+         ticket... in a task, that's a new task... but they should not be
+         the same thing." A task IS a ticket, assigned at creation to the
+         person who filed it — the same "assigned to me" signal the
+         Dashboard's own Tasks view already reads (P0-108), never a fourth
+         store or a new category value. assigned_to comes from the
+         AUTHENTICATED actor, never the client's own "mode" field value —
+         the form can only ask for "assign this to me," never name anyone
+         else. */
+      const assignedTo = String(form.get("mode") ?? "") === "task" ? email : null;
       try {
         const next = await env.TICKETS.prepare("SELECT COALESCE(MAX(number), 0) + 1 AS number FROM ticket").first();
         await env.TICKETS.prepare(
-          "INSERT INTO ticket(id, number, title, body, category, priority, status, created_by) VALUES (?,?,?,?,?,?,?,?)",
+          "INSERT INTO ticket(id, number, title, body, category, priority, status, created_by, assigned_to) VALUES (?,?,?,?,?,?,?,?,?)",
         )
-          .bind(id, next.number, v.title, v.body, v.category, v.priority, v.status, v.created_by)
+          .bind(id, next.number, v.title, v.body, v.category, v.priority, v.status, v.created_by, assignedTo)
           .run();
       } catch (err) {
         console.error(`ERROR ops/tickets: proposal validated but the row could not be written — ${err.message}`);
