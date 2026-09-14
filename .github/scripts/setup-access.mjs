@@ -11,7 +11,12 @@ const API = "https://api.cloudflare.com/client/v4";
 const TOKEN = process.env.CLOUDFLARE_API_TOKEN;
 const ACCOUNT = process.env.CLOUDFLARE_ACCOUNT_ID;
 const ZONE_NAME = process.env.ZONE_NAME || "vemians.com";
-const TEAM = process.env.ACCESS_TEAM_NAME || "vemians";
+/* CONFIRMED "vonvemian", not "vemians" — the team name has nothing to do
+   with the zone and was picked separately when Zero Trust was set up.
+   Getting this wrong is silent and total: the Worker fetches signing keys
+   from a team domain that 404s and rejects every genuine login as a failed
+   signature. See ops/wrangler.toml's own ACCESS_TEAM_DOMAIN comment. */
+const TEAM = process.env.ACCESS_TEAM_NAME || "vonvemian";
 /* No shared staff domain — everyone has their own address, so the catch-all
    policy is a plain list of individual emails rather than one email_domain
    rule. Accepts either newlines or commas, since a workflow_dispatch text
