@@ -421,17 +421,29 @@ check("test_PRD_P0_110_dashboard_modes__the_expense_mode_reuses_the_receipt_scan
   assert.match(setModeFn, /setAttribute\("capture", "environment"\)/);
 });
 
-check("test_PRD_P0_111_dashboard_all_mode_grouping__all_mode_renders_four_accordion_sections", async () => {
-  const res = await get("/dashboard", STAFF, env({ finance: null, assets: null }));
+check("test_PRD_P0_111_dashboard_all_mode_grouping__all_mode_renders_a_section_for_every_kind_with_something_in_it", async () => {
+  const tickets = sqliteDb("tickets");
+  seedTicket(tickets, "tik_1", { title: "Assigned", assigned_to: "ana@example.test" });
+  const finance = sqliteDb("finance");
+  seedExpense(finance, "exp_1");
+  const assets = sqliteDb("assets");
+  seedAsset(assets, "ast_1");
+  const res = await get("/dashboard", STAFF, env({ tickets, finance, assets }));
   const body = await res.text();
   for (const kind of ["task", "ticket", "expense", "upload"]) {
-    assert.match(body, new RegExp(`<details class="dash-group" data-kind="${kind}"`), `must render a ${kind} accordion section`);
+    assert.match(body, new RegExp(`<details class="dash-group" data-kind="${kind}"`), `must render a ${kind} accordion section when it has something in it`);
   }
 });
 
 check("test_PRD_P0_111_dashboard_all_mode_grouping__tasks_and_tickets_start_open_expenses_and_uploads_start_closed", async () => {
   /* The owner's own words: "with tasks or tickets auto expanding." */
-  const res = await get("/dashboard", STAFF, env({ finance: null, assets: null }));
+  const tickets = sqliteDb("tickets");
+  seedTicket(tickets, "tik_1", { title: "Assigned", assigned_to: "ana@example.test" });
+  const finance = sqliteDb("finance");
+  seedExpense(finance, "exp_1");
+  const assets = sqliteDb("assets");
+  seedAsset(assets, "ast_1");
+  const res = await get("/dashboard", STAFF, env({ tickets, finance, assets }));
   const body = await res.text();
   assert.match(body, /<details class="dash-group" data-kind="task" open>/);
   assert.match(body, /<details class="dash-group" data-kind="ticket" open>/);
@@ -474,7 +486,7 @@ check("test_PRD_P0_111_dashboard_all_mode_grouping__no_separator_when_everything
   const body = await res.text();
   const expenseGroup = body.slice(
     body.indexOf('<details class="dash-group" data-kind="expense"'),
-    body.indexOf('<details class="dash-group" data-kind="upload"'),
+    body.indexOf('</div>\n  <div class="category-menu"'),
   );
   assert.doesNotMatch(expenseGroup, /dash-mine-sep/);
 });
@@ -482,11 +494,11 @@ check("test_PRD_P0_111_dashboard_all_mode_grouping__no_separator_when_everything
 check("test_PRD_P0_111_dashboard_all_mode_grouping__each_section_shows_its_own_count", async () => {
   const tickets = sqliteDb("tickets");
   seedTicket(tickets, "tik_1", { title: "First" });
-  seedTicket(tickets, "tik_2", { number: 2, title: "Second" });
+  seedTicket(tickets, "tik_2", { number: 2, title: "Second", assigned_to: "ana@example.test" });
   const res = await get("/dashboard", STAFF, env({ tickets, finance: null, assets: null }));
   const body = await res.text();
   assert.match(body, /<summary><span class="dash-group-label">Tickets<\/span> \(<span class="dash-group-count">2<\/span>\)<\/summary>/);
-  assert.match(body, /<summary><span class="dash-group-label">Tasks<\/span> \(<span class="dash-group-count">0<\/span>\)<\/summary>/);
+  assert.match(body, /<summary><span class="dash-group-label">Tasks<\/span> \(<span class="dash-group-count">1<\/span>\)<\/summary>/);
 });
 
 check("test_PRD_P0_111_dashboard_all_mode_grouping__narrowing_to_one_mode_hides_the_other_three_sections", async () => {
@@ -591,4 +603,42 @@ check("test_PRD_P0_114_dashboard_default_mode__an_empty_group_carries_no_redunda
   const res = await get("/dashboard", STAFF, env({ finance: null, assets: null }));
   const body = await res.text();
   assert.doesNotMatch(body, /Nothing here yet/);
+});
+
+/* A distinct identity from STAFF, only for the checks below — this file's
+   own AUDIT-less runTool calls all share ONE module-level rate limiter
+   (src/tools/rate.js) across every test file in this run, keyed by actor
+   email; enough of the suite already calls tools as "ana@example.test"
+   that a check landing late in the run can be silently rate-capped and
+   see empty data even though its own scenario is set up correctly. */
+const P0_115_STAFF = { email: "priya@example.test", policy_id: STAFF_POLICY };
+
+check("test_PRD_P0_115_dashboard_hide_empty_groups__an_empty_kind_renders_no_accordion_section_at_all", async () => {
+  /* The owner's own words: "don't show empty accordions at all! So when
+     showing all — only tickets expandable section," given a dashboard
+     with only tickets in it. No FINANCE/ASSETS binding here means
+     Expenses and Uploads have nothing at all, and Tasks has nothing
+     since the one ticket is unassigned — only the Tickets section
+     should exist in the DOM, not just be hidden or collapsed. */
+  const tickets = sqliteDb("tickets");
+  seedTicket(tickets, "tik_1", { title: "A general ticket" });
+  const res = await get("/dashboard", P0_115_STAFF, env({ tickets, finance: null, assets: null }));
+  const body = await res.text();
+  assert.match(body, /<details class="dash-group" data-kind="ticket"/);
+  assert.doesNotMatch(body, /<details class="dash-group" data-kind="task"/);
+  assert.doesNotMatch(body, /<details class="dash-group" data-kind="expense"/);
+  assert.doesNotMatch(body, /<details class="dash-group" data-kind="upload"/);
+});
+
+check("test_PRD_P0_115_dashboard_hide_empty_groups__choosing_an_empty_mode_from_the_selector_still_shows_no_results", async () => {
+  /* Nothing to unhide or force open for a kind with no <details> section
+     at all — refreshCounts()'s own "is anything visible" check already
+     finds zero regardless, so the status line's own No Results swap
+     covers this case for free, with no special-casing needed. */
+  const tickets = sqliteDb("tickets");
+  seedTicket(tickets, "tik_1", { title: "A general ticket" });
+  const res = await get("/dashboard", P0_115_STAFF, env({ tickets, finance: null, assets: null }));
+  const body = await res.text();
+  assert.match(body, /DASH_KIND_LABEL = \{ ticket: "Tickets", task: "Tasks", expense: "Expenses", upload: "Uploads" \}/);
+  assert.match(body, /data-kind="upload">Uploads<\/button>/, "the mode selector itself still offers every kind, empty or not");
 });
