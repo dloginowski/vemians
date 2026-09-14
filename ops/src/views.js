@@ -379,8 +379,17 @@ ${INPUT_BAR_CSS}
  * grid's own last row, or the chat log's own last message, would sit
  * PARTLY BEHIND the now-floating bar rather than stopping short of it.
  * 76px clears the bar's own ~42px height plus its 8px offset from the
- * true screen edge, plus a little breathing room above it. */
-.ops { max-width: 64rem; padding: 12px 8px 76px; }
+ * true screen edge, plus a little breathing room above it.
+ *
+ * Grown again to 108px once .menu (the quick-action chips) also became
+ * position: fixed, floating above .input-bar instead of sitting in flow
+ * above the greeting — the same reasoning again, one floating row
+ * further out: the existing 76px already clears .input-bar itself, +8px
+ * for the gap .menu floats above it by, +~24px for .menu's own single
+ * row of chips, so .log's own last message stops clear of BOTH floating
+ * rows, not just the composer. Ops-page only: itemsPage() has no
+ * floating .menu of its own, so ITEMS_CSS never touches this value. */
+.ops { max-width: 64rem; padding: 12px 8px 108px; }
 
 .ops .warn { margin: 0 0 14px; }
 
@@ -437,19 +446,40 @@ ${INPUT_BAR_CSS}
 .greet { margin: 0 0 12px; text-align: center; }
 .greet h1 { font-size: var(--type); font-weight: 400; color: var(--muted); margin: 0; }
 
-.menu { margin: 0 0 20px; }
+/* Floats directly above the composer now, not in normal document flow above
+   the greeting — the owner's own words: "those quick actions to fill the
+   agent, let's have them float above the agent input field." position:
+   fixed, the same mechanism .input-bar already uses, anchored a gap above
+   it rather than below the greeting: bottom = .input-bar's own 8px offset
+   + its 42px height + an 8px gap = 58px. left/right match .input-bar's own
+   8px so the two floating rows share one edge. Removed from flow entirely,
+   so it no longer pushes .chat-top down — see .ops's own bottom padding
+   for the corresponding room made below it. */
+.menu {
+  margin: 0; position: fixed; left: 8px; right: 8px; bottom: 58px; z-index: 19;
+}
 /* Small chips, not CTAs — three routine tasks and a fold, not the thing on
    the page asking to be pressed hardest. The chat above is that thing now.
-   No heading of their own: centred right under the chat widget, they read
-   as quick prompts for it rather than a second menu competing with it. */
+   No heading of their own: they read as quick prompts for the composer
+   they now float directly above, rather than a second menu competing
+   with it. */
 .choices { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+/* No longer the accent orange — the owner's own words, once .chat-top's
+   own matching accent border was already gone: "get rid of that empty
+   orange peel that's left over from the agent." A transparent-fill,
+   accent-bordered pill only read as a coherent design tied to the frame
+   it echoed; with that frame gone, the same hollow orange ring just
+   looked like an unexplained leftover. Filled with the same
+   --image-ground/--muted pairing .input-bar already uses, so a chip
+   floating over chat content stays legible rather than picking up
+   whatever text sits behind it. */
 .choices .btn {
   display: inline-block; font: inherit; font-size: 11px; line-height: 1.2;
-  padding: 4px 9px; margin: 0; border: 1px solid var(--accent); border-radius: 999px;
-  background: transparent; color: var(--accent); text-decoration: none; font-weight: 400;
+  padding: 4px 9px; margin: 0; border: 1px solid var(--muted); border-radius: 999px;
+  background: var(--image-ground); color: var(--ink); text-decoration: none; font-weight: 400;
   cursor: pointer;
 }
-.choices .btn:hover { background: var(--accent); color: var(--ground); }
+.choices .btn:hover { background: var(--muted); color: var(--ground); }
 
 /* One copyable line. The <pre> scrolls rather than wrapping, so a long command
    never reflows the page on a phone; the button stays beside it at every width
@@ -718,9 +748,15 @@ ${id}
     <h1>Hi ${esc(firstName)} — what would you like to do?</h1>
   </section>
 
-  <!-- The quick-action menu sits ABOVE the chat, not below it — the
-       owner's own words: "you can put the quick chat buttons on top of
-       the chat... not on the bottom." -->
+  <!-- Structurally still ahead of the chat log in the markup (an earlier
+       round's "sits above the chat, not below it" — the owner's own
+       words: "you can put the quick chat buttons on top of the chat...
+       not on the bottom"), but its own visual position is now entirely
+       CSS-driven, not order-driven: .menu is position: fixed, floating
+       directly above .input-bar (see .menu's own CSS) rather than
+       sitting in flow above the greeting — the owner's own words, this
+       round: "those quick actions to fill the agent, let's have them
+       float above the agent input field." -->
   <section class="menu">
     <div class="choices">
       <button type="button" class="btn" data-prompt="Add products">+ Products</button>
