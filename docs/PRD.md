@@ -2177,6 +2177,35 @@ that does not trace to one of these is a process failure (see §12).
     inherited margin nobody meant to apply here, the same lesson P0-96 already established for the
     bottom edge — checking what actually renders, not just what one property declares.
 
+35. **`Test-PRD-P0-100-ticket_messaging`** — Internal messages, staff to staff, live on the
+    company-wide ticket store (`shared/db/tickets.sql`, built for P0-32) rather than a second,
+    parallel table. The owner's own words, once "everyone has their own emails" retired a shared
+    company domain as the way staff reach each other: "we will handle communication entirely
+    through our website internal messages." That store already had everything a message thread
+    needs — a title, an append-only comment log, closed-never-deleted status — but no tool and no
+    ops UI reached it; this feature is that surface, not new plumbing.
+
+    `ticket.list` / `ticket.get` (T0) read the working set and one thread's full comment history.
+    `ticket.create` / `ticket.comment` / `ticket.set_status` (T1) are proposals, exactly like every
+    other T1 in this codebase (`expense.submit`'s own shape): they validate and return the row to
+    insert or update, writing nothing themselves. `/tickets`, `/tickets/new`, `/tickets/<id>` and
+    `/tickets/<id>/comment` (`ops/src/index.js`) are the human actions that actually commit a
+    proposal — the same "propose, then a browser submission applies it" split `/expenses/new ->
+    /expenses/confirm` already uses. No `minRole` above `staff` anywhere in this file: a ticket
+    carries no money and no employee record, so this is coordination, not authorisation, matching
+    `shared/db/tickets.sql`'s own line, "tickets are read and written by everyone."
+
+    A new **Messages** tab joins Agent/Items/Website in the shell (`shellPage()`), listing open
+    tickets newest-and-most-urgent first, with a compose box sharing `INPUT_BAR_CSS`'s `.input-bar`
+    — the same "every input on every page looks and behaves the same" rule the Items search box
+    and the chat composer already settled.
+
+    **Left open, deliberately**: this is the staff-to-staff half only. A customer has no account
+    or login on the storefront at all today, so staff-to-customer messaging — the other half of
+    "communication entirely through our website" — needs its own identity decision (a magic link?
+    an order-lookup code?) before it can reuse this same thread shape. `ticket_link`'s own
+    `entity_type='customer'` row shape is already there for that day; nothing here builds it yet.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -2427,6 +2456,7 @@ Where each feature is enforced today:
 | P0-97 | `ops/test/ops-page.test.mjs` |
 | P0-98 | `ops/test/ops-page.test.mjs` |
 | P0-99 | `ops/test/ops-page.test.mjs` |
+| P0-100 | `ops/test/tools.test.mjs` for `ticket.*`; `ops/test/tickets-route.test.mjs` for the `/tickets` routes, over the real Worker |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

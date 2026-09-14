@@ -91,7 +91,7 @@ const SEED = JSON.parse(fs.readFileSync(path.join(FIXTURES, "square-catalog.json
 /* ── labels, for the P0-30 traceability check ───────────────────────────── */
 
 const usedLabels = new Set();
-const NAME = /^test_PRD_(P[01])_(\d{2})_([a-z0-9_]+?)__([a-z0-9_]+)$/;
+const NAME = /^test_PRD_(P[01])_(\d{2,3})_([a-z0-9_]+?)__([a-z0-9_]+)$/;
 
 /* Every check registers through here, so nothing unlabeled can run. */
 function check(name, fn) {

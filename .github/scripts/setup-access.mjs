@@ -12,9 +12,18 @@ const TOKEN = process.env.CLOUDFLARE_API_TOKEN;
 const ACCOUNT = process.env.CLOUDFLARE_ACCOUNT_ID;
 const ZONE_NAME = process.env.ZONE_NAME || "vemians.com";
 const TEAM = process.env.ACCESS_TEAM_NAME || "vemians";
-const EMAIL_DOMAIN = process.env.STAFF_EMAIL_DOMAIN || "@vemians.com";
+/* No shared staff domain — everyone has their own address, so the catch-all
+   policy is a plain list of individual emails rather than one email_domain
+   rule. Accepts either newlines or commas, since a workflow_dispatch text
+   input has no native list type. */
+const STAFF_EMAILS = [...new Set(
+  (process.env.STAFF_EMAILS || "").split(/[,\n]/).map((e) => e.trim()).filter(Boolean),
+)];
 
 if (!TOKEN || !ACCOUNT) { console.error("::error::CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID must be set"); process.exit(1); }
+if (!STAFF_EMAILS.length) { console.error("::error::staff_emails is empty"); process.exit(1); }
+const badEmails = STAFF_EMAILS.filter((e) => !e.includes("@"));
+if (badEmails.length) { console.error(`::error::staff_emails contains non-addresses: ${JSON.stringify(badEmails)}`); process.exit(1); }
 
 async function cf(path, init = {}, needs = "") {
   const res = await fetch(`${API}${path}`, {
@@ -106,11 +115,11 @@ if (policies.some((p) => p.name === "Vemians staff")) {
     body: JSON.stringify({
       name: "Vemians staff",
       decision: "allow",
-      include: [{ email_domain: { domain: EMAIL_DOMAIN.replace(/^@/, "") } }],
+      include: STAFF_EMAILS.map((email) => ({ email: { email } })),
       require: [], exclude: [],
     }),
   }, "Access: Apps and Policies: Edit");
-  console.log(`  CREATED policy: allow emails ending in ${EMAIL_DOMAIN}`);
+  console.log(`  CREATED policy: allow ${STAFF_EMAILS.length} named address(es)`);
 }
 
 /* ---- report ------------------------------------------------------------ */

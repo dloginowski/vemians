@@ -54,6 +54,8 @@ import {
   opsPage,
   refusalPage,
   shellPage,
+  ticketPage,
+  ticketsPage,
   whoamiPage,
 } from "./views.js";
 import { draftCustomerBatch, draftProductBatch, parsePriceToMinor } from "./batch.js";
@@ -496,6 +498,147 @@ async function ops(request, env, path) {
       summary: gate.data.would,
     });
     return new Response(null, { status: 303, headers: { Location: `/approvals/${id}` } });
+  }
+
+  /*
+   * /tickets — internal messages, staff to staff (Test-PRD-P0-100-ticket_messaging).
+   * ticket.* (tools/tickets.js) validates and returns a PROPOSAL; every route
+   * below is the human action that actually applies it — the same
+   * "runTool proposes, a browser submission commits it" split
+   * /expenses/new -> /expenses/confirm already uses. No manager gate: a
+   * ticket carries no money and no employee record (tickets.js's own
+   * minRole is staff everywhere), so anyone signed in may read, open, or
+   * move one.
+   */
+  if (path === "/tickets" || path.startsWith("/tickets/")) {
+    const role = roleFor(identity, env);
+    if (!role) {
+      return html(refusalPage(403, "Your Access identity is in no group this application maps to a role."), 403);
+    }
+    const email = identity.claims?.email;
+    if (typeof email !== "string" || !email.includes("@")) {
+      return html(refusalPage(403, "This page requires signing in as a person, not a service token."), 403);
+    }
+    if (!env.TICKETS) {
+      return html(refusalPage(503, "The tickets store is not configured on this deployment yet."), 503);
+    }
+    const actorCtx = { actor: email, role, env };
+
+    if (path === "/tickets") {
+      const res = await runTool("ticket.list", {}, actorCtx);
+      if (!res.ok) return html(refusalPage(500, res.error || "Could not read tickets."), 500);
+      return html(ticketsPage(res.data.tickets));
+    }
+
+    if (path === "/tickets/new") {
+      if (request.method !== "POST") {
+        return html(refusalPage(405, "Start a ticket from the Messages tab, not this URL directly."), 405);
+      }
+      let form;
+      try {
+        form = await request.formData();
+      } catch (err) {
+        return html(refusalPage(400, `Unreadable submission — ${err.message}`), 400);
+      }
+      const gate = await runTool("ticket.create", { title: String(form.get("title") ?? "").trim() }, actorCtx);
+      if (!gate.ok) {
+        return html(refusalPage(400, gate.error || "That ticket could not be proposed."), 400);
+      }
+      const v = gate.data.proposal.values;
+      const id = crypto.randomUUID();
+      try {
+        const next = await env.TICKETS.prepare("SELECT COALESCE(MAX(number), 0) + 1 AS number FROM ticket").first();
+        await env.TICKETS.prepare(
+          "INSERT INTO ticket(id, number, title, body, category, priority, status, created_by) VALUES (?,?,?,?,?,?,?,?)",
+        )
+          .bind(id, next.number, v.title, v.body, v.category, v.priority, v.status, v.created_by)
+          .run();
+      } catch (err) {
+        console.error(`ERROR ops/tickets: proposal validated but the row could not be written — ${err.message}`);
+        return html(refusalPage(500, "Validated but could not be filed. Try again."), 500);
+      }
+      return new Response(null, { status: 303, headers: { Location: `/tickets/${id}` } });
+    }
+
+    const isComment = path.endsWith("/comment");
+    const isStatus = path.endsWith("/status");
+    const ticketId = path.slice(
+      "/tickets/".length,
+      isComment ? path.length - "/comment".length : isStatus ? path.length - "/status".length : path.length,
+    );
+
+    const showTicket = async (status, error) => {
+      const detail = await runTool("ticket.get", { ticket_id: ticketId }, actorCtx);
+      if (!detail.ok) return html(refusalPage(404, detail.error || "No such ticket."), 404);
+      return html(ticketPage(detail.data.ticket, detail.data.comments, { error }), status);
+    };
+
+    if (isComment || isStatus) {
+      if (request.method !== "POST") {
+        return html(refusalPage(405, "Comment or update a ticket from its own page, not this URL directly."), 405);
+      }
+      let form;
+      try {
+        form = await request.formData();
+      } catch (err) {
+        return html(refusalPage(400, `Unreadable submission — ${err.message}`), 400);
+      }
+
+      if (isComment) {
+        const gate = await runTool(
+          "ticket.comment",
+          { ticket_id: ticketId, body: String(form.get("body") ?? "").trim() },
+          actorCtx,
+        );
+        if (!gate.ok) return showTicket(400, gate.error);
+        const v = gate.data.proposal.values;
+        try {
+          await env.TICKETS.prepare("INSERT INTO ticket_comment(id, ticket_id, author, body) VALUES (?,?,?,?)")
+            .bind(crypto.randomUUID(), v.ticket_id, v.author, v.body)
+            .run();
+        } catch (err) {
+          console.error(`ERROR ops/tickets: comment validated but the row could not be written — ${err.message}`);
+          return html(refusalPage(500, "Validated but could not be posted. Try again."), 500);
+        }
+        return new Response(null, { status: 303, headers: { Location: `/tickets/${ticketId}` } });
+      }
+
+      /* isStatus */
+      const note = String(form.get("note") ?? "").trim();
+      const gate = await runTool(
+        "ticket.set_status",
+        { ticket_id: ticketId, status: String(form.get("status") ?? ""), note: note || undefined },
+        actorCtx,
+      );
+      if (!gate.ok) return showTicket(400, gate.error);
+      const v = gate.data.proposal.values;
+      try {
+        const now = new Date().toISOString();
+        const resolving = ["resolved", "closed"].includes(v.status);
+        const sets = ["status = ?", "updated_at = ?"];
+        const binds = [v.status, now];
+        if (resolving) {
+          sets.push("resolved_at = ?");
+          binds.push(now);
+        }
+        binds.push(v.ticket_id);
+        await env.TICKETS.prepare(`UPDATE ticket SET ${sets.join(", ")} WHERE id = ?`).bind(...binds).run();
+        if (v.note) {
+          await env.TICKETS.prepare("INSERT INTO ticket_comment(id, ticket_id, author, body) VALUES (?,?,?,?)")
+            .bind(crypto.randomUUID(), v.ticket_id, email, v.note)
+            .run();
+        }
+      } catch (err) {
+        console.error(`ERROR ops/tickets: status change validated but could not be written — ${err.message}`);
+        return html(refusalPage(500, "Validated but could not be saved. Try again."), 500);
+      }
+      return new Response(null, { status: 303, headers: { Location: `/tickets/${ticketId}` } });
+    }
+
+    if (request.method !== "GET") {
+      return html(refusalPage(405, "This page is reached from the Messages tab."), 405);
+    }
+    return showTicket(200);
   }
 
   /*
@@ -980,7 +1123,7 @@ async function ops(request, env, path) {
        plainly that they have no role, the same as before this page split
        into a shell and a tab's own content. */
     const requestedTab = new URL(request.url).searchParams.get("tab");
-    const tab = ["items", "website"].includes(requestedTab) ? requestedTab : "agent";
+    const tab = ["items", "messages", "website"].includes(requestedTab) ? requestedTab : "agent";
     return html(shellPage(tab));
   }
 

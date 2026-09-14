@@ -78,7 +78,7 @@ const SQUARE_LOCATION = "LOC_SQUARE_MAIN";
 
 /* ── labels, for the P0-30 traceability check ───────────────────────────── */
 const usedLabels = new Set();
-const NAME = /^test_PRD_(P[01])_(\d{2})_([a-z0-9_]+?)__([a-z0-9_]+)$/;
+const NAME = /^test_PRD_(P[01])_(\d{2,3})_([a-z0-9_]+?)__([a-z0-9_]+)$/;
 
 function check(name, fn) {
   const parsed = NAME.exec(name);
@@ -416,7 +416,7 @@ check("test_PRD_P0_37_mirror_is_ours__rerunning_the_cron_changes_no_row_counts",
 test("test_PRD_P0_30_prd_traceability__every_label_here_exists_in_the_prd", () => {
   const source = fs.readFileSync(fileURLToPath(import.meta.url), "utf8");
   const labels = new Set();
-  for (const m of source.matchAll(/\btest_PRD_(P[01])_(\d{2})_([a-z0-9_]+?)__/g)) {
+  for (const m of source.matchAll(/\btest_PRD_(P[01])_(\d{2,3})_([a-z0-9_]+?)__/g)) {
     labels.add(`Test-PRD-${m[1]}-${m[2]}-${m[3]}`);
   }
   assert.ok(labels.size >= 3, "expected this file to carry labeled checks");

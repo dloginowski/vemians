@@ -28,6 +28,7 @@ import financeSkills from "../../skills/finance-skills/SKILL.md";
 import identitySkills from "../../skills/identity-skills/SKILL.md";
 import knowledgeSkills from "../../skills/knowledge-skills/SKILL.md";
 import peopleSkills from "../../skills/people-skills/SKILL.md";
+import ticketSkills from "../../skills/ticket-skills/SKILL.md";
 
 /*
  * `domain` is the join to authorisation. A skill is listed only when the role
@@ -58,6 +59,7 @@ const SOURCES = [
      rule working, not a bug: when knowledge tools land it appears on its own. */
   ["knowledge-skills", "knowledge", knowledgeSkills],
   ["people-skills", "people", peopleSkills],
+  ["ticket-skills", "tickets", ticketSkills],
 ];
 
 /*

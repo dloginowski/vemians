@@ -318,6 +318,10 @@ html, body { height: 100%; margin: 0; }
 const SHELL_TABS = [
   { key: "agent", label: "Agent", src: "/chat", href: "/" },
   { key: "items", label: "Items", src: "/items", href: "/?tab=items" },
+  /* Test-PRD-P0-100-ticket_messaging. Same-origin, so it is a same-iframe-swap
+     tab like Agent/Items, unlike Website below (cross-origin, its own tab
+     for that reason alone — see the comment on SHELL_TABS' own history). */
+  { key: "messages", label: "Messages", src: "/tickets", href: "/?tab=messages" },
   { key: "website", label: "Website", src: "https://vemians.com", href: "/?tab=website" },
 ];
 
@@ -1311,6 +1315,154 @@ document.getElementById("items-grid").addEventListener("click", (e) => {
 });
 </script>`,
     ITEMS_CSS,
+  );
+}
+
+/*
+ * Tickets — internal messages, staff to staff (Test-PRD-P0-100-ticket_messaging).
+ * The owner's own words, once a shared company email domain was retired as the
+ * way staff reach each other: "we will handle communication entirely through
+ * our website internal messages." Reads the same `ticket`/`ticket_comment`
+ * rows shared/db/tickets.sql already defines for P0-32 — this is that store's
+ * first real UI, not a second, simpler thing built beside it.
+ *
+ * Same shape as itemsPage(): OPS_DARK_CSS + INPUT_BAR_CSS for the theme and
+ * the shared pill, a list/detail split, and a compose bar fixed to the
+ * screen's own bottom rather than structurally last on the page — every
+ * input on every page looks and behaves the same, the rule the chat composer
+ * and the Items search box already settled.
+ */
+const TICKET_CATEGORY_LABEL = {
+  stock: "Stock", fulfilment: "Fulfilment", customer: "Customer", site: "Site",
+  supplier: "Supplier", facilities: "Facilities", other: "Other",
+};
+const TICKET_STATUS_LABEL = {
+  open: "Open", in_progress: "In progress", blocked: "Blocked", resolved: "Resolved", closed: "Closed",
+};
+
+const TICKETS_CSS = `
+${OPS_DARK_CSS}
+${INPUT_BAR_CSS}
+.ticket-list { display: flex; flex-direction: column; gap: 8px; }
+.ticket-tile {
+  display: block; text-decoration: none; color: inherit;
+  border: 1px solid var(--rule); border-radius: 8px;
+  padding: 10px 12px; background: var(--image-ground); font-size: 12px;
+}
+.ticket-tile h3 { margin: 0 0 4px; font-size: 13px; color: var(--ink); line-height: 1.3; }
+.ticket-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px; }
+.ticket-badges span {
+  font-size: 10px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--rule); color: var(--muted);
+}
+.ticket-badges .priority-high, .ticket-badges .priority-urgent { border-color: var(--accent); color: var(--accent); }
+.ticket-meta { color: var(--muted); font-size: 11px; }
+.ticket-empty { color: var(--muted); font-style: italic; }
+
+/* One plain bubble per comment — no "you vs them" colour split like .log's
+   chat bubbles, since every comment here is a coworker, not the assistant.
+   The author line is what tells them apart, same as any plain message app. */
+.ticket-thread { display: flex; flex-direction: column; gap: 8px; margin: 0 0 8px; }
+.ticket-comment {
+  padding: 8px 12px; border-radius: 14px; background: var(--image-ground);
+  font-size: 14px; line-height: 1.4; white-space: pre-wrap; word-break: break-word;
+}
+.ticket-comment .who { display: block; font-size: 11px; color: var(--muted); margin-bottom: 2px; }
+.ticket-status-form { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+.ticket-status-form select, .ticket-status-form input {
+  font: inherit; font-size: 12px; padding: 4px 6px;
+  border: 1px solid var(--muted); border-radius: 6px; background: var(--ground); color: var(--ink);
+}
+.ticket-status-form input[name="note"] { flex: 1 1 160px; }
+.ticket-status-form button {
+  font: inherit; font-size: 12px; padding: 4px 10px; cursor: pointer;
+  border: 1px solid var(--rule); border-radius: 999px; background: var(--ground); color: var(--ink);
+}
+.ticket-status-form button:hover { border-color: var(--accent); color: var(--accent); }
+.ticket-back { display: inline-block; margin: 0 0 10px; color: var(--muted); font-size: 12px; text-decoration: none; }
+.ticket-back:hover { color: var(--ink); }
+.ticket-detail h2 { margin: 0 0 4px; font-size: 16px; }
+.ticket-detail .ticket-meta { margin: 0 0 12px; }
+.ticket-detail .ticket-body { font-size: 13px; white-space: pre-wrap; margin: 0 0 12px; }
+.ticket-detail .hint { color: var(--accent); }
+`;
+
+function ticketBadges(ticket) {
+  return `<div class="ticket-badges">
+    <span>${esc(TICKET_CATEGORY_LABEL[ticket.category] ?? ticket.category)}</span>
+    <span class="priority-${esc(ticket.priority)}">${esc(ticket.priority)}</span>
+    <span>${esc(TICKET_STATUS_LABEL[ticket.status] ?? ticket.status)}</span>
+  </div>`;
+}
+
+function ticketTile(ticket) {
+  return `<a class="ticket-tile" href="/tickets/${esc(ticket.id)}">
+    <h3>#${ticket.number ?? "?"} — ${esc(ticket.title)}</h3>
+    ${ticketBadges(ticket)}
+    <div class="ticket-meta">${esc(ticket.created_by)} &middot; ${esc(ticket.updated_at)}${ticket.assigned_to ? ` &middot; assigned: ${esc(ticket.assigned_to)}` : ""}</div>
+  </a>`;
+}
+
+export function ticketsPage(tickets) {
+  const list = tickets.length
+    ? `<div class="ticket-list">${tickets.map(ticketTile).join("\n")}</div>`
+    : `<p class="ticket-empty">No open tickets. Whatever comes up, start one below.</p>`;
+
+  return page(
+    "Messages — Vemians ops",
+    /* No page title of its own — the shell's Messages tab already names the
+       page, the same reasoning itemsPage() gives for dropping its own. The
+       compose bar is a plain title-only quick-add (category/priority default
+       to other/normal); a fuller edit happens once a ticket exists, from its
+       own detail page, matching how Items keeps its quick search plain too. */
+    `<main class="ops">
+  ${list}
+  <form class="chat" method="post" action="/tickets/new">
+    <div class="chat-bar input-bar">
+      <input type="text" name="title" placeholder="Start a new ticket..." required maxlength="200">
+      <button type="submit" class="send-btn" aria-label="Create" title="Create">${SEND_ICON}</button>
+    </div>
+  </form>
+</main>`,
+    TICKETS_CSS,
+  );
+}
+
+export function ticketPage(ticket, comments, { error } = {}) {
+  const thread = comments.length
+    ? `<div class="ticket-thread">${comments
+        .map((c) => `<div class="ticket-comment"><span class="who">${esc(c.author)} &middot; ${esc(c.created_at)}</span>${esc(c.body)}</div>`)
+        .join("\n")}</div>`
+    : `<p class="ticket-empty">No comments yet.</p>`;
+
+  const statusOptions = Object.keys(TICKET_STATUS_LABEL)
+    .map((s) => `<option value="${s}"${s === ticket.status ? " selected" : ""}>${esc(TICKET_STATUS_LABEL[s])}</option>`)
+    .join("");
+
+  return page(
+    `#${ticket.number} ${ticket.title} — Vemians ops`,
+    `<main class="ops">
+  <div class="ticket-detail">
+  <a class="ticket-back" href="/tickets">&larr; All tickets</a>
+  <h2>#${ticket.number} — ${esc(ticket.title)}</h2>
+  ${ticketBadges(ticket)}
+  <p class="ticket-meta">${esc(ticket.created_by)} &middot; ${esc(ticket.created_at)}</p>
+  ${ticket.body ? `<p class="ticket-body">${esc(ticket.body)}</p>` : ""}
+  ${error ? `<p class="hint">${esc(error)}</p>` : ""}
+  </div>
+  <form class="ticket-status-form" method="post" action="/tickets/${esc(ticket.id)}/status">
+    <select name="status">${statusOptions}</select>
+    <input type="text" name="note" placeholder="Note (required to resolve or close)" maxlength="${CAPS.MAX_TEXT}">
+    <button type="submit">Update</button>
+  </form>
+  ${thread}
+  <form class="chat" method="post" action="/tickets/${esc(ticket.id)}/comment">
+    <div class="chat-bar input-bar">
+      <input type="text" name="body" placeholder="Add a comment..." required maxlength="${CAPS.MAX_TEXT}">
+      <button type="submit" class="send-btn" aria-label="Send" title="Send">${SEND_ICON}</button>
+    </div>
+  </form>
+</main>`,
+    TICKETS_CSS,
   );
 }
 

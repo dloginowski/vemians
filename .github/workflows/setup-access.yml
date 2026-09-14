@@ -16,9 +16,9 @@ on:
       zone:
         description: The domain
         default: vemians.com
-      staff_email_domain:
-        description: Only these addresses may reach ops
-        default: "@vemians.com"
+      staff_emails:
+        description: Every address allowed to reach ops, one per line (or comma-separated) — no shared domain assumed
+        required: true
 
 concurrency: { group: setup-access }
 permissions: { contents: write }
@@ -38,7 +38,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ACCESS_TEAM_NAME: ${{ inputs.team_name }}
           ZONE_NAME: ${{ inputs.zone }}
-          STAFF_EMAIL_DOMAIN: ${{ inputs.staff_email_domain }}
+          STAFF_EMAILS: ${{ inputs.staff_emails }}
         run: node .github/scripts/setup-access.mjs
 
       - name: Write the AUD into ops/wrangler.toml

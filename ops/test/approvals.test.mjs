@@ -20,7 +20,7 @@ const { approvalPage } = await import("../src/views.js");
 const approvals = await import("../src/approvals.js");
 
 const usedLabels = new Set();
-const NAME = /^test_PRD_(P[01])_(\d{2})_([a-z0-9_]+?)__([a-z0-9_]+)$/;
+const NAME = /^test_PRD_(P[01])_(\d{2,3})_([a-z0-9_]+?)__([a-z0-9_]+)$/;
 function check(name, fn) {
   const parsed = NAME.exec(name);
   assert.ok(parsed, `${name} is not a PRD-labeled check`);
