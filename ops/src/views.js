@@ -452,8 +452,12 @@ html, body { height: 100%; margin: 0; }
    entirely since, along with the border itself; the composer also no
    longer lives inside this same padding stack at all, now that it is
    fixed to the screen's own bottom instead, so this aligns with .log's
-   own edge specifically rather than a shared log-and-composer one.) */
-.shell-header { flex: 0 0 auto; padding: 10px 22px 0; background: var(--bar); }
+   own edge specifically rather than a shared log-and-composer one.)
+   Recomputed again once .chat-top's own SIDE padding halved to 7px (see
+   .chat-top below): 8px (.ops) + 7px = 15px is where .log's content
+   starts now, so this stays in step with it rather than drifting out of
+   alignment with the tab it was matched to in the first place. */
+.shell-header { flex: 0 0 auto; padding: 10px 15px 0; background: var(--bar); }
 .shell-nav { --tab-radius: 14px; display: flex; align-items: flex-end; gap: 16px; }
 /* Flat and borderless until active — every tab drawn as its own
    bordered box, active or not, was what read as a row of separate
@@ -589,9 +593,19 @@ ${INPUT_BAR_CSS}
  * screen's own bottom instead, sharing .items-search's own shape), and
  * with the border gone there is no background left to round either —
  * .log/#gate now sit as plainly on the page as the Items grid's own
- * tiles do, with only their own padding for spacing. */
+ * tiles do, with only their own padding for spacing.
+ *
+ * Sides halved again, top/bottom left alone — the owner's own words:
+ * "the chat fields have too much padding on the sides... notice how the
+ * chat entry field has less padding around it on the sides than the
+ * actual chat body? the chat body could use like half the padding."
+ * The composer sits flush with .ops's own 8px side inset (INPUT_BAR_CSS);
+ * .chat-top's own 14px on top of that pushed the message bubbles in by
+ * 22px total, visibly more than the composer just below them. 7px keeps
+ * the vertical rhythm intact (the top/bottom spacing this section's own
+ * history already settled) while closing most of that side gap. */
 .chat-top {
-  padding: 14px; margin-bottom: 16px;
+  padding: 14px 7px; margin-bottom: 16px;
 }
 /* The composer <form> carries class="chat" deliberately (so the
    approval gate's own button row further down inherits from it too),

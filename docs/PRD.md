@@ -2884,6 +2884,29 @@ that does not trace to one of these is a process failure (see §12).
     (`.log`, P0-78's own `min(62vh, 560px)` scroll frame) still bounds the whole conversation
     column if a preview card ever runs unexpectedly tall.
 
+53. **`Test-PRD-P0-118-chat_top_side_padding_halved`** — The owner's own words, comparing the
+    agent chat's own two pieces: "reduce the overall page padding in the agent section... the chat
+    fields have too much padding on the sides and we're kind of wasting usable space. Notice how
+    the chat entry field has less padding around it on the sides than the actual chat body? The
+    chat body could use like half the padding."
+
+    **`.chat-top`'s own side padding halves, top/bottom untouched.** P0-93's own flat, uniform
+    14px on every side (all four matched on purpose, that round) becomes `14px 7px` — the
+    composer sits flush against `.ops`'s own 8px side inset with no frame of its own around it
+    (P0-93), so the message bubbles inside `.chat-top` sat visibly further from the screen edge
+    than the composer just below them: 8px + 14px = 22px of total inset for the chat body against
+    the composer's plain 8px. Halving just the sides closes most of that gap (8px + 7px = 15px)
+    while leaving the vertical rhythm P0-93 settled alone — nothing about the top/bottom spacing
+    was part of this complaint.
+
+    **The shell's own tab row moves with it.** `.shell-header`'s own left padding (P0-71) was
+    calibrated to 22px specifically so the first tab lines up with where `.log`'s own content
+    starts — the owner's own words, back then: "first tab on left matches the inner chat left
+    extent." Left at 22px here, the tabs would drift out of alignment the moment `.chat-top`'s own
+    side padding changed, so `.shell-header`'s own padding drops to `10px 15px 0` in the same
+    change, keeping the two in step rather than quietly breaking a feature this request never
+    mentioned.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -3152,6 +3175,7 @@ Where each feature is enforced today:
 | P0-115 | `ops/test/dashboard-route.test.mjs` |
 | P0-116 | `ops/test/dashboard-route.test.mjs` |
 | P0-117 | `ops/test/catalog-write.test.mjs`, `ops/test/ops-page.test.mjs` |
+| P0-118 | `ops/test/ops-page.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
