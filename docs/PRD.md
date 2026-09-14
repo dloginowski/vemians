@@ -2248,14 +2248,27 @@ that does not trace to one of these is a process failure (see §12).
     anywhere in this path, only a Square read and a D1 write.
 
     **What this costs, named plainly, because the owner chose it with the tradeoff stated.**
-    Cloudflare's own Access policy stays exactly what it already is — a plain list of individual
-    emails (P0-99's own migration) — so `ops.vemians.com` still refuses an unrecognised address
-    before the Worker runs. What moves is the finer-grained ROLE: `ops/src/access.js`'s
+    Cloudflare's own Access policy is still a plain list of individual emails (P0-99's own
+    migration) — `ops.vemians.com` still refuses an unrecognised address before the Worker runs —
+    but that list is no longer maintained by hand either: `sync-roster-from-square.mjs` also
+    reconciles it to the same Square active-team read (below), so there is exactly one place a
+    person is added or removed, not two. What moves is the finer-grained ROLE: `ops/src/access.js`'s
     `explainRole()` now checks `PEOPLE.employee` first, and once that table holds even one row it
     is fully authoritative — a stale Access Group claim or `DEFAULT_ROLE` cannot resurrect a role
     for someone the roster does not name. `roleFor`/`explainRole` became `async` for this (11
     call sites in `index.js`, 2 in `agent.js`, all already inside `async` functions — a mechanical
     change, not a new failure mode).
+
+    **The Access policy sync is additive to the D1 roster sync, not a replacement for it, and
+    fails safe the same way.** Once `CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID` are set and
+    the `setup-access` bootstrap has created the "Vemians ops" application and its "Vemians
+    staff" policy (a one-time step — see `docs/deploy-cloudflare.md` §6), every
+    `sync-roster-from-square` run also `PUT`s that policy's Include list to exactly Square's
+    current active-team addresses. Guarded the same way the D1 deactivation is: an empty or
+    failed Square response never touches the policy, since that would read as "revoke everyone's
+    login." Skipped entirely (with a log line, not an error) if the application doesn't exist yet
+    or the Cloudflare credentials aren't set, so the roster half of this script still works
+    standalone before that bootstrap has happened.
 
     **A roster that has never synced must not lock out the owner.** `roleFromRoster()` treats an
     UNBOUND `PEOPLE` and a BOUND-BUT-EMPTY one identically: both fall through to the legacy
