@@ -2278,6 +2278,14 @@ that does not trace to one of these is a process failure (see §12).
     Square response can never read as "deactivate the entire company": the deactivating `UPDATE`
     only runs when Square actually returned at least one active member with an email on file.
 
+    **Runs on its own, every 6 hours — the owner's own words: "I want it all to propagate
+    automatically."** `sync-roster-from-square.yml` carries a `schedule` trigger from the start,
+    not a manual-first opt-in; `workflow_dispatch` stays available for an on-demand run (right
+    after changing the manager-title list, say). A `schedule` trigger carries no
+    `workflow_dispatch` inputs at all, so an automatic run reads `MANAGER_JOB_TITLES` from a
+    repository variable of the same name instead — set once in Settings, read by both trigger
+    kinds, with a manual input (when given) taking precedence over it.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
