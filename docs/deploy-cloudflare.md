@@ -334,9 +334,18 @@ machine-to-machine.)*
 **Now close the loop in the code.** In `ops/wrangler.toml`, uncomment and fill:
 
 ```toml
-ACCESS_TEAM_DOMAIN = "vemians.cloudflareaccess.com"
+ACCESS_TEAM_DOMAIN = "<your actual Zero Trust team name>.cloudflareaccess.com"
 ACCESS_AUD         = "<the 64-char AUD tag>"
 ```
+
+**Do not assume the team name matches the zone** — it does not have to, and this codebase's
+own history proves it does not always. The team name is chosen once, separately, when Zero
+Trust is first set up (§4 above); confirming it later against the zone is easy to skip and the
+failure is silent and total: the Worker fetches signing keys from a team domain that 404s and
+rejects every genuine login as a failed signature, with nothing in the logs pointing at the
+team name specifically. Confirm it in the Zero Trust dashboard's own URL bar, or by curling both
+candidate `<name>.cloudflareaccess.com` hosts — the real one answers with signing keys, a wrong
+guess 404s.
 
 then `npx wrangler deploy`. Until you do this the Worker still fails closed on a missing
 assertion, but it accepts any well-formed one **without checking its signature**, and says so

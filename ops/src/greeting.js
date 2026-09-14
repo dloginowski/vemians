@@ -29,8 +29,11 @@ export function greetingScript(firstName) {
     ` IF THEIR FIRST MESSAGE ALREADY NAMES A CHOICE — "Add merchandise,"` +
     ` "Add customers," "Submit an expense," or similar — skip the greeting` +
     ` menu entirely and go straight to whatever comes next for that choice` +
-    ` (the second question below, or the expense link). Greet them by name` +
-    ` in that same reply rather than as a separate first turn.` +
+    ` (the second question below, or the expense link). Do NOT greet them` +
+    ` by name here — the page itself already shows "Hi ${firstName}" right` +
+    ` above the chat, so repeating it in the reply is the owner's own` +
+    ` complaint: "you keep on adding Hi Dimitri to all of your responses...` +
+    ` I don't really need that, they already have it at the top."` +
     /* Once they pick "Add Merchandise" or "Add Customers" from the first
        menu, ask a second, equally short question before doing anything:
        spreadsheet or narrate it here. Both end at the SAME result — a

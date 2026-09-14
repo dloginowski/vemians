@@ -736,6 +736,17 @@ check("test_PRD_P0_91_quiet_greeting__the_greet_heading_is_centred_and_no_longer
   assert.doesNotMatch(body, /\.greet h1\s*\{[^}]*font-weight:\s*700/s, "the old bold weight must not still be set");
 });
 
+check("test_PRD_P0_91_quiet_greeting__the_heading_shrank_to_the_smallest_meta_text_size", async () => {
+  /* The owner's own words, once every quick-action click also started
+     repeating this heading's own name in the chat reply (P0-83): "it needs
+     to be very, very small because it's eating up too much space." 11px
+     matches the smallest de-emphasised meta text already used elsewhere
+     (.ticket-meta, badges), not a value invented for this alone. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.greet h1\s*\{[^}]*font-size:\s*11px/s, "the greeting must be shrunk to 11px");
+  assert.doesNotMatch(body, /\.greet h1\s*\{[^}]*font-size:\s*var\(--type\)/s, "must not still be base body size");
+});
+
 check("test_PRD_P0_91_quiet_greeting__the_ask_the_ops_assistant_line_is_gone", async () => {
   const { body } = await frontPage(OWNER);
   assert.doesNotMatch(body, /Ask the ops assistant/, "a heading that only restated what the chat widget already is");

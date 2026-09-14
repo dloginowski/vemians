@@ -11,8 +11,14 @@ on:
   workflow_dispatch:
     inputs:
       team_name:
-        description: Zero Trust team name (becomes <team>.cloudflareaccess.com)
-        default: vemians
+        description: >-
+          Zero Trust team name (becomes <team>.cloudflareaccess.com). CONFIRMED
+          "vonvemian", NOT "vemians" — the team name has nothing to do with the
+          zone and was picked separately when Zero Trust was set up. Getting
+          this wrong is silent and total: the Worker fetches signing keys from
+          a team domain that 404s and rejects every genuine login as a failed
+          signature. See ops/wrangler.toml's own ACCESS_TEAM_DOMAIN comment.
+        default: vonvemian
       zone:
         description: The domain
         default: vemians.com
