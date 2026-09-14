@@ -56,7 +56,7 @@ check("test_PRD_P0_35_approval_never_in_band__the_page_shows_the_write_without_d
   const html = approvalPage("abc123", {
     tool: "catalog.create_product",
     args: { title: "Wool Coat", price_minor: 48000 },
-    actor: "d@vemians.com",
+    requestedBy: "d@vemians.com",
     role: "owner",
   });
 
@@ -88,12 +88,26 @@ check("test_PRD_P0_35_approval_never_in_band__args_are_escaped_not_rendered", ()
   const html = approvalPage("x", {
     tool: "catalog.create_product",
     args: { title: '<img src=x onerror="alert(1)">' },
-    actor: '<b>d@vemians.com</b>',
+    requestedBy: '<b>d@vemians.com</b>',
     role: "owner",
   });
   assert.doesNotMatch(html, /<img src=x/, "a tool argument is data, and an agent supplies it");
   assert.doesNotMatch(html, /<b>d@vemians\.com<\/b>/);
   assert.match(html, /&lt;img/);
+});
+
+check("test_PRD_P0_35_approval_never_in_band__asked_by_names_the_actual_requester_not_unknown", () => {
+  /* Caught live: the page read pending.actor, but parkForApproval stores the
+     requester as requestedBy — every real approval read back "Asked by
+     unknown" regardless of who actually asked. */
+  const html = approvalPage("y", {
+    tool: "catalog.set_custom_fields",
+    args: { handle: "black-dress", fields: { "Style Number": "1234" } },
+    requestedBy: "dimitri@handsome.la",
+    role: "owner",
+  });
+  assert.match(html, /Asked by <strong>dimitri@handsome\.la<\/strong>/);
+  assert.doesNotMatch(html, /Asked by <strong>unknown<\/strong>/);
 });
 
 test("test_PRD_P0_30_prd_traceability__every_label_used_here_exists_in_the_prd", async () => {

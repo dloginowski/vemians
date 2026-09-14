@@ -1517,12 +1517,14 @@ ${INPUT_BAR_CSS}
    — was considered and set aside: mix-blend-mode/invert reads reliably
    only against a flat color, not a real photograph, and would go illegible
    on exactly the busy images this tile exists to show.) rgba(25, 24, 23,
-   0.5) is --ground itself at 50% opacity, not a separate color to keep in
-   sync by hand. */
+   0.75) is --ground itself at 75% opacity — raised from 50%, the owner's
+   own words: "make those bars more opaque, so like 75%, because they're
+   still too transparent to be visible in the item thumbnail view" — not a
+   separate color to keep in sync by hand. */
 .item-top, .item-bottom {
   position: absolute; left: 0; right: 0; display: flex; align-items: center;
   justify-content: space-between; gap: 6px; padding: 6px 8px;
-  background: rgba(25, 24, 23, 0.5);
+  background: rgba(25, 24, 23, 0.75);
 }
 .item-top { top: 0; }
 .item-bottom { bottom: 0; }
@@ -1530,7 +1532,21 @@ ${INPUT_BAR_CSS}
   margin: 0; font-size: 13px; color: #fff; line-height: 1.3;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.item-top-right { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
 .item-price { flex: 0 0 auto; font-size: 11px; color: #fff; }
+/* The owner's own words: "I need a button somewhere, maybe top right,
+   when I expand the product, I want to get a deep link into that
+   expanded view so I can send it to somebody." Hidden on a collapsed
+   tile — a link is only meaningful once there is an expanded view to
+   send someone to — and shown once .item-tile carries .full. */
+.item-share {
+  display: none; flex: 0 0 auto; width: 20px; height: 20px; padding: 0;
+  align-items: center; justify-content: center; border: none; border-radius: 50%;
+  cursor: pointer; background: transparent; color: #fff;
+}
+.item-share:hover { background: rgba(255, 255, 255, 0.2); }
+.item-tile.full .item-share { display: inline-flex; }
+.item-share[data-state="ok"] { color: var(--accent); }
 .item-sku { font-size: 11px; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* As short as the owner's own words ask: "shorten them, make them as
    short as possible" — CHANNEL_LABEL itself carries "Web"/"In store" now,
@@ -1697,9 +1713,14 @@ function itemTile(product, canEdit) {
 
   const photoStyle = product.image_key ? ` style="background-image:url('${MEDIA_BASE_URL}/${esc(product.image_key)}')"` : "";
 
-  return `<article class="item-tile" data-search="${esc(searchText)}" data-category="${esc(product.category_name || "")}" data-status="${isActive ? "active" : "inactive"}" data-channel="${esc(product.channel)}">
+  return `<article class="item-tile" data-search="${esc(searchText)}" data-category="${esc(product.category_name || "")}" data-status="${isActive ? "active" : "inactive"}" data-channel="${esc(product.channel)}" data-handle="${esc(product.handle)}">
     <div class="item-photo"${photoStyle}>
-      <div class="item-top"><h3>${esc(product.title)}</h3><span class="item-price">${esc(priceText)}</span></div>
+      <div class="item-top"><h3>${esc(product.title)}</h3>
+        <div class="item-top-right">
+          <span class="item-price">${esc(priceText)}</span>
+          <button type="button" class="item-share" aria-label="Copy a link to this item" title="Copy a link to this item">${CLIPBOARD}</button>
+        </div>
+      </div>
       <div class="item-bottom"><span class="item-sku">${esc(primarySku)}</span><div class="item-tags">${tags}</div></div>
     </div>
     <div class="item-detail">
@@ -2015,15 +2036,59 @@ if (!ItemSpeechRecognitionCtor) {
    tile toggles it, except inside .item-edit (its own inputs, selects,
    buttons and <summary> stay independently interactive; collapsing the
    tile out from under someone mid-edit would lose the click they meant
-   to make). Toggling .full on the tile itself grows the SAME element in
-   place (TABLE_CARD_CSS's own .table-card.full convention in the chat
-   log) instead of opening a second element or tracking separate scroll
-   state. */
+   to make) or .item-share (its own click copies a link — see below —
+   rather than collapsing the very tile it just expanded further). Toggling
+   .full on the tile itself grows the SAME element in place (TABLE_CARD_CSS's
+   own .table-card.full convention in the chat log) instead of opening a
+   second element or tracking separate scroll state. */
 document.getElementById("items-grid").addEventListener("click", (e) => {
+  const shareBtn = e.target.closest(".item-share");
+  if (shareBtn) {
+    shareLink(shareBtn);
+    return;
+  }
   const tile = e.target.closest(".item-tile");
   if (!tile || e.target.closest(".item-edit")) return;
   tile.classList.toggle("full");
 });
+
+/* "I need to have a button somewhere, maybe top right, when I expand the
+   product. I want to get a deep link into that expanded view so I can
+   send it to somebody." #item-<handle> rather than a server route — the
+   whole catalog already renders in one response, so there is nothing a
+   real URL segment would fetch that this page does not already hold. */
+async function shareLink(btn) {
+  const handle = btn.closest(".item-tile").dataset.handle;
+  const url = location.origin + location.pathname + "#item-" + encodeURIComponent(handle);
+  try {
+    await navigator.clipboard.writeText(url);
+    btn.dataset.state = "ok";
+    btn.title = "Copied";
+  } catch (err) {
+    console.error("clipboard write failed", err);
+    btn.dataset.state = "failed";
+    btn.title = "Could not copy — copy it from the address bar instead";
+  }
+  setTimeout(() => {
+    delete btn.dataset.state;
+    btn.title = "Copy a link to this item";
+  }, 2000);
+}
+
+/* The other half of the link above: opening it lands on the grid like any
+   other visit, then this jumps straight to the one product and expands it
+   — forced visible regardless of today's category or status filter, since
+   the whole point of a link someone sent you is that IT decides what you
+   see, not whatever was selected when they made it. */
+if (location.hash.startsWith("#item-")) {
+  const handle = decodeURIComponent(location.hash.slice("#item-".length));
+  const linked = [...document.querySelectorAll(".item-tile")].find((el) => el.dataset.handle === handle);
+  if (linked) {
+    linked.hidden = false;
+    linked.classList.add("full");
+    linked.scrollIntoView({ block: "start" });
+  }
+}
 </script>`,
     ITEMS_CSS,
   );
@@ -2862,7 +2927,7 @@ export function approvalPage(id, pending, { durable = true, categories = [] } = 
     `<main class="wrap">
        <p class="eyebrow">Someone is asking you to say yes</p>
        <h1>${esc(label)}</h1>
-       <p class="who">Asked by <strong>${esc(pending.actor ?? "unknown")}</strong>.</p>
+       <p class="who">Asked by <strong>${esc(pending.requestedBy ?? "unknown")}</strong>.</p>
 
        ${
          pending.summary
