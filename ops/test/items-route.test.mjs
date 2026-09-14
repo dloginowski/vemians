@@ -224,12 +224,18 @@ check("test_PRD_P0_71_items_tab__the_search_box_shares_the_chat_composers_own_cl
      The search input's own wrapper now carries class="input-bar" —
      the literal same shared class the chat composer's own .chat-bar
      carries (INPUT_BAR_CSS) — rather than a second, independently
-     duplicated set of matching CSS values that can drift again. */
+     duplicated set of matching CSS values that can drift again. The
+     input no longer sits immediately inside the div — a filter button
+     (P0-71's own follow-up, the category menu) now comes first — so
+     this checks both are present inside the same bar rather than
+     requiring them adjacent. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const res = await get("/items", STAFF, env(mirror));
   const body = await res.text();
-  assert.match(body, /<div class="input-bar">\s*<input type="text" id="item-search"/s);
+  const bar = /<div class="input-bar">([\s\S]*?)<\/div>/.exec(body);
+  assert.ok(bar, "the search bar itself must render with class=\"input-bar\"");
+  assert.match(bar[1], /<input type="text" id="item-search"/);
 });
 
 check("test_PRD_P0_71_items_tab__the_search_box_is_fixed_to_the_bottom_regardless_of_content", async () => {
@@ -248,6 +254,64 @@ check("test_PRD_P0_71_items_tab__the_search_box_is_fixed_to_the_bottom_regardles
   const body = await res.text();
   assert.match(body, /\.input-bar\s*\{[^}]*position:\s*fixed/s);
   assert.match(body, /\.input-bar\s*\{[^}]*bottom:\s*8px/s);
+});
+
+check("test_PRD_P0_102_items_search_matches_chat__the_bar_has_a_search_button_and_a_category_filter_button", async () => {
+  /* The owner's own words: "it needs a search button on the right...
+     it might be a magnifying glass. And on the left side, add a
+     little hamburger menu like button..." Both share the chat
+     composer's own button classes (icon-btn on the left, send-btn on
+     the right) rather than new, independently styled buttons. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  const bar = /<div class="input-bar">([\s\S]*?)<\/div>/.exec(body)[1];
+  assert.match(bar, /<button type="button" class="icon-btn" id="category-btn"/, "a filter button must sit on the left");
+  assert.match(bar, /<button type="button" class="send-btn" id="item-search-btn"/, "a search button must sit on the right");
+});
+
+check("test_PRD_P0_102_items_search_matches_chat__the_icon_buttons_share_the_chat_composers_own_classes", async () => {
+  /* The actual reason Items' bar never had buttons before this: ITEMS_CSS
+     never imported OPS_CSS, where .icon-btn/.send-btn used to be scoped
+     to ".chat .chat-bar" specifically. Moved into INPUT_BAR_CSS (which
+     ITEMS_CSS does import) and rescoped to plain .input-bar, so this is
+     the same rule reaching a new surface, not a second copy of it. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.match(body, /\.input-bar \.icon-btn\s*\{[^}]*width:\s*34px/s);
+  assert.match(body, /\.input-bar \.send-btn\s*\{[^}]*background:\s*var\(--accent\)/s);
+  assert.doesNotMatch(body, /\.chat \.chat-bar \.icon-btn/s, "the old chat-only scoping must not still be set");
+});
+
+check("test_PRD_P0_102_items_search_matches_chat__the_category_menu_lists_only_categories_actually_present", async () => {
+  /* "A little menu to select existing categories" — existing on the
+     products actually rendered, not the full catalog category list a
+     manager could create from. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.match(body, /<div class="category-menu" id="category-menu" hidden>/);
+  assert.match(body, /<button type="button" class="category-item" data-category="">All categories<\/button>/);
+  assert.match(body, /<button type="button" class="category-item" data-category="Outerwear">Outerwear<\/button>/);
+});
+
+check("test_PRD_P0_102_items_search_matches_chat__no_category_menu_or_filter_button_when_nothing_is_categorised", async () => {
+  /* A category picker over zero categories is not a feature — it is an
+     empty box that still opens. The filter button itself is hidden
+     rather than rendered as a dead click target. */
+  const mirror = mirrorDb();
+  mirror.db.exec(
+    "INSERT INTO mirror_product (id, external_ref, handle, title, status, channel, custom_fields) " +
+      "VALUES ('p1', 'sqitem1', 'wool-coat', 'Wool Coat', 'active', 'in_store', '{}')",
+  );
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.doesNotMatch(body, /id="category-menu"/);
+  assert.match(body, /id="category-btn"[^>]* hidden/, "the filter button must be hidden with nothing to filter by");
 });
 
 check("test_PRD_P0_71_items_tab__no_redundant_title_wastes_space_the_tab_bar_already_spent", async () => {

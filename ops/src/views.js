@@ -135,6 +135,37 @@ const INPUT_BAR_CSS = `
   padding: 8px 4px; font: inherit; font-size: 14px; color: var(--ink);
 }
 .input-bar input:focus { outline: none; }
+/* The round icon/send buttons a bar can hold, moved here from OPS_CSS once
+   Items' own search bar gained a filter button and a search button of its
+   own (the owner's own words: "it needs a search button... use the same
+   kind of font for the hint and stuff like that... just feels just like
+   the chat button") — every .input-bar, not only the chat composer,
+   should pick these up literally rather than by a second, independently
+   matched copy, the same "shared, not duplicated" reasoning .input-bar
+   itself already exists for. */
+.input-bar button {
+  flex: 0 0 auto; margin: 0; padding: 0; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; border-radius: 50%;
+}
+/* A filled circle, same 34px size as .send-btn so the two round buttons
+   nest into the bar's own left and right ends identically — "flows neatly
+   inside of the inner chat border (like the chat submit button)," the
+   owner's own words. The fill itself is deliberately NOT a bold solid
+   colour like .send-btn's own accent: a first pass tried exactly that
+   (var(--ink), full brightness) and the owner's own correction was "A
+   faint gray fill for the attachment button. Needs to be just a little
+   brighter than the bg" — a translucent white overlay over the bar's own
+   --image-ground, not an opaque circle competing with Send for attention.
+   The glyph stays --ink (bright) since the fill underneath it is now
+   faint rather than opaque, the same contrast pairing --ink text always
+   has against a dark ground on this page. */
+.input-bar .icon-btn { width: 34px; height: 34px; background: rgba(255, 255, 255, 0.08); color: var(--ink); }
+.input-bar .icon-btn:hover { background: rgba(255, 255, 255, 0.16); color: var(--accent); }
+.input-bar .icon-btn[aria-pressed="true"] { color: var(--accent); background: rgba(217, 119, 87, 0.14); }
+.input-bar .send-btn { width: 34px; height: 34px; background: var(--accent); color: var(--ground); }
+.input-bar .send-btn:hover { opacity: 0.85; }
+.input-bar .send-btn:disabled { opacity: 0.4; cursor: default; }
 `;
 
 /*
@@ -596,39 +627,15 @@ ${TABLE_CARD_CSS}
  * declared radius rendering at a true ~21px on this bar's own ~42px
  * height; sides at 6px against a 4px vertical; kept deliberately
  * concentric with .chat-top's own frame around it). All of that now
- * lives in the shared .input-bar / .input-bar input (right after
- * OPS_DARK_CSS) instead — .chat-bar carries that class too, and #q
+ * lives in the shared .input-bar / .input-bar input (INPUT_BAR_CSS,
+ * above OPS_CSS) instead — .chat-bar carries that class too, and #q
  * needs no styling of its own beyond what .input-bar input already
  * gives every descendant input — because the composer no longer nests
  * inside .chat-top's own frame at all (see .chat-top below): it is
  * fixed to the screen's own bottom now, sharing its exact shape with
  * Items' own search bar, literally rather than by independently
- * matched values. Only the button rules below (icon-btn, send-btn)
- * stay scoped here, since Items' own search bar has neither. */
-.chat .chat-bar button {
-  flex: 0 0 auto; margin: 0; padding: 0; cursor: pointer;
-  display: inline-flex; align-items: center; justify-content: center;
-  border: none; border-radius: 50%;
-}
-/* A filled circle, same 34px size as .send-btn so the two round buttons
-   nest into the bar's own left and right ends identically — "flows neatly
-   inside of the inner chat border (like the chat submit button)," the
-   owner's own words. The fill itself is deliberately NOT a bold solid
-   colour like .send-btn's own accent: a first pass tried exactly that
-   (var(--ink), full brightness) and the owner's own correction was "A
-   faint gray fill for the attachment button. Needs to be just a little
-   brighter than the bg" — a translucent white overlay over the bar's own
-   --image-ground, not an opaque circle competing with Send for attention.
-   The glyph stays --ink (bright) since the fill underneath it is now
-   faint rather than opaque, the same contrast pairing --ink text always
-   has against a dark ground on this page. */
-.chat .chat-bar .icon-btn { width: 34px; height: 34px; background: rgba(255, 255, 255, 0.08); color: var(--ink); }
-.chat .chat-bar .icon-btn:hover { background: rgba(255, 255, 255, 0.16); color: var(--accent); }
-.chat .chat-bar .icon-btn[aria-pressed="true"] { color: var(--accent); background: rgba(217, 119, 87, 0.14); }
-.chat .chat-bar .send-btn { width: 34px; height: 34px; background: var(--accent); color: var(--ground); }
-.chat .chat-bar .send-btn:hover { opacity: 0.85; }
-.chat .chat-bar .send-btn:disabled { opacity: 0.4; cursor: default; }
-
+ * matched values. The button rules (icon-btn, send-btn) live in
+ * INPUT_BAR_CSS too now, not here — see that constant's own comment. */
 `;
 
 /*
@@ -676,6 +683,26 @@ const MIC_ICON = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="t
   `stroke-width="1.4" stroke-linecap="round"/></svg>`;
 const MIC_STOP_ICON = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">` +
   `<rect x="4.5" y="4.5" width="7" height="7" rx="1" fill="currentColor"/></svg>`;
+
+/* Items' own search bar (itemsPage()) — the owner's own words: "it needs a
+   search button on the right instead of the submit chat... it might be a
+   magnifying glass," matching SEND_ICON's own 16x16/1.4-stroke-width shape
+   rather than a differently-drawn icon that happens to also mean search. */
+const SEARCH_ICON = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">` +
+  `<circle cx="6.8" cy="6.8" r="4.3" fill="none" stroke="currentColor" stroke-width="1.4"/>` +
+  `<path d="M10.2 10.2 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>`;
+
+/* The category-filter menu's own opener, on the left where ATTACH_ICON sits
+   in the chat composer — the owner's own words: "a hamburger menu like
+   button with the little dots on the sides of hamburger lines... a quick
+   way to filter by category." Three plain hamburger lines alone are
+   already used elsewhere for navigation; the dots at both ends of each
+   line are what make this read as a filter control instead of a second
+   nav trigger. */
+const FILTER_ICON = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">` +
+  `<circle cx="2" cy="4" r="1" fill="currentColor"/><path d="M5 4h6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="13" cy="4" r="1" fill="currentColor"/>` +
+  `<circle cx="2" cy="8" r="1" fill="currentColor"/><path d="M5 8h6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="13" cy="8" r="1" fill="currentColor"/>` +
+  `<circle cx="2" cy="12" r="1" fill="currentColor"/><path d="M5 12h6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="13" cy="12" r="1" fill="currentColor"/></svg>`;
 
 /* The behaviour half of copyLine, as a string, so the front page and the
    identity page share one implementation rather than two that drift. */
@@ -1120,6 +1147,29 @@ document.querySelectorAll(".choices .btn[data-prompt]").forEach((btn) => {
 const ITEMS_CSS = `
 ${OPS_DARK_CSS}
 ${INPUT_BAR_CSS}
+/* The category-filter menu that opens above the search bar's own filter
+   button — the owner's own words: "a little menu to select existing
+   categories... a quick way to filter by category." Floats the same way
+   .menu floats above the agent composer (opsPage(), OPS_CSS): position:
+   fixed, anchored a gap above .input-bar's own bottom (8px offset + 42px
+   height + 8px gap = 58px), left-aligned near the filter button rather
+   than spanning the full bar. */
+.category-menu {
+  position: fixed; left: 8px; bottom: 58px; z-index: 21; max-width: 70vw;
+  display: flex; flex-direction: column; gap: 2px; padding: 6px;
+  background: var(--image-ground); border: 1px solid var(--muted); border-radius: 12px;
+  max-height: 50vh; overflow-y: auto;
+}
+/* Same visual language as .choices .btn (the agent page's own quick-prompt
+   chips, OPS_CSS) — 11px, pill-ish, a muted border on --image-ground —
+   kept as its own rule rather than sharing that class, since .choices
+   itself lives in OPS_CSS and Items has never imported it. */
+.category-menu .category-item {
+  display: block; width: 100%; text-align: left; font: inherit; font-size: 11px;
+  padding: 6px 10px; border: 1px solid var(--rule); border-radius: 999px;
+  background: var(--ground); color: var(--ink); cursor: pointer;
+}
+.category-menu .category-item:hover { border-color: var(--accent); color: var(--accent); }
 /* Two columns down to phone width — the owner's own words: "on my
    phone, I want a two column layout... as it gets wider, it will just
    fill the entire screen." auto-fill's own minmax(240px, 1fr) never
@@ -1268,6 +1318,20 @@ export function itemsPage({ role }, products) {
     ? products.map((p) => itemTile(p, canEdit)).join("\n")
     : `<p class="hint">No products in the mirror yet.</p>`;
 
+  /* Existing categories only — the ones actually on a product here, not the
+     full catalog.categories list a manager could create from. The owner's
+     own words: "a quick way to filter by category," a filter over what is
+     visibly on screen, not a second, separate category picker. */
+  const categories = [...new Set(products.map((p) => p.category_name).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b),
+  );
+  const categoryMenu = categories.length
+    ? `<div class="category-menu" id="category-menu" hidden>
+    <button type="button" class="category-item" data-category="">All categories</button>
+    ${categories.map((c) => `<button type="button" class="category-item" data-category="${esc(c)}">${esc(c)}</button>`).join("\n    ")}
+  </div>`
+    : "";
+
   return page(
     "Items — Vemians ops",
     /* No bar here either — see the same note on opsPage(). No "Items"
@@ -1294,17 +1358,58 @@ export function itemsPage({ role }, products) {
   <div class="items-grid" id="items-grid">
 ${tiles}
   </div>
+  ${categoryMenu}
   <div class="input-bar">
+    <button type="button" class="icon-btn" id="category-btn" aria-label="Filter by category" title="Filter by category"${categories.length ? "" : " hidden"}>${FILTER_ICON}</button>
     <input type="text" id="item-search" placeholder="Search title, handle, category, SKU, custom fields...">
+    <button type="button" class="send-btn" id="item-search-btn" aria-label="Search" title="Search">${SEARCH_ICON}</button>
   </div>
 </main>
 <script>
-document.getElementById("item-search").addEventListener("input", (e) => {
-  const q = e.target.value.trim().toLowerCase();
+const itemSearch = document.getElementById("item-search");
+function filterItems() {
+  const q = itemSearch.value.trim().toLowerCase();
   document.querySelectorAll(".item-tile").forEach((el) => {
     el.hidden = Boolean(q) && !el.dataset.search.includes(q);
   });
+}
+itemSearch.addEventListener("input", filterItems);
+/* A visual match for the chat composer's own Send, not a second way to
+   submit something the input already filters live on every keystroke —
+   clicking it re-applies the same filter and returns focus to typing. */
+document.getElementById("item-search-btn").addEventListener("click", () => {
+  filterItems();
+  itemSearch.focus();
 });
+
+/* The category menu — the owner's own words: "a little menu to select
+   existing categories... a quick way to filter by category." Toggled by
+   the filter button, closed by picking a category, clicking anywhere
+   else, or Escape — the same open/close shape a menu button anywhere
+   else on the page would have. */
+const categoryBtn = document.getElementById("category-btn");
+const categoryMenuEl = document.getElementById("category-menu");
+if (categoryBtn && categoryMenuEl) {
+  categoryBtn.addEventListener("click", () => {
+    categoryMenuEl.hidden = !categoryMenuEl.hidden;
+  });
+  categoryMenuEl.addEventListener("click", (e) => {
+    const btn = e.target.closest(".category-item");
+    if (!btn) return;
+    itemSearch.value = btn.dataset.category;
+    filterItems();
+    categoryMenuEl.hidden = true;
+  });
+  document.addEventListener("click", (e) => {
+    if (categoryMenuEl.hidden) return;
+    if (categoryMenuEl.contains(e.target) || categoryBtn.contains(e.target)) return;
+    categoryMenuEl.hidden = true;
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") categoryMenuEl.hidden = true;
+  });
+}
+
 /* One delegated listener for every tile's own Expand button, rather
    than one per tile — the same "no per-item wiring" trade the search
    filter above already makes. Toggling .full on the tile itself grows
