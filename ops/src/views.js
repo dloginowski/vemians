@@ -2215,6 +2215,7 @@ function filterFeed() {
   dashGroups.forEach((group) => {
     const show = !currentMode || group.dataset.kind === currentMode;
     group.hidden = !show;
+    const summary = group.querySelector("summary");
     if (currentMode) {
       group.open = true;
       /* "No need for accordion for selected modes. Accordion is only
@@ -2223,12 +2224,18 @@ function filterFeed() {
          collapse chevron and nothing left to click — a real browser
          falls back to no marker at all for a present-but-hidden summary,
          not a default "Details" label, so this is a clean plain list,
-         not a broken accordion. */
-      const summary = group.querySelector("summary");
-      if (summary) summary.hidden = true;
-    } else {
-      const summary = group.querySelector("summary");
-      if (summary) summary.hidden = false;
+         not a broken accordion. The inline style is belt-and-suspenders
+         on top of the hidden attribute — this session has already been
+         bitten more than once by an explicit display property elsewhere
+         beating the browser's own [hidden] default, so this pins it
+         directly rather than trusting cascade order alone. */
+      if (summary) {
+        summary.hidden = true;
+        summary.style.display = "none";
+      }
+    } else if (summary) {
+      summary.hidden = false;
+      summary.style.display = "";
     }
   });
   refreshCounts();
