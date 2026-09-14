@@ -400,9 +400,16 @@ check("test_PRD_P0_106_search_plan_has_a_category_and_keywords__picking_a_catego
   const res = await get("/items", STAFF, env(mirror));
   const body = await res.text();
   assert.match(body, /<h1 id="category-label">All categories<\/h1>/);
-  const clickHandler = body.slice(body.indexOf('categoryMenuEl.addEventListener("click"'), body.indexOf('categoryMenuEl.addEventListener("click"') + 300);
+  /* The toggle/outside-click/escape wiring itself now lives in the
+     shared dropdownMenuScript() helper (views.js) — itemsPage() only
+     supplies what happens when an item is picked. This is the rendered
+     OUTPUT of that helper, not its own call-site source, so the closure
+     variable is "item" (the helper's own local name), not "btn". */
+  const clickHandlerAt = body.indexOf('menu.addEventListener("click"');
+  assert.ok(clickHandlerAt > -1, "the category menu must wire its pick through the shared dropdown helper");
+  const clickHandler = body.slice(clickHandlerAt, clickHandlerAt + 200);
   assert.doesNotMatch(clickHandler, /itemSearch\.value/, "picking a category must not write into the search box");
-  assert.match(clickHandler, /toggleCategory\(btn\.dataset\.category\)/, "picking a category must go through the shared multi-select toggle");
+  assert.match(clickHandler, /toggleCategory\(item\.dataset\.category\)/, "picking a category must go through the shared multi-select toggle");
 });
 
 check("test_PRD_P0_106_search_plan_has_a_category_and_keywords__the_filter_combines_category_and_free_text", async () => {
