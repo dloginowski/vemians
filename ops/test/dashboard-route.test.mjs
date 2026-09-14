@@ -78,20 +78,23 @@ function sqliteDb(storeName) {
 }
 
 function seedTicket(db, id, overrides = {}) {
-  db._raw
-    .prepare(
-      "INSERT INTO ticket (id, number, title, body, category, priority, status, created_by, assigned_to)" +
-        " VALUES (?, ?, ?, '', ?, ?, ?, 'ana@example.test', ?)",
-    )
-    .run(
-      id,
-      overrides.number ?? 1,
-      overrides.title ?? "Backroom shelving is loose",
-      overrides.category ?? "facilities",
-      overrides.priority ?? "normal",
-      overrides.status ?? "open",
-      overrides.assigned_to ?? null,
-    );
+  const sql = overrides.created_at
+    ? "INSERT INTO ticket (id, number, title, body, category, priority, status, created_by, assigned_to, created_at)" +
+      " VALUES (?, ?, ?, '', ?, ?, ?, ?, ?, ?)"
+    : "INSERT INTO ticket (id, number, title, body, category, priority, status, created_by, assigned_to)" +
+      " VALUES (?, ?, ?, '', ?, ?, ?, ?, ?)";
+  const args = [
+    id,
+    overrides.number ?? 1,
+    overrides.title ?? "Backroom shelving is loose",
+    overrides.category ?? "facilities",
+    overrides.priority ?? "normal",
+    overrides.status ?? "open",
+    overrides.created_by ?? "ana@example.test",
+    overrides.assigned_to ?? null,
+  ];
+  if (overrides.created_at) args.push(overrides.created_at);
+  db._raw.prepare(sql).run(...args);
 }
 
 function seedExpense(db, id, overrides = {}) {
@@ -374,4 +377,80 @@ check("test_PRD_P0_110_dashboard_modes__the_expense_mode_reuses_the_receipt_scan
   const setModeFn = body.slice(body.indexOf("function setMode"), body.indexOf("function setMode") + 1600);
   assert.match(setModeFn, /fileInput\.accept = mode === "expense" \? "image\/\*" : ""/);
   assert.match(setModeFn, /setAttribute\("capture", "environment"\)/);
+});
+
+check("test_PRD_P0_111_dashboard_all_mode_grouping__all_mode_renders_four_accordion_sections", async () => {
+  const res = await get("/dashboard", STAFF, env({ finance: null, assets: null }));
+  const body = await res.text();
+  for (const kind of ["task", "ticket", "expense", "upload"]) {
+    assert.match(body, new RegExp(`<details class="dash-group" data-kind="${kind}"`), `must render a ${kind} accordion section`);
+  }
+});
+
+check("test_PRD_P0_111_dashboard_all_mode_grouping__tasks_and_tickets_start_open_expenses_and_uploads_start_closed", async () => {
+  /* The owner's own words: "with tasks or tickets auto expanding." */
+  const res = await get("/dashboard", STAFF, env({ finance: null, assets: null }));
+  const body = await res.text();
+  assert.match(body, /<details class="dash-group" data-kind="task" open>/);
+  assert.match(body, /<details class="dash-group" data-kind="ticket" open>/);
+  assert.match(body, /<details class="dash-group" data-kind="expense">/);
+  assert.match(body, /<details class="dash-group" data-kind="upload">/);
+});
+
+check("test_PRD_P0_111_dashboard_all_mode_grouping__my_own_tickets_sort_oldest_first_above_a_separator", async () => {
+  /* The owner's own words: "sort all items assigned or related to me at
+     the top with a horizontal separator... with oldest assignment or
+     ticket at the top." */
+  const tickets = sqliteDb("tickets");
+  seedTicket(tickets, "tik_new", { number: 1, title: "Mine, newer", assigned_to: "ana@example.test", created_at: "2026-06-01T00:00:00Z" });
+  seedTicket(tickets, "tik_old", { number: 2, title: "Mine, older", assigned_to: "ana@example.test", created_at: "2026-01-01T00:00:00Z" });
+  seedTicket(tickets, "tik_other", { number: 3, title: "Not mine", created_by: "mara@example.test", created_at: "2026-03-01T00:00:00Z" });
+
+  const res = await get("/dashboard", STAFF, env({ tickets, finance: null, assets: null }));
+  const body = await res.text();
+  const ticketGroup = body.slice(
+    body.indexOf('<details class="dash-group" data-kind="ticket"'),
+    body.indexOf('<details class="dash-group" data-kind="expense"'),
+  );
+  const oldMineAt = ticketGroup.indexOf("Mine, older");
+  const newMineAt = ticketGroup.indexOf("Mine, newer");
+  const sepAt = ticketGroup.indexOf('<hr class="dash-mine-sep">');
+  const otherAt = ticketGroup.indexOf("Not mine");
+  assert.ok(
+    oldMineAt > -1 && oldMineAt < newMineAt && newMineAt < sepAt && sepAt < otherAt,
+    "order must be: oldest mine, newer mine, separator, everyone else",
+  );
+});
+
+check("test_PRD_P0_111_dashboard_all_mode_grouping__no_separator_when_everything_in_a_group_is_mine_or_nobodys", async () => {
+  /* A lone group needs no rule to separate it from nothing — e.g. staff's
+     own expense.list is already scoped to their own submissions, so the
+     Expenses group there is 100% "mine" with nothing to separate from. */
+  const finance = sqliteDb("finance");
+  seedExpense(finance, "exp_1", { employee_id: "ana@example.test" });
+  const res = await get("/dashboard", STAFF, env({ finance, assets: null }));
+  const body = await res.text();
+  const expenseGroup = body.slice(
+    body.indexOf('<details class="dash-group" data-kind="expense"'),
+    body.indexOf('<details class="dash-group" data-kind="upload"'),
+  );
+  assert.doesNotMatch(expenseGroup, /dash-mine-sep/);
+});
+
+check("test_PRD_P0_111_dashboard_all_mode_grouping__each_section_shows_its_own_count", async () => {
+  const tickets = sqliteDb("tickets");
+  seedTicket(tickets, "tik_1", { title: "First" });
+  seedTicket(tickets, "tik_2", { number: 2, title: "Second" });
+  const res = await get("/dashboard", STAFF, env({ tickets, finance: null, assets: null }));
+  const body = await res.text();
+  assert.match(body, /<summary>Tickets \(2\)<\/summary>/);
+  assert.match(body, /<summary>Tasks \(0\)<\/summary>/);
+});
+
+check("test_PRD_P0_111_dashboard_all_mode_grouping__narrowing_to_one_mode_hides_the_other_three_sections", async () => {
+  const res = await get("/dashboard", STAFF, env({ finance: null, assets: null }));
+  const body = await res.text();
+  const filterFn = body.slice(body.indexOf("function filterFeed"), body.indexOf("function filterFeed") + 400);
+  assert.match(filterFn, /group\.hidden = !show/);
+  assert.match(filterFn, /group\.open = true/, "the single remaining visible group must be forced open");
 });

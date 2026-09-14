@@ -1814,6 +1814,27 @@ ${INPUT_BAR_CSS}
 .ticket-detail .ticket-meta { margin: 0 0 12px; }
 .ticket-detail .ticket-body { font-size: 13px; white-space: pre-wrap; margin: 0 0 12px; }
 .ticket-detail .hint { color: var(--accent); }
+
+/* The Dashboard's own All-mode accordion (Test-PRD-P0-111-
+   dashboard_all_mode_grouping) — one plain <details> per mode, so
+   expand/collapse comes free from the element itself rather than a
+   second, hand-rolled toggle. The default marker triangle is dropped
+   (list-style: none, plus the ::-webkit- one Safari/Chrome draw
+   regardless) for a plain chevron matching this page's own understated
+   visual language instead of the browser's own bullet-style default. */
+.dash-group { margin: 0 0 10px; }
+.dash-group summary {
+  cursor: pointer; list-style: none; font-size: 12px; font-weight: 700;
+  color: var(--ink); padding: 4px 2px; user-select: none;
+}
+.dash-group summary::-webkit-details-marker { display: none; }
+.dash-group summary::before { content: "\\25B8  "; color: var(--muted); font-weight: 400; }
+.dash-group[open] summary::before { content: "\\25BE  "; }
+.dash-group .ticket-list, .dash-group .ticket-empty { margin-top: 6px; }
+/* The horizontal separator between "mine" and everyone else's, within
+   one group — the owner's own words: "sort all items assigned or
+   related to me at the top with a horizontal separator." */
+.dash-mine-sep { border: none; border-top: 1px solid var(--rule); margin: 8px 0; }
 `;
 
 function ticketBadges(ticket) {
@@ -1932,6 +1953,28 @@ function dashboardUploadTile(asset) {
 }
 
 /*
+ * One accordion section — Tasks, Tickets, Expenses or Uploads
+ * (Test-PRD-P0-111-dashboard_all_mode_grouping). Every row belonging to
+ * this kind is split into MINE (the owner's own words: "sort all items
+ * assigned or related to me at the top... oldest... at the top") and
+ * everyone else's, mine rendered first, oldest first, a horizontal rule
+ * between the two groups only when both are non-empty — a lone group
+ * needs no rule to separate it from nothing.
+ */
+function dashboardGroup({ kind, label, rows, dateOf, isMine, tileFn, open }) {
+  const mine = rows.filter(isMine).sort((a, b) => (dateOf(a) < dateOf(b) ? -1 : dateOf(a) > dateOf(b) ? 1 : 0));
+  const rest = rows.filter((r) => !isMine(r));
+  const sep = mine.length && rest.length ? `<hr class="dash-mine-sep">` : "";
+  const body = rows.length
+    ? `<div class="ticket-list">${mine.map(tileFn).join("\n")}${sep}${rest.map(tileFn).join("\n")}</div>`
+    : `<p class="ticket-empty">Nothing here yet.</p>`;
+  return `<details class="dash-group" data-kind="${kind}"${open ? " open" : ""}>
+    <summary>${esc(label)} (${rows.length})</summary>
+    ${body}
+  </details>`;
+}
+
+/*
  * Dashboard — the ops home page, once "Messages" stopped being just
  * tickets (Test-PRD-P0-108-ops_dashboard). The owner's own words: "it's
  * not just about messages. It's like a bulletin board. It's a place to
@@ -1979,6 +2022,22 @@ function dashboardUploadTile(asset) {
  *     - All: browsing only. The bar has nothing to submit, so it is
  *       disabled rather than defaulting to either action.
  *
+ * ALL MODE IS AN ACCORDION, NOT ONE FLAT LIST (Test-PRD-P0-111-
+ * dashboard_all_mode_grouping)
+ *   The owner's own words: "I want an accordion grouping of all items by
+ *   mode. With tasks or tickets auto expanding... sort all items assigned
+ *   or related to me at the top with a horizontal separator... with
+ *   oldest assignment or ticket at the top." Four plain `<details>`
+ *   sections, one per mode (dashboardGroup()) — free expand/collapse from
+ *   the element itself, no click-handling JS needed for that part. Tasks
+ *   and Tickets start `open`; Expenses and Uploads start collapsed,
+ *   matching their own "lower priority, just there to be found on
+ *   demand" standing from P0-108. Switching to one specific mode hides
+ *   the other three sections entirely and forces the remaining one open,
+ *   the same "the mode decides what's on screen" rule the compose bar
+ *   already follows — the accordion IS how All mode looks, not a
+ *   separate view bolted beside it.
+ *
  * DEFAULT VIEW IS A SERVER-COMPUTED HINT, NOT A HARD RULE
  *   The owner's own words: "by default, it should be on tasks... however,
  *   if there are any tickets, say from a customer, that should take
@@ -1992,16 +2051,45 @@ function dashboardUploadTile(asset) {
  *   lets anyone switch to any of the four modes, or "All", at any time.
  */
 export function dashboardPage({ tickets, expenses, uploads, viewerEmail, defaultKind }) {
-  const items = [
-    ...tickets.map((t) => ({ sortKey: t.updated_at || t.created_at || "", html: ticketTile(t, viewerEmail) })),
-    ...expenses.map((e) => ({ sortKey: e.incurred_on || "", html: dashboardExpenseTile(e) })),
-    ...uploads.map((a) => ({ sortKey: a.uploaded_at || "", html: dashboardUploadTile(a) })),
-  ].sort((a, b) => (a.sortKey < b.sortKey ? 1 : a.sortKey > b.sortKey ? -1 : 0));
-
-  const feed = items.length
-    ? `<div class="ticket-list" id="dash-feed">${items.map((i) => i.html).join("\n")}</div>
-  <p class="ticket-empty" id="dash-feed-empty" hidden>Nothing to show for this mode.</p>`
-    : `<p class="ticket-empty">Nothing here yet.</p>`;
+  const isMyTicket = (t) => t.assigned_to === viewerEmail || t.created_by === viewerEmail;
+  const feed = `<div id="dash-feed">
+  ${dashboardGroup({
+    kind: "task",
+    label: "Tasks",
+    rows: tickets.filter((t) => t.assigned_to === viewerEmail),
+    dateOf: (t) => t.created_at || "",
+    isMine: () => true,
+    tileFn: (t) => ticketTile(t, viewerEmail),
+    open: true,
+  })}
+  ${dashboardGroup({
+    kind: "ticket",
+    label: "Tickets",
+    rows: tickets,
+    dateOf: (t) => t.created_at || "",
+    isMine: isMyTicket,
+    tileFn: (t) => ticketTile(t, viewerEmail),
+    open: true,
+  })}
+  ${dashboardGroup({
+    kind: "expense",
+    label: "Expenses",
+    rows: expenses,
+    dateOf: (e) => e.incurred_on || "",
+    isMine: (e) => e.employee_id === viewerEmail,
+    tileFn: dashboardExpenseTile,
+    open: false,
+  })}
+  ${dashboardGroup({
+    kind: "upload",
+    label: "Uploads",
+    rows: uploads,
+    dateOf: (a) => a.uploaded_at || "",
+    isMine: (a) => a.uploaded_by === viewerEmail,
+    tileFn: dashboardUploadTile,
+    open: false,
+  })}
+</div>`;
 
   return page(
     "Dashboard — Vemians ops",
@@ -2045,7 +2133,7 @@ const DASH_MODE_PLACEHOLDER = { ticket: "Start a new ticket...", task: "Add a ta
 const kindMenuEl = document.getElementById("kind-menu");
 const kindBtn = document.getElementById("kind-btn");
 const kindLabel = document.getElementById("kind-label");
-const feedEmpty = document.getElementById("dash-feed-empty");
+const dashGroups = document.querySelectorAll("#dash-feed .dash-group");
 const composeForm = document.getElementById("dash-compose");
 const modeField = document.getElementById("dash-mode-field");
 const titleInput = document.getElementById("dash-title");
@@ -2123,19 +2211,18 @@ composeForm.addEventListener("submit", (e) => {
   }
 });
 
-/* A ticket assigned to the viewer carries BOTH "ticket" and "task" in its
-   own data-kind (space-separated, like a class list) — this is what lets
-   the same tile satisfy either mode's own view without a second,
-   duplicate row. "" (All) shows every kind. */
+/* "" (All) shows every group, each in whatever open/closed state it
+   already carries (Tasks/Tickets start open, Expenses/Uploads start
+   collapsed — see dashboardGroup()'s own comment) — switching back to
+   All never resets a group someone opened or closed by hand. Narrowing
+   to one specific mode hides the other three groups outright and forces
+   the remaining one open, since it is now the only thing on screen. */
 function filterFeed() {
-  let visible = 0;
-  document.querySelectorAll("#dash-feed .ticket-tile").forEach((el) => {
-    const kinds = (el.dataset.kind || "").split(" ");
-    const show = !currentMode || kinds.includes(currentMode);
-    el.hidden = !show;
-    if (show) visible++;
+  dashGroups.forEach((group) => {
+    const show = !currentMode || group.dataset.kind === currentMode;
+    group.hidden = !show;
+    if (currentMode && show) group.open = true;
   });
-  if (feedEmpty) feedEmpty.hidden = visible !== 0;
 }
 
 attachBtn.addEventListener("click", () => {
