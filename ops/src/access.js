@@ -204,6 +204,43 @@ export function groupsFrom(claims = {}) {
 }
 
 /*
+ * The roster (Test-PRD-P0-101-square_sourced_roster; shared/db/people.sql's
+ * own `employee` table, comment and all: "matches the Access identity").
+ * ADR-012's own line, now actually wired in: "Square's staff list is the
+ * roster... nobody is added to ops who is not employed in Square." A
+ * scheduled GitHub Action (.github/scripts/sync-roster-from-square.mjs)
+ * keeps this table's rows in step with Square's own Team API — this
+ * function only ever reads it.
+ *
+ * `checked: false` — the roster is not yet a source of truth — covers TWO
+ * cases deliberately treated the same: no PEOPLE binding at all (an older
+ * deployment, or a test env that never wired one up), and a PEOPLE binding
+ * that is bound but genuinely EMPTY (this Worker has PEOPLE, but the sync
+ * job has never run yet). Both fall through to the legacy group/policy_id
+ * rules below rather than denying everyone the moment this code ships —
+ * flipping a switch that locks out the owner before the first sync has run
+ * is exactly the "a mistake here cannot lock anyone out" property
+ * setup-policies.py's own catch-all preserves, applied here instead.
+ *
+ * Once the table holds at least one row, it is FULLY authoritative: an
+ * email with no active row gets NOTHING, never a fall-through to groups or
+ * DEFAULT_ROLE — the whole point of "nobody is added to ops who is not
+ * employed in Square."
+ */
+async function roleFromRoster(env, email) {
+  if (!env?.PEOPLE?.prepare || !email) return { checked: false };
+
+  const any = await env.PEOPLE.prepare("SELECT 1 FROM employee LIMIT 1").first();
+  if (!any) return { checked: false };
+
+  const row = await env.PEOPLE
+    .prepare("SELECT role FROM employee WHERE email = ? AND is_active = 1")
+    .bind(String(email))
+    .first();
+  return { checked: true, role: row?.role && ROLE_ORDER.includes(row.role) ? row.role : null };
+}
+
+/*
  * The role, AND how it was arrived at.
  *
  * roleFor() delegates here so there is one implementation of the rule rather
@@ -212,8 +249,20 @@ export function groupsFrom(claims = {}) {
  * "the wrong tools" have the same symptom and different causes, and the only
  * way to tell them apart from outside is to ask what matched.
  */
-export function explainRole(identity, env = {}) {
+export async function explainRole(identity, env = {}) {
   const claims = identity?.claims || identity || {};
+
+  const roster = await roleFromRoster(env, claims.email);
+  if (roster.checked) {
+    return {
+      role: roster.role,
+      via: roster.role ? "roster" : "roster_no_match",
+      matched: roster.role ? claims.email : null,
+      groups: [],
+      expects: {},
+    };
+  }
+
   const found = groupsFrom(claims);
   const groups = new Set(found);
   const named = (v, fallback) => String(v || fallback).toLowerCase();
@@ -282,11 +331,11 @@ export function explainRole(identity, env = {}) {
   };
 }
 
-export function roleFor(identity, env = {}) {
+export async function roleFor(identity, env = {}) {
   /* One rule, one implementation. This used to restate explainRole's checks and
      the two would have drifted the moment policy_id was added to only one of
      them — the failure this repository has produced three times. */
-  return explainRole(identity, env).role;
+  return (await explainRole(identity, env)).role;
 }
 
 const capitalize = (s) => (s.length ? s[0].toUpperCase() + s.slice(1).toLowerCase() : s);

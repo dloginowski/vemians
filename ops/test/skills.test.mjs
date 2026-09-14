@@ -209,80 +209,80 @@ test("test_PRD_P0_30_prd_traceability__every_label_used_here_exists_in_the_prd",
 const accessMod = await import("../src/access.js");
 const { roleFor } = accessMod;
 
-check("test_PRD_P0_23_group_derived_roles__a_group_always_beats_the_default", () => {
+check("test_PRD_P0_23_group_derived_roles__a_group_always_beats_the_default", async () => {
   const staffIdentity = { claims: { email: "a@vemians.com", groups: ["vemians-staff"] } };
   assert.equal(
-    roleFor(staffIdentity, { DEFAULT_ROLE: "owner" }),
+    await roleFor(staffIdentity, { DEFAULT_ROLE: "owner" }),
     "staff",
     "a real group mapping must win, or adding groups later would silently do nothing",
   );
 });
 
-check("test_PRD_P0_23_group_derived_roles__no_group_and_no_default_is_still_null", () => {
+check("test_PRD_P0_23_group_derived_roles__no_group_and_no_default_is_still_null", async () => {
   const identity = { claims: { email: "a@vemians.com" } };
-  assert.equal(roleFor(identity, {}), null, "unset DEFAULT_ROLE must fail closed exactly as before");
+  assert.equal(await roleFor(identity, {}), null, "unset DEFAULT_ROLE must fail closed exactly as before");
 });
 
-check("test_PRD_P0_23_group_derived_roles__the_default_applies_only_when_no_group_matched", () => {
+check("test_PRD_P0_23_group_derived_roles__the_default_applies_only_when_no_group_matched", async () => {
   const identity = { claims: { email: "a@vemians.com" } };
-  assert.equal(roleFor(identity, { DEFAULT_ROLE: "manager" }), "manager");
-  assert.equal(roleFor(identity, { DEFAULT_ROLE: "OWNER" }), "owner", "case is not the user's problem");
+  assert.equal(await roleFor(identity, { DEFAULT_ROLE: "manager" }), "manager");
+  assert.equal(await roleFor(identity, { DEFAULT_ROLE: "OWNER" }), "owner", "case is not the user's problem");
 });
 
-check("test_PRD_P0_23_group_derived_roles__a_misspelled_default_grants_nothing", () => {
+check("test_PRD_P0_23_group_derived_roles__a_misspelled_default_grants_nothing", async () => {
   /* A typo must not become an escalation, and must not become a silent
      downgrade either — it grants NOTHING, loudly. */
   const identity = { claims: { email: "a@vemians.com" } };
-  assert.equal(roleFor(identity, { DEFAULT_ROLE: "admin" }), null);
-  assert.equal(roleFor(identity, { DEFAULT_ROLE: "superuser" }), null);
+  assert.equal(await roleFor(identity, { DEFAULT_ROLE: "admin" }), null);
+  assert.equal(await roleFor(identity, { DEFAULT_ROLE: "superuser" }), null);
 });
 
-check("test_PRD_P0_23_group_derived_roles__explain_says_which_rule_granted_the_role", () => {
+check("test_PRD_P0_23_group_derived_roles__explain_says_which_rule_granted_the_role", async () => {
   const { explainRole } = accessMod;
 
-  const byGroup = explainRole({ claims: { email: "a@vemians.com", groups: ["Vemians-Manager"] } }, {});
+  const byGroup = await explainRole({ claims: { email: "a@vemians.com", groups: ["Vemians-Manager"] } }, {});
   assert.equal(byGroup.role, "manager");
   assert.equal(byGroup.via, "group", "a group match must be distinguishable from a fallback");
   assert.equal(byGroup.matched, "vemians-manager");
 
-  const byDefault = explainRole({ claims: { email: "a@vemians.com" } }, { DEFAULT_ROLE: "owner" });
+  const byDefault = await explainRole({ claims: { email: "a@vemians.com" } }, { DEFAULT_ROLE: "owner" });
   assert.equal(byDefault.role, "owner");
   assert.equal(byDefault.via, "DEFAULT_ROLE", "so 'my roles are not arriving' is answerable, not guessable");
   assert.deepEqual(byDefault.groups, [], "and the empty group list is the evidence");
 
-  const nothing = explainRole({ claims: { email: "a@vemians.com" } }, {});
+  const nothing = await explainRole({ claims: { email: "a@vemians.com" } }, {});
   assert.equal(nothing.role, null);
 
   /* explainRole and roleFor must never disagree — one rule, two callers. */
   for (const env of [{}, { DEFAULT_ROLE: "owner" }, { DEFAULT_ROLE: "nonsense" }]) {
     for (const groups of [[], ["vemians-staff"], ["vemians-owner"], ["unrelated"]]) {
       const id = { claims: { email: "a@vemians.com", groups } };
-      assert.equal(explainRole(id, env).role, roleFor(id, env), `disagreed for ${JSON.stringify({ env, groups })}`);
+      assert.equal((await explainRole(id, env)).role, await roleFor(id, env), `disagreed for ${JSON.stringify({ env, groups })}`);
     }
   }
 });
 
-check("test_PRD_P0_23_group_derived_roles__policy_id_grants_the_role_the_token_actually_carries", () => {
+check("test_PRD_P0_23_group_derived_roles__policy_id_grants_the_role_the_token_actually_carries", async () => {
   const { explainRole } = accessMod;
   const env = { OWNER_POLICY_ID: "OWNER-UUID", STAFF_POLICY_ID: "STAFF-UUID" };
 
   /* This is the real shape: no groups anywhere, just policy_id — exactly what
      /whoami showed on a live assertion. */
-  const owner = explainRole({ claims: { email: "d@vemians.com", policy_id: "owner-uuid" } }, env);
+  const owner = await explainRole({ claims: { email: "d@vemians.com", policy_id: "owner-uuid" } }, env);
   assert.equal(owner.role, "owner", "case must not decide who is an owner");
   assert.equal(owner.via, "policy");
 
-  const staff = explainRole({ claims: { email: "s@vemians.com", policy_id: "STAFF-UUID" } }, env);
+  const staff = await explainRole({ claims: { email: "s@vemians.com", policy_id: "STAFF-UUID" } }, env);
   assert.equal(staff.role, "staff");
 
   /* Admitted by the catch-all, which maps to no role: nothing, not staff. */
-  const other = explainRole({ claims: { email: "x@vemians.com", policy_id: "685682ec-catchall" } }, env);
+  const other = await explainRole({ claims: { email: "x@vemians.com", policy_id: "685682ec-catchall" } }, env);
   assert.equal(other.role, null, "an unmapped policy grants nothing rather than the lowest role");
 });
 
-check("test_PRD_P0_23_group_derived_roles__a_group_still_wins_over_a_policy", () => {
+check("test_PRD_P0_23_group_derived_roles__a_group_still_wins_over_a_policy", async () => {
   const { explainRole } = accessMod;
-  const both = explainRole(
+  const both = await explainRole(
     { claims: { email: "d@vemians.com", groups: ["vemians-owner"], policy_id: "STAFF-UUID" } },
     { OWNER_POLICY_ID: "OWNER-UUID", STAFF_POLICY_ID: "STAFF-UUID" },
   );
@@ -290,14 +290,109 @@ check("test_PRD_P0_23_group_derived_roles__a_group_still_wins_over_a_policy", ()
   assert.equal(both.via, "group");
 });
 
-check("test_PRD_P0_23_group_derived_roles__an_unset_policy_var_never_matches_an_empty_claim", () => {
+check("test_PRD_P0_23_group_derived_roles__an_unset_policy_var_never_matches_an_empty_claim", async () => {
   /* The dangerous case: with OWNER_POLICY_ID unset, "" === "" must NOT make
      everyone an owner. */
   const { explainRole } = accessMod;
-  const out = explainRole({ claims: { email: "x@vemians.com" } }, { STAFF_POLICY_ID: "S" });
+  const out = await explainRole({ claims: { email: "x@vemians.com" } }, { STAFF_POLICY_ID: "S" });
   assert.equal(out.role, null);
-  const out2 = explainRole({ claims: { email: "x@vemians.com", policy_id: "" } }, {});
+  const out2 = await explainRole({ claims: { email: "x@vemians.com", policy_id: "" } }, {});
   assert.equal(out2.role, null);
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-101 — the roster (Square, via people.employee) is authoritative once
+ *          populated
+ * ───────────────────────────────────────────────────────────────────────── */
+
+const { d1FromSql } = await import("../../shared/test/d1.mjs");
+const { readFileSync: readFileSyncForPeople } = await import("node:fs");
+const { fileURLToPath: fileURLToPathForPeople } = await import("node:url");
+const PEOPLE_SQL = readFileSyncForPeople(
+  fileURLToPathForPeople(new URL("../../shared/db/people.sql", import.meta.url)),
+  "utf8",
+);
+
+function peopleDb(rows = []) {
+  const db = d1FromSql(PEOPLE_SQL);
+  for (const r of rows) {
+    db._raw
+      .prepare("INSERT INTO employee(id, email, name, role, is_active) VALUES (?, ?, ?, ?, ?)")
+      .run(r.id, r.email, r.name, r.role, r.is_active ?? 1);
+  }
+  return db;
+}
+
+check("test_PRD_P0_101_square_sourced_roster__no_people_binding_falls_through_to_the_legacy_rules", async () => {
+  const { explainRole } = accessMod;
+  /* Exactly the P0-23 shape, unaffected: no PEOPLE at all (an older
+     deployment, or a test that never wired one up) must behave exactly as
+     it always did. */
+  const out = await explainRole({ claims: { email: "a@vemians.com", groups: ["vemians-staff"] } }, {});
+  assert.equal(out.role, "staff");
+  assert.equal(out.via, "group");
+});
+
+check("test_PRD_P0_101_square_sourced_roster__an_empty_roster_table_also_falls_through", async () => {
+  /* PEOPLE is bound but the sync job has never run: treated the same as no
+     binding at all, so shipping this code cannot lock out the owner before
+     the first sync succeeds. */
+  const { explainRole } = accessMod;
+  const env = { PEOPLE: peopleDb([]), OWNER_GROUP: "vemians-owner" };
+  const out = await explainRole({ claims: { email: "owner@vemians.com", groups: ["vemians-owner"] } }, env);
+  assert.equal(out.role, "owner");
+  assert.equal(out.via, "group", "an empty roster must not shadow the legacy rules");
+});
+
+check("test_PRD_P0_101_square_sourced_roster__a_populated_roster_grants_the_stored_role", async () => {
+  const { explainRole } = accessMod;
+  const env = {
+    PEOPLE: peopleDb([{ id: "emp_1", email: "mara@vemians.com", name: "Mara", role: "manager" }]),
+  };
+  const out = await explainRole({ claims: { email: "mara@vemians.com" } }, env);
+  assert.equal(out.role, "manager");
+  assert.equal(out.via, "roster");
+  assert.equal(out.matched, "mara@vemians.com");
+});
+
+check("test_PRD_P0_101_square_sourced_roster__once_populated_an_unlisted_email_gets_nothing_never_a_fallback", async () => {
+  /* THE regression this whole mechanism is built to prevent: once the
+     roster is real, a group claim or a DEFAULT_ROLE must not resurrect
+     access for someone the roster does not name — "nobody is added to ops
+     who is not employed in Square" (ADR-012) has to actually hold. */
+  const { explainRole } = accessMod;
+  const env = {
+    PEOPLE: peopleDb([{ id: "emp_1", email: "mara@vemians.com", name: "Mara", role: "manager" }]),
+    DEFAULT_ROLE: "owner",
+  };
+  const out = await explainRole(
+    { claims: { email: "someone-else@vemians.com", groups: ["vemians-owner"] } },
+    env,
+  );
+  assert.equal(out.role, null, "a group claim must not override a populated roster");
+  assert.equal(out.via, "roster_no_match");
+});
+
+check("test_PRD_P0_101_square_sourced_roster__an_inactive_row_is_treated_as_no_row", async () => {
+  const { explainRole } = accessMod;
+  const env = {
+    PEOPLE: peopleDb([{ id: "emp_1", email: "left@vemians.com", name: "Gone", role: "staff", is_active: 0 }]),
+  };
+  const out = await explainRole({ claims: { email: "left@vemians.com" } }, env);
+  assert.equal(out.role, null);
+  assert.equal(out.via, "roster_no_match", "INACTIVE in Square revokes ops, automatically");
+});
+
+check("test_PRD_P0_101_square_sourced_roster__the_email_match_is_case_insensitive", async () => {
+  /* people.sql's own column: "email TEXT NOT NULL UNIQUE COLLATE NOCASE —
+     matches the Access identity." Square and Access need not agree on
+     case for the same person to be found. */
+  const { explainRole } = accessMod;
+  const env = {
+    PEOPLE: peopleDb([{ id: "emp_1", email: "Ana@Vemians.com", name: "Ana", role: "staff" }]),
+  };
+  const out = await explainRole({ claims: { email: "ana@vemians.com" } }, env);
+  assert.equal(out.role, "staff");
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
