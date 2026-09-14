@@ -1561,6 +1561,10 @@ ${INPUT_BAR_CSS}
 .item-share:hover { background: rgba(255, 255, 255, 0.2); }
 .item-tile.full .item-share { display: inline-flex; }
 .item-share[data-state="ok"] { color: var(--accent); }
+/* No SKU, no stable identifier to link — disabled rather than copying a
+   link that would break the moment another product also has no SKU. */
+.item-share:disabled { opacity: 0.35; cursor: default; }
+.item-share:disabled:hover { background: transparent; }
 /* The owner's own words: "it's too easy to click somewhere wrong and
    [the expanded view] will close, and that's not a good experience...
    maybe it just needs a proper close button." A click on the tile BODY
@@ -1740,12 +1744,12 @@ function itemTile(product, canEdit) {
 
   const photoStyle = product.image_key ? ` style="background-image:url('${MEDIA_BASE_URL}/${esc(product.image_key)}')"` : "";
 
-  return `<article class="item-tile" data-search="${esc(searchText)}" data-category="${esc(product.category_name || "")}" data-status="${isActive ? "active" : "inactive"}" data-channel="${esc(product.channel)}" data-handle="${esc(product.handle)}">
+  return `<article class="item-tile" data-search="${esc(searchText)}" data-category="${esc(product.category_name || "")}" data-status="${isActive ? "active" : "inactive"}" data-channel="${esc(product.channel)}" data-handle="${esc(product.handle)}" data-sku="${esc(primarySku)}">
     <div class="item-photo"${photoStyle}>
       <div class="item-top"><h3>${esc(product.title)}</h3>
         <div class="item-top-right">
           <span class="item-price">${esc(priceText)}</span>
-          <button type="button" class="item-share" aria-label="Copy a link to this item" title="Copy a link to this item">${LINK_ICON}</button>
+          <button type="button" class="item-share" aria-label="Copy a link to this item" title="Copy a link to this item"${primarySku ? "" : " disabled"}>${LINK_ICON}</button>
           <button type="button" class="item-close" aria-label="Close" title="Close">${CANCEL_ICON}</button>
         </div>
       </div>
@@ -2090,12 +2094,18 @@ document.getElementById("items-grid").addEventListener("click", (e) => {
 
 /* "I need to have a button somewhere, maybe top right, when I expand the
    product. I want to get a deep link into that expanded view so I can
-   send it to somebody." #item-<handle> rather than a server route — the
+   send it to somebody." #item-<sku> rather than a server route — the
    whole catalog already renders in one response, so there is nothing a
-   real URL segment would fetch that this page does not already hold. */
+   real URL segment would fetch that this page does not already hold.
+   Keyed on SKU, not handle — the owner's own words: "we do not want to
+   be making our deep links based on item names. The titles and
+   descriptions may change in the future, and that's going to break our
+   linking... the SKU is always going to be a unique number, a unique
+   location, a unique product." The button itself is disabled with no
+   SKU to link (see itemTile()) — there is no stable identifier to copy. */
 async function shareLink(btn) {
-  const handle = btn.closest(".item-tile").dataset.handle;
-  const url = location.origin + location.pathname + "#item-" + encodeURIComponent(handle);
+  const sku = btn.closest(".item-tile").dataset.sku;
+  const url = location.origin + location.pathname + "#item-" + encodeURIComponent(sku);
   try {
     await navigator.clipboard.writeText(url);
     btn.dataset.state = "ok";
@@ -2115,10 +2125,11 @@ async function shareLink(btn) {
    other visit, then this jumps straight to the one product and expands it
    — forced visible regardless of today's category or status filter, since
    the whole point of a link someone sent you is that IT decides what you
-   see, not whatever was selected when they made it. */
+   see, not whatever was selected when they made it. Matched by SKU, the
+   same stable key shareLink() copies. */
 if (location.hash.startsWith("#item-")) {
-  const handle = decodeURIComponent(location.hash.slice("#item-".length));
-  const linked = [...document.querySelectorAll(".item-tile")].find((el) => el.dataset.handle === handle);
+  const sku = decodeURIComponent(location.hash.slice("#item-".length));
+  const linked = [...document.querySelectorAll(".item-tile")].find((el) => el.dataset.sku === sku);
   if (linked) {
     linked.hidden = false;
     linked.classList.add("full");
