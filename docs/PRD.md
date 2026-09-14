@@ -2683,6 +2683,29 @@ that does not trace to one of these is a process failure (see §12).
     `categories.length` check that happened to always be true in practice). Fixed the same way:
     `.input-bar button[hidden] { display: none; }` restated explicitly.
 
+46. **`Test-PRD-P0-111-dashboard_all_mode_grouping`** — A follow-up request once "All" mode
+    existed to browse in: "I want an accordion grouping of all items by mode. With tasks or
+    tickets auto expanding... sort all items assigned or related to me at the top with a
+    horizontal separator... with oldest assignment or ticket at the top."
+
+    **All mode IS the accordion, not a flat list beside it.** `dashboardGroup()` renders each of
+    the four modes as a plain `<details class="dash-group" data-kind="...">` — expand/collapse
+    comes free from the element itself, no click-handling JS needed for that part. Tasks and
+    Tickets carry `open` by default; Expenses and Uploads start collapsed, matching their own
+    "lower priority, just there to be found on demand" standing from P0-108. Narrowing to one
+    specific mode (via the same mode selector P0-110 already built) hides the other three
+    sections outright (`group.hidden`) and forces the remaining one `open` — the mode still
+    decides everything on screen, the accordion is just how "all of them at once" is shown.
+
+    **Within each section, "mine" sorts first, oldest first, above a rule.** `dashboardGroup()`
+    splits its own rows into `mine` (`isMine()`, different per kind — a ticket's own
+    `assigned_to` or `created_by`, an expense's `employee_id`, an asset's `uploaded_by`) and
+    everyone else's, `mine` sorted ascending by date (oldest first) and rendered first, a
+    `<hr class="dash-mine-sep">` between the two groups only when BOTH are non-empty — a lone
+    group (Tasks is 100% mine by definition; a staff member's own Expenses list is already
+    scoped to their own submissions by `expense.list` itself) needs no rule to separate it from
+    nothing. `rest` keeps whatever order its own source tool already returned it in.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -2944,6 +2967,7 @@ Where each feature is enforced today:
 | P0-108 | `ops/test/dashboard-route.test.mjs`, `ops/test/tickets-route.test.mjs`, `ops/test/ops-page.test.mjs` |
 | P0-109 | `ops/test/items-route.test.mjs`, `ops/test/dashboard-route.test.mjs` |
 | P0-110 | `ops/test/dashboard-route.test.mjs`, `ops/test/tickets-route.test.mjs` |
+| P0-111 | `ops/test/dashboard-route.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
