@@ -532,6 +532,43 @@ check("test_PRD_P0_109_status_line_matches_greeting__the_page_container_shares_t
   assert.match(body, /\.ops\s*\{[^}]*max-width:\s*64rem;\s*padding:\s*12px 8px 76px/s);
 });
 
+check("test_PRD_P0_112_dashboard_status_filter__the_item_tile_hidden_attribute_actually_hides_it", async () => {
+  /* The same [hidden]-vs-explicit-display trap caught twice already this
+     session (.category-menu, .input-bar button): .item-tile sets
+     display: flex, which always beats the browser's own default
+     [hidden] { display: none } regardless of specificity — so
+     filterItems()'s own el.hidden = ... has silently never actually
+     hidden a filtered-out tile since Items' own search/category filter
+     was first built. Caught as a byproduct of chasing the Dashboard's
+     own "a ticket shows in every mode" report, which turned out to be
+     the very same bug class hitting a different tile class. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.match(body, /\.item-tile\[hidden\]\s*\{\s*display:\s*none;\s*\}/);
+});
+
+check("test_PRD_P0_112_dashboard_status_filter__unchecking_a_category_never_leaves_it_looking_orange", async () => {
+  /* The owner's own words: "when I uncheck a category selection, I
+     expect the button to not be orange anymore, but it is." The class
+     toggle itself was already correct (verified directly with a real
+     browser, not assumed) — the bug was :hover sharing the exact same
+     accent border/text colour as .active, so a just-unchecked button
+     still looked selected for as long as the pointer sat over it, which
+     is usually right where a click just happened. :hover is now neutral;
+     .active (declared after it) still wins the tie while a checked
+     button is hovered, so "checked" is the only thing orange means here. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.match(body, /\.category-menu \.category-item:hover \{ border-color: var\(--ink\); color: var\(--ink\); \}/);
+  const hoverAt = body.indexOf(".category-menu .category-item:hover");
+  const activeAt = body.indexOf(".category-menu .category-item.active {");
+  assert.ok(hoverAt > -1 && activeAt > hoverAt, ".active must be declared after :hover so it wins the specificity tie while hovered");
+});
+
 check("test_PRD_P0_71_items_tab__no_redundant_title_wastes_space_the_tab_bar_already_spent", async () => {
   /* The owner's own words: "we have the tab, we know we're in items
      right now. Get rid of all that stuff." The tab bar itself already

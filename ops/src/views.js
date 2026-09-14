@@ -273,12 +273,21 @@ const INPUT_BAR_CSS = `
   padding: 6px 10px; border: 1px solid var(--rule); border-radius: 999px;
   background: var(--ground); color: var(--ink); cursor: pointer;
 }
-.category-menu .category-item:hover { border-color: var(--accent); color: var(--accent); }
+/* Neutral, not the accent — a plain hover affordance, never the "this is
+   checked" look. Caught live: "when I uncheck a category selection, I
+   expect the button to not be orange anymore, but it is" — the class WAS
+   removed correctly (verified directly, not assumed), but :hover shared
+   the exact same border/text colour as .active, so a just-unchecked
+   button still looked selected for as long as the pointer sat over it,
+   which is usually right where a click just happened. */
+.category-menu .category-item:hover { border-color: var(--ink); color: var(--ink); }
 /* Checked state — "that menu would automatically select one or more
    categories to satisfy the search," the owner's own words. Multi-select:
    more than one can carry this at once. Same faint-accent-tint language
    .icon-btn[aria-pressed="true"] already uses for an active toggle state,
-   not a new visual vocabulary invented for this. */
+   not a new visual vocabulary invented for this. Declared after :hover so
+   it wins the tie while a checked button is also being hovered — the
+   only state orange should ever mean here is "checked." */
 .category-menu .category-item.active { border-color: var(--accent); color: var(--accent); background: rgba(217, 119, 87, 0.14); }
 /* The "Hi Dimitri" spot (opsPage(), formerly OPS_CSS only) — moved here so
    Items' own category status and the Dashboard's own mode status can sit
@@ -1330,6 +1339,13 @@ ${INPUT_BAR_CSS}
   padding: 10px 12px; background: var(--image-ground); font-size: 12px;
   display: flex; flex-direction: column; gap: 6px;
 }
+/* The same [hidden]-vs-explicit-display trap caught twice already this
+   session (.category-menu, .input-bar button): an explicit display: flex
+   above always beats the browser's own default [hidden] { display: none
+   }, regardless of specificity — so filterItems()'s own el.hidden = ...
+   has silently never actually hidden a filtered-out tile. Restated here
+   so it finally does. */
+.item-tile[hidden] { display: none; }
 /* Expanding one tile to the full screen instead of leaving every field
    crammed into a small grid cell — the owner's own words: "when I
    click on the item, it's gonna expand to my entire phone screen, and
@@ -1779,6 +1795,11 @@ ${INPUT_BAR_CSS}
   border: 1px solid var(--rule); border-radius: 8px;
   padding: 10px 12px; background: var(--image-ground); font-size: 12px;
 }
+/* Same [hidden]-vs-explicit-display trap as .item-tile (see that rule's
+   own comment) — needed now that the Dashboard's own status filter
+   (Test-PRD-P0-112-dashboard_status_filter) toggles hidden on individual
+   tiles again, not just whole accordion sections. */
+.ticket-tile[hidden] { display: none; }
 .ticket-tile h3 { margin: 0 0 4px; font-size: 13px; color: var(--ink); line-height: 1.3; }
 .ticket-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px; }
 .ticket-badges span {
@@ -1835,6 +1856,19 @@ ${INPUT_BAR_CSS}
    one group — the owner's own words: "sort all items assigned or
    related to me at the top with a horizontal separator." */
 .dash-mine-sep { border: none; border-top: 1px solid var(--rule); margin: 8px 0; }
+/* The status filter sits inline in the same "Showing: X" line — the
+   owner's own words: "add to the Showing: [mode] - [status dropdown]."
+   font: inherit off .greet h1 keeps it the same 11px/muted look rather
+   than the browser's own default control styling. Swapped for
+   #status-no-results (same class, so it never shifts size) once nothing
+   matches the current mode and status together — "make... Nothing to
+   show for this mode. appear in place of status drop down if nothing is
+   found, but shortened to 'No Results.'" */
+.dash-status-select {
+  font: inherit; font-size: 11px; color: var(--muted);
+  background: transparent; border: 1px solid var(--rule); border-radius: 4px;
+  padding: 1px 4px; vertical-align: baseline;
+}
 `;
 
 function ticketBadges(ticket) {
@@ -1853,7 +1887,7 @@ function ticketBadges(ticket) {
    filters without a second, duplicate row for it. */
 function ticketTile(ticket, viewerEmail) {
   const mine = Boolean(viewerEmail) && ticket.assigned_to === viewerEmail;
-  return `<a class="ticket-tile" data-kind="ticket${mine ? " task" : ""}" href="/tickets/${esc(ticket.id)}">
+  return `<a class="ticket-tile" data-kind="ticket${mine ? " task" : ""}" data-status="${esc(ticket.status)}" href="/tickets/${esc(ticket.id)}">
     <h3>#${ticket.number ?? "?"} — ${esc(ticket.title)}</h3>
     ${ticketBadges(ticket)}
     <div class="ticket-meta">${esc(ticket.created_by)} &middot; ${esc(ticket.updated_at)}${ticket.assigned_to ? ` &middot; assigned: ${esc(ticket.assigned_to)}` : ""}</div>
@@ -1961,15 +1995,32 @@ function dashboardUploadTile(asset) {
  * between the two groups only when both are non-empty — a lone group
  * needs no rule to separate it from nothing.
  */
-function dashboardGroup({ kind, label, rows, dateOf, isMine, tileFn, open }) {
-  const mine = rows.filter(isMine).sort((a, b) => (dateOf(a) < dateOf(b) ? -1 : dateOf(a) > dateOf(b) ? 1 : 0));
+function dashboardGroup({ kind, label, rows, dateOf, isMine, tileFn, open, mineOldestFirst = true }) {
+  /* Tickets/Tasks: oldest first — the owner's own words, "with oldest
+     assignment or ticket at the top," so a stale one surfaces rather than
+     hiding behind whatever was just filed. Expenses/Uploads: "sort by
+     newest at the top" — the owner's own correction once the same
+     oldest-first rule was applied everywhere; both sources already
+     arrive newest-first from their own T0 tools, so `mine` here is left
+     in that same incoming order rather than re-sorted. */
+  const mineRows = rows.filter(isMine);
+  const mine = mineOldestFirst
+    ? mineRows.slice().sort((a, b) => (dateOf(a) < dateOf(b) ? -1 : dateOf(a) > dateOf(b) ? 1 : 0))
+    : mineRows;
   const rest = rows.filter((r) => !isMine(r));
+  /* mine/rest each get their own wrapper so the client-side status filter
+     (Test-PRD-P0-112-dashboard_status_filter) can tell whether the rule
+     between them still has a real "mine" side and a real "everyone
+     else's" side left once closed tickets are hidden, not just whether
+     the SERVER thought both sides existed. */
+  const mineHtml = mine.length ? `<div class="dash-mine">${mine.map(tileFn).join("\n")}</div>` : "";
   const sep = mine.length && rest.length ? `<hr class="dash-mine-sep">` : "";
+  const restHtml = rest.length ? `<div class="dash-rest">${rest.map(tileFn).join("\n")}</div>` : "";
   const body = rows.length
-    ? `<div class="ticket-list">${mine.map(tileFn).join("\n")}${sep}${rest.map(tileFn).join("\n")}</div>`
+    ? `<div class="ticket-list">${mineHtml}${sep}${restHtml}</div>`
     : `<p class="ticket-empty">Nothing here yet.</p>`;
   return `<details class="dash-group" data-kind="${kind}"${open ? " open" : ""}>
-    <summary>${esc(label)} (${rows.length})</summary>
+    <summary><span class="dash-group-label">${esc(label)}</span> (<span class="dash-group-count">${rows.length}</span>)</summary>
     ${body}
   </details>`;
 }
@@ -2079,6 +2130,7 @@ export function dashboardPage({ tickets, expenses, uploads, viewerEmail, default
     isMine: (e) => e.employee_id === viewerEmail,
     tileFn: dashboardExpenseTile,
     open: false,
+    mineOldestFirst: false,
   })}
   ${dashboardGroup({
     kind: "upload",
@@ -2088,6 +2140,7 @@ export function dashboardPage({ tickets, expenses, uploads, viewerEmail, default
     isMine: (a) => a.uploaded_by === viewerEmail,
     tileFn: dashboardUploadTile,
     open: false,
+    mineOldestFirst: false,
   })}
 </div>`;
 
@@ -2104,7 +2157,13 @@ export function dashboardPage({ tickets, expenses, uploads, viewerEmail, default
        page's "Hi Dimitri" (.greet h1). */
     `<main class="ops">
   <section class="greet">
-    <h1 id="kind-label">Showing: All</h1>
+    <h1>Showing: <span id="kind-label">All</span> &mdash;
+      <select id="status-filter" class="dash-status-select">
+        <option value="open" selected>Open</option>
+        <option value="all">All statuses</option>
+        <option value="closed">Closed</option>
+      </select><span id="status-no-results" class="dash-status-select" hidden>No Results</span>
+    </h1>
   </section>
   ${feed}
   <div class="category-menu" id="kind-menu" hidden>
@@ -2134,6 +2193,8 @@ const kindMenuEl = document.getElementById("kind-menu");
 const kindBtn = document.getElementById("kind-btn");
 const kindLabel = document.getElementById("kind-label");
 const dashGroups = document.querySelectorAll("#dash-feed .dash-group");
+const statusFilter = document.getElementById("status-filter");
+const statusNoResults = document.getElementById("status-no-results");
 const composeForm = document.getElementById("dash-compose");
 const modeField = document.getElementById("dash-mode-field");
 const titleInput = document.getElementById("dash-title");
@@ -2150,6 +2211,8 @@ const CANCEL_ICON_HTML = ${JSON.stringify(CANCEL_ICON)};
    be on tasks... however, if there are any tickets, say from a customer,
    that should take precedence." */
 let currentMode = ${JSON.stringify(defaultKind || "")};
+/* "Open" by default — closed tickets stay out of sight until asked for. */
+let currentStatus = "open";
 
 function resetAttachment() {
   fileInput.value = "";
@@ -2172,7 +2235,7 @@ function setMode(mode) {
   currentMode = mode;
   modeField.value = mode === "task" ? "task" : "";
   composeForm.action = DASH_MODE_ACTION[mode] || "/tickets/new";
-  kindLabel.textContent = mode ? "Showing: " + (DASH_KIND_LABEL[mode] || mode) : "Showing: All";
+  kindLabel.textContent = mode ? DASH_KIND_LABEL[mode] || mode : "All";
 
   const isFileMode = mode === "upload" || mode === "expense";
   const isTextMode = mode === "ticket" || mode === "task";
@@ -2223,6 +2286,49 @@ function filterFeed() {
     group.hidden = !show;
     if (currentMode && show) group.open = true;
   });
+  refreshCounts();
+}
+
+/* "Don't show any closed tickets unless requested" — the owner's own
+   words. Default hides only status "closed" (blocked/in_progress/
+   resolved/open all still show); "All statuses" lifts the filter
+   entirely; "Closed" flips it to show only closed ones. Expense/upload
+   tiles carry no data-status at all, so this never touches them. */
+function applyStatusFilter() {
+  document.querySelectorAll("#dash-feed .ticket-tile[data-status]").forEach((el) => {
+    const status = el.dataset.status;
+    const show = currentStatus === "all" || (currentStatus === "open" ? status !== "closed" : status === currentStatus);
+    el.hidden = !show;
+  });
+  refreshCounts();
+}
+
+/* Recomputed after either filter changes: each group's own (N) reflects
+   what is actually ON SCREEN right now, not the raw row count the server
+   sent down; the mine/rest rule (dash-mine-sep) hides itself the moment
+   either side it used to separate has nothing left showing; and the
+   status dropdown itself swaps for a plain "No Results" — "make...
+   nothing to show for this mode... appear in place of status drop down
+   if nothing is found, but shortened to 'No Results'" — the instant
+   every group currently on screen has nothing visible left in it. */
+function refreshCounts() {
+  let anyVisible = false;
+  dashGroups.forEach((group) => {
+    const tiles = [...group.querySelectorAll(".ticket-tile")];
+    const visible = tiles.filter((t) => !t.hidden).length;
+    const countEl = group.querySelector(".dash-group-count");
+    if (countEl) countEl.textContent = String(visible);
+    if (!group.hidden && visible > 0) anyVisible = true;
+
+    const sep = group.querySelector(".dash-mine-sep");
+    if (sep) {
+      const mineVisible = [...group.querySelectorAll(".dash-mine .ticket-tile")].some((t) => !t.hidden);
+      const restVisible = [...group.querySelectorAll(".dash-rest .ticket-tile")].some((t) => !t.hidden);
+      sep.hidden = !(mineVisible && restVisible);
+    }
+  });
+  statusFilter.hidden = !anyVisible;
+  statusNoResults.hidden = anyVisible;
 }
 
 attachBtn.addEventListener("click", () => {
@@ -2266,7 +2372,13 @@ if (kindBtn && kindMenuEl) {
   });
 }
 
+statusFilter.addEventListener("change", () => {
+  currentStatus = statusFilter.value;
+  applyStatusFilter();
+});
+
 setMode(currentMode);
+applyStatusFilter();
 
 ${dictationScript({ btnId: "dash-mic", inputId: "dash-title" })}
 </script>`,
