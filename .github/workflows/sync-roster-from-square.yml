@@ -4,9 +4,17 @@
 # directly once it holds at least one row — no Cloudflare Access edit
 # happens here at all, only a Square read and a D1 write.
 #
-# Run it manually from the Actions tab, or on the schedule below once you've
-# confirmed a manual run does what you expect. Idempotent: an employee
-# already on file is updated in place, never duplicated.
+# Runs automatically, every 6 hours — the owner's own words: "I want it all
+# to propagate automatically." Also runnable by hand from the Actions tab at
+# any time (e.g. right after changing MANAGER_JOB_TITLES). Idempotent: an
+# employee already on file is updated in place, never duplicated.
+#
+# A scheduled run carries no workflow_dispatch inputs at all — GitHub simply
+# does not populate `inputs` for a `schedule` trigger — so MANAGER_JOB_TITLES
+# for an automatic run comes from the MANAGER_JOB_TITLES repository variable
+# (Settings -> Secrets and variables -> Actions -> Variables) instead, with
+# the manual input taking precedence when this is run by hand with one filled
+# in. Unset either way defaults to owner+staff only, same as before.
 
 name: sync-roster-from-square
 
@@ -14,16 +22,13 @@ on:
   workflow_dispatch:
     inputs:
       manager_job_titles:
-        description: Comma-separated Square job titles that count as manager (case-sensitive, exact match). Leave blank for owner+staff only.
+        description: Comma-separated Square job titles that count as manager (case-sensitive, exact match). Leave blank to use the MANAGER_JOB_TITLES repo variable, or for owner+staff only if that is unset too.
         default: ""
       square_env:
         description: sandbox or production — must match the token
         default: production
-  # Commented out until a manual run has been checked once. Uncomment to run
-  # automatically — every 6 hours is a reasonable start; tighten or loosen
-  # once you've seen how quickly Square-side changes need to reach ops.
-  # schedule:
-  #   - cron: "17 */6 * * *"
+  schedule:
+    - cron: "17 */6 * * *"
 
 concurrency:
   group: sync-roster-from-square
@@ -38,7 +43,7 @@ jobs:
     env:
       SQUARE_ACCESS_TOKEN: ${{ secrets.SQUARE_ACCESS_TOKEN }}
       SQUARE_ENV: ${{ inputs.square_env || 'production' }}
-      MANAGER_JOB_TITLES: ${{ inputs.manager_job_titles }}
+      MANAGER_JOB_TITLES: ${{ inputs.manager_job_titles || vars.MANAGER_JOB_TITLES || '' }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
