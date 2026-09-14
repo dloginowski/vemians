@@ -271,3 +271,17 @@ check("test_PRD_P0_109_status_line_matches_greeting__the_mode_indicator_is_alway
   assert.doesNotMatch(updateFn, /kindLabel\.hidden/, "the mode indicator must never be toggled hidden");
   assert.match(updateFn, /"Showing: All"/);
 });
+
+check("test_PRD_P0_109_status_line_matches_greeting__the_page_container_shares_the_agent_pages_own_top_and_side_padding", async () => {
+  /* Same fix as Items (see items-route.test.mjs's own check): the shared
+     .ops rule (top/sides/76px bottom) now lives in OPS_DARK_CSS, which
+     TICKETS_CSS already imports, instead of silently falling back to
+     theme.css's own roomier generic default. */
+  const res = await get("/dashboard", STAFF, env({ finance: null, assets: null }));
+  const body = await res.text();
+  /* theme.css's own generic .ops rule is still present in the inlined
+     stylesheet (it always is — page() inlines it unconditionally) but no
+     longer decides anything here: this tightened rule comes later in the
+     cascade at equal specificity, so it wins regardless. */
+  assert.match(body, /\.ops\s*\{[^}]*max-width:\s*64rem;\s*padding:\s*12px 8px 76px/s);
+});

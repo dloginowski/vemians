@@ -2610,6 +2610,22 @@ that does not trace to one of these is a process failure (see §12).
     own open/close handlers no longer coordinate with the label at all, since the two no longer
     share a floating spot to contend for.
 
+    **A second, deeper bug surfaced once the two were compared side by side.** "There's way too
+    much padding above the categories and the tickets mode... match the agent exactly... that
+    exact place, that exact font." Screenshots of `itemsPage()`/`dashboardPage()` next to
+    `opsPage()` showed a real, measurable gap — not a matter of degree. Root cause:
+    `shared/design/theme.css`'s own generic `.ops` (`max-width: 60rem; margin: 0 auto; padding:
+    24px 16px 64px;`) had only ever been overridden for the agent page, inside `OPS_CSS` itself
+    (`max-width: 64rem; padding: 12px 8px 108px;`, no `margin: auto` — see `INPUT_BAR_CSS`'s own
+    comment on why that is load-bearing). `ITEMS_CSS` and `TICKETS_CSS` import the shared
+    `OPS_DARK_CSS` but never carried that same override, so they silently fell back to twice the
+    top and side padding of the page they were meant to visually match — invisible until the two
+    were placed next to each other. Fixed by moving the shared part (`max-width: 64rem; padding:
+    12px 8px 76px` — the `76px` bottom is the documented value that clears `.input-bar` alone,
+    correct for any page with no OTHER floating row above the bar) into `OPS_DARK_CSS`, so every
+    ops page gets it; `opsPage()`'s own `OPS_CSS` now only adds `padding-bottom: 108px`, the
+    extra clearance its own floating `.menu` (quick-action chips) alone still needs.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
