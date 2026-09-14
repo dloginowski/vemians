@@ -3083,6 +3083,21 @@ that does not trace to one of these is a process failure (see §12).
     actually reads as "dark gray" against that background — swapped in, `#chat .send-btn:disabled`'s
     only change. The active glyph (`--ink`) was already correct and is untouched.
 
+    **Superseded almost immediately by `Test-PRD-P0-127-send_button_disabled_glyph_matches_mic`**
+    — `--rule` still wasn't the specific dark the owner had in mind.
+
+62. **`Test-PRD-P0-127-send_button_disabled_glyph_matches_mic`** — The owner's own final
+    clarification, pointing at a concrete reference already sitting on the same bar rather than
+    describing a color in the abstract: "you have the microphone right next to it that has a dark
+    microphone icon... that's what I mean by dark... it needs to be that microphone icon dark, just
+    like the microphone."
+
+    **`#chat .send-btn:disabled`'s glyph is now `var(--ground)`, matching `.mic-btn`'s own icon
+    color exactly** — `.mic-btn` has always used `var(--ground)` (near-black in this dark theme)
+    against its own bright orange fill, sitting right next to Send on the same bar the whole time.
+    Rather than a third guess at a new gray, the disabled send glyph now points at the SAME token
+    the reference itself already uses — one color, matched directly, not approximated.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -3360,6 +3375,7 @@ Where each feature is enforced today:
 | P0-124 | `ops/test/ops-page.test.mjs` |
 | P0-125 | `ops/test/ops-page.test.mjs`, `ops/test/dashboard-route.test.mjs` |
 | P0-126 | `ops/test/ops-page.test.mjs` |
+| P0-127 | `ops/test/ops-page.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
