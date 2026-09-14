@@ -383,19 +383,17 @@ const TABLE_CARD_CSS = `
   align-items: center; gap: 6px; position: sticky; left: 0;
 }
 .table-card table { table-layout: auto; border-collapse: collapse; }
+/* Centered everywhere now, not just headers — the owner's own words,
+   right after seeing headers alone centered: "make the data center
+   aligned too. Why not? Just make it all center aligned." Superseding
+   Test-PRD-P0-122-table_headers_centered's own left-aligned data: one
+   rule for the whole table now, rather than a header-only override. */
 .table-card th, .table-card td {
-  text-align: left; padding: 1px 2px; border: 1px solid var(--rule);
+  text-align: center; padding: 1px 2px; border: 1px solid var(--rule);
   vertical-align: top; font-size: 12px;
 }
 .table-card td { overflow-wrap: anywhere; word-break: break-word; min-width: 6em; }
-/* Headers centered, data left — the owner's own words: "center the
-   heading... so there's some spacing between [them], just center it so
-   it looks nicer." A header's own column is usually wider than its own
-   nowrap text (sized by the data underneath it, or by a neighboring
-   wider header), so centering gives it real breathing room from the
-   column's own edges instead of sitting flush against the left border
-   the way left-aligned data still does. */
-.table-card th { color: var(--ink); font-weight: 700; background: var(--ground); white-space: nowrap; text-align: center; }
+.table-card th { color: var(--ink); font-weight: 700; background: var(--ground); white-space: nowrap; }
 .table-card a { color: var(--accent); overflow-wrap: anywhere; }
 .table-card button {
   flex: 0 0 auto; font: inherit; font-size: 12px; padding: 1px 2px; cursor: pointer;

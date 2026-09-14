@@ -3016,6 +3016,16 @@ that does not trace to one of these is a process failure (see §12).
     Scoped to `th` alone: the request was specifically about the headings, and data cells reading
     left-to-right is still the more legible default for values.
 
+    **Superseded almost immediately by `Test-PRD-P0-123-table_everything_centered`** — the owner's
+    own words, right after seeing headers alone centered: "make the data center aligned too. Why
+    not? Just make it all center aligned." `.table-card th, .table-card td` share one rule again,
+    both `text-align: center`; the separate `th`-only override is gone, since both read the same
+    way now.
+
+58. **`Test-PRD-P0-123-table_everything_centered`** — See P0-122's own superseding note above.
+    One shared `text-align: center` on `.table-card th, .table-card td` — no header-only exception
+    left to maintain.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -3289,6 +3299,7 @@ Where each feature is enforced today:
 | P0-120 | `ops/test/ops-page.test.mjs` |
 | P0-121 | `ops/test/ops-page.test.mjs` |
 | P0-122 | `ops/test/ops-page.test.mjs` |
+| P0-123 | `ops/test/ops-page.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
