@@ -2749,6 +2749,16 @@ that does not trace to one of these is a process failure (see §12).
     shifts size — the moment every group currently visible (per the mode selector) has zero
     visible tiles left in it.
 
+    **A fifth report, from actually using the fix:** "when I uncheck a category selection, I
+    expect the button to not be orange anymore, but it is." The class toggle itself was already
+    correct — confirmed directly with a real browser, not assumed — the bug was
+    `.category-menu .category-item:hover` sharing the exact same accent border/text colour as
+    `.active`, so a just-unchecked button still looked selected for as long as the pointer sat
+    over it, which is usually right where a click just happened. `:hover` is now the neutral
+    `--ink` instead of `--accent`; `.active` (declared after it, so it still wins the
+    specificity tie while a checked button is hovered) keeps "checked" as the only thing orange
+    means in that menu.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

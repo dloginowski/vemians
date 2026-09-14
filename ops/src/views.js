@@ -273,12 +273,21 @@ const INPUT_BAR_CSS = `
   padding: 6px 10px; border: 1px solid var(--rule); border-radius: 999px;
   background: var(--ground); color: var(--ink); cursor: pointer;
 }
-.category-menu .category-item:hover { border-color: var(--accent); color: var(--accent); }
+/* Neutral, not the accent — a plain hover affordance, never the "this is
+   checked" look. Caught live: "when I uncheck a category selection, I
+   expect the button to not be orange anymore, but it is" — the class WAS
+   removed correctly (verified directly, not assumed), but :hover shared
+   the exact same border/text colour as .active, so a just-unchecked
+   button still looked selected for as long as the pointer sat over it,
+   which is usually right where a click just happened. */
+.category-menu .category-item:hover { border-color: var(--ink); color: var(--ink); }
 /* Checked state — "that menu would automatically select one or more
    categories to satisfy the search," the owner's own words. Multi-select:
    more than one can carry this at once. Same faint-accent-tint language
    .icon-btn[aria-pressed="true"] already uses for an active toggle state,
-   not a new visual vocabulary invented for this. */
+   not a new visual vocabulary invented for this. Declared after :hover so
+   it wins the tie while a checked button is also being hovered — the
+   only state orange should ever mean here is "checked." */
 .category-menu .category-item.active { border-color: var(--accent); color: var(--accent); background: rgba(217, 119, 87, 0.14); }
 /* The "Hi Dimitri" spot (opsPage(), formerly OPS_CSS only) — moved here so
    Items' own category status and the Dashboard's own mode status can sit
