@@ -1299,6 +1299,25 @@ check("test_PRD_P0_127_send_button_disabled_glyph_matches_mic__the_disabled_arro
   assert.doesNotMatch(body, /#chat \.send-btn:disabled\s*\{[^}]*color:\s*var\(--rule\)/s, "the previous round's --rule attempt must be gone");
 });
 
+check("test_PRD_P0_128_mic_glyph_survives_hover__mic_btn_hover_restates_its_own_dark_icon_color", async () => {
+  /* The owner's own words, reporting a real bug: "after recording
+     something with the microphone and pressing stop, the glyph
+     disappears... it should be coming back to that dark gray glyph
+     that was when nothing was recorded." Root cause, found by rendering
+     and inspecting computed styles rather than assumed: clicking a
+     button leaves the cursor hovering over it in a real browser, and
+     .mic-btn:hover only ever set background/opacity, never color — so
+     .icon-btn:hover's own "color: var(--accent)" (equal specificity,
+     but the only rule actually setting color on hover) applied by
+     default, painting the icon the same orange as its own background
+     and camouflaging it completely. Not a JS bug — verified directly in
+     a real browser: the correct icon markup was still in the DOM the
+     whole time, computed color was the only thing wrong — a missing CSS
+     declaration, not a stopListening() logic error. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.input-bar \.mic-btn:hover\s*\{[^}]*color:\s*var\(--ground\)/s, "hover must restate the mic's own dark icon color explicitly");
+});
+
 check("test_PRD_P0_124_send_button_active_state__the_active_glyph_is_bright_not_the_near_black_ground_token", async () => {
   /* The owner's own words: "when it's active, it's a much brighter
      orange, the one that you have now, and a white arrow." The orange
