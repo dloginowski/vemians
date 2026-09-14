@@ -932,8 +932,14 @@ check("test_PRD_P0_94_mobile_edge_to_edge__the_page_containers_side_padding_matc
      once .menu (the quick-action chips) also became position: fixed,
      floating above .input-bar instead of sitting in flow: the same
      reasoning again, clearing one more floating row (the chips' own
-     row, plus the gap above the composer) on top of the composer itself. */
-  assert.match(body, /\.ops\s*\{[^}]*padding:\s*12px 8px 108px/s, "side padding must be tightened, top unchanged, bottom grown for both fixed rows");
+     row, plus the gap above the composer) on top of the composer itself.
+     Test-PRD-P0-109-status_line_matches_greeting split the base 12px/8px/
+     76px shorthand out into the shared .ops rule every ops page gets
+     (OPS_DARK_CSS) — this page alone widens bottom padding further, to
+     108px, with a second, narrower override for its own extra floating
+     row, rather than repeating the whole shorthand. */
+  assert.match(body, /\.ops\s*\{[^}]*max-width:\s*64rem;\s*padding:\s*12px 8px 76px/s, "the shared base (top/sides/76px bottom) must still be present");
+  assert.match(body, /\.ops\s*\{[^}]*padding-bottom:\s*108px/s, "this page must still widen bottom padding for its own extra floating row");
   assert.doesNotMatch(body, /\.ops\s*\{[^}]*padding:\s*12px 24px/s, "the old roomier side padding must not still be set");
 });
 

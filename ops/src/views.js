@@ -90,6 +90,25 @@ a:hover { opacity: 0.82; }
    left the "ops.vemians.com · employees only" strip nearly invisible: near-
    black text on a black bar. A dim, deliberately unobtrusive gray instead. */
 .bar { color: var(--muted); }
+
+/* theme.css's own .ops (shared/design/theme.css) is generic across both
+   Workers: max-width: 60rem, margin: 0 auto (centred), padding: 24px 16px
+   64px. OPS_CSS has long overridden this for the agent page alone —
+   64rem, flush left (no margin: auto — see INPUT_BAR_CSS's own comment on
+   why that is load-bearing for .input-bar's max-width), tighter 8px sides,
+   and a slim 12px top so "Hi Dimitri" sits right under the tab bar rather
+   than a generic page's own roomier 24px gap. ITEMS_CSS and TICKETS_CSS
+   import THIS shared base already but never carried that same override,
+   so Items' and the Dashboard's own status line silently sat twice as far
+   from the top as the agent page's "Hi Dimitri" — caught live once the
+   two were put side by side: "you need to match the agent exactly...
+   that exact place, that exact font." Moved here so every ops page gets
+   it, not just the one that happened to declare it first. Bottom is 76px
+   here — enough to clear .input-bar alone (its own ~42px height + 8px
+   offset + a little breathing room) — the correct default for a page
+   with no OTHER floating row above the bar; opsPage() widens it further
+   in its own OPS_CSS for the quick-action chips .menu also floats. */
+.ops { max-width: 64rem; padding: 12px 8px 76px; }
 `;
 
 /*
@@ -500,37 +519,21 @@ document.querySelectorAll(".shell-nav button").forEach((btn) => {
 const OPS_CSS = `
 ${OPS_DARK_CSS}
 ${INPUT_BAR_CSS}
-/* 34rem was tuned for "one screen on a phone" before this page grew a chat
-   widget, tables and an accordion of real content — on an actual desktop
-   window it read as a narrow column stranded in the middle of empty space.
-   Wide enough now to use a real monitor; still capped, so a line of prose in
-   the accordion below does not stretch across a 4K display and become hard
-   to read.
+/* max-width/top/side padding now live on the shared .ops rule in
+   OPS_DARK_CSS (every ops page gets them, not just this one) — only the
+   BOTTOM padding is wider here, and only because this page alone carries
+   a second floating row above .input-bar.
  *
- * Side padding is tight (8px, matching .chat-top's own tightened side
- * padding — P0-93) rather than the roomier 24px this used to carry: on an
- * actual phone screen, padding on both sides is width the chat widget and
- * everything else on the page cannot use at all, and "maximize the use of
- * space on mobile" was the owner's own direction. max-width still caps a
- * wide desktop window, where the difference barely registers.
- *
- * Bottom padding grew from 32px to 76px once #chat and .items-search
- * both became position: fixed (see INPUT_BAR_CSS) — a fixed element is
- * removed from normal document flow entirely, so without this the
- * grid's own last row, or the chat log's own last message, would sit
- * PARTLY BEHIND the now-floating bar rather than stopping short of it.
- * 76px clears the bar's own ~42px height plus its 8px offset from the
- * true screen edge, plus a little breathing room above it.
- *
- * Grown again to 108px once .menu (the quick-action chips) also became
- * position: fixed, floating above .input-bar instead of sitting in flow
- * above the greeting — the same reasoning again, one floating row
- * further out: the existing 76px already clears .input-bar itself, +8px
- * for the gap .menu floats above it by, +~24px for .menu's own single
- * row of chips, so .log's own last message stops clear of BOTH floating
- * rows, not just the composer. Ops-page only: itemsPage() has no
- * floating .menu of its own, so ITEMS_CSS never touches this value. */
-.ops { max-width: 64rem; padding: 12px 8px 108px; }
+ * Bottom padding grew from the shared 76px (which already clears
+ * .input-bar alone — see OPS_DARK_CSS's own comment) to 108px once .menu
+ * (the quick-action chips) also became position: fixed, floating above
+ * .input-bar instead of sitting in flow above the greeting: the existing
+ * 76px already clears .input-bar itself, +8px for the gap .menu floats
+ * above it by, +~24px for .menu's own single row of chips, so .log's own
+ * last message stops clear of BOTH floating rows, not just the composer.
+ * Ops-page only: itemsPage() and dashboardPage() have no floating .menu
+ * of their own, so they keep the shared 76px unchanged. */
+.ops { padding-bottom: 108px; }
 
 .ops .warn { margin: 0 0 14px; }
 

@@ -512,6 +512,26 @@ check("test_PRD_P0_109_status_line_matches_greeting__the_line_is_always_shown_ne
   assert.match(updateFn, /"All categories"/);
 });
 
+check("test_PRD_P0_109_status_line_matches_greeting__the_page_container_shares_the_agent_pages_own_top_and_side_padding", async () => {
+  /* theme.css's own generic .ops (24px top, 16px sides, centred) was never
+     overridden here — only opsPage()'s own OPS_CSS overrode it — so the
+     status line silently sat twice as far from the top as "Hi Dimitri"
+     despite living in the exact same .greet markup. Caught live: "you
+     need to match the agent exactly... that exact place." The fix moved
+     the shared part of .ops (max-width, top, sides, and the 76px bottom
+     that clears .input-bar alone) into OPS_DARK_CSS, which ITEMS_CSS
+     already imports. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  /* theme.css's own generic .ops rule is still present in the inlined
+     stylesheet (it always is — page() inlines it unconditionally) but no
+     longer decides anything here: this tightened rule comes later in the
+     cascade at equal specificity, so it wins regardless. */
+  assert.match(body, /\.ops\s*\{[^}]*max-width:\s*64rem;\s*padding:\s*12px 8px 76px/s);
+});
+
 check("test_PRD_P0_71_items_tab__no_redundant_title_wastes_space_the_tab_bar_already_spent", async () => {
   /* The owner's own words: "we have the tab, we know we're in items
      right now. Get rid of all that stuff." The tab bar itself already
