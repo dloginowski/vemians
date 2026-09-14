@@ -2327,6 +2327,42 @@ that does not trace to one of these is a process failure (see §12).
     so what it prints for a human to copy into `MANAGER_JOB_TITLES` is what actually compares
     equal.
 
+37. **`Test-PRD-P0-102-items_search_matches_chat`** — The owner's own words: "Make the search
+    field in the Items section feel more like our agent chat... it needs a search button on the
+    right instead of the submit chat... it might be a magnifying glass. And on the left side, add
+    a little hamburger menu like button with the little dots on the sides of hamburger lines...
+    that would open up a little menu to select existing categories... use the same kind of font
+    for the hint and stuff like that." Items' own search bar (P0-71) was a bare `.input-bar` with
+    just a text input — the chat composer right below it in the same shell has an icon button on
+    each side. The gap was real: two surfaces sharing the exact same pill shape (P0-71's own
+    point) but one of them visibly missing the buttons that make the other read as a composer.
+
+    **The button rules move from OPS_CSS into INPUT_BAR_CSS itself**, not duplicated a second
+    time for Items. `.chat .chat-bar .icon-btn`/`.send-btn` only ever reached the chat composer
+    because ITEMS_CSS never imports OPS_CSS — the actual reason Items' bar had no buttons was
+    never a missing feature, it was a missing include. Rescoping the same rules to plain
+    `.input-bar .icon-btn`/`.send-btn` (already the shared class every `.input-bar` carries) means
+    every current and future input bar on this page — the chat composer, Items' search, the
+    ticket compose/comment bars — picks up identical buttons for free, the same "shared, not
+    matched" reasoning `.input-bar` itself already exists for. The search input's own font was
+    never actually different (`.input-bar input` already applied everywhere `.input-bar` does);
+    what was missing was the buttons making the two surfaces look alike at a glance.
+
+    **`SEARCH_ICON`** (a magnifying glass, matching `SEND_ICON`'s own 16x16/1.4-stroke-width
+    shape) sits where Send does, in a `.send-btn`; clicking it re-runs the same live filter
+    already wired to the input's own `input` event and returns focus to typing — there is nothing
+    to submit that a keystroke has not already applied, so the click's only job is to look and
+    feel like the chat's own Send.
+
+    **`FILTER_ICON`** (three hamburger lines, each with a small dot at both ends — a filter
+    control, not a second navigation trigger) sits on the left in an `.icon-btn`, opening
+    `.category-menu`: the distinct `category_name` values actually present among the products
+    rendered (not the full catalog category list — a filter over what is on screen), plus an "All
+    categories" entry to clear it. Floats above `.input-bar` the same way `.menu` (the agent
+    page's own quick-prompt chips) floats above the composer — `position: fixed`, anchored by the
+    same `8px + 42px + 8px = 58px` arithmetic — closed by picking a category, clicking anywhere
+    else, or Escape.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -2579,6 +2615,7 @@ Where each feature is enforced today:
 | P0-99 | `ops/test/ops-page.test.mjs` |
 | P0-100 | `ops/test/tools.test.mjs` for `ticket.*`; `ops/test/tickets-route.test.mjs` for the `/tickets` routes, over the real Worker; `ops/test/contact-intake.test.mjs` for the scheduled contact-form-to-ticket pickup |
 | P0-101 | `ops/test/skills.test.mjs` for `explainRole()`'s own roster path, over the real `people.sql` schema; `.github/scripts/sync-roster-from-square.mjs` (the SQL-generation and role-mapping half) has no automated test, matching every other `.github/scripts/*` provisioning script in this repository |
+| P0-102 | `ops/test/items-route.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

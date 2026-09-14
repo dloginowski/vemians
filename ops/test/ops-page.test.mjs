@@ -923,8 +923,8 @@ check("test_PRD_P0_95_filled_attach_button__the_plus_button_matches_the_send_but
      into the bar's own rounded ends identically — "flows neatly inside of
      the inner chat border (like the chat submit button)," the owner's own
      words. */
-  assert.match(body, /\.chat \.chat-bar \.icon-btn\s*\{[^}]*width:\s*34px/s, "the attach button must match the send button's own size");
-  assert.match(body, /\.chat \.chat-bar \.icon-btn\s*\{[^}]*height:\s*34px/s, "the attach button must match the send button's own size");
+  assert.match(body, /\.input-bar \.icon-btn\s*\{[^}]*width:\s*34px/s, "the attach button must match the send button's own size");
+  assert.match(body, /\.input-bar \.icon-btn\s*\{[^}]*height:\s*34px/s, "the attach button must match the send button's own size");
 });
 
 check("test_PRD_P0_95_filled_attach_button__the_fill_is_a_faint_overlay_not_an_opaque_circle", async () => {
@@ -934,19 +934,19 @@ check("test_PRD_P0_95_filled_attach_button__the_fill_is_a_faint_overlay_not_an_o
      A translucent white overlay over the bar's own --image-ground reads
      as "a little brighter," not a second bold circle competing with Send. */
   const { body } = await frontPage(OWNER);
-  assert.match(body, /\.chat \.chat-bar \.icon-btn\s*\{[^}]*background:\s*rgba\(255, 255, 255, 0\.08\)/s, "the fill must be a faint overlay, not an opaque colour");
-  assert.doesNotMatch(body, /\.chat \.chat-bar \.icon-btn\s*\{[^}]*background:\s*var\(--ink\)/s, "the old opaque --ink fill must not still be set");
-  assert.match(body, /\.chat \.chat-bar \.icon-btn\s*\{[^}]*color:\s*var\(--ink\)/s, "the glyph itself stays bright against the now-faint fill");
+  assert.match(body, /\.input-bar \.icon-btn\s*\{[^}]*background:\s*rgba\(255, 255, 255, 0\.08\)/s, "the fill must be a faint overlay, not an opaque colour");
+  assert.doesNotMatch(body, /\.input-bar \.icon-btn\s*\{[^}]*background:\s*var\(--ink\)/s, "the old opaque --ink fill must not still be set");
+  assert.match(body, /\.input-bar \.icon-btn\s*\{[^}]*color:\s*var\(--ink\)/s, "the glyph itself stays bright against the now-faint fill");
 });
 
 check("test_PRD_P0_95_filled_attach_button__hover_and_pressed_states_are_also_faint_tints_not_opaque_fills", async () => {
   const { body } = await frontPage(OWNER);
-  assert.match(body, /\.chat \.chat-bar \.icon-btn:hover\s*\{[^}]*background:\s*rgba\(255, 255, 255, 0\.16\)/s, "hover must brighten the same faint overlay, not switch to opacity dimming");
+  assert.match(body, /\.input-bar \.icon-btn:hover\s*\{[^}]*background:\s*rgba\(255, 255, 255, 0\.16\)/s, "hover must brighten the same faint overlay, not switch to opacity dimming");
   /* An attachment currently staged gets a faint accent tint, matching the
      same "faint fill" language as the resting and hover states. */
   assert.match(
     body,
-    /\.chat \.chat-bar \.icon-btn\[aria-pressed="true"\]\s*\{[^}]*background:\s*rgba\(217, 119, 87, 0\.14\)/s,
+    /\.input-bar \.icon-btn\[aria-pressed="true"\]\s*\{[^}]*background:\s*rgba\(217, 119, 87, 0\.14\)/s,
     "the pressed/active state must be a faint accent tint, not an opaque accent fill",
   );
 });
