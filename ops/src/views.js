@@ -307,13 +307,21 @@ const INPUT_BAR_CSS = `
    "put the categories in there, in the top... use that same font, same
    kind of layout... so that all of these tabs have kinda matching
    layouts." Centred and quiet on purpose — a status line, not the thing
-   on the page asking to be read first; 11px matches the smallest de-
-   emphasised meta text already used elsewhere (.ticket-meta, badges).
-   Always shown, never conditionally hidden: "Hi Dimitri" is there
-   whether or not you have typed anything yet, and so is "All
-   categories"/"Showing: All" here. */
+   on the page asking to be read first. Always shown, never conditionally
+   hidden: "Hi Dimitri" is there whether or not you have typed anything
+   yet, and so is "All categories"/"Showing: All" here.
+   15px on every one of the three, not just Dashboard's own — the owner's
+   own words: "make sure that the agents and the items also have the
+   bigger font size for the top header... just so it's all consistent."
+   Dashboard's own #dash-status-heading (below INPUT_BAR_CSS) had already
+   been bumped from the shared 11px to 15px on its own, since it also
+   carries an interactive control (the status dropdown); rather than
+   leave the other two pages' own status line smaller, the SHARED rule
+   itself now carries that same 15px, and the Dashboard-specific override
+   is gone — one size, one place to look, not the same number declared
+   twice. */
 .greet { margin: 0 0 6px; text-align: center; }
-.greet h1 { font-size: 11px; font-weight: 400; color: var(--muted); margin: 0; }
+.greet h1 { font-size: 15px; font-weight: 400; color: var(--muted); margin: 0; }
 `;
 
 /*
@@ -1946,13 +1954,6 @@ ${INPUT_BAR_CSS}
   background: transparent; border: 1px solid var(--rule); border-radius: 4px;
   padding: 1px 4px; vertical-align: baseline;
 }
-/* The Dashboard's own "Showing: X" heading, bumped up from the shared
-   .greet h1 11px — the owner's own words: "bump up the font size for
-   the selection heading." Scoped to #dash-status-heading only, so
-   opsPage's "Hi Dimitri" and Items' own "All categories" status keep
-   their original size; this is the one heading that also carries an
-   interactive control (the status dropdown), so it earns more weight. */
-#dash-status-heading { font-size: 15px; }
 `;
 
 function ticketBadges(ticket) {

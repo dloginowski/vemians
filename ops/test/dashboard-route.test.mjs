@@ -560,14 +560,21 @@ check("test_PRD_P0_116_dashboard_status_line_refinements__no_results_appends_aft
   assert.match(refreshFn, /statusNoResults\.hidden = anyVisible/);
 });
 
-check("test_PRD_P0_116_dashboard_status_line_refinements__the_showing_heading_has_its_own_larger_font_size", async () => {
-  /* The owner's own words: "bump up the font size for the selection
-     heading." Scoped to #dash-status-heading, not the shared .greet h1,
-     so opsPage's "Hi Dimitri" and Items' "All categories" keep their
-     original size. */
+check("test_PRD_P0_125_status_headings_all_match__the_showing_heading_shares_the_bumped_size_with_every_other_page", async () => {
+  /* P0-116's own words: "bump up the font size for the selection
+     heading," scoped to #dash-status-heading alone at the time so
+     opsPage's "Hi Dimitri" and Items' "All categories" kept their
+     smaller original size. Test-PRD-P0-125-status_headings_all_match
+     asked for the opposite: "make sure that the agents and the items
+     also have the bigger font size for the top header... just so it's
+     all consistent." The shared .greet h1 rule itself now carries the
+     15px (see ops-page.test.mjs's own P0-125 check); the Dashboard's own
+     #dash-status-heading override is gone — nothing left to bump on top
+     of a base that already matches it. */
   const res = await get("/dashboard", STAFF, env({ finance: null, assets: null }));
   const body = await res.text();
-  assert.match(body, /#dash-status-heading \{ font-size: 15px; \}/);
+  assert.match(body, /\.greet h1 \{ font-size: 15px;/);
+  assert.doesNotMatch(body, /#dash-status-heading \{ font-size: 15px; \}/, "the now-redundant Dashboard-only override must be gone");
 });
 
 check("test_PRD_P0_112_dashboard_status_filter__each_groups_own_count_reflects_whats_actually_visible", async () => {

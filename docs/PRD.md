@@ -3056,6 +3056,19 @@ that does not trace to one of these is a process failure (see §12).
     comparing against. It becomes `var(--ink)`, the palette's own bright warm-white, matching "a
     much brighter orange... and a white arrow" for the active state.
 
+60. **`Test-PRD-P0-125-status_headings_all_match`** — P0-116 bumped only Dashboard's own
+    `#dash-status-heading` from the shared `.greet h1` 11px to 15px, since it also carries an
+    interactive control. The owner's own words now: "make sure that the agents and the items also
+    have the bigger font size for the top header, the one that says like 'Hi Dimitri, what would
+    you like to do today,' just so it's all consistent."
+
+    **The shared `.greet h1` rule itself now carries the 15px** — opsPage's "Hi Dimitri" greeting,
+    Items' own "All categories" status, and Dashboard's own "Showing: X" status all read at the
+    same size again, the way P0-109 originally put all three in "the exact same place and font."
+    Dashboard's own `#dash-status-heading` override is gone: once the shared base already matches
+    it, a second selector declaring the identical value is a number to keep in sync in two places
+    instead of one.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -3331,6 +3344,7 @@ Where each feature is enforced today:
 | P0-122 | `ops/test/ops-page.test.mjs` |
 | P0-123 | `ops/test/ops-page.test.mjs` |
 | P0-124 | `ops/test/ops-page.test.mjs` |
+| P0-125 | `ops/test/ops-page.test.mjs`, `ops/test/dashboard-route.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
