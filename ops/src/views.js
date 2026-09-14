@@ -1789,17 +1789,24 @@ ${INPUT_BAR_CSS}
 .dash-mine-sep { border: none; border-top: 1px solid var(--rule); margin: 8px 0; }
 /* The status filter sits inline in the same "Showing: X" line — the
    owner's own words: "add to the Showing: [mode] - [status dropdown]."
-   font: inherit off .greet h1 keeps it the same 11px/muted look rather
-   than the browser's own default control styling. Swapped for
-   #status-no-results (same class, so it never shifts size) once nothing
-   matches the current mode and status together — "make... Nothing to
-   show for this mode. appear in place of status drop down if nothing is
-   found, but shortened to 'No Results.'" */
+   font: inherit off .greet h1 keeps it the same muted look rather than
+   the browser's own default control styling. "No Results" appends
+   alongside the dropdown rather than replacing it — "no results still
+   needs a menu selector, no results is appended on the end" — once
+   nothing matches the current mode and status together, so the
+   selector itself is never taken away; only #status-no-results toggles. */
 .dash-status-select {
   font: inherit; font-size: 11px; color: var(--muted);
   background: transparent; border: 1px solid var(--rule); border-radius: 4px;
   padding: 1px 4px; vertical-align: baseline;
 }
+/* The Dashboard's own "Showing: X" heading, bumped up from the shared
+   .greet h1 11px — the owner's own words: "bump up the font size for
+   the selection heading." Scoped to #dash-status-heading only, so
+   opsPage's "Hi Dimitri" and Items' own "All categories" status keep
+   their original size; this is the one heading that also carries an
+   interactive control (the status dropdown), so it earns more weight. */
+#dash-status-heading { font-size: 15px; }
 `;
 
 function ticketBadges(ticket) {
@@ -2111,12 +2118,12 @@ export function dashboardPage({ tickets, expenses, uploads, viewerEmail, default
        page's "Hi Dimitri" (.greet h1). */
     `<main class="ops">
   <section class="greet">
-    <h1>Showing: <span id="kind-label">All</span> &mdash;
+    <h1 id="dash-status-heading">Showing: <span id="kind-label">All</span> &mdash;
       <select id="status-filter" class="dash-status-select">
         <option value="open" selected>Open</option>
         <option value="all">All statuses</option>
         <option value="closed">Closed</option>
-      </select><span id="status-no-results" class="dash-status-select" hidden>No Results</span>
+      </select> <span id="status-no-results" class="dash-status-select" hidden>No Results</span>
     </h1>
   </section>
   ${feed}
@@ -2281,11 +2288,11 @@ function applyStatusFilter() {
 /* Recomputed after either filter changes: each group's own (N) reflects
    what is actually ON SCREEN right now, not the raw row count the server
    sent down; the mine/rest rule (dash-mine-sep) hides itself the moment
-   either side it used to separate has nothing left showing; and the
-   status dropdown itself swaps for a plain "No Results" — "make...
-   nothing to show for this mode... appear in place of status drop down
-   if nothing is found, but shortened to 'No Results'" — the instant
-   every group currently on screen has nothing visible left in it. */
+   either side it used to separate has nothing left showing; and a plain
+   "No Results" appends after the status dropdown — never in place of it,
+   "no results still needs a menu selector" — the instant every group
+   currently on screen has nothing visible left in it, so switching the
+   status right back is still one click away. */
 function refreshCounts() {
   let anyVisible = false;
   dashGroups.forEach((group) => {
@@ -2302,7 +2309,6 @@ function refreshCounts() {
       sep.hidden = !(mineVisible && restVisible);
     }
   });
-  statusFilter.hidden = !anyVisible;
   statusNoResults.hidden = anyVisible;
 }
 

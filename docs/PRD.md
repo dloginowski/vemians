@@ -2843,6 +2843,23 @@ that does not trace to one of these is a process failure (see §12).
     populated, so switching to an empty kind is always possible and falls back to the status
     line's own "No Results" (P0-112), which already covers the single-mode empty case.
 
+51. **`Test-PRD-P0-116-dashboard_status_line_refinements`** — Two more pieces of feedback on the
+    same "Showing: X" status line: "no results still needs a menu selector, no results is
+    appended on the end," and "bump up the font size for the selection heading."
+
+    **Superseding P0-112's own "swaps for" behaviour**: the status dropdown is never taken away
+    once nothing matches — only `#status-no-results` toggles, appearing right after the dropdown
+    rather than in its place, so switching the status back (e.g. from "Open" to "All statuses")
+    is always one click away instead of requiring the dropdown to reappear first.
+
+    **The heading itself is bigger**, but only this one: `#dash-status-heading` (a new id on the
+    Dashboard's own `<h1>`, not the shared `.greet h1` class) goes from the shared 11px up to
+    15px, since it's the one status heading in the app that also carries an interactive control.
+    opsPage's "Hi Dimitri" and Items' own "All categories" status keep the original 11px — the
+    "same font, same spot" alignment those two shared with the Dashboard (P0-109) was about the
+    location and quiet weight of a status line in general, not a promise that every future
+    status line stays pinned to that exact size forever.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -3109,6 +3126,7 @@ Where each feature is enforced today:
 | P0-113 | `ops/test/ops-page.test.mjs` |
 | P0-114 | `ops/test/dashboard-route.test.mjs` |
 | P0-115 | `ops/test/dashboard-route.test.mjs` |
+| P0-116 | `ops/test/dashboard-route.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
