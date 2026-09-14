@@ -3,7 +3,7 @@
  * of "we will handle communication entirely through our website internal
  * messages" (P0-100). store/src/contact.js (ADR-015) already writes each
  * submission into Square's own Customer Directory; this scheduled step is
- * what makes it ALSO show up where staff actually look now, the Messages tab.
+ * what makes it ALSO show up where staff actually look now, the Dashboard tab.
  *
  * WHY A SCHEDULED PICKUP, NOT A DIRECT WRITE FROM THE STOREFRONT
  *   The storefront Worker is public and unauthenticated. Giving it a binding

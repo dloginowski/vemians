@@ -48,6 +48,7 @@ import {
   assetUploadPage,
   batchReviewPage,
   batchUploadPage,
+  dashboardPage,
   expenseConfirmPage,
   expenseFiledPage,
   receiptUploadPage,
@@ -530,6 +531,56 @@ async function ops(request, env, path) {
   }
 
   /*
+   * /dashboard — the ops home page (Test-PRD-P0-108-ops_dashboard). Tickets,
+   * tasks (tickets assigned to the viewer), expenses and dropped files in
+   * one feed, over three already-existing T0 tools — no new store. The
+   * ticket create/comment/status routes stay below, under /tickets/*; this
+   * is only the list page the shell's own Dashboard tab opens.
+   */
+  if (path === "/dashboard") {
+    if (request.method !== "GET") {
+      return html(refusalPage(405, "This page is reached from the Dashboard tab."), 405);
+    }
+    const role = await roleFor(identity, env);
+    if (!role) {
+      return html(refusalPage(403, "Your Access identity is in no group this application maps to a role."), 403);
+    }
+    const email = identity.claims?.email;
+    if (typeof email !== "string" || !email.includes("@")) {
+      return html(refusalPage(403, "This page requires signing in as a person, not a service token."), 403);
+    }
+    if (!env.TICKETS) {
+      return html(refusalPage(503, "The tickets store is not configured on this deployment yet."), 503);
+    }
+    const actorCtx = { actor: email, role, env };
+
+    const ticketsRes = await runTool("ticket.list", {}, actorCtx);
+    if (!ticketsRes.ok) console.error(`ERROR ops/dashboard: ticket.list failed — ${ticketsRes.error}`);
+    const tickets = ticketsRes.ok ? ticketsRes.data.tickets : [];
+
+    /* Expenses and uploads are lower priority, "just there so that... you
+       can find it" — a missing FINANCE/ASSETS binding on some deployment
+       degrades to an empty section rather than refusing the whole page,
+       the same graceful-per-source handling runTool's own missing_binding
+       refusal already makes possible. */
+    const expensesRes = await runTool("expense.list", {}, actorCtx);
+    if (!expensesRes.ok) console.error(`ERROR ops/dashboard: expense.list failed — ${expensesRes.error}`);
+    const expenses = expensesRes.ok ? expensesRes.data.expenses : [];
+
+    const assetsRes = await runTool("assets.list", {}, actorCtx);
+    if (!assetsRes.ok) console.error(`ERROR ops/dashboard: assets.list failed — ${assetsRes.error}`);
+    const uploads = assetsRes.ok ? assetsRes.data.assets : [];
+
+    /* The owner's own words: "by default, it should be on tasks... however,
+       if there are any tickets, say from a customer, that should take
+       precedence over tasks." */
+    const hasOpenCustomerTicket = tickets.some((t) => t.category === "customer" && t.status === "open");
+    const defaultKind = hasOpenCustomerTicket ? "ticket" : "task";
+
+    return html(dashboardPage({ tickets, expenses, uploads, viewerEmail: email, defaultKind }));
+  }
+
+  /*
    * /tickets — internal messages, staff to staff (Test-PRD-P0-100-ticket_messaging).
    * ticket.* (tools/tickets.js) validates and returns a PROPOSAL; every route
    * below is the human action that actually applies it — the same
@@ -561,7 +612,7 @@ async function ops(request, env, path) {
 
     if (path === "/tickets/new") {
       if (request.method !== "POST") {
-        return html(refusalPage(405, "Start a ticket from the Messages tab, not this URL directly."), 405);
+        return html(refusalPage(405, "Start a ticket from the Dashboard tab, not this URL directly."), 405);
       }
       let form;
       try {
@@ -665,7 +716,7 @@ async function ops(request, env, path) {
     }
 
     if (request.method !== "GET") {
-      return html(refusalPage(405, "This page is reached from the Messages tab."), 405);
+      return html(refusalPage(405, "This page is reached from a ticket's own link on the Dashboard tab."), 405);
     }
     return showTicket(200);
   }
@@ -1152,7 +1203,7 @@ async function ops(request, env, path) {
        plainly that they have no role, the same as before this page split
        into a shell and a tab's own content. */
     const requestedTab = new URL(request.url).searchParams.get("tab");
-    const tab = ["items", "messages", "website"].includes(requestedTab) ? requestedTab : "agent";
+    const tab = ["items", "dashboard", "website"].includes(requestedTab) ? requestedTab : "agent";
     return html(shellPage(tab));
   }
 

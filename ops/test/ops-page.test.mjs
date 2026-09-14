@@ -177,24 +177,26 @@ check("test_PRD_P0_71_items_tab__tab_equals_website_starts_the_iframe_on_the_pub
   assert.match(body, /data-src="https:\/\/vemians\.com"[^>]*class="active"/);
 });
 
-check("test_PRD_P0_100_ticket_messaging__a_messages_tab_sits_between_items_and_the_public_site", async () => {
+check("test_PRD_P0_108_ops_dashboard__a_dashboard_tab_sits_between_items_and_the_public_site", async () => {
   /* Same-origin, same-iframe-swap tab as Agent/Items — unlike Website
-     (cross-origin, its own tab for that reason alone), Messages has no
-     reason to sit anywhere but the ordinary run of same-origin tabs. */
+     (cross-origin, its own tab for that reason alone), Dashboard has no
+     reason to sit anywhere but the ordinary run of same-origin tabs.
+     Superseded from "Messages" (Test-PRD-P0-100-ticket_messaging) once
+     the tab stopped being just tickets — see SHELL_TABS' own comment. */
   const { body } = await shell(OWNER);
   const nav = body.match(/<nav class="shell-nav">[\s\S]*?<\/nav>/)[0];
   const buttons = [...nav.matchAll(/<button[^>]*>[^<]*<\/button>/g)].map((m) => m[0]);
   const itemsAt = buttons.findIndex((b) => b.includes('data-src="/items"'));
-  const messagesAt = buttons.findIndex((b) => b.includes('data-src="/tickets"'));
+  const dashboardAt = buttons.findIndex((b) => b.includes('data-src="/dashboard"'));
   const websiteAt = buttons.findIndex((b) => b.includes('data-src="https://vemians.com"'));
-  assert.ok(itemsAt > -1 && messagesAt > -1 && websiteAt > -1, "all three tabs must be present");
-  assert.ok(itemsAt < messagesAt && messagesAt < websiteAt, "Messages sits after Items and before the cross-origin Website tab");
+  assert.ok(itemsAt > -1 && dashboardAt > -1 && websiteAt > -1, "all three tabs must be present");
+  assert.ok(itemsAt < dashboardAt && dashboardAt < websiteAt, "Dashboard sits after Items and before the cross-origin Website tab");
 });
 
-check("test_PRD_P0_100_ticket_messaging__tab_equals_messages_starts_the_iframe_on_tickets", async () => {
-  const { body } = await shell(OWNER, "/?tab=messages");
-  assert.match(body, /id="ops-frame" src="\/tickets"/);
-  assert.match(body, /data-src="\/tickets"[^>]*class="active"/);
+check("test_PRD_P0_108_ops_dashboard__tab_equals_dashboard_starts_the_iframe_on_dashboard", async () => {
+  const { body } = await shell(OWNER, "/?tab=dashboard");
+  assert.match(body, /id="ops-frame" src="\/dashboard"/);
+  assert.match(body, /data-src="\/dashboard"[^>]*class="active"/);
 });
 
 check("test_PRD_P0_71_items_tab__the_tabs_are_top_rounded_and_square_on_the_bottom_not_pills", async () => {

@@ -2535,6 +2535,56 @@ that does not trace to one of these is a process failure (see §12).
     already ends. Below 64rem (every phone, most tablets) this is a no-op: `left/right: 8px`
     alone already produces a narrower width than the cap.
 
+43. **`Test-PRD-P0-108-ops_dashboard`** — The "Messages" tab (P0-100) is renamed and rebuilt
+    once it stopped being just tickets. The owner's own words: "let's also rename the messages
+    to dashboard because the dashboard, it's not just about messages. It's like a bulletin
+    board. It's a place to share assets... like uploading invoices... it could be a ticket from
+    a customer. It could be an expense. It could be just a file upload, just a shared asset...
+    or it could be a task — something that somebody has to do."
+
+    **One feed over three already-existing T0 reads — no new store, no new schema.** Every row
+    already had a home and a tool: `ticket.list`, `expense.list` (P0-19), `assets.list` (P0-65).
+    `/dashboard` (`src/index.js`) calls all three and hands the results to a new `dashboardPage()`
+    (`src/views.js`), which sorts them into one time-ordered feed. `expense.list`'s own per-
+    employee scoping for staff is read exactly as every other caller reads it, never widened —
+    a dashboard is not a reason to see a coworker's own expenses.
+
+    **"Task" is a computed filter, not a stored category.** Widening `ticket.category`'s own
+    `CHECK` constraint to add a `'task'` value has no supported `ALTER TABLE` path in SQLite —
+    only a full drop/recreate/copy-data rebuild, which this repository has no migration tooling
+    or precedent for touching on a live table (the closest prior incident, recorded above, is an
+    `ADD COLUMN` that broke a dependent view — widening an existing `CHECK` is a strictly bigger
+    risk than that). Instead, a ticket assigned to the viewer carries BOTH `"ticket"` and
+    `"task"` in its own tile's `data-kind` attribute (space-separated, like a class list) —
+    exactly the same tile satisfies either filter, never a second, duplicate row minted for it.
+
+    **The default view is a server-computed hint, seeded once, never enforced.** The owner's own
+    words: "by default, it should be on tasks. So that way, anybody who opens up a dashboard,
+    they're gonna see any assigned tasks to them... however, if there are any tickets, say from
+    a customer, that should take precedence over tasks... expenses and uploads are just there so
+    that... you can find it." `/dashboard`'s own route checks the fetched tickets for any open
+    `category = 'customer'` row; if one exists the default flips from `"task"` to `"ticket"`.
+    Either way it is only the filter's OWN starting `Set` — the same left-side, multi-select
+    kind-of-category menu Items' own category picker already established (P0-102/P0-107),
+    reusing its CSS literally (`.category-menu`, `.category-item`, `.category-label`, moved from
+    `ITEMS_CSS` into the shared `INPUT_BAR_CSS` for exactly this reason) rather than a second,
+    independently matched copy — lets anyone switch to any of the four views, or all of them, at
+    any time.
+
+    **The compose bar keeps the existing Send button and gains a plain, NOT agentic, dictation
+    mic.** The owner's own words, after first wondering aloud what the microphone should even
+    do here: "it's not an agentic microphone. It's just a normal microphone where you can speak
+    to make a comment... if you're in a comment mode because you just opened up a message or
+    ticket, you can use the microphone to just input text without typing." A new
+    `dictationScript()` (`src/views.js`) — click to start, click to stop, the transcript appended
+    straight into one text field, no fetch, no model call — is deliberately NOT the agentic
+    `.mic-btn` pattern P0-94/P0-98 built (orange, hold-to-record, posts to a model): rendered as
+    plain `class="icon-btn"`, it never borrows the orange reserved for genuinely agentic input.
+    Wired to both places the owner named: the Dashboard's own new-ticket compose bar, and a
+    ticket's own comment bar (`ticketPage()`), whose "&larr; All tickets" link now reads
+    "&larr; Dashboard" and points at `/dashboard` instead of `/tickets`. The ticket create/
+    comment/status routes themselves are unchanged — only the list page a tab opens moved.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -2793,6 +2843,7 @@ Where each feature is enforced today:
 | P0-105 | `ops/test/ops-page.test.mjs` |
 | P0-106 | `ops/test/items-search-intent.test.mjs`, `ops/test/items-route.test.mjs` |
 | P0-107 | `ops/test/items-search-intent.test.mjs`, `ops/test/items-route.test.mjs`, `ops/test/ops-page.test.mjs` |
+| P0-108 | `ops/test/dashboard-route.test.mjs`, `ops/test/tickets-route.test.mjs`, `ops/test/ops-page.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
