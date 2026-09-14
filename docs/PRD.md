@@ -1165,6 +1165,25 @@ that does not trace to one of these is a process failure (see §12).
     clear the now-fixed bar's own height, since a fixed element is removed from document flow and
     would otherwise sit on top of the grid's or the log's own last row.
 
+    **The last visual mismatch between the two surfaces — a frame around one and not the other,
+    and no guaranteed shared height.** The owner's own words, a screenshot in hand: "maybe lose
+    the orange border around the agent, so it looks like the search bar in the items [tab]...
+    the inner agent chat bar, the gray one, that's our gold standard, that's the ideal height...
+    make the items search bar the same height and radius as the agent input chat." `.chat-top`
+    loses its `border: 1px solid var(--accent); border-radius: 20px` entirely — with the composer
+    already moved out to `.input-bar` (previous round), the frame had nothing left to keep
+    concentric with, and without a border there is no background either for a radius to round;
+    `.log`/`#gate` now sit as plainly on the page as the Items grid's own tiles do. Separately,
+    `.input-bar` gains an explicit `min-height: 42px` — the composer's own 34px icon buttons plus
+    4px+4px padding happened to reach that height already, but a plain text input with no buttons
+    at all (Items' own search box) would render a few pixels shorter on the same padding without a
+    floor, an accidental match rather than a guaranteed one. Removing `.chat-top`'s border also
+    invalidated `.shell-header`'s own side padding, computed one round earlier as `8px (.ops) +
+    1px (.chat-top's own border) + 14px (.chat-top's own padding) = 23px`: with the border term
+    gone, and the composer no longer sharing that padding stack at all (it is independently fixed
+    to the screen's own bottom), the number recomputes to `8 + 14 = 22px`, aligning the first tab
+    with `.log`'s own edge specifically rather than a shared log-and-composer one.
+
 47b. **`Test-PRD-P0-72-product_detail_page`** — Every product has its own page at
     `/products/<handle>` — the answer to "how do I see product details", asked directly, of a
     shop whose cards used to be `<article>`s with no click-through at all. `loadProduct(env,

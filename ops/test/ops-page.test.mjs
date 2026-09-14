@@ -240,11 +240,14 @@ check("test_PRD_P0_71_items_tab__the_first_tab_lines_up_with_the_inner_chat_cont
   /* .ops's own 8px, doubled to 16px, then the owner's own words, more
      precisely: "First tab on left matches the inner chat left extent."
      That is not .ops's own edge — it is past .chat-top's own frame too:
-     8px (.ops) + 1px (.chat-top's own border) + 14px (.chat-top's own
-     padding) = 23px, where actual chat content (the log, the composer)
-     starts. */
+     8px (.ops) + 14px (.chat-top's own padding) = 22px, where actual chat
+     content (.log) starts. (.chat-top's own border used to add a 3rd, 1px
+     term here — removed along with the border itself; the composer also
+     no longer lives in this same padding stack at all, now that it is
+     fixed to the screen's own bottom instead, so this aligns with .log's
+     own edge specifically rather than a shared log-and-composer one.) */
   const { body } = await shell(OWNER);
-  assert.match(body, /\.shell-header\s*\{[^}]*padding:\s*10px 23px 0/s);
+  assert.match(body, /\.shell-header\s*\{[^}]*padding:\s*10px 22px 0/s);
 
   const { body: chatBody } = await frontPage(OWNER);
   assert.match(chatBody, /\.chat-top\s*\{[^}]*padding:\s*14px/s, "sanity check: .chat-top's own padding is really 14px");
@@ -723,23 +726,25 @@ check("test_PRD_P0_91_quiet_greeting__the_ask_the_ops_assistant_line_is_gone", a
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
- * P0-92 — the chat widget picks up the quick-prompt chips' own accent
+ * P0-92 — superseded: the widget's own accent frame no longer exists
  * ───────────────────────────────────────────────────────────────────────── */
 
-check("test_PRD_P0_92_chat_widget_accent__the_widgets_own_frame_matches_the_quick_prompt_chips", async () => {
-  const { body } = await frontPage(OWNER);
-  assert.match(body, /\.choices \.btn\s*\{[^}]*border:\s*1px solid var\(--accent\)/s, "the chip border this widget must now match");
-  assert.match(body, /\.chat-top\s*\{[^}]*border:\s*1px solid var\(--accent\)/s, "the widget frame must use the same accent border");
-});
+/* P0-92 gave .chat-top an accent border matching the quick-prompt chips'
+   own — since reversed entirely: "maybe lose the orange border around the
+   agent. So it looks like the search bar in the items [tab]." .chat-top
+   carries no border of its own at all now (see the comment on it directly).
+   Nothing here to check independently — asserting ".chat-top has no border"
+   would just be the negative of a property that no longer exists. */
 
 check("test_PRD_P0_92_chat_widget_accent__the_entry_lines_own_border_is_brighter", async () => {
   const { body } = await frontPage(OWNER);
-  /* Brighter than the old --rule, but not a second orange box nested inside
-     the now-accent .chat-top frame — a distinct, plain-neutral bump. */
   /* Lives on the shared .input-bar now (INPUT_BAR_CSS), not .chat
      .chat-bar directly — the composer's own pill just carries that
      class too, sharing the value literally with Items' own search bar
-     rather than duplicating it. */
+     rather than duplicating it. Brighter than the old --rule, and no
+     longer nested inside any accent .chat-top frame at all (P0-92's
+     own frame is gone, above) — still its own distinct, plain-neutral
+     bump regardless. */
   assert.match(body, /\.input-bar\s*\{[^}]*border:\s*1px solid var\(--muted\)/s, "the entry line's own border must no longer be the dim --rule");
   assert.doesNotMatch(body, /\.input-bar\s*\{[^}]*border:\s*1px solid var\(--rule\)/s, "the old dim border must not still be set");
   /* The "+" attach icon's own styling moved on again in P0-95 (a filled
@@ -792,16 +797,32 @@ check("test_PRD_P0_93_nested_chat_frame__the_pills_own_radius_never_changes__onl
      box's own dimension, so the pill is a true stadium at ~21px, not the
      nominal 24 the earlier arithmetic used.
 
-     Superseded since: the composer no longer nests inside .chat-top's
-     own frame at all — it is fixed to the screen's own bottom instead,
-     sharing .items-search's own shape (INPUT_BAR_CSS's .input-bar).
-     .chat-top no longer needs its bottom corners kept concentric with a
-     pill it no longer contains, so it is back to a plain uniform 20px —
-     the pill's own declared radius (still 24px, still never touched) is
-     tested on .input-bar now rather than .chat .chat-bar directly. */
+     Superseded twice over since: the composer no longer nests inside
+     .chat-top's own frame at all — it is fixed to the screen's own
+     bottom instead, sharing .items-search's own shape (INPUT_BAR_CSS's
+     .input-bar). .chat-top no longer needs its bottom corners kept
+     concentric with a pill it no longer contains — and then lost its
+     border (and with it, its own border-radius entirely) on the next
+     round: "maybe lose the orange border around the agent." The pill's
+     own declared radius (still 24px, still never touched) is tested on
+     .input-bar now rather than .chat .chat-bar or .chat-top. */
   const { body } = await frontPage(OWNER);
   assert.match(body, /\.input-bar\s*\{[^}]*border-radius:\s*24px/s, "the composer pill's own declared radius must never change");
-  assert.match(body, /\.chat-top\s*\{[^}]*border-radius:\s*20px/s, "the outer frame is a plain uniform radius, no longer concentric with a pill it no longer contains");
+});
+
+check("test_PRD_P0_71_items_tab__every_input_bar_renders_the_same_height_whether_or_not_it_holds_icon_buttons", async () => {
+  /* The owner's own words, pointing at the composer: "the inner agent chat
+     bar, the gray one, that's our gold standard. That's the ideal height.
+     It has all of the inner pill buttons... make the items search bar the
+     same height and radius." Without an explicit floor, the composer's own
+     34px icon buttons plus 4px+4px padding happen to reach ~42px, but a
+     plain text input with no buttons at all (Items' own search box) would
+     render a few pixels shorter on the same padding — an accidental match,
+     not a guaranteed one. min-height: 42px makes every current and future
+     .input-bar — a search box, anything else that takes text — render that
+     one real number instead of merely coming close to it. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.input-bar\s*\{[^}]*min-height:\s*42px/s, "the shared pill must have an explicit height floor, not one that falls out of its contents");
 });
 
 check("test_PRD_P0_93_nested_chat_frame__the_send_button_gets_the_same_clearance_the_attach_button_always_had", async () => {
