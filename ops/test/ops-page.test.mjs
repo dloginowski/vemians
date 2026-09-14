@@ -736,8 +736,12 @@ check("test_PRD_P0_92_chat_widget_accent__the_entry_lines_own_border_is_brighter
   const { body } = await frontPage(OWNER);
   /* Brighter than the old --rule, but not a second orange box nested inside
      the now-accent .chat-top frame — a distinct, plain-neutral bump. */
-  assert.match(body, /\.chat \.chat-bar\s*\{[^}]*border:\s*1px solid var\(--muted\)/s, "the entry line's own border must no longer be the dim --rule");
-  assert.doesNotMatch(body, /\.chat \.chat-bar\s*\{[^}]*border:\s*1px solid var\(--rule\)/s, "the old dim border must not still be set");
+  /* Lives on the shared .input-bar now (INPUT_BAR_CSS), not .chat
+     .chat-bar directly — the composer's own pill just carries that
+     class too, sharing the value literally with Items' own search bar
+     rather than duplicating it. */
+  assert.match(body, /\.input-bar\s*\{[^}]*border:\s*1px solid var\(--muted\)/s, "the entry line's own border must no longer be the dim --rule");
+  assert.doesNotMatch(body, /\.input-bar\s*\{[^}]*border:\s*1px solid var\(--rule\)/s, "the old dim border must not still be set");
   /* The "+" attach icon's own styling moved on again in P0-95 (a filled
      circle, not a bare bright glyph) — see that section for its own tests. */
 });
@@ -748,10 +752,13 @@ check("test_PRD_P0_92_chat_widget_accent__the_entry_lines_own_border_is_brighter
 
 check("test_PRD_P0_93_nested_chat_frame__focus_stays_gray_rather_than_doubling_up_on_orange", async () => {
   const { body } = await frontPage(OWNER);
-  assert.match(body, /\.chat \.chat-bar:focus-within\s*\{[^}]*border-color:\s*var\(--ink\)/s, "focus must stay a neutral colour");
+  /* Lives on the shared .input-bar:focus-within now, not .chat
+     .chat-bar:focus-within directly — see the note on the border test
+     above. */
+  assert.match(body, /\.input-bar:focus-within\s*\{[^}]*border-color:\s*var\(--ink\)/s, "focus must stay a neutral colour");
   assert.doesNotMatch(
     body,
-    /\.chat \.chat-bar:focus-within\s*\{[^}]*border-color:\s*var\(--accent\)/s,
+    /\.input-bar:focus-within\s*\{[^}]*border-color:\s*var\(--accent\)/s,
     "focus must not still turn the same orange as the frame it already sits inside",
   );
 });
@@ -783,22 +790,18 @@ check("test_PRD_P0_93_nested_chat_frame__the_pills_own_radius_never_changes__onl
      renders at 24px. At the bar's own real height (~42px: 4px+4px
      padding plus a 34px button), CSS caps border-radius at half the
      box's own dimension, so the pill is a true stadium at ~21px, not the
-     nominal 24 the earlier arithmetic used. A brief "one uniform radius
-     everywhere" fix followed, on the mistaken assumption the mismatch
-     itself came from top and bottom differing — but the owner's own
-     later words, "I like the smaller top radius of the outer chat box,"
-     confirmed the asymmetry was never the bug; the WRONG NUMBER for the
-     bottom corner was. Top and bottom differ again (20px top, a plainly
-     aesthetic choice since nothing rounded sits there; the bottom
-     recomputed correctly for whatever the current gap is: pillRadius 21
-     + thisGap — 24 at a 3px gap, now 35 at the restored 14px gap). */
+     nominal 24 the earlier arithmetic used.
+
+     Superseded since: the composer no longer nests inside .chat-top's
+     own frame at all — it is fixed to the screen's own bottom instead,
+     sharing .items-search's own shape (INPUT_BAR_CSS's .input-bar).
+     .chat-top no longer needs its bottom corners kept concentric with a
+     pill it no longer contains, so it is back to a plain uniform 20px —
+     the pill's own declared radius (still 24px, still never touched) is
+     tested on .input-bar now rather than .chat .chat-bar directly. */
   const { body } = await frontPage(OWNER);
-  assert.match(body, /\.chat \.chat-bar\s*\{[^}]*border-radius:\s*24px/s, "the composer pill's own declared radius must never change");
-  assert.match(
-    body,
-    /\.chat-top\s*\{[^}]*border-radius:\s*20px 20px 35px 35px/s,
-    "top corners stay smaller (aesthetic, unrelated to the pill), bottom corners recomputed against the pill's TRUE rendered radius plus the current gap",
-  );
+  assert.match(body, /\.input-bar\s*\{[^}]*border-radius:\s*24px/s, "the composer pill's own declared radius must never change");
+  assert.match(body, /\.chat-top\s*\{[^}]*border-radius:\s*20px/s, "the outer frame is a plain uniform radius, no longer concentric with a pill it no longer contains");
 });
 
 check("test_PRD_P0_93_nested_chat_frame__the_send_button_gets_the_same_clearance_the_attach_button_always_had", async () => {
@@ -811,10 +814,12 @@ check("test_PRD_P0_93_nested_chat_frame__the_send_button_gets_the_same_clearance
      tight relative to the vertical gap and was corrected back to 4px 6px
      (see the P0-93 vertical-vs-sides check below); either way, left and
      right must always match each other. */
+  /* Lives on the shared .input-bar now, not .chat .chat-bar directly —
+     see the note on the border test above. */
   const { body } = await frontPage(OWNER);
   assert.doesNotMatch(
     body,
-    /\.chat \.chat-bar\s*\{[^}]*padding:\s*4px 4px 4px 6px/s,
+    /\.input-bar\s*\{[^}]*padding:\s*4px 4px 4px 6px/s,
     "the old asymmetric 4px/6px split (send tighter than attach) must not still be set",
   );
 });
@@ -827,9 +832,11 @@ check("test_PRD_P0_93_nested_chat_frame__the_sides_are_wider_than_the_vertical_g
      room to spare); sides go back to 6px — the same value this carried
      before the brief uniform-4px round, restored on their own read of it
      rather than further guessing. */
+  /* Lives on the shared .input-bar now, not .chat .chat-bar directly —
+     see the note on the border test above. */
   const { body } = await frontPage(OWNER);
-  assert.match(body, /\.chat \.chat-bar\s*\{[^}]*padding:\s*4px 6px;/s, "sides must be wider than the vertical gap, not uniform");
-  assert.doesNotMatch(body, /\.chat \.chat-bar\s*\{[^}]*padding:\s*4px;/s, "the uniform 4px round must not still be set");
+  assert.match(body, /\.input-bar\s*\{[^}]*padding:\s*4px 6px;/s, "sides must be wider than the vertical gap, not uniform");
+  assert.doesNotMatch(body, /\.input-bar\s*\{[^}]*padding:\s*4px;/s, "the uniform 4px round must not still be set");
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -838,11 +845,14 @@ check("test_PRD_P0_93_nested_chat_frame__the_sides_are_wider_than_the_vertical_g
 
 check("test_PRD_P0_94_mobile_edge_to_edge__the_page_containers_side_padding_matches_the_chat_widgets_own", async () => {
   const { body } = await frontPage(OWNER);
-  /* Top and bottom are untouched; sides now match .chat-top's own already-
-     tightened 8px, so the page edge and the widget edge read as one margin
-     rather than two stacked ones. */
-  assert.match(body, /\.ops\s*\{[^}]*padding:\s*12px 8px 32px/s, "side padding must be tightened, top/bottom unchanged");
-  assert.doesNotMatch(body, /\.ops\s*\{[^}]*padding:\s*12px 24px 32px/s, "the old roomier side padding must not still be set");
+  /* Top is untouched; sides match .chat-top's own already-tightened 8px,
+     so the page edge and the widget edge read as one margin rather than
+     two stacked ones. Bottom grew from 32px to 76px once #chat became
+     position: fixed (INPUT_BAR_CSS) — a fixed element is removed from
+     document flow entirely, so without this the log's own last message
+     would sit partly behind the now-floating composer. */
+  assert.match(body, /\.ops\s*\{[^}]*padding:\s*12px 8px 76px/s, "side padding must be tightened, top unchanged, bottom grown for the fixed composer");
+  assert.doesNotMatch(body, /\.ops\s*\{[^}]*padding:\s*12px 24px/s, "the old roomier side padding must not still be set");
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -971,7 +981,7 @@ check("test_PRD_P0_98_voice_input__the_mic_button_sits_between_the_input_and_sen
      gives it the same colours for free, without a second set of button
      rules. */
   const { body } = await frontPage(OWNER);
-  const bar = body.slice(body.indexOf('<div class="chat-bar">'), body.indexOf("</div>", body.indexOf('<div class="chat-bar">')) + 1000);
+  const bar = body.slice(body.indexOf('<div class="chat-bar input-bar">'), body.indexOf("</div>", body.indexOf('<div class="chat-bar input-bar">')) + 1000);
   assert.match(bar, /id="attach-btn"[\s\S]*id="mic-btn"[\s\S]*id="q"[\s\S]*class="send-btn"|id="attach-btn"[\s\S]*id="q"[\s\S]*id="mic-btn"[\s\S]*class="send-btn"/, "the mic button must sit next to Send, after attach and the input");
   assert.match(bar, /id="mic-btn"[^>]*class="icon-btn"|class="icon-btn"[^>]*id="mic-btn"/, "the mic button must share the attach button's own icon-btn class");
 });
@@ -1017,7 +1027,11 @@ check("test_PRD_P0_99_chat_form_inherited_margin__the_composer_forms_own_margin_
      class="chat" deliberately (so the gate's own button row inherits
      from it too). The owner's own words: "match the outer chat box top
      padding to its side padding. So that content is evenly spaced out
-     from the edge." */
+     from the edge." The composer no longer even nests inside .chat-top
+     (it is fixed to the screen's own bottom now), so this margin no
+     longer has anything to stack against either way — kept at 0 anyway
+     since it costs nothing and this exact class of bug has recurred
+     more than once. */
   const { body } = await frontPage(OWNER);
   assert.match(body, /#chat\s*\{[^}]*margin-top:\s*0/s, "the composer form's own inherited top margin must be zeroed");
 });
@@ -1031,16 +1045,21 @@ check("test_PRD_P0_99_chat_form_inherited_margin__the_gates_own_button_row_still
   assert.match(body, /class='chat row'/, "the gate's own button row must still carry the plain .chat class, unaffected by the #chat override");
 });
 
-check("test_PRD_P0_71_items_tab__the_composer_sticks_to_the_bottom_of_the_screen_like_the_reference_app", async () => {
+check("test_PRD_P0_71_items_tab__the_composer_is_fixed_to_the_bottom_of_the_screen_like_the_reference_app", async () => {
   /* The owner's own reference, a screenshot of Claude Code's own chat
      interface: "notice how the text entry is on the bottom, right,
-     where it should be." position: sticky keeps the composer in its
-     normal document position while short, and pins it to the
-     viewport's own bottom edge once a real conversation would
-     otherwise scroll it out of view. */
+     where it should be." A first pass used position: sticky, which
+     only repositions an element once its own normal position would
+     scroll past the viewport edge — the owner's own correction,
+     pointing at a screenshot with the composer stranded mid-screen
+     under the quick-action chips: "does that look like it's on the
+     bottom? ... there's not enough content to make them on the
+     bottom." position: fixed (on .input-bar, shared with Items'
+     search) anchors it to the real viewport regardless of content. */
   const { body } = await frontPage(OWNER);
-  assert.match(body, /#chat\s*\{[^}]*position:\s*sticky/s);
-  assert.match(body, /#chat\s*\{[^}]*bottom:\s*8px/s);
+  assert.match(body, /class="chat-bar input-bar"/, "the composer's own pill must carry the shared .input-bar class");
+  assert.match(body, /\.input-bar\s*\{[^}]*position:\s*fixed/s);
+  assert.match(body, /\.input-bar\s*\{[^}]*bottom:\s*8px/s);
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
