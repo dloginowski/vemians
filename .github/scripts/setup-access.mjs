@@ -72,6 +72,19 @@ for (const w of WANT) {
   } catch (err) { console.log(`  FAILED  ${w.hostname}: ${err.message}`); }
 }
 
+/* ---- identity providers -------------------------------------------------- */
+step("identity providers");
+const idps = await cf(`/accounts/${ACCOUNT}/access/identity_providers`, {}, "Access: Identity Providers: Edit");
+const oneTimePin = idps.find((p) => p.type === "onetimepin");
+if (!oneTimePin) {
+  console.error(
+    "::error::No One-time PIN identity provider is enabled on this account. Enable it under " +
+      "Zero Trust -> Settings -> Authentication, then re-run this workflow.",
+  );
+  process.exit(1);
+}
+console.log(`  One-time PIN -> ${oneTimePin.id}`);
+
 /* ---- access application ------------------------------------------------ */
 step("access application");
 const opsHost = `ops.${ZONE_NAME}`;
@@ -95,13 +108,39 @@ if (app) {
       domain: opsHost,
       type: "self_hosted",
       session_duration: "24h",
-      /* One-time PIN is Cloudflare's own identity provider: no external IdP,
-         and swapping to Google Workspace later changes this field only. */
-      allowed_idps: [],
-      auto_redirect_to_identity: false,
+      /* allowed_idps holds only One-time PIN's own id, so it is the only
+         option the login card can ever offer — no "choose a login method"
+         screen, just the email box. */
+      allowed_idps: [oneTimePin.id],
+      auto_redirect_to_identity: true,
     }),
   }, "Access: Apps and Policies: Edit");
   console.log(`  CREATED application ${app.id}`);
+}
+
+/* An app created before this script restricted allowed_idps (or edited by
+   hand in the dashboard) may still have other identity providers enabled,
+   which is what puts extra buttons on the login card. Lock it down here too,
+   so re-running this workflow is enough to fix that — no manual dashboard
+   step required. */
+const alreadyRestricted =
+  Array.isArray(app.allowed_idps) &&
+  app.allowed_idps.length === 1 &&
+  app.allowed_idps[0] === oneTimePin.id &&
+  app.auto_redirect_to_identity === true;
+if (!alreadyRestricted) {
+  app = await cf(`/accounts/${ACCOUNT}/access/apps/${app.id}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      name: app.name,
+      domain: app.domain,
+      type: app.type,
+      session_duration: app.session_duration,
+      allowed_idps: [oneTimePin.id],
+      auto_redirect_to_identity: true,
+    }),
+  }, "Access: Apps and Policies: Edit");
+  console.log(`  UPDATED application ${app.id}: sign-in restricted to One-time PIN only`);
 }
 
 /* ---- policy ------------------------------------------------------------ */

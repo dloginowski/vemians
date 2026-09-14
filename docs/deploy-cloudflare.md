@@ -309,7 +309,9 @@ machine-to-machine.)*
 3. **Target**: the `vemians-ops` Worker (equivalently, hostname `ops.vemians.com` — it must
    match the Custom Domain from §3 exactly).
 4. **Identity providers**: tick **One-time PIN**, and untick **Accept all available identity
-   providers** so nothing else can be used.
+   providers** so nothing else can be used. (`setup-access.mjs` below sets this for you — and
+   fixes it back if anything, including a manual dashboard edit, ever turns other providers
+   back on — so this step is only needed if you are building the application by hand instead.)
 5. Next → **Add policy**:
    - **Policy name**: `Vemians staff`
    - **Action**: **Allow**
