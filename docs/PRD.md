@@ -2432,6 +2432,15 @@ that does not trace to one of these is a process failure (see §12).
     clip a `position: fixed` descendant on its own, with no `transform`/`filter`/`will-change`
     also in play here to create a containing block that would.
 
+40. **`Test-PRD-P0-105-input_bar_button_spacing`** — The owner's own words, once Items' own bar
+    could hold up to four elements at once (filter, input, mic, send): "a padding between the
+    search and the chat entry and microphone so that they're not so tight next to each other...
+    a little easier to press them individually." `.input-bar`'s own `gap` grows from 2px to 8px —
+    shared by every current bar (the agent composer, Items' search, both ticket compose/comment
+    bars), so every one of them gets the same easier-to-tap spacing for free rather than a
+    per-surface fix. 8px still fits Items' own four-element bar, the narrowest, on a 320px phone
+    with room to spare.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -2687,6 +2696,7 @@ Where each feature is enforced today:
 | P0-102 | `ops/test/items-route.test.mjs` |
 | P0-103 | `ops/test/items-search-intent.test.mjs`, `ops/test/items-route.test.mjs`, `ops/test/ops-page.test.mjs` |
 | P0-104 | `ops/test/items-route.test.mjs` |
+| P0-105 | `ops/test/ops-page.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

@@ -893,6 +893,16 @@ check("test_PRD_P0_93_nested_chat_frame__the_sides_are_wider_than_the_vertical_g
   assert.doesNotMatch(body, /\.input-bar\s*\{[^}]*padding:\s*4px;/s, "the uniform 4px round must not still be set");
 });
 
+check("test_PRD_P0_105_input_bar_button_spacing__the_gap_grew_so_buttons_are_easier_to_press_individually", async () => {
+  /* The owner's own words, once Items' own bar could hold up to four
+     elements (filter, input, mic, send): "a padding between the search
+     and the chat entry and microphone so that they're not so tight next
+     to each other... a little easier to press them individually." */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.input-bar\s*\{[^}]*gap:\s*8px/s, "the gap between a bar's own elements must be wider than the old 2px");
+  assert.doesNotMatch(body, /\.input-bar\s*\{[^}]*gap:\s*2px/s, "the old tight 2px gap must not still be set");
+});
+
 /* ─────────────────────────────────────────────────────────────────────────
  * P0-94 — the page uses more of a phone screen's own width
  * ───────────────────────────────────────────────────────────────────────── */
