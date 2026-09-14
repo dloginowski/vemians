@@ -188,6 +188,23 @@ check("test_PRD_P0_71_items_tab__the_grid_is_two_columns_on_a_phone_and_fills_in
   assert.match(body, /@media \(min-width: 480px\)\s*\{\s*\.items-grid\s*\{[^}]*grid-template-columns:\s*repeat\(auto-fill, minmax\(240px, 1fr\)\)/s);
 });
 
+check("test_PRD_P0_104_items_grid_scrolls_in_place__the_grid_has_its_own_height_cap_and_scrollbar", async () => {
+  /* Caught live: typing into the search box re-filters tiles, changing
+     the grid's own content height on every keystroke — with no height
+     cap of its own, that moved the WHOLE page, losing sight of the grid
+     on a short screen. The owner's own words: "make sure that the items
+     list is its own frame so that it scales to fit content, and it has
+     its own scroll bar instead of scrolling the entire page." Same
+     technique .log (the chat history) already uses for the identical
+     reason. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.match(body, /\.items-grid\s*\{[^}]*max-height:\s*min\(72vh, 900px\)/s);
+  assert.match(body, /\.items-grid\s*\{[^}]*overflow-y:\s*auto/s);
+});
+
 check("test_PRD_P0_71_items_tab__a_tile_expands_to_the_full_screen_instead_of_cramming_data_into_a_cell", async () => {
   /* The owner's own words: "when I click on the item, it's gonna
      expand to my entire phone screen, and I should see all of that

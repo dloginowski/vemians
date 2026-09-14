@@ -1209,9 +1209,19 @@ ${INPUT_BAR_CSS}
    screens), collapsing to one. Fixed at exactly 2 below 480px, then
    auto-fill takes over — more columns as the viewport grows, same as
    before. */
+/* Its own frame, its own scrollbar — same technique .log (the chat
+   history) already uses for the identical reason. Caught live: typing
+   into the search box re-filters tiles, changing the grid's own content
+   height on every keystroke, which on a page with no height cap of its
+   own made the WHOLE page scroll — losing sight of the grid entirely on
+   a short screen. max-height + overflow-y: auto bounds the grid to
+   roughly one screen's worth and scrolls internally past that, so
+   filtering, and focusing the search box itself, never move the page
+   underneath it. */
 .items-grid {
   display: grid; grid-template-columns: repeat(2, 1fr);
   gap: 10px; align-items: start;
+  max-height: min(72vh, 900px); overflow-y: auto;
 }
 @media (min-width: 480px) {
   .items-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }

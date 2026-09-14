@@ -2416,6 +2416,22 @@ that does not trace to one of these is a process failure (see §12).
     rather than a second query, so the model's own suggestions can never name a category the page
     does not also show.
 
+39. **`Test-PRD-P0-104-items_grid_scrolls_in_place`** — Caught live: typing into Items' own search
+    box re-filters tiles on every keystroke, changing `.items-grid`'s own content height —
+    `.items-grid` had no height cap of its own, so the WHOLE page moved as the grid shrank and
+    grew, losing sight of it entirely on a short screen. The owner's own words: "make sure that
+    the items list is its own frame so that it scales to fit content, and it has its own scroll
+    bar instead of scrolling the entire page, so that I don't lose sight of any items."
+
+    `.items-grid` gains `max-height: min(72vh, 900px); overflow-y: auto` — the identical technique
+    `.log` (the chat history, `OPS_CSS`) already uses for the same reason, not a new pattern
+    invented for this. The grid still shrinks to fit its own content when short (a filtered-down
+    result, a small catalog) — "scales to fit content" — and only scrolls internally once actual
+    content exceeds the cap, rather than growing the page underneath it. `.item-tile.full`'s own
+    `position: fixed` full-screen expand (P0-71) is unaffected: `overflow` on an ancestor does not
+    clip a `position: fixed` descendant on its own, with no `transform`/`filter`/`will-change`
+    also in play here to create a containing block that would.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -2670,6 +2686,7 @@ Where each feature is enforced today:
 | P0-101 | `ops/test/skills.test.mjs` for `explainRole()`'s own roster path, over the real `people.sql` schema; `.github/scripts/sync-roster-from-square.mjs` (the SQL-generation and role-mapping half) has no automated test, matching every other `.github/scripts/*` provisioning script in this repository |
 | P0-102 | `ops/test/items-route.test.mjs` |
 | P0-103 | `ops/test/items-search-intent.test.mjs`, `ops/test/items-route.test.mjs`, `ops/test/ops-page.test.mjs` |
+| P0-104 | `ops/test/items-route.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
