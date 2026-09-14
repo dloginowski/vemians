@@ -89,7 +89,7 @@ STAFF_POLICY_ID = "f6e1649c-68af-4152-b93b-29341f7024f4"
 # because no such team exists, and so rejected EVERY genuine login as an
 # assertion that failed verification. Confirmed by asking both hosts —
 # vemians 404, vonvemian answers with 2 keys.
-ACCESS_TEAM_DOMAIN = "vonvemian.cloudflareaccess.com"
+ACCESS_TEAM_DOMAIN = "vemians.cloudflareaccess.com"
 ACCESS_AUD         = "8bacd393c1fededc1d257745149eb6d0cc0797a762941d1421a5a8a3c108018f"
 
 # ---------------------------------------------------------------------------
