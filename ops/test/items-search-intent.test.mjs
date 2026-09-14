@@ -26,6 +26,7 @@ import { register } from "node:module";
 register("../../shared/test/text-modules.mjs", import.meta.url);
 
 const { searchIntent } = await import("../src/agent.js");
+const { searchPlanPrompt } = await import("../src/voice-search.js");
 const worker = (await import("../src/index.js")).default;
 
 const usedLabels = new Set();
@@ -67,6 +68,34 @@ function textMessage(text) {
   return JSON.stringify({ id: "msg_1", type: "message", role: "assistant", content: [{ type: "text", text }], stop_reason: "end_turn" });
 }
 
+check("test_PRD_P0_107_voice_search_skill__the_prompt_lives_in_its_own_module_not_inline", async () => {
+  /* The owner's own choice of name: "let's call it voice search skill...
+     that skill should design how this microphone input search looks."
+     searchPlanPrompt() (voice-search.js) — the same "own dependency-free
+     module" pattern greeting.js's greetingScript() already uses — is the
+     literal instruction text searchIntent() sends, not a description of
+     it kept in sync by hand in two places. */
+  const prompt = searchPlanPrompt(["Dresses", "Shoes"]);
+  assert.match(prompt, /CATEGORY:/);
+  assert.match(prompt, /KEYWORDS:/);
+  assert.match(prompt, /Dresses, Shoes/);
+});
+
+check("test_PRD_P0_107_voice_search_skill__the_skill_file_exists_with_real_front_matter", () => {
+  /* Not wired into ops/src/skills.js's SOURCES (that array feeds
+     agentTurn()'s own skills_read meta-tool, and searchIntent() never
+     enters that loop at all) — this is the human-readable design record,
+     checked directly rather than through the SKILLS array every other
+     skill is bundled through. */
+  const text = fs.readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "skills", "voice-search-skill", "SKILL.md"),
+    "utf8",
+  );
+  assert.match(text, /^name: voice-search-skill$/m);
+  assert.match(text, /^version: \d+\.\d+/m);
+  assert.match(text, /^tags: \[.*\]$/m);
+});
+
 check("test_PRD_P0_106_search_plan_has_a_category_and_keywords__no_api_key_falls_back_to_a_keyword_only_plan", async () => {
   /* The same benign, configured fallback agentTurn() gives with no key —
      voice search still does something (the literal utterance becomes a
@@ -92,6 +121,26 @@ check("test_PRD_P0_106_search_plan_has_a_category_and_keywords__the_two_line_rep
       assert.equal(out.mode, "model");
       assert.equal(out.category, "Dresses");
       assert.equal(out.keywords, "blue");
+    },
+  );
+});
+
+check("test_PRD_P0_107_voice_search_skill__more_than_one_category_can_come_back_at_once", async () => {
+  /* The owner's own words: "it knows that I need to switch my category to
+     dresses, right, or multiple categories." agent.js passes the raw
+     comma-separated line straight through unsplit — splitting each real
+     category back out and matching it case-insensitively is the client's
+     own job (itemsPage()'s script), not this function's. */
+  await withFakeAnthropic(
+    () => ({ status: 200, body: textMessage("CATEGORY: Dresses, Shoes\nKEYWORDS: ") }),
+    async (base) => {
+      const out = await searchIntent({
+        q: "show me dresses and shoes",
+        env: { ANTHROPIC_API_KEY: "test-key", ANTHROPIC_BASE_URL: base },
+        categories: ["Dresses", "Shoes", "Jewelry"],
+      });
+      assert.equal(out.category, "Dresses, Shoes");
+      assert.equal(out.keywords, "");
     },
   );
 });

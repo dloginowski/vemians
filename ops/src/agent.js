@@ -63,6 +63,7 @@ const ROLES = ["staff", "manager", "owner"];
    binding, so the module could not call it. */
 import { roleFor, firstNameFrom } from "./access.js";
 import { greetingScript } from "./greeting.js";
+import { searchPlanPrompt } from "./voice-search.js";
 import { skillsFor, skillByName } from "./skills.js";
 export { roleFor };
 
@@ -911,20 +912,23 @@ export async function agentTurn({ q, identity, env, attachment = null }) {
 }
 
 /*
- * A single, non-agentic model call — never a tool call, never a conversation
- * — that turns a spoken description of what someone is looking for into a
- * SEARCH PLAN for Items' own client-side filter: a `category` (exact match
- * against a real category, applied as its own selector) and `keywords` (a
- * short plain-substring search over title/handle/SKU/custom fields). Kept
- * as two separate fields, not one blended string, per the owner's own
- * worked example: "let's say we have categories dresses, shoes, and
- * jewelry... I'm currently set to jewelry... if I ask the agent to find
- * all blue dresses, it knows that I need to switch my category to
- * dresses... and then it's gonna do a filter for the color... blue... Of
- * course, I could get more specific and say a designer name, then it
- * would also add the designer tag as well." One request can name a
- * category switch, keywords, both, or neither — never conflated into a
- * single string the client would have to re-split.
+ * The Voice Search skill (skills/voice-search-skill/SKILL.md) — the owner's
+ * own choice of name. A single, non-agentic model call — never a tool call,
+ * never a conversation — that turns a spoken description of what someone is
+ * looking for into a SEARCH PLAN for Items' own client-side filter:
+ * `category` (one or more exact matches against real categories,
+ * comma-separated, applied as their own selector) and `keywords` (a short
+ * plain-substring search over
+ * title/handle/SKU/custom fields). Kept as two separate fields, not one
+ * blended string, per the owner's own worked example: "let's say we have
+ * categories dresses, shoes, and jewelry... I'm currently set to
+ * jewelry... if I ask the agent to find all blue dresses, it knows that I
+ * need to switch my category to dresses, right, or multiple categories...
+ * and then it's gonna do a filter for the color... blue... Of course, I
+ * could get more specific and say a designer name, then it would also add
+ * the designer tag as well." One request can name a category switch (one
+ * or several), keywords, both, or neither — never conflated into a single
+ * string the client would have to re-split.
  *
  * `categories` (the ones actually on a product, same list itemsPage() shows
  * in its own filter menu) are given so the model can map "dresses" to a
@@ -942,24 +946,10 @@ export async function searchIntent({ q, env, categories = [] }) {
     return { mode: "stub", category: "", keywords: utterance };
   }
 
-  const catLine = categories.length
-    ? `Categories actually on file: ${categories.join(", ")}.`
-    : "No categories are on file yet.";
   const { message, error } = await callClaude(env, {
     model: MODEL,
     max_tokens: SEARCH_INTENT_MAX_TOKENS,
-    system:
-      "You turn a spoken description of a product search into a two-part search plan for a plain " +
-      `substring filter over title, handle, SKU and custom fields, plus a separate category ` +
-      `selector. ${catLine} Decide which of those categories (if any) the request calls for — ` +
-      "switching away from whatever is currently selected is expected when the request names a " +
-      "different one — and separately, which remaining words (colours, materials, a designer or " +
-      "brand name, sizes, anything else useful for the substring search) are worth searching for. " +
-      "Use as few keywords as will actually narrow the result — do not repeat the category name " +
-      "itself as a keyword. Reply in EXACTLY this two-line format and nothing else, either line " +
-      "left blank after the colon when it does not apply:\n" +
-      "CATEGORY: <exact category name, or blank>\n" +
-      "KEYWORDS: <remaining search terms, or blank>",
+    system: searchPlanPrompt(categories),
     messages: [{ role: "user", content: utterance }],
   });
   if (error) return { mode: "model", error };
