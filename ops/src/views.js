@@ -124,7 +124,13 @@ const INPUT_BAR_CSS = `
    — a search box, anything else that takes text — matches this one
    real number instead of happening to come close. */
 .input-bar {
-  display: flex; align-items: center; gap: 2px; min-height: 42px;
+  /* gap grew from 2px — the owner's own words, once a bar could hold up to
+     four elements (filter, input, mic, send on Items): "a padding between
+     the search and the chat entry and microphone so that they're not so
+     tight next to each other... a little easier to press them
+     individually." 8px still fits every current .input-bar (Items' own
+     four-element bar, the narrowest) on a 320px phone with room to spare. */
+  display: flex; align-items: center; gap: 8px; min-height: 42px;
   border: 1px solid var(--muted); border-radius: 24px;
   padding: 4px 6px; background: var(--image-ground);
   position: fixed; left: 8px; right: 8px; bottom: 8px; z-index: 20;
