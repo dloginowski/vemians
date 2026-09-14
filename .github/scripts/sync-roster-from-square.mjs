@@ -89,7 +89,13 @@ const sqlString = (v) => `'${String(v ?? "").replace(/'/g, "''")}'`;
 
 function roleFor(member) {
   if (member.is_owner) return "owner";
-  const titles = (member.wage_setting?.job_assignments ?? []).map((j) => j.job_title).filter(Boolean);
+  /* Square job titles can carry incidental leading/trailing whitespace (seen
+     live: "Director " with a trailing space) that an exact-match Set lookup
+     never forgives — trimmed on both sides of the comparison so a title
+     that reads identically to a human actually matches. */
+  const titles = (member.wage_setting?.job_assignments ?? [])
+    .map((j) => j.job_title?.trim())
+    .filter(Boolean);
   if (titles.some((t) => MANAGER_JOB_TITLES.has(t))) return "manager";
   return "staff";
 }

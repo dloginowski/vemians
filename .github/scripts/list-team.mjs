@@ -67,7 +67,7 @@ const members = out.team_members || [];
 console.log(`${members.length} active team member(s):\n`);
 for (const m of members) {
   const name = [m.given_name, m.family_name].filter(Boolean).join(" ") || "(no name on file)";
-  const titles = (m.wage_setting?.job_assignments ?? []).map((j) => j.job_title).filter(Boolean);
+  const titles = (m.wage_setting?.job_assignments ?? []).map((j) => j.job_title?.trim()).filter(Boolean);
   console.log(`  ${name}`);
   console.log(`    email: ${m.email_address || "(none on file)"}`);
   console.log(`    owner: ${m.is_owner ? "yes" : "no"}`);

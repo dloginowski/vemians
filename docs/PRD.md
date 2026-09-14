@@ -2299,6 +2299,15 @@ that does not trace to one of these is a process failure (see §12).
     repository variable of the same name instead — set once in Settings, read by both trigger
     kinds, with a manual input (when given) taking precedence over it.
 
+    **A job title from Square is trimmed before it is compared, not matched verbatim.** Seen
+    live on the real account: two active members with job titles "Director " and "CEO" — the
+    first carrying a trailing space Square's own dashboard never shows back. Set membership is
+    exact-match, so `MANAGER_JOB_TITLES=Director,CEO` matched "CEO" but silently missed
+    "Director ", leaving that member on `staff` with no error to notice by. `roleFor()` now
+    trims each job title before checking it against the set; `list-team.mjs` trims the same way
+    so what it prints for a human to copy into `MANAGER_JOB_TITLES` is what actually compares
+    equal.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
