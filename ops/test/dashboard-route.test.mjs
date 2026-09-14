@@ -246,3 +246,28 @@ check("test_PRD_P0_108_ops_dashboard__the_kind_filter_menu_offers_all_four_views
     assert.match(body, new RegExp(`data-kind="${kind}"`), `filter menu must offer data-kind="${kind}"`);
   }
 });
+
+check("test_PRD_P0_109_status_line_matches_greeting__the_mode_indicator_sits_at_the_top_in_the_greet_spot", async () => {
+  /* The owner's own words: "in our dashboard, instead of categories, we
+     essentially have a mode selector... indicating the currently
+     selected mode in the same space... so that all of these tabs have
+     kinda matching layouts." Same .greet spot and font Items now uses
+     for its own category status, and opsPage() uses for "Hi Dimitri". */
+  const tickets = sqliteDb("tickets");
+  seedTicket(tickets, "tik_1", { category: "facilities", status: "open" });
+  const res = await get("/dashboard", STAFF, env({ tickets, finance: null, assets: null }));
+  const body = await res.text();
+  assert.match(body, /<section class="greet">\s*<h1 id="kind-label">Showing: All<\/h1>\s*<\/section>/);
+  const greetAt = body.indexOf('<section class="greet">');
+  const feedAt = body.indexOf('id="dash-feed"');
+  assert.ok(greetAt > -1 && feedAt > -1 && greetAt < feedAt, "the mode indicator must sit above the feed, not below it");
+  assert.doesNotMatch(body, /<div class="category-label"/, "the old floating element above the bar must be gone, not duplicated");
+});
+
+check("test_PRD_P0_109_status_line_matches_greeting__the_mode_indicator_is_always_shown_never_hidden", async () => {
+  const res = await get("/dashboard", STAFF, env({ finance: null, assets: null }));
+  const body = await res.text();
+  const updateFn = body.slice(body.indexOf("function updateKindLabel"), body.indexOf("function updateKindLabel") + 300);
+  assert.doesNotMatch(updateFn, /kindLabel\.hidden/, "the mode indicator must never be toggled hidden");
+  assert.match(updateFn, /"Showing: All"/);
+});

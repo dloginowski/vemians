@@ -2585,6 +2585,31 @@ that does not trace to one of these is a process failure (see §12).
     "&larr; Dashboard" and points at `/dashboard` instead of `/tickets`. The ticket create/
     comment/status routes themselves are unchanged — only the list page a tab opens moved.
 
+44. **`Test-PRD-P0-109-status_line_matches_greeting`** — Live feedback on P0-108's own two
+    filter labels, landed right after: "instead of putting categories above the search bar,
+    let's put them up above where in the agent chat it says hi Dimitri... use that same font,
+    same kind of layout... don't clutter [the bottom]... on the bottom, you're just eating up
+    useful space." And, generalising it to the Dashboard: "in our dashboard, instead of
+    categories, we essentially have a mode selector... indicating the currently selected mode
+    in the same space... so that all of these tabs have kinda matching layouts."
+
+    **The status line moves from a floating line above the bar to the same in-flow spot and
+    font opsPage()'s own greeting uses.** `.greet` / `.greet h1` (previously `OPS_CSS`-only)
+    move into the shared `INPUT_BAR_CSS`, the same relocation P0-108 already gave
+    `.category-menu` for the same reason — `opsPage()` picks it up exactly as before (`OPS_CSS`
+    already includes `INPUT_BAR_CSS`), and now `itemsPage()` and `dashboardPage()` do too.
+    Items' own `#category-label` and the Dashboard's own `#kind-label` (P0-108's "mode
+    selector") are each now a plain `<h1>` inside a `<section class="greet">` at the very top
+    of `.ops`, above the grid and the feed respectively — no longer `position: fixed` sharing
+    the 58px anchor above the bar with the filter menu, which keeps floating there on its own.
+
+    **Always shown, never conditionally hidden.** "Hi Dimitri" is on the page whether or not
+    you have typed anything; the status line now behaves the same way — `updateCategoryLabel()`
+    and `updateKindLabel()` always set `textContent` ("All categories" / "Showing: All" is
+    itself the answer when nothing is picked) rather than toggling `.hidden`, and the menu's
+    own open/close handlers no longer coordinate with the label at all, since the two no longer
+    share a floating spot to contend for.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -2844,6 +2869,7 @@ Where each feature is enforced today:
 | P0-106 | `ops/test/items-search-intent.test.mjs`, `ops/test/items-route.test.mjs` |
 | P0-107 | `ops/test/items-search-intent.test.mjs`, `ops/test/items-route.test.mjs`, `ops/test/ops-page.test.mjs` |
 | P0-108 | `ops/test/dashboard-route.test.mjs`, `ops/test/tickets-route.test.mjs`, `ops/test/ops-page.test.mjs` |
+| P0-109 | `ops/test/items-route.test.mjs`, `ops/test/dashboard-route.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

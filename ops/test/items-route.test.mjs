@@ -391,13 +391,15 @@ check("test_PRD_P0_102_items_search_matches_chat__no_category_menu_or_filter_but
 check("test_PRD_P0_106_search_plan_has_a_category_and_keywords__picking_a_category_never_types_into_the_search_box", async () => {
   /* The owner's own words: "I don't wanna eat up the input area with
      text... it's part of the actual selector. It's not necessarily me
-     putting text." A dedicated #category-label line above the bar names
-     the pick instead — itemSearch.value is never touched by it. */
+     putting text." A dedicated #category-label line names the pick
+     instead — itemSearch.value is never touched by it. Superseded from a
+     line floating above the search bar to the top of the page (Test-
+     PRD-P0-109-status_line_matches_greeting): see that check below. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const res = await get("/items", STAFF, env(mirror));
   const body = await res.text();
-  assert.match(body, /<div class="category-label" id="category-label" hidden><\/div>/);
+  assert.match(body, /<h1 id="category-label">All categories<\/h1>/);
   const clickHandler = body.slice(body.indexOf('categoryMenuEl.addEventListener("click"'), body.indexOf('categoryMenuEl.addEventListener("click"') + 300);
   assert.doesNotMatch(clickHandler, /itemSearch\.value/, "picking a category must not write into the search box");
   assert.match(clickHandler, /toggleCategory\(btn\.dataset\.category\)/, "picking a category must go through the shared multi-select toggle");
@@ -477,18 +479,52 @@ check("test_PRD_P0_107_voice_search_skill__a_voice_category_switch_replaces_the_
   assert.match(setAgentFn, /selectedCategories\.clear\(\)/, "an agent-driven switch must clear whatever was selected before adding its own picks");
 });
 
-check("test_PRD_P0_71_items_tab__no_redundant_title_wastes_space_the_tab_bar_already_spent", async () => {
-  /* The owner's own words: "we have the tab, we know we're in items
-     right now. Get rid of all that stuff." The tab bar itself already
-     names the page; a second, page-drawn "Items" heading right under
-     it was pure wasted vertical space on a phone. The grid now starts
-     right at .ops's own existing top padding, no title block eating
-     into it first. */
+check("test_PRD_P0_109_status_line_matches_greeting__the_status_line_sits_at_the_top_in_the_greet_spot", async () => {
+  /* The owner's own words: "instead of putting categories above the
+     search bar, let's put them up above where in the agent chat it
+     says hi Dimitri... use that same font, same kind of layout." Moved
+     from a line floating above the search bar to a plain, in-flow
+     .greet section at the very top of the page — the same spot and
+     font (.greet h1) opsPage()'s own greeting uses. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const res = await get("/items", STAFF, env(mirror));
   const body = await res.text();
-  assert.doesNotMatch(body, /class="greet"/, "no redundant title section may remain");
+  assert.match(body, /<section class="greet">\s*<h1 id="category-label">All categories<\/h1>\s*<\/section>/);
+  const greetAt = body.indexOf('<section class="greet">');
+  const gridAt = body.indexOf('<div class="items-grid"');
+  assert.ok(greetAt > -1 && gridAt > -1 && greetAt < gridAt, "the status line must sit above the grid, not below it");
+  /* The old floating element above the bar is gone — this is a move, not
+     an addition. */
+  assert.doesNotMatch(body, /<div class="category-label"/);
+});
+
+check("test_PRD_P0_109_status_line_matches_greeting__the_line_is_always_shown_never_hidden", async () => {
+  /* "Hi Dimitri" never hides itself depending on what you have typed; the
+     status line here does the same now — "All categories" is itself the
+     answer when nothing is picked, rather than an empty, hidden line. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  const updateFn = body.slice(body.indexOf("function updateCategoryLabel"), body.indexOf("function updateCategoryLabel") + 300);
+  assert.doesNotMatch(updateFn, /categoryLabel\.hidden/, "the status line must never be toggled hidden");
+  assert.match(updateFn, /"All categories"/);
+});
+
+check("test_PRD_P0_71_items_tab__no_redundant_title_wastes_space_the_tab_bar_already_spent", async () => {
+  /* The owner's own words: "we have the tab, we know we're in items
+     right now. Get rid of all that stuff." The tab bar itself already
+     names the page; a second, page-drawn "Items" heading right under
+     it was pure wasted vertical space on a phone. Test-PRD-P0-109-
+     status_line_matches_greeting later gave .greet a real job here (the
+     live category status, not a page title) — this check only guards
+     against a REDUNDANT literal "Items" heading returning, not against
+     .greet existing at all. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
   assert.doesNotMatch(body, /<h1>Items<\/h1>/, "no redundant Items heading may remain");
 });
 
