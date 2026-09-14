@@ -282,8 +282,26 @@ check("test_PRD_P0_102_items_search_matches_chat__the_icon_buttons_share_the_cha
   const res = await get("/items", STAFF, env(mirror));
   const body = await res.text();
   assert.match(body, /\.input-bar \.icon-btn\s*\{[^}]*width:\s*34px/s);
-  assert.match(body, /\.input-bar \.send-btn\s*\{[^}]*background:\s*var\(--accent\)/s);
+  assert.match(body, /\.input-bar \.send-btn\s*\{[^}]*width:\s*34px/s);
   assert.doesNotMatch(body, /\.chat \.chat-bar \.icon-btn/s, "the old chat-only scoping must not still be set");
+});
+
+check("test_PRD_P0_102_items_search_matches_chat__the_search_button_is_not_the_agents_own_orange", async () => {
+  /* The owner's own words: "don't style the search button orange, because
+     orange indicates AI input... agentic input... that's the only thing
+     that should have that orange decoration." The shared .input-bar
+     .send-btn rule is a neutral fill; only #chat's own Send (the id the
+     real agent composer's form alone carries) stays accent-coloured. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.doesNotMatch(
+    body,
+    /\.input-bar \.send-btn\s*\{[^}]*background:\s*var\(--accent\)/s,
+    "the shared send-btn rule must not be the agent's own orange",
+  );
+  assert.match(body, /#chat \.send-btn\s*\{[^}]*background:\s*var\(--accent\)/s, "the real agent composer must still be orange");
 });
 
 check("test_PRD_P0_102_items_search_matches_chat__the_category_menu_lists_only_categories_actually_present", async () => {
@@ -297,6 +315,19 @@ check("test_PRD_P0_102_items_search_matches_chat__the_category_menu_lists_only_c
   assert.match(body, /<div class="category-menu" id="category-menu" hidden>/);
   assert.match(body, /<button type="button" class="category-item" data-category="">All categories<\/button>/);
   assert.match(body, /<button type="button" class="category-item" data-category="Outerwear">Outerwear<\/button>/);
+});
+
+check("test_PRD_P0_102_items_search_matches_chat__the_menu_actually_starts_hidden_not_just_marked_so", async () => {
+  /* Caught live: the menu rendered permanently open. .category-menu's own
+     display: flex is an author style, which beats the browser's default
+     [hidden] { display: none } UA rule regardless of specificity — so the
+     hidden attribute on the element (asserted above) did nothing at all
+     without an explicit override restating none for [hidden]. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.match(body, /\.category-menu\[hidden\]\s*\{[^}]*display:\s*none/s);
 });
 
 check("test_PRD_P0_102_items_search_matches_chat__no_category_menu_or_filter_button_when_nothing_is_categorised", async () => {

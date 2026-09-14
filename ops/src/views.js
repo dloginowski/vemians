@@ -163,9 +163,23 @@ const INPUT_BAR_CSS = `
 .input-bar .icon-btn { width: 34px; height: 34px; background: rgba(255, 255, 255, 0.08); color: var(--ink); }
 .input-bar .icon-btn:hover { background: rgba(255, 255, 255, 0.16); color: var(--accent); }
 .input-bar .icon-btn[aria-pressed="true"] { color: var(--accent); background: rgba(217, 119, 87, 0.14); }
-.input-bar .send-btn { width: 34px; height: 34px; background: var(--accent); color: var(--ground); }
-.input-bar .send-btn:hover { opacity: 0.85; }
+/* Send is the SAME faint neutral fill as icon-btn by default now, not the
+   accent orange it used to always be — the owner's own words: "don't
+   style the search button orange, because orange indicates AI input...
+   agentic input... that's the only thing that should have that orange
+   decoration." Orange is reserved for #chat's own Send below, the one
+   button that actually submits to the agent; every other .send-btn
+   (Items' search, a ticket's Create/Send) shares this neutral look
+   instead of borrowing a meaning that is not true of it. */
+.input-bar .send-btn { width: 34px; height: 34px; background: rgba(255, 255, 255, 0.08); color: var(--ink); }
+.input-bar .send-btn:hover { background: rgba(255, 255, 255, 0.16); color: var(--accent); }
 .input-bar .send-btn:disabled { opacity: 0.4; cursor: default; }
+/* #chat is the id ONLY the real agent composer's form carries (opsPage()) —
+   the ticket compose/comment forms and Items' search bar all reuse class
+   "chat"/"input-bar" for their shared shape but never this id, so this
+   stays the one place orange survives. */
+#chat .send-btn { background: var(--accent); color: var(--ground); }
+#chat .send-btn:hover { background: var(--accent); opacity: 0.85; }
 `;
 
 /*
@@ -1160,6 +1174,13 @@ ${INPUT_BAR_CSS}
   background: var(--image-ground); border: 1px solid var(--muted); border-radius: 12px;
   max-height: 50vh; overflow-y: auto;
 }
+/* An explicit display: flex above beats the browser's own default
+   [hidden] { display: none } rule — author styles always win over the
+   UA stylesheet regardless of specificity — so the menu rendered open on
+   every page load, the hidden attribute doing nothing at all. This is
+   the fix: restate none for [hidden] specifically, so JS toggling
+   .hidden (never .style.display) actually shows and hides it. */
+.category-menu[hidden] { display: none; }
 /* Same visual language as .choices .btn (the agent page's own quick-prompt
    chips, OPS_CSS) — 11px, pill-ish, a muted border on --image-ground —
    kept as its own rule rather than sharing that class, since .choices
