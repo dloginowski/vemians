@@ -24,10 +24,24 @@ API = "https://api.cloudflare.com/client/v4"
 TOKEN = os.environ["CLOUDFLARE_API_TOKEN"]
 ACCOUNT = os.environ["CLOUDFLARE_ACCOUNT_ID"]
 OWNER = os.environ["OWNER_EMAIL"].strip()
-DOMAIN = os.environ["STAFF_DOMAIN"].strip().lstrip("@")
 
 if not OWNER or "@" not in OWNER:
     raise SystemExit(f"::error::owner_email {OWNER!r} is not an address")
+
+# No shared staff domain — everyone has their own address, so the group is a
+# plain list of individual emails rather than one email_domain rule. Accepts
+# either newlines or commas as the separator, since a workflow_dispatch text
+# input has no native list type.
+STAFF = sorted(set(
+    e.strip()
+    for e in os.environ["STAFF_EMAILS"].replace(",", "\n").splitlines()
+    if e.strip()
+))
+bad = [e for e in STAFF if "@" not in e]
+if bad:
+    raise SystemExit(f"::error::staff_emails contains non-addresses: {bad!r}")
+if not STAFF:
+    raise SystemExit("::error::staff_emails is empty")
 
 
 def call(method, path, body=None):
@@ -54,7 +68,7 @@ def call(method, path, body=None):
 
 WANTED = [
     ("vemians-owner", [{"email": {"email": OWNER}}], f"just {OWNER}"),
-    ("vemians-staff", [{"email_domain": {"domain": DOMAIN}}], f"everyone at {DOMAIN}"),
+    ("vemians-staff", [{"email": {"email": e}} for e in STAFF], f"{len(STAFF)} named address(es)"),
 ]
 
 existing, err = call("GET", f"accounts/{ACCOUNT}/access/groups")

@@ -143,8 +143,8 @@ LOCATION_ID = "main"
 # a public Custom Domain on live infrastructure, which is worth a deliberate
 # `wrangler deploy` (or a deploy-workers.yml run) rather than happening as a
 # side effect of an unrelated push. It also does nothing on its own for
-# Access: `deploy-cloudflare.md` §4-8 (Zero Trust, Google Workspace login,
-# the Access application and its AUD tag) are separate dashboard steps this
+# Access: `deploy-cloudflare.md` §4-8 (Zero Trust, One-time PIN login, the
+# Access application and its AUD tag) are separate dashboard steps this
 # file cannot do or verify, and until they exist every request here answers
 # 401 with no assertion to check — the documented, correct resting state.
 [[routes]]
