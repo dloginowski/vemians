@@ -262,17 +262,19 @@ check("test_PRD_P0_71_items_tab__the_first_tab_lines_up_with_the_inner_chat_cont
   /* .ops's own 8px, doubled to 16px, then the owner's own words, more
      precisely: "First tab on left matches the inner chat left extent."
      That is not .ops's own edge — it is past .chat-top's own frame too:
-     8px (.ops) + 14px (.chat-top's own padding) = 22px, where actual chat
-     content (.log) starts. (.chat-top's own border used to add a 3rd, 1px
-     term here — removed along with the border itself; the composer also
-     no longer lives in this same padding stack at all, now that it is
-     fixed to the screen's own bottom instead, so this aligns with .log's
-     own edge specifically rather than a shared log-and-composer one.) */
+     8px (.ops) + 7px (.chat-top's own side padding, halved from 14px by
+     Test-PRD-P0-118-chat_top_side_padding_halved) = 15px, where actual
+     chat content (.log) starts. (.chat-top's own border used to add a
+     3rd, 1px term here — removed along with the border itself; the
+     composer also no longer lives in this same padding stack at all, now
+     that it is fixed to the screen's own bottom instead, so this aligns
+     with .log's own edge specifically rather than a shared
+     log-and-composer one.) */
   const { body } = await shell(OWNER);
-  assert.match(body, /\.shell-header\s*\{[^}]*padding:\s*10px 22px 0/s);
+  assert.match(body, /\.shell-header\s*\{[^}]*padding:\s*10px 15px 0/s);
 
   const { body: chatBody } = await frontPage(OWNER);
-  assert.match(chatBody, /\.chat-top\s*\{[^}]*padding:\s*14px/s, "sanity check: .chat-top's own padding is really 14px");
+  assert.match(chatBody, /\.chat-top\s*\{[^}]*padding:\s*14px 7px/s, "sanity check: .chat-top's own side padding is really 7px now");
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -796,12 +798,33 @@ check("test_PRD_P0_93_nested_chat_frame__the_outer_frame_padding_is_the_same_on_
      bug (P0-96's own uncollapsed empty .attach-name span) — fixing that
      bug shrank the bottom to match the sides' small 3px, the opposite of
      what was actually asked. Rather than guess a value chasing a look
-     that came from a bug now removed, every side returns to 14px — the
+     that came from a bug now removed, every side returned to 14px — the
      original value this padding carried before any tightening request
      in this whole thread touched it, and trivially "sides match bottom"
-     since there is only one number now. */
+     since there was only one number.
+     Superseded in part by Test-PRD-P0-118-chat_top_side_padding_halved:
+     sides and top/bottom no longer match on purpose — the owner's own
+     later words, comparing the chat body to the composer just below it:
+     "the chat entry field has less padding around it on the sides than
+     the actual chat body... the chat body could use like half the
+     padding." Top/bottom keep the 14px this test was originally about;
+     only the sides moved. */
   const { body } = await frontPage(OWNER);
-  assert.match(body, /\.chat-top\s*\{[^}]*padding:\s*14px;/s, "every side must be the same, generous 14px again");
+  assert.match(body, /\.chat-top\s*\{[^}]*padding:\s*14px 7px;/s, "top/bottom stay the generous 14px; sides are now half that");
+});
+
+check("test_PRD_P0_118_chat_top_side_padding_halved__the_shell_tabs_stay_aligned_with_the_new_edge", async () => {
+  /* The owner's own words: "reduce the overall page padding in the agent
+     section... the chat entry field has less padding around it on the
+     sides than the actual chat body... the chat body could use like half
+     the padding." .chat-top's own side padding is verified directly by
+     the P0-93 check above (14px 7px); this one covers the knock-on effect
+     P0-71 already cared about — the shell's own first tab lining up with
+     where .log's content actually starts, which moves the moment
+     .chat-top's own side padding does. */
+  const { body } = await shell(OWNER);
+  assert.match(body, /\.shell-header\s*\{[^}]*padding:\s*10px 15px 0/s, "the tab row's own left padding must track .chat-top's new 8px + 7px = 15px inset");
+  assert.doesNotMatch(body, /\.shell-header\s*\{[^}]*padding:\s*10px 22px 0/s, "the old 22px inset (matching the pre-halving 14px side padding) must be gone");
 });
 
 check("test_PRD_P0_93_nested_chat_frame__the_pills_own_radius_never_changes__only_the_outer_frame_matches_it", async () => {
