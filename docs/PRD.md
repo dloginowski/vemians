@@ -2490,6 +2490,51 @@ that does not trace to one of these is a process failure (see §12).
     decided it, so a glance at the label alone says whether the current filter was typed, clicked,
     or the agent's own inference from what was said.
 
+    **Superseded by P0-107, below**: `setCategory()`'s single-string selection is replaced by a
+    `Set`, once the owner's own worked example ("or multiple categories") made clear one category
+    at a time was never the actual requirement.
+
+42. **`Test-PRD-P0-107-voice_search_skill`** — Three more pieces of the same live feedback pass,
+    landed together. First, naming the capability itself: "let's call it voice search skill...
+    that skill should design how this microphone input search looks." Second, generalising
+    P0-106's own worked example: "it knows that I need to switch my category to dresses, right,
+    or multiple categories... [so it] knows what combination of search tools I need to do, like
+    filters, to find me the items that I'm looking for... with the least amount of search
+    parameters." Third, unrelated to search but caught in the same round: "make sure that all of
+    the search bars... have the same amount of padding on the sides... you already have a padding
+    inside of the content. Just make sure that same padding is applied to the search or chat
+    bars."
+
+    **`skills/voice-search-skill/SKILL.md`** documents the design the same way every other domain
+    skill does, with one explicit difference stated up front: it has no tool, no tier, and is
+    never read via `agentTurn()`'s own `skills_read` meta-tool, because `searchIntent()` never
+    enters that tool loop at all. `ops/src/voice-search.js`'s new `searchPlanPrompt()` — the same
+    "own dependency-free module" pattern `greeting.js`'s `greetingScript()` already established —
+    is what the model actually reads; the skill file is the record a human (or an agent editing
+    this codebase) reads instead. Editing `searchPlanPrompt()` IS editing how voice search
+    behaves, not a description of it kept in sync by hand in two places.
+
+    **`selectedCategories` becomes a `Set`, one or more at once.** A manual click
+    (`toggleCategory()`) adds or removes exactly one, multi-select — the menu now stays open
+    after a pick (closed instead by the filter button again, elsewhere, or Escape) so a second or
+    third pick still lands, and each currently-selected category shows a checked state in the
+    menu itself (`.category-menu .category-item.active`, the same faint-accent-tint language
+    `.icon-btn[aria-pressed="true"]` already uses) — "that menu would automatically select one or
+    more categories." A voice result (`setAgentCategories()`) REPLACES the whole set with
+    whatever the model named, comma-split from a widened `CATEGORY:` line ("one exact category
+    name, several separated by commas, or blank") — a switch, not an addition, matching "switch
+    my category to dresses" rather than layering onto whatever was already selected.
+
+    **`.input-bar` gains `max-width: calc(64rem - 16px)`.** Caught live on a wide screen: `.ops`
+    is `max-width: 64rem` with no `margin: auto` — it sits flush left, not centred, so its own
+    content stops at 64rem while `.input-bar`'s plain `left/right: 8px` kept stretching to the
+    true viewport edge, ending up well past where the content (and its own Send button)
+    visually ends. The cap is `.ops`'s own 64rem minus its 16px of left+right padding — this bar
+    has no padding of its own contributing to that outer width the way `.ops`'s does, only its
+    left/right offset, so this keeps the bar's own right edge exactly where `.ops`'s content
+    already ends. Below 64rem (every phone, most tablets) this is a no-op: `left/right: 8px`
+    alone already produces a narrower width than the cap.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -2747,6 +2792,7 @@ Where each feature is enforced today:
 | P0-104 | `ops/test/items-route.test.mjs` |
 | P0-105 | `ops/test/ops-page.test.mjs` |
 | P0-106 | `ops/test/items-search-intent.test.mjs`, `ops/test/items-route.test.mjs` |
+| P0-107 | `ops/test/items-search-intent.test.mjs`, `ops/test/items-route.test.mjs`, `ops/test/ops-page.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

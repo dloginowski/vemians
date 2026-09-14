@@ -903,6 +903,18 @@ check("test_PRD_P0_105_input_bar_button_spacing__the_gap_grew_so_buttons_are_eas
   assert.doesNotMatch(body, /\.input-bar\s*\{[^}]*gap:\s*2px/s, "the old tight 2px gap must not still be set");
 });
 
+check("test_PRD_P0_107_voice_search_skill__the_bar_never_stretches_past_ops_own_content_width", async () => {
+  /* Caught live on a wide screen: .ops is max-width: 64rem with no
+     margin: auto, so it sits flush left rather than centred — its own
+     content stops at 64rem while .input-bar's plain left/right: 8px kept
+     stretching to the true viewport edge, ending up well past where the
+     content (and its own Send button) visually ends. The owner's own
+     words: "you already have a padding inside of the content. Just make
+     sure that same padding is applied to the search or chat bars." */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.input-bar\s*\{[^}]*max-width:\s*calc\(64rem - 16px\)/s);
+});
+
 /* ─────────────────────────────────────────────────────────────────────────
  * P0-94 — the page uses more of a phone screen's own width
  * ───────────────────────────────────────────────────────────────────────── */

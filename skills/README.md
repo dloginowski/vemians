@@ -20,6 +20,8 @@ application.
 | [`people-skills`](./people-skills/SKILL.md) | Schedules and swaps. Overlap refused by the database; manager publishes | `people` |
 | [`finance-skills`](./finance-skills/SKILL.md) | Expenses, budgets, quarterly reports. Approved expenses are immutable | `finance`, R2, `reports/` (Git) |
 | [`knowledge-skills`](./knowledge-skills/SKILL.md) | The reference library. Git is truth, Vectorize is a cache | `knowledge` (Git), Vectorize |
+| [`ticket-skills`](./ticket-skills/SKILL.md) | Internal messages — staff to staff, over the existing ticket store | `tickets` |
+| [`voice-search-skill`](./voice-search-skill/SKILL.md) | Items' own mic: speech into a category + keyword plan. **No tool, no tier** — one non-agentic completion, not read via `skills_read` | none — `ops/src/voice-search.js` is the model's own source, not this file |
 
 ## Three rules underneath all of them
 

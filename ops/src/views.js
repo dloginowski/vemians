@@ -134,6 +134,22 @@ const INPUT_BAR_CSS = `
   border: 1px solid var(--muted); border-radius: 24px;
   padding: 4px 6px; background: var(--image-ground);
   position: fixed; left: 8px; right: 8px; bottom: 8px; z-index: 20;
+  /* Caught live on a wide screen: .ops itself is max-width: 64rem with NO
+     margin: auto — it sits flush to the left edge, not centred, so its own
+     content stops at 64rem while this bar's plain left/right: 8px kept
+     stretching all the way to the true viewport edge, ending up far past
+     where the content (and the Send button the owner actually wants to
+     reach) visually ends. The owner's own words: "you already have a
+     padding inside of the content. Just make sure that same padding is
+     applied to the search or chat bars." max-width here is .ops's own
+     64rem minus its own 16px of left+right padding (8px each) — this bar
+     has no padding of its own contributing to that outer width the way
+     .ops's does, only its left/right offset — so capping here keeps the
+     bar's own right edge exactly where .ops's own content already ends,
+     never stretching past it. Below 64rem (every phone, most tablets)
+     this is a no-op: left/right: 8px alone already produces a narrower
+     width than the cap. */
+  max-width: calc(64rem - 16px);
 }
 .input-bar:focus-within { border-color: var(--ink); }
 .input-bar input {
@@ -1208,6 +1224,12 @@ ${INPUT_BAR_CSS}
   background: var(--ground); color: var(--ink); cursor: pointer;
 }
 .category-menu .category-item:hover { border-color: var(--accent); color: var(--accent); }
+/* Checked state — "that menu would automatically select one or more
+   categories to satisfy the search," the owner's own words. Multi-select:
+   more than one can carry this at once. Same faint-accent-tint language
+   .icon-btn[aria-pressed="true"] already uses for an active toggle state,
+   not a new visual vocabulary invented for this. */
+.category-menu .category-item.active { border-color: var(--accent); color: var(--accent); background: rgba(217, 119, 87, 0.14); }
 /* The active category, named above the bar instead of living in the
    search box's own value — the owner's own words: "I don't wanna eat up
    the input area with text... it's part of the actual selector." Same
@@ -1432,26 +1454,54 @@ ${tiles}
 <script>
 const itemSearch = document.getElementById("item-search");
 const categoryLabel = document.getElementById("category-label");
+const categoryBtn = document.getElementById("category-btn");
+const categoryMenuEl = document.getElementById("category-menu");
 /* The category filter lives here, never in the search box's own value —
    the owner's own words: "I don't wanna eat up the input area with text...
    it's part of the actual selector. It's not necessarily me putting text."
-   A small dim line above the bar names it instead ("Category: X" picked
-   by hand, "Agent: X" when the mic below picked it). "All categories"
-   (or nothing selected) clears it and hides the line entirely. */
-let selectedCategory = "";
-function setCategory(name, source) {
-  selectedCategory = name;
-  if (name) {
-    categoryLabel.textContent = source + ": " + name;
+   A Set, not a single string — "the agent would pass the category as part
+   of its result, and that menu would automatically select one or more
+   categories to satisfy the search." A small dim line above the bar names
+   whatever is selected ("Category: X, Y" picked by hand, "Agent: X, Y"
+   when the mic below picked it); an empty set clears it and hides the
+   line entirely. */
+const selectedCategories = new Set();
+function markCategoryMenu() {
+  if (!categoryMenuEl) return;
+  categoryMenuEl.querySelectorAll(".category-item").forEach((btn) => {
+    const isAll = btn.dataset.category === "";
+    btn.classList.toggle("active", isAll ? selectedCategories.size === 0 : selectedCategories.has(btn.dataset.category));
+  });
+}
+function updateCategoryLabel(source) {
+  if (selectedCategories.size) {
+    categoryLabel.textContent = source + ": " + [...selectedCategories].join(", ");
     categoryLabel.hidden = false;
   } else {
     categoryLabel.hidden = true;
   }
+  markCategoryMenu();
+}
+/* Manual pick: toggles ONE category in or out of the set, multi-select,
+   the menu stays open — the owner's own words allow "one or more." */
+function toggleCategory(name) {
+  if (!name) selectedCategories.clear();
+  else if (selectedCategories.has(name)) selectedCategories.delete(name);
+  else selectedCategories.add(name);
+  updateCategoryLabel("Category");
+}
+/* Agent pick: REPLACES the whole set with exactly what the agent decided
+   satisfies the request — a switch, not an addition, matching "it knows
+   that I need to switch my category to dresses." */
+function setAgentCategories(names) {
+  selectedCategories.clear();
+  names.forEach((n) => selectedCategories.add(n));
+  updateCategoryLabel("Agent");
 }
 function filterItems() {
   const q = itemSearch.value.trim().toLowerCase();
   document.querySelectorAll(".item-tile").forEach((el) => {
-    const matchesCategory = !selectedCategory || el.dataset.category === selectedCategory;
+    const matchesCategory = selectedCategories.size === 0 || selectedCategories.has(el.dataset.category);
     const matchesSearch = !q || el.dataset.search.includes(q);
     el.hidden = !matchesCategory || !matchesSearch;
   });
@@ -1466,12 +1516,10 @@ document.getElementById("item-search-btn").addEventListener("click", () => {
 });
 
 /* The category menu — the owner's own words: "a little menu to select
-   existing categories... a quick way to filter by category." Toggled by
-   the filter button, closed by picking a category, clicking anywhere
-   else, or Escape — the same open/close shape a menu button anywhere
-   else on the page would have. */
-const categoryBtn = document.getElementById("category-btn");
-const categoryMenuEl = document.getElementById("category-menu");
+   existing categories... a quick way to filter by category." Opened by
+   the filter button; picking a category no longer closes it (multi-select
+   needs to stay open for a second or third pick) — closed instead by the
+   filter button again, clicking anywhere else, or Escape. */
 if (categoryBtn && categoryMenuEl) {
   categoryBtn.addEventListener("click", () => {
     const opening = categoryMenuEl.hidden;
@@ -1479,25 +1527,24 @@ if (categoryBtn && categoryMenuEl) {
     /* The label and the menu never show at once — both anchor to the same
        spot above the bar. */
     if (opening) categoryLabel.hidden = true;
-    else if (selectedCategory) categoryLabel.hidden = false;
+    else if (selectedCategories.size) categoryLabel.hidden = false;
   });
   categoryMenuEl.addEventListener("click", (e) => {
     const btn = e.target.closest(".category-item");
     if (!btn) return;
-    setCategory(btn.dataset.category, "Category");
+    toggleCategory(btn.dataset.category);
     filterItems();
-    categoryMenuEl.hidden = true;
   });
   document.addEventListener("click", (e) => {
     if (categoryMenuEl.hidden) return;
     if (categoryMenuEl.contains(e.target) || categoryBtn.contains(e.target)) return;
     categoryMenuEl.hidden = true;
-    if (selectedCategory) categoryLabel.hidden = false;
+    if (selectedCategories.size) categoryLabel.hidden = false;
   });
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape" || categoryMenuEl.hidden) return;
     categoryMenuEl.hidden = true;
-    if (selectedCategory) categoryLabel.hidden = false;
+    if (selectedCategories.size) categoryLabel.hidden = false;
   });
 }
 
@@ -1553,12 +1600,22 @@ if (!ItemSpeechRecognitionCtor) {
         body: JSON.stringify({ q: transcript, categories: knownCategories }),
       });
       const data = await res.json();
-      const match = data && data.category
-        ? knownCategories.find((c) => c.toLowerCase() === data.category.toLowerCase())
-        : null;
-      if (match) setCategory(match, "Agent");
+      /* One or more, comma-separated — "that menu would automatically
+         select one or more categories to satisfy the search." Each named
+         category is matched case-insensitively back to its real, exact
+         name; anything that matches nothing real is dropped rather than
+         inventing a category the menu does not have. */
+      const matches = data && data.category
+        ? data.category
+            .split(",")
+            .map((c) => c.trim().toLowerCase())
+            .filter(Boolean)
+            .map((c) => knownCategories.find((real) => real.toLowerCase() === c))
+            .filter(Boolean)
+        : [];
+      if (matches.length) setAgentCategories(matches);
       if (data && data.keywords) itemSearch.value = data.keywords;
-      else if (!match) itemSearch.value = transcript;
+      else if (!matches.length) itemSearch.value = transcript;
     } catch (err) {
       /* The model or the network failed — the literal transcript still
          becomes a keyword search, so holding the mic never does nothing. */

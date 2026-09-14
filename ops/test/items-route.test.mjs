@@ -400,7 +400,7 @@ check("test_PRD_P0_106_search_plan_has_a_category_and_keywords__picking_a_catego
   assert.match(body, /<div class="category-label" id="category-label" hidden><\/div>/);
   const clickHandler = body.slice(body.indexOf('categoryMenuEl.addEventListener("click"'), body.indexOf('categoryMenuEl.addEventListener("click"') + 300);
   assert.doesNotMatch(clickHandler, /itemSearch\.value/, "picking a category must not write into the search box");
-  assert.match(clickHandler, /setCategory\(btn\.dataset\.category, "Category"\)/, "picking a category must go through the shared selector, labelled as a manual pick");
+  assert.match(clickHandler, /toggleCategory\(btn\.dataset\.category\)/, "picking a category must go through the shared multi-select toggle");
 });
 
 check("test_PRD_P0_106_search_plan_has_a_category_and_keywords__the_filter_combines_category_and_free_text", async () => {
@@ -415,8 +415,40 @@ check("test_PRD_P0_106_search_plan_has_a_category_and_keywords__the_filter_combi
   const body = await res.text();
   assert.match(body, /data-category="Outerwear"/, "each tile needs its own clean category attribute, not only inside the combined search blob");
   const filterFn = body.slice(body.indexOf("function filterItems"), body.indexOf("function filterItems") + 400);
-  assert.match(filterFn, /el\.dataset\.category === selectedCategory/);
+  assert.match(filterFn, /selectedCategories\.has\(el\.dataset\.category\)/);
   assert.match(filterFn, /el\.dataset\.search\.includes\(q\)/);
+});
+
+check("test_PRD_P0_107_voice_search_skill__more_than_one_category_can_be_selected_at_once", async () => {
+  /* The owner's own words: "the agent would pass the category as part of
+     its result, and that menu would automatically select one or more
+     categories to satisfy the search." A Set, not a single string —
+     toggling one category on never clears another already on. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.match(body, /const selectedCategories = new Set\(\)/);
+  const toggleFn = body.slice(body.indexOf("function toggleCategory"), body.indexOf("function toggleCategory") + 300);
+  assert.match(toggleFn, /selectedCategories\.add\(name\)/, "picking a new category must add to the set, not replace it");
+  assert.match(toggleFn, /selectedCategories\.delete\(name\)/, "picking an already-active category must remove just that one");
+  /* Picking a category must not auto-close the menu — multi-select needs
+     a second and third click to still land. */
+  const clickHandler = body.slice(body.indexOf('categoryMenuEl.addEventListener("click"'), body.indexOf('categoryMenuEl.addEventListener("click"') + 300);
+  assert.doesNotMatch(clickHandler, /categoryMenuEl\.hidden = true/, "picking a category must not close the multi-select menu");
+});
+
+check("test_PRD_P0_107_voice_search_skill__the_menu_visibly_checks_whats_currently_selected", async () => {
+  /* "That menu would automatically select one or more categories" — a
+     visible checked state in the menu itself, not only the dim label
+     above the bar. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.match(body, /\.category-menu \.category-item\.active\s*\{[^}]*background:\s*rgba\(217, 119, 87, 0\.14\)/s);
+  assert.match(body, /function markCategoryMenu/);
+  assert.match(body, /classList\.toggle\("active"/);
 });
 
 check("test_PRD_P0_106_search_plan_has_a_category_and_keywords__a_voice_driven_category_switch_is_labelled_agent_not_category", async () => {
@@ -428,9 +460,21 @@ check("test_PRD_P0_106_search_plan_has_a_category_and_keywords__a_voice_driven_c
   seedProduct(mirror);
   const res = await get("/items", STAFF, env(mirror));
   const body = await res.text();
-  const sendToAgentFn = body.slice(body.indexOf("async function sendToAgent"), body.indexOf("async function sendToAgent") + 900);
-  assert.match(sendToAgentFn, /setCategory\(match, "Agent"\)/, "a category switch from voice must be labelled Agent, not Category");
+  const sendToAgentFn = body.slice(body.indexOf("async function sendToAgent"), body.indexOf("async function sendToAgent") + 1500);
+  assert.match(sendToAgentFn, /setAgentCategories\(matches\)/, "a category switch from voice must be labelled Agent, not Category");
   assert.match(sendToAgentFn, /data\.keywords/, "leftover keywords from the plan must still reach the search box");
+});
+
+check("test_PRD_P0_107_voice_search_skill__a_voice_category_switch_replaces_the_whole_set", async () => {
+  /* "It knows that I need to switch my category to dresses" — a full
+     replacement of whatever was selected before, not an addition to it,
+     unlike a manual click's own toggle. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  const setAgentFn = body.slice(body.indexOf("function setAgentCategories"), body.indexOf("function setAgentCategories") + 250);
+  assert.match(setAgentFn, /selectedCategories\.clear\(\)/, "an agent-driven switch must clear whatever was selected before adding its own picks");
 });
 
 check("test_PRD_P0_71_items_tab__no_redundant_title_wastes_space_the_tab_bar_already_spent", async () => {
