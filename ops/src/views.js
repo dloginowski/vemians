@@ -1547,6 +1547,19 @@ ${INPUT_BAR_CSS}
 .item-share:hover { background: rgba(255, 255, 255, 0.2); }
 .item-tile.full .item-share { display: inline-flex; }
 .item-share[data-state="ok"] { color: var(--accent); }
+/* The owner's own words: "it's too easy to click somewhere wrong and
+   [the expanded view] will close, and that's not a good experience...
+   maybe it just needs a proper close button." A click on the tile BODY
+   no longer collapses an already-expanded one at all (see the
+   click-delegation handler below) — only this button does, the same
+   circular-icon treatment as .item-share beside it. */
+.item-close {
+  display: none; flex: 0 0 auto; width: 20px; height: 20px; padding: 0;
+  align-items: center; justify-content: center; border: none; border-radius: 50%;
+  cursor: pointer; background: transparent; color: #fff;
+}
+.item-close:hover { background: rgba(255, 255, 255, 0.2); }
+.item-tile.full .item-close { display: inline-flex; }
 .item-sku { font-size: 11px; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* As short as the owner's own words ask: "shorten them, make them as
    short as possible" — CHANNEL_LABEL itself carries "Web"/"In store" now,
@@ -1719,6 +1732,7 @@ function itemTile(product, canEdit) {
         <div class="item-top-right">
           <span class="item-price">${esc(priceText)}</span>
           <button type="button" class="item-share" aria-label="Copy a link to this item" title="Copy a link to this item">${CLIPBOARD}</button>
+          <button type="button" class="item-close" aria-label="Close" title="Close">${CANCEL_ICON}</button>
         </div>
       </div>
       <div class="item-bottom"><span class="item-sku">${esc(primarySku)}</span><div class="item-tags">${tags}</div></div>
@@ -2033,23 +2047,31 @@ if (!ItemSpeechRecognitionCtor) {
    makes. No dedicated Expand button any more — the owner's own words:
    "there is no need to have an expand button. Clicking the entire
    button should expand it automatically" — so a click ANYWHERE on a
-   tile toggles it, except inside .item-edit (its own inputs, selects,
-   buttons and <summary> stay independently interactive; collapsing the
-   tile out from under someone mid-edit would lose the click they meant
-   to make) or .item-share (its own click copies a link — see below —
-   rather than collapsing the very tile it just expanded further). Toggling
-   .full on the tile itself grows the SAME element in place (TABLE_CARD_CSS's
-   own .table-card.full convention in the chat log) instead of opening a
-   second element or tracking separate scroll state. */
+   COLLAPSED tile expands it, except inside .item-edit (its own inputs,
+   selects, buttons and <summary> stay independently interactive).
+   Closing it again is deliberately NOT the same click-anywhere gesture
+   any more — the owner's own words, after it shipped that way: "it's
+   too easy to click somewhere wrong and it will close, and that's not
+   a good experience... maybe it just needs a proper close button." Only
+   .item-close collapses an already-expanded tile; a click on its body
+   (outside .item-edit and .item-share) now does nothing at all. Toggling
+   .full on the tile itself still grows the SAME element in place
+   (TABLE_CARD_CSS's own .table-card.full convention in the chat log)
+   instead of opening a second element or tracking separate scroll state. */
 document.getElementById("items-grid").addEventListener("click", (e) => {
   const shareBtn = e.target.closest(".item-share");
   if (shareBtn) {
     shareLink(shareBtn);
     return;
   }
+  const closeBtn = e.target.closest(".item-close");
+  if (closeBtn) {
+    closeBtn.closest(".item-tile").classList.remove("full");
+    return;
+  }
   const tile = e.target.closest(".item-tile");
-  if (!tile || e.target.closest(".item-edit")) return;
-  tile.classList.toggle("full");
+  if (!tile || e.target.closest(".item-edit") || tile.classList.contains("full")) return;
+  tile.classList.add("full");
 });
 
 /* "I need to have a button somewhere, maybe top right, when I expand the
