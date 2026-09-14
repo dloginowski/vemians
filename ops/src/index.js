@@ -571,11 +571,21 @@ async function ops(request, env, path) {
     if (!assetsRes.ok) console.error(`ERROR ops/dashboard: assets.list failed — ${assetsRes.error}`);
     const uploads = assetsRes.ok ? assetsRes.data.assets : [];
 
-    /* The owner's own words: "by default, it should be on tasks... however,
-       if there are any tickets, say from a customer, that should take
-       precedence over tasks." */
-    const hasOpenCustomerTicket = tickets.some((t) => t.category === "customer" && t.status === "open");
-    const defaultKind = hasOpenCustomerTicket ? "ticket" : "task";
+    /* The owner's own words: "by default, it should be on tasks...
+       however, if there are any tickets, say from a customer, that
+       should take precedence over tasks... in general you should
+       default to tasks or tickets, whichever is not empty" — an open
+       customer ticket still wins outright when one exists; otherwise
+       auto-select whichever of Tasks/Tickets actually has something to
+       show, rather than landing on an empty view by default. Judged
+       against what the client's own default status filter will actually
+       show (open only — P0-112), not the raw row count, so this never
+       picks a mode that then renders empty once that filter applies. */
+    const visibleTickets = tickets.filter((t) => t.status !== "closed");
+    const hasOpenCustomerTicket = visibleTickets.some((t) => t.category === "customer" && t.status === "open");
+    const hasTasks = visibleTickets.some((t) => t.assigned_to === email);
+    const hasTickets = visibleTickets.length > 0;
+    const defaultKind = hasOpenCustomerTicket ? "ticket" : hasTasks ? "task" : hasTickets ? "ticket" : "task";
 
     return html(dashboardPage({ tickets, expenses, uploads, viewerEmail: email, defaultKind }));
   }

@@ -358,36 +358,28 @@ check("test_PRD_P0_80_minimum_interface__the_bindings_footnote_and_the_model_nam
   assert.doesNotMatch(body, /class="bind"/);
 });
 
-check("test_PRD_P0_80_minimum_interface__only_chat_and_the_three_common_actions_remain", async () => {
+check("test_PRD_P0_113_quick_actions_removed__the_one_click_chips_are_gone_but_the_model_still_offers_them_by_name", async () => {
+  /* The owner's own words: "remove the quick action buttons from agent, I
+     think they're redundant now that we have an actual mechanism to add
+     things in our dashboard... it's just clutter at this point... the
+     functionality should still exist... maybe you can suggest... when
+     you say hi to agent... there don't need to be an actual button that
+     you click on." The clickable chips (P0-69/P0-74/P0-78/P0-80's own
+     ".menu"/".choices") are gone; the model's own first-message menu
+     (greeting.js's greetingScript(), unchanged by this) already offers
+     the same three actions as plain numbered text instead. */
   const { body } = await frontPage(OWNER);
   const main = body.slice(body.indexOf("<main"), body.indexOf("<script"));
   assert.match(main, /id="chat"/, "the chat widget must still be there");
-  for (const action of ["+ Products", "+ Customers", "+ Expense"]) {
-    assert.ok(main.includes(action), `"${action}" must still be a one-click action`);
-  }
-});
+  assert.doesNotMatch(main, /class="menu"/, "the quick-action menu section must be gone");
+  assert.doesNotMatch(main, /class="choices"/, "the quick-action chips must be gone");
+  assert.doesNotMatch(body, /data-prompt=/, "no chip-driven canned prompt should remain wired up");
 
-check("test_PRD_P0_69_one_click_welcome_menu__greets_by_first_name_with_the_choices_above_everything_else", async () => {
-  /* The literal ask: a welcome message, by name, offering + Products /
-     + Customers / + Expense — reachable without leaving the page, without
-     connecting anything, in one click. "More Options" was itself retired
-     by P0-80: there is nothing left on the page for it to open. */
-  const { body } = await frontPage(OWNER);
-  const main = body.slice(body.indexOf("<main"));
-  assert.match(main, /Hi Owner — what would you like to do/, "greets by the resolved first name");
-
-  const order = ["+ Products", "+ Customers", "+ Expense"];
-  let cursor = -1;
-  for (const item of order) {
-    const at = main.indexOf(item);
-    assert.ok(at !== -1, `"${item}" is missing from the welcome menu`);
-    assert.ok(at > cursor, `"${item}" is out of order`);
-    cursor = at;
-  }
-
-  assert.match(main, /data-prompt="Add products"[^>]*>\+ Products/);
-  assert.match(main, /data-prompt="Add customers"[^>]*>\+ Customers/);
-  assert.match(main, /data-prompt="Submit an expense"[^>]*>\+ Expense/);
+  const { greetingScript } = await import("../src/greeting.js");
+  const script = greetingScript("Owner");
+  assert.match(script, /Add Merchandise/, "the model must still offer the same actions by name in its own first message");
+  assert.match(script, /Add Customers/);
+  assert.match(script, /Submit Expenses/);
 });
 
 check("test_PRD_P0_69_one_click_welcome_menu__the_built_in_chat_is_open_at_rest_not_a_folded_afterthought", async () => {
@@ -407,40 +399,16 @@ check("test_PRD_P0_69_one_click_welcome_menu__the_built_in_chat_is_open_at_rest_
  * P0-74 — the assistant leads the page, ahead of the one-click menu itself
  * ───────────────────────────────────────────────────────────────────────── */
 
-check("test_PRD_P0_74_chat_first__the_composer_is_the_last_thing_on_the_page_not_the_menu", async () => {
-  /* Reversed on a phone, deliberately: the owner's own words, "I really
-     should have the entry at the bottom of the phone... put the quick
-     chat buttons on top of the chat... not on the bottom." The greeting
-     still leads (it names who is signed in before anything asks for
-     input), and the one-click menu still comes right after it in the
-     markup — though since .menu became position: fixed, floating above
-     .input-bar (a later round: "float above the agent input field"),
-     document order no longer decides what a thumb has to reach past;
-     the assertion below is now about source order alone, kept for
-     screen-reader/keyboard reading order rather than visual reach. */
+check("test_PRD_P0_74_chat_first__the_greeting_still_leads_the_page", async () => {
+  /* P0-74's own guarantee (the greeting names who is signed in before
+     anything asks for input) still holds; the one-click menu it used to
+     lead ahead of no longer exists (Test-PRD-P0-113-quick_actions_removed). */
   const { body } = await frontPage(OWNER);
   const main = body.slice(body.indexOf("<main"));
   const greetAt = main.indexOf("Hi Owner — what would you like to do");
-  const menuAt = main.indexOf('<section class="menu"');
   const chatAt = main.indexOf('id="chat"');
-  assert.ok(greetAt > -1 && chatAt > -1 && menuAt > -1, "greeting, chat and menu must all be on the page");
-  assert.ok(greetAt < menuAt, "the greeting must still lead the page");
-  assert.ok(menuAt < chatAt, "the composer must come after the one-click menu, so it is the bottom-most thing on the page");
-});
-
-check("test_PRD_P0_74_chat_first__the_one_click_menu_still_carries_all_three_tasks_in_order", async () => {
-  /* P0-69's own guarantee, re-checked after the reorder: moving the assistant
-     ahead of the menu must not have quietly dropped or reordered a task. */
-  const { body } = await frontPage(OWNER);
-  const main = body.slice(body.indexOf("<main"));
-  const order = ["+ Products", "+ Customers", "+ Expense"];
-  let cursor = -1;
-  for (const item of order) {
-    const at = main.indexOf(item);
-    assert.ok(at !== -1, `"${item}" is missing from the one-click menu`);
-    assert.ok(at > cursor, `"${item}" is out of order`);
-    cursor = at;
-  }
+  assert.ok(greetAt > -1 && chatAt > -1, "greeting and chat must both be on the page");
+  assert.ok(greetAt < chatAt, "the greeting must still lead the page");
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -925,21 +893,18 @@ check("test_PRD_P0_94_mobile_edge_to_edge__the_page_containers_side_padding_matc
   const { body } = await frontPage(OWNER);
   /* Top is untouched; sides match .chat-top's own already-tightened 8px,
      so the page edge and the widget edge read as one margin rather than
-     two stacked ones. Bottom grew from 32px to 76px once #chat became
-     position: fixed (INPUT_BAR_CSS) — a fixed element is removed from
-     document flow entirely, so without this the log's own last message
-     would sit partly behind the now-floating composer — then to 108px
-     once .menu (the quick-action chips) also became position: fixed,
-     floating above .input-bar instead of sitting in flow: the same
-     reasoning again, clearing one more floating row (the chips' own
-     row, plus the gap above the composer) on top of the composer itself.
-     Test-PRD-P0-109-status_line_matches_greeting split the base 12px/8px/
-     76px shorthand out into the shared .ops rule every ops page gets
-     (OPS_DARK_CSS) — this page alone widens bottom padding further, to
-     108px, with a second, narrower override for its own extra floating
-     row, rather than repeating the whole shorthand. */
+     two stacked ones. Bottom is 76px — enough to clear #chat's own fixed
+     composer alone. Bottom briefly grew further, to 108px, once .menu
+     (the quick-action chips) also became position: fixed, floating above
+     .input-bar — removed by Test-PRD-P0-113-quick_actions_removed once
+     the Dashboard gave those same three actions an actual place to
+     happen, so this page needs no wider bottom padding than any other
+     ops page any more. Test-PRD-P0-109-status_line_matches_greeting
+     moved the base 12px/8px/76px shorthand into the shared .ops rule
+     every ops page gets (OPS_DARK_CSS) — this page no longer overrides
+     any part of it. */
   assert.match(body, /\.ops\s*\{[^}]*max-width:\s*64rem;\s*padding:\s*12px 8px 76px/s, "the shared base (top/sides/76px bottom) must still be present");
-  assert.match(body, /\.ops\s*\{[^}]*padding-bottom:\s*108px/s, "this page must still widen bottom padding for its own extra floating row");
+  assert.doesNotMatch(body, /\.ops\s*\{[^}]*padding-bottom:\s*108px/s, "the extra bottom clearance for the now-removed .menu row must be gone");
   assert.doesNotMatch(body, /\.ops\s*\{[^}]*padding:\s*12px 24px/s, "the old roomier side padding must not still be set");
 });
 
@@ -1245,34 +1210,13 @@ check("test_PRD_P0_78_chat_widget__the_clients_own_entry_builder_always_classes_
   assert.match(script, /p\.className\s*=\s*kind\s*\|\|\s*"you"/);
 });
 
-check("test_PRD_P0_78_chat_widget__the_one_click_tasks_are_small_chips_not_bold_filled_ctas", async () => {
+check("test_PRD_P0_113_quick_actions_removed__no_menu_or_choices_css_is_left_behind", async () => {
+  /* The CSS half of the same removal (Test-PRD-P0-113-
+     quick_actions_removed) — no dead rules for a section that no longer
+     renders. */
   const { body } = await frontPage(OWNER);
-  assert.match(body, /\.choices \.btn\s*\{[^}]*border-radius:\s*999px/s, "expected a pill-shaped chip");
-  assert.doesNotMatch(body, /\.choices \.btn\s*\{[^}]*font-weight:\s*700/s, "no longer a bold CTA");
-});
-
-check("test_PRD_P0_71_items_tab__the_chips_no_longer_carry_the_removed_widgets_own_accent_colour", async () => {
-  /* The owner's own words, once .chat-top's own matching accent border was
-     already gone: "get rid of that empty orange peel that's left over
-     from the agent." A hollow, accent-bordered pill only read as tied to
-     the frame it echoed (see the comment right above .chat-top); with
-     that frame gone, the same ring just looked like an unexplained
-     leftover. */
-  const { body } = await frontPage(OWNER);
-  assert.doesNotMatch(body, /\.choices \.btn\s*\{[^}]*border:\s*1px solid var\(--accent\)/s, "the old accent border must be gone");
-  assert.doesNotMatch(body, /\.choices \.btn\s*\{[^}]*color:\s*var\(--accent\)/s, "the old accent text colour must be gone");
-  assert.match(body, /\.choices \.btn\s*\{[^}]*border:\s*1px solid var\(--muted\)/s, "expected the same neutral border every other plain control now uses");
-});
-
-check("test_PRD_P0_71_items_tab__the_menu_floats_above_the_input_bar_not_in_flow_above_the_greeting", async () => {
-  /* The owner's own words: "those quick actions to fill the agent, let's
-     have them float above the agent input field." position: fixed, the
-     same mechanism .input-bar itself uses, anchored a gap above it
-     rather than sitting in normal document flow. */
-  const { body } = await frontPage(OWNER);
-  assert.match(body, /\.menu\s*\{[^}]*position:\s*fixed/s);
-  assert.match(body, /\.menu\s*\{[^}]*bottom:\s*58px/s, "58px = .input-bar's own 8px offset + its 42px height + an 8px gap above it");
-  assert.match(body, /\.menu\s*\{[^}]*left:\s*8px[^}]*right:\s*8px/s, "must share .input-bar's own left/right so the two floating rows line up");
+  assert.doesNotMatch(body, /\.menu\s*\{/, "no CSS for the removed quick-action menu should remain");
+  assert.doesNotMatch(body, /\.choices/, "no CSS for the removed quick-action chips should remain");
 });
 
 /* ─────────────────────────────────────────────────────────────────────────

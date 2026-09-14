@@ -106,8 +106,9 @@ a:hover { opacity: 0.82; }
    it, not just the one that happened to declare it first. Bottom is 76px
    here — enough to clear .input-bar alone (its own ~42px height + 8px
    offset + a little breathing room) — the correct default for a page
-   with no OTHER floating row above the bar; opsPage() widens it further
-   in its own OPS_CSS for the quick-action chips .menu also floats. */
+   with no OTHER floating row above the bar (every ops page today,
+   opsPage() included, once its own quick-action chips were removed —
+   see OPS_CSS's own comment). */
 .ops { max-width: 64rem; padding: 12px 8px 76px; }
 `;
 
@@ -246,11 +247,10 @@ const INPUT_BAR_CSS = `
    Dashboard's own kind picker (Tickets/Tasks/Expenses/Uploads) reusing the
    same shape rather than a second, independently matched copy. Moved here
    from ITEMS_CSS once a second bar needed it — shared, not duplicated, the
-   same reasoning every other rule in this file already gets. Floats the
-   same way .menu floats above the agent composer (opsPage(), OPS_CSS):
-   position: fixed, anchored a gap above .input-bar's own bottom (8px
-   offset + 42px height + 8px gap = 58px), left-aligned near the filter
-   button rather than spanning the full bar. */
+   same reasoning every other rule in this file already gets. position:
+   fixed, anchored a gap above .input-bar's own bottom (8px offset + 42px
+   height + 8px gap = 58px), left-aligned near the filter button rather
+   than spanning the full bar. */
 .category-menu {
   position: fixed; left: 8px; bottom: 58px; z-index: 21; max-width: 70vw;
   display: flex; flex-direction: column; gap: 2px; padding: 6px;
@@ -264,10 +264,9 @@ const INPUT_BAR_CSS = `
    the fix: restate none for [hidden] specifically, so JS toggling
    .hidden (never .style.display) actually shows and hides it. */
 .category-menu[hidden] { display: none; }
-/* Same visual language as .choices .btn (the agent page's own quick-prompt
-   chips, OPS_CSS) — 11px, pill-ish, a muted border on --image-ground —
-   kept as its own rule rather than sharing that class, since .choices
-   itself lives in OPS_CSS and neither Items nor the Dashboard imports it. */
+/* 11px, pill-ish, a muted border on --image-ground — kept as its own
+   rule rather than a shared one, since nothing else on these two pages
+   needs quite this shape. */
 .category-menu .category-item {
   display: block; width: 100%; text-align: left; font: inherit; font-size: 11px;
   padding: 6px 10px; border: 1px solid var(--rule); border-radius: 999px;
@@ -536,21 +535,19 @@ document.querySelectorAll(".shell-nav button").forEach((btn) => {
 const OPS_CSS = `
 ${OPS_DARK_CSS}
 ${INPUT_BAR_CSS}
-/* max-width/top/side padding now live on the shared .ops rule in
-   OPS_DARK_CSS (every ops page gets them, not just this one) — only the
-   BOTTOM padding is wider here, and only because this page alone carries
-   a second floating row above .input-bar.
- *
- * Bottom padding grew from the shared 76px (which already clears
- * .input-bar alone — see OPS_DARK_CSS's own comment) to 108px once .menu
- * (the quick-action chips) also became position: fixed, floating above
- * .input-bar instead of sitting in flow above the greeting: the existing
- * 76px already clears .input-bar itself, +8px for the gap .menu floats
- * above it by, +~24px for .menu's own single row of chips, so .log's own
- * last message stops clear of BOTH floating rows, not just the composer.
- * Ops-page only: itemsPage() and dashboardPage() have no floating .menu
- * of their own, so they keep the shared 76px unchanged. */
-.ops { padding-bottom: 108px; }
+/* max-width/top/side/bottom padding all come from the shared .ops rule in
+   OPS_DARK_CSS now — this page no longer needs its own wider bottom
+   padding for a second floating row, since .menu (the quick-action
+   chips) was removed once the Dashboard gave "add a ticket, a task, an
+   expense, an upload" an actual place to happen: "remove the quick
+   action buttons from agent, I think they're redundant now that we have
+   an actual mechanism to add things in our dashboard... it's just
+   clutter at this point." The underlying capability is untouched — the
+   model still offers the same numbered menu on its own first message
+   (greeting.js's greetingScript()) — only the clickable shortcut chips
+   are gone: "the functionality should still exist... maybe you can
+   suggest... when you say hi to agent... there don't need to be an
+   actual button that you click on." */
 
 .ops .warn { margin: 0 0 14px; }
 
@@ -559,13 +556,10 @@ ${INPUT_BAR_CSS}
 
 /* The widget itself reads as one contained thing — a border around the
    whole assistant, not just around the log inside it — so it does not look
-   like loose page furniture next to the chips below it. Rounder than a
-   typical card, closer to the composer shape it wraps, per the reference
-   screenshot of a mobile chat composer this was asked to match. */
-/* Same orange as the quick-prompt chips below it (.choices .btn) — one
-   accent colour tying the widget to the shortcuts that feed it, rather than
-   the plain neutral --rule every other box on the page uses.
- *
+   like loose page furniture. Rounder than a typical card, closer to the
+   composer shape it wraps, per the reference screenshot of a mobile chat
+   composer this was asked to match. */
+/*
  * All FOUR sides are the same 14px again, matching top — the direction
  * this kept getting corrected in was backwards. The owner's own words:
  * "I didn't ask you to make bottom gap smaller I asked the side padding
@@ -600,41 +594,6 @@ ${INPUT_BAR_CSS}
    exactly the kind of inherited-margin bug (P0-96, P0-99) this file
    has been bitten by more than once. */
 #chat { margin-top: 0; }
-
-/* Floats directly above the composer now, not in normal document flow above
-   the greeting — the owner's own words: "those quick actions to fill the
-   agent, let's have them float above the agent input field." position:
-   fixed, the same mechanism .input-bar already uses, anchored a gap above
-   it rather than below the greeting: bottom = .input-bar's own 8px offset
-   + its 42px height + an 8px gap = 58px. left/right match .input-bar's own
-   8px so the two floating rows share one edge. Removed from flow entirely,
-   so it no longer pushes .chat-top down — see .ops's own bottom padding
-   for the corresponding room made below it. */
-.menu {
-  margin: 0; position: fixed; left: 8px; right: 8px; bottom: 58px; z-index: 19;
-}
-/* Small chips, not CTAs — three routine tasks and a fold, not the thing on
-   the page asking to be pressed hardest. The chat above is that thing now.
-   No heading of their own: they read as quick prompts for the composer
-   they now float directly above, rather than a second menu competing
-   with it. */
-.choices { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
-/* No longer the accent orange — the owner's own words, once .chat-top's
-   own matching accent border was already gone: "get rid of that empty
-   orange peel that's left over from the agent." A transparent-fill,
-   accent-bordered pill only read as a coherent design tied to the frame
-   it echoed; with that frame gone, the same hollow orange ring just
-   looked like an unexplained leftover. Filled with the same
-   --image-ground/--muted pairing .input-bar already uses, so a chip
-   floating over chat content stays legible rather than picking up
-   whatever text sits behind it. */
-.choices .btn {
-  display: inline-block; font: inherit; font-size: 11px; line-height: 1.2;
-  padding: 4px 9px; margin: 0; border: 1px solid var(--muted); border-radius: 999px;
-  background: var(--image-ground); color: var(--ink); text-decoration: none; font-weight: 400;
-  cursor: pointer;
-}
-.choices .btn:hover { background: var(--muted); color: var(--ground); }
 
 /* One copyable line. The <pre> scrolls rather than wrapping, so a long command
    never reflows the page on a phone; the button stays beside it at every width
@@ -947,23 +906,6 @@ ${id}
     <h1>Hi ${esc(firstName)} — what would you like to do?</h1>
   </section>
 
-  <!-- Structurally still ahead of the chat log in the markup (an earlier
-       round's "sits above the chat, not below it" — the owner's own
-       words: "you can put the quick chat buttons on top of the chat...
-       not on the bottom"), but its own visual position is now entirely
-       CSS-driven, not order-driven: .menu is position: fixed, floating
-       directly above .input-bar (see .menu's own CSS) rather than
-       sitting in flow above the greeting — the owner's own words, this
-       round: "those quick actions to fill the agent, let's have them
-       float above the agent input field." -->
-  <section class="menu">
-    <div class="choices">
-      <button type="button" class="btn" data-prompt="Add products">+ Products</button>
-      <button type="button" class="btn" data-prompt="Add customers">+ Customers</button>
-      <button type="button" class="btn" data-prompt="Submit an expense">+ Expense</button>
-    </div>
-  </section>
-
   <section class="key chat-top">
     ${hasKey ? "" : '<p class="hint">No model connected &mdash; set <code>ANTHROPIC_API_KEY</code> to turn this on.</p>'}
     <div class="log" id="log"></div>
@@ -1253,17 +1195,6 @@ document.getElementById("chat").addEventListener("submit", async (e) => {
     console.error("agent request failed", err);
     entry("agent", "Request failed: " + err.message);
   }
-});
-
-/* The one-click chips are quick PROMPTS now, not links to a separate page —
-   chat is the one entry point for everything (the owner's own words: "I
-   want them to go to chat"). Filling the box and submitting the same form
-   reuses every bit of the handler above rather than duplicating the fetch. */
-document.querySelectorAll(".choices .btn[data-prompt]").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    qInput.value = btn.dataset.prompt;
-    document.getElementById("chat").requestSubmit();
-  });
 });
 </script>`,
     OPS_CSS,
@@ -2284,7 +2215,21 @@ function filterFeed() {
   dashGroups.forEach((group) => {
     const show = !currentMode || group.dataset.kind === currentMode;
     group.hidden = !show;
-    if (currentMode && show) group.open = true;
+    if (currentMode) {
+      group.open = true;
+      /* "No need for accordion for selected modes. Accordion is only
+         when showing all." — the owner's own words. Hiding the summary
+         (not removing it) leaves the content showing plainly with no
+         collapse chevron and nothing left to click — a real browser
+         falls back to no marker at all for a present-but-hidden summary,
+         not a default "Details" label, so this is a clean plain list,
+         not a broken accordion. */
+      const summary = group.querySelector("summary");
+      if (summary) summary.hidden = true;
+    } else {
+      const summary = group.querySelector("summary");
+      if (summary) summary.hidden = false;
+    }
   });
   refreshCounts();
 }
