@@ -3247,7 +3247,44 @@ that does not trace to one of these is a process failure (see §12).
     in the same commit: `mix-blend-mode`/`filter: invert()` reads reliably only against a flat
     color, not a real photograph, and would go illegible on exactly the busy images this tile
     exists to show; the flat translucent bar reads correctly against anything, photo or no photo,
-    with no per-pixel guessing involved.
+    with no per-pixel guessing involved. **Revised (P0-132): raised to 75% opacity** — the owner's
+    own words, seeing it live: "make those bars more opaque, so like 75%, because they're still too
+    transparent to be visible in the item thumbnail view."
+
+67. **`Test-PRD-P0-132-item_deep_link`** — The owner's own words: "I need to have a button
+    somewhere, maybe top right, when I expand the product. I want to get a deep link into that
+    expanded view so I can send it to somebody."
+
+    **`.item-share` — a plain clipboard icon, reusing the same `CLIPBOARD` glyph and copy-feedback
+    convention `copyLine()`/`COPY_JS` already established for a code block in the chat log — sits
+    beside the price in `.item-top`, hidden on a collapsed tile and shown only once it carries
+    `.full`.** A link to an unexpanded tile would have nothing to point at that a plain visit to
+    `/items` doesn't already show, so the button simply does not exist until there is something
+    worth linking to. Clicking it copies `location.origin + location.pathname + "#item-" +
+    encodeURIComponent(handle)` — a URL **fragment**, not a server route: the whole catalog already
+    renders in one response (P0-71's own architecture), so a real `/items/<handle>` fetch would
+    return data this page already holds. The click-delegation handler on `#items-grid` special-cases
+    `.item-share` the same way it already special-cases `.item-edit` — otherwise the very click that
+    copies the link would also toggle the tile it just expanded further shut.
+
+    **Opening the link is the other half — a plain page load, then a hash check.** `#item-<handle>`
+    is read once the grid's own listeners are wired: the matching tile is forced `hidden = false`
+    and given `.full` regardless of whatever category or status filter is currently selected, and
+    scrolled into view. The owner's own reasoning extends naturally here: the whole point of a link
+    someone sends is that IT decides what the recipient sees, not whatever filter happened to be
+    active when it was copied — an inactive product's own deep link must still open even though
+    Inactive is not the default status filter.
+
+    **Also fixed in the same commit, caught by the owner mid-session rather than a test:
+    `approvalPage()` read `pending.actor` for its "Asked by" line, but `parkForApproval()`
+    (`approvals.js`) stores the requester as `pending.requestedBy` — every real approval page
+    therefore read "Asked by unknown," regardless of who actually asked.** The two existing
+    `approvalPage()` tests exercising this line (`catalog-write... shows_the_write_without_doing_it`,
+    `args_are_escaped_not_rendered`, both in `approvals.test.mjs`) passed anyway, because their own
+    fixtures ALSO used `actor` rather than `requestedBy` — the bug and its test fixture agreed with
+    each other, which is exactly how it shipped unnoticed. Both fixtures now pass `requestedBy`,
+    matching the real shape `parkForApproval()` actually produces, and a new check asserts "Asked
+    by" never reads "unknown" when a requester is present.
 
 ## 4. P1 features
 
@@ -3531,6 +3568,7 @@ Where each feature is enforced today:
 | P0-129 | `ops/test/dashboard-route.test.mjs` |
 | P0-130 | `ops/test/items-route.test.mjs` |
 | P0-131 | `ops/test/items-route.test.mjs` |
+| P0-132 | `ops/test/items-route.test.mjs`, `ops/test/approvals.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

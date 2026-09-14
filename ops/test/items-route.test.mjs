@@ -781,7 +781,7 @@ check("test_PRD_P0_131_item_status_filter__the_collapsed_tile_shows_title_price_
   seedProduct(mirror);
   const res = await get("/items", STAFF, env(mirror));
   const body = await res.text();
-  assert.match(body, /<div class="item-top"><h3>Wool Coat<\/h3><span class="item-price">\$ 450<\/span><\/div>/);
+  assert.match(body, /<div class="item-top"><h3>Wool Coat<\/h3>\s*<div class="item-top-right">\s*<span class="item-price">\$ 450<\/span>/);
   assert.match(
     body,
     /<div class="item-bottom"><span class="item-sku">VEM-100<\/span><div class="item-tags"><span class="item-tag channel-direct_link">In store<\/span><span class="item-tag">Outerwear<\/span><\/div><\/div>/,
@@ -919,9 +919,64 @@ check("test_PRD_P0_131_item_status_filter__the_overlay_bars_are_a_flat_transluce
   seedProduct(mirror);
   const res = await get("/items", STAFF, env(mirror));
   const body = await res.text();
-  assert.match(body, /\.item-top, \.item-bottom \{[^}]*background:\s*rgba\(25, 24, 23, 0\.5\)/s);
+  assert.match(body, /\.item-top, \.item-bottom \{[^}]*background:\s*rgba\(25, 24, 23, 0\.75\)/s);
   assert.doesNotMatch(body, /\.item-top\s*\{[^}]*linear-gradient/s);
   assert.doesNotMatch(body, /\.item-bottom\s*\{[^}]*linear-gradient/s);
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-132 — a deep link into one product's own expanded view, copyable from
+ * a button that only appears once the tile is expanded.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_132_item_deep_link__every_tile_carries_its_own_handle_and_a_hidden_share_button", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.match(body, /data-handle="wool-coat"/);
+  assert.match(body, /class="item-share"/);
+  assert.match(body, /\.item-share\s*\{[^}]*display:\s*none/s, "the share button must be hidden on a collapsed tile");
+  assert.match(body, /\.item-tile\.full \.item-share\s*\{[^}]*display:\s*inline-flex/s, "and shown once the tile is expanded");
+});
+
+check("test_PRD_P0_132_item_deep_link__clicking_share_does_not_also_collapse_the_tile", async () => {
+  /* The click-delegation handler must special-case .item-share the same
+     way it already special-cases .item-edit — otherwise the very click
+     that copies the link would also collapse the tile out from under it. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  const handler = body.slice(body.indexOf('addEventListener("click", (e) => {\n  const shareBtn'), body.indexOf("shareLink(shareBtn)") + 60);
+  assert.match(handler, /const shareBtn = e\.target\.closest\("\.item-share"\);/);
+  assert.match(handler, /shareLink\(shareBtn\);\s*\n\s*return;/);
+});
+
+check("test_PRD_P0_132_item_deep_link__the_link_is_a_hash_not_a_server_route", async () => {
+  /* The owner's own words: "I want to get a deep link into that expanded
+     view so I can send it to somebody." The whole catalog already renders
+     in one response, so #item-<handle> costs nothing a real route would
+     otherwise fetch. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.match(body, /"#item-" \+ encodeURIComponent\(handle\)/);
+});
+
+check("test_PRD_P0_132_item_deep_link__opening_a_linked_item_forces_it_visible_and_expanded", async () => {
+  /* "Whoever opens the link sees the product, not today's filter state" —
+     a linked product must un-hide itself even if it would otherwise be
+     filtered out by category or status. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  const fn = body.slice(body.indexOf('location.hash.startsWith("#item-")'), body.indexOf('location.hash.startsWith("#item-")') + 500);
+  assert.match(fn, /linked\.hidden = false;/);
+  assert.match(fn, /linked\.classList\.add\("full"\);/);
+  assert.match(fn, /linked\.scrollIntoView/);
 });
 
 test("test_PRD_P0_30_prd_traceability__every_label_used_in_this_file_exists_in_the_prd", async () => {
