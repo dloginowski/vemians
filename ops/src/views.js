@@ -209,7 +209,20 @@ const TABLE_CARD_CSS = `
 const SHELL_CSS = `
 ${OPS_DARK_CSS}
 html, body { height: 100%; margin: 0; }
-.shell { display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; background: var(--ground); }
+/* height: 100dvh, with a 100vh fallback for browsers that predate it —
+   the owner's own words, about the header losing its own bottom edge
+   while scrolling the Website tab: "the tabs should be in a header,
+   and it should not lose its edge at all because it's part of the
+   header." 100vh on a phone is measured against the LARGEST possible
+   viewport (address bar collapsed), not the one actually visible when
+   the page loads (address bar expanded) — .shell's own flex layout was
+   sized taller than the real visible area, so .shell-header (flex: 0 0
+   auto, meant to stay fixed) could end up partly below the fold until
+   the browser chrome's own height was accounted for. 100dvh tracks the
+   dynamic, ACTUAL visible viewport as the address bar shows and hides,
+   keeping the header's own bottom border pinned exactly where the real
+   viewport ends, not where the largest possible one would. */
+.shell { display: flex; flex-direction: column; height: 100vh; height: 100dvh; box-sizing: border-box; background: var(--ground); }
 /* Side padding matched .ops's own 8px, then doubled to 16px for more
    visible separation — then the owner's own words, more precisely: "First
    tab on left matches the inner chat left extent." That is not .ops's own
@@ -688,6 +701,25 @@ ${id}
     <h1>Hi ${esc(firstName)} — what would you like to do?</h1>
   </section>
 
+  <!-- The quick-action menu sits ABOVE the chat now, not below it — the
+       owner's own words: "you can put the quick chat buttons on top of
+       the chat... not on the bottom." With the menu below chat-top
+       before this, the composer was never the true bottom-most thing
+       on the page; on a phone, "I really should have the entry at the
+       bottom... I can't be reaching to the top of the phone just to
+       put in stuff." .log's own internal scroll (max-height, overflow:
+       auto — unchanged) keeps chat-top a fixed height regardless of
+       message count, so moving the menu above it is what actually
+       pins the composer to the bottom of the page, not just visually
+       near it. -->
+  <section class="menu">
+    <div class="choices">
+      <button type="button" class="btn" data-prompt="Add products">+ Products</button>
+      <button type="button" class="btn" data-prompt="Add customers">+ Customers</button>
+      <button type="button" class="btn" data-prompt="Submit an expense">+ Expense</button>
+    </div>
+  </section>
+
   <section class="key chat-top">
     ${hasKey ? "" : '<p class="hint">No model connected &mdash; set <code>ANTHROPIC_API_KEY</code> to turn this on.</p>'}
     <div class="log" id="log"></div>
@@ -701,14 +733,6 @@ ${id}
       </div>
       <input type="file" id="attach-input" hidden>
     </form>
-  </section>
-
-  <section class="menu">
-    <div class="choices">
-      <button type="button" class="btn" data-prompt="Add products">+ Products</button>
-      <button type="button" class="btn" data-prompt="Add customers">+ Customers</button>
-      <button type="button" class="btn" data-prompt="Submit an expense">+ Expense</button>
-    </div>
   </section>
 </main>
 <script>
@@ -1187,15 +1211,20 @@ export function itemsPage({ role }, products) {
 
   return page(
     "Items — Vemians ops",
-    /* No bar here either — see the same note on opsPage(). Search sits
-       BELOW the grid, not above it — the owner's own words: "it's not
-       easy to put in stuff at the top of the screen of the phone." A
-       thumb reaches the bottom of a phone screen far more easily than
-       the top, so the one thing on this page that's typed into every
-       time belongs where a thumb already rests, not up where it has to
-       stretch. */
+    /* No bar here either — see the same note on opsPage(). No "Items"
+       title either — the owner's own words: "we have the tab, we know
+       we're in items right now. Get rid of all that stuff." The tab
+       bar itself already names the page; a second, page-drawn label
+       right under it was pure wasted vertical space on a phone. The
+       grid now starts right at .ops's own existing top padding instead
+       — the same modest spacing every other page here already uses,
+       no extra title block on top of it. Search sits BELOW the grid,
+       not above it — the owner's own words: "it's not easy to put in
+       stuff at the top of the screen of the phone." A thumb reaches
+       the bottom of a phone screen far more easily than the top, so
+       the one thing on this page that's typed into every time belongs
+       where a thumb already rests, not up where it has to stretch. */
     `<main class="ops">
-  <section class="greet"><h1>Items</h1></section>
   <div class="items-grid" id="items-grid">
 ${tiles}
   </div>

@@ -217,6 +217,21 @@ check("test_PRD_P0_71_items_tab__the_search_box_sits_below_the_grid_not_above_it
   assert.ok(searchAt > gridAt, "the search box must come after the grid in document order");
 });
 
+check("test_PRD_P0_71_items_tab__no_redundant_title_wastes_space_the_tab_bar_already_spent", async () => {
+  /* The owner's own words: "we have the tab, we know we're in items
+     right now. Get rid of all that stuff." The tab bar itself already
+     names the page; a second, page-drawn "Items" heading right under
+     it was pure wasted vertical space on a phone. The grid now starts
+     right at .ops's own existing top padding, no title block eating
+     into it first. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.doesNotMatch(body, /class="greet"/, "no redundant title section may remain");
+  assert.doesNotMatch(body, /<h1>Items<\/h1>/, "no redundant Items heading may remain");
+});
+
 check("test_PRD_P0_71_items_tab__items_no_longer_draws_its_own_copy_of_the_tab_bar_or_banner", async () => {
   /* The persistent shell (index.js's / route, views.js's shellPage()) is the
      ONLY place the tab bar AND the "employees only" strip render now — the

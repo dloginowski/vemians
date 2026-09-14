@@ -91,6 +91,21 @@ check("test_PRD_P0_71_items_tab__the_root_page_is_a_shell_with_both_tabs_and_an_
   assert.match(body, /<button[^>]*>Items<\/button>/);
 });
 
+check("test_PRD_P0_71_items_tab__the_shell_height_tracks_the_real_mobile_viewport_not_the_largest_one", async () => {
+  /* The owner's own words, about the header losing its own bottom
+     edge while scrolling the Website tab: "the tabs should be in a
+     header, and it should not lose its edge at all because it's part
+     of the header." 100vh alone on a phone is measured against the
+     LARGEST possible viewport (address bar collapsed), not the one
+     actually visible when the page loads — .shell's own flex layout
+     could end up sized taller than the real visible area, letting
+     .shell-header drift out of view until the browser's own chrome
+     height was accounted for. 100dvh, with 100vh kept first as a
+     fallback for older browsers, tracks the real, dynamic viewport. */
+  const { body } = await shell(OWNER);
+  assert.match(body, /\.shell\s*\{[^}]*height:\s*100vh;\s*height:\s*100dvh/s);
+});
+
 check("test_PRD_P0_71_items_tab__the_shell_defaults_to_the_agent_tab", async () => {
   const { body } = await shell(OWNER);
   assert.match(body, /id="ops-frame" src="\/chat"/, "the iframe must default to the chat content");
@@ -367,19 +382,23 @@ check("test_PRD_P0_69_one_click_welcome_menu__the_built_in_chat_is_open_at_rest_
  * P0-74 — the assistant leads the page, ahead of the one-click menu itself
  * ───────────────────────────────────────────────────────────────────────── */
 
-check("test_PRD_P0_74_chat_first__the_assistant_is_the_first_interactive_thing_after_the_greeting", async () => {
-  /* The owner's own direction, in as many words: chat assistant on top. The
-     greeting still leads (it names who is signed in before anything asks for
-     input), but the assistant now comes before even the one-click menu
-     P0-69 put directly on the page — not after it, and not behind a fold. */
+check("test_PRD_P0_74_chat_first__the_composer_is_the_last_thing_on_the_page_not_the_menu", async () => {
+  /* Reversed on a phone, deliberately: the owner's own words, "I really
+     should have the entry at the bottom of the phone... put the quick
+     chat buttons on top of the chat... not on the bottom." The greeting
+     still leads (it names who is signed in before anything asks for
+     input), and the one-click menu still comes right after it — but
+     the composer (inside .chat-top, after .log) is now the true
+     bottom-most thing on the page, not the menu, so a thumb never has
+     to reach up past the menu to type. */
   const { body } = await frontPage(OWNER);
   const main = body.slice(body.indexOf("<main"));
   const greetAt = main.indexOf("Hi Owner — what would you like to do");
-  const chatAt = main.indexOf('id="chat"');
   const menuAt = main.indexOf('<section class="menu"');
+  const chatAt = main.indexOf('id="chat"');
   assert.ok(greetAt > -1 && chatAt > -1 && menuAt > -1, "greeting, chat and menu must all be on the page");
-  assert.ok(greetAt < chatAt, "the greeting must still lead the page");
-  assert.ok(chatAt < menuAt, "the assistant must come before the one-click menu, not after it");
+  assert.ok(greetAt < menuAt, "the greeting must still lead the page");
+  assert.ok(menuAt < chatAt, "the composer must come after the one-click menu, so it is the bottom-most thing on the page");
 });
 
 check("test_PRD_P0_74_chat_first__the_one_click_menu_still_carries_all_three_tasks_in_order", async () => {
