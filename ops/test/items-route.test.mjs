@@ -211,14 +211,15 @@ check("test_PRD_P0_71_items_tab__a_tile_expands_to_the_full_screen_instead_of_cr
      data." Same convention as TABLE_CARD_CSS's own .table-card.full in
      the chat log — the SAME element grows in place via a toggled
      class, not a second element or separate scroll state. No dedicated
-     Expand button (P0-130) — a click anywhere on the tile toggles it. */
+     Expand button (P0-130) — a click anywhere on a COLLAPSED tile
+     expands it; P0-133 changed closing to a dedicated button only. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const res = await get("/items", STAFF, env(mirror));
   const body = await res.text();
   assert.doesNotMatch(body, /class="item-expand"/, "the dedicated expand button was removed by P0-130");
   assert.match(body, /\.item-tile\.full\s*\{[^}]*position:\s*fixed/s);
-  assert.match(body, /classList\.toggle\("full"\)/, "a click must toggle the SAME element, not open a second one");
+  assert.match(body, /classList\.add\("full"\)/, "a click on a collapsed tile must expand the SAME element, not open a second one");
 });
 
 check("test_PRD_P0_71_items_tab__the_search_box_sits_below_the_grid_not_above_it", async () => {
@@ -804,7 +805,7 @@ check("test_PRD_P0_130_item_tile_photo__everything_else_moves_into_the_expanded_
   assert.match(body, /\.item-tile\.full \.item-detail\s*\{[^}]*display:\s*flex/s);
 });
 
-check("test_PRD_P0_130_item_tile_photo__no_dedicated_expand_button_a_click_anywhere_toggles_it", async () => {
+check("test_PRD_P0_130_item_tile_photo__no_dedicated_expand_button_a_click_anywhere_expands_it", async () => {
   const mirror = mirrorDb();
   seedProduct(mirror);
   const res = await get("/items", STAFF, env(mirror));
@@ -812,8 +813,8 @@ check("test_PRD_P0_130_item_tile_photo__no_dedicated_expand_button_a_click_anywh
   assert.doesNotMatch(body, /item-expand/);
   assert.match(
     body,
-    /const tile = e\.target\.closest\("\.item-tile"\);\s*\n\s*if \(!tile \|\| e\.target\.closest\("\.item-edit"\)\) return;/,
-    "a click anywhere on the tile toggles it, except inside the edit form",
+    /const tile = e\.target\.closest\("\.item-tile"\);\s*\n\s*if \(!tile \|\| e\.target\.closest\("\.item-edit"\) \|\| tile\.classList\.contains\("full"\)\) return;/,
+    "a click anywhere on a COLLAPSED tile expands it, except inside the edit form or once already expanded",
   );
 });
 
@@ -977,6 +978,43 @@ check("test_PRD_P0_132_item_deep_link__opening_a_linked_item_forces_it_visible_a
   assert.match(fn, /linked\.hidden = false;/);
   assert.match(fn, /linked\.classList\.add\("full"\);/);
   assert.match(fn, /linked\.scrollIntoView/);
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-133 — closing an expanded tile takes a dedicated button, not a click
+ * anywhere on its body (which stays the way a COLLAPSED tile expands).
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_133_item_close_button__every_tile_carries_a_close_button_hidden_until_expanded", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.match(body, /<button type="button" class="item-close" aria-label="Close" title="Close">/);
+  assert.match(body, /\.item-close\s*\{[^}]*display:\s*none/s, "the close button must be hidden on a collapsed tile");
+  assert.match(body, /\.item-tile\.full \.item-close\s*\{[^}]*display:\s*inline-flex/s, "and shown once the tile is expanded");
+});
+
+check("test_PRD_P0_133_item_close_button__clicking_it_collapses_the_tile", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  const handler = body.slice(body.indexOf('const closeBtn = e.target.closest(".item-close");'), body.indexOf('const closeBtn = e.target.closest(".item-close");') + 150);
+  assert.match(handler, /closeBtn\.closest\("\.item-tile"\)\.classList\.remove\("full"\);/);
+});
+
+check("test_PRD_P0_133_item_close_button__a_click_on_an_already_expanded_tiles_body_does_nothing", async () => {
+  /* The owner's own words: "it's too easy to click somewhere wrong and it
+     will close, and that's not a good experience." A click on the tile
+     itself only ever ADDS .full now (a collapsed tile expands); it never
+     removes it — only .item-close does that. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.doesNotMatch(body, /tile\.classList\.toggle\("full"\)/, "the tile body must not toggle .full at all any more");
+  assert.match(body, /tile\.classList\.contains\("full"\)\) return;\s*\n\s*tile\.classList\.add\("full"\);/);
 });
 
 test("test_PRD_P0_30_prd_traceability__every_label_used_in_this_file_exists_in_the_prd", async () => {

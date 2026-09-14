@@ -3286,6 +3286,22 @@ that does not trace to one of these is a process failure (see §12).
     matching the real shape `parkForApproval()` actually produces, and a new check asserts "Asked
     by" never reads "unknown" when a requester is present.
 
+68. **`Test-PRD-P0-133-item_close_button`** — The owner's own words, after P0-132 shipped
+    click-anywhere-to-expand and lived with it: "it's too easy to click somewhere wrong and it will
+    close, and that's not a good experience... maybe it just needs a proper close button." (Floated
+    first, then set aside in the same breath: a whole separate page with its own URL and a browser
+    back button — "maybe... I don't know" — heavier than the actual complaint needed solving.)
+
+    **Expanding is unchanged — a click anywhere on a COLLAPSED tile still opens it (P0-130's own
+    "clicking the entire button should expand it automatically"). Collapsing it again is no longer
+    the same gesture.** The click-delegation handler's own `tile.classList.toggle("full")` becomes
+    an asymmetric `if (tile.classList.contains("full")) return; tile.classList.add("full");` — a
+    click anywhere on an ALREADY-expanded tile's body (outside `.item-edit` and `.item-share`, both
+    already exempt) now does nothing at all. `.item-close` (`CANCEL_ICON`, the same plain X glyph
+    the attach button's own cancel state already uses) is the only thing that removes `.full`,
+    rendered beside `.item-share` in `.item-top-right` and hidden the same way — `display: none`
+    until the tile itself carries `.full`.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -3569,6 +3585,7 @@ Where each feature is enforced today:
 | P0-130 | `ops/test/items-route.test.mjs` |
 | P0-131 | `ops/test/items-route.test.mjs` |
 | P0-132 | `ops/test/items-route.test.mjs`, `ops/test/approvals.test.mjs` |
+| P0-133 | `ops/test/items-route.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
