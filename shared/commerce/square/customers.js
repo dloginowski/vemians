@@ -93,3 +93,25 @@ export async function createContactCustomer(client, { name, email, phone, messag
   const note = `${source} · ${stamp}\n${String(message ?? "").slice(0, NOTE_MAX)}`;
   return createCustomer(client, { ...splitName(name), email_address: email, phone_number: phone, note });
 }
+
+/*
+ * The other side of createContactCustomer: find the customer records a
+ * contact-form submission actually created, so ops's scheduled intake
+ * (contact-intake.js) can turn each one into a ticket. Square's own
+ * SearchCustomers has no way to filter on `note` content, so this asks for
+ * everything created since `since` and filters client-side for the note's
+ * own stamp — the same `source` prefix createContactCustomer writes, so a
+ * customer created any other way (the till, a batch import) never matches.
+ *
+ * One page only (SQUARE_SEARCH_LIMIT): a boutique shop's contact-form volume
+ * inside one lookback window does not approach it, and paging through more
+ * would be new complexity for a case this scale does not have yet.
+ */
+const SQUARE_SEARCH_LIMIT = 100;
+
+export async function listContactCustomers(client, { since, source = "vemians.com/visit" } = {}) {
+  const body = { limit: SQUARE_SEARCH_LIMIT };
+  if (since) body.query = { filter: { created_at: { start_at: since } } };
+  const res = await client.post(`${CUSTOMERS}/search`, body);
+  return (res.customers ?? []).filter((c) => String(c.note ?? "").startsWith(source));
+}
