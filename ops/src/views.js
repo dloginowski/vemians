@@ -253,20 +253,20 @@ const INPUT_BAR_CSS = `
    .icon-btn[aria-pressed="true"] already uses for an active toggle state,
    not a new visual vocabulary invented for this. */
 .category-menu .category-item.active { border-color: var(--accent); color: var(--accent); background: rgba(217, 119, 87, 0.14); }
-/* The active selection, named above the bar instead of living in the
-   search box's own value — the owner's own words: "I don't wanna eat up
-   the input area with text... it's part of the actual selector." Same
-   58px anchor .category-menu itself uses (never both visible at once —
-   see each page's own script), so a picked value and the menu that picks
-   it share one spot rather than two competing floating rows. No explicit
-   display is set here, unlike .category-menu's own display: flex, so the
-   browser's own [hidden] { display: none } default is never overridden
-   and needs no extra rule to restate it. */
-.category-label {
-  position: fixed; left: 8px; bottom: 58px; z-index: 19;
-  font-size: 11px; color: var(--muted);
-  padding: 4px 10px; background: var(--image-ground); border: 1px solid var(--rule); border-radius: 999px;
-}
+/* The "Hi Dimitri" spot (opsPage(), formerly OPS_CSS only) — moved here so
+   Items' own category status and the Dashboard's own mode status can sit
+   in the exact same place and font, rather than floating in a line above
+   the search/compose bar the way both used to. The owner's own words:
+   "put the categories in there, in the top... use that same font, same
+   kind of layout... so that all of these tabs have kinda matching
+   layouts." Centred and quiet on purpose — a status line, not the thing
+   on the page asking to be read first; 11px matches the smallest de-
+   emphasised meta text already used elsewhere (.ticket-meta, badges).
+   Always shown, never conditionally hidden: "Hi Dimitri" is there
+   whether or not you have typed anything yet, and so is "All
+   categories"/"Showing: All" here. */
+.greet { margin: 0 0 6px; text-align: center; }
+.greet h1 { font-size: 11px; font-weight: 400; color: var(--muted); margin: 0; }
 `;
 
 /*
@@ -580,17 +580,6 @@ ${INPUT_BAR_CSS}
    exactly the kind of inherited-margin bug (P0-96, P0-99) this file
    has been bitten by more than once. */
 #chat { margin-top: 0; }
-
-/* Centred and quiet on purpose — a name check, not the thing on the page
-   asking to be read first. The chat widget right below it is that thing;
-   a bold, full-bright "Hi Dimitri" over it competed for the same attention.
-   Shrunk again per the owner's own words, once the chat itself started
-   repeating the same greeting on every quick-action reply: "it needs to
-   be very, very small because it's eating up too much space" — 11px
-   matches the smallest de-emphasised meta text already used elsewhere
-   (.ticket-meta, badges), not a new size invented for this alone. */
-.greet { margin: 0 0 6px; text-align: center; }
-.greet h1 { font-size: 11px; font-weight: 400; color: var(--muted); margin: 0; }
 
 /* Floats directly above the composer now, not in normal document flow above
    the greeting — the owner's own words: "those quick actions to fill the
@@ -1480,9 +1469,14 @@ export function itemsPage({ role }, products) {
        we're in items right now. Get rid of all that stuff." The tab
        bar itself already names the page; a second, page-drawn label
        right under it was pure wasted vertical space on a phone. The
-       grid now starts right at .ops's own existing top padding instead
-       — the same modest spacing every other page here already uses,
-       no extra title block on top of it. Search sits BELOW the grid,
+       .greet section right below is not that title — it is the live
+       category status ("All categories", "Category: Outerwear",
+       "Agent: Dresses, Blue"), reusing the agent page's own "Hi
+       Dimitri" spot and font (.greet h1) rather than a new one, moved
+       up from a floating line above the search bar — the owner's own
+       words: "on the bottom, you're just eating up useful space... so
+       that all of these tabs have kinda matching layouts." Search sits
+       BELOW the grid,
        not above it — the owner's own words: "it's not easy to put in
        stuff at the top of the screen of the phone." A thumb reaches
        the bottom of a phone screen far more easily than the top, so
@@ -1496,11 +1490,13 @@ export function itemsPage({ role }, products) {
        stranded mid-screen: "make them the same looking... there's not
        enough content to make them on the bottom." */
     `<main class="ops">
+  <section class="greet">
+    <h1 id="category-label">All categories</h1>
+  </section>
   <div class="items-grid" id="items-grid">
 ${tiles}
   </div>
   ${categoryMenu}
-  <div class="category-label" id="category-label" hidden></div>
   <div class="input-bar">
     <button type="button" class="icon-btn" id="category-btn" aria-label="Filter by category" title="Filter by category"${categories.length ? "" : " hidden"}>${FILTER_ICON}</button>
     <input type="text" id="item-search" placeholder="Search title, handle, SKU, custom fields...">
@@ -1518,10 +1514,13 @@ const categoryMenuEl = document.getElementById("category-menu");
    it's part of the actual selector. It's not necessarily me putting text."
    A Set, not a single string — "the agent would pass the category as part
    of its result, and that menu would automatically select one or more
-   categories to satisfy the search." A small dim line above the bar names
-   whatever is selected ("Category: X, Y" picked by hand, "Agent: X, Y"
-   when the mic below picked it); an empty set clears it and hides the
-   line entirely. */
+   categories to satisfy the search." The status line lives in the SAME
+   spot and font as the agent page's own "Hi Dimitri" (.greet h1) rather
+   than floating above the bar — the owner's own words: "on the bottom,
+   you're just eating up useful space... so that all of these tabs have
+   kinda matching layouts." Always shown, never hidden: "All categories"
+   is itself the answer when nothing is picked, the same way "Hi Dimitri"
+   is always there whether or not you have typed anything yet. */
 const selectedCategories = new Set();
 function markCategoryMenu() {
   if (!categoryMenuEl) return;
@@ -1531,12 +1530,9 @@ function markCategoryMenu() {
   });
 }
 function updateCategoryLabel(source) {
-  if (selectedCategories.size) {
-    categoryLabel.textContent = source + ": " + [...selectedCategories].join(", ");
-    categoryLabel.hidden = false;
-  } else {
-    categoryLabel.hidden = true;
-  }
+  categoryLabel.textContent = selectedCategories.size
+    ? source + ": " + [...selectedCategories].join(", ")
+    : "All categories";
   markCategoryMenu();
 }
 /* Manual pick: toggles ONE category in or out of the set, multi-select,
@@ -1576,15 +1572,13 @@ document.getElementById("item-search-btn").addEventListener("click", () => {
    existing categories... a quick way to filter by category." Opened by
    the filter button; picking a category no longer closes it (multi-select
    needs to stay open for a second or third pick) — closed instead by the
-   filter button again, clicking anywhere else, or Escape. */
+   filter button again, clicking anywhere else, or Escape. The status
+   line above no longer shares this spot (it moved to the top of the
+   page, see updateCategoryLabel()'s own comment), so opening or closing
+   the menu has nothing to do with it any more. */
 if (categoryBtn && categoryMenuEl) {
   categoryBtn.addEventListener("click", () => {
-    const opening = categoryMenuEl.hidden;
     categoryMenuEl.hidden = !categoryMenuEl.hidden;
-    /* The label and the menu never show at once — both anchor to the same
-       spot above the bar. */
-    if (opening) categoryLabel.hidden = true;
-    else if (selectedCategories.size) categoryLabel.hidden = false;
   });
   categoryMenuEl.addEventListener("click", (e) => {
     const btn = e.target.closest(".category-item");
@@ -1596,12 +1590,10 @@ if (categoryBtn && categoryMenuEl) {
     if (categoryMenuEl.hidden) return;
     if (categoryMenuEl.contains(e.target) || categoryBtn.contains(e.target)) return;
     categoryMenuEl.hidden = true;
-    if (selectedCategories.size) categoryLabel.hidden = false;
   });
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape" || categoryMenuEl.hidden) return;
     categoryMenuEl.hidden = true;
-    if (selectedCategories.size) categoryLabel.hidden = false;
   });
 }
 
@@ -1982,8 +1974,17 @@ export function dashboardPage({ tickets, expenses, uploads, viewerEmail, default
     "Dashboard — Vemians ops",
     /* No page title of its own — same reasoning itemsPage() and
        ticketsPage() already give: the shell's own Dashboard tab already
-       names the page. */
+       names the page. The .greet section below is the mode indicator
+       instead — "in our dashboard, instead of categories, we essentially
+       have a mode selector... indicating the currently selected mode in
+       the same space... so that all of these tabs have kinda matching
+       layouts," the owner's own words, matching itemsPage()'s own
+       category status living in the same spot and font as the agent
+       page's "Hi Dimitri" (.greet h1). */
     `<main class="ops">
+  <section class="greet">
+    <h1 id="kind-label">Showing: All</h1>
+  </section>
   ${feed}
   <div class="category-menu" id="kind-menu" hidden>
     <button type="button" class="category-item" data-kind="">All</button>
@@ -1992,7 +1993,6 @@ export function dashboardPage({ tickets, expenses, uploads, viewerEmail, default
     <button type="button" class="category-item" data-kind="expense">Expenses</button>
     <button type="button" class="category-item" data-kind="upload">Uploads</button>
   </div>
-  <div class="category-label" id="kind-label" hidden></div>
   <form class="chat" method="post" action="/tickets/new">
     <div class="chat-bar input-bar">
       <button type="button" class="icon-btn" id="kind-btn" aria-label="Filter" title="Filter">${FILTER_ICON}</button>
@@ -2021,12 +2021,9 @@ function markKindMenu() {
   });
 }
 function updateKindLabel() {
-  if (selectedKinds.size) {
-    kindLabel.textContent = "Showing: " + [...selectedKinds].map((k) => DASH_KIND_LABEL[k] || k).join(", ");
-    kindLabel.hidden = false;
-  } else {
-    kindLabel.hidden = true;
-  }
+  kindLabel.textContent = selectedKinds.size
+    ? "Showing: " + [...selectedKinds].map((k) => DASH_KIND_LABEL[k] || k).join(", ")
+    : "Showing: All";
   markKindMenu();
 }
 function toggleKind(name) {
@@ -2049,12 +2046,13 @@ function filterFeed() {
   if (feedEmpty) feedEmpty.hidden = visible !== 0;
 }
 
+/* The status line lives at the top of the page now (the .greet section
+   above), not sharing this floating spot with the menu any more — see
+   updateKindLabel()'s own comment — so opening or closing the menu has
+   nothing to do with it. */
 if (kindBtn && kindMenuEl) {
   kindBtn.addEventListener("click", () => {
-    const opening = kindMenuEl.hidden;
     kindMenuEl.hidden = !kindMenuEl.hidden;
-    if (opening) kindLabel.hidden = true;
-    else if (selectedKinds.size) kindLabel.hidden = false;
   });
   kindMenuEl.addEventListener("click", (e) => {
     const btn = e.target.closest(".category-item");
@@ -2066,12 +2064,10 @@ if (kindBtn && kindMenuEl) {
     if (kindMenuEl.hidden) return;
     if (kindMenuEl.contains(e.target) || kindBtn.contains(e.target)) return;
     kindMenuEl.hidden = true;
-    if (selectedKinds.size) kindLabel.hidden = false;
   });
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape" || kindMenuEl.hidden) return;
     kindMenuEl.hidden = true;
-    if (selectedKinds.size) kindLabel.hidden = false;
   });
 }
 
