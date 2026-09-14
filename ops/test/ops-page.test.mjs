@@ -1033,15 +1033,17 @@ check("test_PRD_P0_98_cancellable_attachment__the_icon_and_accessible_name_swap_
 });
 
 check("test_PRD_P0_98_voice_input__the_mic_button_sits_between_the_input_and_send_using_the_same_icon_btn_class", async () => {
-  /* The owner's own words: "Add the same kind of microphone input button
-     as claude next to the submit chat button same style as the + button
-     as far as colors." Sharing .icon-btn with the attach button is what
-     gives it the same colours for free, without a second set of button
-     rules. */
+  /* The owner's own words, originally: "Add the same kind of microphone
+     input button as claude next to the submit chat button same style as
+     the + button as far as colors." Sharing .icon-btn with the attach
+     button is what gives it the same SHAPE (34px circle, faint-fill base)
+     for free, without a second set of button rules — the colour itself
+     was later deliberately reversed (P0-103, below): the shape stays
+     shared, the fill no longer does. */
   const { body } = await frontPage(OWNER);
   const bar = body.slice(body.indexOf('<div class="chat-bar input-bar">'), body.indexOf("</div>", body.indexOf('<div class="chat-bar input-bar">')) + 1000);
   assert.match(bar, /id="attach-btn"[\s\S]*id="mic-btn"[\s\S]*id="q"[\s\S]*class="send-btn"|id="attach-btn"[\s\S]*id="q"[\s\S]*id="mic-btn"[\s\S]*class="send-btn"/, "the mic button must sit next to Send, after attach and the input");
-  assert.match(bar, /id="mic-btn"[^>]*class="icon-btn"|class="icon-btn"[^>]*id="mic-btn"/, "the mic button must share the attach button's own icon-btn class");
+  assert.match(bar, /id="mic-btn"[^>]*class="icon-btn mic-btn"|class="icon-btn mic-btn"[^>]*id="mic-btn"/, "the mic button must carry the shared icon-btn shape plus its own mic-btn colour");
 });
 
 check("test_PRD_P0_98_voice_input__unsupported_browsers_get_the_button_removed_not_a_dead_control", async () => {
@@ -1070,6 +1072,17 @@ check("test_PRD_P0_98_voice_input__the_icon_swaps_to_a_stop_glyph_while_recordin
   assert.match(clickHandler, /micBtn\.innerHTML = MIC_STOP_ICON_HTML/, "starting to record must swap to the stop glyph");
   const stopFn = script.slice(script.indexOf("function stopListening"), script.indexOf("function stopListening") + 200);
   assert.match(stopFn, /micBtn\.innerHTML = MIC_ICON_HTML/, "ending (naturally or on error) must swap back to the mic glyph");
+});
+
+check("test_PRD_P0_103_voice_search_fills_the_search_box__the_agent_composers_own_mic_is_orange_too", async () => {
+  /* The owner's own words: "make sure that the microphone in the agentic
+     agent window is orange as well because that's an agentic input as
+     well." mic-btn is a class of its own, not a change to .icon-btn's
+     shared fill — the attach button (a plain file picker) must keep the
+     neutral one. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /class="icon-btn mic-btn" id="mic-btn"/, "the agent composer's own mic must carry the mic-btn class");
+  assert.match(body, /\.input-bar \.mic-btn\s*\{[^}]*background:\s*var\(--accent\)/s);
 });
 
 /* ─────────────────────────────────────────────────────────────────────────

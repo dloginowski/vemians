@@ -45,6 +45,10 @@ const MAX_TOKENS = 16000;
 /* Six tool round-trips. Hit it and the turn ends; it does not send a seventh. */
 const MAX_ROUND_TRIPS = 6;
 
+/* searchIntent() below asks for a few words back, not a turn — 16000 tokens
+   of headroom for that would be a cost bug waiting to happen, not caution. */
+const SEARCH_INTENT_MAX_TOKENS = 30;
+
 /* ---- roles ------------------------------------------------------------- *
  * Roles come from Access group membership (R1.3 / P0-23), never from the
  * application and never from a request parameter. Cloudflare Access puts group
@@ -904,6 +908,51 @@ export async function agentTurn({ q, identity, env, attachment = null }) {
        stop calling tools in parallel. */
     messages.push({ role: "user", content: results });
   }
+}
+
+/*
+ * A single, non-agentic model call — never a tool call, never a conversation
+ * — that turns a spoken description of what someone is looking for into a
+ * short search string for Items' own client-side filter (a plain substring
+ * match over title/handle/category/SKU/custom fields, already wired to the
+ * search box). The owner's own words: "it's not an agentic chat per se...
+ * it just fills out the right search category and/or keywords to help you
+ * find stuff... I don't want to have a chat inside of the items view."
+ *
+ * `categories` (the ones actually on a product, same list itemsPage() shows
+ * in its own filter menu) are given so the model can map "coats" to
+ * "Outerwear" when a real category matches, rather than guessing at a
+ * string the substring filter will never find.
+ */
+export async function searchIntent({ q, env, categories = [] }) {
+  const utterance = String(q || "").slice(0, CAPS.MAX_TEXT).trim();
+  if (!utterance) return { mode: "stub", query: "" };
+
+  if (!env.ANTHROPIC_API_KEY) {
+    /* No key, no model — the same benign fallback agentTurn() gives. Voice
+       search still does something (a literal search on what was said)
+       rather than silently nothing. */
+    return { mode: "stub", query: utterance };
+  }
+
+  const catLine = categories.length
+    ? `Categories actually on file: ${categories.join(", ")}.`
+    : "No categories are on file yet.";
+  const { message, error } = await callClaude(env, {
+    model: MODEL,
+    max_tokens: SEARCH_INTENT_MAX_TOKENS,
+    system:
+      "You turn a spoken description of a product search into a short search string for a plain " +
+      `substring filter over title, handle, category, SKU and custom fields. ${catLine} Reply with ` +
+      "ONLY the search string itself — no punctuation, no explanation, no quotes around it. If an " +
+      "exact category matches what was said, reply with just that category's own name. If nothing " +
+      "in the request names a useful search term at all, reply with an empty string.",
+    messages: [{ role: "user", content: utterance }],
+  });
+  if (error) return { mode: "model", error };
+
+  const query = textOf(message).replace(/^["']|["']$/g, "").trim();
+  return { mode: "model", query };
 }
 
 /* ---- applying an approved action --------------------------------------- */

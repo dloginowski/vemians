@@ -163,6 +163,17 @@ const INPUT_BAR_CSS = `
 .input-bar .icon-btn { width: 34px; height: 34px; background: rgba(255, 255, 255, 0.08); color: var(--ink); }
 .input-bar .icon-btn:hover { background: rgba(255, 255, 255, 0.16); color: var(--accent); }
 .input-bar .icon-btn[aria-pressed="true"] { color: var(--accent); background: rgba(217, 119, 87, 0.14); }
+/* The mic is orange in its resting state too, unlike every other icon-btn
+   — the owner's own words: "the microphone should be orange because that
+   is an agentic input... make sure the microphone in the agentic agent
+   window is orange as well because that's an agentic input as well." A
+   dedicated class rather than a change to .icon-btn's own shared rule, so
+   the attach button (a plain file picker, not agentic) keeps its neutral
+   faint fill. Declared after .icon-btn so it wins the tie — both are a
+   single class on the same element, so source order decides. */
+.input-bar .mic-btn { background: var(--accent); color: var(--ground); }
+.input-bar .mic-btn:hover { background: var(--accent); opacity: 0.85; }
+.input-bar .mic-btn[aria-pressed="true"] { background: var(--accent); color: var(--ground); opacity: 0.7; }
 /* Send is the SAME faint neutral fill as icon-btn by default now, not the
    accent orange it used to always be — the owner's own words: "don't
    style the search button orange, because orange indicates AI input...
@@ -834,7 +845,7 @@ ${id}
     <div class="chat-bar input-bar">
       <button type="button" class="icon-btn" id="attach-btn" aria-label="Attach a photo or file" title="Attach a photo or file">${ATTACH_ICON}</button>
       <input name="q" id="q" placeholder='e.g. "Add a wool coat, $450, Outerwear"' autocomplete="off">
-      <button type="button" class="icon-btn" id="mic-btn" aria-label="Voice input" title="Voice input">${MIC_ICON}</button>
+      <button type="button" class="icon-btn mic-btn" id="mic-btn" aria-label="Voice input" title="Voice input">${MIC_ICON}</button>
       <button type="submit" class="send-btn" aria-label="Send" title="Send">${SEND_ICON}</button>
     </div>
     <input type="file" id="attach-input" hidden>
@@ -1383,6 +1394,7 @@ ${tiles}
   <div class="input-bar">
     <button type="button" class="icon-btn" id="category-btn" aria-label="Filter by category" title="Filter by category"${categories.length ? "" : " hidden"}>${FILTER_ICON}</button>
     <input type="text" id="item-search" placeholder="Search title, handle, category, SKU, custom fields...">
+    <button type="button" class="icon-btn mic-btn" id="item-mic-btn" aria-label="Hold and describe what you're looking for" title="Hold and describe what you're looking for">${MIC_ICON}</button>
     <button type="button" class="send-btn" id="item-search-btn" aria-label="Search" title="Search">${SEARCH_ICON}</button>
   </div>
 </main>
@@ -1429,6 +1441,104 @@ if (categoryBtn && categoryMenuEl) {
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") categoryMenuEl.hidden = true;
   });
+}
+
+/* Voice search — the owner's own words: "by holding that microphone
+   input, you can... describe what items you're looking for, and then
+   the agent will just fill in the search bar with the proper filters
+   or search pattern... it's not an agentic chat per se... I don't want
+   to have a chat inside of the items view." HELD, not toggled like the
+   agent page's own mic — speech is transcribed client-side the same
+   way, but the transcript goes to /items/search-intent (a single,
+   non-agentic model call, agent.js's searchIntent()) instead of a
+   chat turn; nothing renders anywhere except the search box itself
+   being filled in with whatever it returns. */
+const DEFAULT_ITEM_SEARCH_PLACEHOLDER = itemSearch.placeholder;
+const MIC_ICON_HTML = ${JSON.stringify(MIC_ICON)};
+const MIC_STOP_ICON_HTML = ${JSON.stringify(MIC_STOP_ICON)};
+const itemMicBtn = document.getElementById("item-mic-btn");
+const ItemSpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (!ItemSpeechRecognitionCtor) {
+  itemMicBtn.remove();
+} else {
+  const recognition = new ItemSpeechRecognitionCtor();
+  recognition.lang = "en-US";
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 1;
+  let listening = false;
+  let heard = "";
+
+  function resetMic() {
+    listening = false;
+    itemMicBtn.removeAttribute("aria-pressed");
+    itemMicBtn.innerHTML = MIC_ICON_HTML;
+  }
+
+  async function sendToAgent(transcript) {
+    itemSearch.placeholder = "Thinking...";
+    const categories = categoryMenuEl
+      ? [...categoryMenuEl.querySelectorAll(".category-item[data-category]")].map((b) => b.dataset.category).filter(Boolean)
+      : [];
+    try {
+      const res = await fetch("/items/search-intent", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ q: transcript, categories }),
+      });
+      const data = await res.json();
+      itemSearch.value = (data && data.query) || transcript;
+    } catch (err) {
+      /* The model or the network failed — the literal transcript still
+         becomes the search, so holding the mic never does nothing. */
+      itemSearch.value = transcript;
+    }
+    itemSearch.placeholder = DEFAULT_ITEM_SEARCH_PLACEHOLDER;
+    filterItems();
+    itemSearch.focus();
+  }
+
+  recognition.addEventListener("result", (e) => {
+    heard = e.results[0][0].transcript.trim();
+  });
+  recognition.addEventListener("end", () => {
+    resetMic();
+    if (heard) sendToAgent(heard);
+    else itemSearch.placeholder = DEFAULT_ITEM_SEARCH_PLACEHOLDER;
+    heard = "";
+  });
+  recognition.addEventListener("error", () => {
+    resetMic();
+    itemSearch.placeholder = DEFAULT_ITEM_SEARCH_PLACEHOLDER;
+  });
+
+  function startListening() {
+    if (listening) return;
+    listening = true;
+    heard = "";
+    itemMicBtn.setAttribute("aria-pressed", "true");
+    itemMicBtn.innerHTML = MIC_STOP_ICON_HTML;
+    itemSearch.placeholder = "Listening...";
+    try {
+      recognition.start();
+    } catch (err) {
+      /* Already started, most likely a duplicate mousedown/touchstart on
+         the same press — not a real failure. */
+    }
+  }
+  function stopListening() {
+    if (!listening) return;
+    recognition.stop();
+  }
+
+  itemMicBtn.addEventListener("mousedown", startListening);
+  itemMicBtn.addEventListener("mouseup", stopListening);
+  itemMicBtn.addEventListener("mouseleave", stopListening);
+  itemMicBtn.addEventListener("touchstart", (e) => {
+    e.preventDefault();
+    startListening();
+  });
+  itemMicBtn.addEventListener("touchend", stopListening);
+  itemMicBtn.addEventListener("touchcancel", stopListening);
 }
 
 /* One delegated listener for every tile's own Expand button, rather

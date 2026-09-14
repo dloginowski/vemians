@@ -330,6 +330,32 @@ check("test_PRD_P0_102_items_search_matches_chat__the_menu_actually_starts_hidde
   assert.match(body, /\.category-menu\[hidden\]\s*\{[^}]*display:\s*none/s);
 });
 
+check("test_PRD_P0_103_voice_search_fills_the_search_box__a_held_mic_button_sits_between_the_input_and_search", async () => {
+  /* The owner's own words: "let's also add a microphone to the search
+     bar... by holding that microphone input, you can... describe what
+     items you're looking for." Same icon-btn shape as the filter and
+     attach buttons, plus its own mic-btn class for the orange fill. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  const bar = /<div class="input-bar">([\s\S]*?)<\/div>/.exec(body)[1];
+  assert.match(bar, /id="item-search"[\s\S]*id="item-mic-btn"[\s\S]*id="item-search-btn"/, "the mic must sit between the search input and the search button");
+  assert.match(bar, /id="item-mic-btn"[^>]*class="icon-btn mic-btn"|class="icon-btn mic-btn"[^>]*id="item-mic-btn"/, "the mic button must carry both the shared shape and its own orange colour class");
+});
+
+check("test_PRD_P0_103_voice_search_fills_the_search_box__the_mic_is_orange_not_the_neutral_icon_btn_fill", async () => {
+  /* The owner's own words: "the microphone should be orange because
+     that is an agentic input." A dedicated .mic-btn rule, not a change
+     to the shared .icon-btn fill every other icon button (filter,
+     attach) still uses. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.match(body, /\.input-bar \.mic-btn\s*\{[^}]*background:\s*var\(--accent\)/s);
+});
+
 check("test_PRD_P0_102_items_search_matches_chat__no_category_menu_or_filter_button_when_nothing_is_categorised", async () => {
   /* A category picker over zero categories is not a feature — it is an
      empty box that still opens. The filter button itself is hidden
