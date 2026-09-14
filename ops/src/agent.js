@@ -913,26 +913,33 @@ export async function agentTurn({ q, identity, env, attachment = null }) {
 /*
  * A single, non-agentic model call — never a tool call, never a conversation
  * — that turns a spoken description of what someone is looking for into a
- * short search string for Items' own client-side filter (a plain substring
- * match over title/handle/category/SKU/custom fields, already wired to the
- * search box). The owner's own words: "it's not an agentic chat per se...
- * it just fills out the right search category and/or keywords to help you
- * find stuff... I don't want to have a chat inside of the items view."
+ * SEARCH PLAN for Items' own client-side filter: a `category` (exact match
+ * against a real category, applied as its own selector) and `keywords` (a
+ * short plain-substring search over title/handle/SKU/custom fields). Kept
+ * as two separate fields, not one blended string, per the owner's own
+ * worked example: "let's say we have categories dresses, shoes, and
+ * jewelry... I'm currently set to jewelry... if I ask the agent to find
+ * all blue dresses, it knows that I need to switch my category to
+ * dresses... and then it's gonna do a filter for the color... blue... Of
+ * course, I could get more specific and say a designer name, then it
+ * would also add the designer tag as well." One request can name a
+ * category switch, keywords, both, or neither — never conflated into a
+ * single string the client would have to re-split.
  *
  * `categories` (the ones actually on a product, same list itemsPage() shows
- * in its own filter menu) are given so the model can map "coats" to
- * "Outerwear" when a real category matches, rather than guessing at a
- * string the substring filter will never find.
+ * in its own filter menu) are given so the model can map "dresses" to a
+ * real category exactly, rather than guessing at a string the category
+ * filter will never match.
  */
 export async function searchIntent({ q, env, categories = [] }) {
   const utterance = String(q || "").slice(0, CAPS.MAX_TEXT).trim();
-  if (!utterance) return { mode: "stub", query: "" };
+  if (!utterance) return { mode: "stub", category: "", keywords: "" };
 
   if (!env.ANTHROPIC_API_KEY) {
-    /* No key, no model — the same benign fallback agentTurn() gives. Voice
-       search still does something (a literal search on what was said)
-       rather than silently nothing. */
-    return { mode: "stub", query: utterance };
+    /* No key, no model — the same benign fallback agentTurn() gives: the
+       literal utterance becomes a keyword search (no category switch),
+       so voice search still does something rather than nothing. */
+    return { mode: "stub", category: "", keywords: utterance };
   }
 
   const catLine = categories.length
@@ -942,17 +949,30 @@ export async function searchIntent({ q, env, categories = [] }) {
     model: MODEL,
     max_tokens: SEARCH_INTENT_MAX_TOKENS,
     system:
-      "You turn a spoken description of a product search into a short search string for a plain " +
-      `substring filter over title, handle, category, SKU and custom fields. ${catLine} Reply with ` +
-      "ONLY the search string itself — no punctuation, no explanation, no quotes around it. If an " +
-      "exact category matches what was said, reply with just that category's own name. If nothing " +
-      "in the request names a useful search term at all, reply with an empty string.",
+      "You turn a spoken description of a product search into a two-part search plan for a plain " +
+      `substring filter over title, handle, SKU and custom fields, plus a separate category ` +
+      `selector. ${catLine} Decide which of those categories (if any) the request calls for — ` +
+      "switching away from whatever is currently selected is expected when the request names a " +
+      "different one — and separately, which remaining words (colours, materials, a designer or " +
+      "brand name, sizes, anything else useful for the substring search) are worth searching for. " +
+      "Use as few keywords as will actually narrow the result — do not repeat the category name " +
+      "itself as a keyword. Reply in EXACTLY this two-line format and nothing else, either line " +
+      "left blank after the colon when it does not apply:\n" +
+      "CATEGORY: <exact category name, or blank>\n" +
+      "KEYWORDS: <remaining search terms, or blank>",
     messages: [{ role: "user", content: utterance }],
   });
   if (error) return { mode: "model", error };
 
-  const query = textOf(message).replace(/^["']|["']$/g, "").trim();
-  return { mode: "model", query };
+  /* [ \t]* rather than \s* after the colon — \s matches a newline too, so a
+     greedy \s* on the CATEGORY line swallowed the line break and bled into
+     KEYWORDS' own text whenever CATEGORY was blank (caught by its own
+     test). Confining it to same-line whitespace keeps each line's capture
+     stopped by the newline, the same way "." already stops there. */
+  const text = textOf(message);
+  const category = (/CATEGORY:[ \t]*(.*)/i.exec(text)?.[1] || "").trim().replace(/^["']|["']$/g, "");
+  const keywords = (/KEYWORDS:[ \t]*(.*)/i.exec(text)?.[1] || "").trim().replace(/^["']|["']$/g, "");
+  return { mode: "model", category, keywords };
 }
 
 /* ---- applying an approved action --------------------------------------- */

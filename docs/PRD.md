@@ -2416,6 +2416,12 @@ that does not trace to one of these is a process failure (see §12).
     rather than a second query, so the model's own suggestions can never name a category the page
     does not also show.
 
+    **Superseded by P0-106, below**: the single blended search string this entry describes —
+    filling the search box with a category name indistinguishably from typed keywords — is
+    replaced by a two-part plan (a category, applied through the same selector a manual click
+    uses, plus separate keywords). Held-not-toggled, the placeholder choreography, and the route
+    itself are otherwise unchanged.
+
 39. **`Test-PRD-P0-104-items_grid_scrolls_in_place`** — Caught live: typing into Items' own search
     box re-filters tiles on every keystroke, changing `.items-grid`'s own content height —
     `.items-grid` had no height cap of its own, so the WHOLE page moved as the grid shrank and
@@ -2440,6 +2446,49 @@ that does not trace to one of these is a process failure (see §12).
     bars), so every one of them gets the same easier-to-tap spacing for free rather than a
     per-surface fix. 8px still fits Items' own four-element bar, the narrowest, on a 320px phone
     with room to spare.
+
+41. **`Test-PRD-P0-106-search_plan_has_a_category_and_keywords`** — Two pieces of live feedback on
+    P0-103's own voice search, both about the same underlying problem: a category name and typed
+    keywords were indistinguishable once both landed in the same search box. First: "instead of
+    putting categories into the search field, have a little small, kind of dim, subheading above
+    the search bar that says category, colon, and then the name of the categories... I don't wanna
+    eat up the input area with text... it's part of the actual selector. It's not necessarily me
+    putting text." Second, after trying the mic: "it just converted my text into a search
+    directly, but that's not what I'm looking for. I want to see... the necessary combination of
+    categories and/or search pattern created by the agent." A full worked example, given directly:
+    "let's say we have categories dresses, shoes, and jewelry... I'm currently set to jewelry...
+    if I ask the agent to find all blue dresses, it knows that I need to switch my category to
+    dresses... and then it's gonna do a filter for the color... blue... Of course, I could get more
+    specific and say a designer name, then it would also add the designer tag as well."
+
+    **A category is a selector, not text — for a manual click or the mic alike.** A new
+    `#category-label` line, `position: fixed` a gap above `.input-bar` (the same 58px anchor
+    `.category-menu` itself uses — never both visible at once, so a pick and the menu that made it
+    share one spot), reads "Category: Outerwear" when it comes from a menu click. `itemSearch`'s
+    own value is never touched by picking a category, manually or otherwise — `data-category` (a
+    clean, exact attribute on every tile, alongside the existing combined `data-search` blob)
+    is what the filter now checks a category against, `data-search` still carrying the substring
+    search. Both apply at once (AND): a category switch and a keyword search combine, matching the
+    owner's own worked example exactly rather than either/or.
+
+    **`searchIntent()` now answers with a PLAN, not one blended string.** Two labelled lines —
+    `CATEGORY: <name or blank>` and `KEYWORDS: <terms or blank>` — parsed into separate fields
+    (`category`, `keywords`), rather than one string the client would have to re-guess apart.
+    Naming no category is a deliberate "leave the current selection alone" signal, not a blank
+    guess: the system prompt says switching is expected only when the request actually names a
+    different one, and the client only calls `setCategory()` when `category` comes back non-empty
+    and case-insensitively matches one of the real categories given. A regex bug caught by this
+    file's own test — `\s*` after the `CATEGORY:` label matched across the line break itself and
+    swallowed `KEYWORDS:`'s own text whenever `CATEGORY` was blank — is fixed by confining both
+    captures to `[ \t]*`, same-line whitespace only.
+
+    **The label says "Agent" instead of "Category" when the mic is what picked it.** The owner's
+    own words: "I want to see... the necessary combination of categories and/or search pattern
+    created by the agent... add an agent colon before the search." `setCategory(match, "Agent")`
+    from the mic's own result handler versus `setCategory(btn.dataset.category, "Category")` from
+    a menu click — the same one label element, worded differently depending on which one actually
+    decided it, so a glance at the label alone says whether the current filter was typed, clicked,
+    or the agent's own inference from what was said.
 
 ## 4. P1 features
 
@@ -2697,6 +2746,7 @@ Where each feature is enforced today:
 | P0-103 | `ops/test/items-search-intent.test.mjs`, `ops/test/items-route.test.mjs`, `ops/test/ops-page.test.mjs` |
 | P0-104 | `ops/test/items-route.test.mjs` |
 | P0-105 | `ops/test/ops-page.test.mjs` |
+| P0-106 | `ops/test/items-search-intent.test.mjs`, `ops/test/items-route.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
