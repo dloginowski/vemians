@@ -307,8 +307,10 @@ check("test_PRD_P0_102_items_search_matches_chat__the_search_button_is_not_the_a
   /* The owner's own words: "don't style the search button orange, because
      orange indicates AI input... agentic input... that's the only thing
      that should have that orange decoration." The shared .input-bar
-     .send-btn rule is a neutral fill; only #chat's own Send (the id the
-     real agent composer's form alone carries) stays accent-coloured. */
+     .send-btn rule is a neutral fill; only #chat's own Send and (since
+     Test-PRD-P0-129-dashboard_send_requires_content) the Dashboard's own
+     #dash-send — the two composer buttons whose own active/disabled
+     state needs a visible ON/OFF read — stay accent-coloured. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const res = await get("/items", STAFF, env(mirror));
@@ -318,7 +320,7 @@ check("test_PRD_P0_102_items_search_matches_chat__the_search_button_is_not_the_a
     /\.input-bar \.send-btn\s*\{[^}]*background:\s*var\(--accent\)/s,
     "the shared send-btn rule must not be the agent's own orange",
   );
-  assert.match(body, /#chat \.send-btn\s*\{[^}]*background:\s*var\(--accent\)/s, "the real agent composer must still be orange");
+  assert.match(body, /#chat \.send-btn, #dash-send\s*\{[^}]*background:\s*var\(--accent\)/s, "the real agent composer (and the dashboard's own send) must still be orange");
 });
 
 check("test_PRD_P0_102_items_search_matches_chat__the_category_menu_lists_only_categories_actually_present", async () => {

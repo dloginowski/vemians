@@ -3116,6 +3116,36 @@ that does not trace to one of these is a process failure (see §12).
     this class: the agent chat's own toggle-to-record mic and Items' own press-and-hold voice
     search mic (`item-mic-btn`) — one shared rule, one fix.
 
+64. **`Test-PRD-P0-129-dashboard_send_requires_content`** — The owner's own words: "the send arrow
+    in dashboard also needs a disabled state (same dark gray glyph) when there is no entry."
+
+    **`#dash-send` had the same underlying bug P0-124 fixed on `#chat`'s own Send**: `setMode()`
+    disabled it purely by whether a valid mode was picked (`sendBtn.disabled = !isTextMode &&
+    !isFileMode`), so choosing "Task" alone enabled Send immediately even with an empty title —
+    the same "only submit what you actually have something to submit" gap. `updateSendState()`
+    (mirroring `#chat`'s own) now checks the mode-appropriate content instead: `titleInput.value`
+    for a text mode, `fileInput.files[0]` for a file mode, disabled outright for no mode. Runs
+    after every event that can change either input — typing (a new `titleInput` `"input"`
+    listener), attaching or clearing a file, a dictation result landing in the field, and a mode
+    switch itself (`setMode()`'s own final line is now `updateSendState()`, not a direct
+    assignment).
+
+    **`#dash-send` joins `#chat .send-btn` in the same grouped CSS rule** rather than duplicating
+    four declarations under a second selector — one dim-orange-plus-dark-gray-glyph disabled look,
+    one bright-orange-plus-white-glyph active look, shared by both. This extends orange past the
+    "agentic input only" convention P0-102 established (Items' search, a ticket's Create/Send stay
+    neutral) — accepted here because the color is doing a different job than signaling "this talks
+    to the model": `--ground` only reads as a deliberate dark gray against something bright enough
+    to contrast it, verified directly before assuming otherwise (near-black on `#dash-send`'s own
+    previous neutral fill was no glyph at all — the same disappearing-icon failure mode P0-128 had
+    just diagnosed on the mic).
+
+    **`dictationScript()`'s own "result" handler now dispatches a real `"input"` event** after
+    setting `field.value` (which fires no native event on its own) — the same shared helper backs
+    a ticket's own comment box and the Dashboard's own dictation mic, and this fix reaches whatever
+    listener a field's own page happens to have (here, `updateSendState()`) without the helper
+    needing to know that listener exists.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -3395,6 +3425,7 @@ Where each feature is enforced today:
 | P0-126 | `ops/test/ops-page.test.mjs` |
 | P0-127 | `ops/test/ops-page.test.mjs` |
 | P0-128 | `ops/test/ops-page.test.mjs` |
+| P0-129 | `ops/test/dashboard-route.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

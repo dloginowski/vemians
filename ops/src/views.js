@@ -240,39 +240,46 @@ const INPUT_BAR_CSS = `
    accent orange it used to always be — the owner's own words: "don't
    style the search button orange, because orange indicates AI input...
    agentic input... that's the only thing that should have that orange
-   decoration." Orange is reserved for #chat's own Send below, the one
-   button that actually submits to the agent; every other .send-btn
-   (Items' search, a ticket's Create/Send) shares this neutral look
-   instead of borrowing a meaning that is not true of it. */
+   decoration." Orange is reserved for #chat's own Send and #dash-send
+   below, the two buttons whose own active/disabled state actually needs
+   a visible ON/OFF read (see the comment on those, below); every other
+   .send-btn (Items' search, a ticket's Create/Send) shares this neutral
+   look instead of borrowing a meaning that is not true of it. */
 .input-bar .send-btn { width: 34px; height: 34px; background: rgba(255, 255, 255, 0.08); color: var(--ink); }
 .input-bar .send-btn:hover { background: rgba(255, 255, 255, 0.16); color: var(--accent); }
 .input-bar .send-btn:disabled { opacity: 0.4; cursor: default; }
-/* #chat is the id ONLY the real agent composer's form carries (opsPage()) —
-   the ticket compose/comment forms and Items' search bar all reuse class
-   "chat"/"input-bar" for their shared shape but never this id, so this
-   stays the one place orange survives. Icon is --ink (the palette's own
-   bright warm-white) rather than --ground (near-black in this dark
-   theme) — the owner's own words, comparing this to a reference UI:
-   "when it's active, it's a much brighter orange... and a white arrow."
-   Disabled is a distinct look, not just faded: a dim tint of the same
-   accent hue (rather than the neutral gray every other .send-btn falls
-   back to) so the button still reads as the agentic send action, just
-   inactive. The glyph went through three tries before landing: --muted
-   first, then --rule once --muted read too faded when rendered — both
-   wrong, per the owner's own final clarification, pointing at a
-   concrete reference already on the same bar: "you have the microphone
-   right next to it that has a dark microphone icon... that's what I
-   mean by dark... it needs to be that microphone icon dark, just like
-   the microphone." .mic-btn's own icon is --ground (near-black in this
-   theme) against its own bright orange fill (see .mic-btn, above) —
-   the disabled glyph now matches that exact color, the one dark this
-   whole thread was actually asking for. Full opacity (overriding the
-   shared .input-bar .send-btn:disabled's own 0.4) since these colors
-   are already the dim version on purpose. */
-#chat .send-btn { background: var(--accent); color: var(--ink); }
-#chat .send-btn:hover { background: var(--accent); opacity: 0.85; }
-#chat .send-btn:disabled { background: rgba(217, 119, 87, 0.35); color: var(--ground); opacity: 1; cursor: default; }
-#chat .send-btn:disabled:hover { background: rgba(217, 119, 87, 0.35); }
+/* #chat is the id ONLY the real agent composer's form carries (opsPage());
+   #dash-send is the Dashboard's own compose bar submit button
+   (dashboardPage(), id="dash-compose" — a different form, no "chat" id,
+   so it needed its own selector added to this group). Both grouped here
+   since the owner's own words asked for the Dashboard's own button to
+   match exactly: "the send arrow in dashboard also needs a disabled
+   state (same dark gray glyph) when there is no entry." Icon is --ink
+   (the palette's own bright warm-white) rather than --ground (near-black
+   in this dark theme) — the owner's own words, comparing this to a
+   reference UI: "when it's active, it's a much brighter orange... and a
+   white arrow." Disabled is a distinct look, not just faded: a dim tint
+   of the same accent hue (rather than the neutral gray every other
+   .send-btn falls back to) so the button still reads as "the one action
+   that actually does something," just inactive. The glyph went through
+   three tries before landing on the right dark: --muted, then --rule,
+   both too faded once actually rendered — the owner's own final
+   clarification pointed at a concrete reference already on the same bar,
+   the mic's own icon: "it needs to be that microphone icon dark, just
+   like the microphone." .mic-btn's own icon is --ground against its own
+   bright orange fill — matched here exactly, the same reason this pair
+   needs a bright accent background at all: --ground reads as "dark gray"
+   only against something bright enough to contrast it, which is also
+   why #dash-send couldn't just borrow this glyph color on its own
+   previous neutral fill (near-black on near-black is no glyph at all,
+   verified directly before assuming otherwise) — the whole scheme moves
+   with it, not just the one color. Full opacity (overriding the shared
+   .input-bar .send-btn:disabled's own 0.4) since these colors are
+   already the dim version on purpose. */
+#chat .send-btn, #dash-send { background: var(--accent); color: var(--ink); }
+#chat .send-btn:hover, #dash-send:hover { background: var(--accent); opacity: 0.85; }
+#chat .send-btn:disabled, #dash-send:disabled { background: rgba(217, 119, 87, 0.35); color: var(--ground); opacity: 1; cursor: default; }
+#chat .send-btn:disabled:hover, #dash-send:disabled:hover { background: rgba(217, 119, 87, 0.35); }
 /* The filter menu that opens above a bar's own filter button — Items'
    category picker first (the owner's own words: "a little menu to select
    existing categories... a quick way to filter by category"), then the
@@ -950,6 +957,12 @@ function dictationScript({ btnId, inputId }) {
     if (!transcript) return;
     field.value = field.value ? field.value + " " + transcript : transcript;
     field.focus();
+    /* Setting .value directly fires no native "input" event — dispatch
+       one so whatever the field's OWN page already listens for (the
+       Dashboard's own updateSendState(), enabling Send once there is
+       text) reacts the same way it would to someone actually typing,
+       without this shared helper needing to know that listener exists. */
+    field.dispatchEvent(new Event("input", { bubbles: true }));
   });
   recognition.addEventListener("end", stopListening);
   recognition.addEventListener("error", stopListening);
@@ -2341,10 +2354,26 @@ let currentMode = ${JSON.stringify(defaultKind || "")};
 /* "Open" by default — closed tickets stay out of sight until asked for. */
 let currentStatus = "open";
 
+/* Bright and orange only once there is actually something to submit —
+   the owner's own words: "the send arrow in dashboard also needs a
+   disabled state (same dark gray glyph) when there is no entry." Picking
+   a mode alone used to enable Send outright (see setMode(), below); this
+   is the same principle #chat's own composer already enforces — text
+   for a text mode, a picked file for a file mode, nothing otherwise.
+   Called after every event that can change either input. */
+function updateSendState() {
+  const isFileMode = currentMode === "upload" || currentMode === "expense";
+  const isTextMode = currentMode === "ticket" || currentMode === "task";
+  if (isFileMode) { sendBtn.disabled = !fileInput.files[0]; return; }
+  if (isTextMode) { sendBtn.disabled = !titleInput.value.trim(); return; }
+  sendBtn.disabled = true;
+}
+
 function resetAttachment() {
   fileInput.value = "";
   attachBtn.removeAttribute("aria-pressed");
   attachBtn.innerHTML = ATTACH_ICON_HTML;
+  updateSendState();
 }
 
 function markKindMenu() {
@@ -2387,7 +2416,7 @@ function setMode(mode) {
   else fileInput.removeAttribute("capture");
   micBtn.hidden = !isTextMode;
   attachBtn.hidden = !isFileMode;
-  sendBtn.disabled = !isTextMode && !isFileMode;
+  updateSendState();
 
   markKindMenu();
   filterFeed();
@@ -2490,7 +2519,9 @@ fileInput.addEventListener("change", () => {
   titleInput.value = fileInput.files[0].name;
   attachBtn.setAttribute("aria-pressed", "true");
   attachBtn.innerHTML = CANCEL_ICON_HTML;
+  updateSendState();
 });
+titleInput.addEventListener("input", updateSendState);
 
 /* The status line lives at the top of the page now (the .greet section
    above), not sharing this floating spot with the menu any more, so
