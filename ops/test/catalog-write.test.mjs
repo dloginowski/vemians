@@ -557,17 +557,15 @@ check("test_PRD_P0_70_flexible_spreadsheet_columns__a_cost_column_is_no_longer_m
 
 check("test_PRD_P0_70_flexible_spreadsheet_columns__the_preview_shows_extra_columns_the_same_way_it_shows_known_ones", async () => {
   const { previewBatch } = await import("../src/batch.js");
-  const csv =
-    "title,category,price,Season\n" +
-    "Wool Coat,Outerwear,450.00,Fall 2026\n" +
-    "Silk Scarf,Accessories,90.00,\n";
-
-  const preview = previewBatch(csv, "products");
+  const preview = previewBatch("title,category,price,Season\nWool Coat,Outerwear,450.00,Fall 2026\n", "products");
   assert.equal(preview.sampleRows[0].season, "Fall 2026");
-  /* The second row left its own Season blank — it must read as "not found"
-     (null), the same convention a known column already uses, not throw off
-     which column index 3 means for either row. */
-  assert.equal(preview.sampleRows[1].season, null);
+
+  /* Only the one sampled row exists now (PREVIEW_SAMPLE_ROWS, batch.js) —
+     a blank extra column on that row simply has no key at all, the same
+     as any known column left blank being pruned by extraFields(), rather
+     than surfacing as a column with a raw "undefined" value. */
+  const blank = previewBatch("title,category,price,Season\nSilk Scarf,Accessories,90.00,\n", "products");
+  assert.equal("season" in blank.sampleRows[0], false);
 });
 
 check("test_PRD_P0_60_spreadsheet_products__catalog_create_product_still_gates_on_role_even_from_a_spreadsheet", async () => {
@@ -2318,19 +2316,41 @@ check("test_PRD_P0_89_batch_preview_confirm__previews_the_first_rows_and_heading
 
   /* The structured table is what the client renders — real headings as
      columns, one row per sample record, so it reads like a normal
-     spreadsheet snippet rather than a field-by-field list. */
+     spreadsheet snippet rather than a field-by-field list. Just the one
+     sample row now (PREVIEW_SAMPLE_ROWS, batch.js) — "just... one, two
+     rows, one for the headings and one row of data" — even though the
+     sheet itself has two. */
   assert.deepEqual(outcome.table.columns, ["title", "category", "price", "currency", "description", "sku"]);
-  assert.equal(outcome.table.rows.length, 2, "both rows fit under the 3-row sample cap");
+  assert.equal(outcome.table.rows.length, 1, "only the first row is sampled");
   const titleCol = outcome.table.columns.indexOf("title");
   assert.equal(outcome.table.rows[0][titleCol], "Wool Coat");
-  assert.equal(outcome.table.rows[1][titleCol], "Another Coat");
 });
 
-check("test_PRD_P0_89_batch_preview_confirm__only_shows_the_top_few_rows_not_the_whole_sheet", async () => {
-  /* "Don't need to see it all. Just top 2 or 3 rows to see the headings" —
-     the owner's own words, once the preview was actually in front of them.
-     A sheet with far more rows than that must still preview as only a
-     handful, with the true total named separately. */
+check("test_PRD_P0_117_batch_preview_one_row_fits_without_scrolling__the_preview_table_is_marked_compact", async () => {
+  /* Compact tables (this one) are what let views.js's tableCard() skip the
+     fixed max-height clip entirely — "the height fits all the data" —
+     unlike batchDraftTable()'s own potentially-long ready/skipped result,
+     which stays plain (uncapped rows, still needs the scroll frame). */
+  const csv = "title,category,price\nWool Coat,Outerwear,450.00\n";
+  const outcome = await dispatch(
+    "catalog_preview_product_batch",
+    { asset_id: "ast_1" },
+    {
+      actor: "mara@vemians.com",
+      role: "manager",
+      env: { ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) },
+      allowed: new Set(["catalog_preview_product_batch"]),
+    },
+  );
+  assert.equal(outcome.table.compact, true);
+});
+
+check("test_PRD_P0_89_batch_preview_confirm__only_shows_the_top_row_not_the_whole_sheet", async () => {
+  /* "I already need to really see just one — two rows, one for the
+     headings and one row of data. I don't need to see three of them," the
+     owner's own words, superseding P0-89's original "top 2 or 3 rows."
+     A sheet with far more rows than that must still preview as a single
+     sample row, with the true total named separately. */
   const rows = Array.from({ length: 20 }, (_, i) => `Item ${i},Outerwear,${10 + i}.00`).join("\n");
   const csv = `title,category,price\n${rows}\n`;
   const outcome = await dispatch(
@@ -2345,7 +2365,7 @@ check("test_PRD_P0_89_batch_preview_confirm__only_shows_the_top_few_rows_not_the
   );
   assert.equal(outcome.block.is_error, false);
   assert.match(outcome.block.content, /20 rows detected/);
-  assert.equal(outcome.table.rows.length, 3, "sampled, not the full 20 rows");
+  assert.equal(outcome.table.rows.length, 1, "sampled, not the full 20 rows");
 });
 
 check("test_PRD_P0_89_batch_preview_confirm__customers_preview_maps_the_square_field_names", async () => {

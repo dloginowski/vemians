@@ -2860,6 +2860,30 @@ that does not trace to one of these is a process failure (see §12).
     location and quiet weight of a status line in general, not a promise that every future
     status line stays pinned to that exact size forever.
 
+52. **`Test-PRD-P0-117-batch_preview_one_row_fits_without_scrolling`** — The chat's own CSV batch
+    preview card (P0-89's own compact `.table-card`) still didn't fit its own content: "the
+    preview in chat still doesn't expand vertically to show the entire table... I already need to
+    really see just one — two rows, one for the headings and one row of data. I don't need to see
+    three of them... make sure that in the preview, in chat preview, the height fits all the
+    data."
+
+    **PREVIEW_SAMPLE_ROWS drops from 3 to 1** (`batch.js`) — a header plus one sample data row is
+    enough to confirm the column mapping before drafting the rest, matching what the person
+    actually asked to see.
+
+    **The preview card's own height is no longer a fixed guess.** P0-89's own 58px cap
+    (tuned for a header plus two rows at a smaller font, several rounds ago) still clipped real
+    content once a wrapped multi-line cell — a long description, several custom columns — pushed
+    one row past that guessed number. `previewTable()` (`agent.js`) now marks its own result
+    `compact: true`; `tableCard()` (`views.js`) reads that flag to add a `.preview` modifier class
+    instead of the bare `.table-card`, and `.table-card.preview { max-height: none; }` drops the
+    cap entirely for this one card. Safe only because this card is now provably small — one
+    header, one data row, nothing that could grow to fill the screen — unlike
+    `batchDraftTable()`'s own full ready/skipped result (still plain `.table-card`, still capped
+    and scrolling, since that one can carry hundreds of rows). The outer chat log
+    (`.log`, P0-78's own `min(62vh, 560px)` scroll frame) still bounds the whole conversation
+    column if a preview card ever runs unexpectedly tall.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -3127,6 +3151,7 @@ Where each feature is enforced today:
 | P0-114 | `ops/test/dashboard-route.test.mjs` |
 | P0-115 | `ops/test/dashboard-route.test.mjs` |
 | P0-116 | `ops/test/dashboard-route.test.mjs` |
+| P0-117 | `ops/test/catalog-write.test.mjs`, `ops/test/ops-page.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

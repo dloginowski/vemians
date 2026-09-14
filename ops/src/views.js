@@ -380,6 +380,14 @@ const TABLE_CARD_CSS = `
   position: fixed; inset: 12px; z-index: 50; max-height: none;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
 }
+/* A batch preview is one header row plus PREVIEW_SAMPLE_ROWS (1) data row
+   now (batch.js) — small and fixed in size, never the hundreds of rows
+   batchDraftTable()'s own full result can carry. The owner's own words,
+   after the fixed 58px cap still clipped it: "the preview in chat still
+   doesn't expand vertically to show the entire table... make sure the
+   height fits all the data." No cap at all for this one — the outer .log
+   scroll frame already bounds the whole chat column if it ever runs long. */
+.table-card.preview { max-height: none; }
 `;
 
 /*
@@ -957,7 +965,7 @@ function entry(kind, text) {
    in place — no second element, no separate scroll state to track. */
 function tableCard(t) {
   const wrap = document.createElement("div");
-  wrap.className = "table-card";
+  wrap.className = t.compact ? "table-card preview" : "table-card";
 
   const head = document.createElement("h4");
   const title = document.createElement("span");
