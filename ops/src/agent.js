@@ -462,6 +462,12 @@ function previewTable(kind, preview) {
     title: `Preview: first ${preview.sampleRows.length} of ${preview.rowCount} row${preview.rowCount === 1 ? "" : "s"}`,
     columns,
     rows: preview.sampleRows.map((row) => columns.map((c) => (row[c] === null ? "(not found)" : String(row[c])))),
+    /* Just a header plus PREVIEW_SAMPLE_ROWS (1) data row — small enough to
+       show in full, never needing the inner scroll frame batchDraftTable()'s
+       own (potentially hundreds of rows) table still needs. views.js's
+       tableCard() reads this to add .table-card.preview instead of leaving
+       the fixed max-height clip it at an arbitrary height. */
+    compact: true,
   };
 }
 

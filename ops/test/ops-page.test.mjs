@@ -554,6 +554,23 @@ check("test_PRD_P0_89_batch_preview_confirm__the_compact_card_fits_a_header_and_
   assert.match(body, /\.table-card\.full\s*\{[^}]*max-height:\s*none/s, "full screen must remove the height cap entirely");
 });
 
+check("test_PRD_P0_117_batch_preview_one_row_fits_without_scrolling__the_preview_card_drops_the_height_cap_entirely", async () => {
+  /* The fixed 58px guess above still clipped a real preview once a wrapped
+     multi-line cell pushed it past that number — the owner's own words:
+     "the preview in chat still doesn't expand vertically to show the
+     entire table... make sure that in the preview, in chat preview, the
+     height fits all the data." Rather than re-guess a bigger fixed number,
+     the preview card (now provably one header row plus one data row,
+     PREVIEW_SAMPLE_ROWS in batch.js) drops the cap entirely via its own
+     .preview modifier class — tableCard() in views.js adds it whenever the
+     table data carries compact: true. batchDraftTable()'s own full result
+     table is untouched: still plain .table-card, still capped at 58px and
+     scrolling, since that one can carry hundreds of rows. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.table-card\.preview\s*\{[^}]*max-height:\s*none/s, "the preview card must have no height cap at all");
+  assert.match(body, /className = t\.compact \? "table-card preview" : "table-card"/, "tableCard() must add the modifier only for compact table data");
+});
+
 check("test_PRD_P0_89_batch_preview_confirm__the_table_is_as_space_efficient_as_possible", async () => {
   /* The owner's own words: "Make padding half and font size to 9" — the
      latest of several rounds asking for less padding and smaller fonts.

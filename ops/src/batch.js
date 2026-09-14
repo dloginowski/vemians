@@ -275,11 +275,17 @@ export async function draftCustomerBatch(env, { text, actor, role }) {
  * "The agent should confirm with me about its selections if it is unsure...
  * a brief preview of the first row and headings before generating the
  * actual [batch]" — then, once that preview was actually in front of them:
- * "Don't need to see it all. Just top 2 or 3 rows to see the headings."
+ * "Don't need to see it all. Just top 2 or 3 rows to see the headings," and
+ * later, once the chat card still didn't fit even that: "I already need to
+ * really see just one — two rows, one for the headings and one row of
+ * data. I don't need to see three of them." One sample row plus its own
+ * header is enough to confirm the column mapping; PREVIEW_SAMPLE_ROWS at 1
+ * also lets the chat card itself grow to fit the whole thing without an
+ * inner scrollbar (views.js's own TABLE_CARD_CSS, .table-card.preview).
  * Neither draftProductBatch nor draftCustomerBatch is safe to call
  * speculatively — both mint real T2 approval links the moment a row
  * resolves cleanly. This reads the same columns the same way (same key
- * lists, same `pick`), on the first few rows only, and mints nothing: no
+ * lists, same `pick`), on the first row only, and mints nothing: no
  * listCategories call, no runTool, no parkForApproval. A wrong column match
  * is corrected here, before it becomes 400 approval links to click through
  * or cancel one at a time.
@@ -288,7 +294,7 @@ export async function draftCustomerBatch(env, { text, actor, role }) {
  *   sampleRows has at most PREVIEW_SAMPLE_ROWS entries (fewer if the sheet
  *   itself has fewer data rows), each mapped the same way one draft row is.
  */
-const PREVIEW_SAMPLE_ROWS = 3;
+const PREVIEW_SAMPLE_ROWS = 1;
 
 /* Extra columns are spread in AFTER the known ones, so the preview table
    shows exactly what draftProductBatch will actually keep as custom_fields
