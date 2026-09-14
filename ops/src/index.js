@@ -39,6 +39,7 @@ import { listAllProducts, listCategories } from "./tools/catalog-writer.js";
 import { applyFormEdits } from "./approval-forms.js";
 import { syncFromSquare } from "./sync.js";
 import { backfillMedia } from "./media-backfill.js";
+import { intakeContactTickets } from "./contact-intake.js";
 import {
   approvalPage,
   approvalResultPage,
@@ -1217,6 +1218,24 @@ export default {
       }
     } catch (err) {
       console.error(`ERROR ops/scheduled: media backfill step did not run — ${err.message}`);
+    }
+
+    /*
+     * Contact-form intake (Test-PRD-P0-100-ticket_messaging) — the same
+     * independent-step shape as the media backfill just above, for the same
+     * reason: a failure here must never mark the catalog sync itself
+     * failed, and a sync failure must not stop a contact-form submission
+     * from still becoming a ticket on schedule.
+     */
+    try {
+      if (env.TICKETS) {
+        const intake = await intakeContactTickets(env);
+        if (intake.ok && intake.created > 0) {
+          console.info(`INFO ops/scheduled: contact intake -> ${intake.created} new ticket(s)`);
+        }
+      }
+    } catch (err) {
+      console.error(`ERROR ops/scheduled: contact intake step did not run — ${err.message}`);
     }
 
     return out;

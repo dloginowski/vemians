@@ -2200,11 +2200,31 @@ that does not trace to one of these is a process failure (see §12).
     — the same "every input on every page looks and behaves the same" rule the Items search box
     and the chat composer already settled.
 
-    **Left open, deliberately**: this is the staff-to-staff half only. A customer has no account
-    or login on the storefront at all today, so staff-to-customer messaging — the other half of
-    "communication entirely through our website" — needs its own identity decision (a magic link?
-    an order-lookup code?) before it can reuse this same thread shape. `ticket_link`'s own
-    `entity_type='customer'` row shape is already there for that day; nothing here builds it yet.
+    **Left open, deliberately, at first**: staff-to-staff only. A customer had no account or
+    login on the storefront, so staff-to-customer messaging — the other half of "communication
+    entirely through our website" — needed its own identity decision before it could reuse this
+    same thread shape.
+
+    **The customer half arrived without needing a customer login at all.** The owner's own
+    words, closing the loop: "customer communications are via tickets right? ... we want to see
+    [a customer's problem] as a ticket that gets resolved... none of that information gets lost
+    because every email is essentially a black hole." Rather than build customer identity from
+    scratch, `ops/src/contact-intake.js` rides the storefront's EXISTING contact form
+    (`store/src/contact.js`, ADR-015, unchanged) and the SAME 15-minute cron `ops/src/sync.js`
+    already runs: every submission still lands as a Square customer record exactly as before, and
+    this new step turns each one into a ticket (category `customer`, linked to the Square
+    customer id via `ticket_link`) that shows up in the same Messages tab as everything else.
+    Deliberately a scheduled pickup, not a direct write from the storefront: the storefront Worker
+    is public and unauthenticated, and handing it a binding to `TICKETS` — ops's own working
+    notes, not just contact submissions — would be exactly the kind of widening ADR-015 already
+    weighed for `SQUARE_ACCESS_TOKEN_CONTACT`, applied to an internal store instead of a Square
+    credential. No new cursor table either: dedup is a `ticket_link` existence check before every
+    insert, so a generous, overlapping lookback window (48h) costs nothing extra and a missed run
+    is never lost, the same overlap-over-precision trade `sync.js`'s own `OVERLAP_MS` makes.
+    Replying is still by email — the owner's own choice, made directly: staff work the ticket
+    internally and answer the customer the ordinary way, so a live two-way portal (a customer
+    signing in to see the thread) stays the one piece genuinely left open, needing its own
+    identity decision if it is ever wanted.
 
 ## 4. P1 features
 
@@ -2456,7 +2476,7 @@ Where each feature is enforced today:
 | P0-97 | `ops/test/ops-page.test.mjs` |
 | P0-98 | `ops/test/ops-page.test.mjs` |
 | P0-99 | `ops/test/ops-page.test.mjs` |
-| P0-100 | `ops/test/tools.test.mjs` for `ticket.*`; `ops/test/tickets-route.test.mjs` for the `/tickets` routes, over the real Worker |
+| P0-100 | `ops/test/tools.test.mjs` for `ticket.*`; `ops/test/tickets-route.test.mjs` for the `/tickets` routes, over the real Worker; `ops/test/contact-intake.test.mjs` for the scheduled contact-form-to-ticket pickup |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
