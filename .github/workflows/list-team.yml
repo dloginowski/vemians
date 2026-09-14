@@ -1,0 +1,30 @@
+# Read-only. Prints Square's active Team list (name, email, job title) so a
+# human can see the real roster before mapping job titles to ops roles
+# (docs/adr/012-ops-is-a-delegate.md). Nothing here writes to Square or to
+# Cloudflare — safe to run any time, as often as needed.
+
+name: list-team
+
+on:
+  workflow_dispatch:
+    inputs:
+      square_env:
+        description: sandbox or production — must match the token
+        default: production
+
+concurrency:
+  group: list-team
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  list:
+    runs-on: ubuntu-latest
+    env:
+      SQUARE_ACCESS_TOKEN: ${{ secrets.SQUARE_ACCESS_TOKEN }}
+      SQUARE_ENV: ${{ inputs.square_env }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - run: node .github/scripts/list-team.mjs
