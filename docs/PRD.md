@@ -1141,6 +1141,30 @@ that does not trace to one of these is a process failure (see §12).
     surfaces genuinely read as the same control rather than two different ones that happen to sit
     in the same place.
 
+    **Sticky still wasn't enough, and the two surfaces had already drifted apart again.** Deployed
+    and seen live: a screenshot with the composer sitting right under the quick-action chips and a
+    large empty gap below it down to the actual bottom of the phone. The owner's own words: "does
+    that look like it's on the bottom? ... there's not enough content to make them on the bottom."
+    `position: sticky` only repositions an element once its own NORMAL position would scroll past
+    the viewport edge — a short page (a fresh chat, a small catalog) never reaches that point, so
+    sticky just left both bars wherever the document flow put them, nowhere near the true bottom of
+    the screen. Separately, the owner's own words on the visual mismatch: "items search boxes looks
+    nothing like the agent input... if you're gonna match, just make the agent input look the same
+    as the search... just make them the same looking" — independently duplicating matching values
+    in two places (the previous round's fix) had already let them drift apart once. Both problems
+    fixed the same way: a new shared `INPUT_BAR_CSS` block (right after `OPS_DARK_CSS`) defines one
+    `.input-bar` class with `position: fixed` (not sticky — anchored to the real viewport regardless
+    of content height) plus the pill's own border/radius/padding/background; `.chat-bar` (the
+    composer) and the Items search wrapper both carry this class LITERALLY now, not independently
+    matched values that can drift again. The composer also moved OUT of `.chat-top`'s own bordered
+    frame entirely (it used to nest inside that frame's bottom edge, kept deliberately concentric
+    with it) — a fixed-position element takes no notice of where its old parent's box actually
+    ends, so nesting it there any longer would only invite a new visual mismatch; `.chat-top` is
+    back to wrapping `.log`/`#gate` alone, with a plain uniform `20px` radius instead of the old
+    pill-concentric bottom-corner math. `.ops`'s own bottom padding grew from `32px` to `76px` to
+    clear the now-fixed bar's own height, since a fixed element is removed from document flow and
+    would otherwise sit on top of the grid's or the log's own last row.
+
 47b. **`Test-PRD-P0-72-product_detail_page`** — Every product has its own page at
     `/products/<handle>` — the answer to "how do I see product details", asked directly, of a
     shop whose cards used to be `<article>`s with no click-through at all. `loadProduct(env,

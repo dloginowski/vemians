@@ -217,20 +217,37 @@ check("test_PRD_P0_71_items_tab__the_search_box_sits_below_the_grid_not_above_it
   assert.ok(searchAt > gridAt, "the search box must come after the grid in document order");
 });
 
-check("test_PRD_P0_71_items_tab__the_search_box_sticks_to_the_bottom_like_the_chat_composer", async () => {
-  /* The owner's own words, pointing at a screenshot of Claude Code's
-     own interface: "we should have the same kind of look. We should
-     not be having a different UI for every single tab." Same pill
-     shape (border-radius: 24px, matching the chat composer's own
-     .chat-bar) and the same position: sticky; bottom technique as
-     #chat, so both surfaces behave and look the same way. */
+check("test_PRD_P0_71_items_tab__the_search_box_shares_the_chat_composers_own_class_not_matched_values", async () => {
+  /* The owner's own words, after the two drifted visibly out of sync
+     once already: "if you're gonna match, just make the agent input
+     look the same as the search... just make them the same looking."
+     The search input's own wrapper now carries class="input-bar" —
+     the literal same shared class the chat composer's own .chat-bar
+     carries (INPUT_BAR_CSS) — rather than a second, independently
+     duplicated set of matching CSS values that can drift again. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const res = await get("/items", STAFF, env(mirror));
   const body = await res.text();
-  assert.match(body, /\.items-search\s*\{[^}]*border-radius:\s*24px/s);
-  assert.match(body, /\.items-search\s*\{[^}]*position:\s*sticky/s);
-  assert.match(body, /\.items-search\s*\{[^}]*bottom:\s*8px/s);
+  assert.match(body, /<div class="input-bar">\s*<input type="text" id="item-search"/s);
+});
+
+check("test_PRD_P0_71_items_tab__the_search_box_is_fixed_to_the_bottom_regardless_of_content", async () => {
+  /* The owner's own correction, pointing at a screenshot with the
+     chat composer stranded mid-screen on a short page: "does that
+     look like it's on the bottom? ... there's not enough content to
+     make them on the bottom." position: sticky (a first pass) only
+     repositions an element once its own normal position would scroll
+     past the viewport edge — a short catalog never reaches that
+     point. .input-bar (shared with the chat composer) uses position:
+     fixed instead, anchored to the real viewport regardless of how
+     little content exists above it. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.match(body, /\.input-bar\s*\{[^}]*position:\s*fixed/s);
+  assert.match(body, /\.input-bar\s*\{[^}]*bottom:\s*8px/s);
 });
 
 check("test_PRD_P0_71_items_tab__no_redundant_title_wastes_space_the_tab_bar_already_spent", async () => {

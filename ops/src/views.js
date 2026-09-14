@@ -93,6 +93,42 @@ a:hover { opacity: 0.82; }
 `;
 
 /*
+ * The one "pill" input bar, shared literally (not independently duplicated
+ * matching values in two places) between the chat composer (OPS_CSS,
+ * opsPage()) and the Items search box (ITEMS_CSS, itemsPage()) — the
+ * owner's own words, after the two drifted out of sync once already:
+ * "if you're gonna match, just make the agent input look the same as the
+ * search... just make them the same looking." Extracted from the
+ * composer's own .chat-bar, which had the more fully worked-out shape.
+ *
+ * position: fixed, not sticky — the owner's own correction, pointing at a
+ * screenshot with the composer sitting right under the quick-action chips
+ * and a large empty gap below it: "does that look like it's on the
+ * bottom? ... there's not enough content to make them on the bottom."
+ * sticky only repositions an element once its own NORMAL position would
+ * scroll past the viewport edge; a short page (a fresh chat, a small
+ * catalog) never reaches that point, so sticky just left it wherever the
+ * document flow put it — nowhere near the bottom. Fixed is anchored to
+ * the viewport itself regardless of how much content exists above it.
+ * left/right: 8px matches .ops's own side padding exactly, so the bar's
+ * edges line up with the content above it rather than floating off-grid.
+ */
+const INPUT_BAR_CSS = `
+.input-bar {
+  display: flex; align-items: center; gap: 2px;
+  border: 1px solid var(--muted); border-radius: 24px;
+  padding: 4px 6px; background: var(--image-ground);
+  position: fixed; left: 8px; right: 8px; bottom: 8px; z-index: 20;
+}
+.input-bar:focus-within { border-color: var(--ink); }
+.input-bar input {
+  flex: 1 1 auto; min-width: 0; border: none; background: transparent;
+  padding: 8px 4px; font: inherit; font-size: 14px; color: var(--ink);
+}
+.input-bar input:focus { outline: none; }
+`;
+
+/*
  * A batch preview or draft result — column mapping, or ready/skipped rows —
  * rendered as a real table rather than a wall of text. Shared between the
  * chat log (OPS_CSS, appended as a sibling of the message bubbles by
@@ -309,6 +345,7 @@ document.querySelectorAll(".shell-nav button").forEach((btn) => {
 
 const OPS_CSS = `
 ${OPS_DARK_CSS}
+${INPUT_BAR_CSS}
 /* 34rem was tuned for "one screen on a phone" before this page grew a chat
    widget, tables and an accordion of real content — on an actual desktop
    window it read as a narrow column stranded in the middle of empty space.
@@ -321,8 +358,16 @@ ${OPS_DARK_CSS}
  * actual phone screen, padding on both sides is width the chat widget and
  * everything else on the page cannot use at all, and "maximize the use of
  * space on mobile" was the owner's own direction. max-width still caps a
- * wide desktop window, where the difference barely registers. */
-.ops { max-width: 64rem; padding: 12px 8px 32px; }
+ * wide desktop window, where the difference barely registers.
+ *
+ * Bottom padding grew from 32px to 76px once #chat and .items-search
+ * both became position: fixed (see INPUT_BAR_CSS) — a fixed element is
+ * removed from normal document flow entirely, so without this the
+ * grid's own last row, or the chat log's own last message, would sit
+ * PARTLY BEHIND the now-floating bar rather than stopping short of it.
+ * 76px clears the bar's own ~42px height plus its 8px offset from the
+ * true screen edge, plus a little breathing room above it. */
+.ops { max-width: 64rem; padding: 12px 8px 76px; }
 
 .ops .warn { margin: 0 0 14px; }
 
@@ -352,46 +397,25 @@ ${OPS_DARK_CSS}
  * request in this whole thread ever touched it, and trivially "sides
  * match bottom" since there is now only one number.
  *
- * A smaller top radius (20px) than bottom — the owner's own separate,
- * standing preference, unrelated to the padding value: nothing rounded
- * is nested against the top corners regardless of what the gap is. The
- * bottom corners still have to stay concentric with the pill below,
- * whose TRUE rendered radius is ~21px (explained on .chat .chat-bar) —
- * pillRadius (21) + thisGap (14, now that sides/bottom are 14px again) =
- * 35px, recomputed for the new, bigger gap the same way it was for 3px. */
+ * A uniform 20px now, not a smaller top radius against a larger,
+ * pill-concentric bottom — that relationship existed only because the
+ * composer used to nest inside this frame's own bottom edge. It no
+ * longer does (below): the composer is fixed to the screen's own
+ * bottom now, sharing .items-search's own shape instead, so .chat-top
+ * is back to a plain rounded card around .log/#gate alone. */
 .chat-top {
-  border: 1px solid var(--accent); border-radius: 20px 20px 35px 35px;
+  border: 1px solid var(--accent); border-radius: 20px;
   padding: 14px; margin-bottom: 16px;
 }
-/* The SAME class of bug P0-96 found on the bottom edge, on the top edge
-   instead — the owner's own words: "match the outer chat box top padding
-   to its side padding. So that content is evenly spaced out from the
-   edge." .chat-top's own padding was already a literal, uniform 14px on
-   every side; what was NOT accounted for is theme.css's own .chat rule
-   (margin-top: 12px, shared/design/theme.css) — the composer <form>
-   below carries class="chat" (reused deliberately so the approval gate's
-   own buttons elsewhere inherit from it, per the comment on .chat
-   .chat-bar below), and inherits that margin regardless. With the hint
-   paragraph absent (the common case) and .log/#gate both empty and
-   collapsed to nothing, the form is the FIRST thing in .chat-top's own
-   padded box — so its inherited margin-top stacked directly on top of
-   the 14px padding, making the effective top gap ~26px against the
-   sides' plain 14px. Scoped to #chat specifically (not a blanket .chat
-   override, which would also zero the gate's OWN use of class="chat"
-   for its button row, a few hundred lines down) since only this form's
-   top margin was ever the problem. */
-/* Sticks to the bottom of the viewport once scrolled past its own normal
-   position, instead of only ever being structurally last on the page —
-   the owner's own reference, a screenshot of Claude Code's own chat
-   interface: "notice how the text entry is on the bottom, right, where
-   it should be... it should look similar for items and chat." position:
-   sticky (not fixed) keeps the composer occupying its normal space in
-   the document while short, and pins it to the viewport's own bottom
-   edge only once real content (a long conversation) would otherwise
-   scroll it out of view — no compensating bottom padding needed
-   elsewhere, unlike fixed positioning would require. z-index keeps it
-   above .log's own bubbles as they scroll underneath it. */
-#chat { margin-top: 0; position: sticky; bottom: 8px; z-index: 5; }
+/* The composer <form> carries class="chat" deliberately (so the
+   approval gate's own button row further down inherits from it too),
+   which means it also inherits theme.css's own ".chat" margin-top:
+   12px — irrelevant now that #chat is position: fixed (below) with
+   only the bottom inset set, not top, so a top margin has nothing left
+   to offset against. Kept at 0 anyway since it costs nothing and this is
+   exactly the kind of inherited-margin bug (P0-96, P0-99) this file
+   has been bitten by more than once. */
+#chat { margin-top: 0; }
 
 /* Centred and quiet on purpose — a name check, not the thing on the page
    asking to be read first. The chat widget right below it is that thing;
@@ -514,52 +538,20 @@ ${TABLE_CARD_CSS}
  * circular Send on the right. Everything inside shares the bar's own
  * background rather than drawing a second box around itself.
  *
- * Every rule below is scoped ".chat .chat-bar ..." (or by id, for the input),
- * on purpose: shared/design/theme.css already carries ".chat input" and
- * ".chat button" at specificity (0,1,1), and this form still carries
- * class="chat" for the approval gate's own buttons further down to inherit
- * from — so anything here weaker than that would be silently overridden by
- * the shared rule rather than replacing it the way it reads on screen.
- */
-/* Brighter than the page's plain --rule boxes (the entry line itself, and
-   the "+" attach icon at rest) — both were dim enough to disappear next to
-   the now-orange .chat-top frame around them. */
-/* Declared 24px, never touched by .chat-top's own corner radius above —
-   it is what the outer frame is kept concentric WITH, not a value being
-   corrected: the owner's own words, "I liked how it flowed around the
-   chat buttons," the round 32-34px icon buttons sitting inside it. It
-   ACTUALLY renders around 21px, though: this bar is only ~42px tall
-   (4px+4px padding plus a 34px button — unchanged by the left/right
-   padding below, which does not affect the bar's own height), and CSS
-   caps border-radius at half a box's own dimension once the declared
-   value would exceed it — a full stadium either way, but .chat-top's own
-   radius above has to be sized against this real ~21px shape, not the
-   nominal 24, or the two frames stop looking concentric on an actual
-   screen.
- *
- * Padding is 4px 6px — vertical 4px (matching the button height exactly,
- * no room to spare), sides 6px. A brief uniform-4px round ("submit
- * button's padding could use a bit of tightening too") made the sides
- * read as tighter than the vertical gap once it was actually in front of
- * the owner again: "Sides is less than vertical. I don't think that's an
- * optical illusion. Side padding probably needs like 2 more pixels." Back
- * to the wider 6px sides this carried before that round, on their own
- * direct measurement rather than continuing to guess. */
-.chat .chat-bar {
-  display: flex; align-items: center; gap: 2px;
-  border: 1px solid var(--muted); border-radius: 24px;
-  padding: 4px 6px; background: var(--image-ground);
-}
-/* Stays the same neutral grey on focus — an orange ring here, right inside
-   an already-orange .chat-top frame, doubled up on the one accent colour
-   for no extra information. --ink instead of --muted still reads as a
-   distinct, brighter "active" state without borrowing the frame's colour. */
-.chat .chat-bar:focus-within { border-color: var(--ink); }
-#q {
-  flex: 1 1 auto; min-width: 0; border: none; background: transparent;
-  padding: 8px 4px; font: inherit; font-size: 14px; color: var(--ink);
-}
-#q:focus { outline: none; }
+ * The pill's own border/radius/padding/background, and the input's own
+ * reset, used to live here, hand-tuned across many rounds (a 24px
+ * declared radius rendering at a true ~21px on this bar's own ~42px
+ * height; sides at 6px against a 4px vertical; kept deliberately
+ * concentric with .chat-top's own frame around it). All of that now
+ * lives in the shared .input-bar / .input-bar input (right after
+ * OPS_DARK_CSS) instead — .chat-bar carries that class too, and #q
+ * needs no styling of its own beyond what .input-bar input already
+ * gives every descendant input — because the composer no longer nests
+ * inside .chat-top's own frame at all (see .chat-top below): it is
+ * fixed to the screen's own bottom now, sharing its exact shape with
+ * Items' own search bar, literally rather than by independently
+ * matched values. Only the button rules below (icon-btn, send-btn)
+ * stay scoped here, since Items' own search bar has neither. */
 .chat .chat-bar button {
   flex: 0 0 auto; margin: 0; padding: 0; cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;
@@ -712,17 +704,9 @@ ${id}
     <h1>Hi ${esc(firstName)} — what would you like to do?</h1>
   </section>
 
-  <!-- The quick-action menu sits ABOVE the chat now, not below it — the
+  <!-- The quick-action menu sits ABOVE the chat, not below it — the
        owner's own words: "you can put the quick chat buttons on top of
-       the chat... not on the bottom." With the menu below chat-top
-       before this, the composer was never the true bottom-most thing
-       on the page; on a phone, "I really should have the entry at the
-       bottom... I can't be reaching to the top of the phone just to
-       put in stuff." .log's own internal scroll (max-height, overflow:
-       auto — unchanged) keeps chat-top a fixed height regardless of
-       message count, so moving the menu above it is what actually
-       pins the composer to the bottom of the page, not just visually
-       near it. -->
+       the chat... not on the bottom." -->
   <section class="menu">
     <div class="choices">
       <button type="button" class="btn" data-prompt="Add products">+ Products</button>
@@ -735,16 +719,26 @@ ${id}
     ${hasKey ? "" : '<p class="hint">No model connected &mdash; set <code>ANTHROPIC_API_KEY</code> to turn this on.</p>'}
     <div class="log" id="log"></div>
     <div id="gate"></div>
-    <form class="chat" id="chat" method="post" action="/ops/agent">
-      <div class="chat-bar">
-        <button type="button" class="icon-btn" id="attach-btn" aria-label="Attach a photo or file" title="Attach a photo or file">${ATTACH_ICON}</button>
-        <input name="q" id="q" placeholder='e.g. "Add a wool coat, $450, Outerwear"' autocomplete="off">
-        <button type="button" class="icon-btn" id="mic-btn" aria-label="Voice input" title="Voice input">${MIC_ICON}</button>
-        <button type="submit" class="send-btn" aria-label="Send" title="Send">${SEND_ICON}</button>
-      </div>
-      <input type="file" id="attach-input" hidden>
-    </form>
   </section>
+
+  <!-- Fixed to the screen's own bottom (see INPUT_BAR_CSS), not
+       structurally last on the page and not nested inside .chat-top's
+       own frame — the owner's own words, pointing at a screenshot with
+       the composer sitting just under the quick-action chips and a
+       large empty gap below it: "does that look like it's on the
+       bottom? ... there's not enough content to make them on the
+       bottom." Nothing short of fixed positioning keeps this pinned to
+       the true bottom of the screen regardless of how little content
+       (a fresh chat) exists above it. -->
+  <form class="chat" id="chat" method="post" action="/ops/agent">
+    <div class="chat-bar input-bar">
+      <button type="button" class="icon-btn" id="attach-btn" aria-label="Attach a photo or file" title="Attach a photo or file">${ATTACH_ICON}</button>
+      <input name="q" id="q" placeholder='e.g. "Add a wool coat, $450, Outerwear"' autocomplete="off">
+      <button type="button" class="icon-btn" id="mic-btn" aria-label="Voice input" title="Voice input">${MIC_ICON}</button>
+      <button type="submit" class="send-btn" aria-label="Send" title="Send">${SEND_ICON}</button>
+    </div>
+    <input type="file" id="attach-input" hidden>
+  </form>
 </main>
 <script>
 ${COPY_JS}
@@ -1066,22 +1060,7 @@ document.querySelectorAll(".choices .btn[data-prompt]").forEach((btn) => {
  */
 const ITEMS_CSS = `
 ${OPS_DARK_CSS}
-/* The same rounded pill, colours, and sticky-bottom behaviour as the
-   chat composer's own .chat-bar (OPS_CSS, opsPage()) — the owner's own
-   words, pointing at a screenshot of Claude Code's own interface: "we
-   should have the same kind of look. We should not be having a
-   different UI for every single tab." position: sticky (not fixed)
-   keeps this occupying its normal space while the grid is short, and
-   pins it to the viewport's own bottom edge once a long list of tiles
-   would otherwise scroll it out of view — matching #chat's own
-   technique exactly, for the same reason. */
-.items-search {
-  width: 100%; box-sizing: border-box; font: inherit; font-size: 14px;
-  padding: 8px 12px; margin: 16px 0 0; border: 1px solid var(--muted);
-  border-radius: 24px; background: var(--image-ground); color: var(--ink);
-  position: sticky; bottom: 8px; z-index: 5;
-}
-.items-search:focus { outline: none; border-color: var(--ink); }
+${INPUT_BAR_CSS}
 /* Two columns down to phone width — the owner's own words: "on my
    phone, I want a two column layout... as it gets wider, it will just
    fill the entire screen." auto-fill's own minmax(240px, 1fr) never
@@ -1244,12 +1223,21 @@ export function itemsPage({ role }, products) {
        stuff at the top of the screen of the phone." A thumb reaches
        the bottom of a phone screen far more easily than the top, so
        the one thing on this page that's typed into every time belongs
-       where a thumb already rests, not up where it has to stretch. */
+       where a thumb already rests, not up where it has to stretch.
+       Fixed to the screen's own bottom (INPUT_BAR_CSS's own .input-bar,
+       shared literally with the chat composer, not independently
+       matched values) rather than structurally last on the page — the
+       owner's own words, after the two drifted out of sync once
+       already and after a screenshot showed a short catalog leaving it
+       stranded mid-screen: "make them the same looking... there's not
+       enough content to make them on the bottom." */
     `<main class="ops">
   <div class="items-grid" id="items-grid">
 ${tiles}
   </div>
-  <input type="text" class="items-search" id="item-search" placeholder="Search title, handle, category, SKU, custom fields...">
+  <div class="input-bar">
+    <input type="text" id="item-search" placeholder="Search title, handle, category, SKU, custom fields...">
+  </div>
 </main>
 <script>
 document.getElementById("item-search").addEventListener("input", (e) => {
