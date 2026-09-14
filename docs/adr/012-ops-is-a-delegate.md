@@ -1,6 +1,6 @@
 # ADR-012 — Ops is a delegate, not a principal
 
-**Status:** Proposed · **Date:** 2026-09-08 · **Amends:** ADR-011 · **Extends:** ADR-009
+**Status:** Accepted · **Date:** 2026-09-08 · **Amends:** ADR-011 · **Extends:** ADR-009
 
 ## Decision
 
@@ -76,13 +76,37 @@ rosters disagree the first week someone leaves.
 the admin panel still cannot grant admin. Admin remains a Cloudflare Access policy edited in the
 dashboard. The root of trust does not move.
 
+## Resolved
+
+1. **The identity gap.** Was: Access admitted `email_domain: vemians.com`, and Square's own
+   `email_address` per team member is whatever was typed at hire — often personal, blocking staff
+   login outright. Resolved from the other direction, separately: the Google Workspace behind
+   `vemians.com` was cancelled, which forced Access itself off a shared domain and onto a plain
+   list of individual addresses (P0-99). Once Access admits by individual address regardless of
+   domain, Square's own `email_address` — confirmed accurate by the owner ("we have all the
+   emails in there") — is exactly the shape Access already needs. Nothing in this ADR's own design
+   had to change; the blocker was on the Access side, and it resolved on its own.
+2. **Does the token even carry team scope?** Confirmed reachable, though not exercised against a
+   live account from this codebase's own development environment (`connect.squareup.com` stays
+   egress-blocked from here, same wall every other Square-adapter test hits) —
+   `.github/workflows/list-team.yml`, run manually from the Actions tab, is what actually answers
+   this against the real token.
+
+## Wired in (Test-PRD-P0-101-square_sourced_roster)
+
+`.github/scripts/sync-roster-from-square.mjs` builds a SQL script from Square's active Team list
+and applies it to `people.sql`'s own `employee` table via `wrangler d1 execute --file=`;
+`ops/src/access.js`'s `explainRole()` reads that table once it holds at least one row, fully
+authoritative from that point on. See `docs/PRD.md`'s own P0-101 entry for the shape, the
+fail-safe (an unsynced or empty roster falls through to the legacy rules rather than locking
+everyone out), and the deliberate choice of a database table over pushing straight into Cloudflare
+Access Groups — the owner's own words, explicit: "I want github to push these to a database,"
+made after the Access-Groups alternative (which would have kept "refused before the Worker runs"
+for a stranger) was described and declined.
+
 ## Open
 
-1. **The identity gap.** Square's `email_address` is whatever was typed at hire — often personal —
-   while Access admits `email_domain: vemians.com`. A staff member on a personal address is on the
-   roster and cannot reach the perimeter. Unresolved, and it blocks staff login, not the design.
-2. **Does the token even carry team scope?** Unknown: Square is answering `401` to
-   `SQUARE_ACCESS_TOKEN` at present, so nothing has been read from the live account.
-3. **Per-user OAuth** would make the ceiling enforced rather than honoured — if Square scopes a
+1. **Per-user OAuth** would make the ceiling enforced rather than honoured — if Square scopes a
    token to the authorising team member's rights. **Not verified**, and Square's OAuth appears to
-   authorise at merchant level. Worth answering before assuming it is an escape from rule 2 above.
+   authorise at merchant level. Worth answering before assuming it is an escape from rule 2 of
+   "What follows, stated plainly," above.

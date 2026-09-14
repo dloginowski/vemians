@@ -22,7 +22,7 @@
  * has none of this code in its bundle.
  *
  * PRD: Test-PRD-P0-22-workspace_sso, Test-PRD-P0-23-group_derived_roles,
- *      Test-PRD-P0-24-binding_scoped_tools.
+ *      Test-PRD-P0-24-binding_scoped_tools, Test-PRD-P0-101-square_sourced_roster.
  */
 
 import { notFoundPage } from "../../shared/view/html.js";
@@ -293,7 +293,7 @@ async function ops(request, env, path) {
     if (typeof email !== "string" || !email.includes("@")) {
       return html(refusalPage(403, "This page requires signing in as a person, not a service token."), 403);
     }
-    const role = roleFor(identity, env);
+    const role = await roleFor(identity, env);
     if (!role) {
       return html(refusalPage(403, "Your Access identity is in no group this application maps to a role."), 403);
     }
@@ -360,7 +360,7 @@ async function ops(request, env, path) {
     if (typeof email !== "string" || !email.includes("@")) {
       return html(refusalPage(403, "Your Access identity is in no group this application maps to a role."), 403);
     }
-    if (!roleFor(identity, env)) {
+    if (!(await roleFor(identity, env))) {
       return html(refusalPage(403, "Your Access identity is in no group this application maps to a role."), 403);
     }
     if (!env.MEDIA_SIGNING_KEY) {
@@ -385,7 +385,7 @@ async function ops(request, env, path) {
       console.error("ERROR ops/media: assertion has no email claim (service token?) — refusing the upload");
       return json({ error: "This route requires a per-user Access identity." }, 403);
     }
-    if (!roleFor(identity, env)) {
+    if (!(await roleFor(identity, env))) {
       console.error(`ERROR ops/media: ${email} is in no known Access group — refusing the upload`);
       return json({ error: "Your Access identity is in no group this application maps to a role." }, 403);
     }
@@ -401,7 +401,7 @@ async function ops(request, env, path) {
    * itemsPage() in views.js for why.
    */
   if (path === "/items") {
-    const role = roleFor(identity, env);
+    const role = await roleFor(identity, env);
     if (!role) {
       return html(refusalPage(403, "Your Access identity is in no group this application maps to a role."), 403);
     }
@@ -440,7 +440,7 @@ async function ops(request, env, path) {
     if (typeof email !== "string" || !email.includes("@")) {
       return html(refusalPage(403, "This page requires signing in as a person, not a service token."), 403);
     }
-    const role = roleFor(identity, env);
+    const role = await roleFor(identity, env);
     if (!role) {
       return html(refusalPage(403, "Your Access identity is in no group this application maps to a role."), 403);
     }
@@ -512,7 +512,7 @@ async function ops(request, env, path) {
    * move one.
    */
   if (path === "/tickets" || path.startsWith("/tickets/")) {
-    const role = roleFor(identity, env);
+    const role = await roleFor(identity, env);
     if (!role) {
       return html(refusalPage(403, "Your Access identity is in no group this application maps to a role."), 403);
     }
@@ -657,7 +657,7 @@ async function ops(request, env, path) {
     if (typeof email !== "string" || !email.includes("@")) {
       return html(refusalPage(403, "This page requires signing in as a person, not a service token."), 403);
     }
-    if (!roleFor(identity, env)) {
+    if (!(await roleFor(identity, env))) {
       return html(refusalPage(403, "Your Access identity is in no group this application maps to a role."), 403);
     }
 
@@ -780,7 +780,7 @@ async function ops(request, env, path) {
     if (typeof email !== "string" || !email.includes("@")) {
       return html(refusalPage(403, "This page requires signing in as a person, not a service token."), 403);
     }
-    const role = roleFor(identity, env);
+    const role = await roleFor(identity, env);
     if (!role) {
       return html(refusalPage(403, "Your Access identity is in no group this application maps to a role."), 403);
     }
@@ -981,7 +981,7 @@ async function ops(request, env, path) {
   if (path.startsWith("/approvals/")) {
     const id = path.slice("/approvals/".length);
     const email = identity.claims?.email;
-    const role = roleFor(identity, env);
+    const role = await roleFor(identity, env);
     if (!role) {
       return html(refusalPage(403, "Your Access identity is in no group this application maps to a role."), 403);
     }
@@ -1042,7 +1042,7 @@ async function ops(request, env, path) {
   }
 
   if (path === "/whoami") {
-    const detail = explainRole(identity, env);
+    const detail = await explainRole(identity, env);
     const claims = identity?.claims ?? {};
     const body = {
       email: claims.email ?? null,
@@ -1138,7 +1138,7 @@ async function ops(request, env, path) {
      * tell them what they can do. The argument, not the rule, was wrong.
      * Test-PRD-P0-23-group_derived_roles.
      */
-    const detail = explainRole(identity, env);
+    const detail = await explainRole(identity, env);
     return html(
       opsPage(identity, {
         role: detail.role,
