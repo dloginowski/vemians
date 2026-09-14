@@ -1276,10 +1276,27 @@ check("test_PRD_P0_126_send_button_disabled_glyph_darker__the_disabled_arrow_use
      text" token) barely showed up against the dim orange tint, reading
      as faded rather than a deliberate dark gray. var(--rule) (#7B7369,
      the app's own border/divider gray, one step darker) is what actually
-     reads as "dark gray" against that background. */
+     read as "dark gray" against that background at the time.
+     Superseded almost immediately by Test-PRD-P0-127-send_button_disabled_glyph_matches_mic
+     below — --rule turned out not to be the specific dark the owner had
+     in mind either; see that check for the actual reference and color. */
   const { body } = await frontPage(OWNER);
-  assert.match(body, /#chat \.send-btn:disabled\s*\{[^}]*color:\s*var\(--rule\)/s, "the disabled glyph must use the darker --rule token, not --muted");
   assert.doesNotMatch(body, /#chat \.send-btn:disabled\s*\{[^}]*color:\s*var\(--muted\)/s, "the old, too-light --muted glyph must be gone");
+});
+
+check("test_PRD_P0_127_send_button_disabled_glyph_matches_mic__the_disabled_arrow_matches_the_mic_buttons_own_dark_icon", async () => {
+  /* var(--rule) was STILL not dark enough, per the owner's own final
+     clarification, pointing at a concrete reference already sitting on
+     the same bar: "you have the microphone right next to it that has a
+     dark microphone icon... that's what I mean by dark... it needs to
+     be that microphone icon dark, just like the microphone." .mic-btn's
+     own icon is var(--ground) (near-black in this theme) against its
+     own bright orange fill — the disabled send glyph now matches that
+     exact color instead of guessing at a new one. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.input-bar \.mic-btn\s*\{[^}]*color:\s*var\(--ground\)/s, "sanity check: the mic icon really is --ground, the color being matched");
+  assert.match(body, /#chat \.send-btn:disabled\s*\{[^}]*color:\s*var\(--ground\)/s, "the disabled glyph must match the mic button's own dark icon color exactly");
+  assert.doesNotMatch(body, /#chat \.send-btn:disabled\s*\{[^}]*color:\s*var\(--rule\)/s, "the previous round's --rule attempt must be gone");
 });
 
 check("test_PRD_P0_124_send_button_active_state__the_active_glyph_is_bright_not_the_near_black_ground_token", async () => {

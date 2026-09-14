@@ -245,19 +245,21 @@ const INPUT_BAR_CSS = `
    Disabled is a distinct look, not just faded: a dim tint of the same
    accent hue (rather than the neutral gray every other .send-btn falls
    back to) so the button still reads as the agentic send action, just
-   inactive. The glyph itself went through two tries: --muted first (the
-   app's own "dim, secondary" text token) — but rendered and compared
-   side by side with the alternative below, it barely showed up against
-   the dim orange, reading as faded rather than a deliberate dark gray.
-   --rule (the app's own border/divider gray, one step darker) is what
-   the owner's own correction actually asked for: "when the submit
-   button is disabled with the dim orange, its arrow should be like that
-   dark gray color." Full opacity (overriding the shared .input-bar
-   .send-btn:disabled's own 0.4) since these colors are already the dim
-   version on purpose. */
+   inactive. The glyph went through three tries before landing: --muted
+   first, then --rule once --muted read too faded when rendered — both
+   wrong, per the owner's own final clarification, pointing at a
+   concrete reference already on the same bar: "you have the microphone
+   right next to it that has a dark microphone icon... that's what I
+   mean by dark... it needs to be that microphone icon dark, just like
+   the microphone." .mic-btn's own icon is --ground (near-black in this
+   theme) against its own bright orange fill (see .mic-btn, above) —
+   the disabled glyph now matches that exact color, the one dark this
+   whole thread was actually asking for. Full opacity (overriding the
+   shared .input-bar .send-btn:disabled's own 0.4) since these colors
+   are already the dim version on purpose. */
 #chat .send-btn { background: var(--accent); color: var(--ink); }
 #chat .send-btn:hover { background: var(--accent); opacity: 0.85; }
-#chat .send-btn:disabled { background: rgba(217, 119, 87, 0.35); color: var(--rule); opacity: 1; cursor: default; }
+#chat .send-btn:disabled { background: rgba(217, 119, 87, 0.35); color: var(--ground); opacity: 1; cursor: default; }
 #chat .send-btn:disabled:hover { background: rgba(217, 119, 87, 0.35); }
 /* The filter menu that opens above a bar's own filter button — Items'
    category picker first (the owner's own words: "a little menu to select
