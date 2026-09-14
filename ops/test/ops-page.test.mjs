@@ -1211,6 +1211,56 @@ check("test_PRD_P0_98_voice_input__the_icon_swaps_to_a_stop_glyph_while_recordin
   assert.match(stopFn, /micBtn\.innerHTML = MIC_ICON_HTML/, "ending (naturally or on error) must swap back to the mic glyph");
 });
 
+check("test_PRD_P0_124_send_button_active_state__the_button_starts_disabled_and_re_enables_on_input", async () => {
+  /* The owner's own words, pointing at a reference UI: "if there is
+     nothing in the entry field, if there are no attachments added, the
+     submit button should always be like a dim inactive version... you
+     should only be able to submit something that you actually have
+     something to submit." Disabled is the real native state now, not
+     just the submit handler's own silent "if (!q && !file) return"
+     no-op — it starts in markup with the attribute (the composer always
+     starts empty) and updateSendState() runs after every event that can
+     change either input. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /<button type="submit" class="send-btn" id="chat-send"[^>]*disabled>/, "the button must start disabled in the server-rendered markup");
+  const script = body.slice(body.indexOf("attach-input"));
+  assert.match(script, /function updateSendState\(\) \{\s*sendBtn\.disabled = !qInput\.value\.trim\(\) && !pickedFile\(\);/, "the button is enabled by text OR an attachment, not text alone");
+  assert.match(script, /qInput\.addEventListener\("input", updateSendState\)/, "typing must re-check the button's own state");
+  const clearFn = script.slice(script.indexOf("function clearAttachments"), script.indexOf("function clearAttachments") + 400);
+  assert.match(clearFn, /updateSendState\(\);/, "clearing (after send, or removing an attachment) must re-check the button's own state too");
+  const changeHandler = script.slice(script.indexOf("fileInput.addEventListener"), script.indexOf("fileInput.addEventListener") + 450);
+  assert.match(changeHandler, /updateSendState\(\);/, "picking a file must re-check the button's own state");
+  const resultHandler = script.slice(script.indexOf('addEventListener("result"'), script.indexOf('addEventListener("result"') + 300);
+  assert.match(resultHandler, /updateSendState\(\);/, "a dictation result landing in the field must re-check the button's own state too");
+});
+
+check("test_PRD_P0_124_send_button_active_state__disabled_is_a_dim_orange_not_the_neutral_gray_every_other_send_btn_uses", async () => {
+  /* "Maybe it would have a dim, much dimmer orange color... and a dark
+     gray arrow" — a distinct dim look, not the plain .input-bar's own
+     opacity: 0.4 fade every OTHER .send-btn (Items' search, a ticket's
+     Create/Send) falls back to when disabled, and not the neutral gray
+     fill either — the button should still read as the agentic send
+     action, just inactive. var(--muted) is the app's own established
+     "dim, secondary" token, not a new gray invented for this one button. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /#chat \.send-btn:disabled\s*\{[^}]*background:\s*rgba\(217, 119, 87, 0\.35\)/s, "disabled must be a dim tint of the accent hue, not a neutral gray");
+  assert.match(body, /#chat \.send-btn:disabled\s*\{[^}]*color:\s*var\(--muted\)/s, "the disabled glyph must use the app's own established muted token");
+  assert.match(body, /#chat \.send-btn:disabled\s*\{[^}]*opacity:\s*1/s, "full opacity — these colors are already the dim version on purpose, no further fading on top");
+});
+
+check("test_PRD_P0_124_send_button_active_state__the_active_glyph_is_bright_not_the_near_black_ground_token", async () => {
+  /* The owner's own words: "when it's active, it's a much brighter
+     orange, the one that you have now, and a white arrow." The orange
+     background was already right; the glyph color was the actual bug —
+     #chat .send-btn's icon was var(--ground), which is near-black in
+     this dark theme (verified directly: rgb(25, 24, 23)), not the white
+     the owner was comparing against. var(--ink) is the palette's own
+     bright warm-white. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /#chat \.send-btn\s*\{\s*background:\s*var\(--accent\); color:\s*var\(--ink\);\s*\}/, "the active (enabled) icon must be the bright --ink token, not --ground");
+  assert.doesNotMatch(body, /#chat \.send-btn\s*\{\s*background:\s*var\(--accent\); color:\s*var\(--ground\);\s*\}/, "the old near-black --ground icon must be gone");
+});
+
 check("test_PRD_P0_103_voice_search_fills_the_search_box__the_agent_composers_own_mic_is_orange_too", async () => {
   /* The owner's own words: "make sure that the microphone in the agentic
      agent window is orange as well because that's an agentic input as

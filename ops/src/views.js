@@ -238,9 +238,21 @@ const INPUT_BAR_CSS = `
 /* #chat is the id ONLY the real agent composer's form carries (opsPage()) —
    the ticket compose/comment forms and Items' search bar all reuse class
    "chat"/"input-bar" for their shared shape but never this id, so this
-   stays the one place orange survives. */
-#chat .send-btn { background: var(--accent); color: var(--ground); }
+   stays the one place orange survives. Icon is --ink (the palette's own
+   bright warm-white) rather than --ground (near-black in this dark
+   theme) — the owner's own words, comparing this to a reference UI:
+   "when it's active, it's a much brighter orange... and a white arrow."
+   Disabled is a distinct look, not just faded: a dim tint of the same
+   accent hue (rather than the neutral gray every other .send-btn falls
+   back to) so the button still reads as the agentic send action, just
+   inactive, and --muted for the glyph — the app's own established "dim,
+   secondary" token, not a new gray invented for this one button. Full
+   opacity (overriding the shared .input-bar .send-btn:disabled's own
+   0.4) since these colors are already the dim version on purpose. */
+#chat .send-btn { background: var(--accent); color: var(--ink); }
 #chat .send-btn:hover { background: var(--accent); opacity: 0.85; }
+#chat .send-btn:disabled { background: rgba(217, 119, 87, 0.35); color: var(--muted); opacity: 1; cursor: default; }
+#chat .send-btn:disabled:hover { background: rgba(217, 119, 87, 0.35); }
 /* The filter menu that opens above a bar's own filter button — Items'
    category picker first (the owner's own words: "a little menu to select
    existing categories... a quick way to filter by category"), then the
@@ -1057,7 +1069,7 @@ ${id}
       <button type="button" class="icon-btn" id="attach-btn" aria-label="Attach a photo or file" title="Attach a photo or file">${ATTACH_ICON}</button>
       <input name="q" id="q" placeholder='e.g. "Add a wool coat, $450, Outerwear"' autocomplete="off">
       <button type="button" class="icon-btn mic-btn" id="mic-btn" aria-label="Voice input" title="Voice input">${MIC_ICON}</button>
-      <button type="submit" class="send-btn" aria-label="Send" title="Send">${SEND_ICON}</button>
+      <button type="submit" class="send-btn" id="chat-send" aria-label="Send" title="Send" disabled>${SEND_ICON}</button>
     </div>
     <input type="file" id="attach-input" hidden>
   </form>
@@ -1212,7 +1224,21 @@ const CANCEL_ICON_HTML = ${JSON.stringify(CANCEL_ICON)};
 const fileInput = document.getElementById("attach-input");
 const attachBtn = document.getElementById("attach-btn");
 const qInput = document.getElementById("q");
+const sendBtn = document.getElementById("chat-send");
 const DEFAULT_PLACEHOLDER = qInput.placeholder;
+
+/* Bright and orange only once there is actually something to send — the
+   owner's own words, pointing at a reference UI: "if there is nothing in
+   the entry field, if there are no attachments added, the submit button
+   should always be like a dim inactive version... you should only be
+   able to submit something that you actually have something to submit."
+   Disabled is the real, native state (not just a look) — the same guard
+   the submit handler's own "if (!q && !file) return" already enforced
+   silently; this makes that guard visible instead of a click that does
+   nothing. Called after every event that can change either input. */
+function updateSendState() {
+  sendBtn.disabled = !qInput.value.trim() && !pickedFile();
+}
 
 function clearAttachments() {
   fileInput.value = "";
@@ -1221,11 +1247,14 @@ function clearAttachments() {
   attachBtn.innerHTML = ATTACH_ICON_HTML;
   attachBtn.setAttribute("aria-label", "Attach a photo or file");
   attachBtn.setAttribute("title", "Attach a photo or file");
+  updateSendState();
 }
 
 function pickedFile() {
   return fileInput.files[0] || null;
 }
+
+qInput.addEventListener("input", updateSendState);
 
 attachBtn.addEventListener("click", () => {
   if (pickedFile()) {
@@ -1242,6 +1271,7 @@ fileInput.addEventListener("change", () => {
   attachBtn.innerHTML = CANCEL_ICON_HTML;
   attachBtn.setAttribute("aria-label", "Remove attachment");
   attachBtn.setAttribute("title", "Remove attachment");
+  updateSendState();
 });
 
 /* Voice input. Support for SpeechRecognition is inconsistent across
@@ -1272,6 +1302,7 @@ if (!SpeechRecognitionCtor) {
     if (!transcript) return;
     qInput.value = qInput.value ? qInput.value + " " + transcript : transcript;
     qInput.focus();
+    updateSendState();
   });
   recognition.addEventListener("end", stopListening);
   recognition.addEventListener("error", stopListening);

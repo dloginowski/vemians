@@ -3026,6 +3026,36 @@ that does not trace to one of these is a process failure (see §12).
     One shared `text-align: center` on `.table-card th, .table-card td` — no header-only exception
     left to maintain.
 
+59. **`Test-PRD-P0-124-send_button_active_state`** — The owner's own words, pointing at a
+    reference UI: "if there is nothing in the entry field, if there are no attachments added, the
+    submit button should always be like a dim inactive version... maybe a much dimmer orange color,
+    and a dark gray arrow. And when it's active, it's a much brighter orange, the one that you have
+    now, and a white arrow. You should only be able to submit something that you actually have
+    something to submit." (Left the mic button alone on request — "the microphone icon could just
+    stay the same.")
+
+    **The agent composer's own Send button (`#chat-send`) is now natively `disabled` until there is
+    something to submit** — text in the field, or a file attached — rather than silently no-op'ing
+    on submit the way it already did (`if (!q && !file) return`, unchanged). `updateSendState()`
+    runs after every event that can change either input: typing (`qInput`'s own `input` listener),
+    attaching or removing a file, a dictation result landing in the field, and after a successful
+    submit clears both. Starts disabled server-side (the button's own initial markup carries
+    `disabled`) since the composer always starts empty.
+
+    **Disabled is a distinct look, not just faded.** `#chat .send-btn:disabled` gets a dim tint of
+    the same accent hue (`rgba(217, 119, 87, 0.35)`) rather than the neutral gray every other
+    `.send-btn` falls back to when disabled — the button still reads as the agentic send action,
+    just inactive — and `var(--muted)` for the glyph, the app's own already-established "dim,
+    secondary" token rather than a new gray invented for this one button. Full opacity, overriding
+    the shared `.input-bar .send-btn:disabled`'s own `opacity: 0.4`, since these colors are already
+    the dim version on purpose.
+
+    **The active glyph changes color too, correcting a pre-existing mismatch the request's own
+    reference comparison surfaced**: `#chat .send-btn`'s icon was `var(--ground)` — near-black in
+    this dark theme, verified directly rather than assumed — not the bright white the owner was
+    comparing against. It becomes `var(--ink)`, the palette's own bright warm-white, matching "a
+    much brighter orange... and a white arrow" for the active state.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -3300,6 +3330,7 @@ Where each feature is enforced today:
 | P0-121 | `ops/test/ops-page.test.mjs` |
 | P0-122 | `ops/test/ops-page.test.mjs` |
 | P0-123 | `ops/test/ops-page.test.mjs` |
+| P0-124 | `ops/test/ops-page.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
