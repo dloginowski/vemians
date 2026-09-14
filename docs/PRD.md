@@ -3004,6 +3004,18 @@ that does not trace to one of these is a process failure (see §12).
     22px, then 15px (P0-118) — drops to a flat 8px, the same point `.items-grid`'s own content now
     starts at too, so the first tab lines up with every tab's own content edge, not only the chat's.
 
+57. **`Test-PRD-P0-122-table_headers_centered`** — The owner's own words, having seen the bigger
+    font (P0-119) in place: "the table preview is looking good, but let's go ahead and center the
+    heading, the text in the headings for the table previews in chat so that there's some spacing
+    between. Just center it so it looks nicer."
+
+    **`.table-card th` gets `text-align: center`; `.table-card td` stays left.** A header's own
+    column is usually wider than its own nowrap text — sized by the data underneath it, or by a
+    neighboring wider header — so centering gives it visible breathing room from the column's own
+    edges instead of sitting flush against the left border the way left-aligned data still does.
+    Scoped to `th` alone: the request was specifically about the headings, and data cells reading
+    left-to-right is still the more legible default for values.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -3276,6 +3288,7 @@ Where each feature is enforced today:
 | P0-119 | `ops/test/ops-page.test.mjs` |
 | P0-120 | `ops/test/ops-page.test.mjs` |
 | P0-121 | `ops/test/ops-page.test.mjs` |
+| P0-122 | `ops/test/ops-page.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

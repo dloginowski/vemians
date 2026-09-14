@@ -622,6 +622,20 @@ check("test_PRD_P0_119_table_headers_never_wrap__headers_stay_on_one_line_and_ex
   assert.doesNotMatch(body, /\.table-card th\s*\{[^}]*overflow-wrap/s, "a header must never wrap, so it has no need of overflow-wrap either");
 });
 
+check("test_PRD_P0_122_table_headers_centered__headers_are_centered_data_stays_left", async () => {
+  /* The owner's own words, having seen the bigger font (P0-119) in
+     place: "center the heading, the text in the headings for the table
+     previews in chat so that there's some spacing between. Just center
+     it so it looks nicer." A header's own column is usually wider than
+     its own nowrap text (sized by the data underneath it, or a
+     neighboring wider header), so centering gives it real breathing
+     room from the column's own edges. Scoped to th alone — data cells
+     stay left-aligned, still the more legible default for values. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.table-card th\s*\{[^}]*text-align:\s*center/s, "headers must be centered");
+  assert.match(body, /\.table-card th, \.table-card td\s*\{[^}]*text-align:\s*left/s, "the shared base rule (still left) is what data cells keep, since th's own later rule is what overrides it to center");
+});
+
 check("test_PRD_P0_119_table_headers_never_wrap__a_wide_header_row_scrolls_sideways_instead_of_cropping_or_shrinking_data_to_nothing", async () => {
   /* This is the BASE .table-card rule — batchDraftTable()'s own full
      ready/skipped result, which keeps wrapping (Test-PRD-P0-120-preview_data_ellipsis_not_wrap
