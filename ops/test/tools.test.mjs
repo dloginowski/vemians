@@ -103,6 +103,7 @@ function opsEnv() {
     AUDIT: d1("audit"),
     IDENTITY: d1("identity"),
     ASSETS: d1("assets"),
+    TICKETS: d1("tickets"),
   };
 }
 
@@ -156,6 +157,17 @@ function seed(env) {
     INSERT INTO asset(id, store_key, filename, content_type, size_bytes, uploaded_by)
       VALUES ('ast_2', 'assets/ast_2.pdf', 'price-list.pdf', 'application/pdf', 91000, 'mara@vemians.com');
   `);
+
+  const ti = env.TICKETS._raw;
+  ti.exec(`
+    INSERT INTO ticket(id, number, title, body, category, priority, status, created_by)
+      VALUES ('tik_1', 1, 'Backroom shelving is loose', 'One bracket came away from the wall.',
+              'facilities', 'high', 'open', 'ana@vemians.com');
+    INSERT INTO ticket(id, number, title, category, priority, status, created_by, resolved_at)
+      VALUES ('tik_2', 2, 'Reorder tissue paper', 'supplier', 'normal', 'resolved', 'mara@vemians.com', '2026-09-01T10:00:00Z');
+    INSERT INTO ticket_comment(id, ticket_id, author, body)
+      VALUES ('tic_1', 'tik_1', 'mara@vemians.com', 'Flagged to the landlord, waiting on a callback.');
+  `);
   return env;
 }
 
@@ -182,7 +194,7 @@ const staff = { actor: "ana@vemians.com", role: "staff" };
 /* ── labels, for the P0-30 traceability check ───────────────────────────── */
 
 const usedLabels = new Set();
-const NAME = /^test_PRD_(P[01])_(\d{2})_([a-z0-9_]+?)__([a-z0-9_]+)$/;
+const NAME = /^test_PRD_(P[01])_(\d{2,3})_([a-z0-9_]+?)__([a-z0-9_]+)$/;
 
 /* Every check registers through here, so nothing unlabeled can run. */
 function check(name, fn) {
@@ -968,9 +980,10 @@ check("test_PRD_P0_01_store_topology__each_store_is_its_own_database_in_the_tool
   assert.throws(() => f.env.FINANCE._raw.prepare('SELECT * FROM "order"').all(), /no such table/);
   assert.throws(() => f.env.CUSTOMERS._raw.prepare("SELECT * FROM expense").all(), /no such table/);
   /* Five of the seven D1 stores, plus the catalog mirror the agent authoring
-     tools READ (they write to Square; ADR-009). Still not `identity`, and
-     still not `audit` or `tickets` — the latter has no tool at all yet. */
-  assert.equal(Object.keys(STORE_BINDINGS).length, 6, "the registry reaches six stores and no more");
+     tools READ (they write to Square; ADR-009), plus tickets (ticket.*,
+     tickets.js) now that it has a real tool surface. Still not `identity`,
+     and still not `audit`. */
+  assert.equal(Object.keys(STORE_BINDINGS).length, 7, "the registry reaches seven stores and no more");
   assert.ok(!Object.keys(STORE_BINDINGS).includes("identity"), "the vault is unreachable from the registry");
   assert.ok(!Object.keys(STORE_BINDINGS).includes("audit"), "audit is written by the registry, not by a tool");
 });
@@ -1120,6 +1133,111 @@ check("test_PRD_P0_66_expense_scanner__expense_submit_still_writes_nothing_itsel
   assert.equal(res.data.applied, false);
   const after = f.env.FINANCE._raw.prepare("SELECT count(*) AS n FROM expense").get().n;
   assert.equal(after, before, "no row was inserted by the propose-only tool");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-100 — internal messages: tickets, staff to staff
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_100_ticket_messaging__list_returns_the_working_set_urgent_and_newest_first", async () => {
+  const f = fixture(staff);
+  const res = await runTool("ticket.list", {}, f.ctx);
+  assert.equal(res.ok, true);
+  assert.equal(res.data.tickets.length, 2);
+  assert.equal(res.data.tickets[0].id, "tik_1", "the open, high-priority ticket sorts first");
+});
+
+check("test_PRD_P0_100_ticket_messaging__list_filters_by_status", async () => {
+  const f = fixture(staff);
+  const res = await runTool("ticket.list", { status: "resolved" }, f.ctx);
+  assert.equal(res.ok, true);
+  assert.deepEqual(res.data.tickets.map((t) => t.id), ["tik_2"]);
+});
+
+check("test_PRD_P0_100_ticket_messaging__get_returns_the_ticket_with_its_full_comment_thread", async () => {
+  const f = fixture(staff);
+  const res = await runTool("ticket.get", { ticket_id: "tik_1" }, f.ctx);
+  assert.equal(res.ok, true);
+  assert.equal(res.data.ticket.title, "Backroom shelving is loose");
+  assert.equal(res.data.comments.length, 1);
+  assert.equal(res.data.comments[0].author, "mara@vemians.com");
+});
+
+check("test_PRD_P0_100_ticket_messaging__get_on_an_unknown_id_is_a_plain_miss_not_a_crash", async () => {
+  const f = fixture(staff);
+  const res = await runTool("ticket.get", { ticket_id: "tik_nope" }, f.ctx);
+  assert.equal(res.ok, false);
+  assert.match(res.error, /no ticket 'tik_nope'/);
+});
+
+check("test_PRD_P0_100_ticket_messaging__create_writes_nothing_itself_only_proposes_the_row", async () => {
+  /* Same guard as expense.submit above: validating and returning a proposal
+     is not the same as a row existing. */
+  const f = fixture(staff);
+  const before = f.env.TICKETS._raw.prepare("SELECT count(*) AS n FROM ticket").get().n;
+  const res = await runTool("ticket.create", { title: "Window display needs refreshing" }, f.ctx);
+  assert.equal(res.ok, true);
+  assert.equal(res.data.applied, false);
+  assert.equal(res.data.proposal.values.created_by, "ana@vemians.com", "the reporter is the Access identity");
+  assert.equal(res.data.proposal.values.category, "other", "unset category defaults rather than erroring");
+  assert.equal(res.data.proposal.values.priority, "normal");
+  const after = f.env.TICKETS._raw.prepare("SELECT count(*) AS n FROM ticket").get().n;
+  assert.equal(after, before, "no row was inserted by the propose-only tool");
+});
+
+check("test_PRD_P0_100_ticket_messaging__comment_is_refused_against_a_ticket_that_does_not_exist", async () => {
+  const f = fixture(staff);
+  const res = await runTool("ticket.comment", { ticket_id: "tik_nope", body: "hello?" }, f.ctx);
+  assert.equal(res.ok, false);
+  assert.match(res.error, /no ticket 'tik_nope'/);
+});
+
+check("test_PRD_P0_100_ticket_messaging__comment_proposes_the_row_with_the_actor_as_author", async () => {
+  const f = fixture(staff);
+  const res = await runTool("ticket.comment", { ticket_id: "tik_1", body: "Landlord called back, fixed Tuesday." }, f.ctx);
+  assert.equal(res.ok, true);
+  assert.equal(res.data.applied, false);
+  assert.equal(res.data.proposal.values.author, "ana@vemians.com");
+  assert.equal(res.data.proposal.values.ticket_id, "tik_1");
+});
+
+check("test_PRD_P0_100_ticket_messaging__resolving_or_closing_without_a_note_is_refused", async () => {
+  const f = fixture(staff);
+  const res = await runTool("ticket.set_status", { ticket_id: "tik_1", status: "resolved" }, f.ctx);
+  assert.equal(res.ok, false);
+  assert.match(res.error, /needs a 'note'/);
+});
+
+check("test_PRD_P0_100_ticket_messaging__resolving_with_a_note_proposes_the_status_change", async () => {
+  const f = fixture(staff);
+  const res = await runTool(
+    "ticket.set_status",
+    { ticket_id: "tik_1", status: "resolved", note: "Bracket replaced by the landlord's contractor." },
+    f.ctx,
+  );
+  assert.equal(res.ok, true);
+  assert.equal(res.data.applied, false);
+  assert.equal(res.data.proposal.values.status, "resolved");
+  assert.equal(res.data.proposal.values.note, "Bracket replaced by the landlord's contractor.");
+});
+
+check("test_PRD_P0_100_ticket_messaging__no_role_above_staff_is_required_anywhere_in_this_domain", () => {
+  /* shared/db/tickets.sql's own line: "tickets are read and written by
+     everyone." A manager-or-above minRole on any ticket tool would be a
+     silent authorisation gate this codebase never asked for. */
+  for (const [name, tool] of Object.entries(TOOLS)) {
+    if (tool.domain !== "tickets") continue;
+    assert.equal(tool.minRole, "staff", `${name} must stay staff-reachable`);
+  }
+});
+
+check("test_PRD_P0_100_ticket_messaging__the_thread_is_append_only_at_the_database", () => {
+  const f = fixture(staff);
+  assert.throws(
+    () => f.env.TICKETS._raw.exec("UPDATE ticket_comment SET body='edited' WHERE id='tic_1'"),
+    /append-only/,
+  );
+  assert.throws(() => f.env.TICKETS._raw.exec("DELETE FROM ticket WHERE id='tik_1'"), /never deleted/);
 });
 
 /* ─────────────────────────────────────────────────────────────────────────

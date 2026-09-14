@@ -10,7 +10,7 @@ End state:
 |---|---|---|---|
 | `vemians.com`, `www.vemians.com` | `vemians-storefront` — the real catalog | pushes to `main` | none |
 | `staging.vemians.com` | `vemians-storefront-staging` — a SEPARATE Worker running whatever is on the `staging` branch | pushes to `staging` | none |
-| `ops.vemians.com` | The Worker's employee area | pushes to `main` | Cloudflare Access → Google Workspace |
+| `ops.vemians.com` | The Worker's employee area | pushes to `main` | Cloudflare Access → One-time PIN |
 
 > **`staging.vemians.com` is a separate Worker, deliberately**, not a second Custom Domain on
 > `vemians-storefront`. The whole point of a staging branch is that a change under test cannot
@@ -208,30 +208,38 @@ assertion reaches it. That is the correct resting state, not a fault.
 Access needs one identity provider. Two options; the Worker cannot tell them apart, because it
 only ever verifies the Access JWT — **swapping later needs no code change**.
 
-### Option A — One-time PIN (fallback, no external setup)
+### Option A — One-time PIN **(chosen)**
 
-> **Not the chosen path.** Workspace SSO (Option B) is the decision, because directory groups
-> are what scope `identity`, `finance` and `people` to the right people. Keep this option in
-> mind only as a way to unblock yourself if the Google side stalls — swapping later costs no
-> code change.
-
-Nothing to configure. It is enabled on a new Zero Trust organisation already. Staff enter their
-work email at `ops.vemians.com`, Cloudflare emails a 6-digit code, they are in. Combined with
-the `@vemians.com` policy in §6, only company addresses can get a code that works.
+**No external setup, no dashboard other than Cloudflare's own.** It is enabled on a new Zero
+Trust organisation already. Anyone reaches `ops.vemians.com`, enters their own email, Cloudflare
+sends a 6-digit code, they are in. Who is actually *allowed* in is entirely the Access policy in
+§6 — not the login method, and not a shared company domain, since **everyone has their own
+address**: the policy (and the Access Groups in §6b) list individual emails one at a time,
+never an `email_domain` rule.
 
 **Skip to §6.** That is the whole step.
 
-What you give up: no true single sign-on — being signed into Google does not carry over, so
-it is an email and a code each time a session expires. And no directory groups, so roles come
-from **Access Groups** instead (§6b).
+What you give up, deliberately: no true single sign-on and no directory groups to derive roles
+from automatically — it is an email and a code each time a session expires, and roles come from
+**Access Groups** instead (§6b), a hand-maintained list rather than something a directory
+updates on its own. That trade is the whole point: it needs no Google Workspace (or any other
+directory) behind it at all, and one person having their own Workspace, or none, or five, never
+matters to who can sign in here.
 
-### Option B — Google Workspace **(chosen)**
+### Option B — Google Workspace SSO (not used — history only)
+
+**This was the original plan and is no longer how this deploys.** It required every staff email
+to sit in a directory Cloudflare could query for group membership, which assumed one shared
+Workspace behind the staff domain. That assumption broke — staff each hold their own,
+independent email address (some with their own Workspace, some without) — so the whole
+approach was dropped in favour of Option A. Kept below only so old Access configuration makes
+sense if you ever find a leftover Google Workspace login method still attached to the
+application; it should be **removed**, not maintained, once Option A above is confirmed working.
+
+<details>
+<summary>Original Google Workspace steps, for reference only</summary>
 
 Two dashboards, and the order matters because each needs a value from the other.
-
-
-
-Two dashboards, and the order matters because each one needs a value from the other.
 
 **In Google Cloud Console** (<https://console.cloud.google.com> — *not* admin.google.com;
 OAuth clients live in Cloud Console), signed in as a Workspace **super administrator**:
@@ -239,8 +247,10 @@ OAuth clients live in Cloud Console), signed in as a Workspace **super administr
 1. Create a project, or pick an existing one — e.g. `vemians-sso`.
 2. **APIs & Services → Library** → enable the **Admin SDK API**. This is what lets Cloudflare
    read group membership; without it you get authentication but no groups, and the whole
-   "roles derive from Workspace groups" design (PRD `Test-PRD-P0-23-group_derived_roles`)
-   does not work.
+   "roles derive from Workspace groups" design (PRD `Test-PRD-P0-23-group_derived_roles`) does
+   not work. Moot under Option A anyway: One-time PIN carries no group claims at all, so
+   `explainRole()` (`ops/src/access.js`) derives the role from the Access **policy_id** instead —
+   see §6b, which is the path actually in use.
 3. **APIs & Services → OAuth consent screen** → User type **Internal** → fill in app name and
    support email → Save.
 4. **APIs & Services → Credentials → Create credentials → OAuth client ID**:
@@ -264,8 +274,7 @@ Google Workspace**:
 Save, then **Test**. A successful test opens a Google sign-in and returns a green result
 listing your email and groups. If groups come back empty, step 2 is the thing to check.
 
-> Cloudflare also offers a plain **Google** login method. Use **Google Workspace** — the plain
-> one authenticates but cannot read groups.
+</details>
 
 ## 6. Create the Access application for `ops.vemians.com`
 
@@ -284,16 +293,20 @@ machine-to-machine.)*
 2. **Session duration**: 24 hours is a reasonable start.
 3. **Target**: the `vemians-ops` Worker (equivalently, hostname `ops.vemians.com` — it must
    match the Custom Domain from §3 exactly).
-4. **Identity providers**: tick **Google Workspace**, and untick **Accept all available
-   identity providers** so nothing else can be used.
+4. **Identity providers**: tick **One-time PIN**, and untick **Accept all available identity
+   providers** so nothing else can be used.
 5. Next → **Add policy**:
    - **Policy name**: `Vemians staff`
    - **Action**: **Allow**
-   - **Include** → selector **Emails ending in** → value **`@vemians.com`**
+   - **Include** → one **Emails** rule per address, listing every current staff member
+     individually — not **Emails ending in**, since there is no shared company domain to match.
 
-   One rule, one Include. Leave Require and Exclude empty for now. Later, tighter surfaces —
-   `identity`, `people`, `finance` — get their **own applications and their own policies**
-   with a **Google Workspace group** Include rather than the whole domain
+   `.github/scripts/setup-access.mjs` (run via the `setup-access` workflow, input
+   `staff_emails`, one address per line or comma-separated) does exactly this for you and is
+   idempotent, so re-running it as staff changes is the normal way to maintain this policy
+   rather than editing it by hand every time. Leave Require and Exclude empty. Later, tighter
+   surfaces — `identity`, `people`, `finance` — get their **own applications and their own
+   policies** with an **Access Group** Include (§6b) rather than the whole staff list
    (PRD `Test-PRD-P0-24-binding_scoped_tools`).
 6. Save. Then open **Overview** on the finished application and copy the **Application
    Audience (AUD) tag** — a 64-character hex string.
@@ -312,27 +325,43 @@ the Worker verify that the request really came through it.
 
 ## 6b. Roles without a directory — Access Groups
 
-The domain-wide policy in §6 makes every `@vemians.com` address equal. That is fine to launch
-with and wrong for `identity`, `finance` and `people`, which the PRD scopes to owner and
-manager (`Test-PRD-P0-24-binding_scoped_tools`).
+The staff policy in §6 makes every named address equal. That is fine for reaching `ops` at all
+and wrong for `identity`, `finance` and `people`, which the PRD scopes to owner and manager
+(`Test-PRD-P0-24-binding_scoped_tools`).
 
 With One-time PIN there is no directory to derive roles from, so use **Cloudflare Access
-Groups** — named, reusable sets of emails or rules, defined once and referenced by any policy.
+Groups** — named, reusable sets of emails, defined once and referenced by any policy. Every
+Include below is **individual addresses, never a domain rule** — staff each hold their own,
+independent email.
 
 **Zero Trust → Access → Groups → Add a group:**
 
 | Group | Include |
 |---|---|
-| `vemians-staff` | Emails ending in `@vemians.com` |
-| `vemians-managers` | Emails → the specific manager addresses |
-| `vemians-owners` | Emails → your address |
+| `vemians-owner` | Emails → the owner's own address |
+| `vemians-staff` | Emails → every staff member's own address, one Include per person |
+| `vemians-manager` | Not created until someone actually holds the role — a group that exists to look complete, holding nobody, is a lie the next person has to disprove |
 
-Then each tighter surface gets **its own Access application** on its own hostname or path,
-with the appropriate group as the Include. Adding or removing someone is one edit in one group,
-not a policy change in several applications.
+`.github/scripts/setup-roles.py` (run via the `setup-roles` workflow, inputs `owner_email` and
+`staff_emails`) creates the first two groups from a plain list of addresses — it is idempotent
+by group name, so re-running it after adding a group by hand leaves that group untouched rather
+than overwriting it. `.github/scripts/setup-policies.py` (the `setup-policies` workflow, no
+inputs) then points one Access policy at each group, ordered owner-before-staff so precedence
+can't silently demote the owner, and prints the two policy IDs this needs next.
 
-If Google Workspace is added later, an Access Group can be backed by a **Workspace group**
-instead of a hand-maintained list — the applications referencing it do not change.
+**Close the loop in `ops/wrangler.toml`** — `ops/src/access.js`'s `explainRole()` reads the
+Access assertion's `policy_id` (what One-time PIN actually carries; there are no group claims
+to read directly) and maps it to a role via these three vars:
+
+```toml
+OWNER_POLICY_ID  = "<the 'Vemians owner' policy id, from setup-policies>"
+STAFF_POLICY_ID  = "<the 'Vemians staff by group' policy id, from setup-policies>"
+# MANAGER_POLICY_ID stays unset until a vemians-manager group and policy actually exist.
+```
+
+Then each tighter surface (`identity`, `people`, `finance`) gets **its own Access application**
+on its own hostname or path, with the appropriate group as the Include. Adding or removing
+someone is one edit in one group, not a policy change in several applications.
 
 ---
 
@@ -363,26 +392,29 @@ A `302` to your team domain is Access doing its job. A `200` means the request r
 Worker without passing Access, and the application is not the thing that will save you — go
 back to §6.3.
 
-Then in a browser: <https://ops.vemians.com> → Google sign-in → sign in with your
-`@vemians.com` account → the ops page loads, with your email shown at the top and the black
+Then in a browser: <https://ops.vemians.com> → enter a listed staff email → Cloudflare emails a
+6-digit code → enter it → the ops page loads, with your email shown at the top and the black
 "without signature verification" banner **gone** if you completed §6.
 
 **Prove the refusal — do all three:**
 
-1. **A non-Vemians account.** Open a private window, go to `https://ops.vemians.com`, sign in
-   with a personal Gmail or any other Google account. Access must show its own denial page —
-   *"That account does not have access"* — and you must never see the ops page. The refusal
-   comes from Cloudflare, before the Worker runs at all. That is the point.
+1. **An address not on any policy.** Open a private window, go to `https://ops.vemians.com`,
+   enter an email that is not in the `Vemians staff` policy's Include list. Access must show its
+   own denial page — *"That account does not have access"* — and you must never see the ops
+   page, and no code should even be worth trying. The refusal comes from Cloudflare, before the
+   Worker runs at all. That is the point.
 2. **Logged out.** `https://vemians.cloudflareaccess.com/cdn-cgi/access/logout` clears the
    session; reload `ops.vemians.com` and you are back at the login page.
 3. **No unauthenticated twin.** `curl -sI https://vemians.com/ops` must return **404**. The
    employee area exists only on the gated hostname; if this ever returns 200 there is a copy
    of it outside the gate.
 
-**Prove offboarding works** (PRD §10, and worth doing once deliberately): suspend a test user
-in Google Workspace Admin, then have them reload `ops.vemians.com`. Access refuses on the next
-session check with no change on our side. Zero Trust → **My Team → Users → Revoke sessions**
-forces it immediately rather than at session expiry.
+**Prove offboarding works** (PRD §10, and worth doing once deliberately): remove a test
+address from the `Vemians staff` policy's Include (or the `vemians-staff` Access Group it
+draws from, per §6b), then have them try to sign in again. Access refuses on the next session
+check with no change on our side — there is no directory admin console in this picture at all,
+just the policy/group Include. Zero Trust → **My Team → Users → Revoke sessions** forces an
+already-signed-in session out immediately rather than waiting for it to expire.
 
 ## 8. What costs money, and where the limits bite
 
@@ -390,8 +422,7 @@ forces it immediately rather than at session expiry.
 |---|---|---|
 | **Cloudflare zone** (DNS, proxy, TLS) | Free plan is enough for all of the above | Pro ($20+/mo) buys WAF rules, image optimisation, better analytics. Not needed to ship this |
 | **Workers** | 100,000 requests/day, 10 ms CPU per invocation | **Workers Paid, $5/mo**: 10 M requests, 30 s CPU, and it is also the plan that unlocks Durable Objects and higher D1 limits. Expect to need it at launch, not before |
-| **Cloudflare Access** | **50 users**, all features, all identity providers | **$7 per user per month beyond 50 seats.** Not a concern at shop scale, but it is a per-seat cost, so it is the line item that grows with headcount |
-| **Google Workspace as IdP** | No Cloudflare charge | You already pay Google per seat. The Admin SDK API is free |
+| **Cloudflare Access** | **50 users**, all features, all identity providers, One-time PIN included | **$7 per user per month beyond 50 seats.** Not a concern at shop scale, but it is a per-seat cost, so it is the line item that grows with headcount |
 | **Custom Domains on Workers** | Included, any plan | — |
 | **D1** (not used by the prototype) | 5 GB, 5 M rows read/day | Workers Paid raises the ceilings substantially |
 | **R2, Cloudflare Images** (not used yet) | R2 has 10 GB storage and **no egress fee**; Images is paid from the first transform | Images is ~$5/mo per 100k transforms. Budget it with the media work, not now |
@@ -409,10 +440,14 @@ Two limits worth knowing before they surprise you:
 1. Add zone, move nameservers, wait for **Active**.
 2. `npx wrangler login && npx wrangler deploy`; check the `workers.dev` URL renders.
 3. Add three Custom Domains: apex, `www`, `ops`.
-4. Zero Trust org + team name.
-5. Google Cloud: Admin SDK API, OAuth consent screen, OAuth client → id, secret, redirect URI.
-6. Cloudflare: Google Workspace login method → **Test** → groups come back.
-7. Access application on `ops.vemians.com`, policy **Allow / Include / Emails ending in
-   `@vemians.com`**, copy the AUD tag.
-8. Fill `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` in `wrangler.toml`, redeploy.
-9. Test the catalog anonymously, test the ops sign-in, then **test all three refusals**.
+4. Zero Trust org + team name. One-time PIN is already enabled — no external identity provider
+   to configure.
+5. Access application on `ops.vemians.com`, identity provider **One-time PIN**, policy
+   **Allow / Include / Emails** — one Include per staff address (`setup-access` workflow,
+   input `staff_emails`) — copy the AUD tag.
+6. Fill `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` in `wrangler.toml`, redeploy.
+7. Run `setup-roles` (`owner_email`, `staff_emails`) then `setup-policies` to create the
+   owner/staff Access Groups and the precedence-ordered policies deriving roles from
+   `policy_id`; copy `OWNER_POLICY_ID`/`STAFF_POLICY_ID` into `wrangler.toml`, redeploy.
+8. Test the catalog anonymously, test the ops sign-in (email → PIN code), then **test all
+   three refusals**.
