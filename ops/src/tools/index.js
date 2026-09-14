@@ -63,6 +63,7 @@ import { financeTools, createReceiptFileStore } from "./finance.js";
 import { peopleTools } from "./people.js";
 import { rateLimiter as defaultRateLimiter } from "./rate.js";
 import { roleAtLeast, isRole } from "./roles.js";
+import { ticketTools } from "./tickets.js";
 import { assertNoIdentityFields, checkForbiddenArgs, validate } from "./validate.js";
 
 export { CAPS } from "./caps.js";
@@ -87,6 +88,9 @@ export const STORE_BINDINGS = Object.freeze({
      extracted text. The bytes are a separate binding (ASSET_FILES, R2) that
      no tool ever holds; see assets.js. */
   assets: "ASSETS",
+  /* Company-wide issues and internal messages (shared/db/tickets.sql,
+     tickets.js) — closed, never deleted, append-only comments. */
+  tickets: "TICKETS",
 });
 
 /*
@@ -154,6 +158,7 @@ export const TOOLS = buildRegistry([
   peopleTools,
   financeTools,
   assetTools,
+  ticketTools,
 ]);
 
 /* The description an agent is given. Data, not prose in a prompt. */
@@ -496,6 +501,7 @@ function domainOfUnknown(name) {
     expense: "finance",
     budget: "finance",
     report: "finance",
+    ticket: "tickets",
   };
   return known[prefix] ?? "knowledge";
 }

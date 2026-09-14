@@ -23,7 +23,7 @@ const { canUseDomain, mayUse } = await import("../src/agent.js");
 const { TOOLS } = await import("../src/tools/index.js");
 
 const usedLabels = new Set();
-const NAME = /^test_PRD_(P[01])_(\d{2})_([a-z0-9_]+?)__([a-z0-9_]+)$/;
+const NAME = /^test_PRD_(P[01])_(\d{2,3})_([a-z0-9_]+?)__([a-z0-9_]+)$/;
 
 function check(name, fn) {
   const parsed = NAME.exec(name);
@@ -39,7 +39,7 @@ function check(name, fn) {
  * ───────────────────────────────────────────────────────────────────────── */
 
 check("test_PRD_P0_54_skill_discovery__every_skill_file_is_bundled_with_its_front_matter", () => {
-  assert.equal(SKILLS.length, 9, "all nine SKILL.md files should be bundled");
+  assert.equal(SKILLS.length, 10, "all ten SKILL.md files should be bundled");
   for (const s of SKILLS) {
     assert.ok(s.text.length > 500, `${s.name} looks truncated (${s.text.length} bytes)`);
     assert.ok(s.description.length > 20, `${s.name} has no usable description`);

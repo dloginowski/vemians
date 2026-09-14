@@ -20,7 +20,7 @@ register("../../shared/test/text-modules.mjs", import.meta.url);
 const { createSquareMediaStore, createMediaStore, mediaKey } = await import("../src/tools/media.js");
 
 const usedLabels = new Set();
-const NAME = /^test_PRD_(P[01])_(\d{2})_([a-z0-9_]+?)__([a-z0-9_]+)$/;
+const NAME = /^test_PRD_(P[01])_(\d{2,3})_([a-z0-9_]+?)__([a-z0-9_]+)$/;
 function check(name, fn) {
   const parsed = NAME.exec(name);
   assert.ok(parsed, `${name} is not a PRD-labeled check`);
