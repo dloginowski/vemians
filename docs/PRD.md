@@ -2706,6 +2706,49 @@ that does not trace to one of these is a process failure (see §12).
     scoped to their own submissions by `expense.list` itself) needs no rule to separate it from
     nothing. `rest` keeps whatever order its own source tool already returned it in.
 
+    **Superseded in part by P0-112, below**: Expenses' and Uploads' own `mine` bucket keeps its
+    incoming (newest-first) order instead of being re-sorted oldest-first — oldest-first turned
+    out to be right only for Tickets/Tasks.
+
+47. **`Test-PRD-P0-112-dashboard_status_filter`** — Three pieces of live feedback landed
+    together, after actually using the freshly-shipped accordion. First, a real bug report: "why
+    do I see ticket #1 in all modes? If its a ticket it needs to only show in ticket mode."
+    Second, a new rule: "don't show any closed tickets unless requested. Add to the Showing:
+    [mode] - [status drop down]." Third, a UI refinement: "Make: Nothing to show for this mode.
+    appear in place of status drop down if nothing is found, but shortened to 'No Results'." A
+    fourth, unrelated correction arrived in the same round: "for expenses and uploads sort by
+    newest at the top" (folded into P0-111, above, as its own superseding note).
+
+    **The "shows in every mode" report was the `[hidden]`-vs-explicit-`display` bug again — twice
+    over.** By the time this was reported, P0-110/P0-111 had already restructured mode-filtering
+    to hide whole `.dash-group` accordion sections (which carry no explicit `display` of their
+    own, so the browser's default `[hidden]` behaviour already worked correctly there — verified
+    directly, not assumed). But chasing the report surfaced the SAME bug class, undetected,
+    in two places nothing had audited yet: `.item-tile` (`display: flex`) on the Items page's own
+    `filterItems()`, meaning a filtered-out product tile has never actually been hidden since
+    that feature was built, and `.ticket-tile` (`display: block`) itself — dormant only because
+    nothing had toggled `hidden` on an individual tile since the accordion rewrite moved to
+    group-level hiding. Both now carry the same `[selector][hidden] { display: none; }` restatement
+    already used for `.category-menu` and `.input-bar button`.
+
+    **A status filter, inline in the same "Showing: X" line.** `#status-filter` — a plain
+    `<select>` styled to match `.greet h1`'s own muted 11px look — sits right after the mode
+    name, defaulting to "Open" (hides `status === "closed"` only; `in_progress`/`blocked`/
+    `resolved`/`open` all still show). "All statuses" lifts the filter; "Closed" flips it to show
+    only closed ones. It touches only `.ticket-tile[data-status]` (a new attribute `ticketTile()`
+    now carries) — expense and upload tiles have no such attribute and are never affected.
+
+    **Everything downstream recomputes off what is actually on screen, not the server's raw
+    counts.** `refreshCounts()` runs after either filter changes: each group's own `(N)` (now a
+    dedicated `<span class="dash-group-count">`, kept apart from its label so JS can update just
+    the number) reflects visible tiles, not the row count the server sent down; `dashboardGroup()`
+    now wraps `mine`/`rest` in their own `.dash-mine`/`.dash-rest` containers so the `<hr
+     class="dash-mine-sep">` between them can hide itself the instant either side has nothing
+    left showing, not just when the server thought both existed; and the status `<select>` itself
+    swaps for a plain `<span id="status-no-results">No Results</span>` — same class, so nothing
+    shifts size — the moment every group currently visible (per the mode selector) has zero
+    visible tiles left in it.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -2968,6 +3011,7 @@ Where each feature is enforced today:
 | P0-109 | `ops/test/items-route.test.mjs`, `ops/test/dashboard-route.test.mjs` |
 | P0-110 | `ops/test/dashboard-route.test.mjs`, `ops/test/tickets-route.test.mjs` |
 | P0-111 | `ops/test/dashboard-route.test.mjs` |
+| P0-112 | `ops/test/dashboard-route.test.mjs`, `ops/test/items-route.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

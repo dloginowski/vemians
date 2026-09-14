@@ -174,8 +174,8 @@ check("test_PRD_P0_108_ops_dashboard__a_ticket_assigned_to_the_viewer_carries_bo
 
   const res = await get("/dashboard", STAFF, env({ tickets, finance: null, assets: null }));
   const body = await res.text();
-  assert.match(body, /data-kind="ticket task" href="\/tickets\/tik_1"/);
-  assert.match(body, /data-kind="ticket" href="\/tickets\/tik_2"/);
+  assert.match(body, /data-kind="ticket task" data-status="open" href="\/tickets\/tik_1"/);
+  assert.match(body, /data-kind="ticket" data-status="open" href="\/tickets\/tik_2"/);
 });
 
 check("test_PRD_P0_108_ops_dashboard__default_kind_is_task_with_no_open_customer_ticket", async () => {
@@ -260,7 +260,7 @@ check("test_PRD_P0_109_status_line_matches_greeting__the_mode_indicator_sits_at_
   seedTicket(tickets, "tik_1", { category: "facilities", status: "open" });
   const res = await get("/dashboard", STAFF, env({ tickets, finance: null, assets: null }));
   const body = await res.text();
-  assert.match(body, /<section class="greet">\s*<h1 id="kind-label">Showing: All<\/h1>\s*<\/section>/);
+  assert.match(body, /<section class="greet">\s*<h1>Showing: <span id="kind-label">All<\/span>/);
   const greetAt = body.indexOf('<section class="greet">');
   const feedAt = body.indexOf('id="dash-feed"');
   assert.ok(greetAt > -1 && feedAt > -1 && greetAt < feedAt, "the mode indicator must sit above the feed, not below it");
@@ -272,7 +272,10 @@ check("test_PRD_P0_109_status_line_matches_greeting__the_mode_indicator_is_alway
   const body = await res.text();
   const setModeFn = body.slice(body.indexOf("function setMode"), body.indexOf("function setMode") + 700);
   assert.doesNotMatch(setModeFn, /kindLabel\.hidden/, "the mode indicator must never be toggled hidden");
-  assert.match(setModeFn, /"Showing: All"/);
+  assert.match(setModeFn, /: "All"/);
+  /* "Showing: " is now static markup around #kind-label, not re-set on
+     every mode switch — the label itself only ever holds the mode name. */
+  assert.match(body, />Showing: <span id="kind-label">/);
 });
 
 check("test_PRD_P0_109_status_line_matches_greeting__the_page_container_shares_the_agent_pages_own_top_and_side_padding", async () => {
@@ -443,8 +446,8 @@ check("test_PRD_P0_111_dashboard_all_mode_grouping__each_section_shows_its_own_c
   seedTicket(tickets, "tik_2", { number: 2, title: "Second" });
   const res = await get("/dashboard", STAFF, env({ tickets, finance: null, assets: null }));
   const body = await res.text();
-  assert.match(body, /<summary>Tickets \(2\)<\/summary>/);
-  assert.match(body, /<summary>Tasks \(0\)<\/summary>/);
+  assert.match(body, /<summary><span class="dash-group-label">Tickets<\/span> \(<span class="dash-group-count">2<\/span>\)<\/summary>/);
+  assert.match(body, /<summary><span class="dash-group-label">Tasks<\/span> \(<span class="dash-group-count">0<\/span>\)<\/summary>/);
 });
 
 check("test_PRD_P0_111_dashboard_all_mode_grouping__narrowing_to_one_mode_hides_the_other_three_sections", async () => {
@@ -453,4 +456,75 @@ check("test_PRD_P0_111_dashboard_all_mode_grouping__narrowing_to_one_mode_hides_
   const filterFn = body.slice(body.indexOf("function filterFeed"), body.indexOf("function filterFeed") + 400);
   assert.match(filterFn, /group\.hidden = !show/);
   assert.match(filterFn, /group\.open = true/, "the single remaining visible group must be forced open");
+});
+
+check("test_PRD_P0_112_dashboard_status_filter__closed_tickets_carry_their_own_data_status", async () => {
+  const tickets = sqliteDb("tickets");
+  seedTicket(tickets, "tik_1", { title: "Open one", status: "open" });
+  seedTicket(tickets, "tik_2", { number: 2, title: "Closed one", status: "closed" });
+  const res = await get("/dashboard", STAFF, env({ tickets, finance: null, assets: null }));
+  const body = await res.text();
+  assert.match(body, /data-status="open"[^>]*href="\/tickets\/tik_1"/);
+  assert.match(body, /data-status="closed"[^>]*href="\/tickets\/tik_2"/);
+});
+
+check("test_PRD_P0_112_dashboard_status_filter__the_dropdown_defaults_to_open_next_to_the_mode_name", async () => {
+  /* The owner's own words: "add to the Showing: [mode] - [status
+     dropdown]." Don't show any closed tickets unless requested — Open is
+     the default selection, not All statuses. */
+  const res = await get("/dashboard", STAFF, env({ finance: null, assets: null }));
+  const body = await res.text();
+  assert.match(body, /Showing: <span id="kind-label">All<\/span>[^<]*<select id="status-filter" class="dash-status-select">\s*<option value="open" selected>Open<\/option>/);
+});
+
+check("test_PRD_P0_112_dashboard_status_filter__closed_is_hidden_by_default_all_lifts_it", async () => {
+  const res = await get("/dashboard", STAFF, env({ finance: null, assets: null }));
+  const body = await res.text();
+  const applyFn = body.slice(body.indexOf("function applyStatusFilter"), body.indexOf("function applyStatusFilter") + 400);
+  assert.match(applyFn, /currentStatus === "all" \|\| \(currentStatus === "open" \? status !== "closed" : status === currentStatus\)/);
+});
+
+check("test_PRD_P0_112_dashboard_status_filter__the_dropdown_swaps_for_no_results_when_nothing_matches", async () => {
+  /* The owner's own words: "make... Nothing to show for this mode.
+     appear in place of status drop down if nothing is found, but
+     shortened to 'No Results'." */
+  const res = await get("/dashboard", STAFF, env({ finance: null, assets: null }));
+  const body = await res.text();
+  assert.match(body, /<span id="status-no-results" class="dash-status-select" hidden>No Results<\/span>/);
+  const refreshFn = body.slice(body.indexOf("function refreshCounts"), body.indexOf("function refreshCounts") + 1100);
+  assert.match(refreshFn, /statusFilter\.hidden = !anyVisible/);
+  assert.match(refreshFn, /statusNoResults\.hidden = anyVisible/);
+});
+
+check("test_PRD_P0_112_dashboard_status_filter__each_groups_own_count_reflects_whats_actually_visible", async () => {
+  const res = await get("/dashboard", STAFF, env({ finance: null, assets: null }));
+  const body = await res.text();
+  const refreshFn = body.slice(body.indexOf("function refreshCounts"), body.indexOf("function refreshCounts") + 1100);
+  assert.match(refreshFn, /countEl\.textContent = String\(visible\)/);
+});
+
+check("test_PRD_P0_112_dashboard_status_filter__the_mine_separator_hides_itself_once_either_side_is_empty_on_screen", async () => {
+  const res = await get("/dashboard", STAFF, env({ finance: null, assets: null }));
+  const body = await res.text();
+  const refreshFn = body.slice(body.indexOf("function refreshCounts"), body.indexOf("function refreshCounts") + 1100);
+  assert.match(refreshFn, /mineVisible = \[\.\.\.group\.querySelectorAll\("\.dash-mine \.ticket-tile"\)\]\.some\(\(t\) => !t\.hidden\)/);
+  assert.match(refreshFn, /sep\.hidden = !\(mineVisible && restVisible\)/);
+});
+
+check("test_PRD_P0_112_dashboard_status_filter__expenses_and_uploads_sort_newest_first_even_within_mine", async () => {
+  /* The owner's own correction once "oldest first" (right for Tickets/
+     Tasks) had been applied everywhere: "for expenses and uploads sort
+     by newest at the top." */
+  const finance = sqliteDb("finance");
+  seedExpense(finance, "exp_old", { description: "Old expense", incurred_on: "2026-01-01" });
+  seedExpense(finance, "exp_new", { description: "New expense", incurred_on: "2026-06-01" });
+  const res = await get("/dashboard", STAFF, env({ finance, assets: null }));
+  const body = await res.text();
+  const expenseGroup = body.slice(
+    body.indexOf('<details class="dash-group" data-kind="expense"'),
+    body.indexOf('<details class="dash-group" data-kind="upload"'),
+  );
+  const newAt = expenseGroup.indexOf("New expense");
+  const oldAt = expenseGroup.indexOf("Old expense");
+  assert.ok(newAt > -1 && oldAt > -1 && newAt < oldAt, "the newer expense must render before the older one");
 });
