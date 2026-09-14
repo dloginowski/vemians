@@ -496,8 +496,12 @@ async function ops(request, env, path) {
 
     let toolName, args, summaryNoun;
     if (isChannel) {
+      /* A single "Visible on website" checkbox, not a 3-way select: every
+         product already has a working direct-link page (P0-71), so the only
+         real decision left is whether it is ALSO listed in the browsable
+         grid. Checked -> website, unchecked -> direct_link. */
       toolName = "catalog.set_channel";
-      args = { handle, channel: String(form.get("channel") ?? "") };
+      args = { handle, channel: form.get("on_website") ? "website" : "direct_link" };
       summaryNoun = "channel";
     } else {
       /* field_name_0/field_value_0, field_name_1/field_value_1, ... — the

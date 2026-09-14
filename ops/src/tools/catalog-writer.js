@@ -108,6 +108,20 @@ export async function listAllProducts(db, { limit } = {}) {
     byProduct.get(v.product_id).push(v);
   }
 
+  /* The tile's own primary photograph (ordinal 0) — one query for every
+     product's first image, the same batched-not-N+1 trade `variants` above
+     already makes, rather than a correlated subquery per row. `media_key` is
+     OUR R2 key, populated by the backfill job (media-backfill.js); NULL until
+     then, same as the storefront's own read (store/src/catalog.js). */
+  const images = await db
+    .prepare("SELECT product_id, media_key FROM mirror_image_index WHERE ordinal = 0")
+    .bind()
+    .all();
+  const imageByProduct = new Map();
+  for (const i of images.results ?? []) {
+    if (i.media_key) imageByProduct.set(i.product_id, i.media_key);
+  }
+
   return (products.results ?? []).map((p) => {
     let custom_fields = {};
     try {
@@ -124,6 +138,7 @@ export async function listAllProducts(db, { limit } = {}) {
       category_name: p.category_name,
       custom_fields,
       variations: byProduct.get(p.id) ?? [],
+      image_key: imageByProduct.get(p.id) ?? null,
     };
   });
 }

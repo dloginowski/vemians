@@ -186,9 +186,9 @@ jobs:
             echo "channel already exists on mirror_product — nothing to do."
           else
             npx wrangler d1 execute vemians-catalog-mirror --remote --yes \
-              --command "ALTER TABLE mirror_product ADD COLUMN channel TEXT NOT NULL DEFAULT 'in_store' CHECK (channel IN ('in_store','website','direct_link'));" || {
+              --command "ALTER TABLE mirror_product ADD COLUMN channel TEXT NOT NULL DEFAULT 'direct_link' CHECK (channel IN ('website','direct_link'));" || {
                 echo "::error::could not add the channel column"; exit 1; }
-            echo "channel added, defaulting every existing row to in_store (fail closed — Test-PRD-P0-71-product_channel)."
+            echo "channel added, defaulting every existing row to direct_link — reachable at its own page, just not in the grid (Test-PRD-P0-71-product_channel)."
           fi
 
       - name: Commit the ids

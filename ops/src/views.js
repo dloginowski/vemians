@@ -1468,53 +1468,86 @@ ${INPUT_BAR_CSS}
 @media (min-width: 480px) {
   .items-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
 }
+/* The tile IS the photo now — the owner's own words: "it really should be
+   filled by the image of the item... it should fill the entire square box."
+   A plain var(--image-ground) fill (the tile's own long-standing background)
+   stands in for a product with no synced photograph yet, rather than the
+   storefront's own generated placeholder graphic (store/src/catalog.js's
+   toneFor()) — that generated-art aesthetic is the PUBLIC shop's front door;
+   this is a plain internal utility grid, and a flat fill reads as "no photo
+   yet," not as a design choice needing its own generator. */
 .item-tile {
-  box-sizing: border-box; border: 1px solid var(--rule); border-radius: 8px;
-  padding: 10px 12px; background: var(--image-ground); font-size: 12px;
-  display: flex; flex-direction: column; gap: 6px;
+  box-sizing: border-box; position: relative; overflow: hidden; cursor: pointer;
+  aspect-ratio: 1; border: 1px solid var(--rule); border-radius: 8px; background: var(--image-ground);
 }
 /* The same [hidden]-vs-explicit-display trap caught twice already this
-   session (.category-menu, .input-bar button): an explicit display: flex
-   above always beats the browser's own default [hidden] { display: none
-   }, regardless of specificity — so filterItems()'s own el.hidden = ...
-   has silently never actually hidden a filtered-out tile. Restated here
-   so it finally does. */
+   session (.category-menu, .input-bar button): an explicit display above
+   always beats the browser's own default [hidden] { display: none },
+   regardless of specificity — so filterItems()'s own el.hidden = ... has
+   silently never actually hidden a filtered-out tile. Restated here so it
+   finally does. */
 .item-tile[hidden] { display: none; }
+.item-photo {
+  position: absolute; inset: 0; background-color: var(--image-ground);
+  background-size: cover; background-position: center;
+}
+/* Title on top, SKU + category on the bottom — the owner's own words: "the
+   bottom row should have the SKU in it... and just like some of the
+   category indicators, like the tags you have right now in the middle."
+   Everything else (channel, status, every variation, custom fields, the
+   edit form) moves into .item-detail, shown only once the tile is expanded
+   — "everything else we want to remove... all of that should be visible in
+   the full expanded view." Gradient scrims rather than a flat bar so the
+   overlay reads over any photograph, and over the plain fill color when
+   there is none. */
+.item-top, .item-bottom {
+  position: absolute; left: 0; right: 0; display: flex; align-items: center; gap: 6px; padding: 6px 8px;
+}
+.item-top { top: 0; background: linear-gradient(to bottom, rgba(0, 0, 0, 0.7), transparent); }
+.item-bottom { bottom: 0; justify-content: space-between; background: linear-gradient(to top, rgba(0, 0, 0, 0.7), transparent); }
+.item-tile h3 {
+  margin: 0; font-size: 13px; color: #fff; line-height: 1.3;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.item-sku { font-size: 11px; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item-cat {
+  flex: 0 0 auto; font-size: 10px; padding: 1px 6px; border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.6); color: #fff;
+}
 /* Expanding one tile to the full screen instead of leaving every field
    crammed into a small grid cell — the owner's own words: "when I
    click on the item, it's gonna expand to my entire phone screen, and
    I should see all of that data." Same convention as .table-card.full
    in the chat log (TABLE_CARD_CSS above): the SAME element grows in
-   place, no second element or separate scroll state to track. */
+   place, no second element or separate scroll state to track. No dedicated
+   Expand button any more — "clicking the entire button should expand it
+   automatically" — the click-delegation handler below toggles this class
+   on a click anywhere in the tile except inside .item-edit. */
 .item-tile.full {
-  position: fixed; inset: 12px; z-index: 50; overflow: auto;
+  position: fixed; inset: 12px; z-index: 50; overflow: auto; cursor: default;
+  aspect-ratio: auto; display: flex; flex-direction: column;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
 }
-.item-tile h3 {
-  margin: 0; font-size: 13px; color: var(--ink); line-height: 1.3;
-  display: flex; justify-content: space-between; align-items: center; gap: 6px;
-}
-.item-expand {
-  flex: 0 0 auto; font: inherit; font-size: 10px; padding: 1px 6px; cursor: pointer;
-  border: 1px solid var(--rule); border-radius: 999px; background: var(--ground); color: var(--muted);
-}
-.item-expand:hover { border-color: var(--accent); color: var(--accent); }
+.item-tile.full .item-photo { position: relative; inset: auto; aspect-ratio: 4 / 3; max-height: 40vh; flex: 0 0 auto; }
+.item-tile.full .item-detail { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px 12px; font-size: 12px; }
+.item-detail { display: none; }
 .item-badges { display: flex; flex-wrap: wrap; gap: 4px; }
 .item-badges span {
   font-size: 10px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--rule); color: var(--muted);
 }
-.item-badges .channel-website, .item-badges .channel-direct_link { border-color: var(--accent); color: var(--accent); }
+.item-badges .channel-website { border-color: var(--accent); color: var(--accent); }
 .item-variants, .item-fields { display: flex; flex-direction: column; gap: 2px; }
 .item-variants div, .item-fields div { display: flex; justify-content: space-between; gap: 6px; }
 .item-variants span:first-child, .item-fields span:first-child { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .item-fields span:last-child { color: var(--ink); text-align: right; overflow-wrap: anywhere; }
 .item-empty { color: var(--muted); font-style: italic; }
-.item-edit { border-top: 1px solid var(--rule); margin-top: 2px; padding-top: 6px; }
+.item-edit { border-top: 1px solid var(--rule); margin-top: 2px; padding-top: 6px; cursor: default; }
 .item-edit summary { cursor: pointer; color: var(--muted); font-size: 11px; }
 .item-edit summary:hover { color: var(--accent); }
 .item-edit form { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
-.item-edit .row { display: flex; gap: 4px; }
-.item-edit input, .item-edit select {
+.item-edit .row { display: flex; gap: 6px; align-items: center; }
+.item-edit label { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); cursor: pointer; }
+.item-edit input:not([type="checkbox"]), .item-edit select {
   flex: 1 1 auto; min-width: 0; font: inherit; font-size: 11px; padding: 3px 5px;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
 }
@@ -1525,7 +1558,16 @@ ${INPUT_BAR_CSS}
 .item-edit button:hover { border-color: var(--accent); color: var(--accent); }
 `;
 
-const CHANNEL_LABEL = { in_store: "In store only", website: "Website", direct_link: "Direct link only" };
+const CHANNEL_LABEL = { website: "Website", direct_link: "Not listed" };
+
+/* Where a mirrored photograph actually lives, once the backfill job
+   (media-backfill.js) has fetched it off Square's CDN and .put() it into
+   OUR bucket under OUR key. The same constant, deliberately not shared —
+   store/src/catalog.js already defines this locally rather than exporting
+   it, since a storefront Worker and this ops Worker have no other reason to
+   import from one another; this file follows that same established
+   precedent rather than introducing the first cross-package import for it. */
+const MEDIA_BASE_URL = "https://media.vemians.com";
 
 function itemTile(product, canEdit) {
   const fieldEntries = Object.entries(product.custom_fields ?? {});
@@ -1540,6 +1582,13 @@ function itemTile(product, canEdit) {
   ]
     .join(" ")
     .toLowerCase();
+
+  /* The bottom row shows ONE sku — the owner's own words: "the bottom row
+     should have the SKU in it," singular, not every variation's own (that
+     full list still lives in .item-detail). The first variation's own,
+     matching how a multi-size garment is already priced "from" its
+     lowest-ordinal variation everywhere else in this codebase. */
+  const primarySku = product.variations[0]?.sku || product.variations[0]?.title || "";
 
   const variantRows = product.variations.length
     ? product.variations
@@ -1570,17 +1619,20 @@ function itemTile(product, canEdit) {
         `<input name="field_value_${fieldEntries.length + i}" placeholder="Value"></div>`,
     ).join("");
 
+  /* A single "Visible on website" checkbox, not a 3-way select — the
+     owner's own words: "every item we have is in store... we only need the
+     checkbox for website. Everything can have a direct link... there is
+     really no need to specify that." Every product already has a working
+     direct-link page (P0-71); this only decides whether it is ALSO listed
+     in the browsable grid. Unchecked posts nothing, so index.js reads
+     form.get("on_website") and writes "direct_link" when it is absent. */
   const editForms = canEdit
     ? `<details class="item-edit">
          <summary>Edit</summary>
          <form method="post" action="/items/${esc(product.handle)}/channel">
            <div class="row">
-             <select name="channel">
-               ${Object.entries(CHANNEL_LABEL)
-                 .map(([v, label]) => `<option value="${v}"${v === product.channel ? " selected" : ""}>${label}</option>`)
-                 .join("")}
-             </select>
-             <button type="submit">Update channel</button>
+             <label><input type="checkbox" name="on_website"${product.channel === "website" ? " checked" : ""}> Visible on website</label>
+             <button type="submit">Save</button>
            </div>
          </form>
          <form method="post" action="/items/${esc(product.handle)}/custom-fields">
@@ -1590,16 +1642,23 @@ function itemTile(product, canEdit) {
        </details>`
     : "";
 
+  const photoStyle = product.image_key ? ` style="background-image:url('${MEDIA_BASE_URL}/${esc(product.image_key)}')"` : "";
+
   return `<article class="item-tile" data-search="${esc(searchText)}" data-category="${esc(product.category_name || "")}">
-    <h3><span>${esc(product.title)}</span><button type="button" class="item-expand">Expand</button></h3>
-    <div class="item-badges">
-      <span class="channel-${product.channel}">${esc(CHANNEL_LABEL[product.channel] ?? product.channel)}</span>
-      <span>${esc(product.status)}</span>
-      <span>${esc(product.category_name || "Uncategorized")}</span>
+    <div class="item-photo"${photoStyle}>
+      <div class="item-top"><h3>${esc(product.title)}</h3></div>
+      <div class="item-bottom"><span class="item-sku">${esc(primarySku)}</span><span class="item-cat">${esc(product.category_name || "Uncategorized")}</span></div>
     </div>
-    <div class="item-variants">${variantRows}</div>
-    <div class="item-fields">${fieldRows}</div>
-    ${editForms}
+    <div class="item-detail">
+      <div class="item-badges">
+        <span class="channel-${product.channel}">${esc(CHANNEL_LABEL[product.channel] ?? product.channel)}</span>
+        <span>${esc(product.status)}</span>
+        <span>${esc(product.category_name || "Uncategorized")}</span>
+      </div>
+      <div class="item-variants">${variantRows}</div>
+      <div class="item-fields">${fieldRows}</div>
+      ${editForms}
+    </div>
   </article>`;
 }
 
@@ -1864,18 +1923,22 @@ if (!ItemSpeechRecognitionCtor) {
   itemMicBtn.addEventListener("touchcancel", stopListening);
 }
 
-/* One delegated listener for every tile's own Expand button, rather
-   than one per tile — the same "no per-item wiring" trade the search
-   filter above already makes. Toggling .full on the tile itself grows
-   the SAME element in place (TABLE_CARD_CSS's own .table-card.full
-   convention in the chat log) instead of opening a second element or
-   tracking separate scroll state. */
+/* One delegated listener for the whole grid, rather than one per tile —
+   the same "no per-item wiring" trade the search filter above already
+   makes. No dedicated Expand button any more — the owner's own words:
+   "there is no need to have an expand button. Clicking the entire
+   button should expand it automatically" — so a click ANYWHERE on a
+   tile toggles it, except inside .item-edit (its own inputs, selects,
+   buttons and <summary> stay independently interactive; collapsing the
+   tile out from under someone mid-edit would lose the click they meant
+   to make). Toggling .full on the tile itself grows the SAME element in
+   place (TABLE_CARD_CSS's own .table-card.full convention in the chat
+   log) instead of opening a second element or tracking separate scroll
+   state. */
 document.getElementById("items-grid").addEventListener("click", (e) => {
-  const btn = e.target.closest(".item-expand");
-  if (!btn) return;
-  const tile = btn.closest(".item-tile");
-  const isFull = tile.classList.toggle("full");
-  btn.textContent = isFull ? "Close" : "Expand";
+  const tile = e.target.closest(".item-tile");
+  if (!tile || e.target.closest(".item-edit")) return;
+  tile.classList.toggle("full");
 });
 </script>`,
     ITEMS_CSS,

@@ -50,7 +50,7 @@ and ours is the copy that is wrong.
 | `catalog.create_product` | **T2** | ITEM + ITEM_VARIATIONs at the provider, images, then the mirror sync | Withdraw at the provider; nothing is deleted |
 | `catalog.update_product` | **T2** | The same path for an edit | Another edit |
 | `catalog.create_category` | **T2** | Rarely right. Refuses a near-duplicate | Withdraw at the provider |
-| `catalog.set_channel` | **T2** | Which audience sees a product — `in_store`, `website` or `direct_link`. **Ours, not the provider's**: writes `catalog_mirror` directly and calls the provider for nothing, because the provider has no notion of our storefront to diverge from | Another `catalog.set_channel` call |
+| `catalog.set_channel` | **T2** | Whether a product is ALSO browsable in the grid — `website` or `direct_link` (every product already has a working page). **Ours, not the provider's**: writes `catalog_mirror` directly and calls the provider for nothing, because the provider has no notion of our storefront to diverge from | Another `catalog.set_channel` call |
 | `catalog.product` | T0 | Read one real product from the mirror by handle — title, variations, channel, and `custom_fields`. The read path a person's ordinary question ("what's the cost on X?") and `catalog.set_custom_fields` alike depend on | — |
 | `catalog.set_custom_fields` | **T2** | Add, update or remove OUR OWN extra fields on a product by handle — whatever we track that the provider has no field for at all (unit cost, a vendor, anything else). A patch: a key set to `""` removes it, every key not mentioned is untouched. **Ours, not the provider's**, same as `set_channel` | Another `catalog.set_custom_fields` call, patching the previous values back |
 
@@ -75,9 +75,9 @@ previous state is always one `git revert` away, and the revert is itself reviewa
    stay in Git and stay reviewable, while price, SKU, variations and existence are written to
    the provider, because the till writes them without asking us. An agent tool that wrote a
    product row into our own mirror would be the second writer into one copy of that — **for a
-   fact the provider has.** `channel` (which audience sees a product: `in_store` / `website` /
-   `direct_link`) is not one — the provider has no notion of our storefront at all, so there is
-   no second writer for `catalog.set_channel` to diverge from. Neither is `custom_fields` (unit
+   fact the provider has.** `channel` (whether a product is ALSO browsable on the storefront:
+   `website` / `direct_link`) is not one — the provider has no notion of our storefront at all,
+   so there is no second writer for `catalog.set_channel` to diverge from. Neither is `custom_fields` (unit
    cost, a vendor, anything else "we need more data tracking than the provider offers" — the
    owner's own words): the provider has no field for a fact we invented, so `catalog.
    set_custom_fields` and `catalog.create_product`'s own optional `custom_fields` argument write

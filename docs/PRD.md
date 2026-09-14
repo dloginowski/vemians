@@ -853,21 +853,27 @@ that does not trace to one of these is a process failure (see §12).
     catalog rather than an empty grid — which reads as a broken shop, not a bad link. The
     current category carries `aria-current="page"`.
 
-47a. **`Test-PRD-P0-71-product_channel`** — Not every product Square knows about is for the public
+47a. **`Test-PRD-P0-71-product_channel`** — Not every product is meant to be BROWSED on the public
     website. `mirror_product` (`shared/commerce/square/schema.sql`) carries a `channel` column —
-    `in_store` (the shop only, not shown at any storefront URL), `website` (in the grid and has
-    its own page), or `direct_link` (has its own page, left out of the grid, for someone with the
-    link). **Fail closed, the same way every other permission in this codebase defaults**: a new
-    or freshly-synced product is `in_store` until a person says otherwise, so nothing reaches the
-    public site by an omission rather than a decision. This is deliberately **ours, not Square's**
-    — Square has no notion of our storefront at all — so `catalog.set_channel` (T2, manager+,
-    `ops/src/tools/catalog-write.js`) writes `mirror_product` directly and calls Square for
-    nothing; `syncCatalog` (`shared/commerce/square/mirror.js`) never names this column in its
-    `UPDATE`, on purpose, so a value set here survives every future sync untouched — exactly the
-    guarantee `handle` already relies on. `store/src/catalog.js`'s grid query filters
-    `channel = 'website'`; a product's own page (P0-72) accepts `website` and `direct_link` alike
-    and refuses `in_store` in the query's own `WHERE` clause, not by a check the caller could
-    forget to make.
+    `website` (also shown in the grid, has its own page) or `direct_link` (has its own page, left
+    out of the grid, for someone with the link, not for browsing — the default). This is
+    deliberately **ours, not Square's** — Square has no notion of our storefront at all — so
+    `catalog.set_channel` (T2, manager+, `ops/src/tools/catalog-write.js`) writes `mirror_product`
+    directly and calls Square for nothing; `syncCatalog` (`shared/commerce/square/mirror.js`)
+    never names this column in its `UPDATE`, on purpose, so a value set here survives every future
+    sync untouched — exactly the guarantee `handle` already relies on. `store/src/catalog.js`'s
+    grid query filters `channel = 'website'`; a product's own page (P0-72) has no channel filter
+    at all, since every product already has a working page — `channel` only ever decides whether
+    it is ALSO listed for browsing.
+
+    **Revised (P0-130): there used to be a third state, `in_store`, meaning "not reachable at any
+    URL at all," and it was the fail-closed default.** The owner's own words, once every item
+    turned out to be physically on premises anyway: "everything is in our database is accessible
+    through a direct link... we only need the checkbox for whether it's also on the website."
+    There is no longer a "nobody can reach this" state to default closed against — only whether a
+    product is ALSO browsable — so `direct_link` (not `in_store`) is now the default, and a
+    product's own page accepts any handle in the mirror with no channel check at all. `in_store`
+    is gone from the schema's own `CHECK` constraint and from `catalog.set_channel`'s `enum`.
 
     **`custom_fields` is the second column in this family, for the same reason and by the same
     mechanism.** The owner's own words: "Our workers need more data tracking than square offers...
@@ -900,9 +906,8 @@ that does not trace to one of these is a process failure (see §12).
     rendered by `itemsPage()` in `views.js`) reads `listAllProducts()` (`catalog-writer.js`, one
     query for every mirrored product plus one for every variation, grouped in memory rather than
     N+1 queries per tile) and lays them out as a CSS grid (`repeat(auto-fill, minmax(240px, 1fr))`)
-    of self-contained cards — title, channel, status, category, every variation's own SKU and
-    price, and every `custom_fields` key/value, all inside the one bordered tile, nothing floating
-    beside it. A client-side text filter (`#item-search`, one `input` listener toggling `hidden` on
+    of self-contained cards (revised by P0-130 into the image-first tile described there). A
+    client-side text filter (`#item-search`, one `input` listener toggling `hidden` on
     whichever tiles' own `data-search` attribute does not contain the query) is the "search them"
     half — no server round trip, since a shop's whole catalog fits comfortably in one response.
     ANY signed-in role may view it, matching `catalog.product`'s own T0 read gate; it is
@@ -3146,6 +3151,48 @@ that does not trace to one of these is a process failure (see §12).
     listener a field's own page happens to have (here, `updateSendState()`) without the helper
     needing to know that listener exists.
 
+65. **`Test-PRD-P0-130-item_tile_photo`** — The owner's own words: "you have the items kind of a
+    square pill that contains the item. It really should be filled by the image of the item. It
+    should fill the entire square box. There needs to be the title up on top... there is no need
+    to have an expand button, clicking the entire button should expand it automatically... the
+    bottom row should have the SKU in it, and just some of the category indicators... everything
+    else we want to remove... all of that should be visible in the full expanded view."
+
+    **The tile IS the photo now.** `.item-tile` is a square (`aspect-ratio: 1`), and `.item-photo`
+    (its own `background-image`, `background-size: cover`) fills it edge to edge — `background-
+    color: var(--image-ground)`, the tile's own long-standing fill, stands in for a product with
+    no synced photograph yet, deliberately NOT the storefront's own generated placeholder art
+    (`store/src/catalog.js`'s `toneFor()`): that generated aesthetic is the public shop's front
+    door, and a plain internal utility grid has no reason to grow its own generator for the same
+    job a flat fill already does honestly. `listAllProducts()` (`catalog-writer.js`) gained a
+    second batched query — `SELECT product_id, media_key FROM mirror_image_index WHERE ordinal =
+    0`, grouped into a `Map` in memory exactly the way the existing variants query already is —
+    rather than a correlated subquery per row or an N+1 query per product; `MEDIA_BASE_URL` is
+    redeclared locally in `views.js` rather than imported from the storefront, matching that
+    file's own established precedent of not sharing this constant across packages.
+
+    **Two overlay bars, not a bordered card of rows.** `.item-top` (a title, gradient-scrimmed
+    from the top so it reads over any photograph or the plain fill alike) and `.item-bottom` (the
+    product's first variation's own SKU on the left, its category on the right) are the ONLY
+    things visible on a collapsed tile. Every other field this tile used to show at a glance —
+    channel, status, every variation's own SKU and price, every `custom_fields` key/value, the
+    manager-only edit forms — moved into `.item-detail`, `display: none` until the tile carries
+    `.full`, exactly matching "everything else... should be visible in the full expanded view."
+
+    **No more `.item-expand` button.** A click anywhere on a collapsed tile toggles `.full` — the
+    owner's own words, "clicking the entire button should expand it automatically" — delegated on
+    `#items-grid` exactly as the button it replaces was, except a click landing inside `.item-edit`
+    is ignored so a manager's own inputs, checkbox and buttons stay independently clickable without
+    collapsing the tile out from under them mid-edit.
+
+    **The channel edit form is a single checkbox now, not a 3-way select — folded in from the
+    same conversation.** The owner's own words: "every item we have is in store... we only need
+    the checkbox for website... everything can have a direct link... there is really no need to
+    specify that" (see P0-71's own revision above for the schema/query half of this). `Visible on
+    website`, checked when `channel === "website"`; unchecked submits nothing, so `ops/src/
+    index.js`'s handler reads `form.get("on_website")` and writes `"direct_link"` when it is
+    absent rather than trusting a select's own value.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -3426,6 +3473,7 @@ Where each feature is enforced today:
 | P0-127 | `ops/test/ops-page.test.mjs` |
 | P0-128 | `ops/test/ops-page.test.mjs` |
 | P0-129 | `ops/test/dashboard-route.test.mjs` |
+| P0-130 | `ops/test/items-route.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

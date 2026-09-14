@@ -79,21 +79,21 @@ CREATE TABLE mirror_product (
   source_description TEXT NOT NULL DEFAULT '',-- Square's copy, for reconciliation only
   status             TEXT NOT NULL DEFAULT 'active'
                        CHECK (status IN ('draft','active','archived')),
-  -- WHICH AUDIENCE SEES THIS, NOT WHETHER IT EXISTS. `status` is Square's own
-  -- publish lifecycle (P0-53-ish: draft/active/archived); `channel` is ours —
-  -- Square has no concept of "our storefront" at all, so this is NOT a fact
-  -- synced from Square and the sync job (mirror.js) never names this column
-  -- in its UPDATE, on purpose: a value set here survives every re-sync
-  -- untouched, the same way `handle` already does. Defaults to 'in_store' —
-  -- fail closed, matching how every other surface in this codebase treats an
-  -- unset permission: NOTHING reaches the public site until a person says so,
-  -- not a website presence that has to be opted OUT of.
-  --   in_store     never shown on the storefront, at any URL
-  --   website      shown in the grid and has its own page
+  -- WHICH AUDIENCE BROWSES THIS, NOT WHETHER IT EXISTS. `status` is Square's
+  -- own publish lifecycle (P0-53-ish: draft/active/archived); `channel` is
+  -- ours — Square has no concept of "our storefront" at all, so this is NOT a
+  -- fact synced from Square and the sync job (mirror.js) never names this
+  -- column in its UPDATE, on purpose: a value set here survives every re-sync
+  -- untouched, the same way `handle` already does. The owner's own words:
+  -- "everything is in our database is accessible through a direct link — we
+  -- only need the checkbox for whether it's ALSO on the website," so there is
+  -- no third "not reachable at all" state left to default-closed against —
+  -- every product already has a working page.
   --   direct_link  has its own page, but excluded from the grid/nav — for
-  --                someone with the link, not for browsing
-  channel            TEXT NOT NULL DEFAULT 'in_store'
-                       CHECK (channel IN ('in_store','website','direct_link')),
+  --                someone with the link, not for browsing (the default)
+  --   website      ALSO shown in the grid, for browsing
+  channel            TEXT NOT NULL DEFAULT 'direct_link'
+                       CHECK (channel IN ('website','direct_link')),
   -- WHATEVER A SPREADSHEET IMPORT CARRIED THAT SQUARE HAS NO FIELD FOR AT
   -- ALL. The owner's own words: "I want to preserve all fields when
   -- ingesting spreadsheets. Even if they are not surfaced in square or ui
