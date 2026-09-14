@@ -1184,6 +1184,20 @@ that does not trace to one of these is a process failure (see §12).
     to the screen's own bottom), the number recomputes to `8 + 14 = 22px`, aligning the first tab
     with `.log`'s own edge specifically rather than a shared log-and-composer one.
 
+    **The quick-prompt chips lost their own accent colour, and the whole menu now floats above the
+    composer instead of sitting in flow above the greeting.** The owner's own words: "get rid of
+    that empty orange peel that's left over from the agent... those quick actions to fill the
+    agent, let's have them float above the agent input field." `.choices .btn`'s own accent border
+    and text colour — originally matched to `.chat-top`'s own accent frame, per the comment right
+    above it — read as an unexplained leftover once that frame was removed the previous round; it
+    is now the same neutral `--muted` border and `--image-ground` fill `.input-bar` itself uses, so
+    a chip floating over chat content stays legible rather than reviving a colour tied to a frame
+    that no longer exists. `.menu` gains `position: fixed`, the same mechanism `.input-bar` already
+    uses, floating a gap above it (`bottom: 58px` = `.input-bar`'s own `8px` offset + its `42px`
+    height + an `8px` gap) rather than sitting in normal document flow above the greeting — removed
+    from flow entirely, so `.ops`'s own bottom padding grows again, from `76px` to `108px`, to clear
+    both floating rows above the log's own last message rather than just the composer.
+
 47b. **`Test-PRD-P0-72-product_detail_page`** — Every product has its own page at
     `/products/<handle>` — the answer to "how do I see product details", asked directly, of a
     shop whose cards used to be `<article>`s with no click-through at all. `loadProduct(env,

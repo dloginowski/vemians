@@ -390,10 +390,12 @@ check("test_PRD_P0_74_chat_first__the_composer_is_the_last_thing_on_the_page_not
      should have the entry at the bottom of the phone... put the quick
      chat buttons on top of the chat... not on the bottom." The greeting
      still leads (it names who is signed in before anything asks for
-     input), and the one-click menu still comes right after it — but
-     the composer (inside .chat-top, after .log) is now the true
-     bottom-most thing on the page, not the menu, so a thumb never has
-     to reach up past the menu to type. */
+     input), and the one-click menu still comes right after it in the
+     markup — though since .menu became position: fixed, floating above
+     .input-bar (a later round: "float above the agent input field"),
+     document order no longer decides what a thumb has to reach past;
+     the assertion below is now about source order alone, kept for
+     screen-reader/keyboard reading order rather than visual reach. */
   const { body } = await frontPage(OWNER);
   const main = body.slice(body.indexOf("<main"));
   const greetAt = main.indexOf("Hi Owner — what would you like to do");
@@ -871,8 +873,12 @@ check("test_PRD_P0_94_mobile_edge_to_edge__the_page_containers_side_padding_matc
      two stacked ones. Bottom grew from 32px to 76px once #chat became
      position: fixed (INPUT_BAR_CSS) — a fixed element is removed from
      document flow entirely, so without this the log's own last message
-     would sit partly behind the now-floating composer. */
-  assert.match(body, /\.ops\s*\{[^}]*padding:\s*12px 8px 76px/s, "side padding must be tightened, top unchanged, bottom grown for the fixed composer");
+     would sit partly behind the now-floating composer — then to 108px
+     once .menu (the quick-action chips) also became position: fixed,
+     floating above .input-bar instead of sitting in flow: the same
+     reasoning again, clearing one more floating row (the chips' own
+     row, plus the gap above the composer) on top of the composer itself. */
+  assert.match(body, /\.ops\s*\{[^}]*padding:\s*12px 8px 108px/s, "side padding must be tightened, top unchanged, bottom grown for both fixed rows");
   assert.doesNotMatch(body, /\.ops\s*\{[^}]*padding:\s*12px 24px/s, "the old roomier side padding must not still be set");
 });
 
@@ -1169,6 +1175,30 @@ check("test_PRD_P0_78_chat_widget__the_one_click_tasks_are_small_chips_not_bold_
   const { body } = await frontPage(OWNER);
   assert.match(body, /\.choices \.btn\s*\{[^}]*border-radius:\s*999px/s, "expected a pill-shaped chip");
   assert.doesNotMatch(body, /\.choices \.btn\s*\{[^}]*font-weight:\s*700/s, "no longer a bold CTA");
+});
+
+check("test_PRD_P0_71_items_tab__the_chips_no_longer_carry_the_removed_widgets_own_accent_colour", async () => {
+  /* The owner's own words, once .chat-top's own matching accent border was
+     already gone: "get rid of that empty orange peel that's left over
+     from the agent." A hollow, accent-bordered pill only read as tied to
+     the frame it echoed (see the comment right above .chat-top); with
+     that frame gone, the same ring just looked like an unexplained
+     leftover. */
+  const { body } = await frontPage(OWNER);
+  assert.doesNotMatch(body, /\.choices \.btn\s*\{[^}]*border:\s*1px solid var\(--accent\)/s, "the old accent border must be gone");
+  assert.doesNotMatch(body, /\.choices \.btn\s*\{[^}]*color:\s*var\(--accent\)/s, "the old accent text colour must be gone");
+  assert.match(body, /\.choices \.btn\s*\{[^}]*border:\s*1px solid var\(--muted\)/s, "expected the same neutral border every other plain control now uses");
+});
+
+check("test_PRD_P0_71_items_tab__the_menu_floats_above_the_input_bar_not_in_flow_above_the_greeting", async () => {
+  /* The owner's own words: "those quick actions to fill the agent, let's
+     have them float above the agent input field." position: fixed, the
+     same mechanism .input-bar itself uses, anchored a gap above it
+     rather than sitting in normal document flow. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.menu\s*\{[^}]*position:\s*fixed/s);
+  assert.match(body, /\.menu\s*\{[^}]*bottom:\s*58px/s, "58px = .input-bar's own 8px offset + its 42px height + an 8px gap above it");
+  assert.match(body, /\.menu\s*\{[^}]*left:\s*8px[^}]*right:\s*8px/s, "must share .input-bar's own left/right so the two floating rows line up");
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
