@@ -226,6 +226,19 @@ updates on its own. That trade is the whole point: it needs no Google Workspace 
 directory) behind it at all, and one person having their own Workspace, or none, or five, never
 matters to who can sign in here.
 
+**Optional: reskin the page itself.** The login page is served entirely by Cloudflare, not by
+this codebase — there is no HTML here to edit for it, and the customisation ceiling is real:
+**Zero Trust → Settings → Custom Pages** (Cloudflare has reorganised this navigation before; look
+for "Login page" or "Branding" under Settings if it has moved again) offers a background colour
+and a logo image, on Cloudflare's own fixed layout. No custom HTML, no font, no button colour, no
+password field — One-time PIN has no password to ask for.
+
+- **Background colour**: `#000000` — the exact black `--bar` already uses across the ops shell
+  and header (`ops/src/views.js`), so the login page reads as the same surface rather than a
+  visibly different black.
+- **Logo**: upload one if you have it. Nothing in this repository ships a logo file today; supply
+  your own image (a square mark fits Cloudflare's fixed layout best).
+
 ### Option B — Google Workspace SSO (not used — history only)
 
 **This was the original plan and is no longer how this deploys.** It required every staff email
