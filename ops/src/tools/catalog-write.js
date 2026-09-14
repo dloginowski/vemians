@@ -27,7 +27,7 @@
  *
  *    `catalog.set_channel` and `catalog.set_custom_fields` are the deliberate
  *    exceptions, and each is one for the same reason: `channel` (website /
- *    in_store / direct_link — Test-PRD-P0-71-product_channel) and
+ *    direct_link — Test-PRD-P0-71-product_channel) and
  *    `custom_fields` (unit cost, a vendor name, anything else "our workers
  *    need more data tracking than square offers" — the owner's own words)
  *    are not facts Square has any notion of at all. Square does not know our
@@ -914,17 +914,17 @@ export const catalogWriteTools = {
     stores: ["catalog_mirror"],
     minRole: "manager",
     describe:
-      "Set which audience sees a product, by handle: `website` (shown in the storefront grid and has its " +
-      "own page), `direct_link` (has its own page, but left out of the grid — for someone with the link, " +
-      "not for browsing), or `in_store` (not shown on the storefront at all, at any URL). This is OURS, " +
-      "not Square's — Square has no idea our storefront exists, so this never calls Square and never " +
-      "triggers a mirror sync; it writes the mirror directly and the value survives every future sync " +
-      "untouched. Every product starts `in_store` (fail closed): nothing reaches the public site until a " +
-      "person says so here.",
+      "Set whether a product is ALSO browsable in the storefront grid, by handle: `website` (shown in the " +
+      "grid and has its own page) or `direct_link` (has its own page, but left out of the grid — for " +
+      "someone with the link, not for browsing). Every product already has a working page; this only " +
+      "decides whether it is ALSO listed for browsing. This is OURS, not Square's — Square has no idea " +
+      "our storefront exists, so this never calls Square and never triggers a mirror sync; it writes the " +
+      "mirror directly and the value survives every future sync untouched. Every product starts " +
+      "`direct_link` until a person opts it into the grid.",
     undo: "another catalog.set_channel call, back to the previous value",
     schema: {
       handle: { type: "string", required: true, format: "handle" },
-      channel: { type: "string", required: true, enum: ["in_store", "website", "direct_link"] },
+      channel: { type: "string", required: true, enum: ["website", "direct_link"] },
     },
     async check(args, t) {
       const existing = await productByHandle(t.db.catalog_mirror, args.handle);

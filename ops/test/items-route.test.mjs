@@ -93,7 +93,7 @@ function seedProduct(mirror, overrides = {}) {
       `INSERT INTO mirror_product (id, external_ref, handle, title, status, channel, custom_fields, category_id)
        VALUES ('p1', 'sqitem1', 'wool-coat', 'Wool Coat', 'active', ?, ?, 'cat1')`,
     )
-    .run(overrides.channel ?? "in_store", custom);
+    .run(overrides.channel ?? "direct_link", custom);
   mirror.db.exec(
     "INSERT INTO mirror_variant (id, external_ref, product_id, sku, title, price_minor, currency) " +
       "VALUES ('v1', 'sqvar1', 'p1', 'VEM-100', 'One size', 45000, 'USD')",
@@ -210,14 +210,15 @@ check("test_PRD_P0_71_items_tab__a_tile_expands_to_the_full_screen_instead_of_cr
      expand to my entire phone screen, and I should see all of that
      data." Same convention as TABLE_CARD_CSS's own .table-card.full in
      the chat log — the SAME element grows in place via a toggled
-     class, not a second element or separate scroll state. */
+     class, not a second element or separate scroll state. No dedicated
+     Expand button (P0-130) — a click anywhere on the tile toggles it. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const res = await get("/items", STAFF, env(mirror));
   const body = await res.text();
-  assert.match(body, /class="item-expand"/, "every tile needs its own expand control");
+  assert.doesNotMatch(body, /class="item-expand"/, "the dedicated expand button was removed by P0-130");
   assert.match(body, /\.item-tile\.full\s*\{[^}]*position:\s*fixed/s);
-  assert.match(body, /classList\.toggle\("full"\)/, "the expand button must toggle the SAME element, not open a second one");
+  assert.match(body, /classList\.toggle\("full"\)/, "a click must toggle the SAME element, not open a second one");
 });
 
 check("test_PRD_P0_71_items_tab__the_search_box_sits_below_the_grid_not_above_it", async () => {
@@ -382,7 +383,7 @@ check("test_PRD_P0_102_items_search_matches_chat__no_category_menu_or_filter_but
   const mirror = mirrorDb();
   mirror.db.exec(
     "INSERT INTO mirror_product (id, external_ref, handle, title, status, channel, custom_fields) " +
-      "VALUES ('p1', 'sqitem1', 'wool-coat', 'Wool Coat', 'active', 'in_store', '{}')",
+      "VALUES ('p1', 'sqitem1', 'wool-coat', 'Wool Coat', 'active', 'direct_link', '{}')",
   );
   const res = await get("/items", STAFF, env(mirror));
   const body = await res.text();
@@ -700,9 +701,9 @@ check("test_PRD_P0_71_items_tab__editing_custom_fields_from_a_tile_parks_a_t2_ap
 
 check("test_PRD_P0_71_items_tab__editing_the_channel_from_a_tile_also_parks_a_t2_approval", async () => {
   const mirror = mirrorDb();
-  seedProduct(mirror, { channel: "in_store" });
+  seedProduct(mirror, { channel: "direct_link" });
   const e = env(mirror);
-  const res = await postForm("/items/wool-coat/channel", MANAGER, e, { channel: "website" });
+  const res = await postForm("/items/wool-coat/channel", MANAGER, e, { on_website: "on" });
   assert.equal(res.status, 303);
   const location = res.headers.get("location");
 
@@ -741,6 +742,97 @@ check("test_PRD_P0_71_items_tab__staff_cannot_propose_an_item_edit_either", asyn
 
   const unchanged = mirror.db.prepare("SELECT custom_fields FROM mirror_product WHERE handle = 'wool-coat'").get();
   assert.match(unchanged.custom_fields, /Acme Mills/, "nothing must be parked, let alone applied, from a staff submission");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-130 — the tile IS the photo; everything else moves into .item-detail,
+ * shown only once expanded; no dedicated Expand button; the channel edit
+ * form is a single checkbox.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_130_item_tile_photo__a_synced_image_renders_as_the_tiles_own_background", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  mirror.db.exec(
+    "INSERT INTO mirror_image (id, external_ref, product_id, source_url, ordinal, media_key) " +
+      "VALUES ('img1', 'sqimg1', 'p1', 'https://square.example/photo.jpg', 0, 'products/wool-coat/0.jpg')",
+  );
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.match(body, /<div class="item-photo" style="background-image:url\('https:\/\/media\.vemians\.com\/products\/wool-coat\/0\.jpg'\)">/);
+});
+
+check("test_PRD_P0_130_item_tile_photo__no_synced_image_falls_back_to_the_plain_fill", async () => {
+  /* No generated placeholder art (the storefront's own toneFor() graphic) —
+     a plain internal utility grid, unlike the public shop's front door, has
+     no reason to grow its own generator for the same job a flat
+     var(--image-ground) fill already does honestly. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.match(body, /<div class="item-photo">/, "no image_key must render with no inline background-image style at all");
+});
+
+check("test_PRD_P0_130_item_tile_photo__the_collapsed_tile_shows_only_the_title_sku_and_category", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.match(body, /<div class="item-top"><h3>Wool Coat<\/h3><\/div>/);
+  assert.match(body, /<div class="item-bottom"><span class="item-sku">VEM-100<\/span><span class="item-cat">Outerwear<\/span><\/div>/);
+});
+
+check("test_PRD_P0_130_item_tile_photo__everything_else_moves_into_the_expanded_only_detail_section", async () => {
+  /* Channel, status, every variation and every custom field still render —
+     just inside .item-detail, which ITEMS_CSS hides until the tile itself
+     carries .full (P0-130's own click-anywhere-to-expand). */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  const detail = /<div class="item-detail">([\s\S]*?)<\/article>/.exec(body);
+  assert.ok(detail, "the tile must carry an .item-detail section");
+  assert.match(detail[1], /item-badges/);
+  assert.match(detail[1], /unit cost/);
+  assert.match(body, /\.item-detail\s*\{[^}]*display:\s*none/s);
+  assert.match(body, /\.item-tile\.full \.item-detail\s*\{[^}]*display:\s*flex/s);
+});
+
+check("test_PRD_P0_130_item_tile_photo__no_dedicated_expand_button_a_click_anywhere_toggles_it", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.doesNotMatch(body, /item-expand/);
+  assert.match(
+    body,
+    /const tile = e\.target\.closest\("\.item-tile"\);\s*\n\s*if \(!tile \|\| e\.target\.closest\("\.item-edit"\)\) return;/,
+    "a click anywhere on the tile toggles it, except inside the edit form",
+  );
+});
+
+check("test_PRD_P0_130_item_tile_photo__the_channel_edit_control_is_a_single_checkbox", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror, { channel: "website" });
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.doesNotMatch(body, /<select name="channel">/, "the 3-way select was replaced by a checkbox");
+  assert.match(body, /<input type="checkbox" name="on_website" checked>/, "already-website must render checked");
+});
+
+check("test_PRD_P0_130_item_tile_photo__leaving_the_checkbox_unchecked_sets_direct_link", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror, { channel: "website" });
+  const e = env(mirror);
+  /* A real browser submits nothing at all for an unchecked checkbox. */
+  const res = await postForm("/items/wool-coat/channel", MANAGER, e, {});
+  assert.equal(res.status, 303);
+  const id = res.headers.get("location").slice("/approvals/".length);
+  const approved = await approvePending(e, id, OWNER);
+  assert.equal(approved.ok, true, approved.error);
+  const updated = mirror.db.prepare("SELECT channel FROM mirror_product WHERE handle = 'wool-coat'").get();
+  assert.equal(updated.channel, "direct_link");
 });
 
 test("test_PRD_P0_30_prd_traceability__every_label_used_in_this_file_exists_in_the_prd", async () => {

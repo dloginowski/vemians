@@ -32,8 +32,8 @@
  *   /img/<h>-<v>.svg  placeholder photography, one shot per URL, so images can
  *                  actually load, decode and be preloaded on hover intent.
  *   /products/<handle>  one product's own page — `website` and `direct_link`
- *                  channel products alike (P0-71); `in_store` is a 404 here
- *                  exactly as it is absent from the grid.
+ *                  channel products alike (P0-71), since every product has a
+ *                  working page; only an unknown handle 404s here.
  *   /bag           the bag. Held on the viewer's device, never here.
  *   /visit         hours, directions, how to reach a person, how to join the list.
  *   /collaborations  editorial.
@@ -145,8 +145,8 @@ export default {
      * from its OWN read (loadProduct), not by filtering the grid's list in
      * memory — a `direct_link` product must be reachable here while never
      * once appearing in loadCatalog's own query, which only a separate
-     * statement can guarantee. A handle that resolves to nothing — unknown,
-     * or genuinely `in_store` — is a plain 404, not a hint either way.
+     * statement can guarantee. A handle that resolves to nothing is simply
+     * unknown; every product the mirror actually holds has a page.
      */
     const productMatch = PRODUCT.exec(url.pathname);
     if (productMatch) {

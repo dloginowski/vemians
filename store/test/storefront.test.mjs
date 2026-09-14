@@ -954,7 +954,7 @@ labeled("test_PRD_P0_47_category_navigation__paging_stays_inside_the_category", 
 labeled("test_PRD_P0_71_product_channel__the_grid_shows_only_the_website_channel", async () => {
   const stock = [
     { ...SQUARE_STOCK[0], channel: "website" },
-    { ...SQUARE_STOCK[1], channel: "in_store" },
+    { ...SQUARE_STOCK[1], channel: "direct_link" },
     { ...SQUARE_STOCK[2], channel: "direct_link" },
     { ...SQUARE_STOCK[3], channel: "website" },
   ];
@@ -967,11 +967,13 @@ labeled("test_PRD_P0_71_product_channel__the_grid_shows_only_the_website_channel
   );
 });
 
-labeled("test_PRD_P0_71_product_channel__a_product_with_no_channel_set_defaults_hidden_from_the_grid", async () => {
+labeled("test_PRD_P0_71_product_channel__a_product_with_no_channel_set_defaults_out_of_the_grid", async () => {
   /* The load-bearing case: nothing here mentions `channel` at all, so this
      exercises the SCHEMA's own DEFAULT — the same state a just-synced
      product is actually in — rather than mirrorWith()'s test-only default of
-     'website'. */
+     'website'. Revised by P0-130: the default (`direct_link`) still keeps a
+     product OUT of the grid, but — unlike the old `in_store` default — it
+     still resolves at its own page; see P0-72's own tests for that half. */
   const db = mirrorWith([]);
   db._raw.prepare("INSERT INTO mirror_category (id, external_ref, name) VALUES ('cat-1','SQ_CAT_1','Homeware')").run();
   db._raw
@@ -993,11 +995,15 @@ labeled("test_PRD_P0_71_product_channel__a_product_with_no_channel_set_defaults_
    Test-PRD-P0-72-product_detail_page
    ═══════════════════════════════════════════════════════════════════════════ */
 
-labeled("test_PRD_P0_72_product_detail_page__website_and_direct_link_both_resolve_in_store_never_does", async () => {
+labeled("test_PRD_P0_72_product_detail_page__website_and_direct_link_both_resolve_an_unknown_handle_does_not", async () => {
+  /* Revised by P0-130: there is no longer an `in_store` channel that
+     refuses to resolve at its own page — every product in the mirror has
+     one, "if it's on here, it's all accessible through a direct link" —
+     so the negative case here is a handle absent from the mirror
+     entirely, not a channel value. */
   const stock = [
     { ...SQUARE_STOCK[0], channel: "website" },
     { ...SQUARE_STOCK[1], channel: "direct_link" },
-    { ...SQUARE_STOCK[2], channel: "in_store" },
   ];
   const db = mirrorWith(stock);
 
@@ -1009,8 +1015,8 @@ labeled("test_PRD_P0_72_product_detail_page__website_and_direct_link_both_resolv
   assert.equal(direct.source, "mirror");
   assert.equal(direct.product.handle, stock[1].handle);
 
-  const hidden = await loadProduct({ CATALOG_MIRROR: db }, stock[2].handle);
-  assert.equal(hidden, null, "an in_store product must not resolve at its own URL either");
+  const unknown = await loadProduct({ CATALOG_MIRROR: db }, "does-not-exist");
+  assert.equal(unknown, null, "a handle absent from the mirror entirely is still an honest 404");
 });
 
 labeled("test_PRD_P0_72_product_detail_page__a_direct_link_product_is_reachable_but_never_in_the_grid", async () => {

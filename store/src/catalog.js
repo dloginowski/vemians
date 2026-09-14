@@ -96,9 +96,10 @@ const MIRROR_SQL = `
  * One product, read by handle rather than filtered from the grid's own list —
  * `direct_link` belongs at its own URL without ever appearing in `MIRROR_SQL`'s
  * results, which is the entire point of that channel (Test-PRD-P0-71-product_
- * channel). `in_store` is excluded here in the WHERE clause, not by the caller
- * checking a field afterward: the one query a product's own page runs must
- * already refuse to return a product nobody said the public could see.
+ * channel). No channel filter here at all: every product in the mirror has a
+ * working page by construction (the owner's own words: "if it's on here, it's
+ * all accessible through a direct link"); `channel` only ever decides whether
+ * MIRROR_SQL's own grid ALSO lists it.
  */
 const PRODUCT_SQL = `
   SELECT p.handle                                    AS handle,
@@ -115,7 +116,7 @@ const PRODUCT_SQL = `
            WHERE i.product_id = p.id AND i.ordinal = 1 LIMIT 1) AS image1
     FROM mirror_product_index p
     LEFT JOIN mirror_category_index c ON c.id = p.category_id
-   WHERE p.status = 'active' AND p.channel IN ('website', 'direct_link') AND p.handle = ?`;
+   WHERE p.status = 'active' AND p.handle = ?`;
 
 /*
  * A deterministic 0.00–0.24, the range the seed's hand-picked tones sit in.
@@ -225,16 +226,13 @@ export async function loadCatalog(env) {
 /**
  * One product's own page, by handle. `website` and `direct_link` both
  * resolve here — a direct link is still a real, open URL, just one this
- * function's caller (loadCatalog's grid) never lists. `in_store` is refused
- * in PRODUCT_SQL's own WHERE clause, the same fail-closed shape as the grid's
- * `channel = 'website'`: a hidden product has no address, not a page that
- * happens not to be linked from anywhere.
+ * function's caller (loadCatalog's grid) never lists.
  *
  * Falls back to the seed catalog under the same "mirror not ready" cases
  * loadCatalog treats as seed-served, so a fresh `wrangler dev --local` can
  * open a seeded product's page with no Square account at all. A handle that
- * is simply wrong, or that names a real `in_store` product, is an honest 404
- * — the seed fallback only fires when the mirror itself holds nothing yet.
+ * is simply wrong is an honest 404 — the seed fallback only fires when the
+ * mirror itself holds nothing yet.
  *
  * @returns {Promise<{source: "mirror"|"seed", product: object}|null>} null means 404.
  */
@@ -267,9 +265,9 @@ export async function loadProduct(env, handle) {
   }
 
   /* No visible, priced product at that handle in the mirror — could be a
-     genuinely unknown handle, an `in_store` product doing exactly what it is
-     set to do, or a mirror that has not synced anything at all yet. Only the
-     last of those falls back to the seed; the other two are an honest 404. */
+     genuinely unknown handle, an unpriced/unsynced variation, or a mirror
+     that has not synced anything at all yet. Only the last of those falls
+     back to the seed; the other two are an honest 404. */
   const product = seeded();
   if (!product) return null;
   const anySynced = await db.prepare("SELECT 1 FROM mirror_product_index LIMIT 1").first();

@@ -1316,12 +1316,13 @@ check("test_PRD_P0_37_mirror_is_ours__an_edit_goes_to_square_and_the_mirror_foll
  * P0-71 — channel: which audience sees a product. Ours, not Square's.
  * ───────────────────────────────────────────────────────────────────────── */
 
-check("test_PRD_P0_71_product_channel__a_freshly_synced_product_defaults_to_in_store", async () => {
-  /* Fail closed: a product that just arrived from Square, with nobody having
-     said anything about the website at all, must not be reachable there. */
+check("test_PRD_P0_71_product_channel__a_freshly_synced_product_defaults_to_direct_link", async () => {
+  /* Every product already has a working page; the only real decision left
+     is whether it is ALSO browsable in the grid, and nobody has said so
+     yet for a product that just arrived from Square. */
   const f = await fixture();
   const row = f.mirror("SELECT channel FROM mirror_product WHERE handle = 'shearling-trimmed-wool-blend-coat'")[0];
-  assert.equal(row.channel, "in_store");
+  assert.equal(row.channel, "direct_link");
 });
 
 check("test_PRD_P0_71_product_channel__set_channel_writes_the_mirror_directly_and_calls_square_for_nothing", async () => {
@@ -1333,7 +1334,7 @@ check("test_PRD_P0_71_product_channel__set_channel_writes_the_mirror_directly_an
   assert.equal(res.ok, true, res.error);
   assert.equal(res.data.updated, true);
   assert.equal(res.data.channel, "website");
-  assert.equal(res.data.previous_channel, "in_store");
+  assert.equal(res.data.previous_channel, "direct_link");
   assert.equal(res.data.authority, "ours");
 
   /* No Square call at all — this concept does not exist on Square's side. */
@@ -1343,7 +1344,7 @@ check("test_PRD_P0_71_product_channel__set_channel_writes_the_mirror_directly_an
   assert.equal(row.channel, "website");
 });
 
-check("test_PRD_P0_71_product_channel__direct_link_and_in_store_are_the_only_other_choices", async () => {
+check("test_PRD_P0_71_product_channel__website_and_direct_link_are_the_only_choices", async () => {
   const f = await fixture();
   const bad = await runTool(
     "catalog.set_channel",
@@ -1351,13 +1352,22 @@ check("test_PRD_P0_71_product_channel__direct_link_and_in_store_are_the_only_oth
     f.ctx,
   );
   assert.equal(bad.ok, false);
-  assert.match(bad.error, /must be one of in_store, website, direct_link/);
+  assert.match(bad.error, /must be one of website, direct_link/);
 
-  const ok = await approvedCall(f, "catalog.set_channel", {
+  /* website is a real change from the fixture's own default (direct_link);
+     switching back is a real change too — both of the only two choices
+     actually write. */
+  const toWebsite = await approvedCall(f, "catalog.set_channel", {
+    handle: "shearling-trimmed-wool-blend-coat",
+    channel: "website",
+  });
+  assert.equal(toWebsite.ok, true, toWebsite.error);
+
+  const backToDirectLink = await approvedCall(f, "catalog.set_channel", {
     handle: "shearling-trimmed-wool-blend-coat",
     channel: "direct_link",
   });
-  assert.equal(ok.ok, true, ok.error);
+  assert.equal(backToDirectLink.ok, true, backToDirectLink.error);
   assert.equal(
     f.mirror("SELECT channel FROM mirror_product WHERE handle = 'shearling-trimmed-wool-blend-coat'")[0].channel,
     "direct_link",
@@ -1375,11 +1385,11 @@ check("test_PRD_P0_71_product_channel__setting_the_same_channel_again_is_refused
   const f = await fixture();
   const res = await runTool(
     "catalog.set_channel",
-    { handle: "shearling-trimmed-wool-blend-coat", channel: "in_store" },
+    { handle: "shearling-trimmed-wool-blend-coat", channel: "direct_link" },
     f.ctx,
   );
   assert.equal(res.ok, false);
-  assert.match(res.error, /already in_store/);
+  assert.match(res.error, /already direct_link/);
 });
 
 check("test_PRD_P0_71_product_channel__the_tool_holds_no_square_resource_at_all", () => {
