@@ -1257,12 +1257,29 @@ check("test_PRD_P0_124_send_button_active_state__disabled_is_a_dim_orange_not_th
      opacity: 0.4 fade every OTHER .send-btn (Items' search, a ticket's
      Create/Send) falls back to when disabled, and not the neutral gray
      fill either — the button should still read as the agentic send
-     action, just inactive. var(--muted) is the app's own established
-     "dim, secondary" token, not a new gray invented for this one button. */
+     action, just inactive. The glyph color itself is covered by
+     Test-PRD-P0-126-send_button_disabled_glyph_darker below (var(--muted)
+     read too washed-out once rendered and compared side by side; the
+     owner's own correction asked for var(--rule) instead). */
   const { body } = await frontPage(OWNER);
   assert.match(body, /#chat \.send-btn:disabled\s*\{[^}]*background:\s*rgba\(217, 119, 87, 0\.35\)/s, "disabled must be a dim tint of the accent hue, not a neutral gray");
-  assert.match(body, /#chat \.send-btn:disabled\s*\{[^}]*color:\s*var\(--muted\)/s, "the disabled glyph must use the app's own established muted token");
   assert.match(body, /#chat \.send-btn:disabled\s*\{[^}]*opacity:\s*1/s, "full opacity — these colors are already the dim version on purpose, no further fading on top");
+});
+
+check("test_PRD_P0_126_send_button_disabled_glyph_darker__the_disabled_arrow_uses_the_darker_rule_gray_not_muted", async () => {
+  /* The owner's own words, after seeing var(--muted) rendered: "what you
+     have now, I think, is working good. The only thing I would change
+     is when the submit button is disabled with the dim orange, its
+     arrow should be like that dark gray color... it should be white,
+     bright, brighter when it's active." Rendered and compared directly,
+     not assumed: var(--muted) (#B8B3A8, the app's own "dim, secondary
+     text" token) barely showed up against the dim orange tint, reading
+     as faded rather than a deliberate dark gray. var(--rule) (#7B7369,
+     the app's own border/divider gray, one step darker) is what actually
+     reads as "dark gray" against that background. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /#chat \.send-btn:disabled\s*\{[^}]*color:\s*var\(--rule\)/s, "the disabled glyph must use the darker --rule token, not --muted");
+  assert.doesNotMatch(body, /#chat \.send-btn:disabled\s*\{[^}]*color:\s*var\(--muted\)/s, "the old, too-light --muted glyph must be gone");
 });
 
 check("test_PRD_P0_124_send_button_active_state__the_active_glyph_is_bright_not_the_near_black_ground_token", async () => {

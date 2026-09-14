@@ -3069,6 +3069,20 @@ that does not trace to one of these is a process failure (see §12).
     it, a second selector declaring the identical value is a number to keep in sync in two places
     instead of one.
 
+61. **`Test-PRD-P0-126-send_button_disabled_glyph_darker`** — A one-round correction to P0-124's
+    own disabled glyph color, once it actually shipped and the owner looked at it: "what you have
+    now, I think, is working good. The only thing I would change is when the submit button is
+    disabled with the dim orange, its arrow should be like that dark gray color... it should be
+    white, bright, brighter when it's active."
+
+    **`var(--muted)` read as faded, not deliberately dark, once rendered and compared directly —
+    not assumed.** Screenshotted the disabled glyph next to an alternative rather than guessing:
+    `--muted` (`#B8B3A8`, the app's own "dim, secondary text" token, chosen originally for body-text
+    readability against a dark page) all but disappeared against the dim orange tint behind it.
+    `--rule` (`#7B7369`, the app's own border/divider gray, one visible step darker) is what
+    actually reads as "dark gray" against that background — swapped in, `#chat .send-btn:disabled`'s
+    only change. The active glyph (`--ink`) was already correct and is untouched.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -3345,6 +3359,7 @@ Where each feature is enforced today:
 | P0-123 | `ops/test/ops-page.test.mjs` |
 | P0-124 | `ops/test/ops-page.test.mjs` |
 | P0-125 | `ops/test/ops-page.test.mjs`, `ops/test/dashboard-route.test.mjs` |
+| P0-126 | `ops/test/ops-page.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
