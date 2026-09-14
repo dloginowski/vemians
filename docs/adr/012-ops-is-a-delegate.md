@@ -104,6 +104,15 @@ Access Groups — the owner's own words, explicit: "I want github to push these 
 made after the Access-Groups alternative (which would have kept "refused before the Worker runs"
 for a stranger) was described and declined.
 
+The same script also keeps the *other* half current: the Cloudflare Access application's own
+"Vemians staff" policy — who can reach `ops` at all, as opposed to what they can do once inside —
+is reconciled to the same Square active-team list on every run, once `setup-access` has created
+that application and policy the one time a brand-new deployment needs it. Before this, `ops`
+had two separately-maintained email lists (the Access policy's Include, kept current by hand
+via `setup-access`'s `staff_emails` input, and this roster); now Square is the one list behind
+both, matching the owner's stated goal of nothing propagating by hand ("I want it all to
+propagate automatically").
+
 ## Open
 
 1. **Per-user OAuth** would make the ceiling enforced rather than honoured — if Square scopes a

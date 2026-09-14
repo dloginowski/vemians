@@ -1,8 +1,10 @@
 # Keeps people's own `employee` table in step with Square's active Team
 # list (Test-PRD-P0-101-square_sourced_roster; docs/adr/012-ops-is-a-delegate.md:
 # "Square's staff list is the roster"). ops/src/access.js reads this table
-# directly once it holds at least one row — no Cloudflare Access edit
-# happens here at all, only a Square read and a D1 write.
+# directly once it holds at least one row, deciding what someone can do once
+# they're in. The same Square read also keeps the Cloudflare Access login
+# gate's Include list current — who can get in at all — once `setup-access`
+# has created the application and policy one time; see sync-roster-from-square.mjs.
 #
 # Runs automatically, every 6 hours — the owner's own words: "I want it all
 # to propagate automatically." Also runnable by hand from the Actions tab at
@@ -27,6 +29,9 @@ on:
       square_env:
         description: sandbox or production — must match the token
         default: production
+      zone:
+        description: The domain (used to find the ops Access application, e.g. ops.<zone>)
+        default: vemians.com
   schedule:
     - cron: "17 */6 * * *"
 
@@ -46,6 +51,7 @@ jobs:
       MANAGER_JOB_TITLES: ${{ inputs.manager_job_titles || vars.MANAGER_JOB_TITLES || '' }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      ZONE_NAME: ${{ inputs.zone || 'vemians.com' }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 

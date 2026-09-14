@@ -17,6 +17,16 @@
  * `is_active = 0` here, never a removed row — `shift.employee_id`
  * references `employee(id)`, and a past shift's own attendance record must
  * survive whoever worked it leaving.
+ *
+ * Also keeps the Cloudflare Access login gate itself in step (this is the
+ * other half of "Square is the roster" — the D1 table above decides what
+ * someone can do once they're in, this decides who can get in at all). Once
+ * `setup-access` has created the "Vemians ops" application and its "Vemians
+ * staff" policy one time, this script takes over maintaining who's on that
+ * policy's Include list — the same Square active-team read, one more
+ * destination. Runs only if CLOUDFLARE_API_TOKEN/CLOUDFLARE_ACCOUNT_ID are
+ * set and the application already exists, so this script still works
+ * standalone (roster-only) before that bootstrap has happened.
  */
 import { writeFileSync } from "node:fs";
 
@@ -144,4 +154,66 @@ writeFileSync(OUT_PATH, lines.join("\n") + "\n", "utf8");
 console.log(`Wrote ${OUT_PATH}: ${members.length} active team member(s) from Square.`);
 for (const m of members) {
   console.log(`  ${m.email_address} -> ${roleFor(m)}`);
+}
+
+/* ---- keep the Access login gate in step too ----------------------------- */
+const CF_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
+const CF_ACCOUNT = process.env.CLOUDFLARE_ACCOUNT_ID;
+const ZONE_NAME = process.env.ZONE_NAME || "vemians.com";
+
+async function cf(path, init = {}) {
+  const res = await fetch(`https://api.cloudflare.com/client/v4${path}`, {
+    ...init,
+    headers: { authorization: `Bearer ${CF_TOKEN}`, "content-type": "application/json", ...(init.headers || {}) },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || body.success === false) {
+    const errs = (body.errors || []).map((e) => `${e.code} ${e.message}`).join("; ") || res.status;
+    throw new Error(`${init.method || "GET"} ${path} -> ${errs}`);
+  }
+  return body.result;
+}
+
+async function syncAccessPolicy() {
+  const opsHost = `ops.${ZONE_NAME}`;
+  const apps = await cf(`/accounts/${CF_ACCOUNT}/access/apps`);
+  const app = apps.find((a) => a.domain === opsHost);
+  if (!app) {
+    console.log(`  (Access sync skipped: no application for ${opsHost} yet — run setup-access first)`);
+    return;
+  }
+  const policies = await cf(`/accounts/${CF_ACCOUNT}/access/apps/${app.id}/policies`);
+  const policy = policies.find((p) => p.name === "Vemians staff");
+  if (!policy) {
+    console.log('  (Access sync skipped: no "Vemians staff" policy yet — run setup-access first)');
+    return;
+  }
+  const include = members.map((m) => ({ email: { email: m.email_address } }));
+  await cf(`/accounts/${CF_ACCOUNT}/access/apps/${app.id}/policies/${policy.id}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      name: policy.name,
+      decision: policy.decision,
+      include,
+      require: policy.require ?? [],
+      exclude: policy.exclude ?? [],
+    }),
+  });
+  console.log(`  Access policy "Vemians staff" -> ${members.length} address(es), matching Square`);
+}
+
+if (!CF_TOKEN || !CF_ACCOUNT) {
+  console.log("  (Access sync skipped: CLOUDFLARE_API_TOKEN/CLOUDFLARE_ACCOUNT_ID not set)");
+} else if (members.length === 0) {
+  console.warn(
+    "::warning::Square returned no active team members with an email on file — refusing to touch the " +
+      "Access policy as a precaution. Investigate before assuming the roster is actually empty.",
+  );
+} else {
+  try {
+    await syncAccessPolicy();
+  } catch (err) {
+    console.error(`::error::Access sync failed: ${err.message}`);
+    process.exit(1);
+  }
 }

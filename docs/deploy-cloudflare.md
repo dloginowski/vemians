@@ -320,8 +320,11 @@ machine-to-machine.)*
 
    `.github/scripts/setup-access.mjs` (run via the `setup-access` workflow, input
    `staff_emails`, one address per line or comma-separated) does exactly this for you and is
-   idempotent, so re-running it as staff changes is the normal way to maintain this policy
-   rather than editing it by hand every time. Leave Require and Exclude empty. Later, tighter
+   idempotent. This is a **one-time bootstrap only** — once the application and this policy
+   exist, `sync-roster-from-square` (docs/adr/012-ops-is-a-delegate.md) keeps the Include list
+   current on its own every 6 hours from Square's active team, so there is nothing to maintain
+   by hand afterward; `setup-access` only needs re-running to change `team_name`/`zone`, or to
+   recreate the application from scratch. Leave Require and Exclude empty. Later, tighter
    surfaces — `identity`, `people`, `finance` — get their **own applications and their own
    policies** with an **Access Group** Include (§6b) rather than the whole staff list
    (PRD `Test-PRD-P0-24-binding_scoped_tools`).
