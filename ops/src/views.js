@@ -2022,7 +2022,11 @@ function dashboardGroup({ kind, label, rows, dateOf, isMine, tileFn, open, mineO
  *   the other three sections entirely and forces the remaining one open,
  *   the same "the mode decides what's on screen" rule the compose bar
  *   already follows — the accordion IS how All mode looks, not a
- *   separate view bolted beside it.
+ *   separate view bolted beside it. A mode with nothing in it renders no
+ *   `<details>` at all (Test-PRD-P0-115-dashboard_hide_empty_groups) —
+ *   "don't show empty accordions at all... only [sections with
+ *   something to show are] expandable" — rather than an empty section
+ *   with nothing to expand into.
  *
  * DEFAULT VIEW IS A SERVER-COMPUTED HINT, NOT A HARD RULE
  *   The owner's own words: "by default, it should be on tasks... however,
@@ -2038,45 +2042,60 @@ function dashboardGroup({ kind, label, rows, dateOf, isMine, tileFn, open, mineO
  */
 export function dashboardPage({ tickets, expenses, uploads, viewerEmail, defaultKind }) {
   const isMyTicket = (t) => t.assigned_to === viewerEmail || t.created_by === viewerEmail;
+  const groupDefs = [
+    {
+      kind: "task",
+      label: "Tasks",
+      rows: tickets.filter((t) => t.assigned_to === viewerEmail),
+      dateOf: (t) => t.created_at || "",
+      isMine: () => true,
+      tileFn: (t) => ticketTile(t, viewerEmail),
+      open: true,
+    },
+    {
+      kind: "ticket",
+      label: "Tickets",
+      rows: tickets,
+      dateOf: (t) => t.created_at || "",
+      isMine: isMyTicket,
+      tileFn: (t) => ticketTile(t, viewerEmail),
+      open: true,
+    },
+    {
+      kind: "expense",
+      label: "Expenses",
+      rows: expenses,
+      dateOf: (e) => e.incurred_on || "",
+      isMine: (e) => e.employee_id === viewerEmail,
+      tileFn: dashboardExpenseTile,
+      open: false,
+      mineOldestFirst: false,
+    },
+    {
+      kind: "upload",
+      label: "Uploads",
+      rows: uploads,
+      dateOf: (a) => a.uploaded_at || "",
+      isMine: (a) => a.uploaded_by === viewerEmail,
+      tileFn: dashboardUploadTile,
+      open: false,
+      mineOldestFirst: false,
+    },
+  ];
+  /* "Don't show empty accordions at all! So when showing all — only
+     [the sections with something to show are] expandable sections" — the
+     owner's own words. A mode with nothing in it renders no <details> at
+     all, rather than an empty, pointless section to expand. Choosing
+     that empty mode from the selector still works exactly as before —
+     filterFeed() and refreshCounts() simply find no matching group,
+     which is indistinguishable from every tile in it already being
+     filtered out, so the status line's own "No Results" swap (P0-112)
+     covers it for free. */
   const feed = `<div id="dash-feed">
-  ${dashboardGroup({
-    kind: "task",
-    label: "Tasks",
-    rows: tickets.filter((t) => t.assigned_to === viewerEmail),
-    dateOf: (t) => t.created_at || "",
-    isMine: () => true,
-    tileFn: (t) => ticketTile(t, viewerEmail),
-    open: true,
-  })}
-  ${dashboardGroup({
-    kind: "ticket",
-    label: "Tickets",
-    rows: tickets,
-    dateOf: (t) => t.created_at || "",
-    isMine: isMyTicket,
-    tileFn: (t) => ticketTile(t, viewerEmail),
-    open: true,
-  })}
-  ${dashboardGroup({
-    kind: "expense",
-    label: "Expenses",
-    rows: expenses,
-    dateOf: (e) => e.incurred_on || "",
-    isMine: (e) => e.employee_id === viewerEmail,
-    tileFn: dashboardExpenseTile,
-    open: false,
-    mineOldestFirst: false,
-  })}
-  ${dashboardGroup({
-    kind: "upload",
-    label: "Uploads",
-    rows: uploads,
-    dateOf: (a) => a.uploaded_at || "",
-    isMine: (a) => a.uploaded_by === viewerEmail,
-    tileFn: dashboardUploadTile,
-    open: false,
-    mineOldestFirst: false,
-  })}
+  ${groupDefs
+    .filter((def) => def.rows.length > 0)
+    .map((def) => dashboardGroup(def))
+    .join("\n  ")}
 </div>`;
 
   return page(

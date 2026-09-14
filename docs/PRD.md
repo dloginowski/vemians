@@ -2825,6 +2825,24 @@ that does not trace to one of these is a process failure (see §12).
     mode; a third repetition of the same fact inside the group's own body added nothing an empty
     space didn't already say.
 
+50. **`Test-PRD-P0-115-dashboard_hide_empty_groups`** — "Don't show empty accordions at all! So
+    when showing all - only tickets expandable section." A follow-up on P0-114's own `(0)`-count
+    empty section: showing a collapsible header for a kind with nothing in it is still clutter
+    even once "Nothing here yet." (P0-114) is gone — a zero-count accordion invites a click that
+    reveals nothing.
+
+    **An empty kind renders no `<details>` element at all**, in every mode, not only when
+    narrowed to one via the mode selector. `dashboardPage()` now builds its four group
+    configurations up front and filters to only those with at least one row before rendering,
+    so a kind with nothing to show never reaches the DOM — not collapsed, not hidden, not present
+    with a `(0)` count. In All mode this means the accordion only ever offers sections that have
+    something behind them; a dashboard with one open ticket and nothing else shows exactly one
+    "Tickets" section, no "Tasks (0)" / "Expenses (0)" / "Uploads (0)" placeholders alongside it.
+
+    The mode selector itself is unaffected — it still lists all four kinds regardless of what's
+    populated, so switching to an empty kind is always possible and falls back to the status
+    line's own "No Results" (P0-112), which already covers the single-mode empty case.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -3090,6 +3108,7 @@ Where each feature is enforced today:
 | P0-112 | `ops/test/dashboard-route.test.mjs`, `ops/test/items-route.test.mjs` |
 | P0-113 | `ops/test/ops-page.test.mjs` |
 | P0-114 | `ops/test/dashboard-route.test.mjs` |
+| P0-115 | `ops/test/dashboard-route.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
