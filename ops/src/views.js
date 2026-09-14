@@ -213,6 +213,60 @@ const INPUT_BAR_CSS = `
    stays the one place orange survives. */
 #chat .send-btn { background: var(--accent); color: var(--ground); }
 #chat .send-btn:hover { background: var(--accent); opacity: 0.85; }
+/* The filter menu that opens above a bar's own filter button — Items'
+   category picker first (the owner's own words: "a little menu to select
+   existing categories... a quick way to filter by category"), then the
+   Dashboard's own kind picker (Tickets/Tasks/Expenses/Uploads) reusing the
+   same shape rather than a second, independently matched copy. Moved here
+   from ITEMS_CSS once a second bar needed it — shared, not duplicated, the
+   same reasoning every other rule in this file already gets. Floats the
+   same way .menu floats above the agent composer (opsPage(), OPS_CSS):
+   position: fixed, anchored a gap above .input-bar's own bottom (8px
+   offset + 42px height + 8px gap = 58px), left-aligned near the filter
+   button rather than spanning the full bar. */
+.category-menu {
+  position: fixed; left: 8px; bottom: 58px; z-index: 21; max-width: 70vw;
+  display: flex; flex-direction: column; gap: 2px; padding: 6px;
+  background: var(--image-ground); border: 1px solid var(--muted); border-radius: 12px;
+  max-height: 50vh; overflow-y: auto;
+}
+/* An explicit display: flex above beats the browser's own default
+   [hidden] { display: none } rule — author styles always win over the
+   UA stylesheet regardless of specificity — so the menu rendered open on
+   every page load, the hidden attribute doing nothing at all. This is
+   the fix: restate none for [hidden] specifically, so JS toggling
+   .hidden (never .style.display) actually shows and hides it. */
+.category-menu[hidden] { display: none; }
+/* Same visual language as .choices .btn (the agent page's own quick-prompt
+   chips, OPS_CSS) — 11px, pill-ish, a muted border on --image-ground —
+   kept as its own rule rather than sharing that class, since .choices
+   itself lives in OPS_CSS and neither Items nor the Dashboard imports it. */
+.category-menu .category-item {
+  display: block; width: 100%; text-align: left; font: inherit; font-size: 11px;
+  padding: 6px 10px; border: 1px solid var(--rule); border-radius: 999px;
+  background: var(--ground); color: var(--ink); cursor: pointer;
+}
+.category-menu .category-item:hover { border-color: var(--accent); color: var(--accent); }
+/* Checked state — "that menu would automatically select one or more
+   categories to satisfy the search," the owner's own words. Multi-select:
+   more than one can carry this at once. Same faint-accent-tint language
+   .icon-btn[aria-pressed="true"] already uses for an active toggle state,
+   not a new visual vocabulary invented for this. */
+.category-menu .category-item.active { border-color: var(--accent); color: var(--accent); background: rgba(217, 119, 87, 0.14); }
+/* The active selection, named above the bar instead of living in the
+   search box's own value — the owner's own words: "I don't wanna eat up
+   the input area with text... it's part of the actual selector." Same
+   58px anchor .category-menu itself uses (never both visible at once —
+   see each page's own script), so a picked value and the menu that picks
+   it share one spot rather than two competing floating rows. No explicit
+   display is set here, unlike .category-menu's own display: flex, so the
+   browser's own [hidden] { display: none } default is never overridden
+   and needs no extra rule to restate it. */
+.category-label {
+  position: fixed; left: 8px; bottom: 58px; z-index: 19;
+  font-size: 11px; color: var(--muted);
+  padding: 4px 10px; background: var(--image-ground); border: 1px solid var(--rule); border-radius: 999px;
+}
 `;
 
 /*
@@ -396,10 +450,15 @@ html, body { height: 100%; margin: 0; }
 const SHELL_TABS = [
   { key: "agent", label: "Agent", src: "/chat", href: "/" },
   { key: "items", label: "Items", src: "/items", href: "/?tab=items" },
-  /* Test-PRD-P0-100-ticket_messaging. Same-origin, so it is a same-iframe-swap
-     tab like Agent/Items, unlike Website below (cross-origin, its own tab
-     for that reason alone — see the comment on SHELL_TABS' own history). */
-  { key: "messages", label: "Messages", src: "/tickets", href: "/?tab=messages" },
+  /* Test-PRD-P0-100-ticket_messaging, superseded by Test-PRD-P0-108-ops_dashboard:
+     "Messages" is renamed "Dashboard" once it stopped being just tickets —
+     the owner's own words, "it's not just about messages. It's like a
+     bulletin board." Same-origin, so it is a same-iframe-swap tab like
+     Agent/Items, unlike Website below (cross-origin, its own tab for that
+     reason alone — see the comment on SHELL_TABS' own history). The
+     ticket detail/comment/status routes stay at /tickets/<id> — only the
+     list page this tab opens moves to /dashboard. */
+  { key: "dashboard", label: "Dashboard", src: "/dashboard", href: "/?tab=dashboard" },
   { key: "website", label: "Website", src: "https://vemians.com", href: "/?tab=website" },
 ];
 
@@ -750,6 +809,54 @@ const FILTER_ICON = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden
   `<circle cx="2" cy="4" r="1" fill="currentColor"/><path d="M5 4h6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="13" cy="4" r="1" fill="currentColor"/>` +
   `<circle cx="2" cy="8" r="1" fill="currentColor"/><path d="M5 8h6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="13" cy="8" r="1" fill="currentColor"/>` +
   `<circle cx="2" cy="12" r="1" fill="currentColor"/><path d="M5 12h6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="13" cy="12" r="1" fill="currentColor"/></svg>`;
+
+/*
+ * Plain dictation — click to start, click to stop, the transcript appended
+ * to one text field. Deliberately NOT the agentic mic pattern (.mic-btn,
+ * orange, hold-to-record `sendToAgent()`): the owner's own words, asked
+ * for a ticket's comment box and the Dashboard's own compose bar, "it's
+ * not an agentic microphone. It's just a normal microphone where you can
+ * speak to make a comment... use the microphone to just input text
+ * without typing." No fetch, no model call — the transcript only ever
+ * lands in the field. Rendered as class="icon-btn" alone (no "mic-btn"),
+ * so it keeps the neutral faint fill every non-agentic button already
+ * has rather than borrowing the orange reserved for agentic input.
+ */
+function dictationScript({ btnId, inputId }) {
+  return `(function () {
+  const btn = document.getElementById(${JSON.stringify(btnId)});
+  const field = document.getElementById(${JSON.stringify(inputId)});
+  const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!Ctor || !btn) { if (btn) btn.remove(); return; }
+  const recognition = new Ctor();
+  recognition.lang = "en-US";
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 1;
+  const MIC_ICON_HTML = ${JSON.stringify(MIC_ICON)};
+  const MIC_STOP_ICON_HTML = ${JSON.stringify(MIC_STOP_ICON)};
+  let listening = false;
+  function stopListening() {
+    listening = false;
+    btn.removeAttribute("aria-pressed");
+    btn.innerHTML = MIC_ICON_HTML;
+  }
+  recognition.addEventListener("result", (e) => {
+    const transcript = e.results[0][0].transcript.trim();
+    if (!transcript) return;
+    field.value = field.value ? field.value + " " + transcript : transcript;
+    field.focus();
+  });
+  recognition.addEventListener("end", stopListening);
+  recognition.addEventListener("error", stopListening);
+  btn.addEventListener("click", () => {
+    if (listening) { recognition.stop(); return; }
+    listening = true;
+    btn.setAttribute("aria-pressed", "true");
+    btn.innerHTML = MIC_STOP_ICON_HTML;
+    recognition.start();
+  });
+})();`;
+}
 
 /* The behaviour half of copyLine, as a string, so the front page and the
    identity page share one implementation rather than two that drift. */
@@ -1194,56 +1301,6 @@ document.querySelectorAll(".choices .btn[data-prompt]").forEach((btn) => {
 const ITEMS_CSS = `
 ${OPS_DARK_CSS}
 ${INPUT_BAR_CSS}
-/* The category-filter menu that opens above the search bar's own filter
-   button — the owner's own words: "a little menu to select existing
-   categories... a quick way to filter by category." Floats the same way
-   .menu floats above the agent composer (opsPage(), OPS_CSS): position:
-   fixed, anchored a gap above .input-bar's own bottom (8px offset + 42px
-   height + 8px gap = 58px), left-aligned near the filter button rather
-   than spanning the full bar. */
-.category-menu {
-  position: fixed; left: 8px; bottom: 58px; z-index: 21; max-width: 70vw;
-  display: flex; flex-direction: column; gap: 2px; padding: 6px;
-  background: var(--image-ground); border: 1px solid var(--muted); border-radius: 12px;
-  max-height: 50vh; overflow-y: auto;
-}
-/* An explicit display: flex above beats the browser's own default
-   [hidden] { display: none } rule — author styles always win over the
-   UA stylesheet regardless of specificity — so the menu rendered open on
-   every page load, the hidden attribute doing nothing at all. This is
-   the fix: restate none for [hidden] specifically, so JS toggling
-   .hidden (never .style.display) actually shows and hides it. */
-.category-menu[hidden] { display: none; }
-/* Same visual language as .choices .btn (the agent page's own quick-prompt
-   chips, OPS_CSS) — 11px, pill-ish, a muted border on --image-ground —
-   kept as its own rule rather than sharing that class, since .choices
-   itself lives in OPS_CSS and Items has never imported it. */
-.category-menu .category-item {
-  display: block; width: 100%; text-align: left; font: inherit; font-size: 11px;
-  padding: 6px 10px; border: 1px solid var(--rule); border-radius: 999px;
-  background: var(--ground); color: var(--ink); cursor: pointer;
-}
-.category-menu .category-item:hover { border-color: var(--accent); color: var(--accent); }
-/* Checked state — "that menu would automatically select one or more
-   categories to satisfy the search," the owner's own words. Multi-select:
-   more than one can carry this at once. Same faint-accent-tint language
-   .icon-btn[aria-pressed="true"] already uses for an active toggle state,
-   not a new visual vocabulary invented for this. */
-.category-menu .category-item.active { border-color: var(--accent); color: var(--accent); background: rgba(217, 119, 87, 0.14); }
-/* The active category, named above the bar instead of living in the
-   search box's own value — the owner's own words: "I don't wanna eat up
-   the input area with text... it's part of the actual selector." Same
-   58px anchor .category-menu itself uses (never both visible at once —
-   see the script), so a picked category and the menu that picks it share
-   one spot rather than two competing floating rows. No explicit display
-   is set here, unlike .category-menu's own display: flex, so the
-   browser's own [hidden] { display: none } default is never overridden
-   and needs no extra rule to restate it. */
-.category-label {
-  position: fixed; left: 8px; bottom: 58px; z-index: 19;
-  font-size: 11px; color: var(--muted);
-  padding: 4px 10px; background: var(--image-ground); border: 1px solid var(--rule); border-radius: 999px;
-}
 /* Two columns down to phone width — the owner's own words: "on my
    phone, I want a two column layout... as it gets wider, it will just
    fill the entire screen." auto-fill's own minmax(240px, 1fr) never
@@ -1764,8 +1821,15 @@ function ticketBadges(ticket) {
   </div>`;
 }
 
-function ticketTile(ticket) {
-  return `<a class="ticket-tile" href="/tickets/${esc(ticket.id)}">
+/* `viewerEmail` is only ever passed by dashboardPage() below — ticketsPage()
+   calls this with one argument, so `mine` is always false there and every
+   tile carries plain data-kind="ticket". A ticket assigned to the viewer
+   also carries "task" (space-separated, like a class list), which is what
+   lets the SAME tile satisfy both the "Tickets" and "Tasks" dashboard
+   filters without a second, duplicate row for it. */
+function ticketTile(ticket, viewerEmail) {
+  const mine = Boolean(viewerEmail) && ticket.assigned_to === viewerEmail;
+  return `<a class="ticket-tile" data-kind="ticket${mine ? " task" : ""}" href="/tickets/${esc(ticket.id)}">
     <h3>#${ticket.number ?? "?"} — ${esc(ticket.title)}</h3>
     ${ticketBadges(ticket)}
     <div class="ticket-meta">${esc(ticket.created_by)} &middot; ${esc(ticket.updated_at)}${ticket.assigned_to ? ` &middot; assigned: ${esc(ticket.assigned_to)}` : ""}</div>
@@ -1774,7 +1838,7 @@ function ticketTile(ticket) {
 
 export function ticketsPage(tickets) {
   const list = tickets.length
-    ? `<div class="ticket-list">${tickets.map(ticketTile).join("\n")}</div>`
+    ? `<div class="ticket-list">${tickets.map((t) => ticketTile(t)).join("\n")}</div>`
     : `<p class="ticket-empty">No open tickets. Whatever comes up, start one below.</p>`;
 
   return page(
@@ -1812,7 +1876,7 @@ export function ticketPage(ticket, comments, { error } = {}) {
     `#${ticket.number} ${ticket.title} — Vemians ops`,
     `<main class="ops">
   <div class="ticket-detail">
-  <a class="ticket-back" href="/tickets">&larr; All tickets</a>
+  <a class="ticket-back" href="/dashboard">&larr; Dashboard</a>
   <h2>#${ticket.number} — ${esc(ticket.title)}</h2>
   ${ticketBadges(ticket)}
   <p class="ticket-meta">${esc(ticket.created_by)} &middot; ${esc(ticket.created_at)}</p>
@@ -1827,11 +1891,195 @@ export function ticketPage(ticket, comments, { error } = {}) {
   ${thread}
   <form class="chat" method="post" action="/tickets/${esc(ticket.id)}/comment">
     <div class="chat-bar input-bar">
-      <input type="text" name="body" placeholder="Add a comment..." required maxlength="${CAPS.MAX_TEXT}">
+      <input type="text" name="body" id="ticket-comment-body" placeholder="Add a comment..." required maxlength="${CAPS.MAX_TEXT}">
+      <button type="button" class="icon-btn" id="ticket-comment-mic" aria-label="Dictate" title="Dictate">${MIC_ICON}</button>
       <button type="submit" class="send-btn" aria-label="Send" title="Send">${SEND_ICON}</button>
     </div>
   </form>
-</main>`,
+</main>
+<script>
+${dictationScript({ btnId: "ticket-comment-mic", inputId: "ticket-comment-body" })}
+</script>`,
+    TICKETS_CSS,
+  );
+}
+
+function dashboardExpenseTile(expense) {
+  const amount = (expense.amount_minor / 100).toFixed(2);
+  return `<div class="ticket-tile" data-kind="expense">
+    <h3>${esc(expense.description)}</h3>
+    <div class="ticket-badges">
+      <span>Expense</span>
+      <span>${esc(expense.status)}</span>
+      <span>${amount} ${esc(expense.currency)}</span>
+    </div>
+    <div class="ticket-meta">${esc(expense.employee_name || expense.employee_id || "unknown")} &middot; ${esc(expense.incurred_on)}</div>
+  </div>`;
+}
+
+function dashboardUploadTile(asset) {
+  return `<a class="ticket-tile" data-kind="upload" href="/assets/${esc(asset.id)}">
+    <h3>${esc(asset.filename)}</h3>
+    <div class="ticket-badges">
+      <span>Upload</span>
+      <span>${asset.has_text ? "text readable" : "download only"}</span>
+    </div>
+    <div class="ticket-meta">${esc(asset.uploaded_by)} &middot; ${esc(asset.uploaded_at)}</div>
+  </a>`;
+}
+
+/*
+ * Dashboard — the ops home page, once "Messages" stopped being just
+ * tickets (Test-PRD-P0-108-ops_dashboard). The owner's own words: "it's
+ * not just about messages. It's like a bulletin board. It's a place to
+ * share assets... invoices... it could be a ticket from a customer. It
+ * could be an expense. It could be just a file upload... or a task."
+ *
+ * ONE FEED, THREE ALREADY-EXISTING T0 READS
+ *   No new store, no new schema — every row here already had a home and a
+ *   tool (ticket.list, expense.list, assets.list). "Task" is not a fourth
+ *   store or a new ticket.category value (widening that CHECK constraint
+ *   on a live D1 table has no supported ALTER path in SQLite, only a
+ *   drop/recreate/copy-data rebuild this repo has no tooling for); it is
+ *   a computed filter over the same tickets — one assigned to the
+ *   viewer — expressed purely by ticketTile()'s own data-kind attribute,
+ *   never a stored value. expense.list's own role scoping (staff see only
+ *   their own submissions) is untouched — this page reads it exactly as
+ *   every other caller does, never widening it.
+ *
+ * DEFAULT VIEW IS A SERVER-COMPUTED HINT, NOT A HARD RULE
+ *   The owner's own words: "by default, it should be on tasks... however,
+ *   if there are any tickets, say from a customer, that should take
+ *   precedence over tasks." src/index.js's /dashboard route decides which
+ *   one before this function ever runs (an open ticket in the 'customer'
+ *   category anywhere in the working set switches the default from "task"
+ *   to "ticket") and hands the answer in as `defaultKind` — this function
+ *   only seeds the filter's initial Set with it. Nothing here is fixed:
+ *   the filter menu (the same shape Items' own category picker already
+ *   established, reusing its CSS literally rather than a second copy)
+ *   lets anyone switch to any of the four views, or "All", at any time.
+ *
+ * THE MIC HERE IS PLAIN DICTATION, NOT THE AGENTIC ONE
+ *   The owner's own words: "it's not an agentic microphone. It's just a
+ *   normal microphone where you can speak to make a comment." class=
+ *   "icon-btn" alone (no "mic-btn"), so it never borrows the orange
+ *   reserved for the two genuinely agentic mics (the agent composer,
+ *   Items' own voice search) — see dictationScript()'s own comment.
+ */
+export function dashboardPage({ tickets, expenses, uploads, viewerEmail, defaultKind }) {
+  const items = [
+    ...tickets.map((t) => ({ sortKey: t.updated_at || t.created_at || "", html: ticketTile(t, viewerEmail) })),
+    ...expenses.map((e) => ({ sortKey: e.incurred_on || "", html: dashboardExpenseTile(e) })),
+    ...uploads.map((a) => ({ sortKey: a.uploaded_at || "", html: dashboardUploadTile(a) })),
+  ].sort((a, b) => (a.sortKey < b.sortKey ? 1 : a.sortKey > b.sortKey ? -1 : 0));
+
+  const feed = items.length
+    ? `<div class="ticket-list" id="dash-feed">${items.map((i) => i.html).join("\n")}</div>
+  <p class="ticket-empty" id="dash-feed-empty" hidden>Nothing to show for this filter.</p>`
+    : `<p class="ticket-empty">Nothing here yet.</p>`;
+
+  return page(
+    "Dashboard — Vemians ops",
+    /* No page title of its own — same reasoning itemsPage() and
+       ticketsPage() already give: the shell's own Dashboard tab already
+       names the page. */
+    `<main class="ops">
+  ${feed}
+  <div class="category-menu" id="kind-menu" hidden>
+    <button type="button" class="category-item" data-kind="">All</button>
+    <button type="button" class="category-item" data-kind="task">Tasks</button>
+    <button type="button" class="category-item" data-kind="ticket">Tickets</button>
+    <button type="button" class="category-item" data-kind="expense">Expenses</button>
+    <button type="button" class="category-item" data-kind="upload">Uploads</button>
+  </div>
+  <div class="category-label" id="kind-label" hidden></div>
+  <form class="chat" method="post" action="/tickets/new">
+    <div class="chat-bar input-bar">
+      <button type="button" class="icon-btn" id="kind-btn" aria-label="Filter" title="Filter">${FILTER_ICON}</button>
+      <input type="text" name="title" id="dash-title" placeholder="Start a new ticket..." required maxlength="200">
+      <button type="button" class="icon-btn" id="dash-mic" aria-label="Dictate" title="Dictate">${MIC_ICON}</button>
+      <button type="submit" class="send-btn" aria-label="Create" title="Create">${SEND_ICON}</button>
+    </div>
+  </form>
+</main>
+<script>
+const DASH_KIND_LABEL = { ticket: "Tickets", task: "Tasks", expense: "Expenses", upload: "Uploads" };
+const kindMenuEl = document.getElementById("kind-menu");
+const kindBtn = document.getElementById("kind-btn");
+const kindLabel = document.getElementById("kind-label");
+const feedEmpty = document.getElementById("dash-feed-empty");
+/* Seeded server-side (see this function's own header) — "by default, it
+   should be on tasks... however, if there are any tickets, say from a
+   customer, that should take precedence." Still just a starting Set: any
+   view below is one click away. */
+const selectedKinds = new Set(${JSON.stringify(defaultKind ? [defaultKind] : [])});
+
+function markKindMenu() {
+  kindMenuEl.querySelectorAll(".category-item").forEach((btn) => {
+    const isAll = btn.dataset.kind === "";
+    btn.classList.toggle("active", isAll ? selectedKinds.size === 0 : selectedKinds.has(btn.dataset.kind));
+  });
+}
+function updateKindLabel() {
+  if (selectedKinds.size) {
+    kindLabel.textContent = "Showing: " + [...selectedKinds].map((k) => DASH_KIND_LABEL[k] || k).join(", ");
+    kindLabel.hidden = false;
+  } else {
+    kindLabel.hidden = true;
+  }
+  markKindMenu();
+}
+function toggleKind(name) {
+  if (!name) selectedKinds.clear();
+  else if (selectedKinds.has(name)) selectedKinds.delete(name);
+  else selectedKinds.add(name);
+  updateKindLabel();
+}
+/* A ticket assigned to the viewer carries BOTH "ticket" and "task" in its
+   own data-kind (space-separated, like a class list) — this is what lets
+   the same tile satisfy either filter without a second, duplicate row. */
+function filterFeed() {
+  let visible = 0;
+  document.querySelectorAll("#dash-feed .ticket-tile").forEach((el) => {
+    const kinds = (el.dataset.kind || "").split(" ");
+    const show = selectedKinds.size === 0 || kinds.some((k) => selectedKinds.has(k));
+    el.hidden = !show;
+    if (show) visible++;
+  });
+  if (feedEmpty) feedEmpty.hidden = visible !== 0;
+}
+
+if (kindBtn && kindMenuEl) {
+  kindBtn.addEventListener("click", () => {
+    const opening = kindMenuEl.hidden;
+    kindMenuEl.hidden = !kindMenuEl.hidden;
+    if (opening) kindLabel.hidden = true;
+    else if (selectedKinds.size) kindLabel.hidden = false;
+  });
+  kindMenuEl.addEventListener("click", (e) => {
+    const btn = e.target.closest(".category-item");
+    if (!btn) return;
+    toggleKind(btn.dataset.kind);
+    filterFeed();
+  });
+  document.addEventListener("click", (e) => {
+    if (kindMenuEl.hidden) return;
+    if (kindMenuEl.contains(e.target) || kindBtn.contains(e.target)) return;
+    kindMenuEl.hidden = true;
+    if (selectedKinds.size) kindLabel.hidden = false;
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || kindMenuEl.hidden) return;
+    kindMenuEl.hidden = true;
+    if (selectedKinds.size) kindLabel.hidden = false;
+  });
+}
+
+updateKindLabel();
+filterFeed();
+
+${dictationScript({ btnId: "dash-mic", inputId: "dash-title" })}
+</script>`,
     TICKETS_CSS,
   );
 }

@@ -205,6 +205,29 @@ check("test_PRD_P0_100_ticket_messaging__opening_a_ticket_shows_its_thread", asy
   assert.match(body, /mara@example\.test/);
 });
 
+check("test_PRD_P0_108_ops_dashboard__a_ticket_page_links_back_to_the_dashboard_not_tickets", async () => {
+  /* Superseded from "&larr; All tickets" -> "/tickets" once the Messages
+     tab (and its list page) became the Dashboard tab -> /dashboard. */
+  const tickets = ticketsDb();
+  seedTicket(tickets);
+  const res = await get("/tickets/tik_1", STAFF, env(tickets));
+  const body = await res.text();
+  assert.match(body, /<a class="ticket-back" href="\/dashboard">&larr; Dashboard<\/a>/);
+});
+
+check("test_PRD_P0_108_ops_dashboard__the_comment_bar_has_a_plain_dictation_mic_not_agentic", async () => {
+  /* The owner's own words: "it's not an agentic microphone... just input
+     text without typing." class="icon-btn" alone, never "mic-btn" — the
+     orange agentic look stays reserved for the agent composer and Items'
+     own voice search. */
+  const tickets = ticketsDb();
+  seedTicket(tickets);
+  const res = await get("/tickets/tik_1", STAFF, env(tickets));
+  const body = await res.text();
+  assert.match(body, /<button type="button" class="icon-btn" id="ticket-comment-mic"/);
+  assert.doesNotMatch(body, /id="ticket-comment-mic"[^>]*mic-btn/);
+});
+
 check("test_PRD_P0_100_ticket_messaging__an_unknown_ticket_id_is_a_404_not_a_crash", async () => {
   const tickets = ticketsDb();
   const res = await get("/tickets/nope", STAFF, env(tickets));
