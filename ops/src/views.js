@@ -506,11 +506,13 @@ html, body { height: 100%; margin: 0; }
    longer lives inside this same padding stack at all, now that it is
    fixed to the screen's own bottom instead, so this aligns with .log's
    own edge specifically rather than a shared log-and-composer one.)
-   Recomputed again once .chat-top's own SIDE padding halved to 7px (see
-   .chat-top below): 8px (.ops) + 7px = 15px is where .log's content
-   starts now, so this stays in step with it rather than drifting out of
-   alignment with the tab it was matched to in the first place. */
-.shell-header { flex: 0 0 auto; padding: 10px 15px 0; background: var(--bar); }
+   Recomputed twice more since: 8px (.ops) + 7px (.chat-top's own side
+   padding, halved) = 15px, then — once .chat-top's own side padding and
+   .log's own padding both dropped to 0 entirely, matching the Items
+   grid's own flush layout — back down to a flat 8px, the same point
+   .items-grid's own content starts at too. The tab now lines up with
+   every tab's own content edge, not only the chat's. */
+.shell-header { flex: 0 0 auto; padding: 10px 8px 0; background: var(--bar); }
 .shell-nav { --tab-radius: 14px; display: flex; align-items: flex-end; gap: 16px; }
 /* Flat and borderless until active — every tab drawn as its own
    bordered box, active or not, was what read as a row of separate
@@ -648,17 +650,23 @@ ${INPUT_BAR_CSS}
  * .log/#gate now sit as plainly on the page as the Items grid's own
  * tiles do, with only their own padding for spacing.
  *
- * Sides halved again, top/bottom left alone — the owner's own words:
- * "the chat fields have too much padding on the sides... notice how the
- * chat entry field has less padding around it on the sides than the
- * actual chat body? the chat body could use like half the padding."
- * The composer sits flush with .ops's own 8px side inset (INPUT_BAR_CSS);
- * .chat-top's own 14px on top of that pushed the message bubbles in by
- * 22px total, visibly more than the composer just below them. 7px keeps
- * the vertical rhythm intact (the top/bottom spacing this section's own
- * history already settled) while closing most of that side gap. */
+ * Sides halved once (14px -> 7px), then dropped entirely — the owner's
+ * own words, still not satisfied: "I'm still seeing more padding on the
+ * agent chat... if you look at the items page, the items have much less
+ * side padding than the agent chat does. Match the agent chat padding
+ * to the items, and make sure all of them match the items padding."
+ * Items' own grid (.items-grid) carries NO padding of its own at all —
+ * each item-tile's own border and padding is the only thing between a
+ * tile and its neighbor, and the grid sits flush against .ops's own 8px
+ * side inset with nothing else in between. .chat-top's own side padding
+ * goes to 0 for the same reason: .log's message bubbles already carry
+ * their own padding and background exactly the way an item-tile does
+ * (.log p, below), so an outer frame around .log serves no purpose
+ * .items-grid doesn't already do without one. Top/bottom stay 14px —
+ * this was never about vertical rhythm, only "notice how much padding
+ * is on the SIDES." */
 .chat-top {
-  padding: 14px 7px; margin-bottom: 16px;
+  padding: 14px 0; margin-bottom: 16px;
 }
 /* The composer <form> carries class="chat" deliberately (so the
    approval gate's own button row further down inherits from it too),
@@ -730,13 +738,22 @@ ${INPUT_BAR_CSS}
    from either side. The owner's own words, pointing at a real screenshot:
    "See the 'add content' message? Its too far from top edge of outer chat
    box. Needs to match [the] side." margin carries only the bottom gap
-   (before the composer form) now; padding is a uniform 2px matching the
-   side value exactly, so top and sides both work out to the same total
-   distance from .chat-top's own edge. */
+   (before the composer form); padding was a uniform 2px matching the side
+   value, so top and sides worked out to the same total distance from
+   .chat-top's own edge.
+   That "top matches side" invariant is superseded now, and on purpose —
+   .chat-top's own side padding is 0 (see above), and the owner's own
+   later words leave no ambiguity about which side of the trade-off to
+   take: "match the agent chat padding to the items... make sure all of
+   them match the items padding." Items' own grid has no padding of its
+   own at all; .log's own 2px would still leave the bubbles 2px further in
+   than an item-tile, so it drops to 0 too — each bubble's own padding
+   (.log p, below) is exactly what an item-tile's own padding already is,
+   the only spacing either one needs. */
 .log {
   display: flex; flex-direction: column; gap: 6px;
   max-height: min(62vh, 560px); overflow-y: auto;
-  margin: 0 0 8px; padding: 2px;
+  margin: 0 0 8px; padding: 0;
 }
 .log:empty { display: none; }
 .log p {

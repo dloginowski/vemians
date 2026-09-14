@@ -2977,6 +2977,33 @@ that does not trace to one of these is a process failure (see §12).
     matching how every other `.table-card`'s own cells already read, so nothing is ever
     permanently hidden, only cropped by default.
 
+56. **`Test-PRD-P0-121-chat_matches_items_flush_padding`** — P0-118 halved `.chat-top`'s own side
+    padding (14px to 7px) but the owner still saw a visible gap: "I'm still seeing more padding on
+    the agent chat... if you look at the items page, the items have much less side padding than
+    the agent chat does. So just match the agent chat padding to the items, and make sure all of
+    them match the items padding."
+
+    **Items' own grid carries no padding of its own at all.** `.items-grid` sits flush against
+    `.ops`'s own shared 8px side inset — the only thing between the true screen edge and an
+    item-tile is that one shared 8px, plus the tile's own border and padding. The agent chat's
+    equivalent chain was longer: `.ops`'s 8px, then `.chat-top`'s own 7px, then `.log`'s own 2px —
+    17px total before a message bubble's own padding ever started, visibly more than an item-tile's
+    8px.
+
+    **Both extra layers drop to 0.** `.chat-top`'s own side padding (top/bottom untouched, still
+    14px — this was never about vertical rhythm) and `.log`'s own padding (previously a uniform 2px,
+    tuned by P0-78 to keep the first bubble's distance from the top equal to its distance from the
+    sides) both go to 0, superseding that P0-78 invariant on purpose: a uniform 0 still keeps top
+    and sides equal to each other, it just also happens to be the value that lines a message bubble
+    up with `.ops`'s own 8px exactly — the same point an item-tile starts at. A message bubble's
+    own padding and background (`.log p`) already provides exactly the spacing an item-tile's own
+    padding provides; the outer frame around `.log` was never doing anything the Items grid needed
+    to do without one.
+
+    **The shell's own tab row moves with it, a third time.** `.shell-header`'s own left padding —
+    22px, then 15px (P0-118) — drops to a flat 8px, the same point `.items-grid`'s own content now
+    starts at too, so the first tab lines up with every tab's own content edge, not only the chat's.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -3248,6 +3275,7 @@ Where each feature is enforced today:
 | P0-118 | `ops/test/ops-page.test.mjs` |
 | P0-119 | `ops/test/ops-page.test.mjs` |
 | P0-120 | `ops/test/ops-page.test.mjs` |
+| P0-121 | `ops/test/ops-page.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
