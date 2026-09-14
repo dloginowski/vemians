@@ -114,8 +114,17 @@ a:hover { opacity: 0.82; }
  * edges line up with the content above it rather than floating off-grid.
  */
 const INPUT_BAR_CSS = `
+/* min-height: 42px explicitly, rather than letting the bar's own height
+   fall out of whatever it happens to contain — the composer's own 34px
+   icon buttons plus 4px+4px padding reach 42px on their own, but a
+   plain search input with no buttons at all would render a few pixels
+   shorter without this. The owner's own words: "the inner agent chat
+   bar, the gray one, that's our gold standard... make the items search
+   bar the same height and radius." Every current and future .input-bar
+   — a search box, anything else that takes text — matches this one
+   real number instead of happening to come close. */
 .input-bar {
-  display: flex; align-items: center; gap: 2px;
+  display: flex; align-items: center; gap: 2px; min-height: 42px;
   border: 1px solid var(--muted); border-radius: 24px;
   padding: 4px 6px; background: var(--image-ground);
   position: fixed; left: 8px; right: 8px; bottom: 8px; z-index: 20;
@@ -262,10 +271,14 @@ html, body { height: 100%; margin: 0; }
 /* Side padding matched .ops's own 8px, then doubled to 16px for more
    visible separation — then the owner's own words, more precisely: "First
    tab on left matches the inner chat left extent." That is not .ops's own
-   edge, it is past it AND past .chat-top's own frame: 8px (.ops) + 1px
-   (.chat-top's own border) + 14px (.chat-top's own padding) = 23px, the
-   point actual chat content (the log, the composer) starts at. */
-.shell-header { flex: 0 0 auto; padding: 10px 23px 0; background: var(--bar); }
+   edge, it is past it AND past .chat-top's own frame: 8px (.ops) + 14px
+   (.chat-top's own padding) = 22px, the point .log's own content starts
+   at. (.chat-top's own border used to add a 3rd, 1px term here — removed
+   entirely since, along with the border itself; the composer also no
+   longer lives inside this same padding stack at all, now that it is
+   fixed to the screen's own bottom instead, so this aligns with .log's
+   own edge specifically rather than a shared log-and-composer one.) */
+.shell-header { flex: 0 0 auto; padding: 10px 22px 0; background: var(--bar); }
 .shell-nav { --tab-radius: 14px; display: flex; align-items: flex-end; gap: 16px; }
 /* Flat and borderless until active — every tab drawn as its own
    bordered box, active or not, was what read as a row of separate
@@ -397,14 +410,15 @@ ${INPUT_BAR_CSS}
  * request in this whole thread ever touched it, and trivially "sides
  * match bottom" since there is now only one number.
  *
- * A uniform 20px now, not a smaller top radius against a larger,
- * pill-concentric bottom — that relationship existed only because the
- * composer used to nest inside this frame's own bottom edge. It no
- * longer does (below): the composer is fixed to the screen's own
- * bottom now, sharing .items-search's own shape instead, so .chat-top
- * is back to a plain rounded card around .log/#gate alone. */
+ * No border or radius at all now, not even a plain uniform one — the
+ * owner's own words: "maybe lose the orange border around the agent.
+ * So it looks like the search bar in the items [tab]." The composer no
+ * longer nests inside this frame's own bottom edge (it is fixed to the
+ * screen's own bottom instead, sharing .items-search's own shape), and
+ * with the border gone there is no background left to round either —
+ * .log/#gate now sit as plainly on the page as the Items grid's own
+ * tiles do, with only their own padding for spacing. */
 .chat-top {
-  border: 1px solid var(--accent); border-radius: 20px;
   padding: 14px; margin-bottom: 16px;
 }
 /* The composer <form> carries class="chat" deliberately (so the
