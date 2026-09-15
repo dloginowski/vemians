@@ -975,8 +975,11 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_variations_accordion_h
   assert.match(body, /<span class="variations-header-label">Style ID<\/span>/);
   assert.match(body, /<input name="style_id" value="01-04-001" placeholder="NN-NN-NNN"/, "just the format hint, no parentheses, now that there's a real label");
   assert.match(body, /<input class="variation-unit-cost" name="unit_cost_0" value="42\.50" placeholder="Cost">/);
-  assert.match(body, /<input class="variations-msrp" placeholder="MSRP/);
-  assert.match(body, /<input class="variations-unit-cost" placeholder="Cost/);
+  /* "For the cost field, again, just cost, nothing else... you should not
+     have hints overflowing" — the header's own broadcasters carry only
+     the bare word now, not the longer "— every variation's ..." tails. */
+  assert.match(body, /<input class="variations-unit-cost" placeholder="Cost">/);
+  assert.match(body, /<input class="variations-msrp" placeholder="MSRP">/);
   /* "On the right side... the unit cost and then the MSRP... so that they
      align with the children who also have their own unit cost and their
      own MSRP" — cost before price, in both the header and every row. */
@@ -1034,6 +1037,27 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_accordion_header_is_de
   assert.match(body, /\.variations-header\s*\{[^}]*background: var\(--image-ground\)/);
   assert.match(body, /\.variations-body\s*\{[^}]*padding-left: 10px/);
   assert.match(body, /<span class="variations-label">Variations<\/span>/, "the header names the section it belongs to, next to the chevron");
+});
+
+check("test_PRD_P0_135_item_edit_applies_immediately__header_and_row_fields_are_centered_and_aligned", async () => {
+  /* "Make them all center aligned, like the cost and the MSRP field" —
+     was right-justified. "Scale that [style_id] input field to only fit
+     that exact amount of characters" — 9 for NN-NN-NNN. "Ensure the two
+     header fields, the cost and the MSRP, are aligned exactly with the
+     cost and MSRP fields in the children rows. Give the children rows a
+     slight inset... on the right side." */
+  const mirror = mirrorDb();
+  seedProduct(mirror, { vendor: "Acme Mills" });
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.match(
+    body,
+    /\.variations-header input, \.variations-body input\[name\^="price_"\], \.variations-body input\[name\^="unit_cost_"\]\s*\{\s*text-align: center;/,
+  );
+  assert.match(body, /\.variations-header input\[name="style_id"\]\s*\{[^}]*width: 9ch/);
+  assert.match(body, /<span class="variations-header-spacer"><\/span>/, "an invisible spacer absorbs the header's own leftover width, the same way each row's own title does");
+  assert.match(body, /\.variations-header-spacer\s*\{\s*flex: 1 1 auto;\s*\}/);
+  assert.match(body, /\.variations-body \.row\s*\{[^}]*padding: 3px 8px 3px 0/, "an 8px right inset matches the header's own 8px right padding");
 });
 
 check("test_PRD_P0_135_item_edit_applies_immediately__title_and_description_are_editable_by_a_manager", async () => {
