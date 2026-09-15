@@ -127,7 +127,7 @@ export async function listAllProducts(db, { limit } = {}) {
 
   const variants = await db
     .prepare(
-      "SELECT product_id, sku, title, ordinal, price_minor, currency, vendor_id, vendor_code, unit_cost_minor, unit_cost_currency" +
+      "SELECT id, product_id, sku, title, ordinal, price_minor, currency, vendor_id, vendor_code, unit_cost_minor, unit_cost_currency" +
         " FROM mirror_variant_index ORDER BY product_id, ordinal",
     )
     .bind()

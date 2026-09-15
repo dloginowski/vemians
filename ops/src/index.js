@@ -433,7 +433,12 @@ async function ops(request, env, path) {
         500,
       );
     }
-    return html(itemsPage({ role }, products));
+    /* The FULL closed set (catalog.categories' own list), not just the ones
+       already used by a product — the category picker on each tile needs
+       to offer a category nobody has been put in yet, same as the agent's
+       own catalog.create_product picker already can. */
+    const allCategories = await listCategories(env.CATALOG_MIRROR);
+    return html(itemsPage({ role }, products, allCategories));
   }
 
   /*
@@ -464,7 +469,14 @@ async function ops(request, env, path) {
     return json(result);
   }
 
-  if (path.startsWith("/items/") && (path.endsWith("/channel") || path.endsWith("/custom-fields") || path.endsWith("/square-attributes"))) {
+  if (
+    path.startsWith("/items/") &&
+    (path.endsWith("/channel") ||
+      path.endsWith("/custom-fields") ||
+      path.endsWith("/square-attributes") ||
+      path.endsWith("/category") ||
+      path.endsWith("/variations"))
+  ) {
     const email = identity.claims?.email;
     if (typeof email !== "string" || !email.includes("@")) {
       return html(refusalPage(403, "This page requires signing in as a person, not a service token."), 403);
@@ -488,7 +500,11 @@ async function ops(request, env, path) {
       ? "/channel"
       : path.endsWith("/custom-fields")
         ? "/custom-fields"
-        : "/square-attributes";
+        : path.endsWith("/square-attributes")
+          ? "/square-attributes"
+          : path.endsWith("/category")
+            ? "/category"
+            : "/variations";
     const handle = path.slice("/items/".length, path.length - suffix.length);
 
     let form;
@@ -521,7 +537,7 @@ async function ops(request, env, path) {
       toolName = "catalog.set_custom_fields";
       args = { handle, fields };
       summaryNoun = "custom fields";
-    } else {
+    } else if (suffix === "/square-attributes") {
       /* style_id/vendor/vendor_code/unit_cost/commission — Square's own
          Custom Attributes and Vendor entity (P0-136), not ours. A blank
          input means "leave this one as it is," not "clear it": only a
@@ -558,6 +574,72 @@ async function ops(request, env, path) {
         ...(commission !== undefined ? { commission } : {}),
       };
       summaryNoun = "style ID, vendor, vendor code, unit cost or commission";
+    } else if (suffix === "/category") {
+      /* A free-text name, resolved the same way vendor names already are
+         (vendorRef, catalog-writer.js) — the owner's own words: "I should
+         be able to... select an existing category subcategory, or just
+         type in... it will create one if there isn't one." Unlike vendor,
+         catalog.create_category keeps its own near-duplicate guard
+         (nearestCategory) — resolving on demand from this form does not
+         bypass it, since this still calls the SAME tool with the SAME
+         check(), only with a reason supplied here instead of typed by
+         hand. "Category/Subcategory" is not a real two-level hierarchy
+         this schema has never had (see P0-136's own style_id comment) —
+         it is a flat category whose own name happens to contain a "/",
+         same as any other name. */
+      const name = String(form.get("category") ?? "").trim();
+      if (!name) {
+        return json({ error: "give a category name, or choose one from the list" }, 400);
+      }
+      const listRes = await runTool("catalog.categories", {}, { actor: email, role, env });
+      if (!listRes.ok) return json({ error: listRes.error || "could not read the category list" }, 400);
+      const existing = listRes.data.categories.find((c) => c.name.toLowerCase() === name.toLowerCase());
+      let categoryId = existing?.id;
+      if (!categoryId) {
+        const reason = `created from the Items tab while categorizing '${handle}'`;
+        const createGate = await runTool("catalog.create_category", { name, reason }, { actor: email, role, env });
+        if (!createGate?.needsApproval) {
+          return json({ error: createGate?.error || `could not create the category '${name}'` }, 400);
+        }
+        const created = await runTool(
+          "catalog.create_category",
+          { name, reason },
+          { actor: email, role, env, approvalToken: createGate.data.approval.token },
+        );
+        if (created?.error || created?.denied) {
+          return json({ error: created.error || created.denied || `could not create the category '${name}'` }, 400);
+        }
+        categoryId = created.category.id;
+      }
+      toolName = "catalog.update_product";
+      args = { handle, category_id: categoryId };
+      summaryNoun = "category";
+    } else {
+      /* Variation NAME and price, editable — never sku: "these are
+         generated automatically by Square and we should not be editing
+         them... we don't need to see them in our ops dashboard." Every
+         existing variation is always resent (its own variant_id, its
+         current-or-edited title/price, its unchanged currency) —
+         mergeVariations (catalog-writer.js) keeps anything not mentioned,
+         so this is never destructive even though the whole set is sent
+         every time, matching how the header's own bulk-price control
+         (the client's own job, not this route) already touched every
+         row before Save was ever clicked. */
+      const variations = [];
+      for (let i = 0; form.has(`variant_id_${i}`); i += 1) {
+        variations.push({
+          variant_id: String(form.get(`variant_id_${i}`) ?? "").trim(),
+          title: String(form.get(`title_${i}`) ?? "").trim(),
+          price_minor: parsePriceToMinor(String(form.get(`price_${i}`) ?? "").trim()),
+          currency: String(form.get(`currency_${i}`) ?? "USD").trim(),
+        });
+      }
+      if (!variations.length) {
+        return json({ error: "no variations to save" }, 400);
+      }
+      toolName = "catalog.update_product";
+      args = { handle, variations };
+      summaryNoun = "variations";
     }
 
     /* Applies immediately — no second, separate "Yes, do this" confirmation
