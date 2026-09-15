@@ -1698,6 +1698,28 @@ check("test_PRD_P0_133_item_close_button__a_click_on_an_already_expanded_tiles_b
   assert.match(body, /tile\.classList\.contains\("full"\)\) return;\s*\n\s*tile\.classList\.add\("full"\);/);
 });
 
+check("test_PRD_P0_132_item_deep_link__expanding_or_closing_a_tile_keeps_the_hash_in_step", async () => {
+  /* The owner's own words: "keep my panel open when I reload the page...
+     you should be able to, after reloading the page, just reopen the same
+     deep link panel." A plain click to expand never touched the hash
+     before — only an explicit Share click did — so setDeepLinkHash() must
+     now be called from both the expand and the close branches, using
+     history.replaceState (not a real navigation) so neither grows the
+     back-button history. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.match(
+    body,
+    /function setDeepLinkHash\(tile\) \{\s*\n\s*const sku = tile\?\.dataset\.sku;\s*\n\s*const hash = sku \? "#item-" \+ encodeURIComponent\(sku\) : "";\s*\n\s*history\.replaceState\(null, "", location\.pathname \+ hash\);\s*\n\}/,
+  );
+  const closeHandler = body.slice(body.indexOf('const closeBtn = e.target.closest(".item-close");'), body.indexOf('const closeBtn = e.target.closest(".item-close");') + 700);
+  assert.match(closeHandler, /tile\.classList\.remove\("full"\);\s*\n\s*setDeepLinkHash\(null\);/);
+  const expandHandler = body.slice(body.indexOf('tile.classList.contains("full")) return;'), body.indexOf('tile.classList.contains("full")) return;') + 200);
+  assert.match(expandHandler, /tile\.classList\.add\("full"\);\s*\n\s*setDeepLinkHash\(tile\);/);
+});
+
 test("test_PRD_P0_30_prd_traceability__every_label_used_in_this_file_exists_in_the_prd", async () => {
   const prd = fs.readFileSync(
     path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "docs", "PRD.md"),

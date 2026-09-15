@@ -3456,6 +3456,19 @@ that does not trace to one of these is a process failure (see §12).
     matching the real shape `parkForApproval()` actually produces, and a new check asserts "Asked
     by" never reads "unknown" when a requester is present.
 
+    **Revised: the deep link now survives a plain reload, not just an explicit Share click.** The
+    owner's own words: "keep my panel open when I reload the page... I'm already on a deep link, so
+    you should be able to, after reloading the page, just reopen the same deep link panel." The
+    on-load reopening logic above only ever had something to read when `shareLink()` itself had
+    written the hash — a plain click to expand a tile (the normal way to open one) never touched
+    `location.hash` at all, so a reload afterward (including the automatic one `saveTile()` performs
+    on a successful save) lost the open panel outright. `setDeepLinkHash(tile)` now keeps
+    `location.hash` in step with whichever tile is open, called from both branches of the
+    click-delegation handler — expanding a tile sets it to the same `#item-` + SKU format
+    `shareLink()` already produces, closing one clears it — via `history.replaceState`, not a real
+    navigation, so neither action grows the back-button history by one entry per click. This makes
+    every reload behave like opening a shared link, whether or not one was ever copied.
+
 68. **`Test-PRD-P0-133-item_close_button`** — The owner's own words, after P0-132 shipped
     click-anywhere-to-expand and lived with it: "it's too easy to click somewhere wrong and it will
     close, and that's not a good experience... maybe it just needs a proper close button." (Floated

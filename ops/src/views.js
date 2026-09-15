@@ -2577,11 +2577,13 @@ document.getElementById("items-grid").addEventListener("click", async (e) => {
       return;
     }
     tile.classList.remove("full");
+    setDeepLinkHash(null);
     return;
   }
   const tile = e.target.closest(".item-tile");
   if (!tile || e.target.closest(".item-edit, .item-badges, .variations-accordion") || tile.classList.contains("full")) return;
   tile.classList.add("full");
+  setDeepLinkHash(tile);
 });
 
 /* Dirty-tracking for the ONE Save button per tile — the owner's own
@@ -2789,6 +2791,20 @@ async function shareLink(btn) {
     delete btn.dataset.state;
     btn.title = "Copy a link to this item";
   }, 2000);
+}
+
+/* "After reloading the page, just reopen the same deep link panel" -- a
+   plain click to expand a tile never touched the hash before, only an
+   explicit Share click did, so a reload after e.g. Save (which reloads on
+   success) lost the open panel. Keeping the hash in step with whatever
+   tile is open, on every expand and close, makes the on-load block below
+   reopen it after ANY reload, not just one that started from a shared
+   link. replaceState (not a real navigation) so this never grows the back
+   button history one entry per click. */
+function setDeepLinkHash(tile) {
+  const sku = tile?.dataset.sku;
+  const hash = sku ? "#item-" + encodeURIComponent(sku) : "";
+  history.replaceState(null, "", location.pathname + hash);
 }
 
 /* The other half of the link above: opening it lands on the grid like any
