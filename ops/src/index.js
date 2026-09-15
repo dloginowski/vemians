@@ -414,21 +414,26 @@ async function ops(request, env, path) {
       products = await listAllProducts(env.CATALOG_MIRROR, { limit: CAPS.CATALOG_ITEMS_PAGE_MAX_ROWS });
     } catch (err) {
       /* The most likely real cause, named plainly rather than surfacing a
-         raw Worker exception: custom_fields was added to mirror_product by
+         raw Worker exception: a column was added to a mirror_* table by
          hand (ALTER TABLE, run once against production D1 — this schema
-         has no migration runner), but mirror_product_index is a VIEW, and
-         SQLite compiles a view's own column list at CREATE VIEW time. Adding
-         a column to the base table does not change an already-existing
-         view — the view has to be dropped and recreated with the new
-         column named, same as schema.sql's own definition. */
+         has no migration runner), but that table's own *_index view is a
+         VIEW, and SQLite compiles a view's own column list at CREATE VIEW
+         time. Adding a column to the base table does not change an
+         already-existing view — the view has to be dropped and recreated
+         with the new column named, same as schema.sql's own definition.
+         listAllProducts reads mirror_product directly (P0-137: archived
+         rows must still surface here) plus FOUR separate *_index views
+         (variant/vendor/category/image) — any one of them going stale the
+         same way breaks this the same way, so the fix named here is
+         general rather than naming one column on one table. */
       console.error(`ERROR ops/items: listAllProducts failed — ${err.message}`);
       return html(
         refusalPage(
           500,
-          "The Items tab could not read the catalog mirror. If custom_fields was just added to " +
-            "mirror_product by hand, mirror_product_index also needs recreating — ALTER TABLE does not " +
-            "update an existing view's own column list. Run: DROP VIEW mirror_product_index; then the " +
-            "CREATE VIEW statement from shared/commerce/square/schema.sql, against vemians-catalog-mirror.",
+          "The Items tab could not read the catalog mirror. If a column was just added to a mirror_* " +
+            "table by hand, its own *_index view likely needs recreating too — ALTER TABLE does not " +
+            "update an existing view's own column list. Drop the stale *_index view and recreate it " +
+            "from shared/commerce/square/schema.sql, against vemians-catalog-mirror.",
         ),
         500,
       );
@@ -493,6 +498,7 @@ async function ops(request, env, path) {
   if (
     path.startsWith("/items/") &&
     (path.endsWith("/channel") ||
+      path.endsWith("/active") ||
       path.endsWith("/custom-fields") ||
       path.endsWith("/square-attributes") ||
       path.endsWith("/category") ||
@@ -521,17 +527,19 @@ async function ops(request, env, path) {
 
     const suffix = path.endsWith("/channel")
       ? "/channel"
-      : path.endsWith("/custom-fields")
-        ? "/custom-fields"
-        : path.endsWith("/square-attributes")
-          ? "/square-attributes"
-          : path.endsWith("/category")
-            ? "/category"
-            : path.endsWith("/details")
-              ? "/details"
-              : path.endsWith("/inventory")
-                ? "/inventory"
-                : "/variations";
+      : path.endsWith("/active")
+        ? "/active"
+        : path.endsWith("/custom-fields")
+          ? "/custom-fields"
+          : path.endsWith("/square-attributes")
+            ? "/square-attributes"
+            : path.endsWith("/category")
+              ? "/category"
+              : path.endsWith("/details")
+                ? "/details"
+                : path.endsWith("/inventory")
+                  ? "/inventory"
+                  : "/variations";
     const handle = path.slice("/items/".length, path.length - suffix.length);
 
     let form;
@@ -550,6 +558,13 @@ async function ops(request, env, path) {
       toolName = "catalog.set_channel";
       args = { handle, channel: form.get("on_website") ? "website" : "direct_link" };
       summaryNoun = "channel";
+    } else if (suffix === "/active") {
+      /* The "Active" checkbox beside "Web" — Square's own sale lifecycle
+         (archived/not), not catalog.set_channel's OURS-only website/
+         direct_link choice. Unchecked -> archive; checked -> restore. */
+      toolName = "catalog.set_active";
+      args = { handle, active: Boolean(form.get("active")) };
+      summaryNoun = "active status";
     } else if (suffix === "/custom-fields") {
       /* field_name_0/field_value_0, field_name_1/field_value_1, ... — the
          same numbered-row shape itemTile() renders in views.js. A row with

@@ -4002,6 +4002,72 @@ that does not trace to one of these is a process failure (see §12).
     small, deliberately fixed pair); vendor moved past Custom Attributes entirely, onto Square's own
     Vendor entity, per the revision above.
 
+72. **`Test-PRD-P0-137-item_active_toggle`** — The owner's own words, in the same request that moved
+    Web and the newly-added Active checkbox beside the item's own name: "move the web and the active
+    buttons... make them the same style as the rest of the fields... have the same style like
+    checkboxes so that I can toggle either one of them." Answering follow-up questions directly:
+    unchecking Active **archives** the product in Square (reusing the existing withdraw path, ADR-008
+    — nothing is ever deleted), the same real lifecycle P0-131's own "Inactive" filter has always
+    anticipated but never had a producer for ("draft and archived both collapse into the same
+    inactive bucket").
+
+    **This REVISES P0-131's own pill-with-embedded-checkbox design for Web** ("the web tag itself
+    should be clickable to toggle it... a little checkbox inside the tag") **back to a plain labeled
+    checkbox** — the owner's own words this time are the opposite. `.item-tag-toggle` is gone;
+    `.item-checkbox-toggle` (a `<label>` + `<input type=checkbox>`, no border or pill) is what both
+    Web and Active render now. Both moved out of `.item-badges` entirely into a new `.item-name-row`,
+    a plain div (forms cannot nest) holding the title's own `.item-details-form` at `flex: 1 1 auto`
+    beside `.item-name-toggles` (Web/Active's own separate forms) at a fixed width — "scale up the
+    item name to fill available space" falls out of that flex split for free, since the details
+    form's own title/description already stretch to their container's full width by default; the
+    title's own font-size is bumped from the shared 11px to 15px on top of that. `.category-form`
+    stays in `.item-badges` for now — a follow-up feature replaces its own flat, Square-backed model.
+
+    **A production-grade fix, found before it ever shipped: `retractProduct` (already in the
+    codebase, unused until this feature activated it) sent Square only `{ type, id,
+    present_at_all_locations }`.** Verified against Square's own OpenAPI spec
+    (`square/connect-api-specification`) rather than assumed: UpsertCatalogObject is
+    FULL-REPLACEMENT, not a patch — "any field absent from the request is interpreted as an
+    intentional clear... omitting inlined children like variations will delete them." Sending that
+    slim a body against a REAL item would have wiped its own name and variations the moment this
+    checkbox first got used for real. The fix, in `shared/commerce/square/index.js`:
+    `setProductPresence(handle, present)` now does `GET /v2/catalog/object/{id}` first, flips ONLY
+    `present_at_all_locations`/`present_at_location_ids` on that SAME full object, and sends the
+    whole thing back with its own `item_data` and `version` intact — verified safe to round-trip
+    verbatim, read-only fields included, against Square's own CatalogObject schema.
+    `retractProduct`/`restoreProduct` are now two thin wrappers over this one shared, safe path.
+    `mirror.productByHandleAny` (base `mirror_product` table, not the `_index` view) resolves a
+    product's `external_ref` for `restoreProduct` specifically, since an archived row is by
+    definition absent from `mirror_product_index`.
+
+    **The idempotency key is keyed on the object's own CURRENT version, not just handle+action** — a
+    deterministic `retract:<handle>` key (the ORIGINAL, unused code's own shape) would make
+    archiving the SAME item a second time, after a restore undid the first archive, collide with
+    Square's own dedup window and silently replay the FIRST archive's cached response instead of
+    applying the new one. Version changes on every successful upsert, so it varies exactly when a
+    real new attempt has happened — the same content-keyed idea `pushInventory`'s own
+    `idempotency_key` already uses (P0-31's own revision).
+
+    **`catalog.set_active`** (T2, manager, `stores: ["catalog_mirror"]`, `resources: ["square"]`) —
+    `check()` refuses a call that would change nothing (already active, or already archived), reading
+    `productByHandleAny` rather than `productByHandle` for the same reason the adapter fix does.
+    `run()` calls `restoreProduct`/`retractProduct` then attempts `t.square.syncAfterWrite()` (newly
+    exposed from `catalog-writer.js`, previously private) — a failed resync must not make the whole
+    call look refused, the SAME reasoning `inventory.adjust`'s own `run()` applies after its
+    `pushInventory` (P0-31's own hardening, after a real production incident): the write to Square,
+    the authority (ADR-009), already succeeded by that point, and the nightly reconcile catches up
+    regardless. `/items/<handle>/active` (`ops/src/index.js`) follows the exact same
+    apply-immediately shape every other field on this tile already does.
+
+    **`listAllProducts` (`catalog-writer.js`) now reads `mirror_product` directly, not
+    `mirror_product_index`** — an archived product is by definition excluded from that index view
+    (ADR-008's own default), which is exactly why P0-131's own "Inactive" filter has never actually
+    shown an archived product before now: there was nothing to restore it WITH. This is the one
+    explicit call that surfaces archived rows, the same way `mirror.js`'s own `archivedProducts()`
+    already is one. An archived product's own variations still come from `mirror_variant_index`
+    (unarchived only) and so render as "No variations" until it is restored and re-synced — a known,
+    accepted gap rather than a second widened query, since restoring it is one checkbox click away.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -4289,6 +4355,7 @@ Where each feature is enforced today:
 | P0-134 | `ops/test/items-route.test.mjs` |
 | P0-135 | `ops/test/items-route.test.mjs` |
 | P0-136 | `shared/commerce/square/test/square.test.mjs`, `ops/test/catalog-write.test.mjs`, `ops/test/items-route.test.mjs` |
+| P0-137 | `shared/commerce/square/test/square.test.mjs`, `ops/test/catalog-write.test.mjs`, `ops/test/items-route.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

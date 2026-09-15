@@ -583,6 +583,12 @@ export function createMirror(mirror, { commerce, locationId, audit = null, now =
   const productByHandle = (handle) =>
     first("SELECT * FROM mirror_product_index WHERE handle = ?", handle);
 
+  /* Same lookup, but archived rows too — restoreProduct's own use: a
+     withdrawn product is by definition absent from mirror_product_index,
+     so finding its external_ref to un-withdraw it needs the base table. */
+  const productByHandleAny = (handle) =>
+    first("SELECT * FROM mirror_product WHERE handle = ?", handle);
+
   const variantsFor = (productId) =>
     all("SELECT * FROM mirror_variant_index WHERE product_id = ? ORDER BY ordinal", productId);
 
@@ -630,6 +636,7 @@ export function createMirror(mirror, { commerce, locationId, audit = null, now =
     reconcileCounts,
     productIndex,
     productByHandle,
+    productByHandleAny,
     variantsFor,
     archivedProducts,
     resolveVariantRefs,

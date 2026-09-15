@@ -12,6 +12,7 @@
  *   catalog.update_product   T2  the same path for an edit
  *   catalog.create_category  T2  separate, deliberate, and rarely right
  *   catalog.set_channel      T2  which audience sees a product — OURS, not Square's
+ *   catalog.set_active       T2  archive or restore a product — Square's own presence, not ours
  *   catalog.set_custom_fields T2 whatever else we track that Square doesn't — OURS too
  *   catalog.set_square_attributes T2 style_id + vendor + commission — Square's OWN Custom Attributes
  *
@@ -1077,6 +1078,73 @@ export const catalogWriteTools = {
         previous_channel: t.preflight.existing.channel,
         authority: "ours",
       };
+    },
+  },
+
+  /*
+   * WHETHER SQUARE SELLS IT AT ALL — not `channel` (OURS: whether it is also
+   * browsable here), and not deleting anything (ADR-008: archive, never
+   * delete). The Items tab's own "Active" checkbox, beside "Web".
+   */
+  "catalog.set_active": {
+    tier: "T2",
+    domain: "catalog",
+    stores: ["catalog_mirror"],
+    resources: ["square"],
+    minRole: "manager",
+    describe:
+      "Archive or restore a product in Square, by handle. Archiving withdraws it from sale at " +
+      "this shop's one location without deleting the authoritative record (ADR-008) — the mirror " +
+      "row is archived, not removed, and the product's own page keeps working for anyone with a " +
+      "direct link either way; this only affects whether it shows up as sellable stock. Restoring " +
+      "undoes exactly that. This is Square's own lifecycle, not catalog.set_channel's OURS-only " +
+      "website/direct_link choice — the two are independent.",
+    undo: "another catalog.set_active call with the opposite value",
+    schema: {
+      handle: { type: "string", required: true, format: "handle" },
+      active: { type: "boolean", required: true },
+    },
+    async check(args, t) {
+      /* productByHandleAny, not productByHandle: a product this call would
+         RESTORE is archived, and mirror_product_index — everything
+         productByHandle reads — excludes archived rows by definition. */
+      const existing = await t.square.productByHandleAny(args.handle);
+      if (!existing) return { denied: `no product with handle '${args.handle}' in the mirror` };
+      /* "active", not "!= archived": the same two-state reading the tile's
+         own isActive already uses (P0-131's own "draft and archived both
+         collapse into the same inactive bucket") — draft is unreachable in
+         practice (Square itself has no draft/active/archived, see catalog.js's
+         own comment), but this keeps the checkbox and this refusal agreeing
+         about what "already active" means either way. */
+      const currentlyActive = existing.status === "active";
+      if (currentlyActive === args.active) {
+        return { denied: `'${args.handle}' is already ${args.active ? "active" : "archived"}` };
+      }
+      return {
+        ok: true,
+        summary: `${args.active ? "restore" : "archive"} "${existing.title}" (${args.handle})`,
+        preflight: { existing },
+      };
+    },
+    async run(args, t) {
+      if (args.active) {
+        await t.square.adapter.restoreProduct(args.handle);
+      } else {
+        await t.square.adapter.retractProduct(args.handle);
+      }
+      /* The write to Square (the authority, ADR-009) already happened by
+         this point. A failed resync must not make the whole call look
+         refused — the same reasoning inventory.adjust's own run() applies
+         after its pushInventory, hardened after the production incident
+         where a flaky post-write pullInventory did exactly that. The
+         nightly reconcile catches up regardless. */
+      try {
+        await t.square.syncAfterWrite();
+      } catch (err) {
+        console.error(`ERROR catalog.set_active: immediate resync failed, cron will reconcile — ${err.message}`);
+        return { active: args.active, handle: args.handle, synced: false };
+      }
+      return { active: args.active, handle: args.handle, synced: true };
     },
   },
 
