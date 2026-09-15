@@ -974,10 +974,31 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_page_script_tracks_dir
   const mirror = mirrorDb();
   seedProduct(mirror);
   const body = await (await get("/items", MANAGER, env(mirror))).text();
-  assert.match(body, /function markDirty\(form\)/);
-  assert.match(body, /tile\.classList\.add\("dirty"\)/);
+  assert.match(body, /function refreshDirtyState\(field\)/);
+  assert.match(body, /tile\.classList\.toggle\("dirty", tileDirty\)/);
   assert.match(body, /async function saveTile\(tile\)/);
   assert.match(body, /tile\.querySelectorAll\("form\[data-dirty='1'\]"\)/);
+});
+
+check("test_PRD_P0_135_item_edit_applies_immediately__resetting_a_field_to_its_original_value_clears_the_dirty_state", async () => {
+  /* The owner's own words: "resetting values should clear save state" —
+     dirty is recomputed from scratch on every change, comparing against
+     defaultValue/defaultChecked (the browser's own record of what the
+     field actually shipped with), not a one-way latch that stays set
+     forever once a field is touched at all. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.match(body, /function isFieldDirty\(el\) \{/);
+  assert.match(body, /el\.checked !== el\.defaultChecked/);
+  assert.match(body, /el\.value !== el\.defaultValue/);
+  assert.match(body, /field\.classList\.toggle\("field-dirty", isFieldDirty\(field\)\)/);
+  assert.match(
+    body,
+    /const formDirty = \[\.\.\.form\.querySelectorAll\("input"\)\]\.some\(isFieldDirty\);\s*\n\s*if \(formDirty\) \{\s*\n\s*form\.dataset\.dirty = "1";\s*\n\s*\} else \{\s*\n\s*delete form\.dataset\.dirty;/,
+    "a form with nothing left different from its original value must stop being marked dirty",
+  );
+  assert.match(body, /saveBtn\.disabled = !tileDirty;/, "the Save button must re-disable once nothing in the tile is dirty any more");
 });
 
 check("test_PRD_P0_135_item_edit_applies_immediately__the_page_script_propagates_msrp_to_every_variation_price", async () => {
@@ -990,18 +1011,18 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_page_script_propagates
 
 check("test_PRD_P0_135_item_edit_applies_immediately__a_changed_field_and_a_msrp_propagated_field_both_get_the_dirty_highlight", async () => {
   /* The owner's own words: "any changed fields should be marked with an
-     orange highlight, and so is the save button." field-dirty is added to
-     the field the change event actually fired on, and ALSO to every
-     .variation-price input the MSRP field's own propagation touches — not
-     just whichever one the person actually typed into. */
+     orange highlight, and so is the save button." refreshDirtyState is
+     called on the field the change event actually fired on, and ALSO on
+     every .variation-price input the MSRP field's own propagation
+     touches — not just whichever one the person actually typed into. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const body = await (await get("/items", MANAGER, env(mirror))).text();
-  assert.match(body, /e\.target\.classList\.add\("field-dirty"\);\s*\n\s*markDirty\(form\);/);
+  assert.match(body, /const form = e\.target\.closest\([^)]*\);\s*\n\s*if \(form\) refreshDirtyState\(e\.target\);/);
   assert.match(
     body,
-    /input\.value = e\.target\.value;\s*\n\s*input\.classList\.add\("field-dirty"\);\s*\n\s*\}\);\s*\n\s*e\.target\.classList\.add\("field-dirty"\);/,
-    "every propagated variation price gets the highlight too, not just the MSRP field itself",
+    /input\.value = e\.target\.value;\s*\n\s*refreshDirtyState\(input\);\s*\n\s*\}\);/,
+    "every propagated variation price gets the highlight refreshed too, not just the MSRP field itself",
   );
 });
 

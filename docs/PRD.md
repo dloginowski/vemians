@@ -3498,6 +3498,19 @@ that does not trace to one of these is a process failure (see §12).
     separate class at all — `:not(:disabled)` already means "there is something dirty to save," so
     that alone is what turns it `var(--accent)`.
 
+    **REVISED AGAIN: dirty is recomputed, not a one-way latch.** "Resetting values should clear
+    save state" — the first pass marked a field (and its form, and the tile) dirty the moment it
+    ever changed and never un-marked it, even if someone typed a value right back to what it
+    already was. `isFieldDirty(el)` now compares against the browser's own `defaultChecked`/
+    `defaultValue` — the value each field actually shipped with, untouched by any later
+    `.value =` assignment (MSRP's own propagation included) — and `refreshDirtyState(field)` runs
+    this fresh on every `input`/`change`: the field's own highlight, whether its FORM still has
+    anything dirty in it at all (`form.dataset.dirty` is deleted, not just left at `"1"`, the
+    moment nothing does), and whether the TILE still has any dirty form left (the Save button
+    re-disables the moment it does not). No separate "was this ever touched" bit survives anywhere
+    — every one of these three states is recomputed from the DOM's own current values each time,
+    so there is nothing to fall out of sync.
+
     **Closing a dirty tile asks first.** "If you try to close the expanded page, it will warn you
     that you have unsaved changes." The Close button's own click handler checks `tile.classList.
     contains("dirty")` — the exact same class `markDirty` already sets, nothing new to keep in sync
