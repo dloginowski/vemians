@@ -1046,6 +1046,23 @@ check("test_PRD_P0_135_item_edit_applies_immediately__title_and_description_are_
   assert.match(body, /<form method="post" action="\/items\/wool-coat\/details">/);
   assert.match(body, /<input class="item-title-input" name="title" value="Wool Coat" placeholder="Title">/);
   assert.match(body, /<textarea name="description" placeholder="Description">A warm winter coat\.<\/textarea>/);
+  /* "Move the title, description, and the vendor fields up above the
+     variants" — both forms now render before the accordion, and custom
+     fields still come after it. */
+  const accordionMarkup = body.indexOf('<div class="variations-accordion">');
+  assert.ok(accordionMarkup > -1);
+  assert.ok(
+    body.indexOf('action="/items/wool-coat/details"') < accordionMarkup,
+    "title/description form comes before the variations accordion",
+  );
+  assert.ok(
+    body.indexOf('name="vendor" value=') < accordionMarkup,
+    "the vendor form comes before the variations accordion",
+  );
+  assert.ok(
+    accordionMarkup < body.indexOf('action="/items/wool-coat/custom-fields"'),
+    "custom fields still come after the variations accordion",
+  );
 });
 
 check("test_PRD_P0_135_item_edit_applies_immediately__title_and_description_are_not_editable_by_staff", async () => {

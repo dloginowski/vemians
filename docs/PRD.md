@@ -690,6 +690,15 @@ that does not trace to one of these is a process failure (see §12).
     and MSRP always do — an always-visible field a person can try, and be told why it does not
     apply yet, rather than a field that is simply not there.
 
+    **REVISED: title/description and vendor lead the expanded tile, ahead of the variants.** "Move
+    the title, description, and the vendor fields up above the variants." The `.item-edit` block
+    that used to bundle all three of these forms with the custom-fields one, AFTER the variations
+    accordion, split into two: title/description and vendor/vendor_code/commission now render
+    right after `.item-badges`, BEFORE the accordion; custom fields stayed where they were, after
+    it, next to `fieldRows`'s own read-only display of the same data. Two separate `.item-edit`
+    blocks now, not one moved whole — each still gets that class's own border-top/spacing/input
+    styling independently, reading as two sections rather than one.
+
 31. **`Test-PRD-P0-32-tickets`** — Company-wide issues live in their own `tickets` store. A ticket
     cannot be deleted, only moved through status, and resolving one requires a timestamp.
     Comments are append-only. Links to orders, customers, products and shifts are id plus a
