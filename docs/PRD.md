@@ -657,8 +657,12 @@ that does not trace to one of these is a process failure (see §12).
 
     **REVISED: real vertical padding per row, not just a bigger gap.** "Vertical padding between
     rows is still too small! Match top variant row padding." `.variations-body .row` now carries
-    its own `padding: 5px 0` — the same 5px the header bar above it (`.variations-header`) already
+    its own vertical padding — the same the header bar above it (`.variations-header`) already
     uses — instead of relying only on the container's own `gap` between rows.
+
+    **REVISED AGAIN: 3px, not 5px.** "Too much vertical padding! Needs to match side padding.
+    Reduce by 2px." 5px read as more than the row's own fields' own side padding (`.item-edit
+    input`'s own `3px 5px`), so `padding: 5px 0` came down to `padding: 3px 0`, matching that.
 
     **FIXED: a production incident, `inventory.adjust`'s own immediate resync.** Clicking + or -
     started failing with "Square POST /v2/inventory/changes/batch-retrieve failed with 400."
