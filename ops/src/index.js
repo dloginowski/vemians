@@ -574,14 +574,32 @@ async function ops(request, env, path) {
        still parks and waits for a human, because nobody has directly
        clicked Save on a form there — there is a real decision to review.
        Here there already was one. The tool's own check()/audit trail is
-       unchanged either way; only the redundant second click is gone. */
+       unchanged either way; only the redundant second click is gone.
+
+       A REFUSAL is JSON, not a refusalPage — the owner's own words: "I
+       don't want these errors to send me to a new page. They need to
+       validate input like the style ID." A check() refusal (a malformed
+       style_id, a vendor with no commission, unit_cost with no vendor —
+       none of it knowable purely from a client-side <input pattern>, since
+       several of these rules depend on the PRODUCT's current state or
+       another vendor's own name already in the mirror) can only be found
+       out from the server, but the tile it came from is still worth
+       staying on — the enhance-forms script below fetches this route and
+       shows the message inline, next to the field that was refused,
+       instead of navigating there. Every pre-flight refusal above this
+       point (role, method, unreadable body) stays a refusalPage: none of
+       them are reachable through this form in normal use — canEdit already
+       hides the form from anyone the role check would refuse — so they are
+       defense against a request that didn't come from this UI at all,
+       where a plain page is the right response, not JSON a browser
+       address-bar hit would just show as raw text. */
     const gate = await runTool(toolName, args, { actor: email, role, env });
     if (!gate?.needsApproval) {
-      return html(refusalPage(400, gate?.error || `That ${summaryNoun} change could not be proposed.`), 400);
+      return json({ error: gate?.error || `That ${summaryNoun} change could not be proposed.` }, 400);
     }
     const result = await runTool(toolName, args, { actor: email, role, env, approvalToken: gate.data.approval.token });
     if (result?.error || result?.denied) {
-      return html(refusalPage(400, result.error || result.denied || `That ${summaryNoun} change was refused.`), 400);
+      return json({ error: result.error || result.denied || `That ${summaryNoun} change was refused.` }, 400);
     }
     return new Response(null, { status: 303, headers: { Location: "/items" } });
   }

@@ -1636,6 +1636,11 @@ ${INPUT_BAR_CSS}
   border: 1px solid var(--rule); border-radius: 12px; background: var(--ground); color: var(--ink);
 }
 .item-edit button:hover { border-color: var(--accent); color: var(--accent); }
+/* A check() refusal (a malformed style_id, a vendor with no commission, a
+   unit cost with no vendor) shows up right here, next to the form that was
+   refused — not on a separate page. The owner's own words: "I don't want
+   these errors to send me to a new page." */
+.item-edit-error { margin: 4px 0 0; font-size: 11px; color: var(--accent); }
 `;
 
 /* ONE label, for ONE state worth tagging. The owner's own words, a
@@ -2151,6 +2156,48 @@ document.getElementById("items-grid").addEventListener("click", (e) => {
   const tile = e.target.closest(".item-tile");
   if (!tile || e.target.closest(".item-edit") || tile.classList.contains("full")) return;
   tile.classList.add("full");
+});
+
+/* One of style_id/vendor/commission/unit_cost/channel/custom_fields is a
+   rule the SERVER has to check — a vendor's name already in the mirror, a
+   product's own current vendor, a whole-catalog style_id conflict — nothing
+   a client-side <input pattern> alone can know. The owner's own words: "I
+   don't want these errors to send me to a new page. They need to validate
+   input like the style ID." So the refusal still comes from the server,
+   but arrives here as JSON instead of a whole new refusalPage, and is shown
+   right next to the form that sent it — never a navigation. Delegated on
+   items-grid the same way the click handler above is, so it covers every
+   tile's own edit forms without a listener per tile. */
+document.getElementById("items-grid").addEventListener("submit", async (e) => {
+  const form = e.target.closest(".item-edit form");
+  if (!form) return;
+  e.preventDefault();
+
+  const existingError = form.nextElementSibling;
+  if (existingError?.classList.contains("item-edit-error")) existingError.remove();
+
+  function showError(message) {
+    const p = document.createElement("p");
+    p.className = "item-edit-error";
+    p.textContent = message;
+    form.insertAdjacentElement("afterend", p);
+  }
+
+  const button = form.querySelector("button[type=submit]");
+  if (button) button.disabled = true;
+  try {
+    const res = await fetch(form.action, { method: "POST", body: new FormData(form) });
+    if (res.ok) {
+      location.reload();
+      return;
+    }
+    const data = await res.json().catch(() => ({}));
+    showError(data.error || "That change was refused.");
+  } catch {
+    showError("Could not reach the server — try again.");
+  } finally {
+    if (button) button.disabled = false;
+  }
 });
 
 /* "I need to have a button somewhere, maybe top right, when I expand the
