@@ -3362,44 +3362,102 @@ that does not trace to one of these is a process failure (see §12).
     necessarily a second browser round trip when the person invoking it directly IS a verified
     human who just made the call.
 
+    **REVISED: the whole edit area came out from behind its own "Edit" disclosure.** All three
+    forms — the website checkbox, `catalog.set_square_attributes` (style_id/vendor/vendor_code/unit
+    cost/commission), and `catalog.set_custom_fields` — used to live inside one `<details
+    class="item-edit"><summary>Edit</summary>` that had to be opened before any of them were even
+    visible. The owner's own words, asking why: "that section that opens up the add custom fields
+    dropdown should be like only opened when you're trying to add a field, otherwise all the fields
+    that are added, they need to be easily accessible and visible." `.item-edit` (`ops/src/views.js`)
+    is now a plain `<div>`, not a `<details>` — every field a product already has, including its
+    existing `custom_fields` entries (name and value, both still editable in place), renders directly
+    inside the expanded tile with no click to reveal it. Only a genuinely NEW custom field — a blank
+    name/value pair for a field that doesn't exist on this product yet — still hides behind its own
+    small `<details class="item-add-field"><summary>Add custom field</summary>`, collapsed by
+    default: the one case where opening something first actually makes sense, since there is nothing
+    yet to show. Both the always-visible existing-field rows and the collapsed blank rows post to the
+    same `/items/<handle>/custom-fields` form, so `index.js`'s own `field_name_N`/`field_value_N`
+    parsing (contiguous from 0) needed no change — only the HTML layout moved. The click-delegation
+    handler that keeps a click inside the edit area from collapsing the expanded tile
+    (`e.target.closest(".item-edit")`) still works unchanged, since it matches by class, not by tag.
+
 71. **`Test-PRD-P0-136-square_custom_attributes`** — The owner's own words, having weighed "ours,
     not Square's" (P0-71's own `channel`/`custom_fields`) against not reinventing something Square
     already offers: "why do we need to have our own custom fields then? It doesn't make sense... we
     don't mind having our stuff being stored completely in Square, because we're using their
-    supported mechanism instead of fighting the system." Two fields, decided together: **style_id**
+    supported mechanism instead of fighting the system." Three fields, decided together: **style_id**
     — this shop's own nomenclature, `NN-NN-NNN` (2-digit category, 2-digit subcategory, 3-digit item
-    number, e.g. `"01-04-001"`) — and **vendor**, a plain name, "how we will organize our products by
-    vendor." Both live as Square's own **Custom Attributes**, not a `custom_fields` entry.
+    number, e.g. `"01-04-001"`) — **vendor**, a plain name, "how we will organize our products by
+    vendor" — and **commission**, an integer 0-100 (a percentage), "the percentage that we keep when
+    we sell the product," which "is only for vendors — anything that has a vendor, it has a
+    commission." All three live as Square's own **Custom Attributes**, not a `custom_fields` entry.
+    A fourth field, cost-of-goods, was walked through and then dropped on a second pass — the owner's
+    own words: "we don't need to do cogs, there is a unit cost, we just use the unit cost" — so a
+    product this shop produces itself (no vendor) records its cost in the pre-existing `custom_fields`
+    "unit cost" entry (P0-70's own free-text spreadsheet-preserved fields), not a new Square attribute.
 
     **The opposite of `channel`/`custom_fields`'s own "ours, not Square's" argument, on purpose:
-    Square IS authoritative for these two now, the same as title or price.** `mirror_product` gains
-    `style_id`/`vendor` columns (`shared/commerce/square/schema.sql`) that `mirror.js`'s own
-    `syncCatalog` DOES name in its `UPDATE`/`INSERT` — unlike `channel`, a re-sync overwrites them
-    with whatever Square says now, never preserving a stale local value. `catalog.js`'s
+    Square IS authoritative for all three now, the same as title or price.** `mirror_product` gains
+    `style_id`/`vendor`/`commission_pct` columns (`shared/commerce/square/schema.sql`) that
+    `mirror.js`'s own `syncCatalog` DOES name in its `UPDATE`/`INSERT` — unlike `channel`, a re-sync
+    overwrites them with whatever Square says now, never preserving a stale local value. `catalog.js`'s
     `normaliseCatalog` reads them off `item_data.custom_attribute_values` by the well-known `key`
-    this codebase's own attribute definitions use ("style_id" / "vendor") — never Square's own opaque
-    definition id, which is what lets an app address its own attribute directly without persisting
-    that id anywhere. A missing value, or one of a type other than `STRING`, reads as `null`, not
-    guessed at.
+    this codebase's own attribute definitions use ("style_id" / "vendor" / "commission") — never
+    Square's own opaque definition id, which is what lets an app address its own attribute directly
+    without persisting that id anywhere. A missing value, or one of a type other than `STRING`, reads
+    as `null`, not guessed at. commission is a `STRING` attribute holding a plain integer string
+    (`"20"`) rather than Square's own `NUMBER` type — verified against Square's SDK source that this
+    is NOT to avoid float precision loss (`NUMBER`'s own `number_value` is string-encoded on the wire
+    too, exactly like `STRING`'s `string_value` — no floats involved either way) and NOT because
+    `NUMBER` offers range validation (it doesn't: `number_config` has only a decimal-places
+    `precision` field, no min/max, so "0-100" is enforced in `check()` regardless of type). The actual
+    reason is smaller: `STRING` keeps `customAttr()`/`customAttributeValues()` one code path for all
+    three attributes instead of two.
 
-    **`catalog.set_style_and_vendor` (T2, manager+) is the mirror image of `catalog.set_channel`
+    **`catalog.set_square_attributes` (T2, manager+) is the mirror image of `catalog.set_channel`
     structurally: it DOES declare and use the `square` resource**, where `set_channel`/
     `set_custom_fields` declare none at all — this tool calls Square (`UpsertCatalogObject`, via
-    `catalog-writer.js`'s own `updateProduct`, extended with `styleId`/`vendor` params) and then
-    syncs the mirror back, exactly like `create_product`/`update_product` already do. Either field
-    can be given alone; the other resolves to whatever the product already has (`undefined` means
-    "this call is not about that field," never "clear it") — the same "resend the whole thing, not
-    just the diff" reasoning `update_product`'s own variation-merge already rests on, since
-    `UpsertCatalogObject` replaces `item_data` wholesale. (Fixed in the same change: `update_product`
-    itself had never resent `description` when a caller omitted it, risking silently clearing it on
-    any edit that wasn't ABOUT the description — now it falls back to the mirror's own current value,
-    the same way `title` already did.) `style_id` is validated against the `NN-NN-NNN` format and
-    checked for a conflict across the WHOLE catalog (`SELECT ... WHERE style_id = ? AND handle != ?`)
-    before it ever reaches Square — the owner's own words: "if the SKU already exists... you have to
-    let us know if it's a conflict" (said of what became style_id once "not the SKU" was clarified —
-    see below). Auto-generating one from a category and subcategory is deliberately NOT built yet:
-    this schema has no subcategory concept at all, and inventing the mapping without the owner's own
-    real category/subcategory table would risk assigning genuinely wrong numbers to real inventory.
+    `catalog-writer.js`'s own `updateProduct`, extended with `styleId`/`vendor`/`commissionPct`
+    params) and then syncs the mirror back, exactly like `create_product`/`update_product` already
+    do. Any subset of the three can be given; the rest resolve to whatever the product already has
+    (`undefined` means "this call is not about that field," never "clear it") — the same "resend the
+    whole thing, not just the diff" reasoning `update_product`'s own variation-merge already rests
+    on, since `UpsertCatalogObject` replaces `item_data` wholesale. (Fixed in the same change:
+    `update_product` itself had never resent `description` when a caller omitted it, risking
+    silently clearing it on any edit that wasn't ABOUT the description — now it falls back to the
+    mirror's own current value, the same way `title` already did.) `style_id` is validated against
+    the `NN-NN-NNN` format and checked for a conflict across the WHOLE catalog
+    (`SELECT ... WHERE style_id = ? AND handle != ?`) before it ever reaches Square — the owner's own
+    words: "if the SKU already exists... you have to let us know if it's a conflict" (said of what
+    became style_id once "not the SKU" was clarified — see below). Auto-generating one from a
+    category and subcategory is deliberately NOT built yet: this schema has no subcategory concept at
+    all, and inventing the mapping without the owner's own real category/subcategory table would risk
+    assigning genuinely wrong numbers to real inventory. **The Items tab's own edit form (`ops/src/
+    views.js`) also enforces the `NN-NN-NNN` shape at the BROWSER level now** — the style_id input
+    carries `pattern="\d{2}-\d{2}-\d{3}"` and a descriptive `title` tooltip, the owner's own words: "I
+    want to make sure that you enforce the style ID... so I can't enter it incorrectly." This is
+    defense in depth, not a replacement for the server-side check below: a blank value still passes
+    (HTML's own `pattern` attribute only applies once something is typed, matching "leave this one as
+    it is" for an untouched field), and the real refusal — cross-catalog uniqueness included — still
+    happens in `catalog.set_square_attributes`'s own `check()`, which a malicious or scripted POST
+    could reach directly regardless of what the browser enforces first. `commission` is validated as a
+    whole number
+    0-100 and, since it means nothing without one, is refused for a product with no vendor —
+    resolved from whatever value this SAME call is also setting, not just the product's prior state,
+    since a `CHECK` constraint on the column cannot see "the other value this call is also setting."
+    The reverse (a vendor with no commission yet) is NOT refused here in general — that would break
+    the ordinary "set vendor now, add commission later" edit. **REVISED**: it IS refused in one
+    specific case — the owner's own words: "I need to specify a commission if I create a vendor."
+    `vendorExists()` (`catalog-writer.js`) checks `mirror_vendor_index` for the given name,
+    case-insensitively, the SAME lookup `vendorRef()` itself makes before ever calling Square's real
+    CreateVendor — so `check()` can tell, before any write, whether resolving this name would CREATE a
+    brand-new Vendor. If it would, and no `commission` is given in this same call, the call is refused;
+    reusing an ALREADY-KNOWN vendor name needs no commission at all, satisfying the "set vendor now,
+    add commission later" edit for every case except a genuinely new vendor's very first product.
+    `catalog.create_product` accepts `style_id`/`vendor`/`commission` too, at creation time, under the
+    identical rules (format + the whole-catalog conflict check for `style_id`; the vendor requirement
+    for `commission`; the same new-vendor-needs-commission check), since it already reaches Square for
+    the item itself.
 
     **style_id is explicitly NOT the SKU.** The owner's own words, correcting an earlier version of
     this feature that (before this revision) planned to key deep links and this nomenclature off the
@@ -3411,23 +3469,122 @@ that does not trace to one of these is a process failure (see §12).
     invents the exact FORMAT of but still never assigns automatically.
 
     **The Items tab's own edit form gets a third row, alongside the channel checkbox and custom
-    fields.** `/items/<handle>/style-vendor` (`ops/src/index.js`) follows P0-135's own
+    fields.** `/items/<handle>/square-attributes` (`ops/src/index.js`) follows P0-135's own
     apply-immediately shape exactly — the same `runTool` twice, no `/approvals/<id>` hop — since the
     owner's reasoning there ("a person filling in this form and clicking Save has already made the
     decision") applies exactly as well to a real Square write as to `channel`/`custom_fields`: the
     owner's own words, asking directly: "if we can add custom attributes without having me approve
     it every time, then I would rather use that." A blank input means "leave this one as it is," not
-    "clear it" — there is currently no way to CLEAR a style_id or vendor once set from this form,
-    a deliberate, known limitation rather than an oversight, since a blank style_id would fail its
-    own format check with a confusing error if treated as an explicit value instead.
+    "clear it" — there is currently no way to CLEAR a style_id, vendor or commission once set from
+    this form, a deliberate, known limitation rather than an oversight, since a blank style_id would
+    fail its own format check with a confusing error if treated as an explicit value instead.
+
+    **Spreadsheet ingestion enforces rules before a row is ever parked, rather than silently
+    importing an incomplete product** — walked through a final time, more firmly than the first pass:
+    "if we don't have a vendor name, then we must have a cost of goods... we always need to have a
+    style ID... if we're adding a product that has a price, no vendor, and no cogs, that's a problem
+    too." Square's own "unit cost" (`custom_fields`, unchanged — not a new column) **IS** the
+    cost-of-goods value the owner means by "cogs": there is no separate `cogs` attribute, on purpose
+    (see the fourth-field discussion above). `ops/src/batch.js`'s `draftProductBatch` now recognizes
+    `style_id`/`vendor`/`commission` columns (previously `vendor`/`commission` fell through as opaque
+    `custom_fields` text, and `style_id` was not recognized at all) and skips a row with a plain
+    reason — the same "runTool has no way to say it, so report it before runTool ever sees it"
+    treatment the title/category/price checks already get — for any of: no style ID at all; a
+    commission cell that does not parse as a plain whole number; or NEITHER a vendor NOR a unit cost
+    value. (Price itself was already required before this revision — Square's own MSRP, "already part
+    of Square," needs no new check.) **REVISED AGAIN**: an earlier pass also required a commission
+    the moment a vendor was given — "if we have a vendor name, then we must have a commission" —
+    dropped on the owner's own correction: "scratch the requirement to add a commission when
+    specifying vendor, that's not always true." **REVISED A THIRD TIME**, narrower than either: "I
+    need to specify a commission if I create a vendor" — a spreadsheet row naming a vendor that does
+    not already exist in `mirror_vendor` is flagged without a commission column, the same
+    `vendorExists()` check `catalog.create_product`'s own `check()` now makes (see above); a row
+    naming an ALREADY-KNOWN vendor needs no commission at all. Both directions are left to
+    `catalog.create_product`'s own `check()` rather than duplicated here — its refusal text is already
+    clear enough to relay verbatim through `parkRows`; style_id's format and whole-catalog uniqueness
+    are likewise left to that same `check()`.
+
+    **REVISED AGAIN, once the owner mentioned having set up Square's Retail Plus subscription:
+    `vendor` moved a second time, off Custom Attributes entirely, onto a real Square VENDOR
+    entity.** The owner's own words, seeing Square's own Vendors feature for the first time: "I don't
+    want to be duplicating that... I want to be using everything that's available in Retail Plus, and
+    not reinventing the wheel." Verified against Square's own SDK source (developer.squareup.com
+    itself was unreachable from this environment) rather than guessed at: `CatalogItemVariation.
+    item_variation_data.vendor_information` is a real, documented array of
+    `CatalogItemVariationVendorInformation` — `vendor_id`, `vendor_code`, `unit_cost_money` — living at
+    the VARIATION level, backed by a wholly separate API (`/v2/vendors/*`: `CreateVendor`,
+    `SearchVendors`, `RetrieveVendor`, `UpdateVendor`), gated to WRITE behind Retail Plus/Premium (or
+    Restaurants Plus/Premium) but readable on any plan. `shared/commerce/square/vendors.js` is the new
+    thin client for that API (`listVendors`, `createVendor`); `mirror_vendor` is a new table — the
+    same reason `mirror_category` exists for CATEGORY, since Vendors need their own sync pass
+    (`mirror.js`'s own `syncVendors`, called by `index.js`'s `pullCatalog` BEFORE `syncCatalog`, on
+    every full and incremental sync alike, so a variation's `vendor_id` always has something to
+    resolve against).
+
+    **"One vendor per product," not Square's own per-variation granularity — the owner's explicit
+    choice between the two options laid out for them.** Square lets each variation carry its own
+    vendor and cost; this shop does not need that, so `catalog-writer.js`'s write path applies the
+    SAME `vendor_information` entry to EVERY variation of a product uniformly. Reading it back is the
+    mirror image: a product's own `vendor`/`vendor_code`/`unit_cost_minor` (for display, and for the
+    Items-tab edit form) are resolved off its ORDINAL-0 variation alone
+    (`PRODUCT_WITH_VENDOR_SELECT`/`listAllProducts` in `catalog-writer.js`) — a product edited directly
+    in Square's own Dashboard with genuinely different vendors per variation is a known, accepted edge
+    case this simplification does not model.
+
+    **`vendorRef(name)` resolves a plain vendor NAME to Square's own `vendor_id` — never the
+    reverse crossing this file's boundary (Test-PRD-P0-16-commerce_port), matched case-insensitively
+    against OUR OWN mirror_vendor first** (the same "closed set, read from the mirror" shape
+    `matchCategory` already uses for categories) **and Square's real `CreateVendor` called only on a
+    genuine miss** — vendors are NOT a closed set the way categories are; an evolving supplier list is
+    exactly what this feature exists for. Nothing is written to `mirror_vendor` directly from this
+    resolution: "the agent writes to Square, never to the mirror" (`catalog-writer.js`'s own header)
+    holds for vendors too, proven by a dedicated test scanning the file's own source for a stray
+    `INSERT`/`UPDATE`. `syncAfterWrite` always runs vendors-then-catalog before `readBack()` ever needs
+    the new vendor's name, so `mirror_vendor` gets its row the same authoritative way every other
+    Square fact does — this is also why a second product naming the SAME vendor never creates a
+    second Square Vendor: by the time it is written, the first write's own `syncAfterWrite` has
+    already synced the real one into the mirror for `vendorRef` to find.
+
+    **`unit_cost_minor` is Square's real `unit_cost_money`, and it ONLY exists for a product WITH a
+    vendor** — `vendor_information` needs a `vendor_id` to attach to, so there is no Square-native
+    home for a self-produced product's cost at all. The pre-existing `custom_fields` "unit cost" text
+    entry is UNCHANGED and still the only mechanism for that case (per the earlier revision: "we don't
+    need to do cogs, there is a unit cost, we just use the unit cost"). `vendor_code` closes what was
+    previously an open question — "if there is some kind of specific invoice, like a vendor SKU or
+    some kind of other identification for the product... that's the GTIN number" — Square's own field
+    for exactly this ("the unique identifier of this product in the specified vendor's inventory
+    system, pre-filled on purchase orders") turned out to already exist right beside `unit_cost_money`,
+    so no separate GTIN mechanism was needed. `vendor_code`/`unit_cost_minor`/`commission` all share
+    the identical "refused for a product with no resolved vendor" rule.
+
+    **`ops/src/batch.js`'s spreadsheet import follows the same split**: a vendor-present row's own
+    "cost" column (whichever `UNIT_COST_KEYS` synonym) now becomes the real `unit_cost_minor`
+    argument, parsed as money the same way price already is, and a new `vendor code` column
+    (`VENDOR_CODE_KEYS`) reaches `vendor_code` — NEITHER lands in `custom_fields` for a vendor row any
+    more. A vendor-LESS row's own cost column is completely unchanged: still `custom_fields`, still
+    opaque text, since there is still nothing else for it.
+
+    **Migration for data that predates this revision**:
+    `ops/migrations/migrate-vendor-custom-attribute-to-square-vendor.mjs` — a human-run-once Node
+    script (real account writes, same "no unattended equivalent" reasoning
+    `create-square-custom-attributes.sh` and `apply-local.sh` both give) that finds every product still
+    carrying the OLD plain-text `vendor` custom attribute value, resolves-or-creates a real Vendor for
+    each distinct name, and sets `vendor_information` on every one of that product's variations. It
+    deliberately leaves the stale old custom attribute value in place rather than attempting to clear
+    just that one key from `custom_attribute_values` — nothing in this codebase reads it by key any
+    more, and getting a partial-clear wrong risks wiping a sibling attribute on the same write.
+    `create-square-custom-attributes.sh` itself no longer creates a "vendor" definition for a NEW
+    account; an account that ran an earlier version has one sitting unused, left alone rather than
+    deleted (deleting a definition can take its stored values with it).
 
     **Considered and set aside: surfacing these to Square's own Dashboard, and switching
     `custom_fields` to Custom Attributes wholesale.** Square does support seller-visible custom
     attributes editable right on its own Edit Item page, but caps them at 10 seller-visible + 10
     seller-hidden per account and requires each to be a pre-declared, fixed field TYPE — the opposite
     of `custom_fields`'s own open-ended "type any new field name" shape, which is why `custom_fields`
-    itself is NOT retired by this change: only style_id and vendor, a small, deliberately fixed pair
-    the owner named directly, moved out of it.
+    itself is NOT retired by this change: only style_id and commission are Custom Attributes now (a
+    small, deliberately fixed pair); vendor moved past Custom Attributes entirely, onto Square's own
+    Vendor entity, per the revision above.
 
 ## 4. P1 features
 

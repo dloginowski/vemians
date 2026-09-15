@@ -89,7 +89,7 @@ function seedProduct(mirror, overrides = {}) {
   const custom = JSON.stringify(overrides.custom_fields ?? { "unit cost": "210.00" });
   mirror.db
     .prepare(
-      `INSERT INTO mirror_product (id, external_ref, handle, title, status, channel, custom_fields, style_id, vendor, category_id)
+      `INSERT INTO mirror_product (id, external_ref, handle, title, status, channel, custom_fields, style_id, commission_pct, category_id)
        VALUES ('p1', 'sqitem1', 'wool-coat', 'Wool Coat', ?, ?, ?, ?, ?, 'cat1')`,
     )
     .run(
@@ -97,12 +97,29 @@ function seedProduct(mirror, overrides = {}) {
       overrides.channel ?? "direct_link",
       custom,
       overrides.style_id ?? null,
-      overrides.vendor ?? null,
+      overrides.commission_pct ?? null,
     );
-  mirror.db.exec(
-    "INSERT INTO mirror_variant (id, external_ref, product_id, sku, title, price_minor, currency) " +
-      "VALUES ('v1', 'sqvar1', 'p1', 'VEM-100', 'One size', 45000, 'USD')",
-  );
+  /* vendor moved off mirror_product entirely (Test-PRD-P0-136-square_
+     custom_attributes, revised for Retail Plus) — a real mirror_vendor row,
+     referenced from the ordinal-0 variation, "one vendor per product." */
+  let vendorId = null;
+  if (overrides.vendor) {
+    vendorId = "vendor1";
+    mirror.db
+      .prepare("INSERT INTO mirror_vendor (id, external_ref, name) VALUES (?, 'sqvendor1', ?)")
+      .run(vendorId, overrides.vendor);
+  }
+  mirror.db
+    .prepare(
+      `INSERT INTO mirror_variant (id, external_ref, product_id, sku, title, price_minor, currency, vendor_id, vendor_code, unit_cost_minor, unit_cost_currency)
+       VALUES ('v1', 'sqvar1', 'p1', 'VEM-100', 'One size', 45000, 'USD', ?, ?, ?, ?)`,
+    )
+    .run(
+      vendorId,
+      overrides.vendor_code ?? null,
+      overrides.unit_cost_minor ?? 0,
+      overrides.unit_cost_currency ?? "USD",
+    );
 }
 
 /* Every T2 call appends an INTENT audit row before it will even return
@@ -731,6 +748,18 @@ check("test_PRD_P0_136_square_custom_attributes__the_tile_shows_style_id_and_ven
   assert.match(body, /<span>Vendor<\/span><span>Acme Mills<\/span>/);
 });
 
+check("test_PRD_P0_136_square_custom_attributes__the_tile_shows_vendor_code_and_unit_cost_when_set", async () => {
+  /* vendor_code and unit cost live on the SAME real Square Vendor
+     association as vendor (Retail Plus/Premium, revised), so both are only
+     meaningful — and only shown — alongside a vendor. */
+  const mirror = mirrorDb();
+  seedProduct(mirror, { vendor: "Acme Mills", vendor_code: "ACME-4471", unit_cost_minor: 4250 });
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.match(body, /<span>Vendor code<\/span><span>ACME-4471<\/span>/);
+  assert.match(body, /<span>Unit cost<\/span><span>\$ 42\.50<\/span>/);
+});
+
 check("test_PRD_P0_136_square_custom_attributes__neither_row_renders_when_unset", async () => {
   const mirror = mirrorDb();
   seedProduct(mirror);
@@ -740,14 +769,23 @@ check("test_PRD_P0_136_square_custom_attributes__neither_row_renders_when_unset"
   assert.doesNotMatch(body, /<span>Vendor<\/span>/);
 });
 
-check("test_PRD_P0_136_square_custom_attributes__the_edit_form_posts_to_style_vendor_prefilled_with_current_values", async () => {
+check("test_PRD_P0_136_square_custom_attributes__the_edit_form_posts_to_square_attributes_prefilled_with_current_values", async () => {
   const mirror = mirrorDb();
-  seedProduct(mirror, { style_id: "01-04-001", vendor: "Acme Mills" });
+  seedProduct(mirror, {
+    style_id: "01-04-001",
+    vendor: "Acme Mills",
+    vendor_code: "ACME-4471",
+    unit_cost_minor: 4250,
+    commission_pct: 20,
+  });
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
-  assert.match(body, /<form method="post" action="\/items\/wool-coat\/style-vendor">/);
-  assert.match(body, /<input name="style_id" value="01-04-001" placeholder="Style ID \(NN-NN-NNN\)">/);
+  assert.match(body, /<form method="post" action="\/items\/wool-coat\/square-attributes">/);
+  assert.match(body, /<input name="style_id" value="01-04-001" placeholder="Style ID \(NN-NN-NNN\)" pattern="\\d\{2\}-\\d\{2\}-\\d\{3\}"/);
   assert.match(body, /<input name="vendor" value="Acme Mills" placeholder="Vendor">/);
+  assert.match(body, /<input name="vendor_code" value="ACME-4471" placeholder="Vendor's own SKU\/code">/);
+  assert.match(body, /<input name="unit_cost" value="42\.50" placeholder="Unit cost paid to vendor">/);
+  assert.match(body, /<input name="commission" value="20" placeholder="Commission % \(0-100\)">/);
 });
 
 check("test_PRD_P0_136_square_custom_attributes__staff_cannot_reach_the_route_before_square_is_ever_touched", async () => {
@@ -757,9 +795,42 @@ check("test_PRD_P0_136_square_custom_attributes__staff_cannot_reach_the_route_be
      either. */
   const mirror = mirrorDb();
   seedProduct(mirror);
-  const res = await postForm("/items/wool-coat/style-vendor", STAFF, env(mirror), { vendor: "Someone Else" });
+  const res = await postForm("/items/wool-coat/square-attributes", STAFF, env(mirror), { vendor: "Someone Else" });
   assert.equal(res.status, 403);
   assert.match(await res.text(), /manager/i);
+});
+
+check("test_PRD_P0_135_item_edit_applies_immediately__the_edit_area_is_a_plain_div_not_a_details_disclosure", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror, { style_id: "01-04-001", vendor: "Acme Mills", commission_pct: 20 });
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.match(body, /<div class="item-edit">/, "the edit area must no longer be a <details> a manager has to open first");
+  assert.doesNotMatch(body, /<details class="item-edit">/);
+  assert.doesNotMatch(body, /<summary>Edit<\/summary>/, "no more generic Edit toggle to click before anything is visible");
+});
+
+check("test_PRD_P0_135_item_edit_applies_immediately__existing_custom_fields_are_always_visible_only_a_new_blank_row_is_collapsed", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror); // seeds a "unit cost" custom field, see seedProduct()
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  const detail = /<div class="item-edit">([\s\S]*?)<\/div>\s*<\/div>\s*<\/article>/.exec(body);
+  assert.ok(detail, "the tile must carry an .item-edit section");
+  const editHtml = detail[1];
+
+  /* The existing "unit cost" field's own row sits OUTSIDE the add-field
+     disclosure — visible without opening anything. */
+  const addFieldStart = editHtml.indexOf('<details class="item-add-field">');
+  assert.ok(addFieldStart > -1, "a blank row must still be offered behind its own disclosure");
+  const existingFieldIndex = editHtml.indexOf('<input name="field_name_0" value="unit cost"');
+  assert.ok(existingFieldIndex > -1, "the existing field's row must render with its current name/value");
+  assert.ok(existingFieldIndex < addFieldStart, "the existing field must render before (outside) the add-field disclosure");
+
+  /* The blank row for a brand-new field is INSIDE the disclosure. */
+  const addFieldHtml = editHtml.slice(addFieldStart);
+  assert.match(addFieldHtml, /<summary>Add custom field<\/summary>/);
+  assert.match(addFieldHtml, /name="field_name_1" placeholder="Field name"/, "a blank row for a new field must be offered");
 });
 
 check("test_PRD_P0_71_items_tab__approving_an_items_tab_edit_sends_the_approver_back_to_items", () => {

@@ -29,6 +29,7 @@
  */
 import { createSquareClient } from "./client.js";
 import { CATALOG_TYPES, listCatalog, normaliseCatalog, searchCatalogObjects } from "./catalog.js";
+import { listVendors } from "./vendors.js";
 import { retrieveInventoryChanges, retrieveInventoryCounts } from "./inventory.js";
 import { createPaymentLink } from "./checkout.js";
 import { normaliseWebhook, verifyWebhook as verifySquareWebhook } from "./webhooks.js";
@@ -39,6 +40,7 @@ import { moneyFromSquare, moneyToSquare } from "./money.js";
 export { SQUARE_VERSION, SquareError, createSquareClient } from "./client.js";
 export { createMirror } from "./mirror.js";
 export * from "./catalog.js";
+export * from "./vendors.js";
 export * from "./inventory.js";
 export * from "./checkout.js";
 export * from "./webhooks.js";
@@ -129,21 +131,36 @@ export function createSquareAdapter(env, deps = {}) {
 
     /* ── inbound: Square -> us ──────────────────────────────────────────── */
 
-    /** Full sweep. The nightly reconcile, and the first sync. */
+    /**
+     * Full sweep. The nightly reconcile, and the first sync.
+     *
+     * Vendors sync FIRST, always, on both the full and incremental path —
+     * they live at a separate Square API (/v2/vendors/*) with no
+     * begin_time/incremental mode of their own, and a variant's own
+     * vendor_information.vendor_id has to find a mirror_vendor row to
+     * resolve against by the time syncCatalog runs (mirror.js's own
+     * syncVendors comment). A boutique's vendor roster is small, so a full
+     * re-list on every call (rather than its own incremental tracking) is
+     * the same trade categories already make.
+     */
     async pullCatalog({ full = true, since = null } = {}) {
       const locationId = client.locationId;
+      const m = requireMirror("pullCatalog");
+      const vendors = await listVendors(client);
+      await m.syncVendors(vendors);
+
       const objects = full
         ? await listCatalog(client, { types: CATALOG_TYPES })
         : null;
       if (full) {
         const normalised = normaliseCatalog(objects, { locationId });
-        const counts = await requireMirror("pullCatalog").syncCatalog(normalised, { full: true });
+        const counts = await m.syncCatalog(normalised, { full: true });
         await mirror.recordSync("catalog", { cursor: new Date().toISOString() });
         return counts;
       }
       const { objects: found, related } = await searchCatalogObjects(client, { beginTime: since });
       const normalised = normaliseCatalog(found, { locationId, related });
-      const counts = await requireMirror("pullCatalog").syncCatalog(normalised, { full: false });
+      const counts = await m.syncCatalog(normalised, { full: false });
       await mirror.recordSync("catalog", { cursor: new Date().toISOString() });
       return counts;
     },

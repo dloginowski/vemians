@@ -211,16 +211,19 @@ export function createMirror(mirror, { commerce, locationId, audit = null, now =
           productId = existing.id;
           /* handle is deliberately absent from this SET — channel and
              custom_fields too, same reason, see schema.sql's own comment.
-             style_id/vendor ARE named here, on purpose: unlike those, Square
-             is authoritative for them now, so a re-sync overwrites them the
-             same way it already overwrites title. */
+             style_id/commission_pct ARE named here, on purpose: unlike
+             those, Square is authoritative for both now, so a re-sync
+             overwrites them the same way it already overwrites title.
+             vendor is no longer a product-level column at all — see the
+             per-variant vendor_id resolution below. */
           await run(
             `UPDATE mirror_product
                 SET title = ?, source_description = ?, status = ?, category_id = ?,
-                    style_id = ?, vendor = ?, source_version = ?, archived_at = ?, synced_at = ?
+                    style_id = ?, commission_pct = ?,
+                    source_version = ?, archived_at = ?, synced_at = ?
               WHERE id = ?`,
             p.title ?? "", p.sourceDescription ?? "", status, categoryId,
-            p.styleId ?? null, p.vendor ?? null,
+            p.styleId ?? null, p.commissionPct ?? null,
             Number(p.sourceVersion ?? 0), archivedAt, stamp, productId,
           );
           counts.productsUpdated += 1;
@@ -230,10 +233,10 @@ export function createMirror(mirror, { commerce, locationId, audit = null, now =
           await run(
             `INSERT INTO mirror_product
                (id, external_ref, handle, title, source_description, status,
-                category_id, style_id, vendor, source_version, archived_at, synced_at)
+                category_id, style_id, commission_pct, source_version, archived_at, synced_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             productId, p.externalRef, handle, p.title ?? "", p.sourceDescription ?? "",
-            status, categoryId, p.styleId ?? null, p.vendor ?? null,
+            status, categoryId, p.styleId ?? null, p.commissionPct ?? null,
             Number(p.sourceVersion ?? 0), archivedAt, stamp,
           );
           counts.productsInserted += 1;
@@ -246,6 +249,23 @@ export function createMirror(mirror, { commerce, locationId, audit = null, now =
           /* toStorableMinor asserts the bigint fits a D1 INTEGER bind; a float
              never reaches here because money.js refused it upstream. */
           const priceMinor = toStorableMinor(v.price?.amountMinor ?? 0n, `variant ${v.externalRef}`);
+          /* vendor_information carries Square's own vendor_id, resolved to
+             OUR mirror_vendor.id the same way categoryExternalRef resolves
+             to category_id above — a query per variant rather than a
+             pre-built map, since vendors sync in their own separate pass
+             (syncVendors, called before this one) rather than arriving as
+             an argument here the way categories do. Unresolved (a vendor
+             Square knows about that our own vendor sync has not seen yet)
+             is left null rather than guessed at; the next vendor sync
+             catches it up. */
+          const vendorId = v.vendorExternalRef
+            ? (await first("SELECT id FROM mirror_vendor WHERE external_ref = ?", v.vendorExternalRef))?.id ?? null
+            : null;
+          const unitCostMinor = toStorableMinor(
+            v.unitCost?.amountMinor ?? 0n,
+            `variant ${v.externalRef} unit cost`,
+          );
+          const unitCostCurrency = v.unitCost?.currency ?? "USD";
           const existingVariant = await first(
             "SELECT id FROM mirror_variant WHERE external_ref = ?",
             v.externalRef,
@@ -254,12 +274,14 @@ export function createMirror(mirror, { commerce, locationId, audit = null, now =
             await run(
               `UPDATE mirror_variant
                   SET product_id = ?, sku = ?, title = ?, ordinal = ?, price_minor = ?,
-                      currency = ?, options = ?, tracks_stock = ?, source_version = ?,
-                      archived_at = ?, synced_at = ?
+                      currency = ?, options = ?, tracks_stock = ?,
+                      vendor_id = ?, vendor_code = ?, unit_cost_minor = ?, unit_cost_currency = ?,
+                      source_version = ?, archived_at = ?, synced_at = ?
                 WHERE id = ?`,
               productId, v.sku ?? null, v.title ?? "", Number(v.ordinal ?? 0), priceMinor,
               v.price?.currency ?? "USD", JSON.stringify(v.options ?? {}),
-              v.tracksStock ? 1 : 0, Number(v.sourceVersion ?? 0), vArchived, stamp,
+              v.tracksStock ? 1 : 0, vendorId, v.vendorCode ?? null, unitCostMinor, unitCostCurrency,
+              Number(v.sourceVersion ?? 0), vArchived, stamp,
               existingVariant.id,
             );
             counts.variantsUpdated += 1;
@@ -267,11 +289,13 @@ export function createMirror(mirror, { commerce, locationId, audit = null, now =
             await run(
               `INSERT INTO mirror_variant
                  (id, external_ref, product_id, sku, title, ordinal, price_minor,
-                  currency, options, tracks_stock, source_version, archived_at, synced_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                  currency, options, tracks_stock, vendor_id, vendor_code,
+                  unit_cost_minor, unit_cost_currency, source_version, archived_at, synced_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
               newId(), v.externalRef, productId, v.sku ?? null, v.title ?? "",
               Number(v.ordinal ?? 0), priceMinor, v.price?.currency ?? "USD",
               JSON.stringify(v.options ?? {}), v.tracksStock ? 1 : 0,
+              vendorId, v.vendorCode ?? null, unitCostMinor, unitCostCurrency,
               Number(v.sourceVersion ?? 0), vArchived, stamp,
             );
             counts.variantsInserted += 1;
@@ -327,6 +351,42 @@ export function createMirror(mirror, { commerce, locationId, audit = null, now =
       }
 
       return counts;
+    });
+  }
+
+  /*
+   * Vendors live at a wholly separate Square API (/v2/vendors/*) from the
+   * Catalog API syncCatalog above pulls from, so they get their own sync
+   * pass rather than arriving bundled with `products`/`categories` the way
+   * categories do. Called BEFORE syncCatalog in the adapter's own
+   * pullCatalog, so a variant's vendor_information.vendor_id already has a
+   * mirror_vendor row to resolve against by the time syncCatalog runs.
+   *
+   * No archival pass: Square's Vendors API has no `include_deleted` sweep
+   * the way Catalog's does, so there is nothing to diff a full list
+   * against. A vendor's own `status` (active/inactive) is mirrored as-is;
+   * mirror_vendor.archived_at stays available for the same "archive, never
+   * delete" convention every other mirror_* table follows, unused until
+   * there is a real signal to set it from.
+   */
+  async function syncVendors(vendors) {
+    return audited("square.vendors.sync", { vendors: vendors.length }, async () => {
+      const stamp = now();
+      let upserted = 0;
+      for (const v of vendors ?? []) {
+        if (!v?.externalRef) continue;
+        await run(
+          `INSERT INTO mirror_vendor (id, external_ref, name, status, synced_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(external_ref) DO UPDATE SET
+             name = excluded.name,
+             status = excluded.status,
+             synced_at = excluded.synced_at`,
+          newId(), v.externalRef, v.name ?? "", v.status === "inactive" ? "inactive" : "active", stamp,
+        );
+        upserted += 1;
+      }
+      return { upserted };
     });
   }
 
@@ -549,6 +609,7 @@ export function createMirror(mirror, { commerce, locationId, audit = null, now =
 
   return {
     syncCatalog,
+    syncVendors,
     syncInventoryChanges,
     reconcileCounts,
     productIndex,

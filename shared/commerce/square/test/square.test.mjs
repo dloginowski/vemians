@@ -522,6 +522,11 @@ check("test_PRD_P0_37_mirror_is_ours__a_paginated_sync_follows_every_cursor_and_
         ),
       );
     }
+    if (url.includes("/v2/vendors/search")) {
+      /* pullCatalog syncs vendors first, on every call — empty here since
+         this test is exercising pagination, not vendors. */
+      return new Response(JSON.stringify({ vendors: [] }));
+    }
     return new Response(JSON.stringify({ errors: [{ code: "NOT_FOUND" }] }), { status: 404 });
   };
 
@@ -1157,14 +1162,16 @@ check("test_PRD_P0_29_exit_test__dropping_every_square_id_leaves_the_catalog_and
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
- * P0-136 — style_id and vendor, Square's own Custom Attributes. The owner's
- * own words: "why do we need to have our own custom fields then? ... we
- * don't mind having our stuff being stored completely in Square." Read by
- * the well-known `key` this codebase's own attribute definitions use
- * ("style_id" / "vendor"), never Square's own opaque definition id.
+ * P0-136 — style_id and commission, Square's own Custom Attributes; vendor,
+ * a real Square Vendor entity (revised once the owner got Retail Plus: "I
+ * don't want to be duplicating that... use everything that's available in
+ * Retail Plus"). style_id/commission are read by the well-known `key` this
+ * codebase's own attribute definitions use, never Square's own opaque
+ * definition id. vendor is read off item_variation_data.vendor_information,
+ * Square's own array (this shop only ever uses entry 0).
  * ───────────────────────────────────────────────────────────────────────── */
 
-function itemWithAttrs(attrs) {
+function itemWithAttrs(attrs, { variations = [] } = {}) {
   return {
     id: "ITEM_ATTR_1",
     type: "ITEM",
@@ -1172,65 +1179,149 @@ function itemWithAttrs(attrs) {
     item_data: {
       name: "Cocktail Dress",
       custom_attribute_values: attrs,
-      variations: [],
+      variations,
     },
   };
 }
 
-check("test_PRD_P0_136_square_custom_attributes__normalisecatalog_reads_style_id_and_vendor_by_key", () => {
+function variationWithVendorInfo(id, vendorInfo) {
+  return {
+    id,
+    type: "ITEM_VARIATION",
+    version: 3,
+    item_variation_data: {
+      item_id: "ITEM_ATTR_1",
+      name: "One size",
+      sku: "VEM-DRESS-1",
+      ...(vendorInfo ? { vendor_information: [vendorInfo] } : {}),
+    },
+  };
+}
+
+check("test_PRD_P0_136_square_custom_attributes__normalisecatalog_reads_style_id_by_key", () => {
   const { products } = normaliseCatalog([
-    itemWithAttrs({
-      style_id: { key: "style_id", type: "STRING", string_value: "01-04-001" },
-      vendor: { key: "vendor", type: "STRING", string_value: "Acme Mills" },
-    }),
+    itemWithAttrs({ style_id: { key: "style_id", type: "STRING", string_value: "01-04-001" } }),
   ]);
   assert.equal(products.length, 1);
   assert.equal(products[0].styleId, "01-04-001");
-  assert.equal(products[0].vendor, "Acme Mills");
+});
+
+check("test_PRD_P0_136_square_custom_attributes__normalisecatalog_reads_vendor_information_off_the_variation", () => {
+  const { products } = normaliseCatalog([
+    itemWithAttrs(undefined, {
+      variations: [
+        variationWithVendorInfo("VAR_1", {
+          vendor_id: "SQ_VENDOR_1",
+          vendor_code: "ACME-4471",
+          unit_cost_money: { amount: 4200, currency: "USD" },
+        }),
+      ],
+    }),
+  ]);
+  const [v] = products[0].variants;
+  assert.equal(v.vendorExternalRef, "SQ_VENDOR_1");
+  assert.equal(v.vendorCode, "ACME-4471");
+  assert.deepEqual(v.unitCost, { amountMinor: 4200n, currency: "USD" });
 });
 
 check("test_PRD_P0_136_square_custom_attributes__absent_or_non_string_is_null_not_guessed_at", () => {
   const noAttrsAtAll = normaliseCatalog([itemWithAttrs(undefined)]).products[0];
   assert.equal(noAttrsAtAll.styleId, null);
-  assert.equal(noAttrsAtAll.vendor, null);
 
-  /* A BOOLEAN- or NUMBER-typed value at these keys (some other use of the
-     same key, or a malformed payload) has no string_value at all — treated
-     as absent, not coerced into a string. */
+  /* A BOOLEAN- or NUMBER-typed value at this key (some other use of the same
+     key, or a malformed payload) has no string_value at all — treated as
+     absent, not coerced into a string. */
   const wrongType = normaliseCatalog([
     itemWithAttrs({ style_id: { key: "style_id", type: "BOOLEAN", boolean_value: true } }),
   ]).products[0];
   assert.equal(wrongType.styleId, null);
+
+  /* No vendor_information at all on the variation — zero-with-a-currency,
+     the same honest default variationPrice() already uses, not null, so
+     unit_cost_minor stays a NOT NULL column like every other `_minor`
+     column (Test-PRD-P0-15-money_minor_units). */
+  const noVendor = normaliseCatalog([
+    itemWithAttrs(undefined, { variations: [variationWithVendorInfo("VAR_1", null)] }),
+  ]).products[0].variants[0];
+  assert.equal(noVendor.vendorExternalRef, null);
+  assert.equal(noVendor.vendorCode, null);
+  assert.deepEqual(noVendor.unitCost, { amountMinor: 0n, currency: "USD" });
 });
 
-check("test_PRD_P0_136_square_custom_attributes__a_resync_overwrites_them_unlike_channel_or_custom_fields", async () => {
+check("test_PRD_P0_136_square_custom_attributes__a_resync_overwrites_style_id_and_commission_unlike_channel_or_custom_fields", async () => {
   const s = stores();
   const first = normaliseCatalog([
     itemWithAttrs({
       style_id: { key: "style_id", type: "STRING", string_value: "01-04-001" },
-      vendor: { key: "vendor", type: "STRING", string_value: "Acme Mills" },
+      commission: { key: "commission", type: "STRING", string_value: "20" },
     }),
   ]);
   await s.mirror.syncCatalog(first, { full: true });
-  assert.deepEqual({ ...rows(s.mirrorDb, "SELECT style_id, vendor FROM mirror_product")[0] }, {
+  assert.deepEqual({ ...rows(s.mirrorDb, "SELECT style_id, commission_pct FROM mirror_product")[0] }, {
     style_id: "01-04-001",
-    vendor: "Acme Mills",
+    commission_pct: 20,
   });
 
-  /* Square is authoritative for these two now — a later sync with a
-     DIFFERENT value overwrites the mirror, the opposite of channel/
-     custom_fields, which mirror.js never even names in its own UPDATE. */
+  /* Square is authoritative for these now — a later sync with a DIFFERENT
+     value overwrites the mirror, the opposite of channel/custom_fields,
+     which mirror.js never even names in its own UPDATE. */
   const second = normaliseCatalog([
     itemWithAttrs({
       style_id: { key: "style_id", type: "STRING", string_value: "01-04-002" },
-      vendor: { key: "vendor", type: "STRING", string_value: "Different Vendor" },
+      commission: { key: "commission", type: "STRING", string_value: "35" },
     }),
   ]);
   await s.mirror.syncCatalog(second, { full: true });
-  assert.deepEqual({ ...rows(s.mirrorDb, "SELECT style_id, vendor FROM mirror_product")[0] }, {
+  assert.deepEqual({ ...rows(s.mirrorDb, "SELECT style_id, commission_pct FROM mirror_product")[0] }, {
     style_id: "01-04-002",
-    vendor: "Different Vendor",
+    commission_pct: 35,
   });
+});
+
+check("test_PRD_P0_136_square_custom_attributes__syncing_a_vendor_lets_a_variants_vendor_id_resolve", async () => {
+  const s = stores();
+  await s.mirror.syncVendors([{ externalRef: "SQ_VENDOR_1", name: "Acme Mills", status: "active" }]);
+
+  const normalised = normaliseCatalog([
+    itemWithAttrs(undefined, {
+      variations: [
+        variationWithVendorInfo("VAR_1", {
+          vendor_id: "SQ_VENDOR_1",
+          unit_cost_money: { amount: 4200, currency: "USD" },
+        }),
+      ],
+    }),
+  ]);
+  await s.mirror.syncCatalog(normalised, { full: true });
+
+  const vendorRow = rows(s.mirrorDb, "SELECT id, name FROM mirror_vendor WHERE external_ref = 'SQ_VENDOR_1'")[0];
+  const variantRow = rows(s.mirrorDb, "SELECT vendor_id, unit_cost_minor, unit_cost_currency FROM mirror_variant")[0];
+  assert.equal(variantRow.vendor_id, vendorRow.id, "the variant's vendor_id resolves to OUR mirror_vendor row");
+  assert.equal(variantRow.unit_cost_minor, 4200);
+  assert.equal(variantRow.unit_cost_currency, "USD");
+
+  /* Re-syncing the SAME vendor (a later pullCatalog) upserts rather than
+     duplicating — external_ref is UNIQUE, the same idempotency every other
+     mirror_* table gets from it. */
+  await s.mirror.syncVendors([{ externalRef: "SQ_VENDOR_1", name: "Acme Mills Inc.", status: "active" }]);
+  const vendorRows = rows(s.mirrorDb, "SELECT name FROM mirror_vendor WHERE external_ref = 'SQ_VENDOR_1'");
+  assert.equal(vendorRows.length, 1, "one row, not two");
+  assert.equal(vendorRows[0].name, "Acme Mills Inc.", "Square is authoritative for the vendor's own name too");
+});
+
+check("test_PRD_P0_136_square_custom_attributes__an_unsynced_vendor_id_resolves_to_null_not_a_guess", async () => {
+  /* Square knows about a vendor our own vendor sync has not seen yet — left
+     null rather than invented, and the next vendor sync catches it up
+     (index.js's own pullCatalog always syncs vendors before syncCatalog). */
+  const s = stores();
+  const normalised = normaliseCatalog([
+    itemWithAttrs(undefined, {
+      variations: [variationWithVendorInfo("VAR_1", { vendor_id: "SQ_VENDOR_UNKNOWN" })],
+    }),
+  ]);
+  await s.mirror.syncCatalog(normalised, { full: true });
+  const variantRow = rows(s.mirrorDb, "SELECT vendor_id FROM mirror_variant")[0];
+  assert.equal(variantRow.vendor_id, null);
 });
 
 /* ─────────────────────────────────────────────────────────────────────────

@@ -144,9 +144,32 @@ function variationPrice(data, context) {
   return moneyFromSquare(data.price_money, context);
 }
 
+/* CatalogItemVariationVendorInformation (Test-PRD-P0-136-square_custom_
+   attributes, revised) — Square's own array, this shop only ever uses one
+   entry, applied to every variation of a product uniformly by
+   catalog-writer.js's own write path ("one vendor per product," the owner's
+   own choice over Square's per-variation granularity). `unit_cost_money` is
+   OPTIONAL even when a vendor_id is present — a vendor can be assigned
+   before a cost is ever entered — so it is read defensively, never assumed. */
+function vendorInfoFor(data, context) {
+  const info = data?.vendor_information?.[0];
+  /* Zero-with-a-currency for "no cost entered", the same honest default
+     variationPrice() already uses for VARIABLE_PRICING — never null, so
+     unit_cost_minor stays NOT NULL like every other `_minor` column
+     (Test-PRD-P0-15-money_minor_units). */
+  const noCost = { amountMinor: 0n, currency: "USD" };
+  if (!info?.vendor_id) return { vendorExternalRef: null, vendorCode: null, unitCost: noCost };
+  return {
+    vendorExternalRef: info.vendor_id,
+    vendorCode: typeof info.vendor_code === "string" && info.vendor_code ? info.vendor_code : null,
+    unitCost: info.unit_cost_money ? moneyFromSquare(info.unit_cost_money, context) : noCost,
+  };
+}
+
 /* Square's own Custom Attributes (Test-PRD-P0-136-square_custom_attributes)
    — read by the well-known `key` this codebase's own definitions use
-   ("style_id", "vendor"), never by Square's own opaque definition id. A
+   ("style_id", "commission" — vendor moved to a real Square Vendor entity,
+   see vendorInfoFor() below), never by Square's own opaque definition id. A
    STRING-type value comes back as { string_value }; anything else (missing,
    or a different type than we expect) is treated as absent rather than
    guessed at. */
@@ -154,6 +177,23 @@ function customAttr(data, key) {
   const value = data?.custom_attribute_values?.[key];
   const s = value?.string_value;
   return typeof s === "string" && s ? s : null;
+}
+
+/* commission is a STRING-type attribute holding a plain integer 0-100, read
+   through the SAME customAttr() as style_id/vendor. Square's own NUMBER
+   type was considered and set aside — NOT because it would reintroduce
+   float precision loss (its own `number_value` is string-encoded on the
+   wire too, "20", same as STRING's `string_value` — verified against
+   Square's SDK source, no float involved either way) but because it buys
+   nothing here: Square's NUMBER definition only offers a decimal-places
+   `precision` config, no min/max/range validation, so "0-100" still has to
+   be enforced in our own check() regardless of type. STRING keeps this
+   reader, and customAttributeValues() in catalog-writer.js, as ONE code
+   path for all three attributes instead of two. */
+function customAttrInt(data, key) {
+  const s = customAttr(data, key);
+  if (s === null) return null;
+  return /^\d+$/.test(s) ? Number(s) : null;
 }
 
 function tracksStock(data, locationId) {
@@ -231,6 +271,7 @@ export function normaliseCatalog(objects, { locationId = null, related = [] } = 
     const variations = [...(variationsByItem.get(o.id)?.values() ?? [])];
     const variants = variations.map((v, i) => {
       const vd = v.item_variation_data ?? {};
+      const vendorInfo = vendorInfoFor(vd, `variation ${v.id}`);
       return {
         externalRef: v.id,
         sku: vd.sku ?? null,
@@ -239,6 +280,9 @@ export function normaliseCatalog(objects, { locationId = null, related = [] } = 
         price: variationPrice(vd, `variation ${v.id}`),
         options: optionsFor(vd, optionNames, optionValueNames),
         tracksStock: tracksStock(vd, locationId),
+        vendorExternalRef: vendorInfo.vendorExternalRef,
+        vendorCode: vendorInfo.vendorCode,
+        unitCost: vendorInfo.unitCost,
         sourceVersion: Number(v.version ?? 0),
         /* A variation is withdrawn if IT is, or if its item is. */
         withdrawn: withdrawn || isWithdrawn(v, locationId),
@@ -280,7 +324,7 @@ export function normaliseCatalog(objects, { locationId = null, related = [] } = 
         data.category_id ??
         null,
       styleId: customAttr(data, "style_id"),
-      vendor: customAttr(data, "vendor"),
+      commissionPct: customAttrInt(data, "commission"),
       sourceVersion: Number(o.version ?? 0),
       withdrawn,
       variants,

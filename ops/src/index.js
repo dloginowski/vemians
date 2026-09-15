@@ -73,7 +73,7 @@ const DEV_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "[::1]"]);
 /* Which /approvals/<id> writes were parked from an Items-tab tile, so the
    result page can send the approver back there instead of to the agent
    page every other approval link returns to. */
-const ITEMS_TAB_TOOLS = new Set(["catalog.set_channel", "catalog.set_custom_fields", "catalog.set_style_and_vendor"]);
+const ITEMS_TAB_TOOLS = new Set(["catalog.set_channel", "catalog.set_custom_fields", "catalog.set_square_attributes"]);
 
 function servesOps(hostname, env) {
   /* An explicit SURFACE wins over the hostname, in both directions. */
@@ -464,7 +464,7 @@ async function ops(request, env, path) {
     return json(result);
   }
 
-  if (path.startsWith("/items/") && (path.endsWith("/channel") || path.endsWith("/custom-fields") || path.endsWith("/style-vendor"))) {
+  if (path.startsWith("/items/") && (path.endsWith("/channel") || path.endsWith("/custom-fields") || path.endsWith("/square-attributes"))) {
     const email = identity.claims?.email;
     if (typeof email !== "string" || !email.includes("@")) {
       return html(refusalPage(403, "This page requires signing in as a person, not a service token."), 403);
@@ -488,7 +488,7 @@ async function ops(request, env, path) {
       ? "/channel"
       : path.endsWith("/custom-fields")
         ? "/custom-fields"
-        : "/style-vendor";
+        : "/square-attributes";
     const handle = path.slice("/items/".length, path.length - suffix.length);
 
     let form;
@@ -522,17 +522,42 @@ async function ops(request, env, path) {
       args = { handle, fields };
       summaryNoun = "custom fields";
     } else {
-      /* style_id/vendor — Square's own Custom Attributes (P0-136), not ours.
-         A blank input means "leave this one as it is," not "clear it": only
-         a field the person actually typed something into is sent at all, so
-         catalog.set_style_and_vendor's own undefined-means-unchanged
+      /* style_id/vendor/vendor_code/unit_cost/commission — Square's own
+         Custom Attributes and Vendor entity (P0-136), not ours. A blank
+         input means "leave this one as it is," not "clear it": only a
+         field the person actually typed something into is sent at all, so
+         catalog.set_square_attributes' own undefined-means-unchanged
          handling applies the same way it would to a call that only ever
-         meant to touch one of the two. */
+         meant to touch one of the five. commission is parsed as a plain
+         integer here; unit_cost is a dollar string ("$45.00") parsed the
+         same way a spreadsheet's own price column is (batch.js's
+         parsePriceToMinor) — the agent-tool schema layer always takes a
+         plain integer minor-units argument, dollar-string parsing happens
+         only at this human-facing form boundary. A malformed or
+         out-of-range value (commission, or a unit_cost that fails to
+         parse) is left for the tool's own check() to refuse with a clear
+         reason, rather than silently dropped. */
       const styleId = String(form.get("style_id") ?? "").trim();
       const vendor = String(form.get("vendor") ?? "").trim();
-      toolName = "catalog.set_style_and_vendor";
-      args = { handle, ...(styleId ? { style_id: styleId } : {}), ...(vendor ? { vendor } : {}) };
-      summaryNoun = "style ID or vendor";
+      const vendorCode = String(form.get("vendor_code") ?? "").trim();
+      const unitCostRaw = String(form.get("unit_cost") ?? "").trim();
+      const unitCostMinor = unitCostRaw === "" ? undefined : parsePriceToMinor(unitCostRaw);
+      const commissionRaw = String(form.get("commission") ?? "").trim();
+      const commission = commissionRaw === "" ? undefined : Number(commissionRaw);
+      toolName = "catalog.set_square_attributes";
+      args = {
+        handle,
+        ...(styleId ? { style_id: styleId } : {}),
+        ...(vendor ? { vendor } : {}),
+        ...(vendorCode ? { vendor_code: vendorCode } : {}),
+        /* parsePriceToMinor returning null (unparsable) still gets sent
+           through as null rather than silently dropped, so the tool's own
+           schema validation refuses it with a clear reason instead of the
+           form quietly ignoring what was typed. */
+        ...(unitCostMinor !== undefined ? { unit_cost_minor: unitCostMinor } : {}),
+        ...(commission !== undefined ? { commission } : {}),
+      };
+      summaryNoun = "style ID, vendor, vendor code, unit cost or commission";
     }
 
     /* Applies immediately — no second, separate "Yes, do this" confirmation

@@ -66,6 +66,32 @@ CREATE VIEW mirror_category_index AS
 SELECT id, external_ref, name, synced_at
 FROM mirror_category WHERE archived_at IS NULL;
 
+-- ── vendors  (Square's own Vendor object, Vendors API — NOT the Catalog API) ─
+--
+-- Retail Plus/Premium territory (Test-PRD-P0-136-square_custom_attributes,
+-- revised): `vendor` used to be a plain-text Square Custom Attribute on
+-- mirror_product, until the owner pointed out Square already has a real
+-- Vendor entity, tied to a real per-variation `unit_cost_money` — "I don't
+-- want to be duplicating that... use everything that's available in Retail
+-- Plus." A Vendor lives at a wholly separate Square API (/v2/vendors/*, not
+-- /v2/catalog/*), so it needs its own sync pass and its own mirror table,
+-- the same reason mirror_category exists for CATEGORY. NOT a closed set the
+-- way categories are, though: a new vendor is created in Square on demand
+-- (ops/src/tools/catalog-writer.js's own resolve-or-create), because an
+-- evolving supplier list is exactly what this feature is for.
+CREATE TABLE mirror_vendor (
+  id           TEXT PRIMARY KEY,              -- ours
+  external_ref TEXT NOT NULL UNIQUE,          -- Square Vendor id
+  name         TEXT NOT NULL,
+  status       TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive')),
+  archived_at  TEXT,                          -- same archive-only convention as every mirror_* table
+  synced_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE VIEW mirror_vendor_index AS
+SELECT id, external_ref, name, status, synced_at
+FROM mirror_vendor WHERE archived_at IS NULL;
+
 -- ── products  (Square ITEM) ────────────────────────────────────────────────
 
 CREATE TABLE mirror_product (
@@ -113,14 +139,14 @@ CREATE TABLE mirror_product (
   custom_fields      TEXT NOT NULL DEFAULT '{}',
   -- THE OPPOSITE OF channel/custom_fields ABOVE: Square's own Custom
   -- Attributes (Test-PRD-P0-136-square_custom_attributes), so Square IS
-  -- authoritative for these two and the sync job DOES overwrite them on
-  -- every re-sync, the same as `title`. The owner's own words, having
-  -- weighed "ours, not Square's" against Square's own built-in mechanism:
-  -- "why do we need to have our own custom fields then? It doesn't make
-  -- sense. If it already exists in Square, why invent something extra? ...
-  -- we don't mind having our stuff being stored completely in Square." Each
-  -- is read from item_data.custom_attribute_values by a well-known `key`
-  -- ("style_id" / "vendor") this codebase defines once via Square's own
+  -- authoritative for these and the sync job DOES overwrite them on every
+  -- re-sync, the same as `title`. The owner's own words, having weighed
+  -- "ours, not Square's" against Square's own built-in mechanism: "why do
+  -- we need to have our own custom fields then? It doesn't make sense. If
+  -- it already exists in Square, why invent something extra? ... we don't
+  -- mind having our stuff being stored completely in Square." style_id is
+  -- read from item_data.custom_attribute_values by the well-known `key`
+  -- "style_id" this codebase defines once via Square's own
   -- CatalogCustomAttributeDefinition — no opaque Square-assigned id is ever
   -- stored here, because the API lets an app address its own attribute by
   -- that key directly. style_id follows the owner's own nomenclature —
@@ -134,7 +160,32 @@ CREATE TABLE mirror_product (
   -- linking, but we don't want to actually touch them or generate them at
   -- all" — sku stays exactly as it always has, read-only, Square's own.
   style_id           TEXT,
-  vendor             TEXT,
+  -- `vendor` used to live HERE as a plain-text Custom Attribute. It moved to
+  -- mirror_variant (vendor_id, referencing mirror_vendor) once the owner
+  -- got Retail Plus and pointed out Square already has a real Vendor entity
+  -- with real per-variation cost tracking: "I don't want to be duplicating
+  -- that." A product's own "vendor" for display is now resolved by joining
+  -- its ordinal-0 variation's vendor_id — see catalog-writer.js's
+  -- listAllProducts/productByHandle — the same "one vendor per product,
+  -- applied uniformly to every variation" simplification the owner chose
+  -- over per-variation vendors (Square supports the latter; this shop
+  -- does not need it).
+  --
+  -- commission stays HERE, unmoved: a plain integer 0-100, never a decimal
+  -- percentage — the owner's own words: "commission, that's a custom
+  -- field, zero to a hundred, integer... that's only for vendors —
+  -- anything that has a vendor, it has a commission." Square has no
+  -- concept of a resale commission at all, so unlike vendor/cost there is
+  -- nothing of Square's to move this onto. Cost-of-goods for a product
+  -- with NO vendor also stays put, in the pre-existing `custom_fields`
+  -- free-text entry above — Square's own unit_cost_money lives inside
+  -- vendor_information, which needs a vendor to attach to, so it simply
+  -- has no home for something this shop produces itself. The vendor-
+  -- requires-commission rule is checked in catalog.set_square_attributes
+  -- and catalog.create_product rather than as a CHECK constraint here (a
+  -- constraint cannot see "the OTHER value this same call is also
+  -- setting").
+  commission_pct     INTEGER,
   category_id        TEXT REFERENCES mirror_category(id),
   source_version     INTEGER NOT NULL DEFAULT 0,  -- Square's optimistic-concurrency version
   archived_at        TEXT,
@@ -145,7 +196,7 @@ CREATE INDEX idx_mirror_product_style_id ON mirror_product (style_id);
 
 CREATE VIEW mirror_product_index AS
 SELECT id, external_ref, handle, title, source_description, status, channel,
-       custom_fields, style_id, vendor, category_id, source_version, synced_at
+       custom_fields, style_id, commission_pct, category_id, source_version, synced_at
 FROM mirror_product WHERE archived_at IS NULL;
 
 -- ── variants  (Square ITEM_VARIATION) ──────────────────────────────────────
@@ -170,6 +221,30 @@ CREATE TABLE mirror_variant (
   currency       TEXT NOT NULL,
   options        TEXT NOT NULL DEFAULT '{}',  -- JSON: option name -> value
   tracks_stock   INTEGER NOT NULL DEFAULT 0,  -- Square location_overrides.track_inventory
+  -- Square's own CatalogItemVariationVendorInformation
+  -- (item_variation_data.vendor_information[0] — Square allows an array,
+  -- this shop only ever uses one entry per variation, applied uniformly
+  -- across every variation of a product by catalog-writer.js's own write
+  -- path). Retail-Plus-gated to WRITE; readable on any plan.
+  --   vendor_id         our mirror_vendor.id, resolved from vendor_information's
+  --                     own vendor_id the same way category_id is resolved
+  --                     from a category's external_ref (mirror.js's syncCatalog)
+  --   vendor_code       the VENDOR's own SKU/product code for this item — "an
+  --                     invoice-like identifier," the owner's own words — never
+  --                     Square's own `sku` above, never this shop's `style_id`
+  --   unit_cost_minor / unit_cost_currency
+  --                     integer minor units, never a float (Test-PRD-P0-15-
+  --                     money_minor_units) — Square's own `unit_cost_money`,
+  --                     what this shop PAID the vendor, as opposed to `price_minor`,
+  --                     what a customer pays. Zero-with-a-currency for "no cost
+  --                     entered yet", the same honest-default `price_minor`
+  --                     already uses for VARIABLE_PRICING (catalog.js's own
+  --                     variationPrice) — not NULL, so every `_minor` column
+  --                     in this schema stays NOT NULL (Test-PRD-P0-15's own rule).
+  vendor_id           TEXT REFERENCES mirror_vendor(id),
+  vendor_code         TEXT,
+  unit_cost_minor     INTEGER NOT NULL DEFAULT 0,
+  unit_cost_currency  TEXT NOT NULL DEFAULT 'USD',
   source_version INTEGER NOT NULL DEFAULT 0,
   archived_at    TEXT,
   synced_at      TEXT NOT NULL DEFAULT (datetime('now'))
@@ -179,7 +254,9 @@ CREATE INDEX idx_mirror_variant_sku ON mirror_variant (sku) WHERE sku IS NOT NUL
 
 CREATE VIEW mirror_variant_index AS
 SELECT id, external_ref, product_id, sku, title, ordinal,
-       price_minor, currency, options, tracks_stock, source_version, synced_at
+       price_minor, currency, options, tracks_stock,
+       vendor_id, vendor_code, unit_cost_minor, unit_cost_currency,
+       source_version, synced_at
 FROM mirror_variant WHERE archived_at IS NULL;
 
 -- ── images  (Square IMAGE) ─────────────────────────────────────────────────
@@ -273,6 +350,9 @@ CREATE TRIGGER mirror_image_no_delete BEFORE DELETE ON mirror_image
 BEGIN SELECT RAISE(ABORT, 'catalog mirror is archive-only; set archived_at'); END;
 
 CREATE TRIGGER mirror_category_no_delete BEFORE DELETE ON mirror_category
+BEGIN SELECT RAISE(ABORT, 'catalog mirror is archive-only; set archived_at'); END;
+
+CREATE TRIGGER mirror_vendor_no_delete BEFORE DELETE ON mirror_vendor
 BEGIN SELECT RAISE(ABORT, 'catalog mirror is archive-only; set archived_at'); END;
 
 -- The ingest receipt is append-only for the same reason inventory_adjustment
