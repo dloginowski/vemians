@@ -2371,41 +2371,57 @@ document.getElementById("items-grid").addEventListener("click", async (e) => {
 /* Dirty-tracking for the ONE Save button per tile — the owner's own
    words: "let's just have one save button for the whole page... disabled
    and becomes enabled when any changes are detected... instead of having
-   a per field kind of save button." Every field inside .item-badges or
-   .item-edit bubbles input/change up here; whichever FORM it lives in is
-   marked dirty (submitted on Save), and the tile itself is marked dirty
-   (enables the button, and is what the Close confirmation above checks).
+   a per field kind of save button." Then: "resetting values should clear
+   save state" — so this is a RECOMPUTE, not a one-way latch: a field
+   counts as dirty only while its current value still differs from
+   defaultValue/defaultChecked (the browser's own record of the value the
+   HTML actually shipped with, untouched by any later .value= assignment),
+   so typing something back to what it already was clears that field's own
+   highlight, and once nothing in a form differs any more, the form itself
+   stops being submitted on Save, and once no form in the tile is dirty,
+   the tile's own Save button goes back to disabled.
+
    The MSRP input is the one exception with no form of its own — the
    owner's own words: "if I change it in the header, it gets applied to
    all of its variations at the same time... individual variations I can
    also edit individually" — so typing into it copies straight into every
    variation's own price input (still just that ONE form, still overridable
-   afterward by editing one variation's own price directly). */
-function markDirty(form) {
+   afterward by editing one variation's own price directly, and still
+   cleared the same way if that copy happens to land back on the original
+   price). */
+function isFieldDirty(el) {
+  return el.type === "checkbox" ? el.checked !== el.defaultChecked : el.value !== el.defaultValue;
+}
+function refreshDirtyState(field) {
+  field.classList.toggle("field-dirty", isFieldDirty(field));
+
+  const form = field.closest(".item-badges form, .item-edit form, .variations-header form, .variations-body form");
   if (!form) return;
-  form.dataset.dirty = "1";
+  const formDirty = [...form.querySelectorAll("input")].some(isFieldDirty);
+  if (formDirty) {
+    form.dataset.dirty = "1";
+  } else {
+    delete form.dataset.dirty;
+  }
+
   const tile = form.closest(".item-tile");
   if (!tile) return;
-  tile.classList.add("dirty");
+  const tileDirty = [...tile.querySelectorAll("form")].some((f) => f.dataset.dirty === "1");
+  tile.classList.toggle("dirty", tileDirty);
   const saveBtn = tile.querySelector(".item-save-all");
-  if (saveBtn) saveBtn.disabled = false;
+  if (saveBtn) saveBtn.disabled = !tileDirty;
 }
 function onItemsGridChange(e) {
   if (e.target.matches(".variations-msrp")) {
     const accordion = e.target.closest(".variations-accordion");
     accordion?.querySelectorAll(".variation-price").forEach((input) => {
       input.value = e.target.value;
-      input.classList.add("field-dirty");
+      refreshDirtyState(input);
     });
-    e.target.classList.add("field-dirty");
-    markDirty(accordion?.querySelector(".variations-body form"));
     return;
   }
   const form = e.target.closest(".item-badges form, .item-edit form, .variations-header form, .variations-body form");
-  if (form) {
-    e.target.classList.add("field-dirty");
-    markDirty(form);
-  }
+  if (form) refreshDirtyState(e.target);
 }
 document.getElementById("items-grid").addEventListener("input", onItemsGridChange);
 document.getElementById("items-grid").addEventListener("change", onItemsGridChange);
@@ -2451,8 +2467,8 @@ function showFormError(form, message) {
   form.insertAdjacentElement("afterend", p);
 }
 
-/* The tile's own ONE Save: every form marked dirty (see markDirty above)
-   submits in turn, and the page only reloads once, at the end, if every
+/* The tile's own ONE Save: every form marked dirty (see refreshDirtyState
+   above) submits in turn, and the page only reloads once, at the end, if every
    one of them succeeded — a form that failed keeps its own inline error
    and the button re-enables so the rest can be fixed and saved again,
    rather than losing track of which of several sections still needs
