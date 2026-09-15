@@ -762,6 +762,14 @@ async function ops(request, env, path) {
     if (result?.error || result?.denied) {
       return json({ error: result.error || result.denied || `That ${summaryNoun} change was refused.` }, 400);
     }
+    /* The stock stepper updates its own field in place rather than
+       reloading the whole page (a stepper implies rapid repeat clicks) —
+       it needs the resulting count back to do that, so this is the one
+       route on this tile that answers with JSON on success instead of the
+       303 every resend-everything form still uses. */
+    if (suffix === "/inventory") {
+      return json({ on_hand: result.data.on_hand });
+    }
     return new Response(null, { status: 303, headers: { Location: "/items" } });
   }
 

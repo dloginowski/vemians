@@ -1783,19 +1783,20 @@ ${INPUT_BAR_CSS}
 .variations-body input[name^="unit_cost_"] {
   flex: 0 0 auto; width: 5em;
 }
-/* Stock — "show current count, adjust with +/-." A plain count, a narrow
-   delta box (nobody adjusts by more than a few hundred units at once), and
-   a small button, visually its own group at the end of the row rather than
-   another right-justified value column, since it is a command, not a fact
-   about the variation the way price/cost are. */
-.variation-stock { flex: 0 0 auto; font-size: 11px; color: var(--muted); margin-left: 4px; }
-.variation-stock-delta { flex: 0 0 auto; width: 4em; text-align: right; }
-.variation-stock-adjust {
-  flex: 0 0 auto; font: inherit; font-size: 11px; padding: 3px 8px;
+/* Stock — "a small read-only entry field and two small buttons on the
+   sides, - and +." A stepper, visually its own group at the end of the row
+   rather than another right-justified value column, since it is a
+   command, not a fact about the variation the way price/cost are. */
+.variation-stock-count {
+  flex: 0 0 auto; width: 2.5em; text-align: center; margin-left: 4px;
+  background: var(--image-ground); color: var(--muted); cursor: default;
+}
+.variation-stock-step {
+  flex: 0 0 auto; width: 20px; height: 20px; padding: 0; line-height: 1; font: inherit; font-size: 13px;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--muted); cursor: pointer;
 }
-.variation-stock-adjust:hover { color: var(--accent); border-color: var(--accent); }
-.variation-stock-adjust:disabled { opacity: 0.5; cursor: default; }
+.variation-stock-step:hover { color: var(--accent); border-color: var(--accent); }
+.variation-stock-step:disabled { opacity: 0.5; cursor: default; }
 /* "Any changed fields should be marked with an orange highlight" — added
    to the specific field that changed (onItemsGridChange, below), not just
    the form it lives in. Specific enough (element + class, twice over) to
@@ -1979,14 +1980,20 @@ function itemTile(product, canEdit) {
   const hasVendor = Boolean(product.vendor);
   /* Stock (P0-31, revised) — "show current count, adjust with +/-," the
      owner's own choice over a plain "type a target count" box, once it was
-     clear a stock count is never overwritten directly, only adjusted. This
-     lives INSIDE the same pricing <form> purely for layout (one visual row
-     per variation); it is deliberately NOT part of that form's own dirty-
-     tracking or the tile's one big Save (onItemsGridChange's own early
-     return for .variation-stock-delta, views.js's script below) — a stock
-     movement is an EVENT with its own moment in time, posted the instant
-     the +/- button is clicked, never batched with an unrelated price edit
-     someone happens to also be mid-typing. */
+     clear a stock count is never overwritten directly, only adjusted.
+     REVISED again: "a small read-only entry field and two small buttons on
+     the sides, - and +" — not a free-typed delta plus one Adjust button, a
+     stepper: a read-only field showing the current count, flanked by its
+     own minus and plus. Each click posts a delta of exactly &plusmn;1
+     immediately and updates the field in place (no page reload — a
+     stepper implies rapid repeat clicks, e.g. receiving 10 units one at a
+     time). This lives INSIDE the same pricing <form> purely for layout
+     (one visual row per variation); it is deliberately NOT part of that
+     form's own dirty-tracking or the tile's one big Save — a stock
+     movement is an EVENT with its own moment in time, never batched with
+     an unrelated price edit someone happens to also be mid-typing.
+     `readonly`, not `disabled` — a disabled field submits nothing AND
+     cannot be selected/copied; this one only needs to refuse typing. */
   const variationRows = product.variations
     .map(
       (v, i) =>
@@ -1998,9 +2005,9 @@ function itemTile(product, canEdit) {
           ? `<input class="variation-unit-cost" name="unit_cost_${i}" value="${v.unit_cost_minor ? esc((v.unit_cost_minor / 100).toFixed(2)) : ""}" placeholder="Cost">`
           : "") +
         `<input class="variation-price" name="price_${i}" value="${esc((v.price_minor / 100).toFixed(2))}" placeholder="Price">` +
-        `<span class="variation-stock">${esc(String(v.on_hand ?? 0))} in stock</span>` +
-        `<input type="number" class="variation-stock-delta" step="1" placeholder="&plusmn;qty">` +
-        `<button type="button" class="variation-stock-adjust" data-variant-id="${esc(v.id)}" aria-label="Adjust stock" title="Adjust stock by the amount typed">Adjust</button>` +
+        `<button type="button" class="variation-stock-step" data-variant-id="${esc(v.id)}" data-delta="-1" aria-label="Remove one from stock" title="Remove one from stock">&minus;</button>` +
+        `<input type="text" class="variation-stock-count" value="${esc(String(v.on_hand ?? 0))}" readonly aria-label="Current stock">` +
+        `<button type="button" class="variation-stock-step" data-variant-id="${esc(v.id)}" data-delta="1" aria-label="Add one to stock" title="Add one to stock">+</button>` +
         `</div>`,
     )
     .join("");
@@ -2482,9 +2489,9 @@ document.getElementById("items-grid").addEventListener("click", async (e) => {
     await saveTile(saveBtn.closest(".item-tile"));
     return;
   }
-  const stockBtn = e.target.closest(".variation-stock-adjust");
-  if (stockBtn) {
-    await adjustStock(stockBtn);
+  const stepBtn = e.target.closest(".variation-stock-step");
+  if (stepBtn) {
+    await stepStock(stepBtn);
     return;
   }
   const closeBtn = e.target.closest(".item-close");
@@ -2565,10 +2572,13 @@ function onItemsGridChange(e) {
     });
     return;
   }
-  /* Stock's own +/- box lives inside the pricing form for layout only — it
-     never marks that form (or the tile's one Save button) dirty, and Save
-     never touches it. Its own button posts it immediately (below). */
-  if (e.target.matches(".variation-stock-delta")) return;
+  /* Stock's own read-only field lives inside the pricing form for layout
+     only — it is never user-editable (so this never actually fires from a
+     real click/keystroke) and must never mark that form or the tile's one
+     Save button dirty either way. Its own +/- buttons post immediately
+     (below), updating this field's value AND its defaultValue together
+     (stepStock, via setAttribute) so isFieldDirty never sees a diff here. */
+  if (e.target.matches(".variation-stock-count")) return;
   const form = e.target.closest(".item-badges form, .item-edit form, .variations-header form, .variations-body form");
   if (form) refreshDirtyState(e.target);
 }
@@ -2639,41 +2649,44 @@ async function saveTile(tile) {
   }
 }
 
-/* "Show current count, adjust with +/-" — posted the instant this button is
-   clicked, never batched into the tile's own big Save (see the P0-31
-   comment on variationRows, views.js, for why). Not a <form> at all: the
-   delta box carries no name and belongs to no form's own FormData, so
-   there is nothing for saveTile's own dirty-form scan to pick up here
-   either way. */
-async function adjustStock(button) {
+/* "A small read-only entry field and two small buttons on the sides, - and
+   +" — each click posts a delta of exactly its own button's +-1 the
+   instant it is clicked, never batched into the tile's own big Save (see
+   the P0-31 comment on variationRows, above, for why). No <form> at all:
+   the count field carries no name and belongs to no form's own FormData,
+   so there is nothing for saveTile's own dirty-form scan to pick up here
+   either way. Updates the field in place on success — a stepper implies
+   rapid repeat clicks, and reloading the whole page after every one of
+   them would make receiving ten units one at a time unusable. */
+async function stepStock(button) {
   const row = button.closest(".row");
   const existingError = row.nextElementSibling;
   if (existingError?.classList.contains("item-edit-error")) existingError.remove();
-
-  const delta = Number(row.querySelector(".variation-stock-delta")?.value);
-  if (!Number.isInteger(delta) || delta === 0) {
-    showFormError(row, "Enter a non-zero whole number to adjust by.");
-    return;
-  }
+  const countField = row.querySelector(".variation-stock-count");
+  const steppers = row.querySelectorAll(".variation-stock-step");
 
   const handle = button.closest(".item-tile")?.dataset.handle;
   const body = new FormData();
   body.set("variant_id", button.dataset.variantId);
-  body.set("delta", String(delta));
+  body.set("delta", button.dataset.delta);
 
-  button.disabled = true;
+  steppers.forEach((b) => (b.disabled = true));
   try {
     const res = await fetch("/items/" + handle + "/inventory", { method: "POST", body });
-    if (res.ok) {
-      location.reload();
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showFormError(row, data.error || "That change was refused.");
       return;
     }
-    const data = await res.json().catch(() => ({}));
-    showFormError(row, data.error || "That change was refused.");
+    /* setAttribute, not .value= — updates defaultValue right along with
+       it, so isFieldDirty (above) never sees this as a change to save. */
+    if (countField && Number.isInteger(data.on_hand)) {
+      countField.setAttribute("value", String(data.on_hand));
+    }
   } catch {
     showFormError(row, "Could not reach the server — try again.");
   } finally {
-    button.disabled = false;
+    steppers.forEach((b) => (b.disabled = false));
   }
 }
 

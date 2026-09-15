@@ -622,11 +622,22 @@ that does not trace to one of these is a process failure (see §12).
     exposed the same way `productByHandle` already is) rather than a second store binding.
     `listAllProducts` now also batches a read of the whole `inventory_level` view (one query, not
     one per variation — the same trade vendor names and images already make), so each variation
-    row in the Items tab shows its own current count read-only, a narrow `±qty` delta box, and a
-    small Adjust button that posts immediately, on its own — deliberately NOT part of the tile's
-    one big resend-everything Save button, since a stock movement is an event with its own moment
-    in time, not a value to keep in sync with whatever else on the tile someone happens to also be
-    mid-editing.
+    row in the Items tab shows its own current count.
+
+    **REVISED: a stepper, not a free-typed delta.** "A small read-only entry field and two small
+    buttons on the sides, - and +." `.variation-stock-count` is a `readonly` (not `disabled` — a
+    disabled field cannot even be selected or copied) text field showing the current count,
+    flanked by its own `.variation-stock-step` minus and plus buttons; each click posts a delta of
+    exactly that button's own &plusmn;1 immediately, on its own — still deliberately NOT part of
+    the tile's one big resend-everything Save button, since a stock movement is an event with its
+    own moment in time, not a value to keep in sync with whatever else on the tile someone happens
+    to also be mid-editing. A stepper implies rapid repeat clicks (receiving ten units one at a
+    time), so a click updates the field IN PLACE from the response's own resulting count rather
+    than reloading the whole page — the one route on this tile that answers a success with JSON
+    (`{on_hand}`) instead of the `303` every other, resend-everything form still gets. The field's
+    value is updated via `setAttribute`, not `.value =` — that keeps `defaultValue` in lock-step
+    with it, so `isFieldDirty` (the same function the tile's own Save button relies on everywhere
+    else) never mistakes a stepper click for an unsaved pricing edit.
 
 31. **`Test-PRD-P0-32-tickets`** — Company-wide issues live in their own `tickets` store. A ticket
     cannot be deleted, only moved through status, and resolving one requires a timestamp.
