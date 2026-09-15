@@ -1794,7 +1794,11 @@ ${INPUT_BAR_CSS}
    .variation-stock-stepper's own 5.5em exactly (was a 9-characters-exact
    9ch), with a larger font-size so the pattern actually fills it rather
    than leaving it looking sparse. */
-.variations-header input[name="style_id"] { flex: 0 0 auto; width: 5.5em; font-size: 13px; }
+/* "The style ID is a little bit bigger than what I want. Decrease the
+   padding a little to make it the same size" — the larger 13px font
+   needs less of the shared 3px 5px padding to end up the same overall
+   height as the stepper's own 11px count field beside it. */
+.variations-header input[name="style_id"] { flex: 0 0 auto; width: 5.5em; font-size: 13px; padding: 1px 5px; }
 /* "Ensure the header's cost/MSRP align exactly with the children rows'
    own cost/price" — the row's own title absorbs all its row's leftover
    width (flex: 1 1 auto), pushing its fixed-width stepper/cost/price

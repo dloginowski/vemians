@@ -1065,7 +1065,7 @@ check("test_PRD_P0_135_item_edit_applies_immediately__header_and_row_fields_are_
      BEFORE style_id (between it and "Variations") so style_id/Cost/MSRP
      read as one packed group at the header's own right end, the same way
      stepper/Cost/price already are in each row. */
-  assert.match(body, /\.variations-header input\[name="style_id"\]\s*\{[^}]*width: 5\.5em[^}]*font-size: 13px/);
+  assert.match(body, /\.variations-header input\[name="style_id"\]\s*\{[^}]*width: 5\.5em[^}]*font-size: 13px[^}]*padding: 1px 5px/, "smaller padding compensates for the larger font, keeping the box the same overall size as the stepper beside it");
   assert.match(body, /<span class="variations-header-spacer"><\/span>/, "an invisible spacer absorbs the header's own leftover width, the same way each row's own title does");
   assert.match(body, /\.variations-header-spacer\s*\{\s*flex: 1 1 auto;\s*\}/);
   assert.match(body, /\.variations-body \.row\s*\{[^}]*padding: 3px 8px 3px 0/, "an 8px right inset matches the header's own 8px right padding");

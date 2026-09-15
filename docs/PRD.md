@@ -754,6 +754,11 @@ that does not trace to one of these is a process failure (see §12).
     `.variation-stock-stepper`'s `5.5em` exactly (was a 9-characters-exact `9ch`), with a larger
     `13px` font-size so the pattern fills that wider box instead of looking sparse in it.
 
+    **REVISED: less padding, to offset the bigger font.** "The style ID is a little bit bigger
+    than what I want. Decrease the padding a little to make it the same size." The larger `13px`
+    font needed less of the shared `3px 5px` padding to end up the same overall height as the
+    stepper's own `11px` count field beside it — `style_id`'s own padding is `1px 5px` now.
+
 31. **`Test-PRD-P0-32-tickets`** — Company-wide issues live in their own `tickets` store. A ticket
     cannot be deleted, only moved through status, and resolving one requires a timestamp.
     Comments are append-only. Links to orders, customers, products and shifts are id plus a
