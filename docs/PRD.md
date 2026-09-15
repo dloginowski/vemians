@@ -724,6 +724,16 @@ that does not trace to one of these is a process failure (see §12).
     row's own fields still sat 8px further right than the header's. `.variations-body .row`'s own
     padding is `3px 8px 3px 0` now, matching that 8px on the side that needed it.
 
+    **REVISED: vendor_code and commission get the same short-hint treatment.** "Hint for vendor
+    SKU should be just 'vendor SKU', not 'own SKU' or something like that, as short as possible...
+    the commission just say 'COMM'... enough to accommodate the numeric entry [without]
+    overflowing." `vendor_code`'s own placeholder is `"Vendor SKU"` now, `commission`'s own is
+    `"Comm"` — both short enough to fit inside their own already-narrow widths (`8em`/`4em`)
+    without the hint text overflowing the box the way "Vendor's own SKU/code"/"Commission %
+    (0-100)" did. Neither field lost the fuller wording outright — it moved to a `title` tooltip
+    instead, the same "shorten the visible hint, keep the fuller explanation reachable on hover"
+    pattern `style_id`'s own revision already established.
+
 31. **`Test-PRD-P0-32-tickets`** — Company-wide issues live in their own `tickets` store. A ticket
     cannot be deleted, only moved through status, and resolving one requires a timestamp.
     Comments are append-only. Links to orders, customers, products and shifts are id plus a

@@ -861,8 +861,11 @@ check("test_PRD_P0_136_square_custom_attributes__the_edit_form_posts_to_square_a
   assert.doesNotMatch(body, /<input name="unit_cost"/, "unit_cost is no longer a real form field anywhere");
   assert.match(body, /<input class="variations-unit-cost" placeholder="Cost/);
   assert.match(body, /<input name="vendor" value="Acme Mills" placeholder="Vendor">/);
-  assert.match(body, /<input name="vendor_code" value="ACME-4471" placeholder="Vendor's own SKU\/code">/);
-  assert.match(body, /<input name="commission" value="20" placeholder="Commission % \(0-100\)">/);
+  /* "Hint for vendor SKU should be just vendor SKU, not 'own SKU'... as
+     short as possible... commission just say COMM" — short placeholders,
+     with the fuller wording moved to a title tooltip instead of dropped. */
+  assert.match(body, /<input name="vendor_code" value="ACME-4471" placeholder="Vendor SKU" title="The vendor's own SKU\/code">/);
+  assert.match(body, /<input name="commission" value="20" placeholder="Comm" title="Commission % \(0-100\)">/);
 });
 
 check("test_PRD_P0_136_square_custom_attributes__staff_cannot_reach_the_route_before_square_is_ever_touched", async () => {
