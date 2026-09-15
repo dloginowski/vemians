@@ -1063,6 +1063,13 @@ check("test_PRD_P0_31_inventory_ledger__stock_shows_zero_with_no_commerce_bindin
   assert.match(body, /<button type="button" class="variation-stock-step" data-variant-id="v1" data-delta="-1"/);
   assert.match(body, /<input type="text" class="variation-stock-count" value="0" readonly/);
   assert.match(body, /<button type="button" class="variation-stock-step" data-variant-id="v1" data-delta="1"/);
+  /* "One continuous row with no padding! Fixed width of parent" — all
+     three pieces share one wrapper, so the row's own gap between fields
+     never lands between the minus button, the count and the plus button. */
+  const stepperStart = body.indexOf('<span class="variation-stock-stepper">');
+  const stepperEnd = body.indexOf("</span>", stepperStart);
+  const stepper = body.slice(stepperStart, stepperEnd);
+  assert.match(stepper, /^<span class="variation-stock-stepper"><button[^>]*data-delta="-1"[^>]*>&minus;<\/button><input type="text" class="variation-stock-count"[^>]*><button[^>]*data-delta="1"[^>]*>\+<\/button>$/);
 });
 
 check("test_PRD_P0_31_inventory_ledger__stock_reads_the_live_commerce_ledger", async () => {

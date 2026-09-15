@@ -1786,16 +1786,31 @@ ${INPUT_BAR_CSS}
 /* Stock — "a row of 3 small components [-][##][+], then [COST][MSRP]" —
    the stepper sits right after the variation's own name, ahead of its
    cost/price, since it is a command, not a fact about the variation the
-   way price/cost are. */
+   way price/cost are. REVISED: "one continuous row with no padding! Fixed
+   width of parent, with buttons and number fitting around value, +/-
+   taking up the rest of the space" — the three pieces are one joined
+   control now, not three separately-gapped ones: a single fixed-width,
+   single-bordered wrapper (overflow: hidden clips the two inner children
+   to its own rounded corners), the two buttons a fixed small width, and
+   the count field between them set to flex: 1 1 auto so it absorbs
+   whatever width is left inside the fixed parent — the count's own digits
+   are never wider than that leftover space is guaranteed to be, so this
+   reads as "fits the value" without the count ever driving the wrapper's
+   own (fixed) total width. */
+.variation-stock-stepper {
+  display: flex; flex: 0 0 auto; width: 5.5em;
+  border: 1px solid var(--muted); border-radius: 4px; overflow: hidden;
+}
 .variation-stock-count {
-  flex: 0 0 auto; width: 2.5em; text-align: center;
+  flex: 1 1 auto; width: auto; min-width: 0; text-align: center;
+  border: none; border-left: 1px solid var(--muted); border-right: 1px solid var(--muted); border-radius: 0;
   background: var(--image-ground); color: var(--muted); cursor: default;
 }
 .variation-stock-step {
   flex: 0 0 auto; width: 20px; height: 20px; padding: 0; line-height: 1; font: inherit; font-size: 13px;
-  border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--muted); cursor: pointer;
+  border: none; border-radius: 0; background: var(--ground); color: var(--muted); cursor: pointer;
 }
-.variation-stock-step:hover { color: var(--accent); border-color: var(--accent); }
+.variation-stock-step:hover { color: var(--accent); background: var(--image-ground); }
 .variation-stock-step:disabled { opacity: 0.5; cursor: default; }
 /* "Any changed fields should be marked with an orange highlight" — added
    to the specific field that changed (onItemsGridChange, below), not just
@@ -2001,9 +2016,11 @@ function itemTile(product, canEdit) {
         `<input type="hidden" name="variant_id_${i}" value="${esc(v.id)}">` +
         `<input type="hidden" name="currency_${i}" value="${esc(v.currency)}">` +
         `<input class="variation-title" name="title_${i}" value="${esc(v.title)}" placeholder="Variation name">` +
+        `<span class="variation-stock-stepper">` +
         `<button type="button" class="variation-stock-step" data-variant-id="${esc(v.id)}" data-delta="-1" aria-label="Remove one from stock" title="Remove one from stock">&minus;</button>` +
         `<input type="text" class="variation-stock-count" value="${esc(String(v.on_hand ?? 0))}" readonly aria-label="Current stock">` +
         `<button type="button" class="variation-stock-step" data-variant-id="${esc(v.id)}" data-delta="1" aria-label="Add one to stock" title="Add one to stock">+</button>` +
+        `</span>` +
         (hasVendor
           ? `<input class="variation-unit-cost" name="unit_cost_${i}" value="${v.unit_cost_minor ? esc((v.unit_cost_minor / 100).toFixed(2)) : ""}" placeholder="Cost">`
           : "") +

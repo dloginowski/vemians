@@ -645,6 +645,16 @@ that does not trace to one of these is a process failure (see §12).
     ahead of `unit_cost_N`/`price_N` — matching the header above it, where `style_id`'s own field
     similarly comes first, ahead of the same two broadcasters.
 
+    **REVISED: one joined control, not three separately-spaced pieces.** "One continuous row with
+    no padding! Fixed width of parent, with buttons and number fitting around value, +/- taking up
+    the rest of the space." The minus button, the count field and the plus button now share one
+    `.variation-stock-stepper` wrapper — a single fixed-width, single-bordered box (`overflow:
+    hidden` clips its two children to the wrapper's own rounded corners) — instead of being three
+    ordinary siblings inside `.row` with the row's own gap landing between each of them. The two
+    buttons stay a fixed small width; the count field between them is `flex: 1 1 auto`, so it
+    absorbs whatever width the fixed wrapper has left over after the buttons, rather than either
+    driving the wrapper wider as the digits change or needing a width guess of its own.
+
 31. **`Test-PRD-P0-32-tickets`** — Company-wide issues live in their own `tickets` store. A ticket
     cannot be deleted, only moved through status, and resolving one requires a timestamp.
     Comments are append-only. Links to orders, customers, products and shifts are id plus a
