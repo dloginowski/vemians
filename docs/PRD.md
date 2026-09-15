@@ -3203,18 +3203,23 @@ that does not trace to one of these is a process failure (see §12).
     web... and inactive, which will show all of the items that are inactive. By default, neither
     this in store nor the web view should show the inactive items."
 
-    **The top row now reads title / price, the bottom row SKU / tags — CHANNEL_LABEL itself
-    shrank to "Web" / "In store".** One label map, not a short-and-long pair to keep in sync: the
-    same shortened text renders both the compact tile's own tag and the full view's badge.
-    `primaryVariant` (the lowest-ordinal variation, same convention as `primarySku` already used)
-    supplies the price via the existing `money()` helper.
+    **The top row now reads title / price, the bottom row SKU / tags. REVISED once live: CHANNEL_LABEL
+    carries only "Web" now, not a "Web"/"In store" pair** — the owner's own words, seeing both on the
+    tile: "I don't want to see the in-store tag... why do I want to see two tags? Web is a much
+    shorter, cleaner tag... what's the in-store for?" `direct_link` — this shop has one physical
+    location, so every item is in it already — is the assumed, unremarkable state and earns NO tag at
+    all, the same treatment "Active" already gets below; only `website` (a real, worth-calling-out
+    fact) renders a tag. One label constant, not a map, so there is nothing left to render for the
+    state that no longer has one. Both the compact tile's own tag and the full view's badge read the
+    same way. `primaryVariant` (the lowest-ordinal variation, same convention as `primarySku` already
+    used) supplies the price via the existing `money()` helper.
 
     **A collapsed tile shows an "Inactive" tag INSTEAD of its channel/category tags, never an
-    "Active" one** — active is the assumed, unremarkable state, so it earns no tag at all.
-    `isActive` (`product.status === "active"`) drives both the tag list and a new `data-status`
-    attribute (`"active"`/`"inactive"`) on the tile itself; draft and archived both collapse into
-    the same "inactive" bucket, matching how the owner talks about status as a two-state thing,
-    not Square's own three-value lifecycle.
+    "Active" one** — active is the assumed, unremarkable state, so it earns no tag at all, the same
+    reasoning `direct_link` now gets above. `isActive` (`product.status === "active"`) drives both
+    the tag list and a new `data-status` attribute (`"active"`/`"inactive"`) on the tile itself;
+    draft and archived both collapse into the same "inactive" bucket, matching how the owner talks
+    about status as a two-state thing, not Square's own three-value lifecycle.
 
     **A new status filter, styled and structured exactly like the Dashboard's own status dropdown
     (P0-109/P0-112) rather than a second, custom-built control** — `.dash-status-select` moved out
