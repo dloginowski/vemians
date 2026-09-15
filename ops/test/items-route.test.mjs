@@ -89,21 +89,37 @@ function seedProduct(mirror, overrides = {}) {
   const custom = JSON.stringify(overrides.custom_fields ?? { "unit cost": "210.00" });
   mirror.db
     .prepare(
-      `INSERT INTO mirror_product (id, external_ref, handle, title, status, channel, custom_fields, style_id, vendor, commission_pct, category_id)
-       VALUES ('p1', 'sqitem1', 'wool-coat', 'Wool Coat', ?, ?, ?, ?, ?, ?, 'cat1')`,
+      `INSERT INTO mirror_product (id, external_ref, handle, title, status, channel, custom_fields, style_id, commission_pct, category_id)
+       VALUES ('p1', 'sqitem1', 'wool-coat', 'Wool Coat', ?, ?, ?, ?, ?, 'cat1')`,
     )
     .run(
       overrides.status ?? "active",
       overrides.channel ?? "direct_link",
       custom,
       overrides.style_id ?? null,
-      overrides.vendor ?? null,
       overrides.commission_pct ?? null,
     );
-  mirror.db.exec(
-    "INSERT INTO mirror_variant (id, external_ref, product_id, sku, title, price_minor, currency) " +
-      "VALUES ('v1', 'sqvar1', 'p1', 'VEM-100', 'One size', 45000, 'USD')",
-  );
+  /* vendor moved off mirror_product entirely (Test-PRD-P0-136-square_
+     custom_attributes, revised for Retail Plus) — a real mirror_vendor row,
+     referenced from the ordinal-0 variation, "one vendor per product." */
+  let vendorId = null;
+  if (overrides.vendor) {
+    vendorId = "vendor1";
+    mirror.db
+      .prepare("INSERT INTO mirror_vendor (id, external_ref, name) VALUES (?, 'sqvendor1', ?)")
+      .run(vendorId, overrides.vendor);
+  }
+  mirror.db
+    .prepare(
+      `INSERT INTO mirror_variant (id, external_ref, product_id, sku, title, price_minor, currency, vendor_id, vendor_code, unit_cost_minor, unit_cost_currency)
+       VALUES ('v1', 'sqvar1', 'p1', 'VEM-100', 'One size', 45000, 'USD', ?, ?, ?, ?)`,
+    )
+    .run(
+      vendorId,
+      overrides.vendor_code ?? null,
+      overrides.unit_cost_minor ?? 0,
+      overrides.unit_cost_currency ?? "USD",
+    );
 }
 
 /* Every T2 call appends an INTENT audit row before it will even return
@@ -732,6 +748,18 @@ check("test_PRD_P0_136_square_custom_attributes__the_tile_shows_style_id_and_ven
   assert.match(body, /<span>Vendor<\/span><span>Acme Mills<\/span>/);
 });
 
+check("test_PRD_P0_136_square_custom_attributes__the_tile_shows_vendor_code_and_unit_cost_when_set", async () => {
+  /* vendor_code and unit cost live on the SAME real Square Vendor
+     association as vendor (Retail Plus/Premium, revised), so both are only
+     meaningful — and only shown — alongside a vendor. */
+  const mirror = mirrorDb();
+  seedProduct(mirror, { vendor: "Acme Mills", vendor_code: "ACME-4471", unit_cost_minor: 4250 });
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.match(body, /<span>Vendor code<\/span><span>ACME-4471<\/span>/);
+  assert.match(body, /<span>Unit cost<\/span><span>\$ 42\.50<\/span>/);
+});
+
 check("test_PRD_P0_136_square_custom_attributes__neither_row_renders_when_unset", async () => {
   const mirror = mirrorDb();
   seedProduct(mirror);
@@ -743,12 +771,20 @@ check("test_PRD_P0_136_square_custom_attributes__neither_row_renders_when_unset"
 
 check("test_PRD_P0_136_square_custom_attributes__the_edit_form_posts_to_square_attributes_prefilled_with_current_values", async () => {
   const mirror = mirrorDb();
-  seedProduct(mirror, { style_id: "01-04-001", vendor: "Acme Mills", commission_pct: 20 });
+  seedProduct(mirror, {
+    style_id: "01-04-001",
+    vendor: "Acme Mills",
+    vendor_code: "ACME-4471",
+    unit_cost_minor: 4250,
+    commission_pct: 20,
+  });
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
   assert.match(body, /<form method="post" action="\/items\/wool-coat\/square-attributes">/);
   assert.match(body, /<input name="style_id" value="01-04-001" placeholder="Style ID \(NN-NN-NNN\)">/);
   assert.match(body, /<input name="vendor" value="Acme Mills" placeholder="Vendor">/);
+  assert.match(body, /<input name="vendor_code" value="ACME-4471" placeholder="Vendor's own SKU\/code">/);
+  assert.match(body, /<input name="unit_cost" value="42\.50" placeholder="Unit cost paid to vendor">/);
   assert.match(body, /<input name="commission" value="20" placeholder="Commission % \(0-100\)">/);
 });
 

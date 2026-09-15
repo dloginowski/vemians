@@ -38,6 +38,7 @@ import { createSquareAdapter } from "../../../shared/commerce/square/index.js";
 import { createImageUploader, squareAcceptsType } from "../../../shared/commerce/square/images.js";
 import { idempotencyKey } from "../../../shared/commerce/square/ids.js";
 import { moneyToSquare } from "../../../shared/commerce/square/money.js";
+import { createVendor } from "../../../shared/commerce/square/vendors.js";
 
 /* ── mirror READS, over the raw D1 binding ──────────────────────────────── */
 /*
@@ -56,12 +57,28 @@ export async function listCategories(db) {
   return (res.results ?? []).map((r) => ({ id: r.id, name: r.name }));
 }
 
+/*
+ * vendor/vendor_code/unit_cost_minor/unit_cost_currency are resolved off the
+ * product's own ORDINAL-0 variation (LEFT JOIN, so a product with no
+ * variations yet — created but not synced — still returns a row) — "one
+ * vendor per product, applied uniformly to every variation," the
+ * simplification chosen over Square's own per-variation granularity. vendor
+ * itself moved off mirror_product entirely once the owner got Retail Plus
+ * (Test-PRD-P0-136-square_custom_attributes, revised): it is Square's own
+ * Vendor name now, not a plain-text custom attribute.
+ */
+const PRODUCT_WITH_VENDOR_SELECT = `
+  SELECT p.id, p.handle, p.title, p.source_description, p.status, p.channel, p.custom_fields,
+         p.style_id, p.commission_pct, p.category_id,
+         mv.name AS vendor, v0.vendor_code, v0.unit_cost_minor, v0.unit_cost_currency
+    FROM mirror_product_index p
+    LEFT JOIN mirror_variant_index v0 ON v0.product_id = p.id AND v0.ordinal = 0
+    LEFT JOIN mirror_vendor_index mv ON mv.id = v0.vendor_id
+`;
+
 export async function productByHandle(db, handle) {
   return db
-    .prepare(
-      "SELECT id, handle, title, source_description, status, channel, custom_fields, style_id, vendor, " +
-        "commission_pct, category_id FROM mirror_product_index WHERE handle = ?",
-    )
+    .prepare(`${PRODUCT_WITH_VENDOR_SELECT} WHERE p.handle = ?`)
     .bind(handle)
     .first();
 }
@@ -87,7 +104,7 @@ export async function variantsOf(db, productId) {
 export async function listAllProducts(db, { limit } = {}) {
   const products = await db
     .prepare(
-      `SELECT p.id, p.handle, p.title, p.status, p.channel, p.custom_fields, p.style_id, p.vendor, p.commission_pct, p.category_id, c.name AS category_name
+      `SELECT p.id, p.handle, p.title, p.status, p.channel, p.custom_fields, p.style_id, p.commission_pct, p.category_id, c.name AS category_name
          FROM mirror_product_index p
          LEFT JOIN mirror_category_index c ON c.id = p.category_id
         ORDER BY p.title COLLATE NOCASE
@@ -98,7 +115,8 @@ export async function listAllProducts(db, { limit } = {}) {
 
   const variants = await db
     .prepare(
-      "SELECT product_id, sku, title, ordinal, price_minor, currency FROM mirror_variant_index ORDER BY product_id, ordinal",
+      "SELECT product_id, sku, title, ordinal, price_minor, currency, vendor_id, vendor_code, unit_cost_minor, unit_cost_currency" +
+        " FROM mirror_variant_index ORDER BY product_id, ordinal",
     )
     .bind()
     .all();
@@ -107,6 +125,12 @@ export async function listAllProducts(db, { limit } = {}) {
     if (!byProduct.has(v.product_id)) byProduct.set(v.product_id, []);
     byProduct.get(v.product_id).push(v);
   }
+
+  /* vendor NAMEs, batched the same way images/categories already are —
+     the ordinal-0 variation of each product is where "the product's own
+     vendor" is read from (see PRODUCT_WITH_VENDOR_SELECT's own comment). */
+  const vendors = await db.prepare("SELECT id, name FROM mirror_vendor_index").bind().all();
+  const vendorNameById = new Map((vendors.results ?? []).map((v) => [v.id, v.name]));
 
   /* The tile's own primary photograph (ordinal 0) — one query for every
      product's first image, the same batched-not-N+1 trade `variants` above
@@ -129,6 +153,8 @@ export async function listAllProducts(db, { limit } = {}) {
     } catch {
       custom_fields = {};
     }
+    const variations = byProduct.get(p.id) ?? [];
+    const v0 = variations[0];
     return {
       id: p.id,
       handle: p.handle,
@@ -138,9 +164,12 @@ export async function listAllProducts(db, { limit } = {}) {
       category_name: p.category_name,
       custom_fields,
       style_id: p.style_id ?? null,
-      vendor: p.vendor ?? null,
+      vendor: v0?.vendor_id ? (vendorNameById.get(v0.vendor_id) ?? null) : null,
+      vendor_code: v0?.vendor_code ?? null,
+      unit_cost_minor: v0?.vendor_id ? (v0.unit_cost_minor ?? 0) : null,
+      unit_cost_currency: v0?.vendor_id ? (v0.unit_cost_currency ?? "USD") : null,
       commission_pct: p.commission_pct ?? null,
-      variations: byProduct.get(p.id) ?? [],
+      variations,
       image_key: imageByProduct.get(p.id) ?? null,
     };
   });
@@ -271,7 +300,7 @@ export function createSquareCatalogWriter(env, opts = {}) {
   async function productRow(handle) {
     const row = await mirrorDb
       .prepare(
-        "SELECT id, external_ref, handle, title, source_description, source_version, category_id, style_id, vendor, commission_pct" +
+        "SELECT id, external_ref, handle, title, source_description, source_version, category_id, style_id, commission_pct" +
           " FROM mirror_product_index WHERE handle = ?",
       )
       .bind(handle)
@@ -280,27 +309,101 @@ export function createSquareCatalogWriter(env, opts = {}) {
     return row;
   }
 
-  /* { style_id: "01-04-001", vendor: undefined } -> only style_id in the
+  /* The CURRENT vendor/cost, read off the product's own ordinal-0 variation
+     — "one vendor per product, applied uniformly," the same simplification
+     PRODUCT_WITH_VENDOR_SELECT's own comment describes. Used by
+     updateProduct's own "resend the whole thing" fallback: undefined always
+     means "this call is not about that field," resolved to whatever is
+     already there, the same reasoning style_id/commission already use for
+     an item-level field — this is that same reasoning one level down, at
+     the variation Square itself stores vendor_information on. */
+  async function currentVendorInfo(productId) {
+    const row = await mirrorDb
+      .prepare(
+        `SELECT mv.external_ref AS vendor_external_ref, mv.name AS vendor_name,
+                v.vendor_code, v.unit_cost_minor, v.unit_cost_currency
+           FROM mirror_variant_index v
+           LEFT JOIN mirror_vendor_index mv ON mv.id = v.vendor_id
+          WHERE v.product_id = ? AND v.ordinal = 0`,
+      )
+      .bind(productId)
+      .first();
+    return (
+      row ?? {
+        vendor_external_ref: null,
+        vendor_name: null,
+        vendor_code: null,
+        unit_cost_minor: 0,
+        unit_cost_currency: "USD",
+      }
+    );
+  }
+
+  /*
+   * A plain vendor NAME in, Square's own vendor_id out — never the reverse
+   * (Test-PRD-P0-16-commerce_port: no Square identifier crosses this file's
+   * boundary in EITHER direction; a caller above this file never even sees
+   * one). OUR mirror_vendor is checked first, case-insensitively, the same
+   * "closed set, read from the mirror" pattern catalog-write.js's own
+   * matchCategory uses for categories — except vendors are NOT a closed
+   * set: a name with no match calls Square's real CreateVendor. Nothing is
+   * written to the mirror here — "the agent writes to Square, never to the
+   * mirror" (this file's own header) holds for vendors too — syncAfterWrite
+   * always runs vendors THROUGH THE REAL SYNC (index.js's own pullCatalog,
+   * vendors before catalog) before readBack() ever needs the new vendor's
+   * name, so mirror_vendor gets its row the same authoritative way every
+   * other Square fact does.
+   */
+  async function vendorRef(name) {
+    const existing = await mirrorDb
+      .prepare("SELECT external_ref, name FROM mirror_vendor_index WHERE name = ? COLLATE NOCASE")
+      .bind(name)
+      .first();
+    if (existing) return existing;
+    const created = await createVendor(client, name);
+    return { external_ref: created.externalRef, name: created.name };
+  }
+
+  /* Square's own CatalogItemVariationVendorInformation shape, applied to
+     EVERY variation uniformly by itemData() below (option 1: one vendor per
+     product, not Square's own per-variation granularity — the owner's own
+     choice). undefined with no vendorExternalRef at all, rather than an
+     object with a null vendor_id, since Square's own field is genuinely
+     absent for a product with no vendor, not present-and-empty. */
+  function vendorInformationFor({ vendorExternalRef, vendorCode, unitCostMinor, unitCostCurrency }) {
+    if (!vendorExternalRef) return undefined;
+    const out = { vendor_id: vendorExternalRef };
+    if (vendorCode) out.vendor_code = vendorCode;
+    if (unitCostMinor) {
+      out.unit_cost_money = moneyToSquare(
+        { amountMinor: BigInt(unitCostMinor), currency: unitCostCurrency ?? "USD" },
+        "vendor unit cost",
+      );
+    }
+    return out;
+  }
+
+  /* { style_id: "01-04-001", commission: undefined } -> only style_id in the
      result; undefined always means "leave this one out of the request",
      never "clear it" — every caller resolves "not provided" to the
      product's own CURRENT value before calling this, so nothing is ever
      silently wiped by an edit that only meant to touch the other field.
      commission is stored as a plain integer string (STRING type, not
      Square's NUMBER type) purely to keep this builder and catalog.js's own
-     customAttr() as ONE code path for style_id/vendor/commission alike —
-     see customAttrInt's own comment there for why NUMBER was considered
-     and set aside. */
-  function customAttributeValues({ styleId, vendor, commissionPct } = {}) {
+     customAttr() as ONE code path for style_id/commission alike — see
+     customAttrInt's own comment there for why NUMBER was considered and
+     set aside. vendor is NOT built here any more — see vendorInformationFor
+     above; it lives on each variation, not in custom_attribute_values. */
+  function customAttributeValues({ styleId, commissionPct } = {}) {
     const out = {};
     if (styleId) out.style_id = { key: "style_id", type: "STRING", string_value: styleId };
-    if (vendor) out.vendor = { key: "vendor", type: "STRING", string_value: vendor };
     if (commissionPct !== undefined && commissionPct !== null) {
       out.commission = { key: "commission", type: "STRING", string_value: String(commissionPct) };
     }
     return Object.keys(out).length ? out : undefined;
   }
 
-  function itemData({ title, description, catRef, variations, itemRef, imageIds, customAttributeValues: attrs }) {
+  function itemData({ title, description, catRef, variations, itemRef, imageIds, customAttributeValues: attrs, vendorInfo }) {
     return {
       name: title,
       /* Photographs already in Square are LINKED here at creation rather than
@@ -312,7 +415,7 @@ export function createSquareCatalogWriter(env, opts = {}) {
       ...(catRef
         ? { categories: [{ id: catRef, ordinal: 0 }], reporting_category: { id: catRef } }
         : {}),
-      /* Square's own Custom Attributes (P0-136) — style_id and vendor,
+      /* Square's own Custom Attributes (P0-136) — style_id and commission,
          addressed by the well-known `key` this codebase's own attribute
          definitions use, never by Square's opaque definition id. Omitted
          entirely with neither set, rather than sent as an empty object —
@@ -341,6 +444,10 @@ export function createSquareCatalogWriter(env, opts = {}) {
             `variation ${v.title}`,
           ),
           track_inventory: true,
+          /* vendor_information (P0-136, revised) — the SAME entry on EVERY
+             variation, applied uniformly rather than per-variation, since
+             this shop treats vendor/cost as a fact about the PRODUCT. */
+          ...(vendorInfo ? { vendor_information: [vendorInfo] } : {}),
         },
       })),
     };
@@ -400,22 +507,23 @@ export function createSquareCatalogWriter(env, opts = {}) {
 
   async function readBack(externalRef) {
     const row = await mirrorDb
-      .prepare(
-        "SELECT id, handle, title, status, style_id, vendor, commission_pct FROM mirror_product WHERE external_ref = ?",
-      )
+      .prepare("SELECT id, handle, title, status, style_id, commission_pct FROM mirror_product WHERE external_ref = ?")
       .bind(externalRef)
       .first();
-    return row
-      ? {
-          id: row.id,
-          handle: row.handle,
-          title: row.title,
-          status: row.status,
-          style_id: row.style_id,
-          vendor: row.vendor,
-          commission_pct: row.commission_pct,
-        }
-      : null;
+    if (!row) return null;
+    const vendorInfo = await currentVendorInfo(row.id);
+    return {
+      id: row.id,
+      handle: row.handle,
+      title: row.title,
+      status: row.status,
+      style_id: row.style_id,
+      commission_pct: row.commission_pct,
+      vendor: vendorInfo.vendor_name,
+      vendor_code: vendorInfo.vendor_code,
+      unit_cost_minor: vendorInfo.vendor_name ? vendorInfo.unit_cost_minor : null,
+      unit_cost_currency: vendorInfo.vendor_name ? vendorInfo.unit_cost_currency : null,
+    };
   }
 
   return {
@@ -430,13 +538,35 @@ export function createSquareCatalogWriter(env, opts = {}) {
      * ITEM + ITEM_VARIATIONs in one UpsertCatalogObject, then the image copies,
      * then the mirror sync. In that order, always.
      */
-    async createProduct({ title, description = "", categoryId, variations, images = [], styleId, vendor, commissionPct }) {
+    async createProduct({
+      title,
+      description = "",
+      categoryId,
+      variations,
+      images = [],
+      styleId,
+      vendor,
+      vendorCode,
+      unitCostMinor,
+      unitCostCurrency,
+      commissionPct,
+    }) {
       const cat = categoryId ? await categoryRef(categoryId) : null;
       const itemRef = tempId("item", 0);
       /* Photographs that are already Square objects are linked on the item
          itself; the rest are uploaded afterwards, which is the only order
          possible for bytes Square has not seen. */
       const imageIds = images.map((i) => i.imageRef).filter(Boolean);
+      /* vendor is a plain NAME in, Square's own vendor_id out — vendorRef
+         resolves-or-creates against the real Vendors API. Nothing to
+         resolve for a fresh product with no vendor at all. */
+      const vref = vendor ? await vendorRef(vendor) : null;
+      const vendorInfo = vendorInformationFor({
+        vendorExternalRef: vref?.external_ref ?? null,
+        vendorCode,
+        unitCostMinor,
+        unitCostCurrency,
+      });
       const body = {
         idempotency_key: idempotencyKey(`catalog.create:${title}:${JSON.stringify(variations)}`),
         object: {
@@ -450,7 +580,8 @@ export function createSquareCatalogWriter(env, opts = {}) {
             variations,
             itemRef,
             imageIds,
-            customAttributeValues: customAttributeValues({ styleId, vendor, commissionPct }),
+            customAttributeValues: customAttributeValues({ styleId, commissionPct }),
+            vendorInfo,
           }),
         },
       };
@@ -474,7 +605,20 @@ export function createSquareCatalogWriter(env, opts = {}) {
      * counter since our last sync, Square refuses this write rather than
      * silently overwriting them, which is the behaviour ADR-009 is built on.
      */
-    async updateProduct({ handle, title, description, categoryId, variations, images = [], styleId, vendor, commissionPct }) {
+    async updateProduct({
+      handle,
+      title,
+      description,
+      categoryId,
+      variations,
+      images = [],
+      styleId,
+      vendor,
+      vendorCode,
+      unitCostMinor,
+      unitCostCurrency,
+      commissionPct,
+    }) {
       const row = await productRow(handle);
       const cat = categoryId ? await categoryRef(categoryId) : null;
 
@@ -492,19 +636,37 @@ export function createSquareCatalogWriter(env, opts = {}) {
       const keep = merged.variations;
 
       /* Undefined means "this call is not about that field" for style_id and
-         vendor alike — resolved to whatever the mirror already has, the same
-         "resend the whole thing, not just the diff" reasoning `keep` above
-         already exists for. Neither is EVER generated here: style_id is
-         validated and conflict-checked one layer up, in catalog-write.js's
-         own tool, and a variation's own `sku` a few lines above is Square's,
-         read back verbatim, never invented in this file. */
+         commission alike — resolved to whatever the mirror already has, the
+         same "resend the whole thing, not just the diff" reasoning `keep`
+         above already exists for. Neither is EVER generated here: style_id
+         is validated and conflict-checked one layer up, in
+         catalog-write.js's own tool, and a variation's own `sku` a few
+         lines above is Square's, read back verbatim, never invented here. */
       const resolvedStyleId = styleId !== undefined ? styleId : row.style_id;
-      const resolvedVendor = vendor !== undefined ? vendor : row.vendor;
       const resolvedCommissionPct = commissionPct !== undefined ? commissionPct : row.commission_pct;
+
+      /* vendor/vendorCode/unitCost resolve the SAME way, one level down —
+         at the variation Square itself stores vendor_information on
+         (currentVendorInfo reads it off ordinal 0). A NEW vendor name
+         resolves-or-creates via vendorRef; leaving `vendor` undefined keeps
+         whatever Square already has (including no vendor at all). */
+      const current = await currentVendorInfo(row.id);
+      const vref = vendor !== undefined ? await vendorRef(vendor) : null;
+      const resolvedVendorExternalRef = vendor !== undefined ? vref?.external_ref ?? null : current.vendor_external_ref;
+      const resolvedVendorCode = vendorCode !== undefined ? vendorCode : current.vendor_code;
+      const resolvedUnitCostMinor = unitCostMinor !== undefined ? unitCostMinor : current.unit_cost_minor;
+      const resolvedUnitCostCurrency = unitCostMinor !== undefined ? (unitCostCurrency ?? "USD") : current.unit_cost_currency;
+      const vendorInfo = vendorInformationFor({
+        vendorExternalRef: resolvedVendorExternalRef,
+        vendorCode: resolvedVendorCode,
+        unitCostMinor: resolvedUnitCostMinor,
+        unitCostCurrency: resolvedUnitCostCurrency,
+      });
 
       const body = {
         idempotency_key: idempotencyKey(
-          `catalog.update:${row.external_ref}:${row.source_version}:${resolvedStyleId ?? ""}:${resolvedVendor ?? ""}:${resolvedCommissionPct ?? ""}`,
+          `catalog.update:${row.external_ref}:${row.source_version}:${resolvedStyleId ?? ""}:` +
+            `${resolvedVendorExternalRef ?? ""}:${resolvedUnitCostMinor ?? ""}:${resolvedCommissionPct ?? ""}`,
         ),
         object: {
           type: "ITEM",
@@ -522,9 +684,9 @@ export function createSquareCatalogWriter(env, opts = {}) {
             itemRef: row.external_ref,
             customAttributeValues: customAttributeValues({
               styleId: resolvedStyleId,
-              vendor: resolvedVendor,
               commissionPct: resolvedCommissionPct,
             }),
+            vendorInfo,
           }),
         },
       };

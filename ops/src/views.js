@@ -1702,13 +1702,19 @@ function itemTile(product, canEdit) {
     ? fieldEntries.map(([k, v]) => `<div><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join("")
     : `<p class="item-empty">No custom fields yet.</p>`;
 
-  /* style_id, vendor and commission are Square's own Custom Attributes now
-     (P0-136), not part of custom_fields — shown in their own rows, blank
-     rather than an empty-state paragraph when none is set yet (an empty
-     text field already says that, the same way the edit form below will). */
+  /* style_id and commission are Square's own Custom Attributes; vendor,
+     vendor_code and unit cost are a real Square Vendor entity (Retail
+     Plus/Premium, P0-136 revised) — none of it is part of custom_fields.
+     Shown in their own rows, blank rather than an empty-state paragraph
+     when none is set yet (an empty text field already says that, the same
+     way the edit form below will). */
   const attrRows =
     (product.style_id ? `<div><span>Style ID</span><span>${esc(product.style_id)}</span></div>` : "") +
     (product.vendor ? `<div><span>Vendor</span><span>${esc(product.vendor)}</span></div>` : "") +
+    (product.vendor_code ? `<div><span>Vendor code</span><span>${esc(product.vendor_code)}</span></div>` : "") +
+    (product.vendor && product.unit_cost_minor
+      ? `<div><span>Unit cost</span><span>${esc(money(product.unit_cost_minor, product.unit_cost_currency ?? "USD"))}</span></div>`
+      : "") +
     (product.commission_pct != null ? `<div><span>Commission</span><span>${esc(String(product.commission_pct))}%</span></div>` : "");
 
   /* Up to 3 blank rows past the existing fields, so there is somewhere to
@@ -1754,6 +1760,8 @@ function itemTile(product, canEdit) {
            <div class="row">
              <input name="style_id" value="${esc(product.style_id ?? "")}" placeholder="Style ID (NN-NN-NNN)">
              <input name="vendor" value="${esc(product.vendor ?? "")}" placeholder="Vendor">
+             <input name="vendor_code" value="${esc(product.vendor_code ?? "")}" placeholder="Vendor's own SKU/code">
+             <input name="unit_cost" value="${product.unit_cost_minor ? esc((product.unit_cost_minor / 100).toFixed(2)) : ""}" placeholder="Unit cost paid to vendor">
              <input name="commission" value="${esc(product.commission_pct != null ? String(product.commission_pct) : "")}" placeholder="Commission % (0-100)">
              <button type="submit">Save</button>
            </div>

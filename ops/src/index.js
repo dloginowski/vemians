@@ -522,17 +522,26 @@ async function ops(request, env, path) {
       args = { handle, fields };
       summaryNoun = "custom fields";
     } else {
-      /* style_id/vendor/commission — Square's own Custom Attributes (P0-136),
-         not ours. A blank input means "leave this one as it is," not "clear
-         it": only a field the person actually typed something into is sent
-         at all, so catalog.set_square_attributes' own undefined-means-
-         unchanged handling applies the same way it would to a call that
-         only ever meant to touch one of the three. commission is parsed as
-         a plain integer 0-100 here — a malformed or out-of-range value is
-         left for the tool's own check() to refuse with a clear reason,
-         rather than silently dropped. */
+      /* style_id/vendor/vendor_code/unit_cost/commission — Square's own
+         Custom Attributes and Vendor entity (P0-136), not ours. A blank
+         input means "leave this one as it is," not "clear it": only a
+         field the person actually typed something into is sent at all, so
+         catalog.set_square_attributes' own undefined-means-unchanged
+         handling applies the same way it would to a call that only ever
+         meant to touch one of the five. commission is parsed as a plain
+         integer here; unit_cost is a dollar string ("$45.00") parsed the
+         same way a spreadsheet's own price column is (batch.js's
+         parsePriceToMinor) — the agent-tool schema layer always takes a
+         plain integer minor-units argument, dollar-string parsing happens
+         only at this human-facing form boundary. A malformed or
+         out-of-range value (commission, or a unit_cost that fails to
+         parse) is left for the tool's own check() to refuse with a clear
+         reason, rather than silently dropped. */
       const styleId = String(form.get("style_id") ?? "").trim();
       const vendor = String(form.get("vendor") ?? "").trim();
+      const vendorCode = String(form.get("vendor_code") ?? "").trim();
+      const unitCostRaw = String(form.get("unit_cost") ?? "").trim();
+      const unitCostMinor = unitCostRaw === "" ? undefined : parsePriceToMinor(unitCostRaw);
       const commissionRaw = String(form.get("commission") ?? "").trim();
       const commission = commissionRaw === "" ? undefined : Number(commissionRaw);
       toolName = "catalog.set_square_attributes";
@@ -540,9 +549,15 @@ async function ops(request, env, path) {
         handle,
         ...(styleId ? { style_id: styleId } : {}),
         ...(vendor ? { vendor } : {}),
+        ...(vendorCode ? { vendor_code: vendorCode } : {}),
+        /* parsePriceToMinor returning null (unparsable) still gets sent
+           through as null rather than silently dropped, so the tool's own
+           schema validation refuses it with a clear reason instead of the
+           form quietly ignoring what was typed. */
+        ...(unitCostMinor !== undefined ? { unit_cost_minor: unitCostMinor } : {}),
         ...(commission !== undefined ? { commission } : {}),
       };
-      summaryNoun = "style ID, vendor or commission";
+      summaryNoun = "style ID, vendor, vendor code, unit cost or commission";
     }
 
     /* Applies immediately — no second, separate "Yes, do this" confirmation

@@ -3457,21 +3457,87 @@ that does not trace to one of these is a process failure (see §12).
     is already clear enough to relay verbatim through `parkRows`; style_id's format and whole-catalog
     uniqueness are likewise left to that same `check()` rather than duplicated here.
 
-    **Considered and set aside: a GTIN field for a vendor's own product code.** The owner raised it in
-    passing — "if there is some kind of specific invoice, like a vendor SKU or some kind of other
-    identification for the product... that's the GTIN number" — but this is a forward-looking note,
-    not a request with a concrete column or Square field name attached, so nothing was built for it.
-    **Confirmed, final field set for this feature: exactly three custom attributes — `style_id`
-    (text, this shop's own nomenclature), `vendor` (text) and `commission` (integer 0-100). No fourth
-    field.**
+    **REVISED AGAIN, once the owner mentioned having set up Square's Retail Plus subscription:
+    `vendor` moved a second time, off Custom Attributes entirely, onto a real Square VENDOR
+    entity.** The owner's own words, seeing Square's own Vendors feature for the first time: "I don't
+    want to be duplicating that... I want to be using everything that's available in Retail Plus, and
+    not reinventing the wheel." Verified against Square's own SDK source (developer.squareup.com
+    itself was unreachable from this environment) rather than guessed at: `CatalogItemVariation.
+    item_variation_data.vendor_information` is a real, documented array of
+    `CatalogItemVariationVendorInformation` — `vendor_id`, `vendor_code`, `unit_cost_money` — living at
+    the VARIATION level, backed by a wholly separate API (`/v2/vendors/*`: `CreateVendor`,
+    `SearchVendors`, `RetrieveVendor`, `UpdateVendor`), gated to WRITE behind Retail Plus/Premium (or
+    Restaurants Plus/Premium) but readable on any plan. `shared/commerce/square/vendors.js` is the new
+    thin client for that API (`listVendors`, `createVendor`); `mirror_vendor` is a new table — the
+    same reason `mirror_category` exists for CATEGORY, since Vendors need their own sync pass
+    (`mirror.js`'s own `syncVendors`, called by `index.js`'s `pullCatalog` BEFORE `syncCatalog`, on
+    every full and incremental sync alike, so a variation's `vendor_id` always has something to
+    resolve against).
+
+    **"One vendor per product," not Square's own per-variation granularity — the owner's explicit
+    choice between the two options laid out for them.** Square lets each variation carry its own
+    vendor and cost; this shop does not need that, so `catalog-writer.js`'s write path applies the
+    SAME `vendor_information` entry to EVERY variation of a product uniformly. Reading it back is the
+    mirror image: a product's own `vendor`/`vendor_code`/`unit_cost_minor` (for display, and for the
+    Items-tab edit form) are resolved off its ORDINAL-0 variation alone
+    (`PRODUCT_WITH_VENDOR_SELECT`/`listAllProducts` in `catalog-writer.js`) — a product edited directly
+    in Square's own Dashboard with genuinely different vendors per variation is a known, accepted edge
+    case this simplification does not model.
+
+    **`vendorRef(name)` resolves a plain vendor NAME to Square's own `vendor_id` — never the
+    reverse crossing this file's boundary (Test-PRD-P0-16-commerce_port), matched case-insensitively
+    against OUR OWN mirror_vendor first** (the same "closed set, read from the mirror" shape
+    `matchCategory` already uses for categories) **and Square's real `CreateVendor` called only on a
+    genuine miss** — vendors are NOT a closed set the way categories are; an evolving supplier list is
+    exactly what this feature exists for. Nothing is written to `mirror_vendor` directly from this
+    resolution: "the agent writes to Square, never to the mirror" (`catalog-writer.js`'s own header)
+    holds for vendors too, proven by a dedicated test scanning the file's own source for a stray
+    `INSERT`/`UPDATE`. `syncAfterWrite` always runs vendors-then-catalog before `readBack()` ever needs
+    the new vendor's name, so `mirror_vendor` gets its row the same authoritative way every other
+    Square fact does — this is also why a second product naming the SAME vendor never creates a
+    second Square Vendor: by the time it is written, the first write's own `syncAfterWrite` has
+    already synced the real one into the mirror for `vendorRef` to find.
+
+    **`unit_cost_minor` is Square's real `unit_cost_money`, and it ONLY exists for a product WITH a
+    vendor** — `vendor_information` needs a `vendor_id` to attach to, so there is no Square-native
+    home for a self-produced product's cost at all. The pre-existing `custom_fields` "unit cost" text
+    entry is UNCHANGED and still the only mechanism for that case (per the earlier revision: "we don't
+    need to do cogs, there is a unit cost, we just use the unit cost"). `vendor_code` closes what was
+    previously an open question — "if there is some kind of specific invoice, like a vendor SKU or
+    some kind of other identification for the product... that's the GTIN number" — Square's own field
+    for exactly this ("the unique identifier of this product in the specified vendor's inventory
+    system, pre-filled on purchase orders") turned out to already exist right beside `unit_cost_money`,
+    so no separate GTIN mechanism was needed. `vendor_code`/`unit_cost_minor`/`commission` all share
+    the identical "refused for a product with no resolved vendor" rule.
+
+    **`ops/src/batch.js`'s spreadsheet import follows the same split**: a vendor-present row's own
+    "cost" column (whichever `UNIT_COST_KEYS` synonym) now becomes the real `unit_cost_minor`
+    argument, parsed as money the same way price already is, and a new `vendor code` column
+    (`VENDOR_CODE_KEYS`) reaches `vendor_code` — NEITHER lands in `custom_fields` for a vendor row any
+    more. A vendor-LESS row's own cost column is completely unchanged: still `custom_fields`, still
+    opaque text, since there is still nothing else for it.
+
+    **Migration for data that predates this revision**:
+    `ops/migrations/migrate-vendor-custom-attribute-to-square-vendor.mjs` — a human-run-once Node
+    script (real account writes, same "no unattended equivalent" reasoning
+    `create-square-custom-attributes.sh` and `apply-local.sh` both give) that finds every product still
+    carrying the OLD plain-text `vendor` custom attribute value, resolves-or-creates a real Vendor for
+    each distinct name, and sets `vendor_information` on every one of that product's variations. It
+    deliberately leaves the stale old custom attribute value in place rather than attempting to clear
+    just that one key from `custom_attribute_values` — nothing in this codebase reads it by key any
+    more, and getting a partial-clear wrong risks wiping a sibling attribute on the same write.
+    `create-square-custom-attributes.sh` itself no longer creates a "vendor" definition for a NEW
+    account; an account that ran an earlier version has one sitting unused, left alone rather than
+    deleted (deleting a definition can take its stored values with it).
 
     **Considered and set aside: surfacing these to Square's own Dashboard, and switching
     `custom_fields` to Custom Attributes wholesale.** Square does support seller-visible custom
     attributes editable right on its own Edit Item page, but caps them at 10 seller-visible + 10
     seller-hidden per account and requires each to be a pre-declared, fixed field TYPE — the opposite
     of `custom_fields`'s own open-ended "type any new field name" shape, which is why `custom_fields`
-    itself is NOT retired by this change: only style_id, vendor and commission, a small, deliberately
-    fixed set the owner named directly, moved out of it.
+    itself is NOT retired by this change: only style_id and commission are Custom Attributes now (a
+    small, deliberately fixed pair); vendor moved past Custom Attributes entirely, onto Square's own
+    Vendor entity, per the revision above.
 
 ## 4. P1 features
 

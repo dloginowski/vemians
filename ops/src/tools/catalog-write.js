@@ -685,11 +685,14 @@ export const catalogWriteTools = {
       "track that Square has no concept of at all (unit cost, a spreadsheet column with no home " +
       "elsewhere). It never reaches Square — it is written to our own mirror right after the item " +
       "is created — and survives every future sync untouched. Edit it later with " +
-      "catalog.set_custom_fields. `style_id`, `vendor` and `commission` ARE Square's own Custom " +
-      "Attributes (same as catalog.set_square_attributes) and MAY be set here at creation time, " +
-      "since this call already reaches Square for the item itself: commission (0-100) only makes " +
-      "sense alongside a vendor and is refused without one; style_id follows this shop's own " +
-      "NN-NN-NNN nomenclature and is refused if another product already has it.",
+      "catalog.set_custom_fields. `style_id`, `vendor`, `vendor_code`, `unit_cost_minor` and " +
+      "`commission` MAY be set here at creation time, since this call already reaches Square for the " +
+      "item itself — style_id/commission ARE Square's own Custom Attributes; vendor is a real Square " +
+      "Vendor entity (Retail Plus/Premium), reused by name or created; vendor_code/unit_cost_minor " +
+      "live on that same vendor association (see catalog.set_square_attributes for the full " +
+      "description of each). vendor_code/unit_cost_minor/commission all only make sense alongside a " +
+      "vendor and are refused without one; style_id follows this shop's own NN-NN-NNN nomenclature " +
+      "and is refused if another product already has it.",
     undo: "withdraw the item in Square; nothing is deleted, and the originals in R2 are untouched",
     schema: {
       title: { type: "string", required: true, maxLength: CAPS.CATALOG_TITLE_MAX },
@@ -699,6 +702,8 @@ export const catalogWriteTools = {
       images: IMAGES,
       style_id: { type: "string", maxLength: 20 },
       vendor: { type: "string", maxLength: 120 },
+      vendor_code: { type: "string", maxLength: 80 },
+      unit_cost_minor: { type: "integer" },
       commission: { type: "integer" },
       custom_fields: {
         type: "record",
@@ -709,15 +714,18 @@ export const catalogWriteTools = {
     },
     async check(args, t) {
       const problems = validateProposal(args);
-      if (args.commission !== undefined) {
-        if (!Number.isInteger(args.commission) || args.commission < 0 || args.commission > 100) {
-          problems.push(`commission '${args.commission}' must be a whole number 0-100`);
-        } else if (!args.vendor) {
-          problems.push(
-            "commission was given without a vendor — a commission is the percentage this shop keeps " +
-              "when it sells a VENDOR's product, so it does not apply without one",
-          );
-        }
+      const needsVendor = ["commission", "vendor_code", "unit_cost_minor"].filter((k) => args[k] !== undefined);
+      if (needsVendor.length && !args.vendor) {
+        problems.push(
+          `${needsVendor.join("/")} ${needsVendor.length > 1 ? "were" : "was"} given without a vendor — these are ` +
+            "facts about a VENDOR's product, so they do not apply without one",
+        );
+      }
+      if (args.commission !== undefined && (!Number.isInteger(args.commission) || args.commission < 0 || args.commission > 100)) {
+        problems.push(`commission '${args.commission}' must be a whole number 0-100`);
+      }
+      if (args.unit_cost_minor !== undefined && (!Number.isInteger(args.unit_cost_minor) || args.unit_cost_minor < 0)) {
+        problems.push(`unit_cost_minor '${args.unit_cost_minor}' must be a non-negative integer minor amount`);
       }
       if (args.style_id !== undefined && !STYLE_ID_FORMAT.test(args.style_id)) {
         problems.push(
@@ -788,6 +796,8 @@ export const catalogWriteTools = {
         images,
         styleId: args.style_id,
         vendor: args.vendor,
+        vendorCode: args.vendor_code,
+        unitCostMinor: args.unit_cost_minor,
         commissionPct: args.commission,
       });
 
@@ -1127,29 +1137,43 @@ export const catalogWriteTools = {
     resources: ["square"],
     minRole: "manager",
     describe:
-      "Set a product's own Style ID, vendor and/or commission, by handle. All three are stored as " +
-      "SQUARE'S OWN Custom Attributes, not a fact this codebase invents — this DOES call Square, " +
-      "then syncs the mirror back, unlike catalog.set_channel or catalog.set_custom_fields. style_id " +
-      "follows this shop's own nomenclature — NN-NN-NNN: a 2-digit category, a 2-digit subcategory, " +
-      "a 3-digit item number, e.g. \"01-04-001\" — and is NEVER generated here: give one, or leave " +
-      "it as it is. Refused if another product already has the same style_id — style IDs are " +
-      "unique, one per product. vendor is a plain name. commission is an integer 0-100 (a " +
-      "percentage) and only makes sense for a product that HAS a vendor — the owner's own words: " +
-      "\"that's only for vendors — anything that has a vendor, it has a commission\" — so it is " +
-      "refused for a product with no vendor, resolved from whatever this same call also sets. " +
-      "Give any subset of the three to leave the others untouched. NONE of these is the SKU on a " +
-      "variation: Square assigns that automatically and nothing in this codebase ever sets it, " +
-      "reads it for anything but display, or treats it as this shop's own nomenclature.",
+      "Set a product's own Style ID, vendor, vendor code, unit cost and/or commission, by handle. " +
+      "style_id and commission are OUR OWN Square Custom Attributes; vendor is a real Square Vendor " +
+      "entity (Retail Plus/Premium), and vendor_code/unit_cost_minor live on that same vendor " +
+      "association — all five call Square, then sync the mirror back, unlike catalog.set_channel or " +
+      "catalog.set_custom_fields. style_id follows this shop's own nomenclature — NN-NN-NNN: a " +
+      "2-digit category, a 2-digit subcategory, a 3-digit item number, e.g. \"01-04-001\" — and is " +
+      "NEVER generated here: give one, or leave it as it is. Refused if another product already has " +
+      "the same style_id — style IDs are unique, one per product. vendor is a plain name: an " +
+      "existing Square Vendor with that name is reused, or a new one is created. vendor_code is the " +
+      "VENDOR's own SKU/product code for this item (their invoice/catalog identifier — never Square's " +
+      "own `sku`, never this shop's `style_id`). unit_cost_minor is what this shop PAID the vendor, " +
+      "integer minor units like every other price in this codebase. commission is an integer 0-100 " +
+      "(a percentage). vendor_code/unit_cost_minor/commission all only make sense for a product that " +
+      "HAS a vendor — the owner's own words on commission: \"that's only for vendors — anything that " +
+      "has a vendor, it has a commission\" — so each is refused for a product with no vendor, " +
+      "resolved from whatever this same call also sets. Give any subset to leave the rest untouched. " +
+      "NONE of these is the SKU on a variation: Square assigns that automatically and nothing in " +
+      "this codebase ever sets it, reads it for anything but display, or treats it as this shop's " +
+      "own nomenclature.",
     undo: "another catalog.set_square_attributes call, back to the previous value(s)",
     schema: {
       handle: { type: "string", required: true, format: "handle" },
       style_id: { type: "string", maxLength: 20 },
       vendor: { type: "string", maxLength: 120 },
+      vendor_code: { type: "string", maxLength: 80 },
+      unit_cost_minor: { type: "integer" },
       commission: { type: "integer" },
     },
     async check(args, t) {
-      if (args.style_id === undefined && args.vendor === undefined && args.commission === undefined) {
-        return { denied: "give a style_id, a vendor, a commission, or any combination — this call would change nothing" };
+      if (
+        args.style_id === undefined &&
+        args.vendor === undefined &&
+        args.vendor_code === undefined &&
+        args.unit_cost_minor === undefined &&
+        args.commission === undefined
+      ) {
+        return { denied: "give a style_id, a vendor, a vendor code, a unit cost, a commission, or any combination — this call would change nothing" };
       }
       const existing = await productByHandle(t.db.catalog_mirror, args.handle);
       if (!existing) return { denied: `no product with handle '${args.handle}' in the mirror` };
@@ -1174,24 +1198,30 @@ export const catalogWriteTools = {
       }
 
       const resultingVendor = args.vendor !== undefined ? args.vendor : existing.vendor;
-      if (args.commission !== undefined) {
-        if (!Number.isInteger(args.commission) || args.commission < 0 || args.commission > 100) {
-          return { denied: `commission '${args.commission}' must be a whole number 0-100` };
-        }
-        if (!resultingVendor) {
-          return {
-            denied:
-              `'${args.handle}' has no vendor, so a commission does not apply — a commission is the ` +
-              "percentage this shop keeps when it sells a VENDOR's product. Set a vendor at the same time, or first.",
-          };
-        }
+      const needsVendor = ["commission", "vendor_code", "unit_cost_minor"].filter((k) => args[k] !== undefined);
+      if (needsVendor.length && !resultingVendor) {
+        return {
+          denied:
+            `'${args.handle}' has no vendor, so ${needsVendor.join("/")} do${needsVendor.length > 1 ? "" : "es"} not apply — ` +
+            "these are facts about a VENDOR's product. Set a vendor at the same time, or first.",
+        };
+      }
+      if (args.commission !== undefined && (!Number.isInteger(args.commission) || args.commission < 0 || args.commission > 100)) {
+        return { denied: `commission '${args.commission}' must be a whole number 0-100` };
+      }
+      if (args.unit_cost_minor !== undefined && (!Number.isInteger(args.unit_cost_minor) || args.unit_cost_minor < 0)) {
+        return { denied: `unit_cost_minor '${args.unit_cost_minor}' must be a non-negative integer minor amount` };
       }
 
       const resultingStyleId = args.style_id !== undefined ? args.style_id : existing.style_id;
       const resultingCommission = args.commission !== undefined ? args.commission : existing.commission_pct;
+      const resultingVendorCode = args.vendor_code !== undefined ? args.vendor_code : existing.vendor_code;
+      const resultingUnitCostMinor = args.unit_cost_minor !== undefined ? args.unit_cost_minor : existing.unit_cost_minor;
       if (
         resultingStyleId === existing.style_id &&
         resultingVendor === existing.vendor &&
+        resultingVendorCode === existing.vendor_code &&
+        resultingUnitCostMinor === existing.unit_cost_minor &&
         resultingCommission === existing.commission_pct
       ) {
         return { denied: `'${args.handle}' already has those values — nothing would change` };
@@ -1200,6 +1230,8 @@ export const catalogWriteTools = {
       const changes = [
         args.style_id !== undefined ? `style_id -> ${args.style_id}` : null,
         args.vendor !== undefined ? `vendor -> ${args.vendor}` : null,
+        args.vendor_code !== undefined ? `vendor_code -> ${args.vendor_code}` : null,
+        args.unit_cost_minor !== undefined ? `unit_cost_minor -> ${args.unit_cost_minor}` : null,
         args.commission !== undefined ? `commission -> ${args.commission}%` : null,
       ]
         .filter(Boolean)
@@ -1215,6 +1247,8 @@ export const catalogWriteTools = {
         handle: args.handle,
         styleId: args.style_id,
         vendor: args.vendor,
+        vendorCode: args.vendor_code,
+        unitCostMinor: args.unit_cost_minor,
         commissionPct: args.commission,
       });
       return {
@@ -1222,9 +1256,13 @@ export const catalogWriteTools = {
         handle: args.handle,
         style_id: out.product?.style_id ?? null,
         vendor: out.product?.vendor ?? null,
+        vendor_code: out.product?.vendor_code ?? null,
+        unit_cost_minor: out.product?.unit_cost_minor ?? null,
         commission: out.product?.commission_pct ?? null,
         previous_style_id: t.preflight.existing.style_id,
         previous_vendor: t.preflight.existing.vendor,
+        previous_vendor_code: t.preflight.existing.vendor_code,
+        previous_unit_cost_minor: t.preflight.existing.unit_cost_minor,
         previous_commission: t.preflight.existing.commission_pct,
         mirror_sync: out.sync,
         authority: "square",

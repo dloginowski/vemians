@@ -94,6 +94,11 @@ const SKU_KEYS = ["sku", "style number", "item number", "product code"];
    invents (see catalog-write.js's own STYLE_ID_FORMAT comment). */
 const STYLE_ID_KEYS = ["style id", "style_id"];
 const VENDOR_KEYS = ["vendor", "vendor name", "supplier"];
+/* The vendor's OWN SKU/product code for this item — "an invoice-like
+   identifier," the owner's own words — a real field on Square's own Vendor
+   association now (vendor_code), never Square's own `sku` above, never
+   this shop's own `style_id`. */
+const VENDOR_CODE_KEYS = ["vendor code", "vendor sku", "vendor item number", "supplier sku"];
 const COMMISSION_KEYS = ["commission", "commission %", "commission pct", "commission percent", "commission rate"];
 /* unit cost is NOT one of Square's own Custom Attributes — the owner's own
    words, correcting an earlier plan to add a dedicated "cogs" attribute:
@@ -110,7 +115,7 @@ const UNIT_COST_KEYS = ["unit cost", "cost", "cogs", "cost of goods", "wholesale
    dropped just because neither of us has a named field for it yet. */
 const PRODUCT_KNOWN_KEYS = [
   ...TITLE_KEYS, ...DESCRIPTION_KEYS, ...CATEGORY_KEYS, ...PRICE_KEYS, ...CURRENCY_KEYS, ...SKU_KEYS,
-  ...STYLE_ID_KEYS, ...VENDOR_KEYS, ...COMMISSION_KEYS,
+  ...STYLE_ID_KEYS, ...VENDOR_KEYS, ...VENDOR_CODE_KEYS, ...COMMISSION_KEYS,
 ];
 
 /*
@@ -245,18 +250,15 @@ export async function draftProductBatch(env, { text, actor, role }) {
         return;
       }
     }
-    const hasUnitCost = Boolean(pick(record, UNIT_COST_KEYS));
+    const unitCostRaw = pick(record, UNIT_COST_KEYS);
+    const hasUnitCost = Boolean(unitCostRaw);
     /* The owner's own words, walked through a final time: "if we have a
        vendor name, then we must have a commission. If we don't have a
        vendor name, then we must have a cost of goods... if we're adding a
        product that has a price, no vendor, and no cogs, that's a problem
-       too." Square's own "unit cost" IS the cost-of-goods value — there is
-       no separate cogs attribute (see UNIT_COST_KEYS above) — so this reads
-       whichever of the UNIT_COST_KEYS synonyms the sheet used, without
-       needing its actual value (extraFields captures that, unchanged,
-       into custom_fields). Two mutually exclusive, both-required paths:
-       vendor -> commission, no vendor -> a unit cost. catalog.create_product's
-       own check() already refuses commission with no vendor, so only the
+       too." Two mutually exclusive, both-required paths: vendor ->
+       commission, no vendor -> a unit cost. catalog.create_product's own
+       check() already refuses commission with no vendor, so only the
        "runTool has no way to say it" half — a vendor with no commission,
        or neither vendor nor a unit cost — needs reporting here. */
     if (vendor && commission === undefined) {
@@ -276,8 +278,37 @@ export async function draftProductBatch(env, { text, actor, role }) {
       return;
     }
 
+    /* WITH a vendor, "unit cost" is Square's own real unit_cost_minor now
+       (Retail Plus/Premium) — the same UNIT_COST_KEYS synonyms, but parsed
+       as money and sent as a real argument rather than left as opaque
+       custom_fields text. WITHOUT a vendor there is still no Square-native
+       home for it (unit_cost_money lives inside vendor_information, which
+       needs a vendor to attach to), so it stays exactly as it always has:
+       an opaque custom_fields entry, via extraFields below. */
+    let unitCostMinor;
+    if (vendor && hasUnitCost) {
+      unitCostMinor = parsePriceToMinor(unitCostRaw);
+      if (unitCostMinor === null) {
+        skipped.push({ row: rowNumber, title, reason: `unit cost "${unitCostRaw}" is not a plain number like 45.00` });
+        return;
+      }
+    }
+    const vendorCode = pick(record, VENDOR_CODE_KEYS);
+    if (vendorCode && !vendor) {
+      skipped.push({
+        row: rowNumber,
+        title,
+        reason: `vendor code "${vendorCode}" was given without a vendor — it is the VENDOR's own SKU for this product`,
+      });
+      return;
+    }
+
     const description = pick(record, DESCRIPTION_KEYS);
-    const customFields = extraFields(record, PRODUCT_KNOWN_KEYS);
+    /* vendor's own UNIT_COST_KEYS column is excluded from custom_fields
+       ONLY when it just became a real argument above — a vendor-less row
+       still preserves it verbatim, unchanged from before this feature. */
+    const knownKeys = vendor ? [...PRODUCT_KNOWN_KEYS, ...UNIT_COST_KEYS] : PRODUCT_KNOWN_KEYS;
+    const customFields = extraFields(record, knownKeys);
     rows.push({
       rowNumber,
       title,
@@ -287,6 +318,8 @@ export async function draftProductBatch(env, { text, actor, role }) {
         category_id: category.id,
         style_id: styleId,
         ...(vendor ? { vendor } : {}),
+        ...(vendorCode ? { vendor_code: vendorCode } : {}),
+        ...(unitCostMinor !== undefined ? { unit_cost_minor: unitCostMinor } : {}),
         ...(commission !== undefined ? { commission } : {}),
         variations: [
           {
@@ -403,6 +436,7 @@ function mapProductRow(record) {
     sku: pick(record, SKU_KEYS) || null,
     style_id: pick(record, STYLE_ID_KEYS) || null,
     vendor: pick(record, VENDOR_KEYS) || null,
+    vendor_code: pick(record, VENDOR_CODE_KEYS) || null,
     commission: pick(record, COMMISSION_KEYS) || null,
     ...extraFields(record, PRODUCT_KNOWN_KEYS),
   };

@@ -149,8 +149,9 @@ const jsonRes = (body, status = 200) =>
  * is recorded IN ORDER, which is what makes "Square first, mirror second" an
  * assertion about a list rather than a hope.
  */
-function fakeSquare(seed = SEED) {
+function fakeSquare(seed = SEED, { vendors = [] } = {}) {
   const objects = new Map(seed.map((o) => [o.id, structuredClone(o)]));
+  const vendorObjects = new Map(vendors.map((v) => [v.id, structuredClone(v)]));
   const calls = [];
   let seq = 0;
   const mint = (prefix) => `${prefix}_${(seq += 1)}`;
@@ -218,11 +219,24 @@ function fakeSquare(seed = SEED) {
       return jsonRes({ image: objects.get(id) });
     }
 
+    /* Square's Vendor entity — a wholly separate API from everything above,
+       Test-PRD-P0-136-square_custom_attributes (revised for Retail Plus). */
+    if (p === "/v2/vendors/search") return jsonRes({ vendors: [...vendorObjects.values()] });
+    if (p === "/v2/vendors/create") {
+      const body = JSON.parse(init.body);
+      record.body = body;
+      const id = mint("VENDOR");
+      const vendor = { id, name: body.vendor?.name ?? "", status: "ACTIVE", version: 1 };
+      vendorObjects.set(id, vendor);
+      return jsonRes({ vendor });
+    }
+
     return jsonRes({ errors: [{ category: "INVALID_REQUEST_ERROR", code: "NOT_FOUND" }] }, 404);
   };
 
   impl.calls = calls;
   impl.objects = objects;
+  impl.vendors = vendorObjects;
   impl.writes = () => calls.filter((c) => c.path === "/v2/catalog/object" || c.path === "/v2/catalog/images");
   return impl;
 }
@@ -513,9 +527,47 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_vendor_a
   }
   assert.equal(approved.ok, true, approved.error);
 
-  const row = f.mirror("SELECT vendor, commission_pct FROM mirror_product WHERE title = 'Wool Coat'")[0];
-  assert.equal(row.vendor, "Acme Mills");
-  assert.equal(row.commission_pct, 20);
+  const product = f.mirror("SELECT id, commission_pct FROM mirror_product WHERE title = 'Wool Coat'")[0];
+  assert.equal(product.commission_pct, 20);
+  const variant = f.mirror(
+    `SELECT mv.name AS vendor FROM mirror_variant v JOIN mirror_vendor mv ON mv.id = v.vendor_id WHERE v.product_id = '${product.id}'`,
+  )[0];
+  assert.equal(variant.vendor, "Acme Mills");
+});
+
+check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_vendor_rows_cost_column_becomes_the_real_unit_cost_not_custom_fields", async () => {
+  /* WITH a vendor, "cost" is Square's own real unit_cost_minor now (Retail
+     Plus/Premium) — not the custom_fields placeholder a vendor-less row
+     still uses. */
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const csv =
+    "title,category,price,style id,vendor,commission,cost,vendor code\n" +
+    `Wool Coat,${outerwear.name},450.00,01-04-001,Acme Mills,20,210.00,ACME-4471\n`;
+
+  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.ready.length, 1);
+
+  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
+  const id = new URL(result.ready[0].url).pathname.split("/").pop();
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let approved;
+  try {
+    approved = await approvePending(f.env, id, approver);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(approved.ok, true, approved.error);
+
+  const product = f.mirror("SELECT id, custom_fields FROM mirror_product WHERE title = 'Wool Coat'")[0];
+  assert.deepEqual(JSON.parse(product.custom_fields), {}, "cost/vendor code are real arguments now, not custom_fields text");
+  const variant = f.mirror(
+    `SELECT vendor_code, unit_cost_minor FROM mirror_variant WHERE product_id = '${product.id}'`,
+  )[0];
+  assert.equal(variant.vendor_code, "ACME-4471");
+  assert.equal(variant.unit_cost_minor, 21000);
 });
 
 check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_commission_that_is_not_a_whole_number_is_flagged", async () => {
@@ -577,10 +629,11 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_a_style_
   }
   assert.equal(approved.ok, true, approved.error);
 
-  const row = f.mirror("SELECT style_id, vendor, custom_fields FROM mirror_product WHERE title = 'Wool Coat'")[0];
+  const row = f.mirror("SELECT id, style_id, custom_fields FROM mirror_product WHERE title = 'Wool Coat'")[0];
   assert.equal(row.style_id, "01-04-001");
-  assert.equal(row.vendor, null);
   assert.deepEqual(JSON.parse(row.custom_fields), { cost: "210.00" });
+  const variant = f.mirror(`SELECT vendor_id FROM mirror_variant WHERE product_id = '${row.id}'`)[0];
+  assert.equal(variant.vendor_id, null, "no vendor column was given — nothing to resolve");
 });
 
 check("test_PRD_P0_70_flexible_spreadsheet_columns__a_real_world_header_row_still_matches", async () => {
@@ -1286,9 +1339,11 @@ check("test_PRD_P0_37_mirror_is_ours__an_approved_create_writes_square_first_and
   assert.equal(res.data.created, true);
   assert.equal(res.data.authority, "square");
 
-  /* THE ORDERING. Upsert, image, then the search that refreshes our copy. */
+  /* THE ORDERING. Upsert, image, vendors (pullCatalog's own always-first
+     step, Test-PRD-P0-136-square_custom_attributes revised), then the
+     search that refreshes our copy. */
   const paths = f.calls().map((c) => c.path);
-  assert.deepEqual(paths, ["/v2/catalog/object", "/v2/catalog/images", "/v2/catalog/search"]);
+  assert.deepEqual(paths, ["/v2/catalog/object", "/v2/catalog/images", "/v2/vendors/search", "/v2/catalog/search"]);
 
   /* And the mirror now holds it, keyed by OUR uuid and OUR handle. */
   const product = f.mirror("SELECT * FROM mirror_product WHERE title = 'Belted gabardine trench coat'");
@@ -1377,7 +1432,7 @@ check("test_PRD_P0_37_mirror_is_ours__an_edit_goes_to_square_and_the_mirror_foll
   assert.equal(res.ok, true, res.error);
 
   const paths = f.calls().map((c) => c.path);
-  assert.deepEqual(paths, ["/v2/catalog/object", "/v2/catalog/search"]);
+  assert.deepEqual(paths, ["/v2/catalog/object", "/v2/vendors/search", "/v2/catalog/search"]);
 
   const after = f.mirror("SELECT * FROM mirror_product WHERE handle = 'shearling-trimmed-wool-blend-coat'")[0];
   assert.equal(after.title, "Shearling-trimmed wool coat");
@@ -1544,16 +1599,24 @@ check("test_PRD_P0_136_square_custom_attributes__setting_both_calls_square_then_
   assert.equal(res.data.vendor, "Acme Mills");
   assert.equal(res.data.authority, "square");
 
+  /* style_id stays a Custom Attribute; vendor does NOT — it is Square's own
+     Vendor entity now, referenced by vendor_id in vendor_information on
+     EVERY variation (Test-PRD-P0-136-square_custom_attributes, revised for
+     Retail Plus), not a plain-text custom_attribute_values entry. */
   const upsert = f.calls().find((c) => c.path === "/v2/catalog/object" && c.upsert === "ITEM");
   assert.ok(upsert, "must actually call UpsertCatalogObject");
   assert.deepEqual(upsert.body.object.item_data.custom_attribute_values, {
     style_id: { key: "style_id", type: "STRING", string_value: "01-04-001" },
-    vendor: { key: "vendor", type: "STRING", string_value: "Acme Mills" },
   });
+  const variation = upsert.body.object.item_data.variations[0];
+  assert.ok(variation.item_variation_data.vendor_information?.[0]?.vendor_id, "vendor_information must be set");
 
-  const row = f.mirror(`SELECT style_id, vendor FROM mirror_product WHERE handle = '${COAT_HANDLE}'`)[0];
-  assert.equal(row.style_id, "01-04-001");
-  assert.equal(row.vendor, "Acme Mills");
+  const product = f.mirror(`SELECT id, style_id FROM mirror_product WHERE handle = '${COAT_HANDLE}'`)[0];
+  assert.equal(product.style_id, "01-04-001");
+  const variant = f.mirror(
+    `SELECT mv.name AS vendor FROM mirror_variant v JOIN mirror_vendor mv ON mv.id = v.vendor_id WHERE v.product_id = '${product.id}'`,
+  )[0];
+  assert.equal(variant.vendor, "Acme Mills");
 });
 
 check("test_PRD_P0_136_square_custom_attributes__style_id_must_match_the_shops_own_nomenclature", async () => {
@@ -1662,6 +1725,74 @@ check("test_PRD_P0_136_square_custom_attributes__commission_alongside_a_vendor_i
 
   const row = f.mirror(`SELECT commission_pct FROM mirror_product WHERE handle = '${COAT_HANDLE}'`)[0];
   assert.equal(row.commission_pct, 20);
+});
+
+check("test_PRD_P0_136_square_custom_attributes__vendor_code_and_unit_cost_require_a_vendor_too", async () => {
+  /* vendor_code and unit_cost_minor live on the SAME real Square Vendor
+     association as vendor (Retail Plus/Premium, revised) — they make no
+     sense without one, the same rule commission already gets. */
+  const f = await fixture();
+  const codeRes = await runTool(
+    "catalog.set_square_attributes",
+    { handle: COAT_HANDLE, vendor_code: "ACME-4471" },
+    f.ctx,
+  );
+  assert.equal(codeRes.ok, false);
+  assert.match(codeRes.error, /no vendor/);
+
+  const costRes = await runTool(
+    "catalog.set_square_attributes",
+    { handle: COAT_HANDLE, unit_cost_minor: 4200 },
+    f.ctx,
+  );
+  assert.equal(costRes.ok, false);
+  assert.match(costRes.error, /no vendor/);
+  assert.deepEqual(f.calls(), [], "neither refusal reaches Square");
+});
+
+check("test_PRD_P0_136_square_custom_attributes__vendor_code_and_unit_cost_alongside_a_vendor_are_set_on_the_variation", async () => {
+  const f = await fixture();
+  const res = await approvedCall(f, "catalog.set_square_attributes", {
+    handle: COAT_HANDLE,
+    vendor: "Acme Mills",
+    vendor_code: "ACME-4471",
+    unit_cost_minor: 4250,
+  });
+  assert.equal(res.ok, true, res.error);
+  assert.equal(res.data.vendor_code, "ACME-4471");
+  assert.equal(res.data.unit_cost_minor, 4250);
+
+  const upsert = f.calls().find((c) => c.path === "/v2/catalog/object" && c.upsert === "ITEM");
+  const vendorInfo = upsert.body.object.item_data.variations[0].item_variation_data.vendor_information[0];
+  assert.equal(vendorInfo.vendor_code, "ACME-4471");
+  assert.deepEqual(vendorInfo.unit_cost_money, { amount: 4250, currency: "USD" });
+
+  const product = f.mirror(`SELECT id FROM mirror_product WHERE handle = '${COAT_HANDLE}'`)[0];
+  const variant = f.mirror(
+    `SELECT vendor_code, unit_cost_minor, unit_cost_currency FROM mirror_variant WHERE product_id = '${product.id}'`,
+  )[0];
+  assert.equal(variant.vendor_code, "ACME-4471");
+  assert.equal(variant.unit_cost_minor, 4250);
+  assert.equal(variant.unit_cost_currency, "USD");
+});
+
+check("test_PRD_P0_136_square_custom_attributes__reusing_an_existing_vendor_name_does_not_create_a_second_vendor", async () => {
+  const f = await fixture();
+  await approvedCall(f, "catalog.set_square_attributes", { handle: COAT_HANDLE, vendor: "Acme Mills" });
+  assert.equal(f.square.vendors.size, 1, "Square gained exactly one Vendor");
+
+  const category = f.categories()[0];
+  const created = await approvedCall(f, "catalog.create_product", {
+    title: "Second Coat",
+    category_id: category.id,
+    variations: [{ title: "One size", price_minor: 45000, currency: "USD" }],
+    vendor: "Acme Mills",
+  });
+  assert.equal(created.ok, true, created.error);
+  assert.equal(f.square.vendors.size, 1, "the SAME vendor is reused by name, not recreated");
+
+  const vendorCalls = f.calls().filter((c) => c.path === "/v2/vendors/create");
+  assert.equal(vendorCalls.length, 1, "only the FIRST call ever created a vendor; the second reused it");
 });
 
 check("test_PRD_P0_136_square_custom_attributes__commission_must_be_a_whole_number_0_to_100", async () => {
@@ -1990,7 +2121,7 @@ check("test_PRD_P0_29_exit_test__an_original_square_will_not_take_is_still_store
   assert.equal(f.bucket._store.size, 1);
   assert.deepEqual(
     f.calls().map((c) => c.path),
-    ["/v2/catalog/object", "/v2/catalog/search"],
+    ["/v2/catalog/object", "/v2/vendors/search", "/v2/catalog/search"],
   );
 });
 
@@ -2641,7 +2772,7 @@ check("test_PRD_P0_89_batch_preview_confirm__previews_the_first_rows_and_heading
      sample row now (PREVIEW_SAMPLE_ROWS, batch.js) — "just... one, two
      rows, one for the headings and one row of data" — even though the
      sheet itself has two. */
-  assert.deepEqual(outcome.table.columns, ["title", "category", "price", "currency", "description", "sku", "style_id", "vendor", "commission"]);
+  assert.deepEqual(outcome.table.columns, ["title", "category", "price", "currency", "description", "sku", "style_id", "vendor", "vendor_code", "commission"]);
   assert.equal(outcome.table.rows.length, 1, "only the first row is sampled");
   const titleCol = outcome.table.columns.indexOf("title");
   assert.equal(outcome.table.rows[0][titleCol], "Wool Coat");
