@@ -734,6 +734,9 @@ that does not trace to one of these is a process failure (see §12).
     instead, the same "shorten the visible hint, keep the fuller explanation reachable on hover"
     pattern `style_id`'s own revision already established.
 
+    **REVISED: `"COM&"`, not `"Comm"`.** The owner's own follow-up, one word later: "instead of
+    COMM, how about COM and then an ampersand sign?" — one character shorter, same idea.
+
 31. **`Test-PRD-P0-32-tickets`** — Company-wide issues live in their own `tickets` store. A ticket
     cannot be deleted, only moved through status, and resolving one requires a timestamp.
     Comments are append-only. Links to orders, customers, products and shifts are id plus a

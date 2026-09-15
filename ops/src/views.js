@@ -2142,7 +2142,7 @@ function itemTile(product, canEdit) {
            <div class="row">
              <input name="vendor" value="${esc(product.vendor ?? "")}" placeholder="Vendor">
              <input name="vendor_code" value="${esc(product.vendor_code ?? "")}" placeholder="Vendor SKU" title="The vendor's own SKU/code">
-             <input name="commission" value="${esc(product.commission_pct != null ? String(product.commission_pct) : "")}" placeholder="Comm" title="Commission % (0-100)">
+             <input name="commission" value="${esc(product.commission_pct != null ? String(product.commission_pct) : "")}" placeholder="COM&amp;" title="Commission % (0-100)">
            </div>
          </form>
        </div>`
