@@ -1006,16 +1006,21 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_variations_accordion_h
   assert.match(body, /data-sku="VEM-100"/);
 });
 
-check("test_PRD_P0_135_item_edit_applies_immediately__no_unit_cost_column_without_a_vendor", async () => {
-  /* Unit cost is still a fact about a VENDOR's product, per-variation or
-     not — a product with none gets no cost column to type into at all,
-     the same gate the read-only attrRows summary already uses. */
+check("test_PRD_P0_135_item_edit_applies_immediately__cost_field_shows_even_with_no_vendor_yet", async () => {
+  /* "Need a COST field to the left of MSRP" — the field itself always
+     renders now, the same as style_id/MSRP always do, even for a product
+     with no vendor yet. Unit cost is still a fact about a VENDOR's
+     product — typing into it without one is refused server-side, same as
+     always — but the field is no longer hidden entirely. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
-  assert.doesNotMatch(body, /<input[^>]*class="variation-unit-cost"/, "no per-variation cost field without a vendor");
-  assert.doesNotMatch(body, /<input[^>]*class="variations-unit-cost"/, "no header cost broadcaster without a vendor");
+  assert.match(body, /<input class="variation-unit-cost" name="unit_cost_0"/, "the per-variation cost field shows without a vendor too");
+  assert.match(body, /<input class="variations-unit-cost" placeholder="Cost/, "the header cost broadcaster shows without a vendor too");
+  /* Still ordered before price/MSRP, in both the header and each row. */
+  assert.ok(body.indexOf('class="variations-unit-cost"') < body.indexOf('class="variations-msrp"'));
+  assert.ok(body.indexOf('name="unit_cost_0"') < body.indexOf('name="price_0"'));
 });
 
 check("test_PRD_P0_135_item_edit_applies_immediately__the_accordion_header_is_decorated_and_the_body_is_indented", async () => {

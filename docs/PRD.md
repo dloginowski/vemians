@@ -682,6 +682,14 @@ that does not trace to one of these is a process failure (see §12).
     `{adjusted: true, on_hand: <the count just pushed>, synced: false}` instead of throwing; the
     regular cron sync reconciles the ledger regardless.
 
+    **REVISED: the Cost field always shows.** "Need a COST field to the left of MSRP." Unit cost
+    is still a fact about a VENDOR's product — typing into it without a vendor set is still
+    refused server-side, unchanged — but the field itself no longer disappears entirely for a
+    product with no vendor yet. Both `.variations-unit-cost` (the header's own broadcaster) and
+    each row's own `unit_cost_N` now always render, left of MSRP/price, the same way `style_id`
+    and MSRP always do — an always-visible field a person can try, and be told why it does not
+    apply yet, rather than a field that is simply not there.
+
 31. **`Test-PRD-P0-32-tickets`** — Company-wide issues live in their own `tickets` store. A ticket
     cannot be deleted, only moved through status, and resolving one requires a timestamp.
     Comments are append-only. Links to orders, customers, products and shifts are id plus a
