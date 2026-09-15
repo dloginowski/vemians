@@ -1707,6 +1707,11 @@ ${INPUT_BAR_CSS}
 }
 .variations-toggle:hover { color: var(--accent); }
 .variations-accordion.expanded .variations-toggle { transform: rotate(90deg); }
+/* "The expandable header [needs] the label in it on the left, right next
+   to the chevron, variations, so it makes sense, so people know what
+   they're looking for" — a plain word, not another control, so it never
+   competes with the fields beside it for width. */
+.variations-label { flex: 0 0 auto; font-size: 11px; color: var(--muted); }
 .variations-header form { display: contents; }
 /* "The variation label itself is fine, it could be long... but indent
    them a little so it's clearer it's underneath the accordion it belongs
@@ -1738,11 +1743,22 @@ ${INPUT_BAR_CSS}
 .item-edit input::placeholder, .variations-header input::placeholder, .variations-body input::placeholder {
   font-size: 10px;
 }
-.item-edit input[name="vendor"], .item-edit input[name^="field_value_"], .variations-body input[name^="title_"] {
+.item-edit input[name="vendor"], .item-edit input[name^="field_value_"], .variations-body input[name^="title_"], .item-title-input {
   flex: 1 1 auto; width: auto;
 }
 .item-edit input[name="commission"] { width: 4em; }
 .item-edit input[name="vendor_code"], .item-edit input[name^="field_name_"] { width: 8em; }
+/* Title and description — the owner's own words: "where's the item label
+   and where is the description fields? Shouldn't we be able to change
+   that?" A plain-weight input rather than a second, competing heading
+   style, and a real multi-line box for the description instead of the
+   single-line inputs everything else here uses. */
+.item-title-input { font-weight: 600; }
+.item-edit textarea {
+  font: inherit; font-size: 11px; padding: 5px 6px; min-height: 4.5em; resize: vertical;
+  border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
+}
+.item-edit textarea::placeholder { font-size: 10px; }
 /* "Make the header, the values in the header, right justified" — applied
    to every header input, and carried down to the matching column in each
    variation row below so the two stay visually aligned, "the same size
@@ -1961,6 +1977,7 @@ function itemTile(product, canEdit) {
     ? `<div class="variations-accordion">
          <div class="variations-header">
            <button type="button" class="variations-toggle" aria-label="Show every variation" title="Show every variation">${CARET_ICON}</button>
+           <span class="variations-label">Variations</span>
            <form method="post" action="/items/${esc(product.handle)}/square-attributes" class="row">
              <input name="style_id" value="${esc(product.style_id ?? "")}" placeholder="Style ID (NN-NN-NNN)" pattern="\\d{2}-\\d{2}-\\d{3}" title="NN-NN-NNN — a 2-digit category, a 2-digit subcategory, a 3-digit item number, e.g. 01-04-001. Leave blank to keep it as it is.">
            </form>
@@ -2022,8 +2039,19 @@ function itemTile(product, canEdit) {
     ? `<button type="button" class="item-save-all" aria-label="Save changes" title="Save changes" disabled>${SAVE_ICON}</button>`
     : "";
 
+  /* "Where's the item label and where is the description fields? Shouldn't
+     we be able to change that?" — title and description reach
+     catalog.update_product exactly the way it always could, through a new
+     `/items/<handle>/details` route; the collapsed tile's own `<h3>` stays
+     the plain, read-only heading it always was (everyone sees it, staff
+     included), and this form is the one place a manager actually edits
+     it, same as every other field on this tile. */
   const editForms = canEdit
     ? `<div class="item-edit">
+         <form method="post" action="/items/${esc(product.handle)}/details">
+           <input class="item-title-input" name="title" value="${esc(product.title)}" placeholder="Title">
+           <textarea name="description" placeholder="Description">${esc(product.description ?? "")}</textarea>
+         </form>
          <form method="post" action="/items/${esc(product.handle)}/square-attributes">
            <div class="row">
              <input name="vendor" value="${esc(product.vendor ?? "")}" placeholder="Vendor">

@@ -1438,6 +1438,24 @@ check("test_PRD_P0_37_mirror_is_ours__no_authoring_tool_writes_a_square_fact_to_
   );
 });
 
+check("test_PRD_P0_136_square_custom_attributes__the_style_id_ledger_is_append_only_at_the_database", async () => {
+  /* Belt and suspenders under the application-level conflict check above:
+     the schema itself refuses an UPDATE or DELETE against
+     mirror_style_id_ledger, whatever anyone writes, the same way
+     mirror_product's own archive-only trigger does. */
+  const f = await fixture();
+  await approvedCall(f, "catalog.set_square_attributes", { handle: COAT_HANDLE, style_id: "01-04-001" });
+
+  assert.throws(
+    () => f.mirrorDb._raw.exec("UPDATE mirror_style_id_ledger SET product_id = 'someone-else'"),
+    /append-only/,
+  );
+  assert.throws(
+    () => f.mirrorDb._raw.exec("DELETE FROM mirror_style_id_ledger"),
+    /append-only/,
+  );
+});
+
 check("test_PRD_P0_37_mirror_is_ours__an_edit_goes_to_square_and_the_mirror_follows_it", async () => {
   const f = await fixture();
   const knitwear = f.categories().find((c) => c.name === "Knitwear");
@@ -1674,6 +1692,44 @@ check("test_PRD_P0_136_square_custom_attributes__a_duplicate_style_id_is_refused
   );
   assert.equal(conflict.ok, false);
   assert.match(conflict.error, new RegExp(`already assigned to '${COAT_HANDLE}'`));
+});
+
+check("test_PRD_P0_136_square_custom_attributes__a_style_id_stays_reserved_even_after_the_product_moves_off_it", async () => {
+  /* The owner's own words: "we want that style number to be held, so that
+     you don't overwrite that style number and reuse it for something
+     else." mirror_product.style_id is only ever the CURRENT value — this
+     proves the OLD one a product edited away from is still refused for a
+     second product, via mirror_style_id_ledger (schema.sql). */
+  const f = await fixture();
+  await approvedCall(f, "catalog.set_square_attributes", { handle: COAT_HANDLE, style_id: "01-04-001" });
+  /* The coat moves on to a different number entirely. */
+  await approvedCall(f, "catalog.set_square_attributes", { handle: COAT_HANDLE, style_id: "01-04-002" });
+
+  const category = f.categories()[0];
+  const created = await approvedCall(f, "catalog.create_product", {
+    title: "Second Coat",
+    category_id: category.id,
+    variations: [{ title: "One size", price_minor: 45000, currency: "USD" }],
+  });
+  assert.equal(created.ok, true, created.error);
+
+  const reuse = await runTool(
+    "catalog.set_square_attributes",
+    { handle: created.data.product.handle, style_id: "01-04-001" },
+    f.ctx,
+  );
+  assert.equal(reuse.ok, false);
+  assert.match(reuse.error, /already assigned to/);
+  assert.match(reuse.error, /never reused once given out/);
+
+  /* And the coat itself is free to move BACK to the number it once held —
+     that is a conflict with no product at all, since it is the ledger row
+     the coat itself already owns. */
+  const backOnOldOne = await approvedCall(f, "catalog.set_square_attributes", { handle: COAT_HANDLE, style_id: "01-04-001" });
+  assert.equal(backOnOldOne.ok, true, backOnOldOne.error);
+
+  const ledgerRows = f.mirror("SELECT style_id, product_id FROM mirror_style_id_ledger ORDER BY style_id");
+  assert.deepEqual(ledgerRows.map((r) => r.style_id), ["01-04-001", "01-04-002"], "both numbers stay ledgered forever, never freed");
 });
 
 check("test_PRD_P0_136_square_custom_attributes__giving_only_one_field_leaves_the_others_untouched", async () => {

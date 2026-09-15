@@ -89,10 +89,11 @@ function seedProduct(mirror, overrides = {}) {
   const custom = JSON.stringify(overrides.custom_fields ?? { "unit cost": "210.00" });
   mirror.db
     .prepare(
-      `INSERT INTO mirror_product (id, external_ref, handle, title, status, channel, custom_fields, style_id, commission_pct, category_id)
-       VALUES ('p1', 'sqitem1', 'wool-coat', 'Wool Coat', ?, ?, ?, ?, ?, 'cat1')`,
+      `INSERT INTO mirror_product (id, external_ref, handle, title, source_description, status, channel, custom_fields, style_id, commission_pct, category_id)
+       VALUES ('p1', 'sqitem1', 'wool-coat', 'Wool Coat', ?, ?, ?, ?, ?, ?, 'cat1')`,
     )
     .run(
+      overrides.description ?? "",
       overrides.status ?? "active",
       overrides.channel ?? "direct_link",
       custom,
@@ -891,6 +892,20 @@ check("test_PRD_P0_135_item_edit_applies_immediately__category_route_staff_canno
   assert.match(await res.text(), /manager/i);
 });
 
+check("test_PRD_P0_135_item_edit_applies_immediately__details_route_staff_cannot_reach_it", async () => {
+  /* "Where's the item label and where is the description fields?" — the
+     new title/description route gets the same manager-only gate as every
+     other edit route on this tile. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await postForm("/items/wool-coat/details", STAFF, env(mirror), {
+    title: "New Title",
+    description: "New description",
+  });
+  assert.equal(res.status, 403);
+  assert.match(await res.text(), /manager/i);
+});
+
 check("test_PRD_P0_135_item_edit_applies_immediately__variations_route_refuses_with_no_rows_before_square_is_touched", async () => {
   const mirror = mirrorDb();
   seedProduct(mirror);
@@ -959,6 +974,28 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_accordion_header_is_de
   const body = await res.text();
   assert.match(body, /\.variations-header\s*\{[^}]*background: var\(--image-ground\)/);
   assert.match(body, /\.variations-body\s*\{[^}]*padding-left: 10px/);
+  assert.match(body, /<span class="variations-label">Variations<\/span>/, "the header names the section it belongs to, next to the chevron");
+});
+
+check("test_PRD_P0_135_item_edit_applies_immediately__title_and_description_are_editable_by_a_manager", async () => {
+  /* "Where's the item label and where is the description fields? Shouldn't
+     we be able to change that?" */
+  const mirror = mirrorDb();
+  seedProduct(mirror, { description: "A warm winter coat." });
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.match(body, /<form method="post" action="\/items\/wool-coat\/details">/);
+  assert.match(body, /<input class="item-title-input" name="title" value="Wool Coat" placeholder="Title">/);
+  assert.match(body, /<textarea name="description" placeholder="Description">A warm winter coat\.<\/textarea>/);
+});
+
+check("test_PRD_P0_135_item_edit_applies_immediately__title_and_description_are_not_editable_by_staff", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror, { description: "A warm winter coat." });
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.doesNotMatch(body, /\/items\/wool-coat\/details/);
+  assert.doesNotMatch(body, /<textarea/);
 });
 
 check("test_PRD_P0_135_item_edit_applies_immediately__the_web_tag_is_a_clickable_toggle_rendered_either_way", async () => {

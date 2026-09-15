@@ -754,13 +754,22 @@ export const catalogWriteTools = {
       }
 
       if (args.style_id !== undefined) {
+        /* mirror_style_id_ledger, not just mirror_product's own current
+           column — the owner's own words: "we want that style number to be
+           held, so that you don't overwrite that style number and reuse it
+           for something else." A style_id a DIFFERENT product moved away
+           from is still reserved forever (schema.sql's own comment on the
+           ledger table). */
         const conflict = await t.db.catalog_mirror
-          .prepare("SELECT handle FROM mirror_product WHERE style_id = ?")
+          .prepare(
+            "SELECT mp.handle FROM mirror_style_id_ledger l JOIN mirror_product mp ON mp.id = l.product_id" +
+              " WHERE l.style_id = ?",
+          )
           .bind(args.style_id)
           .first();
         if (conflict) {
           return {
-            denied: `style_id '${args.style_id}' is already assigned to '${conflict.handle}' — style IDs are unique, one per product`,
+            denied: `style_id '${args.style_id}' is already assigned to '${conflict.handle}' — style IDs are unique, one per product, and never reused once given out`,
             detail: { reason: "style_id_conflict" },
           };
         }
@@ -1229,13 +1238,23 @@ export const catalogWriteTools = {
               "NN-NN-NNN (2-digit category, 2-digit subcategory, 3-digit item number), e.g. \"01-04-001\".",
           };
         }
+        /* mirror_style_id_ledger, not just mirror_product's own current
+           column — the owner's own words: "we want that style number to be
+           held, so that you don't overwrite that style number and reuse it
+           for something else." Excludes THIS product's own id, not its
+           handle: re-affirming the style_id it already holds (the ledger
+           row it wrote the first time it got one) is not a conflict with
+           itself. */
         const conflict = await t.db.catalog_mirror
-          .prepare("SELECT handle FROM mirror_product WHERE style_id = ? AND handle != ?")
-          .bind(args.style_id, args.handle)
+          .prepare(
+            "SELECT mp.handle FROM mirror_style_id_ledger l JOIN mirror_product mp ON mp.id = l.product_id" +
+              " WHERE l.style_id = ? AND l.product_id != ?",
+          )
+          .bind(args.style_id, existing.id)
           .first();
         if (conflict) {
           return {
-            denied: `style_id '${args.style_id}' is already assigned to '${conflict.handle}' — style IDs are unique, one per product`,
+            denied: `style_id '${args.style_id}' is already assigned to '${conflict.handle}' — style IDs are unique, one per product, and never reused once given out`,
           };
         }
       }

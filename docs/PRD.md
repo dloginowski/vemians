@@ -3607,7 +3607,49 @@ that does not trace to one of these is a process failure (see §12).
     became style_id once "not the SKU" was clarified — see below). Auto-generating one from a
     category and subcategory is deliberately NOT built yet: this schema has no subcategory concept at
     all, and inventing the mapping without the owner's own real category/subcategory table would risk
-    assigning genuinely wrong numbers to real inventory. **The Items tab's own edit form (`ops/src/
+    assigning genuinely wrong numbers to real inventory.
+
+    **REVISED: a style_id is held forever, not just uniquely at any one moment.** The owner's own
+    words: "we want that style number to be held, so that you don't overwrite that style number and
+    reuse it for something else." The conflict check above originally queried `mirror_product`'s own
+    CURRENT `style_id` column — correct for "no two products share one right now," but a product that
+    moved OFF a number (a typo fix, a re-categorisation) freed it right back up, since the old value
+    simply stopped existing anywhere once the column was overwritten. `mirror_style_id_ledger`
+    (`shared/commerce/square/schema.sql`, migration `0002_style_id_ledger.sql`) is the permanent
+    record instead: `(style_id PRIMARY KEY, product_id, assigned_at)`, append-only at the database
+    itself (a `BEFORE UPDATE`/`BEFORE DELETE` trigger each `RAISE(ABORT, ...)`, the same "archive,
+    never delete" pattern `mirror_product` already enforces). `mirror.js`'s own `syncCatalog` inserts
+    a row (`ON CONFLICT(style_id) DO NOTHING`) the first time it ever sees a given `style_id` synced
+    onto a product — on EVERY sync, not only a write our own tools made, so a number typed straight
+    into Square's dashboard is reserved just as permanently. `catalog.create_product` and
+    `catalog.set_square_attributes` both check this table now (joined back to `mirror_product` for the
+    handle in the refusal message), excluding only the product's OWN existing ledger row — moving a
+    product back onto a number it once held itself is not a conflict, only a genuinely different
+    product claiming it is. The migration backfills every `style_id` already live on a product today,
+    so upgrading never opens a window where an in-use number could be claimed twice.
+
+    **REVISED: the header names itself.** "Make sure that the expandable header has the label in it
+    on the left, right next to the chevron... so people know what they're looking for." A plain
+    `<span class="variations-label">Variations</span>` sits beside the caret, inside the same
+    decorated bar — no control, nothing to click, just the word.
+
+    **REVISED: title and description are editable from the Items tab too.** "Where's the item label
+    and where is the description fields? Shouldn't we be able to change that?" Both always reached
+    `catalog.update_product` — `title`/`description` have been in its schema since P0-37 — but nothing
+    in `ops/src/views.js` ever exposed a way to edit them; the tile's own `<h3>` was always a plain,
+    read-only heading. A new `/items/<handle>/details` route (manager-only, the same JSON-error /
+    dirty-tracking / Save-button treatment every other field here already gets) and a form at the TOP
+    of `.item-edit` fix that: a plain-weight `input.item-title-input` for the title, prefilled with
+    the product's current one, and a `<textarea>` for the description — the first multi-line field
+    this whole edit surface has needed. `listAllProducts` (`catalog-writer.js`) now selects
+    `source_description` too, never read before this since nothing displayed it. A title left blank
+    is NOT "leave it as it is" the way a blank vendor or style_id already means — this field always
+    carries the CURRENT title, so blank means someone actually deleted it, and `validateProposal`'s
+    own "title is empty" refusal (already there) surfaces inline, the same as every other check()
+    refusal on this tile. A blank description, by contrast, is an intentional clear — the person
+    editing the description field typed the blank themselves.
+
+    **The Items tab's own edit form (`ops/src/
     views.js`) also enforces the `NN-NN-NNN` shape at the BROWSER level now** — the style_id input
     carries `pattern="\d{2}-\d{2}-\d{3}"` and a descriptive `title` tooltip, the owner's own words: "I
     want to make sure that you enforce the style ID... so I can't enter it incorrectly." This is

@@ -116,7 +116,7 @@ export async function variantsOf(db, productId) {
 export async function listAllProducts(db, { limit } = {}) {
   const products = await db
     .prepare(
-      `SELECT p.id, p.handle, p.title, p.status, p.channel, p.custom_fields, p.style_id, p.commission_pct, p.category_id, c.name AS category_name
+      `SELECT p.id, p.handle, p.title, p.source_description, p.status, p.channel, p.custom_fields, p.style_id, p.commission_pct, p.category_id, c.name AS category_name
          FROM mirror_product_index p
          LEFT JOIN mirror_category_index c ON c.id = p.category_id
         ORDER BY p.title COLLATE NOCASE
@@ -171,6 +171,7 @@ export async function listAllProducts(db, { limit } = {}) {
       id: p.id,
       handle: p.handle,
       title: p.title,
+      description: p.source_description ?? "",
       status: p.status,
       channel: p.channel,
       category_name: p.category_name,

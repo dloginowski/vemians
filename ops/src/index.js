@@ -475,7 +475,8 @@ async function ops(request, env, path) {
       path.endsWith("/custom-fields") ||
       path.endsWith("/square-attributes") ||
       path.endsWith("/category") ||
-      path.endsWith("/variations"))
+      path.endsWith("/variations") ||
+      path.endsWith("/details"))
   ) {
     const email = identity.claims?.email;
     if (typeof email !== "string" || !email.includes("@")) {
@@ -504,7 +505,9 @@ async function ops(request, env, path) {
           ? "/square-attributes"
           : path.endsWith("/category")
             ? "/category"
-            : "/variations";
+            : path.endsWith("/details")
+              ? "/details"
+              : "/variations";
     const handle = path.slice("/items/".length, path.length - suffix.length);
 
     let form;
@@ -581,6 +584,25 @@ async function ops(request, env, path) {
         ...(commission !== undefined ? { commission } : {}),
       };
       summaryNoun = "style ID, vendor, vendor code, unit cost or commission";
+    } else if (suffix === "/details") {
+      /* "Where's the item label and where is the description fields?
+         Shouldn't we be able to change that?" — title/description, sent
+         exactly as typed: a blank title is not "leave it as it is" the way
+         a blank style_id or vendor already means (both were only ever
+         placeholders for something that might not exist yet); this field
+         always carries the product's CURRENT title, so blank here means
+         someone actually deleted it, and catalog.update_product's own
+         check() refuses that with a clear reason ("title is empty") the
+         same inline way every other refusal on this tile already does. A
+         blank description is a real, intentional clear — the same
+         "resend the whole thing" reasoning update_product's other fields
+         already rely on, just this time the person editing it typed the
+         blank themselves. */
+      const title = String(form.get("title") ?? "").trim();
+      const description = String(form.get("description") ?? "").trim();
+      toolName = "catalog.update_product";
+      args = { handle, title, description };
+      summaryNoun = "title or description";
     } else if (suffix === "/category") {
       /* A free-text name, resolved the same way vendor names already are
          (vendorRef, catalog-writer.js) — the owner's own words: "I should
