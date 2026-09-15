@@ -83,6 +83,25 @@ export async function productByHandle(db, handle) {
     .first();
 }
 
+/* One variation, its own external_ref/sku, and its product's handle/title —
+   for a caller that holds our OWN variant uuid and needs Square's id to
+   reach it (inventory.adjust, commerce.js). Exposed here rather than on a
+   `catalog_mirror` store binding of its own: "no tool holds two stores at
+   once" (Test-PRD-P0-24-binding_scoped_tools) — a tool whose OWN store is
+   `commerce` reaches this through `resources: ["square"]` instead, the same
+   way `t.square` already carries its own internal mirror access for
+   `productByHandle` above. */
+export async function variantById(db, id) {
+  return db
+    .prepare(
+      `SELECT v.id, v.external_ref, v.sku, v.title AS variant_title, p.handle, p.title AS product_title
+         FROM mirror_variant_index v JOIN mirror_product_index p ON p.id = v.product_id
+        WHERE v.id = ?`,
+    )
+    .bind(id)
+    .first();
+}
+
 /* Same case-insensitive lookup vendorRef() does before ever calling
    Square's real CreateVendor — exposed here so a T2 tool's own check() can
    tell, BEFORE any write, whether resolving a given name would create a
@@ -558,6 +577,7 @@ export function createSquareCatalogWriter(env, opts = {}) {
 
     listCategories: () => listCategories(mirrorDb),
     productByHandle: (handle) => productByHandle(mirrorDb, handle),
+    variantById: (id) => variantById(mirrorDb, id),
     priceBand: (categoryId) => priceBand(mirrorDb, categoryId),
 
     /**

@@ -1783,6 +1783,19 @@ ${INPUT_BAR_CSS}
 .variations-body input[name^="unit_cost_"] {
   flex: 0 0 auto; width: 5em;
 }
+/* Stock — "show current count, adjust with +/-." A plain count, a narrow
+   delta box (nobody adjusts by more than a few hundred units at once), and
+   a small button, visually its own group at the end of the row rather than
+   another right-justified value column, since it is a command, not a fact
+   about the variation the way price/cost are. */
+.variation-stock { flex: 0 0 auto; font-size: 11px; color: var(--muted); margin-left: 4px; }
+.variation-stock-delta { flex: 0 0 auto; width: 4em; text-align: right; }
+.variation-stock-adjust {
+  flex: 0 0 auto; font: inherit; font-size: 11px; padding: 3px 8px;
+  border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--muted); cursor: pointer;
+}
+.variation-stock-adjust:hover { color: var(--accent); border-color: var(--accent); }
+.variation-stock-adjust:disabled { opacity: 0.5; cursor: default; }
 /* "Any changed fields should be marked with an orange highlight" — added
    to the specific field that changed (onItemsGridChange, below), not just
    the form it lives in. Specific enough (element + class, twice over) to
@@ -1964,6 +1977,16 @@ function itemTile(product, canEdit) {
      the read-only attrRows above is: a fact about a VENDOR's product, so
      it renders only once a vendor exists. */
   const hasVendor = Boolean(product.vendor);
+  /* Stock (P0-31, revised) — "show current count, adjust with +/-," the
+     owner's own choice over a plain "type a target count" box, once it was
+     clear a stock count is never overwritten directly, only adjusted. This
+     lives INSIDE the same pricing <form> purely for layout (one visual row
+     per variation); it is deliberately NOT part of that form's own dirty-
+     tracking or the tile's one big Save (onItemsGridChange's own early
+     return for .variation-stock-delta, views.js's script below) — a stock
+     movement is an EVENT with its own moment in time, posted the instant
+     the +/- button is clicked, never batched with an unrelated price edit
+     someone happens to also be mid-typing. */
   const variationRows = product.variations
     .map(
       (v, i) =>
@@ -1975,6 +1998,9 @@ function itemTile(product, canEdit) {
           ? `<input class="variation-unit-cost" name="unit_cost_${i}" value="${v.unit_cost_minor ? esc((v.unit_cost_minor / 100).toFixed(2)) : ""}" placeholder="Cost">`
           : "") +
         `<input class="variation-price" name="price_${i}" value="${esc((v.price_minor / 100).toFixed(2))}" placeholder="Price">` +
+        `<span class="variation-stock">${esc(String(v.on_hand ?? 0))} in stock</span>` +
+        `<input type="number" class="variation-stock-delta" step="1" placeholder="&plusmn;qty">` +
+        `<button type="button" class="variation-stock-adjust" data-variant-id="${esc(v.id)}" aria-label="Adjust stock" title="Adjust stock by the amount typed">Adjust</button>` +
         `</div>`,
     )
     .join("");
@@ -2456,6 +2482,11 @@ document.getElementById("items-grid").addEventListener("click", async (e) => {
     await saveTile(saveBtn.closest(".item-tile"));
     return;
   }
+  const stockBtn = e.target.closest(".variation-stock-adjust");
+  if (stockBtn) {
+    await adjustStock(stockBtn);
+    return;
+  }
   const closeBtn = e.target.closest(".item-close");
   if (closeBtn) {
     const tile = closeBtn.closest(".item-tile");
@@ -2534,6 +2565,10 @@ function onItemsGridChange(e) {
     });
     return;
   }
+  /* Stock's own +/- box lives inside the pricing form for layout only — it
+     never marks that form (or the tile's one Save button) dirty, and Save
+     never touches it. Its own button posts it immediately (below). */
+  if (e.target.matches(".variation-stock-delta")) return;
   const form = e.target.closest(".item-badges form, .item-edit form, .variations-header form, .variations-body form");
   if (form) refreshDirtyState(e.target);
 }
@@ -2601,6 +2636,44 @@ async function saveTile(tile) {
     location.reload();
   } else if (saveBtn) {
     saveBtn.disabled = false;
+  }
+}
+
+/* "Show current count, adjust with +/-" — posted the instant this button is
+   clicked, never batched into the tile's own big Save (see the P0-31
+   comment on variationRows, views.js, for why). Not a <form> at all: the
+   delta box carries no name and belongs to no form's own FormData, so
+   there is nothing for saveTile's own dirty-form scan to pick up here
+   either way. */
+async function adjustStock(button) {
+  const row = button.closest(".row");
+  const existingError = row.nextElementSibling;
+  if (existingError?.classList.contains("item-edit-error")) existingError.remove();
+
+  const delta = Number(row.querySelector(".variation-stock-delta")?.value);
+  if (!Number.isInteger(delta) || delta === 0) {
+    showFormError(row, "Enter a non-zero whole number to adjust by.");
+    return;
+  }
+
+  const handle = button.closest(".item-tile")?.dataset.handle;
+  const body = new FormData();
+  body.set("variant_id", button.dataset.variantId);
+  body.set("delta", String(delta));
+
+  button.disabled = true;
+  try {
+    const res = await fetch("/items/" + handle + "/inventory", { method: "POST", body });
+    if (res.ok) {
+      location.reload();
+      return;
+    }
+    const data = await res.json().catch(() => ({}));
+    showFormError(row, data.error || "That change was refused.");
+  } catch {
+    showFormError(row, "Could not reach the server — try again.");
+  } finally {
+    button.disabled = false;
   }
 }
 

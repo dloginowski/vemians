@@ -156,14 +156,44 @@ function auditDb() {
   return { prepare: wrap, _raw: db };
 }
 
-function env(mirror) {
+function env(mirror, commerce) {
   return {
     SURFACE: "ops",
     MANAGER_POLICY_ID: MANAGER_POLICY,
     STAFF_POLICY_ID: STAFF_POLICY,
     CATALOG_MIRROR: mirror,
     AUDIT: auditDb(),
+    ...(commerce ? { COMMERCE: commerce } : {}),
   };
+}
+
+/* shared/db/commerce.sql, over node:sqlite — same discipline as mirrorDb()
+   above, for the ONE query the Items tab makes into this store (a batched
+   read of inventory_level, for "show current count"). */
+function commerceDb() {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const sql = fs.readFileSync(path.join(here, "..", "..", "shared", "db", "commerce.sql"), "utf8");
+  const db = new DatabaseSync(":memory:");
+  db.exec(sql);
+  const wrap = (text) => {
+    let bound = [];
+    const stmt = {
+      bind(...args) {
+        bound = args;
+        return stmt;
+      },
+      async all() {
+        return { success: true, results: db.prepare(text).all(...bound) };
+      },
+      async first(column) {
+        const row = db.prepare(text).get(...bound);
+        if (row === undefined) return null;
+        return column === undefined ? row : row[column];
+      },
+    };
+    return stmt;
+  };
+  return { prepare: wrap, _raw: db };
 }
 
 function get(path, claims, e) {
@@ -1009,6 +1039,66 @@ check("test_PRD_P0_135_item_edit_applies_immediately__title_and_description_are_
   const body = await res.text();
   assert.doesNotMatch(body, /\/items\/wool-coat\/details/);
   assert.doesNotMatch(body, /<textarea/);
+});
+
+check("test_PRD_P0_31_inventory_ledger__stock_shows_zero_with_no_commerce_binding", async () => {
+  /* A deployment with no COMMERCE binding still renders the Items tab —
+     every variation just shows 0 in stock rather than the whole tab
+     going down over a store this page has never needed before. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.match(body, /<span class="variation-stock">0 in stock<\/span>/);
+  assert.match(body, /<input type="number" class="variation-stock-delta" step="1" placeholder="&plusmn;qty">/);
+  assert.match(body, /<button type="button" class="variation-stock-adjust" data-variant-id="v1"/);
+});
+
+check("test_PRD_P0_31_inventory_ledger__stock_reads_the_live_commerce_ledger", async () => {
+  /* "Show current count, adjust with +/-" — the count shown is whatever
+     inventory_level (the ledger's own derived VIEW) currently says for
+     this variation's own SKU, batched the same way vendor names/images
+     already are (one read, not one query per variation). */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const commerce = commerceDb();
+  commerce._raw.exec(
+    "INSERT INTO location (id, name) VALUES ('main', 'Vemians')",
+  );
+  commerce._raw
+    .prepare(
+      "INSERT INTO inventory_adjustment (id, sku, location_id, delta, reason, actor) VALUES (?, 'VEM-100', 'main', 7, 'receipt', 'system:test')",
+    )
+    .run("adj-1");
+  const res = await get("/items", MANAGER, env(mirror, commerce));
+  const body = await res.text();
+  assert.match(body, /<span class="variation-stock">7 in stock<\/span>/);
+});
+
+check("test_PRD_P0_31_inventory_ledger__inventory_route_staff_cannot_reach_it", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await postForm("/items/wool-coat/inventory", STAFF, env(mirror), { variant_id: "v1", delta: "1" });
+  assert.equal(res.status, 403);
+  assert.match(await res.text(), /manager/i);
+});
+
+check("test_PRD_P0_31_inventory_ledger__inventory_route_refuses_a_zero_delta_before_square_is_touched", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await postForm("/items/wool-coat/inventory", MANAGER, env(mirror), { variant_id: "v1", delta: "0" });
+  assert.equal(res.status, 400);
+  const body = await res.json();
+  assert.match(body.error, /non-zero whole-number change/);
+});
+
+check("test_PRD_P0_31_inventory_ledger__inventory_route_refuses_a_non_integer_delta", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await postForm("/items/wool-coat/inventory", MANAGER, env(mirror), { variant_id: "v1", delta: "abc" });
+  assert.equal(res.status, 400);
+  const body = await res.json();
+  assert.match(body.error, /non-zero whole-number change/);
 });
 
 check("test_PRD_P0_135_item_edit_applies_immediately__the_web_tag_is_a_clickable_toggle_rendered_either_way", async () => {

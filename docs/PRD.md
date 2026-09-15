@@ -601,6 +601,33 @@ that does not trace to one of these is a process failure (see §12).
     undo for a mistake is a reversing adjustment that leaves both the error and the correction on
     the record.
 
+    **REVISED: `inventory.adjust` (T2) and the Items tab's own stock control.** The owner's own
+    words, asked how to move stock from the accordion's own header without breaking "the count
+    cannot be written directly": "show current count, adjust with +/-" — a plain absolute-count
+    box was the alternative, and this is why it was not the one built. `inventory.adjust` is the
+    bounded opposite of `inventory.bulk_set` (`tiers.js`'s own T3-absent list, "one approval
+    covering the entire stock position"): ONE variation, a non-zero integer delta, one approval.
+    It never writes `inventory_adjustment` itself — `run()` computes the resulting ABSOLUTE count
+    (re-read fresh, not trusted from `check()`, since real time and someone else's sale can pass
+    between the two) and hands it to Square via `pushInventory` (`shared/commerce/square/index.js`,
+    previously written but uncalled by anything), a PHYSICAL_COUNT event using SQUARE's own
+    location id, never ours. `pullInventory` then syncs immediately, so the SAME
+    `syncInventoryChanges` path that turns any OTHER Square-side stock event into a ledger row
+    turns this one into one too — one writer into the ledger, always the sync, never an agent
+    tool, the same rule `catalog.update_product` already holds for the mirror. Refused before
+    Square is ever touched: a zero delta, a variation with no SKU (never mirrored), or a delta
+    that would take stock negative. `stores: ["commerce"]` alone (`Test-PRD-P0-24-binding_scoped_
+    tools`: "no tool holds two stores at once") — resolving `variant_id` to its own `external_ref`/
+    `sku` goes through `t.square`'s own internal mirror access (`variantById`, `catalog-writer.js`,
+    exposed the same way `productByHandle` already is) rather than a second store binding.
+    `listAllProducts` now also batches a read of the whole `inventory_level` view (one query, not
+    one per variation — the same trade vendor names and images already make), so each variation
+    row in the Items tab shows its own current count read-only, a narrow `±qty` delta box, and a
+    small Adjust button that posts immediately, on its own — deliberately NOT part of the tile's
+    one big resend-everything Save button, since a stock movement is an event with its own moment
+    in time, not a value to keep in sync with whatever else on the tile someone happens to also be
+    mid-editing.
+
 31. **`Test-PRD-P0-32-tickets`** — Company-wide issues live in their own `tickets` store. A ticket
     cannot be deleted, only moved through status, and resolving one requires a timestamp.
     Comments are append-only. Links to orders, customers, products and shifts are id plus a
