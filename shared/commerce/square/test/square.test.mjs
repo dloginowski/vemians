@@ -76,7 +76,7 @@ const fixture = (name) => JSON.parse(fs.readFileSync(path.join(FIXTURES, name), 
 /* ── labels, for the P0-30 traceability check ───────────────────────────── */
 
 const usedLabels = new Set();
-const NAME = /^test_PRD_(P[01])_(\d{2})_([a-z0-9_]+?)__([a-z0-9_]+)$/;
+const NAME = /^test_PRD_(P[01])_(\d{2,3})_([a-z0-9_]+?)__([a-z0-9_]+)$/;
 
 /* Every check registers through here, so nothing unlabeled can run. */
 function check(name, fn) {
@@ -1154,6 +1154,83 @@ check("test_PRD_P0_29_exit_test__dropping_every_square_id_leaves_the_catalog_and
   ]);
   assert.equal(await mirror.onHand("VEM-COAT-40"), 3, "the stock ledger never held a Square id to lose");
   assert.equal(rows(commerceDb, "SELECT id FROM inventory_adjustment").length, 4);
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-136 — style_id and vendor, Square's own Custom Attributes. The owner's
+ * own words: "why do we need to have our own custom fields then? ... we
+ * don't mind having our stuff being stored completely in Square." Read by
+ * the well-known `key` this codebase's own attribute definitions use
+ * ("style_id" / "vendor"), never Square's own opaque definition id.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+function itemWithAttrs(attrs) {
+  return {
+    id: "ITEM_ATTR_1",
+    type: "ITEM",
+    version: 7,
+    item_data: {
+      name: "Cocktail Dress",
+      custom_attribute_values: attrs,
+      variations: [],
+    },
+  };
+}
+
+check("test_PRD_P0_136_square_custom_attributes__normalisecatalog_reads_style_id_and_vendor_by_key", () => {
+  const { products } = normaliseCatalog([
+    itemWithAttrs({
+      style_id: { key: "style_id", type: "STRING", string_value: "01-04-001" },
+      vendor: { key: "vendor", type: "STRING", string_value: "Acme Mills" },
+    }),
+  ]);
+  assert.equal(products.length, 1);
+  assert.equal(products[0].styleId, "01-04-001");
+  assert.equal(products[0].vendor, "Acme Mills");
+});
+
+check("test_PRD_P0_136_square_custom_attributes__absent_or_non_string_is_null_not_guessed_at", () => {
+  const noAttrsAtAll = normaliseCatalog([itemWithAttrs(undefined)]).products[0];
+  assert.equal(noAttrsAtAll.styleId, null);
+  assert.equal(noAttrsAtAll.vendor, null);
+
+  /* A BOOLEAN- or NUMBER-typed value at these keys (some other use of the
+     same key, or a malformed payload) has no string_value at all — treated
+     as absent, not coerced into a string. */
+  const wrongType = normaliseCatalog([
+    itemWithAttrs({ style_id: { key: "style_id", type: "BOOLEAN", boolean_value: true } }),
+  ]).products[0];
+  assert.equal(wrongType.styleId, null);
+});
+
+check("test_PRD_P0_136_square_custom_attributes__a_resync_overwrites_them_unlike_channel_or_custom_fields", async () => {
+  const s = stores();
+  const first = normaliseCatalog([
+    itemWithAttrs({
+      style_id: { key: "style_id", type: "STRING", string_value: "01-04-001" },
+      vendor: { key: "vendor", type: "STRING", string_value: "Acme Mills" },
+    }),
+  ]);
+  await s.mirror.syncCatalog(first, { full: true });
+  assert.deepEqual({ ...rows(s.mirrorDb, "SELECT style_id, vendor FROM mirror_product")[0] }, {
+    style_id: "01-04-001",
+    vendor: "Acme Mills",
+  });
+
+  /* Square is authoritative for these two now — a later sync with a
+     DIFFERENT value overwrites the mirror, the opposite of channel/
+     custom_fields, which mirror.js never even names in its own UPDATE. */
+  const second = normaliseCatalog([
+    itemWithAttrs({
+      style_id: { key: "style_id", type: "STRING", string_value: "01-04-002" },
+      vendor: { key: "vendor", type: "STRING", string_value: "Different Vendor" },
+    }),
+  ]);
+  await s.mirror.syncCatalog(second, { full: true });
+  assert.deepEqual({ ...rows(s.mirrorDb, "SELECT style_id, vendor FROM mirror_product")[0] }, {
+    style_id: "01-04-002",
+    vendor: "Different Vendor",
+  });
 });
 
 /* ─────────────────────────────────────────────────────────────────────────

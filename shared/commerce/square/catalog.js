@@ -144,6 +144,18 @@ function variationPrice(data, context) {
   return moneyFromSquare(data.price_money, context);
 }
 
+/* Square's own Custom Attributes (Test-PRD-P0-136-square_custom_attributes)
+   — read by the well-known `key` this codebase's own definitions use
+   ("style_id", "vendor"), never by Square's own opaque definition id. A
+   STRING-type value comes back as { string_value }; anything else (missing,
+   or a different type than we expect) is treated as absent rather than
+   guessed at. */
+function customAttr(data, key) {
+  const value = data?.custom_attribute_values?.[key];
+  const s = value?.string_value;
+  return typeof s === "string" && s ? s : null;
+}
+
 function tracksStock(data, locationId) {
   const overrides = data?.location_overrides ?? [];
   const mine = overrides.find((o) => o.location_id === locationId);
@@ -267,6 +279,8 @@ export function normaliseCatalog(objects, { locationId = null, related = [] } = 
         data.categories?.[0]?.id ??
         data.category_id ??
         null,
+      styleId: customAttr(data, "style_id"),
+      vendor: customAttr(data, "vendor"),
       sourceVersion: Number(o.version ?? 0),
       withdrawn,
       variants,

@@ -22,7 +22,6 @@ import { register } from "node:module";
 register("../../shared/test/text-modules.mjs", import.meta.url);
 
 const worker = (await import("../src/index.js")).default;
-const { approvePending } = await import("../src/approvals.js");
 const { approvalResultPage } = await import("../src/views.js");
 
 const usedLabels = new Set();
@@ -87,13 +86,19 @@ function seedProduct(mirror, overrides = {}) {
   mirror.db.exec(
     "INSERT INTO mirror_category (id, external_ref, name) VALUES ('cat1', 'sqcat1', 'Outerwear')",
   );
-  const custom = JSON.stringify(overrides.custom_fields ?? { "unit cost": "210.00", vendor: "Acme Mills" });
+  const custom = JSON.stringify(overrides.custom_fields ?? { "unit cost": "210.00" });
   mirror.db
     .prepare(
-      `INSERT INTO mirror_product (id, external_ref, handle, title, status, channel, custom_fields, category_id)
-       VALUES ('p1', 'sqitem1', 'wool-coat', 'Wool Coat', ?, ?, ?, 'cat1')`,
+      `INSERT INTO mirror_product (id, external_ref, handle, title, status, channel, custom_fields, style_id, vendor, category_id)
+       VALUES ('p1', 'sqitem1', 'wool-coat', 'Wool Coat', ?, ?, ?, ?, ?, 'cat1')`,
     )
-    .run(overrides.status ?? "active", overrides.channel ?? "direct_link", custom);
+    .run(
+      overrides.status ?? "active",
+      overrides.channel ?? "direct_link",
+      custom,
+      overrides.style_id ?? null,
+      overrides.vendor ?? null,
+    );
   mirror.db.exec(
     "INSERT INTO mirror_variant (id, external_ref, product_id, sku, title, price_minor, currency) " +
       "VALUES ('v1', 'sqvar1', 'p1', 'VEM-100', 'One size', 45000, 'USD')",
@@ -161,7 +166,7 @@ function postForm(path, claims, e, fields) {
 
 check("test_PRD_P0_71_items_tab__the_items_tab_shows_every_field_including_custom_ones", async () => {
   const mirror = mirrorDb();
-  seedProduct(mirror);
+  seedProduct(mirror, { vendor: "Acme Mills" });
   const res = await get("/items", STAFF, env(mirror));
   assert.equal(res.status, 200);
   const body = await res.text();
@@ -170,8 +175,9 @@ check("test_PRD_P0_71_items_tab__the_items_tab_shows_every_field_including_custo
   assert.match(body, /VEM-100/);
   assert.match(body, /unit cost/);
   assert.match(body, /210\.00/);
-  assert.match(body, /vendor/);
-  assert.match(body, /Acme Mills/);
+  /* vendor is Square's own Custom Attribute now (P0-136), not a custom_fields
+     entry — its own labeled row, not a generic key/value pair. */
+  assert.match(body, /<span>Vendor<\/span><span>Acme Mills<\/span>/);
 });
 
 check("test_PRD_P0_71_items_tab__the_grid_is_two_columns_on_a_phone_and_fills_in_more_as_it_widens", async () => {
@@ -659,23 +665,14 @@ check("test_PRD_P0_71_items_tab__the_items_tab_degrades_plainly_with_no_mirror_b
   assert.equal(res.status, 503);
 });
 
-/*
- * The actual click on /approvals/<id> is exercised the same way
- * catalog-write.test.mjs's own P0-35 check does it: approvePending() called
- * directly with a hand-built, already-verified approver, rather than
- * through worker.fetch — a real Cloudflare Access signature is a whole
- * JWKS round trip this file has no need to fake, and P0-35's own suite
- * already proves the HTTP /approvals/ route calls approvePending()
- * correctly. What THIS file is responsible for is everything before that
- * click: that a tile's own form actually parks the right tool call.
- */
-const OWNER = { email: "owner@vemians.com", role: "owner", verified: true };
-
-check("test_PRD_P0_71_items_tab__editing_custom_fields_from_a_tile_parks_a_t2_approval", async () => {
+check("test_PRD_P0_135_item_edit_applies_immediately__editing_custom_fields_from_a_tile_needs_no_second_confirmation", async () => {
+  /* The owner's own words: "I'm still seeing confirmation dialogs whenever
+     I try to add a custom field... I shouldn't have to do this every
+     time." Submitting the form IS the decision — it applies in the same
+     request, with no /approvals/<id> hop and no second click. */
   const mirror = mirrorDb();
   seedProduct(mirror);
-  const e = env(mirror);
-  const res = await postForm("/items/wool-coat/custom-fields", MANAGER, e, {
+  const res = await postForm("/items/wool-coat/custom-fields", MANAGER, env(mirror), {
     field_name_0: "unit cost",
     field_value_0: "225.00",
     field_name_1: "vendor",
@@ -684,44 +681,96 @@ check("test_PRD_P0_71_items_tab__editing_custom_fields_from_a_tile_parks_a_t2_ap
     field_value_2: "Fall 2026",
   });
   assert.equal(res.status, 303);
-  const location = res.headers.get("location");
-  assert.match(location, /^\/approvals\//, "must hand off to the SAME approval page every other catalog write uses");
-
-  /* Nothing has actually changed yet — parking is not approving. */
-  const stillOld = mirror.db.prepare("SELECT custom_fields FROM mirror_product WHERE handle = 'wool-coat'").get();
-  assert.match(stillOld.custom_fields, /Acme Mills/);
-
-  const id = location.slice("/approvals/".length);
-  const approved = await approvePending(e, id, OWNER);
-  assert.equal(approved.ok, true, approved.error);
+  assert.equal(res.headers.get("location"), "/items", "no /approvals/<id> hop — straight back to the tab");
 
   const updated = mirror.db.prepare("SELECT custom_fields FROM mirror_product WHERE handle = 'wool-coat'").get();
   const fields = JSON.parse(updated.custom_fields);
-  assert.deepEqual(fields, { "unit cost": "225.00", season: "Fall 2026" }, "update one, remove one (blank), add one — one patch");
+  assert.deepEqual(fields, { "unit cost": "225.00", season: "Fall 2026" }, "update one, remove one (blank), add one — one patch, already applied");
 });
 
-check("test_PRD_P0_71_items_tab__editing_the_channel_from_a_tile_also_parks_a_t2_approval", async () => {
+check("test_PRD_P0_135_item_edit_applies_immediately__editing_the_channel_from_a_tile_needs_no_second_confirmation_either", async () => {
   const mirror = mirrorDb();
   seedProduct(mirror, { channel: "direct_link" });
-  const e = env(mirror);
-  const res = await postForm("/items/wool-coat/channel", MANAGER, e, { on_website: "on" });
+  const res = await postForm("/items/wool-coat/channel", MANAGER, env(mirror), { on_website: "on" });
   assert.equal(res.status, 303);
-  const location = res.headers.get("location");
-
-  const id = location.slice("/approvals/".length);
-  const approved = await approvePending(e, id, OWNER);
-  assert.equal(approved.ok, true, approved.error);
+  assert.equal(res.headers.get("location"), "/items");
 
   const updated = mirror.db.prepare("SELECT channel FROM mirror_product WHERE handle = 'wool-coat'").get();
-  assert.equal(updated.channel, "website");
+  assert.equal(updated.channel, "website", "already applied — no approval step waited on it");
+});
+
+check("test_PRD_P0_135_item_edit_applies_immediately__a_refused_edit_still_reports_the_reason_and_writes_nothing", async () => {
+  /* Applying immediately must not mean applying blindly — the tool's own
+     check() still runs and can still refuse (here: setting the SAME
+     channel it already has, the existing no-op guard). */
+  const mirror = mirrorDb();
+  seedProduct(mirror, { channel: "direct_link" });
+  const res = await postForm("/items/wool-coat/channel", MANAGER, env(mirror), {});
+  assert.equal(res.status, 400);
+  assert.match(await res.text(), /already direct_link/);
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-136 — style_id and vendor, Square's own Custom Attributes, in the
+ * Items tab. The tool's own behaviour (format, conflicts, Square calls) is
+ * exercised in catalog-write.test.mjs, whose fixture injects a fake Square
+ * client into the tool's own ctx directly; this file's own env() has no
+ * SQUARE_ACCESS_TOKEN at all (real ops.vemians.com never runs without one,
+ * so nothing here should paper over that with a fake route-level seam) —
+ * so what's tested here is everything the route does BEFORE ever touching
+ * Square: the markup, and the manager-only gate that refuses before runTool
+ * is even called.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_136_square_custom_attributes__the_tile_shows_style_id_and_vendor_when_set", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror, { style_id: "01-04-001", vendor: "Acme Mills" });
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.match(body, /<span>Style ID<\/span><span>01-04-001<\/span>/);
+  assert.match(body, /<span>Vendor<\/span><span>Acme Mills<\/span>/);
+});
+
+check("test_PRD_P0_136_square_custom_attributes__neither_row_renders_when_unset", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.doesNotMatch(body, /<span>Style ID<\/span>/);
+  assert.doesNotMatch(body, /<span>Vendor<\/span>/);
+});
+
+check("test_PRD_P0_136_square_custom_attributes__the_edit_form_posts_to_style_vendor_prefilled_with_current_values", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror, { style_id: "01-04-001", vendor: "Acme Mills" });
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.match(body, /<form method="post" action="\/items\/wool-coat\/style-vendor">/);
+  assert.match(body, /<input name="style_id" value="01-04-001" placeholder="Style ID \(NN-NN-NNN\)">/);
+  assert.match(body, /<input name="vendor" value="Acme Mills" placeholder="Vendor">/);
+});
+
+check("test_PRD_P0_136_square_custom_attributes__staff_cannot_reach_the_route_before_square_is_ever_touched", async () => {
+  /* The route's own manager-only gate refuses BEFORE calling runTool at
+     all, so this never needs a working Square client to test — the same
+     reason the channel and custom-fields staff-refusal checks above don't
+     either. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await postForm("/items/wool-coat/style-vendor", STAFF, env(mirror), { vendor: "Someone Else" });
+  assert.equal(res.status, 403);
+  assert.match(await res.text(), /manager/i);
 });
 
 check("test_PRD_P0_71_items_tab__approving_an_items_tab_edit_sends_the_approver_back_to_items", () => {
-  /* The routing half (index.js choosing backHref from the parked tool's own
-     name) is exercised by inspection here rather than a second HTTP round
-     trip through real Access verification — approvalResultPage() is what
-     that routing decision actually renders, so this is what a person
-     clicking "Approve and run" from an Items-tab tile would see. */
+  /* P0-135 made the Items tab's OWN form apply immediately, with no
+     /approvals/<id> hop at all — but catalog.set_channel and catalog.
+     set_custom_fields still reach this same generic approval page when an
+     AGENT proposes one conversationally (a real decision for a human to
+     review, unlike a form someone already filled in and submitted
+     themselves). index.js's own ITEMS_TAB_TOOLS-driven backHref still
+     needs to send that approver back to /items rather than the agent
+     page, so this still exercises the routing half by inspection. */
   const withItemsBack = approvalResultPage(true, { updated: true }, { backHref: "/items", backLabel: "Back to Items" });
   assert.match(withItemsBack, /href="\/items"/);
   assert.match(withItemsBack, /Back to Items/);
@@ -735,14 +784,14 @@ check("test_PRD_P0_71_items_tab__staff_cannot_propose_an_item_edit_either", asyn
   const mirror = mirrorDb();
   seedProduct(mirror);
   const res = await postForm("/items/wool-coat/custom-fields", STAFF, env(mirror), {
-    field_name_0: "vendor",
-    field_value_0: "Someone Else",
+    field_name_0: "unit cost",
+    field_value_0: "999.00",
   });
   assert.equal(res.status, 403);
   assert.match(await res.text(), /manager/i);
 
   const unchanged = mirror.db.prepare("SELECT custom_fields FROM mirror_product WHERE handle = 'wool-coat'").get();
-  assert.match(unchanged.custom_fields, /Acme Mills/, "nothing must be parked, let alone applied, from a staff submission");
+  assert.match(unchanged.custom_fields, /210\.00/, "nothing must be parked, let alone applied, from a staff submission");
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -830,13 +879,10 @@ check("test_PRD_P0_130_item_tile_photo__the_channel_edit_control_is_a_single_che
 check("test_PRD_P0_130_item_tile_photo__leaving_the_checkbox_unchecked_sets_direct_link", async () => {
   const mirror = mirrorDb();
   seedProduct(mirror, { channel: "website" });
-  const e = env(mirror);
   /* A real browser submits nothing at all for an unchecked checkbox. */
-  const res = await postForm("/items/wool-coat/channel", MANAGER, e, {});
+  const res = await postForm("/items/wool-coat/channel", MANAGER, env(mirror), {});
   assert.equal(res.status, 303);
-  const id = res.headers.get("location").slice("/approvals/".length);
-  const approved = await approvePending(e, id, OWNER);
-  assert.equal(approved.ok, true, approved.error);
+  assert.equal(res.headers.get("location"), "/items");
   const updated = mirror.db.prepare("SELECT channel FROM mirror_product WHERE handle = 'wool-coat'").get();
   assert.equal(updated.channel, "direct_link");
 });

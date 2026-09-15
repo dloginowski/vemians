@@ -1404,6 +1404,118 @@ check("test_PRD_P0_71_product_channel__the_tool_holds_no_square_resource_at_all"
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
+ * P0-136 — style_id and vendor, Square's own Custom Attributes. The
+ * opposite structural shape from set_channel above: this tool DOES hold
+ * `square` and DOES call it, because Square is authoritative for these two.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+const COAT_HANDLE = "shearling-trimmed-wool-blend-coat";
+
+check("test_PRD_P0_136_square_custom_attributes__the_tool_holds_the_square_resource_unlike_channel", () => {
+  const tool = TOOLS["catalog.set_style_and_vendor"];
+  assert.ok(tool, "catalog.set_style_and_vendor is not registered");
+  assert.deepEqual(tool.resources, ["square"]);
+  assert.deepEqual(tool.stores, ["catalog_mirror"]);
+  assert.equal(tool.tier, "T2");
+  assert.equal(tool.minRole, "manager");
+});
+
+check("test_PRD_P0_136_square_custom_attributes__setting_both_calls_square_then_syncs_the_mirror", async () => {
+  const f = await fixture();
+  const res = await approvedCall(f, "catalog.set_style_and_vendor", {
+    handle: COAT_HANDLE,
+    style_id: "01-04-001",
+    vendor: "Acme Mills",
+  });
+  assert.equal(res.ok, true, res.error);
+  assert.equal(res.data.style_id, "01-04-001");
+  assert.equal(res.data.vendor, "Acme Mills");
+  assert.equal(res.data.authority, "square");
+
+  const upsert = f.calls().find((c) => c.path === "/v2/catalog/object" && c.upsert === "ITEM");
+  assert.ok(upsert, "must actually call UpsertCatalogObject");
+  assert.deepEqual(upsert.body.object.item_data.custom_attribute_values, {
+    style_id: { key: "style_id", type: "STRING", string_value: "01-04-001" },
+    vendor: { key: "vendor", type: "STRING", string_value: "Acme Mills" },
+  });
+
+  const row = f.mirror(`SELECT style_id, vendor FROM mirror_product WHERE handle = '${COAT_HANDLE}'`)[0];
+  assert.equal(row.style_id, "01-04-001");
+  assert.equal(row.vendor, "Acme Mills");
+});
+
+check("test_PRD_P0_136_square_custom_attributes__style_id_must_match_the_shops_own_nomenclature", async () => {
+  const f = await fixture();
+  const res = await runTool(
+    "catalog.set_style_and_vendor",
+    { handle: COAT_HANDLE, style_id: "not-a-style-id" },
+    f.ctx,
+  );
+  assert.equal(res.ok, false);
+  assert.match(res.error, /NN-NN-NNN/);
+  assert.deepEqual(f.calls(), [], "a refused style_id must never reach Square");
+});
+
+check("test_PRD_P0_136_square_custom_attributes__a_duplicate_style_id_is_refused_as_a_conflict", async () => {
+  const f = await fixture();
+  await approvedCall(f, "catalog.set_style_and_vendor", { handle: COAT_HANDLE, style_id: "01-04-001" });
+
+  const category = f.categories()[0];
+  const created = await approvedCall(f, "catalog.create_product", {
+    title: "Second Coat",
+    category_id: category.id,
+    variations: [{ title: "One size", price_minor: 45000, currency: "USD" }],
+  });
+  assert.equal(created.ok, true, created.error);
+  const secondHandle = created.data.product.handle;
+
+  const conflict = await runTool(
+    "catalog.set_style_and_vendor",
+    { handle: secondHandle, style_id: "01-04-001" },
+    f.ctx,
+  );
+  assert.equal(conflict.ok, false);
+  assert.match(conflict.error, new RegExp(`already assigned to '${COAT_HANDLE}'`));
+});
+
+check("test_PRD_P0_136_square_custom_attributes__giving_only_one_field_leaves_the_other_untouched", async () => {
+  const f = await fixture();
+  await approvedCall(f, "catalog.set_style_and_vendor", {
+    handle: COAT_HANDLE,
+    style_id: "01-04-001",
+    vendor: "Acme Mills",
+  });
+
+  const res = await approvedCall(f, "catalog.set_style_and_vendor", { handle: COAT_HANDLE, vendor: "New Vendor" });
+  assert.equal(res.ok, true, res.error);
+  assert.equal(res.data.style_id, "01-04-001", "style_id must survive a call that only meant to change vendor");
+  assert.equal(res.data.vendor, "New Vendor");
+});
+
+check("test_PRD_P0_136_square_custom_attributes__setting_the_same_values_again_is_refused_as_a_no_op", async () => {
+  const f = await fixture();
+  await approvedCall(f, "catalog.set_style_and_vendor", { handle: COAT_HANDLE, vendor: "Acme Mills" });
+  const res = await runTool(
+    "catalog.set_style_and_vendor",
+    { handle: COAT_HANDLE, vendor: "Acme Mills" },
+    f.ctx,
+  );
+  assert.equal(res.ok, false);
+  assert.match(res.error, /already has that style_id and vendor/);
+});
+
+check("test_PRD_P0_136_square_custom_attributes__staff_cannot_call_it", async () => {
+  const f = await fixture();
+  const res = await runTool(
+    "catalog.set_style_and_vendor",
+    { handle: COAT_HANDLE, vendor: "Acme Mills" },
+    { ...f.ctx, ...staff },
+  );
+  assert.equal(res.ok, false);
+  assert.match(res.error, /manager/i);
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
  * P0-71 — custom_fields: the same "ours, not Square's" pattern as channel
  * ───────────────────────────────────────────────────────────────────────── */
 
