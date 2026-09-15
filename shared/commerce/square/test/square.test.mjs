@@ -922,6 +922,72 @@ check("test_PRD_P0_37_mirror_is_ours__a_handle_is_stable_when_the_title_is_retyp
   assert.ok(await mirror.productByHandle(before.handle), "the old URL still resolves");
 });
 
+check("test_PRD_P0_31_inventory_ledger__push_inventory_posts_a_physical_count_and_the_sync_ledgers_it", async () => {
+  /* inventory.adjust (ops/src/tools/commerce.js) computes a resulting
+     ABSOLUTE count and hands it here — pushInventory's own job is only to
+     tell Square what that count now is, as a PHYSICAL_COUNT event, using
+     SQUARE's own location id (client.locationId), never ours. Square is
+     still the one true count (ADR-009): this never writes our own ledger
+     directly, so the second half of this test proves the SAME sync path
+     any other Square-side stock event already goes through
+     (syncInventoryChanges) is what actually turns this into a row. */
+  const { mirrorDb, commerceDb, mirror } = await seededCatalog();
+  const pushed = [];
+  const retrieved = [];
+  const fetchImpl = async (url, init = {}) => {
+    const body = init.body ? JSON.parse(init.body) : null;
+    if (url.includes("/v2/inventory/changes/batch-create")) {
+      pushed.push(body);
+      return new Response(JSON.stringify({ counts: [] }));
+    }
+    if (url.includes("/v2/inventory/changes/batch-retrieve")) {
+      retrieved.push(body);
+      return new Response(
+        JSON.stringify({
+          changes: [
+            {
+              type: "PHYSICAL_COUNT",
+              physical_count: {
+                id: "SQ_PC_1",
+                catalog_object_id: "VAR_COAT_IT40",
+                state: "IN_STOCK",
+                location_id: SQUARE_LOCATION,
+                quantity: "9",
+                occurred_at: "2026-01-01T00:00:00Z",
+              },
+            },
+          ],
+        }),
+      );
+    }
+    return new Response(JSON.stringify({ errors: [{ code: "NOT_FOUND" }] }), { status: 404 });
+  };
+  const adapter = createSquareAdapter(squareEnv(), {
+    mirrorDb,
+    commerceDb,
+    locationId: OUR_LOCATION,
+    clientOptions: { fetchImpl },
+  });
+
+  await adapter.pushInventory([{ externalRef: "VAR_COAT_IT40", onHand: 9 }]);
+  assert.equal(pushed.length, 1);
+  const change = pushed[0].changes[0];
+  assert.equal(change.type, "PHYSICAL_COUNT");
+  assert.equal(change.physical_count.catalog_object_id, "VAR_COAT_IT40");
+  assert.equal(change.physical_count.location_id, SQUARE_LOCATION, "Square's own location id, not ours");
+  assert.equal(change.physical_count.quantity, "9", "a decimal STRING, the same shape Square's own reads use");
+  assert.equal(change.physical_count.state, "IN_STOCK");
+
+  const result = await adapter.pullInventory({ catalogObjectIds: ["VAR_COAT_IT40"] });
+  assert.equal(result.applied, 1, "the same sync path every other Square-side stock event already goes through");
+  const row = one(
+    commerceDb,
+    "SELECT sku, delta, reason FROM inventory_adjustment WHERE sku = 'VEM-COAT-40'",
+  );
+  assert.equal(row.delta, 9, "0 on hand -> 9 counted is a +9 delta, never the raw 9 written as an overwrite");
+  assert.equal(row.reason, "count");
+});
+
 /* ─────────────────────────────────────────────────────────────────────────
  * P0-17 — a channel is an adapter and a `channel` value; no card data
  * ───────────────────────────────────────────────────────────────────────── */

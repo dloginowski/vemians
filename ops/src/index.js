@@ -438,6 +438,27 @@ async function ops(request, env, path) {
        to offer a category nobody has been put in yet, same as the agent's
        own catalog.create_product picker already can. */
     const allCategories = await listCategories(env.CATALOG_MIRROR);
+
+    /* Stock, batched the same way vendor names and images already are —
+       one read of the whole (small) inventory_level view rather than one
+       query per variation. A deployment with no COMMERCE binding, or a
+       read that fails for any other reason, still shows the Items tab —
+       every variation just shows 0 in stock rather than the whole tab
+       going down over a store this page has never needed before. */
+    let stockBySku = new Map();
+    if (env.COMMERCE) {
+      try {
+        const stock = await env.COMMERCE.prepare("SELECT sku, on_hand FROM inventory_level").bind().all();
+        stockBySku = new Map((stock.results ?? []).map((r) => [r.sku, Number(r.on_hand)]));
+      } catch (err) {
+        console.error(`ERROR ops/items: could not read stock levels — ${err.message}`);
+      }
+    }
+    products = products.map((p) => ({
+      ...p,
+      variations: p.variations.map((v) => ({ ...v, on_hand: v.sku ? (stockBySku.get(v.sku) ?? 0) : null })),
+    }));
+
     return html(itemsPage({ role }, products, allCategories));
   }
 
@@ -476,7 +497,8 @@ async function ops(request, env, path) {
       path.endsWith("/square-attributes") ||
       path.endsWith("/category") ||
       path.endsWith("/variations") ||
-      path.endsWith("/details"))
+      path.endsWith("/details") ||
+      path.endsWith("/inventory"))
   ) {
     const email = identity.claims?.email;
     if (typeof email !== "string" || !email.includes("@")) {
@@ -507,7 +529,9 @@ async function ops(request, env, path) {
             ? "/category"
             : path.endsWith("/details")
               ? "/details"
-              : "/variations";
+              : path.endsWith("/inventory")
+                ? "/inventory"
+                : "/variations";
     const handle = path.slice("/items/".length, path.length - suffix.length);
 
     let form;
@@ -603,6 +627,23 @@ async function ops(request, env, path) {
       toolName = "catalog.update_product";
       args = { handle, title, description };
       summaryNoun = "title or description";
+    } else if (suffix === "/inventory") {
+      /* "Show current count, adjust with +/-" — the owner's own choice,
+         over a plain "type a target count" box, once it was clear a stock
+         count is never overwritten directly, only adjusted (P0-31's own
+         "the count cannot be written directly"). ONE variation, ONE delta,
+         per click — not part of the tile's big resend-everything Save flow
+         (the page script below posts this immediately, on its own, the
+         moment the +/- button is clicked), since a stock movement is an
+         EVENT with its own moment in time, not a value to keep in sync. */
+      const variantId = String(form.get("variant_id") ?? "").trim();
+      const delta = Number(String(form.get("delta") ?? "").trim());
+      if (!variantId || !Number.isInteger(delta) || delta === 0) {
+        return json({ error: "give a variation and a non-zero whole-number change" }, 400);
+      }
+      toolName = "inventory.adjust";
+      args = { variant_id: variantId, delta };
+      summaryNoun = "stock";
     } else if (suffix === "/category") {
       /* A free-text name, resolved the same way vendor names already are
          (vendorRef, catalog-writer.js) — the owner's own words: "I should

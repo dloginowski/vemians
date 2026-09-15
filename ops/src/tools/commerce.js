@@ -1,9 +1,13 @@
 /*
  * order.* / inventory.* — inherits agent-tool-contract, then commerce-skills.
  *
- * Reads only. `order.refund`, cancellation and any row deletion are T3 —
- * absent, and named in commerce-skills so nobody builds them by accident. Money
- * movement lives in the provider that holds the payment.
+ * order.* is reads only. `order.refund`, cancellation and any row deletion are
+ * T3 — absent, and named in commerce-skills so nobody builds them by accident.
+ * Money movement lives in the provider that holds the payment. `inventory.
+ * bulk_set` is T3 for the same reason (tiers.js): "one approval covering the
+ * entire stock position." `inventory.adjust` below is the bounded, T2
+ * opposite — ONE variation, a delta, one approval, the same shape every
+ * catalog write already uses.
  *
  * `inventory.check` is a live D1 read on every call. Serving stock from the
  * static build shows a number that was true at deploy time and sells something
@@ -13,6 +17,17 @@
  * Orders carry `customer_id` and no PII — Test-PRD-P0-11-erasure_vs_tax_retention
  * is a property of the schema, and these SELECTs name their columns so it stays
  * one.
+ *
+ * `inventory.adjust` (Test-PRD-P0-31-inventory_ledger, revised) — "the count
+ * cannot be written directly" holds here exactly as it does everywhere else in
+ * this file's own ledger: this tool NEVER writes `inventory_adjustment`
+ * itself. It writes the resulting absolute count to SQUARE
+ * (`t.square.adapter.pushInventory`, ADR-009's authority for stock, same as a
+ * price), then syncs (`pullInventory`) so the SAME code path that turns any
+ * OTHER Square inventory event into a ledger row — mirror.js's own
+ * `syncInventoryChanges` — turns this one into a row too. One writer into the
+ * ledger, always the sync, never an agent tool; this tool only ever moves the
+ * number Square itself holds.
  */
 import { CAPS, rowLimit } from "./caps.js";
 
@@ -126,6 +141,82 @@ export const commerceTools = {
         read_at: new Date().toISOString(),
         live: true,
       };
+    },
+  },
+
+  "inventory.adjust": {
+    tier: "T2",
+    domain: "commerce",
+    stores: ["commerce"],
+    resources: ["square"],
+    minRole: "manager",
+    describe:
+      "Move ONE variation's stock by a delta (positive to receive, negative to remove) — a bounded " +
+      "version of the bulk stock-position change this codebase deliberately never built " +
+      "(inventory.bulk_set, tiers.js). Writes the resulting count to Square, never to our own ledger " +
+      "directly; the mirror sync turns Square's own resulting event into the actual ledger row, the " +
+      "same way any OTHER stock movement Square knows about already becomes one.",
+    undo: "another inventory.adjust with the opposite delta",
+    schema: {
+      variant_id: { type: "string", required: true, format: "id" },
+      delta: { type: "integer", required: true },
+    },
+    async variant(args, t) {
+      /* Through t.square, not a `catalog_mirror` store of this tool's own —
+         "no tool holds two stores at once" (Test-PRD-P0-24-binding_scoped_
+         tools). t.square already carries its own internal mirror access
+         (the same one productByHandle uses for every catalog write); this
+         is that same read, exposed as variantById (catalog-writer.js). */
+      return t.square.variantById(args.variant_id);
+    },
+    async onHand(sku, t) {
+      const row = await t.db.commerce.prepare("SELECT on_hand FROM inventory_level WHERE sku = ?").bind(sku).first();
+      return Number(row?.on_hand ?? 0);
+    },
+    async check(args, t) {
+      if (args.delta === 0) return { denied: "a delta of 0 would change nothing" };
+      const variant = await this.variant(args, t);
+      if (!variant) return { denied: `no variation '${args.variant_id}' in the mirror` };
+      if (!variant.sku) {
+        return {
+          denied:
+            `'${variant.product_title}' — '${variant.variant_title}' has no SKU yet, so it has never ` +
+            "been mirrored into stock — nothing to adjust",
+        };
+      }
+      const current = await this.onHand(variant.sku, t);
+      const resulting = current + args.delta;
+      if (resulting < 0) {
+        return {
+          denied: `${current} in stock — a change of ${args.delta} would take it negative`,
+          detail: { reason: "would_go_negative", current },
+        };
+      }
+      return {
+        ok: true,
+        summary:
+          `adjust "${variant.product_title}" — "${variant.variant_title}" stock by ` +
+          `${args.delta > 0 ? "+" : ""}${args.delta} (${current} -> ${resulting})`,
+        preflight: { variant, current },
+      };
+    },
+    async run(args, t) {
+      /* Re-derived, not trusted from check() — real time passes between a T2
+         check() and its approved run(), and someone else's sale or receipt in
+         that gap must not be silently overwritten by a stale target count. */
+      const variant = await this.variant(args, t);
+      if (!variant?.sku) return { error: `no SKU for variation '${args.variant_id}' — nothing to adjust` };
+      const current = await this.onHand(variant.sku, t);
+      const resulting = current + args.delta;
+      if (resulting < 0) {
+        return { error: `${current} in stock now — a change of ${args.delta} would take it negative` };
+      }
+
+      await t.square.adapter.pushInventory([{ externalRef: variant.external_ref, onHand: resulting }]);
+      await t.square.adapter.pullInventory({ catalogObjectIds: [variant.external_ref] });
+
+      const after = await this.onHand(variant.sku, t);
+      return { adjusted: true, sku: variant.sku, delta: args.delta, on_hand: after };
     },
   },
 };
