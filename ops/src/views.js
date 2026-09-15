@@ -895,6 +895,21 @@ const LINK_ICON = `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="
   `<path d="M8.9 11.6 7.7 12.8a2.3 2.3 0 0 1-3.3-3.3l1.2-1.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>` +
   `<path d="M6.4 9.6 9.6 6.4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>`;
 
+/* The variations accordion's own expand/collapse control (views.js's own
+   itemTile()) — a plain chevron, rotated in place via .expanded rather
+   than swapped for a second glyph, the same "one element, one state
+   toggle" trade .item-tile.full itself already makes. */
+const CARET_ICON = `<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">` +
+  `<path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+/* The one Save for a whole expanded item tile — the owner's own words:
+   "one save button for the whole page... disabled and becomes enabled
+   when any changes are detected." A checkmark, not a floppy disk: nothing
+   else on this page reaches for the literal save-icon metaphor, and a
+   check reads as "commit this" without implying a file. */
+const SAVE_ICON = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">` +
+  `<path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
 /* One attach button, not two — a plain "+" like the reference composer's own,
    same stroke-only style as CLIPBOARD above. It opens one file picker that
    takes a photo or any other file; the agent works out which from what
@@ -1578,7 +1593,29 @@ ${INPUT_BAR_CSS}
 }
 .item-close:hover { background: rgba(255, 255, 255, 0.2); }
 .item-tile.full .item-close { display: inline-flex; }
-.item-sku { font-size: 11px; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* ONE Save for the whole tile — the owner's own words: "one save button
+   for the whole page... disabled and becomes enabled when any changes are
+   detected." Same circular-icon treatment as Share/Close beside it,
+   hidden until expanded the same way both of those already are; :disabled
+   is what actually reads as "nothing to save yet." */
+.item-save-all {
+  display: none; flex: 0 0 auto; width: 20px; height: 20px; padding: 0;
+  align-items: center; justify-content: center; border: none; border-radius: 50%;
+  cursor: pointer; background: transparent; color: #fff;
+}
+.item-save-all:hover { background: rgba(255, 255, 255, 0.2); }
+.item-tile.full .item-save-all { display: inline-flex; }
+.item-save-all:disabled { opacity: 0.35; cursor: default; }
+.item-save-all:disabled:hover { background: transparent; }
+/* The owner's own words: "any changed fields should be marked with an
+   orange highlight, and so is the save button" — enabled (there is
+   something dirty to save) IS the highlight; no separate class needed
+   since :disabled already carries the opposite state. */
+.item-save-all:not(:disabled) { color: var(--accent); }
+/* style_id took the SKU's old spot — the owner's own words: "these are
+   generated automatically by Square and we should not be editing them at
+   all... we don't need to see them in our ops dashboard." */
+.item-style-id { font-size: 11px; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* As short as the owner's own words ask: "shorten them, make them as
    short as possible" — CHANNEL_LABEL carries just "Web" now (direct_link
    gets no tag at all — see CHANNEL_LABEL's own comment), and the tag list
@@ -1610,32 +1647,79 @@ ${INPUT_BAR_CSS}
 .item-tile.full .item-photo { position: relative; inset: auto; aspect-ratio: 4 / 3; max-height: 40vh; flex: 0 0 auto; }
 .item-tile.full .item-detail { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px 12px; font-size: 12px; }
 .item-detail { display: none; }
-.item-badges { display: flex; flex-wrap: wrap; gap: 4px; }
+.item-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .item-badges span {
   font-size: 10px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--rule); color: var(--muted);
 }
 .item-badges .channel-website { border-color: var(--accent); color: var(--accent); }
+.web-toggle-form, .category-form { display: contents; }
+/* The Web tag IS the toggle now — the owner's own words: "I don't want to
+   have a checkbox for web, the web tag itself should be clickable to
+   toggle it, and it should have a little checkbox inside the tag to
+   signify that it's a button, not an indicator." A <label> wrapping a
+   real checkbox: clicking anywhere on the pill toggles it (native label
+   behaviour, no click handler needed for that part), and the checkbox
+   itself stays small and visible inside the pill rather than styled away,
+   so the pill still reads as something to click rather than a status
+   badge. Rendered even OFF — unlike the read-only badge it replaces,
+   there has to be something to click to turn it back on. */
+.item-tag-toggle {
+  display: inline-flex; align-items: center; gap: 3px; font-size: 10px; padding: 1px 6px 1px 4px;
+  border-radius: 999px; border: 1px solid var(--rule); color: var(--muted); cursor: pointer;
+}
+.item-tag-toggle input { width: 10px; height: 10px; margin: 0; accent-color: var(--accent); }
+.item-tag-toggle.is-on { border-color: var(--accent); color: var(--accent); }
+/* The category dropdown-or-type-in combobox — the owner's own words:
+   "uncategorized should be a drop down... select an existing category
+   subcategory, or just type in... it will create one if there isn't
+   one." list="items-category-list" (itemsPage()) supplies the suggestions;
+   typing anything else is still a valid submission. */
+.category-input {
+  font: inherit; font-size: 10px; padding: 1px 6px; border-radius: 999px;
+  border: 1px solid var(--rule); background: transparent; color: var(--muted); width: 8em;
+}
 .item-variants, .item-fields { display: flex; flex-direction: column; gap: 2px; }
 .item-variants div, .item-fields div { display: flex; justify-content: space-between; gap: 6px; }
 .item-variants span:first-child, .item-fields span:first-child { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .item-fields span:last-child { color: var(--ink); text-align: right; overflow-wrap: anywhere; }
 .item-empty { color: var(--muted); font-style: italic; }
+/* The variations accordion — the owner's own words: "an expandable
+   accordion header for the variations." Collapsed by default
+   (.variations-body hidden until .variations-accordion carries
+   .expanded) — the header alone (style_id, unit cost, MSRP) is the thing
+   worth seeing without an extra tap; the per-variation list is the detail
+   an accordion exists to defer. */
+.variations-accordion { border-top: 1px solid var(--rule); margin-top: 2px; padding-top: 6px; }
+.variations-header { display: flex; align-items: center; gap: 6px; }
+.variations-toggle {
+  flex: 0 0 auto; width: 18px; height: 18px; padding: 0; display: inline-flex; align-items: center;
+  justify-content: center; border: none; background: transparent; color: var(--muted); cursor: pointer;
+  transition: transform 0.15s;
+}
+.variations-toggle:hover { color: var(--accent); }
+.variations-accordion.expanded .variations-toggle { transform: rotate(90deg); }
+.variations-header form { display: contents; }
+.variations-body { display: none; flex-direction: column; gap: 4px; margin-top: 6px; }
+.variations-accordion.expanded .variations-body { display: flex; }
+.variations-body .row { display: flex; gap: 6px; align-items: center; }
 .item-edit { border-top: 1px solid var(--rule); margin-top: 2px; padding-top: 6px; cursor: default; }
 .item-edit form { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 .item-add-field { margin: 2px 0; }
 .item-add-field summary { cursor: pointer; color: var(--muted); font-size: 11px; }
 .item-add-field summary:hover { color: var(--accent); }
-.item-edit .row { display: flex; gap: 6px; align-items: center; }
-.item-edit label { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); cursor: pointer; }
-.item-edit input:not([type="checkbox"]), .item-edit select {
+.item-edit .row, .variations-header .row { display: flex; gap: 6px; align-items: center; }
+.item-edit input, .item-edit select, .variations-header input, .variations-body input {
   flex: 1 1 auto; min-width: 0; font: inherit; font-size: 11px; padding: 3px 5px;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
 }
-.item-edit button {
-  font: inherit; font-size: 11px; padding: 3px 8px; cursor: pointer; align-self: flex-start;
-  border: 1px solid var(--rule); border-radius: 12px; background: var(--ground); color: var(--ink);
-}
-.item-edit button:hover { border-color: var(--accent); color: var(--accent); }
+/* "Any changed fields should be marked with an orange highlight" — added
+   to the specific field that changed (onItemsGridChange, below), not just
+   the form it lives in. Specific enough (element + class, twice over) to
+   beat every input-styling rule above regardless of source order — a
+   checkbox has no visible border to recolour, so it gets an outline
+   instead of the same border-color change every text/select field gets. */
+.item-tile input.field-dirty, .item-tile select.field-dirty { border-color: var(--accent); }
+.item-tile input.field-dirty[type="checkbox"] { outline: 1.5px solid var(--accent); outline-offset: 1px; }
 /* A check() refusal (a malformed style_id, a vendor with no commission, a
    unit cost with no vendor) shows up right here, next to the form that was
    refused — not on a separate page. The owner's own words: "I don't want
@@ -1680,12 +1764,18 @@ function itemTile(product, canEdit) {
     .join(" ")
     .toLowerCase();
 
-  /* The bottom row shows ONE sku, the top row ONE price — the owner's own
-     words: "the bottom row should have the SKU in it," singular, not every
-     variation's own (that full list still lives in .item-detail). The
-     first variation's own, matching how a multi-size garment is already
-     priced "from" its lowest-ordinal variation everywhere else in this
-     codebase. */
+  /* The bottom row's own left side used to be the primary variation's SKU.
+     Not any more — the owner's own words: "these are generated
+     automatically by Square and we should not be editing them at all...
+     we don't need to see them in our ops dashboard" — style_id (this
+     shop's own nomenclature, never Square's) takes that spot instead. SKU
+     still exists, just never displayed: shareLink()'s own deep link is
+     still keyed on it (data-sku below, unchanged), because a direct link
+     is the one place the owner said a SKU still makes sense ("if you do a
+     direct link, that makes sense... otherwise it's completely not our
+     problem"). The top row keeps ONE price, the first variation's own,
+     matching how a multi-size garment is already priced "from" its
+     lowest-ordinal variation everywhere else in this codebase. */
   const primaryVariant = product.variations[0];
   const primarySku = primaryVariant?.sku || primaryVariant?.title || "";
   const priceText = primaryVariant ? money(primaryVariant.price_minor, primaryVariant.currency) : "";
@@ -1704,33 +1794,42 @@ function itemTile(product, canEdit) {
      store already (this shop has one physical location), so that state is
      assumed and unremarkable, the same reasoning direct_link already gets
      no tag at all here versus "Active" getting none either. Only the
-     REMARKABLE state — also on the website — earns a tag. */
+     REMARKABLE state — also on the website — earns a tag. This COLLAPSED
+     tile's own tag stays a plain, non-interactive indicator; the toggle
+     control lives once-expanded, in .item-badges below. */
   const tags = isActive
     ? (product.channel === "website" ? `<span class="item-tag channel-website">${CHANNEL_LABEL.website}</span>` : "") +
       (product.category_name ? `<span class="item-tag">${esc(product.category_name)}</span>` : "")
     : `<span class="item-tag item-tag-inactive">Inactive</span>`;
 
+  /* Never a SKU here either — the read-only view every role gets. A
+     manager's own expanded view replaces this whole thing with the
+     interactive accordion below instead, so this only ever renders for
+     someone who cannot edit anyway. */
   const variantRows = product.variations.length
-    ? product.variations
-        .map((v) => `<div><span>${esc(v.sku || v.title)}</span><span>${esc(money(v.price_minor, v.currency))}</span></div>`)
-        .join("")
+    ? product.variations.map((v) => `<div><span>${esc(v.title)}</span><span>${esc(money(v.price_minor, v.currency))}</span></div>`).join("")
     : `<p class="item-empty">No variations.</p>`;
 
   const fieldRows = fieldEntries.length
     ? fieldEntries.map(([k, v]) => `<div><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join("")
     : `<p class="item-empty">No custom fields yet.</p>`;
 
-  /* style_id and commission are Square's own Custom Attributes; vendor,
-     vendor_code and unit cost are a real Square Vendor entity (Retail
-     Plus/Premium, P0-136 revised) — none of it is part of custom_fields.
-     Shown in their own rows, blank rather than an empty-state paragraph
-     when none is set yet (an empty text field already says that, the same
-     way the edit form below will). */
+  /* For someone who CAN edit, style_id and unit cost moved into the
+     variations accordion's own header below — shown and edited there
+     instead, so they are not repeated here. Someone who cannot (staff)
+     never sees that accordion at all (canEdit-gated, like every edit
+     surface on this tile), so they stay here, read-only, exactly as
+     before — otherwise a staff member would lose visibility of them
+     entirely. vendor/vendor_code/commission are unaffected either way:
+     still their own Square Vendor entity (Retail Plus/Premium, P0-136
+     revised), shown in their own rows, blank rather than an empty-state
+     paragraph when none is set yet (an empty text field already says
+     that, the same way the edit form below will). */
   const attrRows =
-    (product.style_id ? `<div><span>Style ID</span><span>${esc(product.style_id)}</span></div>` : "") +
+    (!canEdit && product.style_id ? `<div><span>Style ID</span><span>${esc(product.style_id)}</span></div>` : "") +
     (product.vendor ? `<div><span>Vendor</span><span>${esc(product.vendor)}</span></div>` : "") +
     (product.vendor_code ? `<div><span>Vendor code</span><span>${esc(product.vendor_code)}</span></div>` : "") +
-    (product.vendor && product.unit_cost_minor
+    (!canEdit && product.vendor && product.unit_cost_minor
       ? `<div><span>Unit cost</span><span>${esc(money(product.unit_cost_minor, product.unit_cost_currency ?? "USD"))}</span></div>`
       : "") +
     (product.commission_pct != null ? `<div><span>Commission</span><span>${esc(String(product.commission_pct))}%</span></div>` : "");
@@ -1762,37 +1861,112 @@ function itemTile(product, canEdit) {
       `<input name="field_value_${fieldEntries.length + i}" placeholder="Value"></div>`,
   ).join("");
 
-  /* A single "Visible on website" checkbox, not a 3-way select — the
-     owner's own words: "every item we have is in store... we only need the
-     checkbox for website. Everything can have a direct link... there is
-     really no need to specify that." Every product already has a working
-     direct-link page (P0-71); this only decides whether it is ALSO listed
-     in the browsable grid. Unchecked posts nothing, so index.js reads
-     form.get("on_website") and writes "direct_link" when it is absent.
-     No disclosure around any of this any more — the owner's own words,
-     asking why the whole edit area was hidden behind one: "all the fields
-     that are added, they need to be easily accessible and visible."
-     .item-edit is now a plain container, not a <details> — the
-     click-delegation handler above still special-cases it by class alone,
-     so a click anywhere in here still never collapses the expanded tile.
-     Only a genuinely NEW custom field still hides behind a disclosure,
-     immediately below. */
+  /* The variations accordion — the owner's own words: "an expandable
+     accordion header for the variations... I want to see in the header
+     the unit cost and the MSRP, editable in the header. So if I change it
+     in the header, it gets applied to all of its variations at the same
+     time. And individual variations I can also edit individually... on
+     the left side I want to see the style number, editable as well." No
+     SKU anywhere in it — variation NAME (title) and price only, matching
+     the same "generated by Square, not ours to edit or show" reasoning
+     style_id's own move already established.
+
+     Two separate <form>s share this one header/body shell, because they
+     reach two different tools: style_id/unit_cost still go through
+     catalog.set_square_attributes (unchanged endpoint, just relocated
+     here out of the old inline row), while variation names/prices reach
+     catalog.update_product through the NEW /variations route — a variant
+     always carries its OWN mirror id (variant_id_N) so mergeVariations
+     (catalog-writer.js) edits that one row and leaves every other
+     variation exactly as it was, never destructively. The MSRP input
+     belongs to neither form (nothing server-side ever reads its own
+     value) — it is purely the client's own "type once here, and every
+     variation's own price input updates to match" convenience, wired in
+     the page script below; typing directly into one variation's own price
+     afterward still overrides just that one, same as the owner asked for. */
+  const variationRows = product.variations
+    .map(
+      (v, i) =>
+        `<div class="row">` +
+        `<input type="hidden" name="variant_id_${i}" value="${esc(v.id)}">` +
+        `<input type="hidden" name="currency_${i}" value="${esc(v.currency)}">` +
+        `<input class="variation-title" name="title_${i}" value="${esc(v.title)}" placeholder="Variation name">` +
+        `<input class="variation-price" name="price_${i}" value="${esc((v.price_minor / 100).toFixed(2))}" placeholder="Price">` +
+        `</div>`,
+    )
+    .join("");
+  const variationsAccordion = canEdit
+    ? `<div class="variations-accordion">
+         <div class="variations-header">
+           <button type="button" class="variations-toggle" aria-label="Show every variation" title="Show every variation">${CARET_ICON}</button>
+           <form method="post" action="/items/${esc(product.handle)}/square-attributes" class="row">
+             <input name="style_id" value="${esc(product.style_id ?? "")}" placeholder="Style ID (NN-NN-NNN)" pattern="\\d{2}-\\d{2}-\\d{3}" title="NN-NN-NNN — a 2-digit category, a 2-digit subcategory, a 3-digit item number, e.g. 01-04-001. Leave blank to keep it as it is.">
+             <input name="unit_cost" value="${product.unit_cost_minor ? esc((product.unit_cost_minor / 100).toFixed(2)) : ""}" placeholder="Unit cost">
+           </form>
+           <input class="variations-msrp" placeholder="MSRP — sets every variation's price">
+         </div>
+         <div class="variations-body">
+           ${
+             product.variations.length
+               ? `<form method="post" action="/items/${esc(product.handle)}/variations">${variationRows}</form>`
+               : `<p class="item-empty">No variations.</p>`
+           }
+         </div>
+       </div>`
+    : `<div class="item-variants">${variantRows}</div>`;
+
+  /* The website channel and the category are both edited right here in
+     .item-badges now, not in a separate section further down —
+     .item-badges is already inside .item-detail, covered by the same
+     click-delegation guard as .item-edit (see the script below), so a
+     click on either control never collapses the tile. */
+  const webToggle = canEdit
+    ? `<form method="post" action="/items/${esc(product.handle)}/channel" class="web-toggle-form">
+         <label class="item-tag-toggle${product.channel === "website" ? " is-on" : ""}">
+           <input type="checkbox" name="on_website"${product.channel === "website" ? " checked" : ""}>
+           Web
+         </label>
+       </form>`
+    : product.channel === "website"
+      ? `<span class="channel-website">${CHANNEL_LABEL.website}</span>`
+      : "";
+  /* "Uncategorized should be a drop down... select an existing category
+     subcategory, or just type in... category slash subcategory manually,
+     it will create one if there isn't one." A <datalist> combobox: pick a
+     suggestion from every category that exists (items-category-list,
+     rendered once per page in itemsPage()), or type something that
+     matches none of them, which /items/<handle>/category (index.js)
+     resolves-or-creates the same way a vendor name already is. Not a real
+     two-level Square hierarchy — this schema has never had a subcategory
+     concept (see style_id's own NN-NN-NNN comment) — "Category/
+     Subcategory" is a flat category whose own name happens to contain a
+     "/", same as any other name. */
+  const categoryControl = canEdit
+    ? `<form method="post" action="/items/${esc(product.handle)}/category" class="category-form">
+         <input class="category-input" list="items-category-list" name="category" value="${esc(product.category_name ?? "")}" placeholder="Uncategorized">
+       </form>`
+    : `<span>${esc(product.category_name || "Uncategorized")}</span>`;
+
+  /* ONE Save for the whole expanded tile, not one per section — the
+     owner's own words: "let's just have one save button for the whole
+     page... disabled and becomes enabled when any changes are detected...
+     instead of having a per field kind of save button." Starts disabled;
+     the page script below enables it the moment ANY field inside this
+     tile changes, and its own click handler submits every form that
+     actually changed (and only those), in turn, reloading once at the
+     end only if all of them succeeded. Lives beside Share/Close so it is
+     reachable without scrolling back up from a long expanded view. */
+  const saveButton = canEdit
+    ? `<button type="button" class="item-save-all" aria-label="Save changes" title="Save changes" disabled>${SAVE_ICON}</button>`
+    : "";
+
   const editForms = canEdit
     ? `<div class="item-edit">
-         <form method="post" action="/items/${esc(product.handle)}/channel">
-           <div class="row">
-             <label><input type="checkbox" name="on_website"${product.channel === "website" ? " checked" : ""}> Visible on website</label>
-             <button type="submit">Save</button>
-           </div>
-         </form>
          <form method="post" action="/items/${esc(product.handle)}/square-attributes">
            <div class="row">
-             <input name="style_id" value="${esc(product.style_id ?? "")}" placeholder="Style ID (NN-NN-NNN)" pattern="\\d{2}-\\d{2}-\\d{3}" title="NN-NN-NNN — a 2-digit category, a 2-digit subcategory, a 3-digit item number, e.g. 01-04-001. Leave blank to keep it as it is.">
              <input name="vendor" value="${esc(product.vendor ?? "")}" placeholder="Vendor">
              <input name="vendor_code" value="${esc(product.vendor_code ?? "")}" placeholder="Vendor's own SKU/code">
-             <input name="unit_cost" value="${product.unit_cost_minor ? esc((product.unit_cost_minor / 100).toFixed(2)) : ""}" placeholder="Unit cost paid to vendor">
              <input name="commission" value="${esc(product.commission_pct != null ? String(product.commission_pct) : "")}" placeholder="Commission % (0-100)">
-             <button type="submit">Save</button>
            </div>
          </form>
          <form method="post" action="/items/${esc(product.handle)}/custom-fields">
@@ -1802,7 +1976,6 @@ function itemTile(product, canEdit) {
                ? `<details class="item-add-field"><summary>Add custom field</summary>${blankFieldInputs}</details>`
                : ""
            }
-           <button type="submit">Save fields</button>
          </form>
        </div>`
     : "";
@@ -1815,18 +1988,19 @@ function itemTile(product, canEdit) {
         <div class="item-top-right">
           <span class="item-price">${esc(priceText)}</span>
           <button type="button" class="item-share" aria-label="Copy a link to this item" title="Copy a link to this item"${primarySku ? "" : " disabled"}>${LINK_ICON}</button>
+          ${saveButton}
           <button type="button" class="item-close" aria-label="Close" title="Close">${CANCEL_ICON}</button>
         </div>
       </div>
-      <div class="item-bottom"><span class="item-sku">${esc(primarySku)}</span><div class="item-tags">${tags}</div></div>
+      <div class="item-bottom"><span class="item-style-id">${esc(product.style_id ?? "")}</span><div class="item-tags">${tags}</div></div>
     </div>
     <div class="item-detail">
       <div class="item-badges">
-        ${product.channel === "website" ? `<span class="channel-website">${CHANNEL_LABEL.website}</span>` : ""}
+        ${webToggle}
         <span>${esc(product.status)}</span>
-        <span>${esc(product.category_name || "Uncategorized")}</span>
+        ${categoryControl}
       </div>
-      <div class="item-variants">${variantRows}</div>
+      ${variationsAccordion}
       ${attrRows ? `<div class="item-fields">${attrRows}</div>` : ""}
       <div class="item-fields">${fieldRows}</div>
       ${editForms}
@@ -1834,11 +2008,28 @@ function itemTile(product, canEdit) {
   </article>`;
 }
 
-export function itemsPage({ role }, products) {
+export function itemsPage({ role }, products, allCategories = []) {
   const canEdit = role === "manager" || role === "owner";
   const tiles = products.length
     ? products.map((p) => itemTile(p, canEdit)).join("\n")
     : `<p class="hint">No products in the mirror yet.</p>`;
+
+  /* ONE shared list of every category that exists (the closed set,
+     catalog.categories — not just the ones a product here already uses),
+     referenced by every tile's own category input via list="..." rather
+     than repeated per tile. The owner's own words: "uncategorized should
+     be a drop down... select an existing category subcategory, or just
+     type in... it will create one if there isn't one" — a <datalist>
+     gives both in one native control: pick a suggestion, or type
+     something that matches none of them at all, which /items/<handle>/
+     category (index.js) resolves-or-creates the same way a vendor name
+     already is. */
+  const categoryDatalist = canEdit
+    ? `<datalist id="items-category-list">${[...allCategories]
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((c) => `<option value="${esc(c.name)}">`)
+        .join("")}</datalist>`
+    : "";
 
   /* Existing categories only — the ones actually on a product here, not the
      full catalog.categories list a manager could create from. The owner's
@@ -1895,6 +2086,7 @@ export function itemsPage({ role }, products) {
 ${tiles}
   </div>
   ${categoryMenu}
+  ${categoryDatalist}
   <div class="input-bar">
     <button type="button" class="icon-btn" id="category-btn" aria-label="Filter by category" title="Filter by category"${categories.length ? "" : " hidden"}>${FILTER_ICON}</button>
     <input type="text" id="item-search" placeholder="Search title, handle, SKU, custom fields...">
@@ -2142,63 +2334,145 @@ if (!ItemSpeechRecognitionCtor) {
    .full on the tile itself still grows the SAME element in place
    (TABLE_CARD_CSS's own .table-card.full convention in the chat log)
    instead of opening a second element or tracking separate scroll state. */
-document.getElementById("items-grid").addEventListener("click", (e) => {
+document.getElementById("items-grid").addEventListener("click", async (e) => {
   const shareBtn = e.target.closest(".item-share");
   if (shareBtn) {
     shareLink(shareBtn);
     return;
   }
+  const caret = e.target.closest(".variations-toggle");
+  if (caret) {
+    caret.closest(".variations-accordion")?.classList.toggle("expanded");
+    return;
+  }
+  const saveBtn = e.target.closest(".item-save-all");
+  if (saveBtn) {
+    await saveTile(saveBtn.closest(".item-tile"));
+    return;
+  }
   const closeBtn = e.target.closest(".item-close");
   if (closeBtn) {
-    closeBtn.closest(".item-tile").classList.remove("full");
+    const tile = closeBtn.closest(".item-tile");
+    /* The owner's own words: "if you try to close the expanded page, it
+       will warn you that you have unsaved changes." Only the ONE global
+       Save button (below) ever clears .dirty, so this is a plain, always-
+       accurate check — no separate per-field bookkeeping to keep in sync. */
+    if (tile.classList.contains("dirty") && !confirm("You have unsaved changes. Close without saving?")) {
+      return;
+    }
+    tile.classList.remove("full");
     return;
   }
   const tile = e.target.closest(".item-tile");
-  if (!tile || e.target.closest(".item-edit") || tile.classList.contains("full")) return;
+  if (!tile || e.target.closest(".item-edit, .item-badges, .variations-accordion") || tile.classList.contains("full")) return;
   tile.classList.add("full");
 });
 
-/* One of style_id/vendor/commission/unit_cost/channel/custom_fields is a
-   rule the SERVER has to check — a vendor's name already in the mirror, a
-   product's own current vendor, a whole-catalog style_id conflict — nothing
-   a client-side <input pattern> alone can know. The owner's own words: "I
-   don't want these errors to send me to a new page. They need to validate
-   input like the style ID." So the refusal still comes from the server,
-   but arrives here as JSON instead of a whole new refusalPage, and is shown
-   right next to the form that sent it — never a navigation. Delegated on
-   items-grid the same way the click handler above is, so it covers every
-   tile's own edit forms without a listener per tile. */
-document.getElementById("items-grid").addEventListener("submit", async (e) => {
-  const form = e.target.closest(".item-edit form");
+/* Dirty-tracking for the ONE Save button per tile — the owner's own
+   words: "let's just have one save button for the whole page... disabled
+   and becomes enabled when any changes are detected... instead of having
+   a per field kind of save button." Every field inside .item-badges or
+   .item-edit bubbles input/change up here; whichever FORM it lives in is
+   marked dirty (submitted on Save), and the tile itself is marked dirty
+   (enables the button, and is what the Close confirmation above checks).
+   The MSRP input is the one exception with no form of its own — the
+   owner's own words: "if I change it in the header, it gets applied to
+   all of its variations at the same time... individual variations I can
+   also edit individually" — so typing into it copies straight into every
+   variation's own price input (still just that ONE form, still overridable
+   afterward by editing one variation's own price directly). */
+function markDirty(form) {
   if (!form) return;
-  e.preventDefault();
+  form.dataset.dirty = "1";
+  const tile = form.closest(".item-tile");
+  if (!tile) return;
+  tile.classList.add("dirty");
+  const saveBtn = tile.querySelector(".item-save-all");
+  if (saveBtn) saveBtn.disabled = false;
+}
+function onItemsGridChange(e) {
+  if (e.target.matches(".variations-msrp")) {
+    const accordion = e.target.closest(".variations-accordion");
+    accordion?.querySelectorAll(".variation-price").forEach((input) => {
+      input.value = e.target.value;
+      input.classList.add("field-dirty");
+    });
+    e.target.classList.add("field-dirty");
+    markDirty(accordion?.querySelector(".variations-body form"));
+    return;
+  }
+  const form = e.target.closest(".item-badges form, .item-edit form, .variations-header form, .variations-body form");
+  if (form) {
+    e.target.classList.add("field-dirty");
+    markDirty(form);
+  }
+}
+document.getElementById("items-grid").addEventListener("input", onItemsGridChange);
+document.getElementById("items-grid").addEventListener("change", onItemsGridChange);
 
+/* Pressing Enter in a field with no visible submit button any more still
+   fires a native submit in most browsers — routed through the exact same
+   Save flow as a click, rather than letting it POST just that one form on
+   its own (which would skip every other field the tile also asked to
+   save together). */
+document.getElementById("items-grid").addEventListener("submit", async (e) => {
+  const tile = e.target.closest(".item-tile");
+  if (!tile) return;
+  e.preventDefault();
+  await saveTile(tile);
+});
+
+/* A check() refusal (a malformed style_id, a vendor with no commission, a
+   unit cost with no vendor, a vendor with no commission when it is being
+   created) is a rule the SERVER has to check — nothing a client-side
+   <input pattern> alone can know. The owner's own words: "I don't want
+   these errors to send me to a new page. They need to validate input
+   like the style ID." So the refusal still comes from the server, but
+   arrives as JSON instead of a whole new refusalPage, and is shown right
+   next to the form that sent it — never a navigation. */
+async function submitEditForm(form) {
   const existingError = form.nextElementSibling;
   if (existingError?.classList.contains("item-edit-error")) existingError.remove();
-
-  function showError(message) {
-    const p = document.createElement("p");
-    p.className = "item-edit-error";
-    p.textContent = message;
-    form.insertAdjacentElement("afterend", p);
-  }
-
-  const button = form.querySelector("button[type=submit]");
-  if (button) button.disabled = true;
   try {
     const res = await fetch(form.action, { method: "POST", body: new FormData(form) });
-    if (res.ok) {
-      location.reload();
-      return;
-    }
+    if (res.ok) return true;
     const data = await res.json().catch(() => ({}));
-    showError(data.error || "That change was refused.");
+    showFormError(form, data.error || "That change was refused.");
+    return false;
   } catch {
-    showError("Could not reach the server — try again.");
-  } finally {
-    if (button) button.disabled = false;
+    showFormError(form, "Could not reach the server — try again.");
+    return false;
   }
-});
+}
+function showFormError(form, message) {
+  const p = document.createElement("p");
+  p.className = "item-edit-error";
+  p.textContent = message;
+  form.insertAdjacentElement("afterend", p);
+}
+
+/* The tile's own ONE Save: every form marked dirty (see markDirty above)
+   submits in turn, and the page only reloads once, at the end, if every
+   one of them succeeded — a form that failed keeps its own inline error
+   and the button re-enables so the rest can be fixed and saved again,
+   rather than losing track of which of several sections still needs
+   attention. */
+async function saveTile(tile) {
+  if (!tile) return;
+  const dirtyForms = [...tile.querySelectorAll("form[data-dirty='1']")];
+  if (!dirtyForms.length) return;
+  const saveBtn = tile.querySelector(".item-save-all");
+  if (saveBtn) saveBtn.disabled = true;
+  let allOk = true;
+  for (const form of dirtyForms) {
+    if (!(await submitEditForm(form))) allOk = false;
+  }
+  if (allOk) {
+    location.reload();
+  } else if (saveBtn) {
+    saveBtn.disabled = false;
+  }
+}
 
 /* "I need to have a button somewhere, maybe top right, when I expand the
    product. I want to get a deep link into that expanded view so I can

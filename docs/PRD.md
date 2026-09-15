@@ -3403,6 +3403,111 @@ that does not trace to one of these is a process failure (see §12).
     in normal use — `canEdit` already hides the form from anyone the role check would refuse — so a
     plain page is still the right answer for a request that did not come from this UI at all.
 
+    **REVISED A THIRD TIME: the variations accordion, no SKU anywhere, a clickable Web tag, a
+    category combobox, and ONE Save for the whole tile.** The owner's own words, in one long pass:
+    "an expandable accordion header for the variations... I don't want to see any SKUs anywhere...
+    the bottom left of the thumbnail should be the style ID... unit cost and MSRP, editable in the
+    header, applied to all variations at the same time... individual variations I can also edit
+    individually... I want to be able to edit the variation names... I don't want a checkbox for
+    web, the web tag itself should be clickable... uncategorized should be a drop down." Then,
+    narrower: "let's just have one save button for the whole page... disabled and becomes enabled
+    when any changes are detected... if you try to close the expanded page, it will warn you that
+    you have unsaved changes."
+
+    **No SKU, anywhere, except the one place the owner said it still matters.** "These are generated
+    automatically by Square and we should not be editing them at all... we don't need to see them in
+    our ops dashboard... only in the link — if you do a direct link, that makes sense." `.item-sku`
+    (the collapsed tile's own bottom-left text) is gone; `.item-style-id` shows `style_id` instead.
+    The expanded, editable variation rows show a variation's own `title` and `price` only — SKU is
+    still there, `<input type="hidden" name="variant_id_N">`, but a mirror ROW id (this shop's own
+    uuid, `mirror_variant.id` — the very thing `mergeVariations`, `catalog-writer.js`, already keys
+    an edit off), not the Square SKU string at all. `shareLink()`'s own deep link is the one
+    exception, unchanged: `data-sku` on the tile still carries it, because that is the one place a
+    SKU still has a job. A ROLE that cannot edit still sees a plain, read-only variation list
+    (`.item-variants`, title + price, no SKU there either) — the accordion itself is manager-only.
+
+    **The variations accordion** (`ops/src/views.js`'s `itemTile()`) replaces `.item-variants` for
+    anyone who can edit. Collapsed by default; its own header, always visible, carries THREE
+    editable fields at once: `style_id` and `unit_cost` (still `catalog.set_square_attributes`,
+    literally the SAME form fields that used to sit in the old combined row, just relocated here —
+    the tool and its route are unchanged) and a new `MSRP` input that belongs to neither form
+    server-side, because nothing ever reads its own value — it exists purely so the page script can
+    copy whatever is typed into it straight into every variation's own price input the instant it
+    changes, and typing into one variation's own price field afterward still overrides just that one
+    (`onItemsGridChange`'s own special case for `.variations-msrp`). Expanding it reveals every
+    variation's own name and price, both editable, each carrying its own hidden `variant_id`/
+    `currency`. **New**: `catalog.update_product`'s existing `variations` argument reaches the Items
+    tab for the first time, via a new `/items/<handle>/variations` route — every existing variation
+    is always resent in full (current-or-edited title/price, its own unchanged currency), which
+    `mergeVariations` treats identically to a partial patch (nothing not mentioned is ever touched),
+    so this is never destructive even though the whole set travels on every Save. `listAllProducts`
+    (`catalog-writer.js`) now selects `mirror_variant.id` too — needed for `variant_id`, and never
+    selected before this, since nothing read it.
+
+    **The Web tag became its own toggle.** "I don't want to have a checkbox for web, the web tag
+    itself should be clickable to toggle it, and it should have a little checkbox inside the tag to
+    signify that it's a button, not an indicator." The old standalone "Visible on website" checkbox
+    + label + Save row is gone; `.item-badges` now renders a `<label class="item-tag-toggle">`
+    wrapping a real (small, visibly present) checkbox around the word "Web" — clicking anywhere on
+    the pill toggles it, native `<label>` behaviour, no click handler of its own needed for that
+    part. Unlike the read-only badge it replaces, it renders even when OFF: there has to be
+    something to click to turn it back on. Still posts to the unchanged `/items/<handle>/channel`
+    route.
+
+    **"Uncategorized" became a combobox, with resolve-or-create.** "Select an existing category
+    subcategory, or just type in... category slash subcategory manually, it will create one if
+    there isn't one." A native `<input list="items-category-list">` — one shared `<datalist>`
+    rendered once per page (`itemsPage()`), listing every category that exists (`catalog.categories`
+    itself, the full closed set, not just the ones a product on this page already uses) — accepts
+    either a suggestion or free text. A new `/items/<handle>/category` route (`index.js`) resolves
+    the typed name case-insensitively against that same list; a genuine miss calls
+    `catalog.create_category` with a reason supplied here (`"created from the Items tab while
+    categorizing '<handle>'"`) rather than typed by hand, then `catalog.update_product` with the
+    resulting `category_id`. Deliberately reuses `catalog.create_category` AS-IS rather than a
+    vendor-style bare auto-create: that tool's own near-duplicate guard (`nearestCategory`) exists
+    on purpose ("an agent that mints one whenever the existing name is not quite right produces
+    'Coats', 'Outerwear', 'Jackets'... inside a month") and a combobox that bypassed it would defeat
+    the whole reason it is there — a near-duplicate typed here is refused exactly the same way, just
+    shown inline instead of to an agent. **"Category/Subcategory" is not a real two-level Square
+    hierarchy** — this schema has never had a subcategory concept (see `style_id`'s own `NN-NN-NNN`
+    comment) and this revision does not add one; a category whose own name happens to contain a "/"
+    is still just one flat category, the same as any other name.
+
+    **ONE Save for the whole tile, not one per section.** "Let's just have one save button for the
+    whole page... disabled and becomes enabled when any changes are detected... instead of having a
+    per field kind of save button." Every individual form inside `.item-edit`/`.item-badges` (there
+    are now several: channel, category, style_id/unit_cost, vendor/vendor_code/commission, custom
+    fields, variations) lost its own submit button; a single `.item-save-all` button, disabled by
+    default, sits beside Share and Close so it stays reachable without scrolling back up from a long
+    expanded view. `markDirty(form)` — reached from a delegated `input`/`change` listener on
+    `#items-grid` — flags whichever form actually changed (`form.dataset.dirty = "1"`) and enables
+    the button; `saveTile(tile)` (the button's own click handler, and where a stray native `submit`
+    event now also redirects) submits every dirty form in turn via the existing `submitEditForm`
+    fetch helper, and reloads the page ONCE, only if every one of them succeeded — a form that
+    failed keeps its own inline error and the button re-enables, so the rest can be fixed and saved
+    again without losing track of which section still needs attention.
+
+    **REVISED: an orange highlight, not just an enabled button.** "Any changed fields should be
+    marked with an orange highlight, and so is the save button." `onItemsGridChange` adds
+    `field-dirty` to the exact field a change fired on (never just the form it lives in), styled
+    with `border-color: var(--accent)` for a text/select field and an `outline` for a checkbox
+    (which has no visible border to recolour) — specific enough (`.item-tile input.field-dirty`,
+    element plus class plus an ancestor class) to beat every input-styling rule already declared
+    regardless of source order. The MSRP field's own bulk-propagation marks every `.variation-price`
+    input it touches too, not only the field someone actually typed into. `.item-save-all` needs no
+    separate class at all — `:not(:disabled)` already means "there is something dirty to save," so
+    that alone is what turns it `var(--accent)`.
+
+    **Closing a dirty tile asks first.** "If you try to close the expanded page, it will warn you
+    that you have unsaved changes." The Close button's own click handler checks `tile.classList.
+    contains("dirty")` — the exact same class `markDirty` already sets, nothing new to keep in sync
+    — and, if set, a plain `confirm()` before collapsing; declining leaves the tile open and
+    untouched. The click-delegation guard that keeps a click from also expanding/collapsing the tile
+    now also excludes `.item-badges` and `.variations-accordion`, alongside the existing `.item-edit`
+    — needed defensively even though today's own asymmetric expand-only-when-collapsed logic already
+    makes it unreachable in practice (an already-`.full` tile never re-collapses on a body click at
+    all, only Close does).
+
 71. **`Test-PRD-P0-136-square_custom_attributes`** — The owner's own words, having weighed "ours,
     not Square's" (P0-71's own `channel`/`custom_fields`) against not reinventing something Square
     already offers: "why do we need to have our own custom fields then? It doesn't make sense... we

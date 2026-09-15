@@ -804,6 +804,11 @@ check("test_PRD_P0_136_square_custom_attributes__neither_row_renders_when_unset"
 });
 
 check("test_PRD_P0_136_square_custom_attributes__the_edit_form_posts_to_square_attributes_prefilled_with_current_values", async () => {
+  /* Two separate forms now, both still square-attributes — style_id and
+     unit cost moved into the variations accordion's own header (P0-135's
+     own revision), vendor/vendor_code/commission stayed where they were.
+     Both post to the identical route; catalog.set_square_attributes'
+     "any subset" handling needs neither to know about the other. */
   const mirror = mirrorDb();
   seedProduct(mirror, {
     style_id: "01-04-001",
@@ -814,11 +819,12 @@ check("test_PRD_P0_136_square_custom_attributes__the_edit_form_posts_to_square_a
   });
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
-  assert.match(body, /<form method="post" action="\/items\/wool-coat\/square-attributes">/);
+  const squareAttrForms = [...body.matchAll(/<form method="post" action="\/items\/wool-coat\/square-attributes"[^>]*>/g)];
+  assert.equal(squareAttrForms.length, 2, "style_id/unit_cost and vendor/vendor_code/commission are two separate forms now");
   assert.match(body, /<input name="style_id" value="01-04-001" placeholder="Style ID \(NN-NN-NNN\)" pattern="\\d\{2\}-\\d\{2\}-\\d\{3\}"/);
+  assert.match(body, /<input name="unit_cost" value="42\.50" placeholder="Unit cost">/);
   assert.match(body, /<input name="vendor" value="Acme Mills" placeholder="Vendor">/);
   assert.match(body, /<input name="vendor_code" value="ACME-4471" placeholder="Vendor's own SKU\/code">/);
-  assert.match(body, /<input name="unit_cost" value="42\.50" placeholder="Unit cost paid to vendor">/);
   assert.match(body, /<input name="commission" value="20" placeholder="Commission % \(0-100\)">/);
 });
 
@@ -832,6 +838,180 @@ check("test_PRD_P0_136_square_custom_attributes__staff_cannot_reach_the_route_be
   const res = await postForm("/items/wool-coat/square-attributes", STAFF, env(mirror), { vendor: "Someone Else" });
   assert.equal(res.status, 403);
   assert.match(await res.text(), /manager/i);
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * "Category dropdown, or type in a new one" (/items/<handle>/category) and
+ * the variations accordion (/items/<handle>/variations) — new routes, the
+ * owner's own words: "uncategorized should be a drop down... select an
+ * existing category, or just type in... it will create one if there isn't
+ * one," and "an expandable accordion header for the variations... variation
+ * names editable... no SKU anywhere." Both reach catalog.update_product,
+ * which needs a working Square client this file deliberately never fakes
+ * (see the P0-136 section's own top comment) — so what is tested here is
+ * everything BEFORE that point: the manager-only gate, and every refusal
+ * the route itself can give with no Square client at all.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_135_item_edit_applies_immediately__category_route_refuses_a_blank_name_before_square_is_touched", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await postForm("/items/wool-coat/category", MANAGER, env(mirror), { category: "  " });
+  assert.equal(res.status, 400);
+  assert.match(res.headers.get("content-type") ?? "", /application\/json/);
+  const body = await res.json();
+  assert.match(body.error, /give a category name/);
+});
+
+check("test_PRD_P0_135_item_edit_applies_immediately__category_route_reuses_an_existing_category_by_name_case_insensitively", async () => {
+  /* catalog.categories needs no Square client at all (it only reads the
+     mirror) — so resolving an EXISTING category by name, and never
+     reaching for catalog.create_category, is fully testable here even
+     with no fake Square client. Only the FOLLOW-UP catalog.update_product
+     call needs one, which is why this expects that later failure rather
+     than a clean 303 — see this section's own top comment. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await postForm("/items/wool-coat/category", MANAGER, env(mirror), { category: "outerwear" });
+  assert.equal(res.status, 400);
+  const body = await res.json();
+  assert.doesNotMatch(body.error, /could not create/i, "an existing category must never be re-created");
+});
+
+check("test_PRD_P0_135_item_edit_applies_immediately__category_route_staff_cannot_reach_it", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await postForm("/items/wool-coat/category", STAFF, env(mirror), { category: "Outerwear" });
+  assert.equal(res.status, 403);
+  assert.match(await res.text(), /manager/i);
+});
+
+check("test_PRD_P0_135_item_edit_applies_immediately__variations_route_refuses_with_no_rows_before_square_is_touched", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await postForm("/items/wool-coat/variations", MANAGER, env(mirror), {});
+  assert.equal(res.status, 400);
+  const body = await res.json();
+  assert.match(body.error, /no variations to save/);
+});
+
+check("test_PRD_P0_135_item_edit_applies_immediately__variations_route_staff_cannot_reach_it", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await postForm("/items/wool-coat/variations", STAFF, env(mirror), {
+    variant_id_0: "v1",
+    title_0: "One size",
+    price_0: "45.00",
+    currency_0: "USD",
+  });
+  assert.equal(res.status, 403);
+  assert.match(await res.text(), /manager/i);
+});
+
+check("test_PRD_P0_135_item_edit_applies_immediately__the_variations_accordion_has_no_sku_anywhere_only_a_hidden_variant_id", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror, { style_id: "01-04-001", unit_cost_minor: 4250, vendor: "Acme Mills" });
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.doesNotMatch(body, />VEM-100</, "no SKU text anywhere in a manager's own expanded view");
+  assert.match(body, /<input type="hidden" name="variant_id_0" value="v1">/);
+  assert.match(body, /<input type="hidden" name="currency_0" value="USD">/);
+  assert.match(body, /<input class="variation-title" name="title_0" value="One size" placeholder="Variation name">/);
+  assert.match(body, /<input class="variation-price" name="price_0" value="450\.00" placeholder="Price">/);
+  /* style_id and unit cost now live in the accordion's own header. */
+  assert.match(body, /<input name="style_id" value="01-04-001"/);
+  assert.match(body, /<input name="unit_cost" value="42\.50" placeholder="Unit cost">/);
+  assert.match(body, /<input class="variations-msrp" placeholder="MSRP/);
+  /* The direct-link deep link is the one place a SKU still matters — the
+     owner's own words: "if you do a direct link, that makes sense...
+     otherwise it's completely not our problem" — so data-sku must still
+     be there for shareLink() to read, even though nothing displays it. */
+  assert.match(body, /data-sku="VEM-100"/);
+});
+
+check("test_PRD_P0_135_item_edit_applies_immediately__the_web_tag_is_a_clickable_toggle_rendered_either_way", async () => {
+  /* The owner's own words: "I don't want to have a checkbox for web, the
+     web tag itself should be clickable to toggle it, and it should have a
+     little checkbox inside the tag." Unlike the read-only badge it
+     replaces, this must render even when OFF — there has to be something
+     to click to turn it back on. */
+  const mirror = mirrorDb();
+  seedProduct(mirror, { channel: "direct_link" });
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.match(body, /<form method="post" action="\/items\/wool-coat\/channel" class="web-toggle-form">/);
+  assert.match(body, /<label class="item-tag-toggle">\s*<input type="checkbox" name="on_website">\s*Web\s*<\/label>/);
+});
+
+check("test_PRD_P0_135_item_edit_applies_immediately__the_web_toggle_is_marked_is_on_when_already_on_the_website", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror, { channel: "website" });
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.match(body, /<label class="item-tag-toggle is-on">\s*<input type="checkbox" name="on_website" checked>\s*Web\s*<\/label>/);
+});
+
+check("test_PRD_P0_135_item_edit_applies_immediately__the_category_input_is_a_combobox_offering_every_existing_category", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.match(body, /<input class="category-input" list="items-category-list" name="category" value="Outerwear" placeholder="Uncategorized">/);
+  assert.match(body, /<datalist id="items-category-list"><option value="Outerwear"><\/datalist>/);
+});
+
+check("test_PRD_P0_135_item_edit_applies_immediately__the_save_button_starts_disabled_and_only_renders_for_a_manager", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const managerBody = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.match(managerBody, /<button type="button" class="item-save-all" aria-label="Save changes" title="Save changes" disabled>/);
+
+  const staffBody = await (await get("/items", STAFF, env(mirror))).text();
+  assert.doesNotMatch(staffBody, /<button[^>]*class="item-save-all"/, "a role that cannot edit gets no Save button at all");
+});
+
+check("test_PRD_P0_135_item_edit_applies_immediately__the_page_script_tracks_dirty_state_and_saves_only_changed_forms", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.match(body, /function markDirty\(form\)/);
+  assert.match(body, /tile\.classList\.add\("dirty"\)/);
+  assert.match(body, /async function saveTile\(tile\)/);
+  assert.match(body, /tile\.querySelectorAll\("form\[data-dirty='1'\]"\)/);
+});
+
+check("test_PRD_P0_135_item_edit_applies_immediately__the_page_script_propagates_msrp_to_every_variation_price", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.match(body, /e\.target\.matches\("\.variations-msrp"\)/);
+  assert.match(body, /accordion\?\.querySelectorAll\("\.variation-price"\)\.forEach\(\(input\) => \{\s*\n\s*input\.value = e\.target\.value;/);
+});
+
+check("test_PRD_P0_135_item_edit_applies_immediately__a_changed_field_and_a_msrp_propagated_field_both_get_the_dirty_highlight", async () => {
+  /* The owner's own words: "any changed fields should be marked with an
+     orange highlight, and so is the save button." field-dirty is added to
+     the field the change event actually fired on, and ALSO to every
+     .variation-price input the MSRP field's own propagation touches — not
+     just whichever one the person actually typed into. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.match(body, /e\.target\.classList\.add\("field-dirty"\);\s*\n\s*markDirty\(form\);/);
+  assert.match(
+    body,
+    /input\.value = e\.target\.value;\s*\n\s*input\.classList\.add\("field-dirty"\);\s*\n\s*\}\);\s*\n\s*e\.target\.classList\.add\("field-dirty"\);/,
+    "every propagated variation price gets the highlight too, not just the MSRP field itself",
+  );
+});
+
+check("test_PRD_P0_135_item_edit_applies_immediately__the_dirty_highlight_css_covers_text_fields_selects_and_checkboxes", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.match(body, /\.item-tile input\.field-dirty, \.item-tile select\.field-dirty \{ border-color: var\(--accent\); \}/);
+  assert.match(body, /\.item-tile input\.field-dirty\[type="checkbox"\] \{ outline: [^}]*var\(--accent\)/);
+  assert.match(body, /\.item-save-all:not\(:disabled\) \{ color: var\(--accent\); \}/);
 });
 
 check("test_PRD_P0_135_item_edit_applies_immediately__the_edit_area_is_a_plain_div_not_a_details_disclosure", async () => {
@@ -929,20 +1109,24 @@ check("test_PRD_P0_130_item_tile_photo__no_synced_image_falls_back_to_the_plain_
   assert.match(body, /<div class="item-photo">/, "no image_key must render with no inline background-image style at all");
 });
 
-check("test_PRD_P0_131_item_status_filter__the_collapsed_tile_shows_title_price_sku_and_short_tags", async () => {
+check("test_PRD_P0_131_item_status_filter__the_collapsed_tile_shows_title_price_style_id_and_short_tags", async () => {
   /* The owner's own words: "title on top left, price top right, SKU
-     bottom left, and then a few of the tags, but shorten them." */
+     bottom left, and then a few of the tags, but shorten them." REVISED:
+     "these [SKUs] are generated automatically by Square and we should not
+     be editing them at all... we don't need to see them in our ops
+     dashboard" — style_id (this shop's own nomenclature) took that spot
+     instead. */
   const mirror = mirrorDb();
-  seedProduct(mirror);
+  seedProduct(mirror, { style_id: "01-04-001" });
   const res = await get("/items", STAFF, env(mirror));
   const body = await res.text();
   assert.match(body, /<div class="item-top"><h3>Wool Coat<\/h3>\s*<div class="item-top-right">\s*<span class="item-price">\$ 450<\/span>/);
-  /* REVISED: "I don't want to see the in-store tag... what's the in-store
-     for?" — direct_link (the default, seeded here) gets no channel tag at
-     all now, only the category. */
+  /* "I don't want to see the in-store tag... what's the in-store for?" —
+     direct_link (the default, seeded here) gets no channel tag at all
+     now, only the category. */
   assert.match(
     body,
-    /<div class="item-bottom"><span class="item-sku">VEM-100<\/span><div class="item-tags"><span class="item-tag">Outerwear<\/span><\/div><\/div>/,
+    /<div class="item-bottom"><span class="item-style-id">01-04-001<\/span><div class="item-tags"><span class="item-tag">Outerwear<\/span><\/div><\/div>/,
   );
 });
 
@@ -970,8 +1154,8 @@ check("test_PRD_P0_130_item_tile_photo__no_dedicated_expand_button_a_click_anywh
   assert.doesNotMatch(body, /item-expand/);
   assert.match(
     body,
-    /const tile = e\.target\.closest\("\.item-tile"\);\s*\n\s*if \(!tile \|\| e\.target\.closest\("\.item-edit"\) \|\| tile\.classList\.contains\("full"\)\) return;/,
-    "a click anywhere on a COLLAPSED tile expands it, except inside the edit form or once already expanded",
+    /const tile = e\.target\.closest\("\.item-tile"\);\s*\n\s*if \(!tile \|\| e\.target\.closest\("\.item-edit, \.item-badges, \.variations-accordion"\) \|\| tile\.classList\.contains\("full"\)\) return;/,
+    "a click anywhere on a COLLAPSED tile expands it, except inside an edit control or once already expanded",
   );
 });
 
@@ -985,7 +1169,7 @@ check("test_PRD_P0_130_item_tile_photo__only_a_website_item_gets_a_channel_tag",
   const body = await res.text();
   assert.match(
     body,
-    /<div class="item-bottom"><span class="item-sku">VEM-100<\/span><div class="item-tags"><span class="item-tag channel-website">Web<\/span><span class="item-tag">Outerwear<\/span><\/div><\/div>/,
+    /<div class="item-bottom"><span class="item-style-id"><\/span><div class="item-tags"><span class="item-tag channel-website">Web<\/span><span class="item-tag">Outerwear<\/span><\/div><\/div>/,
   );
   assert.doesNotMatch(body, />In store</, "In store is never rendered as a tag any more");
 });
@@ -1075,7 +1259,7 @@ check("test_PRD_P0_131_item_status_filter__an_inactive_products_tile_carries_dat
   assert.match(body, /data-status="inactive" data-channel="website"/);
   assert.match(
     body,
-    /<div class="item-bottom"><span class="item-sku">VEM-100<\/span><div class="item-tags"><span class="item-tag item-tag-inactive">Inactive<\/span><\/div><\/div>/,
+    /<div class="item-bottom"><span class="item-style-id"><\/span><div class="item-tags"><span class="item-tag item-tag-inactive">Inactive<\/span><\/div><\/div>/,
     "an inactive tile must show only the Inactive tag, not its channel or category",
   );
 });
@@ -1118,7 +1302,7 @@ check("test_PRD_P0_132_item_deep_link__clicking_share_does_not_also_collapse_the
   seedProduct(mirror);
   const res = await get("/items", STAFF, env(mirror));
   const body = await res.text();
-  const handler = body.slice(body.indexOf('addEventListener("click", (e) => {\n  const shareBtn'), body.indexOf("shareLink(shareBtn)") + 60);
+  const handler = body.slice(body.indexOf('addEventListener("click", async (e) => {\n  const shareBtn'), body.indexOf("shareLink(shareBtn)") + 60);
   assert.match(handler, /const shareBtn = e\.target\.closest\("\.item-share"\);/);
   assert.match(handler, /shareLink\(shareBtn\);\s*\n\s*return;/);
 });
@@ -1205,8 +1389,22 @@ check("test_PRD_P0_133_item_close_button__clicking_it_collapses_the_tile", async
   seedProduct(mirror);
   const res = await get("/items", STAFF, env(mirror));
   const body = await res.text();
-  const handler = body.slice(body.indexOf('const closeBtn = e.target.closest(".item-close");'), body.indexOf('const closeBtn = e.target.closest(".item-close");') + 150);
-  assert.match(handler, /closeBtn\.closest\("\.item-tile"\)\.classList\.remove\("full"\);/);
+  const handler = body.slice(body.indexOf('const closeBtn = e.target.closest(".item-close");'), body.indexOf('const closeBtn = e.target.closest(".item-close");') + 700);
+  assert.match(handler, /const tile = closeBtn\.closest\("\.item-tile"\);/);
+  assert.match(handler, /tile\.classList\.remove\("full"\);/);
+});
+
+check("test_PRD_P0_135_item_edit_applies_immediately__closing_a_dirty_tile_asks_for_confirmation_first", async () => {
+  /* The owner's own words: "if you try to close the expanded page, it
+     will warn you that you have unsaved changes." A plain confirm() over
+     .dirty — the same class the Save button's own enable/disable state
+     already tracks, so there is nothing new to keep in sync. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  const handler = body.slice(body.indexOf('const closeBtn = e.target.closest(".item-close");'), body.indexOf('const closeBtn = e.target.closest(".item-close");') + 700);
+  assert.match(handler, /tile\.classList\.contains\("dirty"\) && !confirm\(/);
 });
 
 check("test_PRD_P0_133_item_close_button__a_click_on_an_already_expanded_tiles_body_does_nothing", async () => {
