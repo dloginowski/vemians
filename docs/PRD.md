@@ -639,6 +639,12 @@ that does not trace to one of these is a process failure (see §12).
     with it, so `isFieldDirty` (the same function the tile's own Save button relies on everywhere
     else) never mistakes a stepper click for an unsaved pricing edit.
 
+    **REVISED: the stepper leads the row, cost/price follow.** "So it's a row of 3 small
+    components. `[-][##][+]` Then `[COST][MSRP]`." The stepper is a command, not a fact about the
+    variation the way price/cost are, so it now sits right after the variation's own name and
+    ahead of `unit_cost_N`/`price_N` — matching the header above it, where `style_id`'s own field
+    similarly comes first, ahead of the same two broadcasters.
+
 31. **`Test-PRD-P0-32-tickets`** — Company-wide issues live in their own `tickets` store. A ticket
     cannot be deleted, only moved through status, and resolving one requires a timestamp.
     Comments are append-only. Links to orders, customers, products and shifts are id plus a
