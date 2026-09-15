@@ -3381,6 +3381,28 @@ that does not trace to one of these is a process failure (see §12).
     handler that keeps a click inside the edit area from collapsing the expanded tile
     (`e.target.closest(".item-edit")`) still works unchanged, since it matches by class, not by tag.
 
+    **REVISED AGAIN: a refused edit no longer navigates anywhere.** All three forms used to be plain
+    `<form method="post">` elements — a `check()` refusal (a malformed style_id, a vendor with no
+    resolved commission, a unit cost with no vendor) rendered as a whole separate `refusalPage()`,
+    the browser navigating away from the Items tab entirely just to show one line of text. The
+    owner's own words: "I don't want these errors to send me to a new page. They need to validate
+    input like the style ID." Several of these rules are NOT knowable from a client-side `<input
+    pattern>` alone the way `style_id`'s own format is — "does this vendor name already exist,"
+    "does this product already have a vendor" both depend on the mirror's current state — so the
+    refusal still has to come from the server; only WHERE it lands changed. `index.js`'s own
+    `/channel`/`/custom-fields`/`/square-attributes` routes now answer a refusal with `json({error:
+    ...}, 400)` instead of `html(refusalPage(400, ...), 400)`; a SUCCESSFUL edit is completely
+    unchanged, still the same `303` to `/items`. A new delegated `submit` listener on `#items-grid`
+    (`ops/src/views.js`, the same delegation pattern the tile-expand click handler already uses)
+    intercepts every `.item-edit form`'s submit, posts it with `fetch`, and on success lets the
+    browser follow the existing `303` (unchanged behaviour); on a `400` it reads the JSON body and
+    inserts a `<p class="item-edit-error">` directly after the form that was refused, then leaves
+    the tile exactly where it was — no navigation, no lost scroll position, the wrong field's own
+    form still right there to fix. The pre-flight refusals above this point in the route (role,
+    method, an unreadable body) stay `refusalPage()`s: none of them are reachable through this form
+    in normal use — `canEdit` already hides the form from anyone the role check would refuse — so a
+    plain page is still the right answer for a request that did not come from this UI at all.
+
 71. **`Test-PRD-P0-136-square_custom_attributes`** — The owner's own words, having weighed "ours,
     not Square's" (P0-71's own `channel`/`custom_fields`) against not reinventing something Square
     already offers: "why do we need to have our own custom fields then? It doesn't make sense... we

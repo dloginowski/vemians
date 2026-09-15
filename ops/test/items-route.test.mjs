@@ -727,6 +727,40 @@ check("test_PRD_P0_135_item_edit_applies_immediately__a_refused_edit_still_repor
   assert.match(await res.text(), /already direct_link/);
 });
 
+check("test_PRD_P0_135_item_edit_applies_immediately__a_refusal_is_json_not_a_new_page", async () => {
+  /* The owner's own words: "I don't want these errors to send me to a new
+     page. They need to validate input like the style ID." A check()
+     refusal can only be known server-side (this one needs the product's
+     OWN current channel), so it still comes from the server — but as JSON
+     the page's own script can show inline, never a refusalPage a form
+     submission would navigate to. */
+  const mirror = mirrorDb();
+  seedProduct(mirror, { channel: "direct_link" });
+  const res = await postForm("/items/wool-coat/channel", MANAGER, env(mirror), {});
+  assert.equal(res.status, 400);
+  assert.match(res.headers.get("content-type") ?? "", /application\/json/);
+  const body = await res.json();
+  assert.match(body.error, /already direct_link/);
+});
+
+check("test_PRD_P0_135_item_edit_applies_immediately__the_page_intercepts_edit_form_submits_and_shows_the_error_inline", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.match(
+    body,
+    /document\.getElementById\("items-grid"\)\.addEventListener\("submit", async \(e\) => \{/,
+    "edit form submits must be intercepted, not left to navigate the browser",
+  );
+  assert.match(body, /e\.preventDefault\(\)/);
+  assert.match(
+    body,
+    /p\.className = "item-edit-error"/,
+    "a refusal renders inline, in its own element, not a new page",
+  );
+});
+
 /* ─────────────────────────────────────────────────────────────────────────
  * P0-136 — style_id and vendor, Square's own Custom Attributes, in the
  * Items tab. The tool's own behaviour (format, conflicts, Square calls) is
