@@ -1049,9 +1049,9 @@ check("test_PRD_P0_31_inventory_ledger__stock_shows_zero_with_no_commerce_bindin
   seedProduct(mirror);
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
-  assert.match(body, /<span class="variation-stock">0 in stock<\/span>/);
-  assert.match(body, /<input type="number" class="variation-stock-delta" step="1" placeholder="&plusmn;qty">/);
-  assert.match(body, /<button type="button" class="variation-stock-adjust" data-variant-id="v1"/);
+  assert.match(body, /<button type="button" class="variation-stock-step" data-variant-id="v1" data-delta="-1"/);
+  assert.match(body, /<input type="text" class="variation-stock-count" value="0" readonly/);
+  assert.match(body, /<button type="button" class="variation-stock-step" data-variant-id="v1" data-delta="1"/);
 });
 
 check("test_PRD_P0_31_inventory_ledger__stock_reads_the_live_commerce_ledger", async () => {
@@ -1072,7 +1072,7 @@ check("test_PRD_P0_31_inventory_ledger__stock_reads_the_live_commerce_ledger", a
     .run("adj-1");
   const res = await get("/items", MANAGER, env(mirror, commerce));
   const body = await res.text();
-  assert.match(body, /<span class="variation-stock">7 in stock<\/span>/);
+  assert.match(body, /<input type="text" class="variation-stock-count" value="7" readonly/);
 });
 
 check("test_PRD_P0_31_inventory_ledger__inventory_route_staff_cannot_reach_it", async () => {
