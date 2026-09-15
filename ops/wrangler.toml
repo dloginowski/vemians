@@ -359,15 +359,31 @@ database_id   = "e8788eab-50b1-4639-a7a1-9bde14bc8005"
 #
 #   npx wrangler d1 create vemians-catalog-mirror
 #
-# The id below is a PLACEHOLDER: this database does not exist on the account
-# yet. `wrangler dev --local` and `wrangler deploy --dry-run` are happy with it;
-# a real `wrangler deploy` is not, and should not be. Replace it before the
-# first deploy, and note that the storefront binds this SAME database read-only
-# (../store/wrangler.toml) — both ids move together.
+# The storefront binds this SAME database read-only (../store/wrangler.toml) —
+# both ids move together.
+#
+# migrations_dir: THE ONLY store with schema changes automated in CI. Every
+# other [[d1_databases]] binding in this file still follows apply-local.sh's
+# own documented convention — a production schema change is `wrangler d1
+# execute --remote` typed by a human who meant it. catalog_mirror earned the
+# exception because it is the one store that keeps changing shape as this
+# feature set grows (custom_fields, then style_id/vendor, then commission,
+# then the vendor entity split) — the owner's own words, after hand-running
+# the same kind of fix a third time: "having to manually run shit every time
+# I add a custom field is unacceptable." `ops/migrations/catalog_mirror/`
+# holds the ordered, forward-only delta files; `deploy-workers.yml` runs
+# `wrangler d1 migrations apply` against them on every push to main, BEFORE
+# the Worker code that expects the new shape goes live. shared/commerce/
+# square/schema.sql remains the single canonical FULL schema — tests and
+# local dev (apply-local.sh) still load it whole, unchanged — the migrations
+# directory is purely the ordered application LOG for production. See
+# ops/migrations/catalog_mirror/README.md for the rule this imposes on every
+# future schema.sql change.
 [[d1_databases]]
-binding       = "CATALOG_MIRROR"
-database_name = "vemians-catalog-mirror"
-database_id   = "53ecdc0e-6726-40fe-bf9a-1a3be8b2506e"
+binding        = "CATALOG_MIRROR"
+database_name  = "vemians-catalog-mirror"
+database_id    = "53ecdc0e-6726-40fe-bf9a-1a3be8b2506e"
+migrations_dir = "migrations/catalog_mirror"
 
 # The vault. Bound here so the erasure and clienteling workflows have somewhere
 # to land when they are built (identity-skills says build them LAST), and

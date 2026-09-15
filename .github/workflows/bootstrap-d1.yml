@@ -16,6 +16,13 @@
 # Safe to re-run: creating an existing database is success, and a database that
 # already holds tables is left alone. The schemas are plain CREATE TABLE, so
 # re-applying them to a populated database is an error, not a no-op.
+#
+# `add_channel_column` below is the LAST one-off input this file should ever
+# grow for vemians-catalog-mirror. That database's schema now has its own
+# automated migrations directory (ops/migrations/catalog_mirror/, applied
+# automatically by deploy-workers.yml on every push to main) — a new
+# catalog-mirror schema change is a new numbered file there, never a new
+# boolean input here.
 
 name: bootstrap-d1
 
