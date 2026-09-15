@@ -67,18 +67,31 @@ export async function listCategories(db) {
  * (Test-PRD-P0-136-square_custom_attributes, revised): it is Square's own
  * Vendor name now, not a plain-text custom attribute.
  */
-const PRODUCT_WITH_VENDOR_SELECT = `
-  SELECT p.id, p.handle, p.title, p.source_description, p.status, p.channel, p.custom_fields,
-         p.style_id, p.commission_pct, p.category_id,
-         mv.name AS vendor, v0.vendor_code, v0.unit_cost_minor, v0.unit_cost_currency
-    FROM mirror_product_index p
-    LEFT JOIN mirror_variant_index v0 ON v0.product_id = p.id AND v0.ordinal = 0
-    LEFT JOIN mirror_vendor_index mv ON mv.id = v0.vendor_id
+const PRODUCT_WITH_VENDOR_COLUMNS = `
+  p.id, p.handle, p.title, p.source_description, p.status, p.channel, p.custom_fields,
+  p.style_id, p.commission_pct, p.category_id,
+  mv.name AS vendor, v0.vendor_code, v0.unit_cost_minor, v0.unit_cost_currency
 `;
+const PRODUCT_WITH_VENDOR_JOIN = `
+  LEFT JOIN mirror_variant_index v0 ON v0.product_id = p.id AND v0.ordinal = 0
+  LEFT JOIN mirror_vendor_index mv ON mv.id = v0.vendor_id
+`;
+const PRODUCT_WITH_VENDOR_SELECT = `SELECT ${PRODUCT_WITH_VENDOR_COLUMNS} FROM mirror_product_index p ${PRODUCT_WITH_VENDOR_JOIN}`;
 
 export async function productByHandle(db, handle) {
   return db
     .prepare(`${PRODUCT_WITH_VENDOR_SELECT} WHERE p.handle = ?`)
+    .bind(handle)
+    .first();
+}
+
+/* Same shape, but archived rows too — catalog.set_active's own check(): a
+   product it might RESTORE is by definition absent from mirror_product_index
+   (that view excludes archived_at rows), so telling "already active" from
+   "already archived" needs the base table, not the index. */
+export async function productByHandleAny(db, handle) {
+  return db
+    .prepare(`SELECT ${PRODUCT_WITH_VENDOR_COLUMNS} FROM mirror_product p ${PRODUCT_WITH_VENDOR_JOIN} WHERE p.handle = ?`)
     .bind(handle)
     .first();
 }
@@ -133,10 +146,18 @@ export async function variantsOf(db, productId) {
  * other list view in this codebase makes at this scale.
  */
 export async function listAllProducts(db, { limit } = {}) {
+  /* mirror_product, not mirror_product_index: an archived product is the
+     ONLY way the Items tab's own "Inactive" filter (P0-131) ever shows
+     anything real — draft/archived "both collapse into the same inactive
+     bucket," and the Active checkbox (P0-137) is precisely how a person
+     gets an archived product back, which needs it to still be findable
+     here. Archived rows stay excluded from every OTHER read in this
+     codebase (ADR-008's own default), but this ONE list is the explicit
+     call that surfaces them, same as mirror.js's own archivedProducts(). */
   const products = await db
     .prepare(
       `SELECT p.id, p.handle, p.title, p.source_description, p.status, p.channel, p.custom_fields, p.style_id, p.commission_pct, p.category_id, c.name AS category_name
-         FROM mirror_product_index p
+         FROM mirror_product p
          LEFT JOIN mirror_category_index c ON c.id = p.category_id
         ORDER BY p.title COLLATE NOCASE
         LIMIT ?`,
@@ -577,8 +598,14 @@ export function createSquareCatalogWriter(env, opts = {}) {
 
     listCategories: () => listCategories(mirrorDb),
     productByHandle: (handle) => productByHandle(mirrorDb, handle),
+    productByHandleAny: (handle) => productByHandleAny(mirrorDb, handle),
     variantById: (id) => variantById(mirrorDb, id),
     priceBand: (categoryId) => priceBand(mirrorDb, categoryId),
+    /* Exposed for catalog.set_active: an archive/restore writes straight to
+       the adapter (adapter.retractProduct/restoreProduct), not through any
+       of the ITEM-upsert helpers below, so it needs this same incremental
+       resync afterward without duplicating it. */
+    syncAfterWrite,
 
     /**
      * ITEM + ITEM_VARIATIONs in one UpsertCatalogObject, then the image copies,

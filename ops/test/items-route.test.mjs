@@ -666,26 +666,32 @@ check("test_PRD_P0_71_items_tab__items_no_longer_draws_its_own_copy_of_the_tab_b
 });
 
 check("test_PRD_P0_71_items_tab__a_broken_mirror_index_fails_plainly_not_as_a_raw_exception", async () => {
-  /* The real regression this guards: custom_fields was added to
-     mirror_product by hand (ALTER TABLE, run once against production —
-     this schema has no migration runner), but mirror_product_index is a
-     VIEW, and SQLite compiles a view's own column list at CREATE VIEW
-     time — altering the base table does not update it. Modelled here by
-     using the OLD view shape (no custom_fields) against the NEW code that
-     expects the column, exactly what production looked like right after
-     the table alone was migrated. */
+  /* The real regression this guards: a column added to a mirror_* table by
+     hand (ALTER TABLE, run once against production — this schema has no
+     migration runner) does not reach that table's own *_index VIEW, since
+     SQLite compiles a view's own column list at CREATE VIEW time. REVISED
+     (P0-137): listAllProducts's own product query moved off
+     mirror_product_index onto mirror_product directly (archived rows must
+     surface here too), so a stale PRODUCT view can no longer break this
+     particular read — but the variants/vendors/categories/images it also
+     reads are still each a separate *_index view, so this same failure
+     mode is modelled here against mirror_variant_index instead: the OLD
+     shape (no unit_cost_minor) against the NEW code that expects the
+     column, exactly what production looked like right after only the
+     table was migrated. */
   const mirror = mirrorDb();
-  mirror.db.exec("DROP VIEW mirror_product_index");
+  mirror.db.exec("DROP VIEW mirror_variant_index");
   mirror.db.exec(
-    `CREATE VIEW mirror_product_index AS
-     SELECT id, external_ref, handle, title, source_description, status, channel, category_id, source_version, synced_at
-     FROM mirror_product WHERE archived_at IS NULL`,
+    `CREATE VIEW mirror_variant_index AS
+     SELECT id, external_ref, product_id, sku, title, ordinal, price_minor, currency, options,
+            tracks_stock, vendor_id, vendor_code, source_version, synced_at
+     FROM mirror_variant WHERE archived_at IS NULL`,
   );
   seedProduct(mirror);
   const res = await get("/items", STAFF, env(mirror));
   assert.equal(res.status, 500);
   const body = await res.text();
-  assert.match(body, /mirror_product_index also needs recreating/, "the fix, not just the fact of failure, must be on screen");
+  assert.match(body, /its own \*_index view likely needs recreating too/, "the fix, not just the fact of failure, must be on screen");
   assert.doesNotMatch(body, /no such column/i, "a raw SQL error must not reach the person reading this page");
 });
 
@@ -1099,7 +1105,7 @@ check("test_PRD_P0_135_item_edit_applies_immediately__title_and_description_are_
   seedProduct(mirror, { description: "A warm winter coat." });
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
-  assert.match(body, /<form method="post" action="\/items\/wool-coat\/details">/);
+  assert.match(body, /<form method="post" action="\/items\/wool-coat\/details" class="item-details-form">/);
   assert.match(body, /<input class="item-title-input" name="title" value="Wool Coat" placeholder="Title">/);
   assert.match(body, /<textarea name="description" placeholder="Description">A warm winter coat\.<\/textarea>/);
   /* "Move the title, description, and the vendor fields up above the
@@ -1128,6 +1134,95 @@ check("test_PRD_P0_135_item_edit_applies_immediately__title_and_description_are_
   const body = await res.text();
   assert.doesNotMatch(body, /\/items\/wool-coat\/details/);
   assert.doesNotMatch(body, /<textarea/);
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-137 — Active: Square's own sale lifecycle. The tool's own behaviour
+ * (the Square write, the mirror sync) is exercised in catalog-write.test.mjs,
+ * whose fixture injects a fake Square client — this file's own env() has no
+ * SQUARE_ACCESS_TOKEN at all, so what's tested here is everything the route
+ * and the page do BEFORE ever touching Square: the markup, the layout, and
+ * the manager-only gate that refuses before runTool is even called.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_137_item_active_toggle__web_and_active_sit_opposite_the_title_as_plain_checkboxes", async () => {
+  /* The owner's own words: "move the web and the active buttons... make
+     them the same style as the rest of the fields so that they're opposite
+     from the item name." Both render as .item-checkbox-toggle now, not the
+     old .item-tag-toggle pill. */
+  const mirror = mirrorDb();
+  seedProduct(mirror, { channel: "website" });
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.doesNotMatch(body, /item-tag-toggle/, "the pill design is gone, reversed by this same feature");
+  assert.match(
+    body,
+    /<form method="post" action="\/items\/wool-coat\/active" class="active-toggle-form">\s*<label class="item-checkbox-toggle">\s*<input type="checkbox" name="active" checked>\s*Active\s*<\/label>\s*<\/form>/,
+  );
+  const nameRow = body.indexOf('<div class="item-name-row">');
+  const detailsForm = body.indexOf('<form method="post" action="/items/wool-coat/details" class="item-details-form">');
+  const toggles = body.indexOf('<div class="item-name-toggles">');
+  const webForm = body.indexOf('<form method="post" action="/items/wool-coat/channel" class="web-toggle-form">');
+  const activeForm = body.indexOf('<form method="post" action="/items/wool-coat/active" class="active-toggle-form">');
+  assert.ok(nameRow > -1 && nameRow < detailsForm, ".item-name-row wraps the title's own form");
+  assert.ok(detailsForm < toggles, "the title's own form comes first, the toggles opposite it");
+  assert.ok(toggles < webForm && webForm < activeForm, "Web then Active, inside .item-name-toggles");
+});
+
+check("test_PRD_P0_137_item_active_toggle__unchecked_when_the_product_is_not_active", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror, { status: "archived" });
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.match(
+    body,
+    /<label class="item-checkbox-toggle">\s*<input type="checkbox" name="active">\s*Active\s*<\/label>/,
+  );
+});
+
+check("test_PRD_P0_137_item_active_toggle__the_item_name_row_scales_the_title_to_fill_available_space", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.match(body, /\.item-name-row\s*\{\s*display:\s*flex;/);
+  assert.match(body, /\.item-details-form\s*\{\s*flex:\s*1 1 auto;/, "the title's own form grows into whatever the toggles do not need");
+  assert.match(body, /\.item-name-toggles\s*\{\s*display:\s*flex;\s*flex:\s*0 0 auto;/, "the toggles stay a fixed width, opposite it");
+  assert.match(body, /\.item-edit \.item-title-input\s*\{\s*font-weight:\s*600;\s*font-size:\s*15px;\s*\}/, "scaled up from the shared 11px");
+});
+
+check("test_PRD_P0_137_item_active_toggle__neither_toggle_is_editable_by_staff", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror, { channel: "website" });
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.doesNotMatch(body, /active-toggle-form/);
+  assert.doesNotMatch(body, /name="active"/);
+});
+
+check("test_PRD_P0_137_item_active_toggle__staff_cannot_reach_the_route_before_square_is_ever_touched", async () => {
+  /* The route's own manager-only gate refuses BEFORE calling runTool at
+     all, so this never needs a working Square client to test — the same
+     reason the square-attributes staff-refusal check above doesn't either. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await postForm("/items/wool-coat/active", STAFF, env(mirror), { active: "on" });
+  assert.equal(res.status, 403);
+  assert.match(await res.text(), /manager/i);
+});
+
+check("test_PRD_P0_137_item_active_toggle__an_archived_product_still_surfaces_so_it_can_be_restored", async () => {
+  /* P0-131's own "Inactive" filter has never actually shown an archived
+     product before this feature — mirror_product_index excludes archived
+     rows by definition, and there was nothing to restore one WITH. This is
+     the one explicit call (listAllProducts) that surfaces them now, the
+     same way mirror.js's own archivedProducts() already does. */
+  const mirror = mirrorDb();
+  seedProduct(mirror, { status: "archived" });
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.match(body, /data-status="inactive"/);
+  assert.match(body, /<span class="item-tag item-tag-inactive">Inactive<\/span>/);
 });
 
 check("test_PRD_P0_31_inventory_ledger__stock_shows_zero_with_no_commerce_binding", async () => {
@@ -1197,26 +1292,28 @@ check("test_PRD_P0_31_inventory_ledger__inventory_route_refuses_a_non_integer_de
   assert.match(body.error, /non-zero whole-number change/);
 });
 
-check("test_PRD_P0_135_item_edit_applies_immediately__the_web_tag_is_a_clickable_toggle_rendered_either_way", async () => {
-  /* The owner's own words: "I don't want to have a checkbox for web, the
-     web tag itself should be clickable to toggle it, and it should have a
-     little checkbox inside the tag." Unlike the read-only badge it
-     replaces, this must render even when OFF — there has to be something
-     to click to turn it back on. */
+check("test_PRD_P0_135_item_edit_applies_immediately__the_web_toggle_is_a_plain_checkbox_rendered_either_way", async () => {
+  /* REVISED: "move the web and the active buttons... make them the same
+     style as the rest of the fields... have the same style like checkboxes
+     so that I can toggle either one of them" — this REVERSES the earlier
+     pill-with-embedded-checkbox design ("the web tag itself should be
+     clickable to toggle it... a little checkbox inside the tag"), back to
+     a plain labeled checkbox. Still renders even when OFF — there has to
+     be something to click to turn it back on. */
   const mirror = mirrorDb();
   seedProduct(mirror, { channel: "direct_link" });
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
   assert.match(body, /<form method="post" action="\/items\/wool-coat\/channel" class="web-toggle-form">/);
-  assert.match(body, /<label class="item-tag-toggle">\s*<input type="checkbox" name="on_website">\s*Web\s*<\/label>/);
+  assert.match(body, /<label class="item-checkbox-toggle">\s*<input type="checkbox" name="on_website">\s*Web\s*<\/label>/);
 });
 
-check("test_PRD_P0_135_item_edit_applies_immediately__the_web_toggle_is_marked_is_on_when_already_on_the_website", async () => {
+check("test_PRD_P0_135_item_edit_applies_immediately__the_web_toggle_is_checked_when_already_on_the_website", async () => {
   const mirror = mirrorDb();
   seedProduct(mirror, { channel: "website" });
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
-  assert.match(body, /<label class="item-tag-toggle is-on">\s*<input type="checkbox" name="on_website" checked>\s*Web\s*<\/label>/);
+  assert.match(body, /<label class="item-checkbox-toggle">\s*<input type="checkbox" name="on_website" checked>\s*Web\s*<\/label>/);
 });
 
 check("test_PRD_P0_135_item_edit_applies_immediately__the_category_input_is_a_combobox_offering_every_existing_category", async () => {

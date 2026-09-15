@@ -27,7 +27,7 @@
  * archiving destroys evidence"). It removes the item from our location and
  * archives the mirror row.
  */
-import { createSquareClient } from "./client.js";
+import { createSquareClient, SquareError } from "./client.js";
 import { CATALOG_TYPES, listCatalog, normaliseCatalog, searchCatalogObjects } from "./catalog.js";
 import { listVendors } from "./vendors.js";
 import { retrieveInventoryChanges, retrieveInventoryCounts } from "./inventory.js";
@@ -222,21 +222,51 @@ export function createSquareAdapter(env, deps = {}) {
      * Withdraw, do not destroy. `present_at_all_locations: false` with an empty
      * include list takes the item off sale everywhere without deleting the
      * authoritative record, and the mirror row is archived rather than removed.
+     *
+     * UpsertCatalogObject is FULL-REPLACEMENT, not a patch: Square's own API
+     * description says a field absent from the request is an intentional
+     * clear, "omitting inlined children like variations will delete them."
+     * Sending only { type, id, present_at_all_locations } therefore does not
+     * toggle presence in isolation — it wipes item_data, silently destroying
+     * the item's own name and variations. GET the object whole first, flip
+     * only the presence fields on that same object, and send the whole thing
+     * back with its own version intact so Square's optimistic concurrency
+     * still applies. Verified against Square's own CatalogObject schema:
+     * every other field on a GET response — including read-only ones like
+     * updated_at — round-trips into an Upsert without being rejected.
      */
-    async retractProduct(productId) {
-      const m = requireMirror("retractProduct");
-      const row = await m.productByHandle(productId).catch(() => null);
-      const externalRef = row?.external_ref ?? productId;
+    async setProductPresence(handle, present) {
+      const m = requireMirror(present ? "restoreProduct" : "retractProduct");
+      const row = await m.productByHandleAny(handle).catch(() => null);
+      const externalRef = row?.external_ref ?? handle;
+      const res = await client.get(`/v2/catalog/object/${encodeURIComponent(externalRef)}`);
+      if (!res?.object) {
+        throw new SquareError(`Square has no catalog object '${externalRef}' to ${present ? "restore" : "retract"}`);
+      }
       await client.post("/v2/catalog/object", {
-        idempotency_key: idempotencyKey(`retract:${productId}`),
+        /* Keyed on the object's own CURRENT version, not just handle+action:
+           a deterministic handle-only key would make a later archive of the
+           same item (after a restore undid the first one) collide with
+           Square's own dedup window and silently replay the FIRST archive's
+           cached response instead of applying the new one. version changes
+           on every successful upsert, so it varies exactly when a real new
+           attempt has happened — the same content-keyed idea pushInventory's
+           own idempotency_key already uses. */
+        idempotency_key: idempotencyKey(`${present ? "restore" : "retract"}:${handle}:${res.object.version}`),
         object: {
-          type: "ITEM",
-          id: externalRef,
-          present_at_all_locations: false,
-          present_at_location_ids: [],
+          ...res.object,
+          present_at_all_locations: present,
+          ...(present ? { present_at_location_ids: undefined } : { present_at_location_ids: [] }),
         },
       });
-      /* The mirror archives on the next sync; no DELETE anywhere, ever. */
+      /* The mirror archives/un-archives on the next sync; no DELETE ever. */
+    },
+    async retractProduct(handle) {
+      return this.setProductPresence(handle, false);
+    },
+    /** The other half — bring a withdrawn item back onto sale everywhere. */
+    async restoreProduct(handle) {
+      return this.setProductPresence(handle, true);
     },
 
     /**

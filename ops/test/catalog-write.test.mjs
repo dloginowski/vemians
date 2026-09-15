@@ -149,7 +149,7 @@ const jsonRes = (body, status = 200) =>
  * is recorded IN ORDER, which is what makes "Square first, mirror second" an
  * assertion about a list rather than a hope.
  */
-function fakeSquare(seed = SEED, { vendors = [] } = {}) {
+function fakeSquare(seed = SEED, { vendors = [], failSearch = false } = {}) {
   const objects = new Map(seed.map((o) => [o.id, structuredClone(o)]));
   const vendorObjects = new Map(vendors.map((v) => [v.id, structuredClone(v)]));
   const calls = [];
@@ -164,7 +164,25 @@ function fakeSquare(seed = SEED, { vendors = [] } = {}) {
 
     if (p === "/v2/catalog/list") return jsonRes({ objects: [...objects.values()] });
     if (p === "/v2/catalog/search") {
+      /* catalog.set_active's own immediate post-write resync (syncAfterWrite
+         -> pullCatalog({full:false})) uses this same incremental search —
+         failSearch models it answering unreachable, the way a real flaky
+         resync would, without touching the SEED sync that already ran. */
+      if (failSearch) throw new Error("simulated network failure");
       return jsonRes({ objects: [...objects.values()], related_objects: [] });
+    }
+
+    /* RetrieveCatalogObject — GET, one object by id, a path segment rather
+       than a body. catalog.set_active's own safe archive/restore path
+       (setProductPresence, shared/commerce/square/index.js) reads the whole
+       object here before flipping only its presence fields, so an object
+       that has never been upserted through THIS fake would 404, the same
+       as a real handle Square has never seen. */
+    if (p.startsWith("/v2/catalog/object/") && method === "GET") {
+      const id = p.slice("/v2/catalog/object/".length);
+      const obj = objects.get(id);
+      if (!obj) return jsonRes({ errors: [{ category: "INVALID_REQUEST_ERROR", code: "NOT_FOUND" }] }, 404);
+      return jsonRes({ object: obj });
     }
 
     if (p === "/v2/catalog/object") {
@@ -282,8 +300,8 @@ function squareEnv() {
 }
 
 /* One place to build a ctx, so no check can accidentally invent an actor. */
-async function fixture({ actor = "mara@vemians.com", role = "manager", seedMirror = true } = {}) {
-  const square = fakeSquare();
+async function fixture({ actor = "mara@vemians.com", role = "manager", seedMirror = true, failSearch = false } = {}) {
+  const square = fakeSquare(SEED, { failSearch });
   const mirrorDb = d1FromSql(MIRROR_SQL);
   const auditDb = d1FromSql(AUDIT_SQL);
   const bucket = fakeR2();
@@ -1606,6 +1624,88 @@ check("test_PRD_P0_71_product_channel__the_tool_holds_no_square_resource_at_all"
   assert.deepEqual(tool.stores, ["catalog_mirror"]);
   assert.equal(tool.tier, "T2");
   assert.equal(tool.minRole, "manager");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-137 — Active: Square's own sale lifecycle, archived or not. The
+ * opposite structural shape from set_channel above (which holds no Square
+ * resource at all) — this one both holds `square` and actually calls it,
+ * since archiving/restoring is a real write to the authority (ADR-009).
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_137_item_active_toggle__the_tool_holds_the_square_resource_unlike_channel", () => {
+  const tool = TOOLS["catalog.set_active"];
+  assert.ok(tool, "catalog.set_active is not registered");
+  assert.deepEqual(tool.resources, ["square"]);
+  assert.deepEqual(tool.stores, ["catalog_mirror"]);
+  assert.equal(tool.tier, "T2");
+  assert.equal(tool.minRole, "manager");
+});
+
+check("test_PRD_P0_137_item_active_toggle__archiving_calls_square_and_the_mirror_reflects_it", async () => {
+  const f = await fixture();
+  const res = await approvedCall(f, "catalog.set_active", { handle: COAT_HANDLE, active: false });
+  assert.equal(res.ok, true, res.error);
+  assert.equal(res.data.active, false);
+  assert.equal(res.data.handle, COAT_HANDLE);
+  assert.equal(res.data.synced, true);
+
+  const upsert = f.calls().find((c) => c.path === "/v2/catalog/object" && c.method === "POST");
+  assert.ok(upsert, "archiving must actually write to Square");
+  assert.equal(upsert.body.object.present_at_all_locations, false);
+  assert.deepEqual(upsert.body.object.present_at_location_ids, []);
+  assert.ok(upsert.body.object.item_data, "item_data must round-trip, never a bare presence patch");
+
+  const row = f.mirror(`SELECT status, archived_at FROM mirror_product WHERE handle = '${COAT_HANDLE}'`)[0];
+  assert.equal(row.status, "archived");
+  assert.ok(row.archived_at, "the immediate resync must have archived the mirror row too");
+});
+
+check("test_PRD_P0_137_item_active_toggle__restoring_an_archived_product_calls_square_and_the_mirror_reflects_it", async () => {
+  const f = await fixture();
+  await approvedCall(f, "catalog.set_active", { handle: COAT_HANDLE, active: false });
+  const res = await approvedCall(f, "catalog.set_active", { handle: COAT_HANDLE, active: true });
+  assert.equal(res.ok, true, res.error);
+  assert.equal(res.data.active, true);
+  assert.equal(res.data.synced, true);
+
+  const upserts = f.calls().filter((c) => c.path === "/v2/catalog/object" && c.method === "POST");
+  const restore = upserts[upserts.length - 1];
+  assert.equal(restore.body.object.present_at_all_locations, true);
+  assert.equal(restore.body.object.present_at_location_ids, undefined, "omitted, not an empty list, once present everywhere");
+
+  const row = f.mirror(`SELECT status, archived_at FROM mirror_product WHERE handle = '${COAT_HANDLE}'`)[0];
+  assert.equal(row.status, "active");
+  assert.equal(row.archived_at, null);
+});
+
+check("test_PRD_P0_137_item_active_toggle__setting_the_same_state_again_is_refused_as_a_no_op", async () => {
+  const f = await fixture();
+  const res = await runTool("catalog.set_active", { handle: COAT_HANDLE, active: true }, f.ctx);
+  assert.equal(res.ok, false);
+  assert.match(res.error, /already active/);
+  assert.deepEqual(f.calls(), [], "a refused no-op must never reach Square");
+});
+
+check("test_PRD_P0_137_item_active_toggle__an_unknown_handle_is_refused", async () => {
+  const f = await fixture();
+  const res = await runTool("catalog.set_active", { handle: "does-not-exist", active: false }, f.ctx);
+  assert.equal(res.ok, false);
+  assert.match(res.error, /no product with handle/);
+});
+
+check("test_PRD_P0_137_item_active_toggle__a_failed_immediate_resync_does_not_refuse_the_archive", async () => {
+  /* Reproduces the same shape of real production incident P0-31's own
+     inventory.adjust hardening fixed: the write to Square (retractProduct)
+     already succeeded — it is the authoritative one, ADR-009 — but the
+     immediate follow-up resync (this call's own best-effort shortcut to
+     reflect that back without waiting for the next cron) fails. That must
+     never make the whole call look refused. */
+  const f = await fixture({ failSearch: true });
+  const res = await approvedCall(f, "catalog.set_active", { handle: COAT_HANDLE, active: false });
+  assert.equal(res.ok, true, res.error);
+  assert.equal(res.data.active, false, "the optimistic value the write to Square already applied");
+  assert.equal(res.data.synced, false, "honest about the immediate resync having failed");
 });
 
 /* ─────────────────────────────────────────────────────────────────────────

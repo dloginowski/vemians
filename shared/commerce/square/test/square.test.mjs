@@ -995,6 +995,125 @@ check("test_PRD_P0_31_inventory_ledger__push_inventory_posts_a_physical_count_an
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
+ * P0-137 — archiving/restoring a product must never destroy it
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_137_item_active_toggle__retract_round_trips_the_whole_object_never_a_bare_presence_patch", async () => {
+  /* The bug this guards: UpsertCatalogObject is FULL-REPLACEMENT, not a
+     patch — Square's own API description says a field absent from the
+     request is an intentional clear, "omitting inlined children like
+     variations will delete them." The original retractProduct sent only
+     { type, id, present_at_all_locations }, which would have silently
+     wiped the item's own name and variations the first time it ever ran
+     for real. The fix: GET the object whole first, flip only the
+     presence fields, send the SAME object back with its own item_data
+     and version intact. */
+  const { mirrorDb, commerceDb } = await seededCatalog();
+  const coat = fixture("catalog-list.json").objects.find((o) => o.id === "ITEM_COAT");
+  const posted = [];
+  const fetchImpl = async (url, init = {}) => {
+    if (init.method === "GET" || !init.method) {
+      if (url.includes("/v2/catalog/object/ITEM_COAT")) {
+        return new Response(JSON.stringify({ object: coat }));
+      }
+    }
+    if (url.includes("/v2/catalog/object") && init.method === "POST") {
+      posted.push(JSON.parse(init.body));
+      return new Response(JSON.stringify({ catalog_object: { id: "ITEM_COAT" } }));
+    }
+    return new Response(JSON.stringify({ errors: [{ code: "NOT_FOUND" }] }), { status: 404 });
+  };
+  const adapter = createSquareAdapter(squareEnv(), {
+    mirrorDb,
+    commerceDb,
+    locationId: OUR_LOCATION,
+    clientOptions: { fetchImpl },
+  });
+
+  await adapter.retractProduct("shearling-trimmed-wool-blend-coat");
+
+  assert.equal(posted.length, 1);
+  const sent = posted[0].object;
+  assert.deepEqual(sent.item_data, coat.item_data, "item_data must round-trip untouched, never omitted");
+  assert.equal(sent.version, coat.version, "Square's own optimistic-concurrency version, unchanged");
+  assert.equal(sent.present_at_all_locations, false);
+  assert.deepEqual(sent.present_at_location_ids, []);
+});
+
+check("test_PRD_P0_137_item_active_toggle__restore_is_the_same_safe_shape_in_reverse", async () => {
+  const { mirrorDb, commerceDb, mirror } = await seededCatalog();
+  /* Archive it in the mirror directly (as a real retract's own later sync
+     would) so productByHandleAny can find it by handle while it is archived
+     — mirror.productByHandle (index-only) would not. */
+  await mirrorDb
+    .prepare("UPDATE mirror_product SET archived_at = datetime('now'), status = 'archived' WHERE external_ref = 'ITEM_COAT'")
+    .run();
+  assert.equal(await mirror.productByHandle("shearling-trimmed-wool-blend-coat"), null);
+
+  const coat = fixture("catalog-list.json").objects.find((o) => o.id === "ITEM_COAT");
+  const archivedCoat = { ...coat, present_at_all_locations: false, present_at_location_ids: [] };
+  const posted = [];
+  const fetchImpl = async (url, init = {}) => {
+    if ((init.method === "GET" || !init.method) && url.includes("/v2/catalog/object/ITEM_COAT")) {
+      return new Response(JSON.stringify({ object: archivedCoat }));
+    }
+    if (url.includes("/v2/catalog/object") && init.method === "POST") {
+      posted.push(JSON.parse(init.body));
+      return new Response(JSON.stringify({ catalog_object: { id: "ITEM_COAT" } }));
+    }
+    return new Response(JSON.stringify({ errors: [{ code: "NOT_FOUND" }] }), { status: 404 });
+  };
+  const adapter = createSquareAdapter(squareEnv(), {
+    mirrorDb,
+    commerceDb,
+    locationId: OUR_LOCATION,
+    clientOptions: { fetchImpl },
+  });
+
+  await adapter.restoreProduct("shearling-trimmed-wool-blend-coat");
+
+  assert.equal(posted.length, 1);
+  const sent = posted[0].object;
+  assert.deepEqual(sent.item_data, coat.item_data, "item_data must round-trip untouched here too");
+  assert.equal(sent.present_at_all_locations, true);
+  assert.equal(sent.present_at_location_ids, undefined, "omitted entirely, not an empty list, once present everywhere");
+});
+
+check("test_PRD_P0_137_item_active_toggle__the_idempotency_key_varies_with_the_objects_own_version", async () => {
+  /* A deterministic handle+action-only key would make archiving the SAME
+     item a SECOND time (after a restore undid the first archive) collide
+     with Square's own dedup window and silently replay the FIRST archive's
+     cached response instead of applying the new one. Keying on the
+     object's own CURRENT version (which only changes after a real
+     successful upsert) makes each genuine attempt distinct, the same
+     content-keyed idea pushInventory's own idempotency_key already uses. */
+  const { mirrorDb, commerceDb } = await seededCatalog();
+  const coat = fixture("catalog-list.json").objects.find((o) => o.id === "ITEM_COAT");
+  const keys = [];
+  const fetchImpl = async (url, init = {}) => {
+    if ((init.method === "GET" || !init.method) && url.includes("/v2/catalog/object/ITEM_COAT")) {
+      return new Response(JSON.stringify({ object: coat }));
+    }
+    if (url.includes("/v2/catalog/object") && init.method === "POST") {
+      keys.push(JSON.parse(init.body).idempotency_key);
+      return new Response(JSON.stringify({ catalog_object: { id: "ITEM_COAT" } }));
+    }
+    return new Response(JSON.stringify({ errors: [{ code: "NOT_FOUND" }] }), { status: 404 });
+  };
+  const adapter = createSquareAdapter(squareEnv(), {
+    mirrorDb,
+    commerceDb,
+    locationId: OUR_LOCATION,
+    clientOptions: { fetchImpl },
+  });
+
+  await adapter.retractProduct("shearling-trimmed-wool-blend-coat");
+  await adapter.restoreProduct("shearling-trimmed-wool-blend-coat");
+  assert.equal(keys.length, 2);
+  assert.notEqual(keys[0], keys[1], "retract and restore of the same object must never share a key");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
  * P0-17 — a channel is an adapter and a `channel` value; no card data
  * ───────────────────────────────────────────────────────────────────────── */
 

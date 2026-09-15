@@ -1652,23 +1652,25 @@ ${INPUT_BAR_CSS}
   font-size: 10px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--rule); color: var(--muted);
 }
 .item-badges .channel-website { border-color: var(--accent); color: var(--accent); }
-.web-toggle-form, .category-form { display: contents; }
-/* The Web tag IS the toggle now — the owner's own words: "I don't want to
-   have a checkbox for web, the web tag itself should be clickable to
-   toggle it, and it should have a little checkbox inside the tag to
-   signify that it's a button, not an indicator." A <label> wrapping a
-   real checkbox: clicking anywhere on the pill toggles it (native label
-   behaviour, no click handler needed for that part), and the checkbox
-   itself stays small and visible inside the pill rather than styled away,
-   so the pill still reads as something to click rather than a status
-   badge. Rendered even OFF — unlike the read-only badge it replaces,
+.category-form { display: contents; }
+/* REVISED: Web/Active moved out of .item-badges entirely, into the title's
+   own row (see .item-name-row below) — "move the web and the active
+   buttons... make them the same style as the rest of the fields." This
+   REVERSES the earlier pill-with-embedded-checkbox design ("the web tag
+   itself should be clickable to toggle it... a little checkbox inside the
+   tag"): a plain labeled checkbox now, matching every other field's own
+   unstyled convention, not a colored pill. Still renders even when OFF —
    there has to be something to click to turn it back on. */
-.item-tag-toggle {
-  display: inline-flex; align-items: center; gap: 3px; font-size: 10px; padding: 1px 6px 1px 4px;
-  border-radius: 999px; border: 1px solid var(--rule); color: var(--muted); cursor: pointer;
-}
-.item-tag-toggle input { width: 10px; height: 10px; margin: 0; accent-color: var(--accent); }
-.item-tag-toggle.is-on { border-color: var(--accent); color: var(--accent); }
+.item-checkbox-toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--ink); cursor: pointer; white-space: nowrap; }
+.item-checkbox-toggle input { width: 12px; height: 12px; margin: 0; accent-color: var(--accent); }
+/* "Scale up the item name to fill available space" — .item-details-form
+   (title + description, stacked as before) is one flex item at flex:1,
+   growing into whatever room .item-name-toggles (Web/Active, opposite it)
+   does not need; its children already stretch to its own full width by
+   default, the same way every other .item-edit form's inputs already do. */
+.item-name-row { display: flex; align-items: flex-start; gap: 10px; }
+.item-details-form { flex: 1 1 auto; min-width: 0; }
+.item-name-toggles { display: flex; flex: 0 0 auto; gap: 10px; align-items: center; padding-top: 3px; }
 /* The category dropdown-or-type-in combobox — the owner's own words:
    "uncategorized should be a drop down... select an existing category
    subcategory, or just type in... it will create one if there isn't
@@ -1769,7 +1771,12 @@ ${INPUT_BAR_CSS}
    that?" A plain-weight input rather than a second, competing heading
    style, and a real multi-line box for the description instead of the
    single-line inputs everything else here uses. */
-.item-title-input { font-weight: 600; }
+/* .item-edit .item-title-input, not the plain class alone: the shared
+   ".item-edit input" rule above sets font-size at a HIGHER specificity
+   (class + type) than a bare ".item-title-input" (class only) would, so a
+   plain override here would silently lose to that 11px regardless of
+   source order — this rule matches it with a second class instead. */
+.item-edit .item-title-input { font-weight: 600; font-size: 15px; }
 .item-edit textarea {
   font: inherit; font-size: 11px; padding: 5px 6px; min-height: 4.5em; resize: vertical;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
@@ -1949,7 +1956,8 @@ function itemTile(product, canEdit) {
      no tag at all here versus "Active" getting none either. Only the
      REMARKABLE state — also on the website — earns a tag. This COLLAPSED
      tile's own tag stays a plain, non-interactive indicator; the toggle
-     control lives once-expanded, in .item-badges below. */
+     control lives once-expanded, beside the item's own name (see
+     .item-name-row below). */
   const tags = isActive
     ? (product.channel === "website" ? `<span class="item-tag channel-website">${CHANNEL_LABEL.website}</span>` : "") +
       (product.category_name ? `<span class="item-tag">${esc(product.category_name)}</span>` : "")
@@ -2105,14 +2113,21 @@ function itemTile(product, canEdit) {
        </div>`
     : `<div class="item-variants">${variantRows}</div>`;
 
-  /* The website channel and the category are both edited right here in
-     .item-badges now, not in a separate section further down —
-     .item-badges is already inside .item-detail, covered by the same
-     click-delegation guard as .item-edit (see the script below), so a
-     click on either control never collapses the tile. */
+  /* REVISED: Web (and the new Active, beside it) moved out of .item-badges
+     and into the title's own row, opposite the name — "move the web and
+     the active buttons... make them the same style as the rest of the
+     fields so that they're opposite from the item name." This REVERSES
+     P0-131's own pill-with-embedded-checkbox design ("the web tag itself
+     should be clickable to toggle it... a little checkbox inside the
+     tag"): the owner's own words this time are the opposite — "have the
+     same style like checkboxes so that I can toggle either one of them" —
+     a plain labeled checkbox matching every other field's own unstyled
+     convention, not a colored pill. .category-form stays in .item-badges
+     for now (see itemsPage() below for where the category concept moves
+     next). */
   const webToggle = canEdit
     ? `<form method="post" action="/items/${esc(product.handle)}/channel" class="web-toggle-form">
-         <label class="item-tag-toggle${product.channel === "website" ? " is-on" : ""}">
+         <label class="item-checkbox-toggle">
            <input type="checkbox" name="on_website"${product.channel === "website" ? " checked" : ""}>
            Web
          </label>
@@ -2120,6 +2135,20 @@ function itemTile(product, canEdit) {
     : product.channel === "website"
       ? `<span class="channel-website">${CHANNEL_LABEL.website}</span>`
       : "";
+  /* NEW: "Active" beside "Web" — Square's own sale lifecycle (archived or
+     not), never catalog.set_channel's OURS-only website/direct_link
+     choice. Unchecking it archives the product (ADR-008: never deleted);
+     checking it restores one that was. isActive (computed above, already
+     the same two-state reading the tile's own tags/data-status use) drives
+     both. */
+  const activeToggle = canEdit
+    ? `<form method="post" action="/items/${esc(product.handle)}/active" class="active-toggle-form">
+         <label class="item-checkbox-toggle">
+           <input type="checkbox" name="active"${isActive ? " checked" : ""}>
+           Active
+         </label>
+       </form>`
+    : "";
   /* "Uncategorized should be a drop down... select an existing category
      subcategory, or just type in... category slash subcategory manually,
      it will create one if there isn't one." A <datalist> combobox: pick a
@@ -2165,12 +2194,24 @@ function itemTile(product, canEdit) {
      block is moving — each still gets `.item-edit`'s own border-top/
      spacing/input styling independently, which reads as two sections now
      rather than one. */
+  /* "Move the web and the active buttons... opposite from the item name...
+     scale up the item name to fill available space." .item-name-row is a
+     plain div, not a form (forms cannot nest) — the details form (title +
+     description, stacked as before, unchanged submission semantics) is
+     one flex item at flex:1, growing into whatever room .item-name-toggles
+     (Web/Active's own separate forms) does not need. */
   const titleVendorForms = canEdit
     ? `<div class="item-edit">
-         <form method="post" action="/items/${esc(product.handle)}/details">
-           <input class="item-title-input" name="title" value="${esc(product.title)}" placeholder="Title">
-           <textarea name="description" placeholder="Description">${esc(product.description ?? "")}</textarea>
-         </form>
+         <div class="item-name-row">
+           <form method="post" action="/items/${esc(product.handle)}/details" class="item-details-form">
+             <input class="item-title-input" name="title" value="${esc(product.title)}" placeholder="Title">
+             <textarea name="description" placeholder="Description">${esc(product.description ?? "")}</textarea>
+           </form>
+           <div class="item-name-toggles">
+             ${webToggle}
+             ${activeToggle}
+           </div>
+         </div>
          <form method="post" action="/items/${esc(product.handle)}/square-attributes">
            <div class="row">
              <input name="vendor" value="${esc(product.vendor ?? "")}" placeholder="Vendor">
@@ -2209,8 +2250,6 @@ function itemTile(product, canEdit) {
     </div>
     <div class="item-detail">
       <div class="item-badges">
-        ${webToggle}
-        <span>${esc(product.status)}</span>
         ${categoryControl}
       </div>
       ${titleVendorForms}
