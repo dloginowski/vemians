@@ -764,6 +764,11 @@ that does not trace to one of these is a process failure (see §12).
     grew to fill it. `.variation-stock-stepper` and `style_id` share one width by design (the
     latter tracks the former), so both moved from `5.5em` to `6em` together, keeping them aligned.
 
+    **REVISED: less side padding, once the box no longer needed it.** "Remove some side padding,
+    it's wider than it has to be" — with `style_id`'s own box now `6em` wide, its `5px` side
+    padding was leaving more empty margin than the pattern needed; dropped to `3px`, leaving more
+    of that width to the pattern itself (`1px 5px` → `1px 3px` overall).
+
 31. **`Test-PRD-P0-32-tickets`** — Company-wide issues live in their own `tickets` store. A ticket
     cannot be deleted, only moved through status, and resolving one requires a timestamp.
     Comments are append-only. Links to orders, customers, products and shifts are id plus a
