@@ -1068,8 +1068,12 @@ check("test_PRD_P0_135_item_edit_applies_immediately__header_and_row_fields_are_
      inventory menu a tiny bit wider if you are at limit with style id" —
      both widened from 5.5em to 6em together. REVISED AGAIN: "remove some
      side padding, it's wider than it has to be" — the wider box no
-     longer needs the shared 5px side padding, so it dropped to 3px. */
-  assert.match(body, /\.variations-header input\[name="style_id"\]\s*\{[^}]*width: 6em[^}]*font-size: 13px[^}]*padding: 1px 3px/, "smaller padding compensates for the larger font, keeping the box the same overall size as the stepper beside it");
+     longer needs the shared 5px side padding, so it dropped to 3px.
+     REVISED AGAIN: "balance it out against inventory to get them
+     matching 100%" — .variation-stock-stepper itself has zero side
+     padding (its buttons sit flush against its own border), so zero,
+     not any smaller nonzero value, is the actual match. */
+  assert.match(body, /\.variations-header input\[name="style_id"\]\s*\{[^}]*width: 6em[^}]*font-size: 13px[^}]*padding: 1px 0/, "zero side padding matches the stepper beside it, whose own buttons sit flush against its border");
   assert.match(body, /<span class="variations-header-spacer"><\/span>/, "an invisible spacer absorbs the header's own leftover width, the same way each row's own title does");
   assert.match(body, /\.variations-header-spacer\s*\{\s*flex: 1 1 auto;\s*\}/);
   assert.match(body, /\.variations-body \.row\s*\{[^}]*padding: 3px 8px 3px 0/, "an 8px right inset matches the header's own 8px right padding");
