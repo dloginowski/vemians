@@ -1783,12 +1783,12 @@ ${INPUT_BAR_CSS}
 .variations-body input[name^="unit_cost_"] {
   flex: 0 0 auto; width: 5em;
 }
-/* Stock — "a small read-only entry field and two small buttons on the
-   sides, - and +." A stepper, visually its own group at the end of the row
-   rather than another right-justified value column, since it is a
-   command, not a fact about the variation the way price/cost are. */
+/* Stock — "a row of 3 small components [-][##][+], then [COST][MSRP]" —
+   the stepper sits right after the variation's own name, ahead of its
+   cost/price, since it is a command, not a fact about the variation the
+   way price/cost are. */
 .variation-stock-count {
-  flex: 0 0 auto; width: 2.5em; text-align: center; margin-left: 4px;
+  flex: 0 0 auto; width: 2.5em; text-align: center;
   background: var(--image-ground); color: var(--muted); cursor: default;
 }
 .variation-stock-step {
@@ -2001,13 +2001,13 @@ function itemTile(product, canEdit) {
         `<input type="hidden" name="variant_id_${i}" value="${esc(v.id)}">` +
         `<input type="hidden" name="currency_${i}" value="${esc(v.currency)}">` +
         `<input class="variation-title" name="title_${i}" value="${esc(v.title)}" placeholder="Variation name">` +
+        `<button type="button" class="variation-stock-step" data-variant-id="${esc(v.id)}" data-delta="-1" aria-label="Remove one from stock" title="Remove one from stock">&minus;</button>` +
+        `<input type="text" class="variation-stock-count" value="${esc(String(v.on_hand ?? 0))}" readonly aria-label="Current stock">` +
+        `<button type="button" class="variation-stock-step" data-variant-id="${esc(v.id)}" data-delta="1" aria-label="Add one to stock" title="Add one to stock">+</button>` +
         (hasVendor
           ? `<input class="variation-unit-cost" name="unit_cost_${i}" value="${v.unit_cost_minor ? esc((v.unit_cost_minor / 100).toFixed(2)) : ""}" placeholder="Cost">`
           : "") +
         `<input class="variation-price" name="price_${i}" value="${esc((v.price_minor / 100).toFixed(2))}" placeholder="Price">` +
-        `<button type="button" class="variation-stock-step" data-variant-id="${esc(v.id)}" data-delta="-1" aria-label="Remove one from stock" title="Remove one from stock">&minus;</button>` +
-        `<input type="text" class="variation-stock-count" value="${esc(String(v.on_hand ?? 0))}" readonly aria-label="Current stock">` +
-        `<button type="button" class="variation-stock-step" data-variant-id="${esc(v.id)}" data-delta="1" aria-label="Add one to stock" title="Add one to stock">+</button>` +
         `</div>`,
     )
     .join("");

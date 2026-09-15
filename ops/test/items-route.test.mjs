@@ -988,6 +988,17 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_variations_accordion_h
     body.indexOf('name="unit_cost_0"') < body.indexOf('name="price_0"'),
     "each variation row: unit cost before price, aligned with the header above it",
   );
+  /* "A row of 3 small components [-][##][+], then [COST][MSRP]" — the
+     stepper is a command, not a fact about the variation, so it comes
+     right after the variation's own name and ahead of its cost/price. */
+  assert.ok(
+    body.indexOf('name="title_0"') < body.indexOf('class="variation-stock-count"'),
+    "the stock stepper follows the variation's own name",
+  );
+  assert.ok(
+    body.indexOf('class="variation-stock-count"') < body.indexOf('name="unit_cost_0"'),
+    "the stock stepper comes before cost/price, not after",
+  );
   /* The direct-link deep link is the one place a SKU still matters — the
      owner's own words: "if you do a direct link, that makes sense...
      otherwise it's completely not our problem" — so data-sku must still
