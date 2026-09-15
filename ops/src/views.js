@@ -1993,10 +1993,13 @@ function itemTile(product, canEdit) {
      so we need to have the double rows": unit cost is no longer a single
      value applied uniformly to every variation (catalog-writer.js's own
      "one vendor per product" comment is now ONLY about the vendor itself,
-     never the cost) — each row below carries its own, gated the same way
-     the read-only attrRows above is: a fact about a VENDOR's product, so
-     it renders only once a vendor exists. */
-  const hasVendor = Boolean(product.vendor);
+     never the cost) — each row below carries its own. REVISED YET AGAIN:
+     "need a COST field to the left of MSRP" — the field itself now always
+     renders, the same as style_id/MSRP always do, rather than disappearing
+     entirely for a product with no vendor yet; typing into it with no
+     vendor set is still refused server-side (unit_cost is, and stays, a
+     fact about a VENDOR's product), the refusal just now surfaces from an
+     always-visible field instead of the field not existing at all. */
   /* Stock (P0-31, revised) — "show current count, adjust with +/-," the
      owner's own choice over a plain "type a target count" box, once it was
      clear a stock count is never overwritten directly, only adjusted.
@@ -2025,9 +2028,7 @@ function itemTile(product, canEdit) {
         `<input type="text" class="variation-stock-count" value="${esc(String(v.on_hand ?? 0))}" readonly aria-label="Current stock">` +
         `<button type="button" class="variation-stock-step" data-variant-id="${esc(v.id)}" data-delta="1" aria-label="Add one to stock" title="Add one to stock">+</button>` +
         `</span>` +
-        (hasVendor
-          ? `<input class="variation-unit-cost" name="unit_cost_${i}" value="${v.unit_cost_minor ? esc((v.unit_cost_minor / 100).toFixed(2)) : ""}" placeholder="Cost">`
-          : "") +
+        `<input class="variation-unit-cost" name="unit_cost_${i}" value="${v.unit_cost_minor ? esc((v.unit_cost_minor / 100).toFixed(2)) : ""}" placeholder="Cost">` +
         `<input class="variation-price" name="price_${i}" value="${esc((v.price_minor / 100).toFixed(2))}" placeholder="Price">` +
         `</div>`,
     )
@@ -2041,7 +2042,7 @@ function itemTile(product, canEdit) {
              <span class="variations-header-label">Style ID</span>
              <input name="style_id" value="${esc(product.style_id ?? "")}" placeholder="NN-NN-NNN" pattern="\\d{2}-\\d{2}-\\d{3}" title="NN-NN-NNN — a 2-digit category, a 2-digit subcategory, a 3-digit item number, e.g. 01-04-001. Leave blank to keep it as it is.">
            </form>
-           ${hasVendor ? `<input class="variations-unit-cost" placeholder="Cost — every variation's cost">` : ""}
+           <input class="variations-unit-cost" placeholder="Cost — every variation's cost">
            <input class="variations-msrp" placeholder="MSRP — every variation's price">
          </div>
          <div class="variations-body">
