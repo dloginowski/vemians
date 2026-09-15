@@ -1803,8 +1803,12 @@ ${INPUT_BAR_CSS}
    REVISED: "remove some side padding, it's wider than it has to be" —
    the box's own width already grew to 6em, so its side padding no longer
    needs to be the shared 5px; 3px leaves more of that width to the
-   pattern itself. */
-.variations-header input[name="style_id"] { flex: 0 0 auto; width: 6em; font-size: 13px; padding: 1px 3px; }
+   pattern itself.
+   REVISED AGAIN: "balance it out against inventory to get them matching
+   100%" — .variation-stock-stepper (below) has NO side padding at all,
+   its two buttons sit flush against its own border; zero is the actual
+   match, not any smaller-but-still-nonzero number. */
+.variations-header input[name="style_id"] { flex: 0 0 auto; width: 6em; font-size: 13px; padding: 1px 0; }
 /* "Ensure the header's cost/MSRP align exactly with the children rows'
    own cost/price" — the row's own title absorbs all its row's leftover
    width (flex: 1 1 auto), pushing its fixed-width stepper/cost/price
