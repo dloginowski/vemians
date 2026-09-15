@@ -781,7 +781,7 @@ check("test_PRD_P0_136_square_custom_attributes__the_edit_form_posts_to_square_a
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
   assert.match(body, /<form method="post" action="\/items\/wool-coat\/square-attributes">/);
-  assert.match(body, /<input name="style_id" value="01-04-001" placeholder="Style ID \(NN-NN-NNN\)">/);
+  assert.match(body, /<input name="style_id" value="01-04-001" placeholder="Style ID \(NN-NN-NNN\)" pattern="\\d\{2\}-\\d\{2\}-\\d\{3\}"/);
   assert.match(body, /<input name="vendor" value="Acme Mills" placeholder="Vendor">/);
   assert.match(body, /<input name="vendor_code" value="ACME-4471" placeholder="Vendor's own SKU\/code">/);
   assert.match(body, /<input name="unit_cost" value="42\.50" placeholder="Unit cost paid to vendor">/);

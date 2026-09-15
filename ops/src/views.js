@@ -1782,7 +1782,7 @@ function itemTile(product, canEdit) {
          </form>
          <form method="post" action="/items/${esc(product.handle)}/square-attributes">
            <div class="row">
-             <input name="style_id" value="${esc(product.style_id ?? "")}" placeholder="Style ID (NN-NN-NNN)">
+             <input name="style_id" value="${esc(product.style_id ?? "")}" placeholder="Style ID (NN-NN-NNN)" pattern="\\d{2}-\\d{2}-\\d{3}" title="NN-NN-NNN — a 2-digit category, a 2-digit subcategory, a 3-digit item number, e.g. 01-04-001. Leave blank to keep it as it is.">
              <input name="vendor" value="${esc(product.vendor ?? "")}" placeholder="Vendor">
              <input name="vendor_code" value="${esc(product.vendor_code ?? "")}" placeholder="Vendor's own SKU/code">
              <input name="unit_cost" value="${product.unit_cost_minor ? esc((product.unit_cost_minor / 100).toFixed(2)) : ""}" placeholder="Unit cost paid to vendor">

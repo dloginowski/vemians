@@ -490,20 +490,38 @@ check("test_PRD_P0_60_spreadsheet_products__a_bad_row_is_reported_with_why_not_s
   assert.deepEqual(result.skipped.map((s) => s.row), [2, 3, 4]);
 });
 
-check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_vendor_with_no_commission_is_parked_commission_is_optional", async () => {
+check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_vendor_with_no_commission_is_parked_when_the_vendor_already_exists", async () => {
   /* The owner's own words, revising an earlier, stricter rule: "scratch the
      requirement to add a commission when specifying vendor, that's not
-     always true." A vendor with no commission column is a normal row now,
-     not a flagged one — commission may be set later, the same as the
-     direct edit tool already allowed. */
+     always true" — then narrowed again: "I need to specify a commission if
+     I create a vendor." Reusing an ALREADY-KNOWN vendor needs no commission
+     at all; only creating a brand-new one does (the next test below). */
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  f.mirrorDb._raw
+    .prepare("INSERT INTO mirror_vendor (id, external_ref, name) VALUES ('vendor-seed', 'sqvendor-seed', 'Acme Mills')")
+    .run();
   const csv = "title,category,price,style id,vendor\n" + `Wool Coat,${outerwear.name},450.00,01-04-001,Acme Mills\n`;
 
   const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
   assert.equal(result.ready.length, 1);
   assert.equal(result.ready[0].title, "Wool Coat");
+});
+
+check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_brand_new_vendor_with_no_commission_is_flagged", async () => {
+  /* The owner's own words: "I need to specify a commission if I create a
+     vendor." "Acme Mills" does not exist anywhere in this fresh fixture, so
+     this row would CREATE it — flagged here, before the row is ever parked,
+     same treatment the other spreadsheet rules already get. */
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const csv = "title,category,price,style id,vendor\n" + `Wool Coat,${outerwear.name},450.00,01-04-001,Acme Mills\n`;
+
+  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  assert.equal(result.ready.length, 0);
+  assert.equal(result.skipped.length, 1);
+  assert.match(result.skipped[0].reason, /vendor 'Acme Mills' does not exist yet — creating a new vendor needs a commission/);
 });
 
 check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_vendor_and_commission_is_parked_and_sets_both", async () => {
@@ -1595,20 +1613,23 @@ check("test_PRD_P0_136_square_custom_attributes__setting_both_calls_square_then_
     handle: COAT_HANDLE,
     style_id: "01-04-001",
     vendor: "Acme Mills",
+    commission: 20,
   });
   assert.equal(res.ok, true, res.error);
   assert.equal(res.data.style_id, "01-04-001");
   assert.equal(res.data.vendor, "Acme Mills");
   assert.equal(res.data.authority, "square");
 
-  /* style_id stays a Custom Attribute; vendor does NOT — it is Square's own
-     Vendor entity now, referenced by vendor_id in vendor_information on
-     EVERY variation (Test-PRD-P0-136-square_custom_attributes, revised for
-     Retail Plus), not a plain-text custom_attribute_values entry. */
+  /* style_id and commission stay Custom Attributes; vendor does NOT — it is
+     Square's own Vendor entity now, referenced by vendor_id in
+     vendor_information on EVERY variation (Test-PRD-P0-136-square_custom_
+     attributes, revised for Retail Plus), not a plain-text
+     custom_attribute_values entry. */
   const upsert = f.calls().find((c) => c.path === "/v2/catalog/object" && c.upsert === "ITEM");
   assert.ok(upsert, "must actually call UpsertCatalogObject");
   assert.deepEqual(upsert.body.object.item_data.custom_attribute_values, {
     style_id: { key: "style_id", type: "STRING", string_value: "01-04-001" },
+    commission: { key: "commission", type: "STRING", string_value: "20" },
   });
   const variation = upsert.body.object.item_data.variations[0];
   assert.ok(variation.item_variation_data.vendor_information?.[0]?.vendor_id, "vendor_information must be set");
@@ -1661,6 +1682,20 @@ check("test_PRD_P0_136_square_custom_attributes__giving_only_one_field_leaves_th
     handle: COAT_HANDLE,
     style_id: "01-04-001",
     vendor: "Acme Mills",
+    commission: 20,
+  });
+
+  /* "New Vendor" already exists (on a different product) by the time COAT's
+     own call below reuses it — the "creating a vendor needs a commission"
+     rule only bites the moment a vendor is actually CREATED, so this
+     single-field call needs no commission of its own. */
+  const category = f.categories()[0];
+  await approvedCall(f, "catalog.create_product", {
+    title: "Another Product",
+    category_id: category.id,
+    variations: [{ title: "One size", price_minor: 1000, currency: "USD" }],
+    vendor: "New Vendor",
+    commission: 10,
   });
 
   const res = await approvedCall(f, "catalog.set_square_attributes", { handle: COAT_HANDLE, vendor: "New Vendor" });
@@ -1671,7 +1706,7 @@ check("test_PRD_P0_136_square_custom_attributes__giving_only_one_field_leaves_th
 
 check("test_PRD_P0_136_square_custom_attributes__setting_the_same_values_again_is_refused_as_a_no_op", async () => {
   const f = await fixture();
-  await approvedCall(f, "catalog.set_square_attributes", { handle: COAT_HANDLE, vendor: "Acme Mills" });
+  await approvedCall(f, "catalog.set_square_attributes", { handle: COAT_HANDLE, vendor: "Acme Mills", commission: 20 });
   const res = await runTool(
     "catalog.set_square_attributes",
     { handle: COAT_HANDLE, vendor: "Acme Mills" },
@@ -1759,6 +1794,7 @@ check("test_PRD_P0_136_square_custom_attributes__vendor_code_and_unit_cost_along
     vendor: "Acme Mills",
     vendor_code: "ACME-4471",
     unit_cost_minor: 4250,
+    commission: 20,
   });
   assert.equal(res.ok, true, res.error);
   assert.equal(res.data.vendor_code, "ACME-4471");
@@ -1780,7 +1816,7 @@ check("test_PRD_P0_136_square_custom_attributes__vendor_code_and_unit_cost_along
 
 check("test_PRD_P0_136_square_custom_attributes__reusing_an_existing_vendor_name_does_not_create_a_second_vendor", async () => {
   const f = await fixture();
-  await approvedCall(f, "catalog.set_square_attributes", { handle: COAT_HANDLE, vendor: "Acme Mills" });
+  await approvedCall(f, "catalog.set_square_attributes", { handle: COAT_HANDLE, vendor: "Acme Mills", commission: 20 });
   assert.equal(f.square.vendors.size, 1, "Square gained exactly one Vendor");
 
   const category = f.categories()[0];
@@ -1797,9 +1833,57 @@ check("test_PRD_P0_136_square_custom_attributes__reusing_an_existing_vendor_name
   assert.equal(vendorCalls.length, 1, "only the FIRST call ever created a vendor; the second reused it");
 });
 
+check("test_PRD_P0_136_square_custom_attributes__creating_a_new_vendor_via_set_square_attributes_requires_a_commission", async () => {
+  /* The owner's own words: "I need to specify a commission if I create a
+     vendor." "Acme Mills" does not exist anywhere in this fresh fixture, so
+     this call would CREATE it. */
+  const f = await fixture();
+  const res = await runTool(
+    "catalog.set_square_attributes",
+    { handle: COAT_HANDLE, vendor: "Acme Mills" },
+    f.ctx,
+  );
+  assert.equal(res.ok, false);
+  assert.match(res.error, /does not exist yet — creating a new vendor needs a commission/);
+  assert.deepEqual(f.calls(), [], "a refused new-vendor-with-no-commission call must never reach Square");
+});
+
+check("test_PRD_P0_136_square_custom_attributes__creating_a_new_vendor_via_create_product_requires_a_commission", async () => {
+  const f = await fixture();
+  const category = f.categories()[0];
+  const res = await runTool("catalog.create_product", {
+    title: "Another Product",
+    category_id: category.id,
+    variations: [{ title: "One size", price_minor: 1000, currency: "USD" }],
+    vendor: "Acme Mills",
+  }, f.ctx);
+  assert.equal(res.ok, false);
+  assert.match(res.error, /does not exist yet — creating a new vendor needs a commission/);
+  assert.deepEqual(f.calls(), [], "a refused new-vendor-with-no-commission call must never reach Square");
+});
+
+check("test_PRD_P0_136_square_custom_attributes__reusing_a_vendor_via_set_square_attributes_needs_no_commission", async () => {
+  /* The other half of the same rule: a vendor name that ALREADY EXISTS is
+     free to assign with no commission at all — only creating one needs it. */
+  const f = await fixture();
+  const category = f.categories()[0];
+  await approvedCall(f, "catalog.create_product", {
+    title: "Another Product",
+    category_id: category.id,
+    variations: [{ title: "One size", price_minor: 1000, currency: "USD" }],
+    vendor: "Acme Mills",
+    commission: 15,
+  });
+
+  const res = await approvedCall(f, "catalog.set_square_attributes", { handle: COAT_HANDLE, vendor: "Acme Mills" });
+  assert.equal(res.ok, true, res.error);
+  assert.equal(res.data.vendor, "Acme Mills");
+  assert.equal(res.data.commission, null, "commission was never given or previously set for THIS product");
+});
+
 check("test_PRD_P0_136_square_custom_attributes__commission_must_be_a_whole_number_0_to_100", async () => {
   const f = await fixture();
-  await approvedCall(f, "catalog.set_square_attributes", { handle: COAT_HANDLE, vendor: "Acme Mills" });
+  await approvedCall(f, "catalog.set_square_attributes", { handle: COAT_HANDLE, vendor: "Acme Mills", commission: 20 });
   const res = await runTool(
     "catalog.set_square_attributes",
     { handle: COAT_HANDLE, commission: 101 },

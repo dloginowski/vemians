@@ -91,7 +91,7 @@
  * edit. The originals in R2 are never removed by any code path in this repo.
  */
 import { CAPS } from "./caps.js";
-import { listCategories, mergeVariations, priceBand, productByHandle, variantsOf } from "./catalog-writer.js";
+import { listCategories, mergeVariations, priceBand, productByHandle, variantsOf, vendorExists } from "./catalog-writer.js";
 import { contentTypeFor, isOurMediaKey, mediaKey, squareAcceptsType, STORABLE_IMAGE_TYPES } from "./media.js";
 
 /* The shop's own nomenclature for style_id (Test-PRD-P0-136-square_custom_
@@ -691,7 +691,9 @@ export const catalogWriteTools = {
       "Vendor entity (Retail Plus/Premium), reused by name or created; vendor_code/unit_cost_minor " +
       "live on that same vendor association (see catalog.set_square_attributes for the full " +
       "description of each). vendor_code/unit_cost_minor/commission all only make sense alongside a " +
-      "vendor and are refused without one; style_id follows this shop's own NN-NN-NNN nomenclature " +
+      "vendor and are refused without one; a vendor NAME with no existing Square Vendor is refused " +
+      "without a commission given in the SAME call (creating a new vendor needs one; reusing an " +
+      "existing vendor by name does not); style_id follows this shop's own NN-NN-NNN nomenclature " +
       "and is refused if another product already has it.",
     undo: "withdraw the item in Square; nothing is deleted, and the originals in R2 are untouched",
     schema: {
@@ -749,6 +751,23 @@ export const catalogWriteTools = {
           return {
             denied: `style_id '${args.style_id}' is already assigned to '${conflict.handle}' — style IDs are unique, one per product`,
             detail: { reason: "style_id_conflict" },
+          };
+        }
+      }
+
+      /* A vendor NAME with no existing mirror_vendor match will call
+         Square's real CreateVendor once this write actually runs — the
+         owner's own words: "I need to specify a commission if I create a
+         vendor." Reusing an ALREADY-KNOWN vendor is exempt (see the
+         "vendor with no commission" case just below): the arrangement's
+         commission is presumably already on record from whenever that
+         vendor was first created. */
+      if (args.vendor !== undefined && args.commission === undefined) {
+        const exists = await vendorExists(t.db.catalog_mirror, args.vendor);
+        if (!exists) {
+          return {
+            denied: `vendor '${args.vendor}' does not exist yet — creating a new vendor needs a commission (0-100) given at the same time`,
+            detail: { reason: "new_vendor_needs_commission" },
           };
         }
       }
@@ -1145,7 +1164,9 @@ export const catalogWriteTools = {
       "2-digit category, a 2-digit subcategory, a 3-digit item number, e.g. \"01-04-001\" — and is " +
       "NEVER generated here: give one, or leave it as it is. Refused if another product already has " +
       "the same style_id — style IDs are unique, one per product. vendor is a plain name: an " +
-      "existing Square Vendor with that name is reused, or a new one is created. vendor_code is the " +
+      "existing Square Vendor with that name is reused, or a new one is created — CREATING one needs " +
+      "a commission given in this SAME call (the owner's own words: \"I need to specify a commission " +
+      "if I create a vendor\"); reusing an existing vendor by name does not. vendor_code is the " +
       "VENDOR's own SKU/product code for this item (their invoice/catalog identifier — never Square's " +
       "own `sku`, never this shop's `style_id`). unit_cost_minor is what this shop PAID the vendor, " +
       "integer minor units like every other price in this codebase. commission is an integer 0-100 " +
@@ -1211,6 +1232,19 @@ export const catalogWriteTools = {
       }
       if (args.unit_cost_minor !== undefined && (!Number.isInteger(args.unit_cost_minor) || args.unit_cost_minor < 0)) {
         return { denied: `unit_cost_minor '${args.unit_cost_minor}' must be a non-negative integer minor amount` };
+      }
+
+      /* Same "creating a new vendor needs a commission" rule as
+         catalog.create_product — the owner's own words apply just as well
+         to an edit that hands this product its first vendor. A CHANGE to an
+         already-known vendor name is exempt, the same as create_product. */
+      if (args.vendor !== undefined && args.commission === undefined) {
+        const exists = await vendorExists(t.db.catalog_mirror, args.vendor);
+        if (!exists) {
+          return {
+            denied: `vendor '${args.vendor}' does not exist yet — creating a new vendor needs a commission (0-100) given at the same time`,
+          };
+        }
       }
 
       const resultingStyleId = args.style_id !== undefined ? args.style_id : existing.style_id;

@@ -86,12 +86,14 @@ const SKU_KEYS = ["sku", "style number", "item number", "product code"];
    (Test-PRD-P0-136-square_custom_attributes), not a custom_fields example —
    recognized here so a sheet carrying them reaches catalog.create_product as
    real arguments rather than inert text, and its own check() can flag the
-   owner's own rules before a row is ever parked: "if we have a vendor name
-   and we didn't provide a commission, that's a problem," and — walked
-   through a final time — "we always need to have a style ID." Deliberately
-   NOT "style number"/"item number" (SKU_KEYS above): those already mean the
-   SKU, a wholly different, Square-assigned identifier this codebase never
-   invents (see catalog-write.js's own STYLE_ID_FORMAT comment). */
+   owner's own rules before a row is ever parked: "we always need to have a
+   style ID," and — separately — a vendor NAME with no existing Square
+   Vendor needs a commission given in the same row ("I need to specify a
+   commission if I create a vendor"; reusing an already-known vendor does
+   not). Deliberately NOT "style number"/"item number" (SKU_KEYS above):
+   those already mean the SKU, a wholly different, Square-assigned
+   identifier this codebase never invents (see catalog-write.js's own
+   STYLE_ID_FORMAT comment). */
 const STYLE_ID_KEYS = ["style id", "style_id"];
 const VENDOR_KEYS = ["vendor", "vendor name", "supplier"];
 /* The vendor's OWN SKU/product code for this item — "an invoice-like

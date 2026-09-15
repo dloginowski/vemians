@@ -83,6 +83,18 @@ export async function productByHandle(db, handle) {
     .first();
 }
 
+/* Same case-insensitive lookup vendorRef() does before ever calling
+   Square's real CreateVendor — exposed here so a T2 tool's own check() can
+   tell, BEFORE any write, whether resolving a given name would create a
+   brand-new Vendor. Read-only: this never decides to create one itself. */
+export async function vendorExists(db, name) {
+  const row = await db
+    .prepare("SELECT external_ref FROM mirror_vendor_index WHERE name = ? COLLATE NOCASE")
+    .bind(name)
+    .first();
+  return Boolean(row);
+}
+
 export async function variantsOf(db, productId) {
   const res = await db
     .prepare(

@@ -3432,15 +3432,32 @@ that does not trace to one of these is a process failure (see §12).
     became style_id once "not the SKU" was clarified — see below). Auto-generating one from a
     category and subcategory is deliberately NOT built yet: this schema has no subcategory concept at
     all, and inventing the mapping without the owner's own real category/subcategory table would risk
-    assigning genuinely wrong numbers to real inventory. `commission` is validated as a whole number
+    assigning genuinely wrong numbers to real inventory. **The Items tab's own edit form (`ops/src/
+    views.js`) also enforces the `NN-NN-NNN` shape at the BROWSER level now** — the style_id input
+    carries `pattern="\d{2}-\d{2}-\d{3}"` and a descriptive `title` tooltip, the owner's own words: "I
+    want to make sure that you enforce the style ID... so I can't enter it incorrectly." This is
+    defense in depth, not a replacement for the server-side check below: a blank value still passes
+    (HTML's own `pattern` attribute only applies once something is typed, matching "leave this one as
+    it is" for an untouched field), and the real refusal — cross-catalog uniqueness included — still
+    happens in `catalog.set_square_attributes`'s own `check()`, which a malicious or scripted POST
+    could reach directly regardless of what the browser enforces first. `commission` is validated as a
+    whole number
     0-100 and, since it means nothing without one, is refused for a product with no vendor —
     resolved from whatever value this SAME call is also setting, not just the product's prior state,
     since a `CHECK` constraint on the column cannot see "the other value this call is also setting."
-    The reverse (a vendor with no commission yet) is NOT refused here — that would break the ordinary
-    "set vendor now, add commission later" edit — it is a spreadsheet-import concern instead, below.
+    The reverse (a vendor with no commission yet) is NOT refused here in general — that would break
+    the ordinary "set vendor now, add commission later" edit. **REVISED**: it IS refused in one
+    specific case — the owner's own words: "I need to specify a commission if I create a vendor."
+    `vendorExists()` (`catalog-writer.js`) checks `mirror_vendor_index` for the given name,
+    case-insensitively, the SAME lookup `vendorRef()` itself makes before ever calling Square's real
+    CreateVendor — so `check()` can tell, before any write, whether resolving this name would CREATE a
+    brand-new Vendor. If it would, and no `commission` is given in this same call, the call is refused;
+    reusing an ALREADY-KNOWN vendor name needs no commission at all, satisfying the "set vendor now,
+    add commission later" edit for every case except a genuinely new vendor's very first product.
     `catalog.create_product` accepts `style_id`/`vendor`/`commission` too, at creation time, under the
     identical rules (format + the whole-catalog conflict check for `style_id`; the vendor requirement
-    for `commission`), since it already reaches Square for the item itself.
+    for `commission`; the same new-vendor-needs-commission check), since it already reaches Square for
+    the item itself.
 
     **style_id is explicitly NOT the SKU.** The owner's own words, correcting an earlier version of
     this feature that (before this revision) planned to key deep links and this nomenclature off the
@@ -3478,11 +3495,14 @@ that does not trace to one of these is a process failure (see §12).
     of Square," needs no new check.) **REVISED AGAIN**: an earlier pass also required a commission
     the moment a vendor was given — "if we have a vendor name, then we must have a commission" —
     dropped on the owner's own correction: "scratch the requirement to add a commission when
-    specifying vendor, that's not always true." A vendor with no commission is a normal row now, the
-    same as the direct edit tool already allowed (see above). The one direction still left to
-    `catalog.create_product`'s own `check()` is commission given with no vendor, whose refusal text
-    is already clear enough to relay verbatim through `parkRows`; style_id's format and whole-catalog
-    uniqueness are likewise left to that same `check()` rather than duplicated here.
+    specifying vendor, that's not always true." **REVISED A THIRD TIME**, narrower than either: "I
+    need to specify a commission if I create a vendor" — a spreadsheet row naming a vendor that does
+    not already exist in `mirror_vendor` is flagged without a commission column, the same
+    `vendorExists()` check `catalog.create_product`'s own `check()` now makes (see above); a row
+    naming an ALREADY-KNOWN vendor needs no commission at all. Both directions are left to
+    `catalog.create_product`'s own `check()` rather than duplicated here — its refusal text is already
+    clear enough to relay verbatim through `parkRows`; style_id's format and whole-catalog uniqueness
+    are likewise left to that same `check()`.
 
     **REVISED AGAIN, once the owner mentioned having set up Square's Retail Plus subscription:
     `vendor` moved a second time, off Custom Attributes entirely, onto a real Square VENDOR
