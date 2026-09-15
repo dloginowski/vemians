@@ -1790,15 +1790,17 @@ ${INPUT_BAR_CSS}
    applied one field earlier so style_id ends up roughly where the
    stepper sits in each row instead of hugging the caret/label. "You may
    increase the style ID font size to fill that box so it's the same
-   width as the inventory fields below it" — width now matches
-   .variation-stock-stepper's own 5.5em exactly (was a 9-characters-exact
+   width as the inventory fields below it" — width matches
+   .variation-stock-stepper's own width exactly (was a 9-characters-exact
    9ch), with a larger font-size so the pattern actually fills it rather
-   than leaving it looking sparse. */
+   than leaving it looking sparse. REVISED: both widened from 5.5em to
+   6em — "make the inventory menu a tiny bit wider if you are at limit
+   with style id," the pattern was right at the edge of the box. */
 /* "The style ID is a little bit bigger than what I want. Decrease the
    padding a little to make it the same size" — the larger 13px font
    needs less of the shared 3px 5px padding to end up the same overall
    height as the stepper's own 11px count field beside it. */
-.variations-header input[name="style_id"] { flex: 0 0 auto; width: 5.5em; font-size: 13px; padding: 1px 5px; }
+.variations-header input[name="style_id"] { flex: 0 0 auto; width: 6em; font-size: 13px; padding: 1px 5px; }
 /* "Ensure the header's cost/MSRP align exactly with the children rows'
    own cost/price" — the row's own title absorbs all its row's leftover
    width (flex: 1 1 auto), pushing its fixed-width stepper/cost/price
@@ -1838,7 +1840,7 @@ ${INPUT_BAR_CSS}
    reads as "fits the value" without the count ever driving the wrapper's
    own (fixed) total width. */
 .variation-stock-stepper {
-  display: flex; flex: 0 0 auto; width: 5.5em;
+  display: flex; flex: 0 0 auto; width: 6em;
   border: 1px solid var(--muted); border-radius: 4px; overflow: hidden;
 }
 .variation-stock-count {
