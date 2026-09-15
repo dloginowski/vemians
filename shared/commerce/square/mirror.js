@@ -243,6 +243,22 @@ export function createMirror(mirror, { commerce, locationId, audit = null, now =
         }
         if (archivedAt) counts.archived += 1;
 
+        /* The permanent style_id reservation (schema.sql's own comment on
+           mirror_style_id_ledger) — recorded here, on every sync, rather
+           than only at the moment our own tools set one, so a style_id
+           typed directly into Square's own dashboard (bypassing ops
+           entirely) still gets reserved the instant it is first seen.
+           ON CONFLICT DO NOTHING because the whole point is that a style_id
+           already ledgered — even one this SAME product has since moved
+           away from — is never touched again. */
+        if (p.styleId) {
+          await run(
+            `INSERT INTO mirror_style_id_ledger (style_id, product_id) VALUES (?, ?)
+             ON CONFLICT(style_id) DO NOTHING`,
+            p.styleId, productId,
+          );
+        }
+
         for (const v of p.variants ?? []) {
           seenVariants.add(v.externalRef);
           const vArchived = v.withdrawn || p.withdrawn ? stamp : null;

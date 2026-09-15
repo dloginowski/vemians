@@ -199,6 +199,36 @@ SELECT id, external_ref, handle, title, source_description, status, channel,
        custom_fields, style_id, commission_pct, category_id, source_version, synced_at
 FROM mirror_product WHERE archived_at IS NULL;
 
+-- A style_id, once given to ANY product, is never handed to a different one
+-- — the owner's own words: "we want that style number to be held, so that
+-- you don't overwrite that style number and reuse it for something else."
+-- mirror_product.style_id above is only ever the CURRENT value for a
+-- product; editing it away (a typo fix, a re-categorisation) would silently
+-- free the old number for reuse by someone else's next product if that were
+-- the only record of it. This table is the permanent one: a row is
+-- inserted the first time a style_id is ever seen synced onto a product
+-- (mirror.js) and never updated or deleted after that, even once the
+-- product itself moves on to a different style_id or is withdrawn — the
+-- same "archive, never delete" convention every other ledger in this
+-- schema already follows (Test-PRD-P0-31-inventory_ledger's own header).
+-- catalog.create_product/set_square_attributes check THIS table for a
+-- conflict, not just mirror_product's own current column.
+CREATE TABLE mirror_style_id_ledger (
+  style_id     TEXT PRIMARY KEY,
+  product_id   TEXT NOT NULL REFERENCES mirror_product(id),
+  assigned_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TRIGGER trg_style_id_ledger_no_update
+BEFORE UPDATE ON mirror_style_id_ledger
+BEGIN
+  SELECT RAISE(ABORT, 'mirror_style_id_ledger is append-only — a style_id is never reassigned once recorded');
+END;
+CREATE TRIGGER trg_style_id_ledger_no_delete
+BEFORE DELETE ON mirror_style_id_ledger
+BEGIN
+  SELECT RAISE(ABORT, 'mirror_style_id_ledger is append-only — a style_id is never freed once recorded');
+END;
+
 -- ── variants  (Square ITEM_VARIATION) ──────────────────────────────────────
 --
 -- ADR-009: "Square ITEM -> our product, ITEM_VARIATION -> our variant, with
