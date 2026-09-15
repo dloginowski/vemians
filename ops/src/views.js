@@ -1721,9 +1721,13 @@ ${INPUT_BAR_CSS}
 /* "The variation label itself is fine, it could be long... but indent
    them a little so it's clearer it's underneath the accordion it belongs
    to" — the body sits visibly inset from the header bar above it. */
-.variations-body { display: none; flex-direction: column; gap: 6px; margin-top: 6px; padding-left: 10px; }
+.variations-body { display: none; flex-direction: column; margin-top: 6px; padding-left: 10px; }
 .variations-accordion.expanded .variations-body { display: flex; }
-.variations-body .row { display: flex; gap: 6px; align-items: center; }
+/* "Vertical padding between rows is still too small! Match top variant
+   row padding" — the header bar above (.variations-header) carries its
+   own 5px of vertical padding; each row here now gets the same, rather
+   than relying on the container's own (smaller) gap between rows. */
+.variations-body .row { display: flex; gap: 6px; align-items: center; padding: 5px 0; }
 .item-edit { border-top: 1px solid var(--rule); margin-top: 2px; padding-top: 6px; cursor: default; }
 .item-edit form { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 .item-add-field { margin: 2px 0; }

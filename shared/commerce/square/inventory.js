@@ -148,10 +148,19 @@ export async function retrieveInventoryCounts(
  * Square's answer and throw away Square's reasoning, which is the thing an
  * append-only ledger exists to hold.
  * `POST /v2/inventory/changes/batch-retrieve`.
+ *
+ * `types` defaults to PHYSICAL_COUNT and ADJUSTMENT only — Square's own
+ * `InventoryChangeType` enum for THIS endpoint has no `TRANSFER` value at
+ * all (verified against the CatalogInventoryChangeType/BatchRetrieve
+ * request schema in Square's own OpenAPI spec); asking for it is a 400,
+ * not an empty result. `normaliseChanges` below still handles a TRANSFER
+ * change shape defensively (ADR-009 open question 2: "if one arrives" on
+ * a single-location shop), but it can never actually arrive FROM a call
+ * to this function, only, in principle, from some other Square surface.
  */
 export async function retrieveInventoryChanges(
   client,
-  { catalogObjectIds = [], locationId, updatedAfter = null, types = ["PHYSICAL_COUNT", "ADJUSTMENT", "TRANSFER"] } = {},
+  { catalogObjectIds = [], locationId, updatedAfter = null, types = ["PHYSICAL_COUNT", "ADJUSTMENT"] } = {},
 ) {
   const location = locationId ?? client.locationId;
   const changes = [];

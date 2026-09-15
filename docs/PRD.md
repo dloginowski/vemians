@@ -655,6 +655,29 @@ that does not trace to one of these is a process failure (see §12).
     absorbs whatever width the fixed wrapper has left over after the buttons, rather than either
     driving the wrapper wider as the digits change or needing a width guess of its own.
 
+    **REVISED: real vertical padding per row, not just a bigger gap.** "Vertical padding between
+    rows is still too small! Match top variant row padding." `.variations-body .row` now carries
+    its own `padding: 5px 0` — the same 5px the header bar above it (`.variations-header`) already
+    uses — instead of relying only on the container's own `gap` between rows.
+
+    **FIXED: a production incident, `inventory.adjust`'s own immediate resync.** Clicking + or -
+    started failing with "Square POST /v2/inventory/changes/batch-retrieve failed with 400."
+    Verified against Square's own OpenAPI spec: `BatchRetrieveInventoryChangesRequest.types` has no
+    `TRANSFER` value in its `InventoryChangeType` enum at all — `retrieveInventoryChanges`
+    (`shared/commerce/square/inventory.js`) had defaulted to `["PHYSICAL_COUNT", "ADJUSTMENT",
+    "TRANSFER"]` since before this session, and every call that left `types` at its default (this
+    one, and the 15-minute cron's own `pullInventory`) was asking Square for an enum value it does
+    not support — some catalog_object_ids/timing combination apparently made THIS call the one
+    that actually surfaced the 400. Fixed at the default: `["PHYSICAL_COUNT", "ADJUSTMENT"]`.
+    `normaliseChanges` still handles a TRANSFER change shape defensively (ADR-009 open question
+    2), but it can now never actually arrive from a call through this function. **Also hardened**:
+    `inventory.adjust`'s own `run()` no longer lets a failure in its immediate, best-effort
+    post-write resync (the short-cut that reflects Square's new count back without waiting for the
+    next cron run) make the WHOLE adjustment look refused — the push to Square already succeeded
+    and is authoritative (ADR-009) by the time that resync even runs, so a hiccup there returns
+    `{adjusted: true, on_hand: <the count just pushed>, synced: false}` instead of throwing; the
+    regular cron sync reconciles the ledger regardless.
+
 31. **`Test-PRD-P0-32-tickets`** — Company-wide issues live in their own `tickets` store. A ticket
     cannot be deleted, only moved through status, and resolving one requires a timestamp.
     Comments are append-only. Links to orders, customers, products and shifts are id plus a

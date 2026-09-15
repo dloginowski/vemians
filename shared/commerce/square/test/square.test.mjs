@@ -986,6 +986,12 @@ check("test_PRD_P0_31_inventory_ledger__push_inventory_posts_a_physical_count_an
   );
   assert.equal(row.delta, 9, "0 on hand -> 9 counted is a +9 delta, never the raw 9 written as an overwrite");
   assert.equal(row.reason, "count");
+
+  /* Regression: Square's own InventoryChangeType enum for THIS endpoint has
+     no TRANSFER value at all — asking for it is a 400, not an empty
+     result (a real production incident this exact request shape caused).
+     retrieved[0] is the batch-retrieve call the pullInventory above just made. */
+  assert.deepEqual(retrieved[0].types, ["PHYSICAL_COUNT", "ADJUSTMENT"], "never ask Square for a TRANSFER type here");
 });
 
 /* ─────────────────────────────────────────────────────────────────────────

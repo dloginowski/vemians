@@ -71,7 +71,7 @@ function squareEnv(extra = {}) {
  * accepts and replays BatchChangeInventory PHYSICAL_COUNT events — exactly
  * the two calls inventory.adjust's own run() makes (push, then pull to sync).
  */
-function fakeSquareInventory(seed = CATALOG_SEED) {
+function fakeSquareInventory(seed = CATALOG_SEED, { failRetrieve = false } = {}) {
   const objects = new Map(seed.map((o) => [o.id, structuredClone(o)]));
   const changes = [];
   const calls = [];
@@ -99,6 +99,9 @@ function fakeSquareInventory(seed = CATALOG_SEED) {
     }
 
     if (p === "/v2/inventory/changes/batch-retrieve") {
+      /* Reproduces a real production failure: Square's own batch-retrieve
+         call, right after a successful push, answering 400. */
+      if (failRetrieve) return jsonRes({ errors: [{ category: "INVALID_REQUEST_ERROR", code: "BAD_REQUEST" }] }, 400);
       const body = JSON.parse(init.body);
       record.body = body;
       const ids = body.catalog_object_ids ?? [];
@@ -115,8 +118,8 @@ function fakeSquareInventory(seed = CATALOG_SEED) {
   return impl;
 }
 
-async function fixture({ actor = "mara@vemians.com", role = "manager" } = {}) {
-  const square = fakeSquareInventory();
+async function fixture({ actor = "mara@vemians.com", role = "manager", failRetrieve = false } = {}) {
+  const square = fakeSquareInventory(CATALOG_SEED, { failRetrieve });
   const mirrorDb = d1FromSql(MIRROR_SQL);
   const commerceDb = d1FromSql(COMMERCE_SQL);
   const auditDb = d1FromSql(AUDIT_SQL);
@@ -247,6 +250,20 @@ check("test_PRD_P0_31_inventory_ledger__the_count_is_recomputed_fresh_in_run_not
   );
   assert.equal(res.ok, true, res.error);
   assert.equal(res.data.on_hand, 5, "3 (the CURRENT count) + 2, not the stale 4 + 2 = 6 check() once saw");
+});
+
+check("test_PRD_P0_31_inventory_ledger__a_failed_immediate_resync_does_not_refuse_the_adjustment", async () => {
+  /* Reproduces a real production incident: the push to Square succeeded
+     (it is the authoritative write, ADR-009) but the immediate follow-up
+     sync — this call's own best-effort shortcut to reflect that back
+     without waiting for the next cron — answered 400. That must never
+     make the whole call look refused: the count Square itself will report
+     from here on is the one just pushed, full stop. */
+  const f = await fixture({ failRetrieve: true });
+  const res = await approvedCall(f, "inventory.adjust", { variant_id: f.variant.id, delta: 5 });
+  assert.equal(res.ok, true, res.error);
+  assert.equal(res.data.on_hand, 5, "the optimistic, just-pushed count, not a stale local read");
+  assert.equal(res.data.synced, false, "honest about the immediate resync having failed");
 });
 
 check("test_PRD_P0_30_prd_traceability__every_label_used_in_this_file_exists_in_the_prd", () => {

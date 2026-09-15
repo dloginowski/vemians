@@ -212,11 +212,24 @@ export const commerceTools = {
         return { error: `${current} in stock now — a change of ${args.delta} would take it negative` };
       }
 
+      /* Square is still the write that matters (ADR-009) — once pushInventory
+         returns, the count Square itself will report from here on is
+         `resulting`, full stop. The immediate pullInventory right after is
+         only this call's own best-effort shortcut to reflect that back
+         without waiting for the next 15-minute cron sync; a hiccup in IT
+         (a transient batch-retrieve failure) must never make this call look
+         refused when the actual write already landed — the cron's own
+         regular pullInventory({ since }) will reconcile the ledger anyway. */
       await t.square.adapter.pushInventory([{ externalRef: variant.external_ref, onHand: resulting }]);
-      await t.square.adapter.pullInventory({ catalogObjectIds: [variant.external_ref] });
+      try {
+        await t.square.adapter.pullInventory({ catalogObjectIds: [variant.external_ref] });
+      } catch (err) {
+        console.error(`ERROR inventory.adjust: immediate post-write sync failed, cron will reconcile — ${err.message}`);
+        return { adjusted: true, sku: variant.sku, delta: args.delta, on_hand: resulting, synced: false };
+      }
 
       const after = await this.onHand(variant.sku, t);
-      return { adjusted: true, sku: variant.sku, delta: args.delta, on_hand: after };
+      return { adjusted: true, sku: variant.sku, delta: args.delta, on_hand: after, synced: true };
     },
   },
 };
