@@ -2141,8 +2141,8 @@ function itemTile(product, canEdit) {
          <form method="post" action="/items/${esc(product.handle)}/square-attributes">
            <div class="row">
              <input name="vendor" value="${esc(product.vendor ?? "")}" placeholder="Vendor">
-             <input name="vendor_code" value="${esc(product.vendor_code ?? "")}" placeholder="Vendor's own SKU/code">
-             <input name="commission" value="${esc(product.commission_pct != null ? String(product.commission_pct) : "")}" placeholder="Commission % (0-100)">
+             <input name="vendor_code" value="${esc(product.vendor_code ?? "")}" placeholder="Vendor SKU" title="The vendor's own SKU/code">
+             <input name="commission" value="${esc(product.commission_pct != null ? String(product.commission_pct) : "")}" placeholder="Comm" title="Commission % (0-100)">
            </div>
          </form>
        </div>`
