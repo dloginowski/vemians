@@ -156,6 +156,16 @@ function customAttr(data, key) {
   return typeof s === "string" && s ? s : null;
 }
 
+/* commission is a STRING-type attribute holding a plain integer 0-100 — the
+   SAME "never a float" discipline Test-PRD-P0-15-money_minor_units already
+   enforces for every money value in this codebase, rather than Square's own
+   NUMBER type, which represents a decimal amount as a string. */
+function customAttrInt(data, key) {
+  const s = customAttr(data, key);
+  if (s === null) return null;
+  return /^\d+$/.test(s) ? Number(s) : null;
+}
+
 function tracksStock(data, locationId) {
   const overrides = data?.location_overrides ?? [];
   const mine = overrides.find((o) => o.location_id === locationId);
@@ -281,6 +291,7 @@ export function normaliseCatalog(objects, { locationId = null, related = [] } = 
         null,
       styleId: customAttr(data, "style_id"),
       vendor: customAttr(data, "vendor"),
+      commissionPct: customAttrInt(data, "commission"),
       sourceVersion: Number(o.version ?? 0),
       withdrawn,
       variants,

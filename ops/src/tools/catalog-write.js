@@ -13,7 +13,7 @@
  *   catalog.create_category  T2  separate, deliberate, and rarely right
  *   catalog.set_channel      T2  which audience sees a product — OURS, not Square's
  *   catalog.set_custom_fields T2 whatever else we track that Square doesn't — OURS too
- *   catalog.set_style_and_vendor T2 style_id + vendor — Square's OWN Custom Attributes
+ *   catalog.set_square_attributes T2 style_id + vendor + commission — Square's OWN Custom Attributes
  *
  * ─── THREE DECISIONS, AND WHY EACH IS THE WAY IT IS ────────────────────────
  *
@@ -42,7 +42,7 @@
  *    never reach Square, only a second `UPDATE mirror_product` right after
  *    the sync that follows.
  *
- *    `catalog.set_style_and_vendor` is the OPPOSITE case, on purpose: style_id
+ *    `catalog.set_square_attributes` is the OPPOSITE case, on purpose: style_id
  *    and vendor used to be `custom_fields` examples, and moved OUT once Square
  *    turned out to already have a supported mechanism for exactly this — its
  *    own Custom Attributes (Test-PRD-P0-136-square_custom_attributes). The
@@ -50,9 +50,16 @@
  *    reinventing something Square already offers: "why do we need to have our
  *    own custom fields then? It doesn't make sense... we don't mind having our
  *    stuff being stored completely in Square." So this tool DOES declare
- *    `square` and DOES call it — Square is authoritative for these two now,
+ *    `square` and DOES call it — Square is authoritative for these three now,
  *    the same as title or price, and the mirror sync overwrites them on every
  *    re-sync rather than preserving them untouched the way `channel` is.
+ *    `commission` (0-100, an integer percentage) joined the other two once the
+ *    owner walked the full set of custom attributes a second time: "that's
+ *    only for vendors — anything that has a vendor, it has a commission."
+ *    Cost-of-goods was considered too and dropped on the same pass: "we don't
+ *    need to do cogs, there is a unit cost, we just use the unit cost" — the
+ *    existing `custom_fields` entry already covers that, so there is no
+ *    fourth attribute here.
  *
  * 2. EVERY CATALOG WRITE IS T2.
  *    A price, a SKU and whether a thing is for sale are commercial facts.
@@ -675,10 +682,13 @@ export const catalogWriteTools = {
       "else, so pass it without asking. A product with no real size/color options still needs one " +
       "variation, conventionally titled \"One size\". This is a T2 write: it executes only after a " +
       "human approves it. `custom_fields` is OURS, not Square's: any field name -> string value we " +
-      "track that Square has no concept of at all (unit cost, a vendor name, a spreadsheet column " +
-      "with no home elsewhere). It never reaches Square — it is written to our own mirror right after " +
-      "the item is created — and survives every future sync untouched. Edit it later with " +
-      "catalog.set_custom_fields.",
+      "track that Square has no concept of at all (unit cost, a spreadsheet column with no home " +
+      "elsewhere). It never reaches Square — it is written to our own mirror right after the item " +
+      "is created — and survives every future sync untouched. Edit it later with " +
+      "catalog.set_custom_fields. `vendor` and `commission` ARE Square's own Custom Attributes " +
+      "(same as catalog.set_square_attributes) and MAY be set here at creation time, since this " +
+      "call already reaches Square for the item itself: commission (0-100) only makes sense " +
+      "alongside a vendor and is refused without one.",
     undo: "withdraw the item in Square; nothing is deleted, and the originals in R2 are untouched",
     schema: {
       title: { type: "string", required: true, maxLength: CAPS.CATALOG_TITLE_MAX },
@@ -686,6 +696,8 @@ export const catalogWriteTools = {
       category_id: { type: "string", required: true, format: "id" },
       variations: { type: "array", required: true, maxItems: CAPS.CATALOG_MAX_VARIATIONS, of: VARIATION },
       images: IMAGES,
+      vendor: { type: "string", maxLength: 120 },
+      commission: { type: "integer" },
       custom_fields: {
         type: "record",
         maxKeys: CAPS.CATALOG_CUSTOM_FIELDS_MAX_KEYS,
@@ -695,6 +707,16 @@ export const catalogWriteTools = {
     },
     async check(args, t) {
       const problems = validateProposal(args);
+      if (args.commission !== undefined) {
+        if (!Number.isInteger(args.commission) || args.commission < 0 || args.commission > 100) {
+          problems.push(`commission '${args.commission}' must be a whole number 0-100`);
+        } else if (!args.vendor) {
+          problems.push(
+            "commission was given without a vendor — a commission is the percentage this shop keeps " +
+              "when it sells a VENDOR's product, so it does not apply without one",
+          );
+        }
+      }
       if (problems.length) {
         return {
           denied: `refused before Square saw it: ${problems.join(" | ")}`,
@@ -743,6 +765,8 @@ export const catalogWriteTools = {
         categoryId: args.category_id,
         variations: args.variations,
         images,
+        vendor: args.vendor,
+        commissionPct: args.commission,
       });
 
       /* custom_fields never reaches Square — see the note on the schema
@@ -989,8 +1013,8 @@ export const catalogWriteTools = {
       "Add, change or remove OUR OWN extra fields on a product, by handle — whatever a spreadsheet " +
       "import carried, or anything else \"our workers need more data tracking than square offers\" " +
       "(the owner's own words): unit cost, a reorder note, a fabric detail, anything Square has no " +
-      "field for at all. (style_id and vendor are NOT set here any more — catalog.set_style_and_vendor " +
-      "does those, as Square's own Custom Attributes.) `fields` is a PATCH merged into what is already there: a key with a real " +
+      "field for at all. (style_id, vendor and commission are NOT set here any more — " +
+      "catalog.set_square_attributes does those, as Square's own Custom Attributes.) `fields` is a PATCH merged into what is already there: a key with a real " +
       "value is set or updated, a key set to the empty string \"\" is removed, and every key not " +
       "mentioned is left untouched. This is OURS, not Square's — it never calls Square and never " +
       "triggers a mirror sync; it writes the mirror directly and the value survives every future " +
@@ -1074,32 +1098,36 @@ export const catalogWriteTools = {
     },
   },
 
-  "catalog.set_style_and_vendor": {
+  "catalog.set_square_attributes": {
     tier: "T2",
     domain: "catalog",
     stores: ["catalog_mirror"],
     resources: ["square"],
     minRole: "manager",
     describe:
-      "Set a product's own Style ID and/or vendor, by handle. Both are stored as SQUARE'S OWN " +
-      "Custom Attributes, not a fact this codebase invents — this DOES call Square, then syncs the " +
-      "mirror back, unlike catalog.set_channel or catalog.set_custom_fields. style_id follows this " +
-      "shop's own nomenclature — NN-NN-NNN: a 2-digit category, a 2-digit subcategory, a 3-digit " +
-      "item number, e.g. \"01-04-001\" — and is NEVER generated here: give one, or leave it as it " +
-      "is. Refused if another product already has the same style_id — style IDs are unique, one per " +
-      "product. vendor is a plain name. Give either alone to leave the other untouched. NEITHER of " +
-      "these is the SKU on a variation: Square assigns that automatically and nothing in this " +
-      "codebase ever sets it, reads it for anything but display, or treats it as this shop's own " +
-      "nomenclature.",
-    undo: "another catalog.set_style_and_vendor call, back to the previous value(s)",
+      "Set a product's own Style ID, vendor and/or commission, by handle. All three are stored as " +
+      "SQUARE'S OWN Custom Attributes, not a fact this codebase invents — this DOES call Square, " +
+      "then syncs the mirror back, unlike catalog.set_channel or catalog.set_custom_fields. style_id " +
+      "follows this shop's own nomenclature — NN-NN-NNN: a 2-digit category, a 2-digit subcategory, " +
+      "a 3-digit item number, e.g. \"01-04-001\" — and is NEVER generated here: give one, or leave " +
+      "it as it is. Refused if another product already has the same style_id — style IDs are " +
+      "unique, one per product. vendor is a plain name. commission is an integer 0-100 (a " +
+      "percentage) and only makes sense for a product that HAS a vendor — the owner's own words: " +
+      "\"that's only for vendors — anything that has a vendor, it has a commission\" — so it is " +
+      "refused for a product with no vendor, resolved from whatever this same call also sets. " +
+      "Give any subset of the three to leave the others untouched. NONE of these is the SKU on a " +
+      "variation: Square assigns that automatically and nothing in this codebase ever sets it, " +
+      "reads it for anything but display, or treats it as this shop's own nomenclature.",
+    undo: "another catalog.set_square_attributes call, back to the previous value(s)",
     schema: {
       handle: { type: "string", required: true, format: "handle" },
       style_id: { type: "string", maxLength: 20 },
       vendor: { type: "string", maxLength: 120 },
+      commission: { type: "integer" },
     },
     async check(args, t) {
-      if (args.style_id === undefined && args.vendor === undefined) {
-        return { denied: "give a style_id, a vendor, or both — this call would change nothing" };
+      if (args.style_id === undefined && args.vendor === undefined && args.commission === undefined) {
+        return { denied: "give a style_id, a vendor, a commission, or any combination — this call would change nothing" };
       }
       const existing = await productByHandle(t.db.catalog_mirror, args.handle);
       if (!existing) return { denied: `no product with handle '${args.handle}' in the mirror` };
@@ -1123,15 +1151,34 @@ export const catalogWriteTools = {
         }
       }
 
-      const resultingStyleId = args.style_id !== undefined ? args.style_id : existing.style_id;
       const resultingVendor = args.vendor !== undefined ? args.vendor : existing.vendor;
-      if (resultingStyleId === existing.style_id && resultingVendor === existing.vendor) {
-        return { denied: `'${args.handle}' already has that style_id and vendor — nothing would change` };
+      if (args.commission !== undefined) {
+        if (!Number.isInteger(args.commission) || args.commission < 0 || args.commission > 100) {
+          return { denied: `commission '${args.commission}' must be a whole number 0-100` };
+        }
+        if (!resultingVendor) {
+          return {
+            denied:
+              `'${args.handle}' has no vendor, so a commission does not apply — a commission is the ` +
+              "percentage this shop keeps when it sells a VENDOR's product. Set a vendor at the same time, or first.",
+          };
+        }
+      }
+
+      const resultingStyleId = args.style_id !== undefined ? args.style_id : existing.style_id;
+      const resultingCommission = args.commission !== undefined ? args.commission : existing.commission_pct;
+      if (
+        resultingStyleId === existing.style_id &&
+        resultingVendor === existing.vendor &&
+        resultingCommission === existing.commission_pct
+      ) {
+        return { denied: `'${args.handle}' already has those values — nothing would change` };
       }
 
       const changes = [
         args.style_id !== undefined ? `style_id -> ${args.style_id}` : null,
         args.vendor !== undefined ? `vendor -> ${args.vendor}` : null,
+        args.commission !== undefined ? `commission -> ${args.commission}%` : null,
       ]
         .filter(Boolean)
         .join(", ");
@@ -1146,14 +1193,17 @@ export const catalogWriteTools = {
         handle: args.handle,
         styleId: args.style_id,
         vendor: args.vendor,
+        commissionPct: args.commission,
       });
       return {
         updated: true,
         handle: args.handle,
         style_id: out.product?.style_id ?? null,
         vendor: out.product?.vendor ?? null,
+        commission: out.product?.commission_pct ?? null,
         previous_style_id: t.preflight.existing.style_id,
         previous_vendor: t.preflight.existing.vendor,
+        previous_commission: t.preflight.existing.commission_pct,
         mirror_sync: out.sync,
         authority: "square",
       };

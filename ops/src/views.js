@@ -1702,13 +1702,14 @@ function itemTile(product, canEdit) {
     ? fieldEntries.map(([k, v]) => `<div><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join("")
     : `<p class="item-empty">No custom fields yet.</p>`;
 
-  /* style_id and vendor are Square's own Custom Attributes now (P0-136),
-     not part of custom_fields — shown in their own row pair, blank rather
-     than an empty-state paragraph when neither is set yet (an empty text
-     field already says that, the same way the edit form below will). */
+  /* style_id, vendor and commission are Square's own Custom Attributes now
+     (P0-136), not part of custom_fields — shown in their own rows, blank
+     rather than an empty-state paragraph when none is set yet (an empty
+     text field already says that, the same way the edit form below will). */
   const attrRows =
     (product.style_id ? `<div><span>Style ID</span><span>${esc(product.style_id)}</span></div>` : "") +
-    (product.vendor ? `<div><span>Vendor</span><span>${esc(product.vendor)}</span></div>` : "");
+    (product.vendor ? `<div><span>Vendor</span><span>${esc(product.vendor)}</span></div>` : "") +
+    (product.commission_pct != null ? `<div><span>Commission</span><span>${esc(String(product.commission_pct))}%</span></div>` : "");
 
   /* Up to 3 blank rows past the existing fields, so there is somewhere to
      type a brand-new field without any add-row scripting — the same
@@ -1749,10 +1750,11 @@ function itemTile(product, canEdit) {
            ${fieldInputs}
            <button type="submit">Save fields</button>
          </form>
-         <form method="post" action="/items/${esc(product.handle)}/style-vendor">
+         <form method="post" action="/items/${esc(product.handle)}/square-attributes">
            <div class="row">
              <input name="style_id" value="${esc(product.style_id ?? "")}" placeholder="Style ID (NN-NN-NNN)">
              <input name="vendor" value="${esc(product.vendor ?? "")}" placeholder="Vendor">
+             <input name="commission" value="${esc(product.commission_pct != null ? String(product.commission_pct) : "")}" placeholder="Commission % (0-100)">
              <button type="submit">Save</button>
            </div>
          </form>

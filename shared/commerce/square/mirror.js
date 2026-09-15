@@ -211,16 +211,18 @@ export function createMirror(mirror, { commerce, locationId, audit = null, now =
           productId = existing.id;
           /* handle is deliberately absent from this SET — channel and
              custom_fields too, same reason, see schema.sql's own comment.
-             style_id/vendor ARE named here, on purpose: unlike those, Square
-             is authoritative for them now, so a re-sync overwrites them the
-             same way it already overwrites title. */
+             style_id/vendor/commission_pct ARE named here, on purpose:
+             unlike those, Square is authoritative for all three now, so a
+             re-sync overwrites them the same way it already overwrites
+             title. */
           await run(
             `UPDATE mirror_product
                 SET title = ?, source_description = ?, status = ?, category_id = ?,
-                    style_id = ?, vendor = ?, source_version = ?, archived_at = ?, synced_at = ?
+                    style_id = ?, vendor = ?, commission_pct = ?,
+                    source_version = ?, archived_at = ?, synced_at = ?
               WHERE id = ?`,
             p.title ?? "", p.sourceDescription ?? "", status, categoryId,
-            p.styleId ?? null, p.vendor ?? null,
+            p.styleId ?? null, p.vendor ?? null, p.commissionPct ?? null,
             Number(p.sourceVersion ?? 0), archivedAt, stamp, productId,
           );
           counts.productsUpdated += 1;
@@ -230,10 +232,10 @@ export function createMirror(mirror, { commerce, locationId, audit = null, now =
           await run(
             `INSERT INTO mirror_product
                (id, external_ref, handle, title, source_description, status,
-                category_id, style_id, vendor, source_version, archived_at, synced_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                category_id, style_id, vendor, commission_pct, source_version, archived_at, synced_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             productId, p.externalRef, handle, p.title ?? "", p.sourceDescription ?? "",
-            status, categoryId, p.styleId ?? null, p.vendor ?? null,
+            status, categoryId, p.styleId ?? null, p.vendor ?? null, p.commissionPct ?? null,
             Number(p.sourceVersion ?? 0), archivedAt, stamp,
           );
           counts.productsInserted += 1;

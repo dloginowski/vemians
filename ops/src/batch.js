@@ -82,11 +82,22 @@ const CATEGORY_KEYS = ["category", "category name", "type", "product type", "col
 const PRICE_KEYS = ["price", "price (usd)", "retail price", "unit price", "sale price", "msrp"];
 const CURRENCY_KEYS = ["currency"];
 const SKU_KEYS = ["sku", "style number", "item number", "product code"];
+/* vendor and commission are Square's own Custom Attributes now
+   (Test-PRD-P0-136-square_custom_attributes), not a custom_fields example —
+   recognized here so a sheet carrying them reaches catalog.create_product as
+   real arguments rather than inert text, and its own check() can flag the
+   owner's own rule before a row is ever parked: "if we have a vendor name
+   and we didn't provide a commission, that's a problem." */
+const VENDOR_KEYS = ["vendor", "vendor name", "supplier"];
+const COMMISSION_KEYS = ["commission", "commission %", "commission pct", "commission percent", "commission rate"];
 
 /* Every column name draftProductBatch/previewBatch already knows what to do
    with. Anything else in the sheet is CUSTOM — ours, not Square's, and not
    dropped just because neither of us has a named field for it yet. */
-const PRODUCT_KNOWN_KEYS = [...TITLE_KEYS, ...DESCRIPTION_KEYS, ...CATEGORY_KEYS, ...PRICE_KEYS, ...CURRENCY_KEYS, ...SKU_KEYS];
+const PRODUCT_KNOWN_KEYS = [
+  ...TITLE_KEYS, ...DESCRIPTION_KEYS, ...CATEGORY_KEYS, ...PRICE_KEYS, ...CURRENCY_KEYS, ...SKU_KEYS,
+  ...VENDOR_KEYS, ...COMMISSION_KEYS,
+];
 
 /*
  * "I want to preserve all fields when ingesting spreadsheets. Even if they
@@ -131,6 +142,20 @@ export function parsePriceToMinor(raw) {
   if (!/^\d+(\.\d{1,2})?$/.test(cleaned)) return null;
   const [whole, frac = ""] = cleaned.split(".");
   return Number(whole) * 100 + Number((frac + "00").slice(0, 2));
+}
+
+/*
+ * "20", "20%", " 20 " -> 20. Whole numbers only, same reasoning as
+ * parsePriceToMinor above: runTool has no way to say "not a number", so a
+ * sheet cell that is not one is reported here, before a row is ever parked.
+ * The 0-100 range itself is catalog.create_product's own business rule, not
+ * repeated here — same division of labor the rest of this file already
+ * uses for category and price.
+ */
+function parseCommission(raw) {
+  const cleaned = String(raw ?? "").trim().replace(/%$/, "").trim();
+  if (!/^\d+$/.test(cleaned)) return null;
+  return Number(cleaned);
 }
 
 /** Case- and whitespace-insensitive; the closed set's real names, never guessed. */
@@ -186,6 +211,32 @@ export async function draftProductBatch(env, { text, actor, role }) {
       return;
     }
 
+    const vendor = pick(record, VENDOR_KEYS);
+    const commissionRaw = pick(record, COMMISSION_KEYS);
+    let commission;
+    if (commissionRaw) {
+      commission = parseCommission(commissionRaw);
+      if (commission === null) {
+        skipped.push({ row: rowNumber, title, reason: `commission "${commissionRaw}" is not a plain whole number like 20` });
+        return;
+      }
+    }
+    /* "If we have a vendor name and we didn't provide a commission, that's a
+       problem" — the owner's own words. catalog.create_product's own check()
+       already refuses this combination (and the reverse, commission with no
+       vendor); this is the same "runTool has no way to say it, so report it
+       before runTool ever sees it" pattern the title/category/price checks
+       above already follow, except here the tool's own refusal text already
+       says it clearly, so it is simply surfaced rather than duplicated. */
+    if (vendor && commission === undefined) {
+      skipped.push({
+        row: rowNumber,
+        title,
+        reason: `vendor "${vendor}" was given without a commission — a product with a vendor needs a commission (0-100)`,
+      });
+      return;
+    }
+
     const description = pick(record, DESCRIPTION_KEYS);
     const customFields = extraFields(record, PRODUCT_KNOWN_KEYS);
     rows.push({
@@ -195,6 +246,8 @@ export async function draftProductBatch(env, { text, actor, role }) {
         title,
         ...(description ? { description } : {}),
         category_id: category.id,
+        ...(vendor ? { vendor } : {}),
+        ...(commission !== undefined ? { commission } : {}),
         variations: [
           {
             title,
@@ -308,6 +361,8 @@ function mapProductRow(record) {
     currency: (pick(record, CURRENCY_KEYS) || "USD").toUpperCase(),
     description: pick(record, DESCRIPTION_KEYS) || null,
     sku: pick(record, SKU_KEYS) || null,
+    vendor: pick(record, VENDOR_KEYS) || null,
+    commission: pick(record, COMMISSION_KEYS) || null,
     ...extraFields(record, PRODUCT_KNOWN_KEYS),
   };
 }

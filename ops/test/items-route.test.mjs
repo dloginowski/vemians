@@ -89,8 +89,8 @@ function seedProduct(mirror, overrides = {}) {
   const custom = JSON.stringify(overrides.custom_fields ?? { "unit cost": "210.00" });
   mirror.db
     .prepare(
-      `INSERT INTO mirror_product (id, external_ref, handle, title, status, channel, custom_fields, style_id, vendor, category_id)
-       VALUES ('p1', 'sqitem1', 'wool-coat', 'Wool Coat', ?, ?, ?, ?, ?, 'cat1')`,
+      `INSERT INTO mirror_product (id, external_ref, handle, title, status, channel, custom_fields, style_id, vendor, commission_pct, category_id)
+       VALUES ('p1', 'sqitem1', 'wool-coat', 'Wool Coat', ?, ?, ?, ?, ?, ?, 'cat1')`,
     )
     .run(
       overrides.status ?? "active",
@@ -98,6 +98,7 @@ function seedProduct(mirror, overrides = {}) {
       custom,
       overrides.style_id ?? null,
       overrides.vendor ?? null,
+      overrides.commission_pct ?? null,
     );
   mirror.db.exec(
     "INSERT INTO mirror_variant (id, external_ref, product_id, sku, title, price_minor, currency) " +
@@ -740,14 +741,15 @@ check("test_PRD_P0_136_square_custom_attributes__neither_row_renders_when_unset"
   assert.doesNotMatch(body, /<span>Vendor<\/span>/);
 });
 
-check("test_PRD_P0_136_square_custom_attributes__the_edit_form_posts_to_style_vendor_prefilled_with_current_values", async () => {
+check("test_PRD_P0_136_square_custom_attributes__the_edit_form_posts_to_square_attributes_prefilled_with_current_values", async () => {
   const mirror = mirrorDb();
-  seedProduct(mirror, { style_id: "01-04-001", vendor: "Acme Mills" });
+  seedProduct(mirror, { style_id: "01-04-001", vendor: "Acme Mills", commission_pct: 20 });
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
-  assert.match(body, /<form method="post" action="\/items\/wool-coat\/style-vendor">/);
+  assert.match(body, /<form method="post" action="\/items\/wool-coat\/square-attributes">/);
   assert.match(body, /<input name="style_id" value="01-04-001" placeholder="Style ID \(NN-NN-NNN\)">/);
   assert.match(body, /<input name="vendor" value="Acme Mills" placeholder="Vendor">/);
+  assert.match(body, /<input name="commission" value="20" placeholder="Commission % \(0-100\)">/);
 });
 
 check("test_PRD_P0_136_square_custom_attributes__staff_cannot_reach_the_route_before_square_is_ever_touched", async () => {
@@ -757,7 +759,7 @@ check("test_PRD_P0_136_square_custom_attributes__staff_cannot_reach_the_route_be
      either. */
   const mirror = mirrorDb();
   seedProduct(mirror);
-  const res = await postForm("/items/wool-coat/style-vendor", STAFF, env(mirror), { vendor: "Someone Else" });
+  const res = await postForm("/items/wool-coat/square-attributes", STAFF, env(mirror), { vendor: "Someone Else" });
   assert.equal(res.status, 403);
   assert.match(await res.text(), /manager/i);
 });

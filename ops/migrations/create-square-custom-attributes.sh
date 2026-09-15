@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #
 # One-time: create Square's own CatalogCustomAttributeDefinition objects for
-# style_id and vendor (Test-PRD-P0-136-square_custom_attributes), so that
-# catalog.set_style_and_vendor (ops/src/tools/catalog-write.js) has something
-# real to set a VALUE against. Without this, the very first attempt to set
-# either field fails at Square with an unknown-attribute error — the
-# definition has to exist before any item can carry a value for it.
+# style_id, vendor and commission (Test-PRD-P0-136-square_custom_attributes),
+# so that catalog.set_square_attributes (ops/src/tools/catalog-write.js) has
+# something real to set a VALUE against. Without this, the very first attempt
+# to set any of the three fails at Square with an unknown-attribute error —
+# the definition has to exist before any item can carry a value for it.
 #
 # Run this ONCE per Square account (sandbox and production are separate
 # accounts, so once each), by a human who holds the real SQUARE_ACCESS_TOKEN —
@@ -100,5 +100,7 @@ create_if_missing "style_id" "Style ID" \
   "This shop's own nomenclature: NN-NN-NNN (2-digit category, 2-digit subcategory, 3-digit item number), e.g. 01-04-001. Set from ops.vemians.com's Items tab."
 create_if_missing "vendor" "Vendor" \
   "Which vendor supplied this product. Set from ops.vemians.com's Items tab."
+create_if_missing "commission" "Commission" \
+  "Integer 0-100: the percentage this shop keeps when it sells a vendor's product. Only applies to a product that has a vendor. Set from ops.vemians.com's Items tab."
 
 echo "── done ──"

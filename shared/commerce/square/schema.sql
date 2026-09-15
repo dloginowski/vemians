@@ -135,6 +135,20 @@ CREATE TABLE mirror_product (
   -- all" — sku stays exactly as it always has, read-only, Square's own.
   style_id           TEXT,
   vendor             TEXT,
+  -- A third of the same family, added once the owner walked the full set of
+  -- custom attributes: a plain integer 0-100, never a decimal percentage —
+  -- the owner's own words: "commission, that's a custom field, zero to a
+  -- hundred, integer... that's only for vendors — anything that has a
+  -- vendor, it has a commission." Cost-of-goods was considered too, but the
+  -- owner caught it on a second pass: "we don't need to do cogs, there is a
+  -- unit cost, we just use the unit cost" — the existing `custom_fields`
+  -- free-text entry (ours, not Square's) already covers that for a product
+  -- this shop produces itself, so no new column exists for it. The vendor-
+  -- requires-commission rule is checked in catalog.set_square_attributes
+  -- and catalog.create_product rather than as a CHECK constraint here (a
+  -- constraint cannot see "the OTHER value this same call is also
+  -- setting").
+  commission_pct     INTEGER,
   category_id        TEXT REFERENCES mirror_category(id),
   source_version     INTEGER NOT NULL DEFAULT 0,  -- Square's optimistic-concurrency version
   archived_at        TEXT,
@@ -145,7 +159,7 @@ CREATE INDEX idx_mirror_product_style_id ON mirror_product (style_id);
 
 CREATE VIEW mirror_product_index AS
 SELECT id, external_ref, handle, title, source_description, status, channel,
-       custom_fields, style_id, vendor, category_id, source_version, synced_at
+       custom_fields, style_id, vendor, commission_pct, category_id, source_version, synced_at
 FROM mirror_product WHERE archived_at IS NULL;
 
 -- ── variants  (Square ITEM_VARIATION) ──────────────────────────────────────
