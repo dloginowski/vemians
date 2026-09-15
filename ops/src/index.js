@@ -552,7 +552,14 @@ async function ops(request, env, path) {
          only at this human-facing form boundary. A malformed or
          out-of-range value (commission, or a unit_cost that fails to
          parse) is left for the tool's own check() to refuse with a clear
-         reason, rather than silently dropped. */
+         reason, rather than silently dropped.
+
+         The ops UI's own style_id <form> (views.js) posts here alone now
+         — unit_cost moved to the /variations route below once it stopped
+         being one value for the whole product ("all the variants can have
+         a different unit cost too"). This route and catalog.set_square_
+         attributes itself are unchanged for API/agent callers that still
+         want to set unit_cost uniformly in one call. */
       const styleId = String(form.get("style_id") ?? "").trim();
       const vendor = String(form.get("vendor") ?? "").trim();
       const vendorCode = String(form.get("vendor_code") ?? "").trim();
@@ -615,23 +622,32 @@ async function ops(request, env, path) {
       args = { handle, category_id: categoryId };
       summaryNoun = "category";
     } else {
-      /* Variation NAME and price, editable — never sku: "these are
-         generated automatically by Square and we should not be editing
-         them... we don't need to see them in our ops dashboard." Every
-         existing variation is always resent (its own variant_id, its
-         current-or-edited title/price, its unchanged currency) —
+      /* Variation NAME, price, and now its own unit cost — never sku:
+         "these are generated automatically by Square and we should not be
+         editing them... we don't need to see them in our ops dashboard."
+         Every existing variation is always resent (its own variant_id,
+         its current-or-edited title/price/cost, its unchanged currency) —
          mergeVariations (catalog-writer.js) keeps anything not mentioned,
          so this is never destructive even though the whole set is sent
-         every time, matching how the header's own bulk-price control
-         (the client's own job, not this route) already touched every
-         row before Save was ever clicked. */
+         every time, matching how the header's own bulk-price/bulk-cost
+         controls (the client's own job, not this route) already touched
+         every row before Save was ever clicked. */
       const variations = [];
       for (let i = 0; form.has(`variant_id_${i}`); i += 1) {
+        /* unit_cost_N is blank whenever the row rendered without a cost
+           column at all (no vendor yet — views.js's own `hasVendor` gate)
+           or the person simply left it as it was; either way, undefined
+           means "leave this one's own cost alone," the same convention
+           title/price already use one line up. Revised — "all the
+           variants can have a different unit cost too" — so this is no
+           longer one value for the whole product. */
+        const unitCostRaw = String(form.get(`unit_cost_${i}`) ?? "").trim();
         variations.push({
           variant_id: String(form.get(`variant_id_${i}`) ?? "").trim(),
           title: String(form.get(`title_${i}`) ?? "").trim(),
           price_minor: parsePriceToMinor(String(form.get(`price_${i}`) ?? "").trim()),
           currency: String(form.get(`currency_${i}`) ?? "USD").trim(),
+          ...(unitCostRaw !== "" ? { unit_cost_minor: parsePriceToMinor(unitCostRaw) } : {}),
         });
       }
       if (!variations.length) {

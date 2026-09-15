@@ -1814,6 +1814,66 @@ check("test_PRD_P0_136_square_custom_attributes__vendor_code_and_unit_cost_along
   assert.equal(variant.unit_cost_currency, "USD");
 });
 
+check("test_PRD_P0_136_square_custom_attributes__update_product_refuses_a_per_variation_unit_cost_with_no_vendor", async () => {
+  /* Revised again — "all the variants can have a different unit cost too"
+     — catalog.update_product's own variations array can now carry
+     unit_cost_minor, and it is refused the same "facts about a VENDOR's
+     product" way catalog.set_square_attributes' own unit_cost_minor
+     already is, before Square ever sees it. */
+  const f = await fixture();
+  const product = f.mirror(`SELECT id FROM mirror_product WHERE handle = '${COAT_HANDLE}'`)[0];
+  const variants = f.mirror(`SELECT id, title, price_minor, currency FROM mirror_variant WHERE product_id = '${product.id}' ORDER BY ordinal`);
+
+  const res = await runTool(
+    "catalog.update_product",
+    {
+      handle: COAT_HANDLE,
+      variations: [{ variant_id: variants[0].id, title: variants[0].title, price_minor: variants[0].price_minor, currency: variants[0].currency, unit_cost_minor: 4200 }],
+    },
+    f.ctx,
+  );
+  assert.equal(res.ok, false);
+  assert.match(res.error, /has no vendor, so unit_cost_minor does not apply/);
+  assert.deepEqual(f.calls(), [], "the refusal never reaches Square");
+});
+
+check("test_PRD_P0_136_square_custom_attributes__each_variation_can_carry_its_own_unit_cost", async () => {
+  const f = await fixture();
+  await approvedCall(f, "catalog.set_square_attributes", { handle: COAT_HANDLE, vendor: "Acme Mills", commission: 20 });
+
+  const product = f.mirror(`SELECT id FROM mirror_product WHERE handle = '${COAT_HANDLE}'`)[0];
+  const variants = f.mirror(`SELECT id, title, price_minor, currency FROM mirror_variant WHERE product_id = '${product.id}' ORDER BY ordinal`);
+  assert.equal(variants.length, 2, "this fixture product needs two variations for a real per-variation test");
+
+  /* Only the FIRST variation's own cost is being touched — the second is
+     resent unchanged, the same "resend or it may vanish" rule its own
+     title/price already follow. */
+  const res = await approvedCall(f, "catalog.update_product", {
+    handle: COAT_HANDLE,
+    variations: [
+      { variant_id: variants[0].id, title: variants[0].title, price_minor: variants[0].price_minor, currency: variants[0].currency, unit_cost_minor: 3100 },
+      { variant_id: variants[1].id, title: variants[1].title, price_minor: variants[1].price_minor, currency: variants[1].currency },
+    ],
+  });
+  assert.equal(res.ok, true, res.error);
+
+  const rows = f.mirror(`SELECT id, unit_cost_minor FROM mirror_variant WHERE product_id = '${product.id}' ORDER BY ordinal`);
+  assert.equal(rows.find((r) => r.id === variants[0].id).unit_cost_minor, 3100);
+  assert.equal(rows.find((r) => r.id === variants[1].id).unit_cost_minor, 0, "the untouched variation was never given a cost of its own, so it stays at its own default");
+
+  /* And editing that SAME first variation again, for something unrelated
+     (its title), leaves its own cost exactly where it was — an edit that
+     is not about cost must not silently reset it back to the product's
+     old uniform default. */
+  const retitled = await approvedCall(f, "catalog.update_product", {
+    handle: COAT_HANDLE,
+    variations: [{ variant_id: variants[0].id, title: "Relabeled size", price_minor: variants[0].price_minor, currency: variants[0].currency }],
+  });
+  assert.equal(retitled.ok, true, retitled.error);
+  const after = f.mirror(`SELECT unit_cost_minor FROM mirror_variant WHERE id = '${variants[0].id}'`)[0];
+  assert.equal(after.unit_cost_minor, 3100, "an edit that was not about cost must not reset it");
+});
+
 check("test_PRD_P0_136_square_custom_attributes__reusing_an_existing_vendor_name_does_not_create_a_second_vendor", async () => {
   const f = await fixture();
   await approvedCall(f, "catalog.set_square_attributes", { handle: COAT_HANDLE, vendor: "Acme Mills", commission: 20 });

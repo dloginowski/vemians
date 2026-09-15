@@ -804,11 +804,15 @@ check("test_PRD_P0_136_square_custom_attributes__neither_row_renders_when_unset"
 });
 
 check("test_PRD_P0_136_square_custom_attributes__the_edit_form_posts_to_square_attributes_prefilled_with_current_values", async () => {
-  /* Two separate forms now, both still square-attributes — style_id and
-     unit cost moved into the variations accordion's own header (P0-135's
-     own revision), vendor/vendor_code/commission stayed where they were.
-     Both post to the identical route; catalog.set_square_attributes'
-     "any subset" handling needs neither to know about the other. */
+  /* Two separate forms now, both still square-attributes — style_id moved
+     into the variations accordion's own header (P0-135's own revision),
+     vendor/vendor_code/commission stayed where they were. unit_cost moved
+     out of any form at all, once it stopped being one value for the whole
+     product ("all the variants can have a different unit cost too") — it
+     is now a per-variation field reached through /variations, and the
+     header's own "Cost" input is a pure client-side broadcaster like MSRP,
+     prefilled from nothing (see the P0-135 accordion test below for its
+     own per-variation value). */
   const mirror = mirrorDb();
   seedProduct(mirror, {
     style_id: "01-04-001",
@@ -820,9 +824,10 @@ check("test_PRD_P0_136_square_custom_attributes__the_edit_form_posts_to_square_a
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
   const squareAttrForms = [...body.matchAll(/<form method="post" action="\/items\/wool-coat\/square-attributes"[^>]*>/g)];
-  assert.equal(squareAttrForms.length, 2, "style_id/unit_cost and vendor/vendor_code/commission are two separate forms now");
+  assert.equal(squareAttrForms.length, 2, "style_id and vendor/vendor_code/commission are two separate forms now");
   assert.match(body, /<input name="style_id" value="01-04-001" placeholder="Style ID \(NN-NN-NNN\)" pattern="\\d\{2\}-\\d\{2\}-\\d\{3\}"/);
-  assert.match(body, /<input name="unit_cost" value="42\.50" placeholder="Unit cost">/);
+  assert.doesNotMatch(body, /<input name="unit_cost"/, "unit_cost is no longer a real form field anywhere");
+  assert.match(body, /<input class="variations-unit-cost" placeholder="Cost/);
   assert.match(body, /<input name="vendor" value="Acme Mills" placeholder="Vendor">/);
   assert.match(body, /<input name="vendor_code" value="ACME-4471" placeholder="Vendor's own SKU\/code">/);
   assert.match(body, /<input name="commission" value="20" placeholder="Commission % \(0-100\)">/);
@@ -918,15 +923,42 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_variations_accordion_h
   assert.match(body, /<input type="hidden" name="currency_0" value="USD">/);
   assert.match(body, /<input class="variation-title" name="title_0" value="One size" placeholder="Variation name">/);
   assert.match(body, /<input class="variation-price" name="price_0" value="450\.00" placeholder="Price">/);
-  /* style_id and unit cost now live in the accordion's own header. */
+  /* style_id lives in the accordion's own header; unit cost is now this
+     ONE variation's own field, since "all the variants can have a
+     different unit cost too." */
   assert.match(body, /<input name="style_id" value="01-04-001"/);
-  assert.match(body, /<input name="unit_cost" value="42\.50" placeholder="Unit cost">/);
+  assert.match(body, /<input class="variation-unit-cost" name="unit_cost_0" value="42\.50" placeholder="Cost">/);
   assert.match(body, /<input class="variations-msrp" placeholder="MSRP/);
+  assert.match(body, /<input class="variations-unit-cost" placeholder="Cost/);
   /* The direct-link deep link is the one place a SKU still matters — the
      owner's own words: "if you do a direct link, that makes sense...
      otherwise it's completely not our problem" — so data-sku must still
      be there for shareLink() to read, even though nothing displays it. */
   assert.match(body, /data-sku="VEM-100"/);
+});
+
+check("test_PRD_P0_135_item_edit_applies_immediately__no_unit_cost_column_without_a_vendor", async () => {
+  /* Unit cost is still a fact about a VENDOR's product, per-variation or
+     not — a product with none gets no cost column to type into at all,
+     the same gate the read-only attrRows summary already uses. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.doesNotMatch(body, /<input[^>]*class="variation-unit-cost"/, "no per-variation cost field without a vendor");
+  assert.doesNotMatch(body, /<input[^>]*class="variations-unit-cost"/, "no header cost broadcaster without a vendor");
+});
+
+check("test_PRD_P0_135_item_edit_applies_immediately__the_accordion_header_is_decorated_and_the_body_is_indented", async () => {
+  /* "Decorate the header so it's obvious it's an expandable accordion...
+     not just a chevron" and "indent [the variation rows] a little so
+     it's clearer it's underneath the accordion it belongs to." */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.match(body, /\.variations-header\s*\{[^}]*background: var\(--image-ground\)/);
+  assert.match(body, /\.variations-body\s*\{[^}]*padding-left: 10px/);
 });
 
 check("test_PRD_P0_135_item_edit_applies_immediately__the_web_tag_is_a_clickable_toggle_rendered_either_way", async () => {

@@ -389,7 +389,18 @@ const VARIATION = {
 
 const VARIATION_WITH_ID = {
   type: "object",
-  schema: { ...VARIATION.schema, variant_id: { type: "string", format: "id" } },
+  schema: {
+    ...VARIATION.schema,
+    variant_id: { type: "string", format: "id" },
+    /* Per-variation cost, once the owner revised the earlier "one vendor,
+       one unit cost, applied uniformly" simplification: "all the variants
+       can have a different unit cost too." undefined means "leave this
+       one's own cost as it is" — the same "resend the whole thing, only
+       what is actually being changed carries a value" convention every
+       other optional field on this shape already uses. Only meaningful
+       for a product that already has a vendor — see check() below. */
+    unit_cost_minor: { type: "integer" },
+  },
 };
 
 const IMAGES = {
@@ -883,6 +894,17 @@ export const catalogWriteTools = {
         return {
           denied: `refused before Square saw it: ${problems.join(" | ")}`,
           detail: { reason: "invalid_product", problems },
+        };
+      }
+
+      /* A per-variation unit_cost_minor is a fact about a VENDOR's product
+         (the same reasoning catalog.set_square_attributes' own needsVendor
+         check already applies at the product level) — refused here the
+         same way, before Square ever sees it. */
+      if ((args.variations ?? []).some((v) => v.unit_cost_minor !== undefined) && !existing.vendor) {
+        return {
+          denied: `'${args.handle}' has no vendor, so unit_cost_minor does not apply — these are facts about a VENDOR's product. Set a vendor at the same time, or first.`,
+          detail: { reason: "unit_cost_without_vendor" },
         };
       }
 

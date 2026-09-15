@@ -3427,20 +3427,21 @@ that does not trace to one of these is a process failure (see §12).
     (`.item-variants`, title + price, no SKU there either) — the accordion itself is manager-only.
 
     **The variations accordion** (`ops/src/views.js`'s `itemTile()`) replaces `.item-variants` for
-    anyone who can edit. Collapsed by default; its own header, always visible, carries THREE
-    editable fields at once: `style_id` and `unit_cost` (still `catalog.set_square_attributes`,
-    literally the SAME form fields that used to sit in the old combined row, just relocated here —
-    the tool and its route are unchanged) and a new `MSRP` input that belongs to neither form
-    server-side, because nothing ever reads its own value — it exists purely so the page script can
-    copy whatever is typed into it straight into every variation's own price input the instant it
-    changes, and typing into one variation's own price field afterward still overrides just that one
-    (`onItemsGridChange`'s own special case for `.variations-msrp`). Expanding it reveals every
-    variation's own name and price, both editable, each carrying its own hidden `variant_id`/
-    `currency`. **New**: `catalog.update_product`'s existing `variations` argument reaches the Items
-    tab for the first time, via a new `/items/<handle>/variations` route — every existing variation
-    is always resent in full (current-or-edited title/price, its own unchanged currency), which
-    `mergeVariations` treats identically to a partial patch (nothing not mentioned is ever touched),
-    so this is never destructive even though the whole set travels on every Save. `listAllProducts`
+    anyone who can edit. Collapsed by default; its own header, always visible, originally carried
+    THREE editable fields at once: `style_id` and `unit_cost` (`catalog.set_square_attributes`,
+    the same form fields that used to sit in the old combined row, just relocated here) and a new
+    `MSRP` input that belongs to neither form server-side, because nothing ever reads its own
+    value — it exists purely so the page script can copy whatever is typed into it straight into
+    every variation's own price input the instant it changes, and typing into one variation's own
+    price field afterward still overrides just that one (`onItemsGridChange`'s own special case for
+    `.variations-msrp`; `unit_cost` gained the identical treatment below, once it stopped being one
+    value for the whole product). Expanding it reveals every variation's own name and price, both
+    editable, each carrying its own hidden `variant_id`/`currency`. **New**: `catalog.update_product`'s
+    existing `variations` argument reaches the Items tab for the first time, via a new
+    `/items/<handle>/variations` route — every existing variation is always resent in full
+    (current-or-edited title/price, its own unchanged currency), which `mergeVariations` treats
+    identically to a partial patch (nothing not mentioned is ever touched), so this is never
+    destructive even though the whole set travels on every Save. `listAllProducts`
     (`catalog-writer.js`) now selects `mirror_variant.id` too — needed for `variant_id`, and never
     selected before this, since nothing read it.
 
@@ -3520,6 +3521,40 @@ that does not trace to one of these is a process failure (see §12).
     — needed defensively even though today's own asymmetric expand-only-when-collapsed logic already
     makes it unreachable in practice (an already-`.full` tile never re-collapses on a body click at
     all, only Close does).
+
+    **REVISED YET AGAIN: unit cost stopped being one value for the whole product.** "All the
+    variants can have a different unit cost too, so we need to have the double rows." P0-136's own
+    "one vendor per product, applied uniformly to every variation" simplification now covers only
+    the VENDOR itself — its cost no longer travels with it. Each variation row in `.variations-body`
+    gained its own `unit_cost_N` field (gated on the product already having a vendor, the same rule
+    the read-only summary already applies), and the header's own `unit_cost` field moved OUT of the
+    `style_id` form entirely to become a second pure broadcaster, `.variations-unit-cost`, wired up
+    exactly like `.variations-msrp` already was. `mergeVariations` (`catalog-writer.js`) now carries
+    `unit_cost_minor` through the same "resend or it may vanish" merge title/price already get, and
+    `itemData()`'s own `vendorInfo` became `vendorInfos` — one Square `vendor_information` entry per
+    variation, index-aligned with `variations`, instead of the same object spread onto all of them.
+    `catalog.update_product`'s `variations` schema gained an optional `unit_cost_minor` per entry,
+    refused the same way `catalog.set_square_attributes`' own product-level one already is when no
+    vendor exists yet. `catalog.set_square_attributes` itself is unchanged for API/agent callers
+    that still want to set every variation's cost uniformly in one call — that path now simply
+    overrides each variation's own resolved cost rather than being the only cost that ever existed.
+
+    **REVISED YET AGAIN: the header looks and acts like an accordion, and the numbers line up.**
+    "Decorate the header so it's obvious it's an expandable accordion... a different color header...
+    not just a chevron." `.variations-header` now sits on `var(--image-ground)` with a `--rule`
+    border and rounded corners — the same "second surface" treatment `.ticket-tile` already uses —
+    and a click anywhere on the bar (not just the caret, and not on an input) toggles the body below,
+    the same way the caret itself always did. "Make the header, the values in the header, right
+    justified... make sure they're basically the same size and aligned properly with the contents" —
+    every header input, and the matching `price_N`/`unit_cost_N` column in each variation row, is
+    right-aligned and the same width, so a header edit and its own row underneath read as one
+    column. "Make the style ID longer" — it has no per-row counterpart to line up with, so it is
+    free to be wider (9em) instead. "Unit cost and MSRP boxes are way too big... ten thousand
+    dollars is the maximum we'll charge for a piece of clothing" — both narrowed from 6.5em to 5em,
+    enough for `$10,000.00` without the old excess. "Hint text smaller so it's legible and readable"
+    — every placeholder in this whole edit surface dropped to 10px. "Indent [the variation rows] a
+    little so it's clearer it's underneath the accordion it belongs to" — `.variations-body` picked
+    up its own left padding; the variation name itself stays free to run the full remaining width.
 
 71. **`Test-PRD-P0-136-square_custom_attributes`** — The owner's own words, having weighed "ours,
     not Square's" (P0-71's own `channel`/`custom_fields`) against not reinventing something Square
