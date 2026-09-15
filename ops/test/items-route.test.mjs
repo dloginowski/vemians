@@ -866,6 +866,9 @@ check("test_PRD_P0_136_square_custom_attributes__the_edit_form_posts_to_square_a
      with the fuller wording moved to a title tooltip instead of dropped. */
   assert.match(body, /<input name="vendor_code" value="ACME-4471" placeholder="Vendor SKU" title="The vendor's own SKU\/code">/);
   assert.match(body, /<input name="commission" value="20" placeholder="COM%" title="Commission % \(0-100\)">/);
+  /* "Center the vendor SKU content too" — the owner's own words, extending
+     the centering cost/MSRP/style_id already have to this field as well. */
+  assert.match(body, /\.item-edit input\[name="vendor_code"\]\s*\{\s*text-align: center;\s*\}/);
 });
 
 check("test_PRD_P0_136_square_custom_attributes__staff_cannot_reach_the_route_before_square_is_ever_touched", async () => {

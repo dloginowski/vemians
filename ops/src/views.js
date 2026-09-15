@@ -1761,6 +1761,9 @@ ${INPUT_BAR_CSS}
 }
 .item-edit input[name="commission"] { width: 4em; }
 .item-edit input[name="vendor_code"], .item-edit input[name^="field_name_"] { width: 8em; }
+/* "Center the vendor SKU content too" — the owner's own words, extending
+   the same centering already given to cost/MSRP/style_id to this field. */
+.item-edit input[name="vendor_code"] { text-align: center; }
 /* Title and description — the owner's own words: "where's the item label
    and where is the description fields? Shouldn't we be able to change
    that?" A plain-weight input rather than a second, competing heading
