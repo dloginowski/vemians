@@ -1580,11 +1580,11 @@ ${INPUT_BAR_CSS}
 .item-tile.full .item-close { display: inline-flex; }
 .item-sku { font-size: 11px; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* As short as the owner's own words ask: "shorten them, make them as
-   short as possible" — CHANNEL_LABEL itself carries "Web"/"In store" now,
-   not "Website"/"Not listed", and the tag list collapses to just
-   "Inactive" — nothing else — the moment the product itself is not
-   active: "when the item is not activated, I don't need to see any of
-   the other tags... it's just inactive." */
+   short as possible" — CHANNEL_LABEL carries just "Web" now (direct_link
+   gets no tag at all — see CHANNEL_LABEL's own comment), and the tag list
+   collapses to just "Inactive" — nothing else — the moment the product
+   itself is not active: "when the item is not activated, I don't need to
+   see any of the other tags... it's just inactive." */
 .item-tags { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
 .item-tag {
   flex: 0 0 auto; font-size: 10px; padding: 1px 6px; border-radius: 999px;
@@ -1638,11 +1638,17 @@ ${INPUT_BAR_CSS}
 .item-edit button:hover { border-color: var(--accent); color: var(--accent); }
 `;
 
-/* As short as it gets — the owner's own words: "shorten them, make them
-   as short as possible. You don't have to say in-store only, just say
-   in-store." Used both on the compact tile's own tag and the full view's
-   badge, one label, not a short/long pair to keep in sync. */
-const CHANNEL_LABEL = { website: "Web", direct_link: "In store" };
+/* ONE label, for ONE state worth tagging. The owner's own words, a
+   revision on top of the original "shorten them" pass: "I don't want to
+   see the in-store tag... why do I want to see two tags? Web is a much
+   shorter, cleaner tag... what's the in-store for?" Every item is in
+   store already (this shop has one physical location) — that state is
+   assumed and unremarkable, the same reasoning "Active" never gets a tag
+   either. Only being ALSO on the website is worth calling out, so this is
+   a single constant now, not a map with a direct_link entry nobody
+   should render. Used both on the compact tile's own tag and the full
+   view's badge. */
+const CHANNEL_LABEL = { website: "Web" };
 
 /* Where a mirrored photograph actually lives, once the backfill job
    (media-backfill.js) has fetched it off Square's CDN and .put() it into
@@ -1688,8 +1694,14 @@ function itemTile(product, canEdit) {
      catalog as a two-state thing (live or not), not Square's own
      three-value status lifecycle. */
   const isActive = product.status === "active";
+  /* No "In store" tag: "why do I want to see two tags? Web is a much
+     shorter, cleaner tag... what's the in-store for?" — every item is in
+     store already (this shop has one physical location), so that state is
+     assumed and unremarkable, the same reasoning direct_link already gets
+     no tag at all here versus "Active" getting none either. Only the
+     REMARKABLE state — also on the website — earns a tag. */
   const tags = isActive
-    ? `<span class="item-tag channel-${esc(product.channel)}">${esc(CHANNEL_LABEL[product.channel] ?? product.channel)}</span>` +
+    ? (product.channel === "website" ? `<span class="item-tag channel-website">${CHANNEL_LABEL.website}</span>` : "") +
       (product.category_name ? `<span class="item-tag">${esc(product.category_name)}</span>` : "")
     : `<span class="item-tag item-tag-inactive">Inactive</span>`;
 
@@ -1805,7 +1817,7 @@ function itemTile(product, canEdit) {
     </div>
     <div class="item-detail">
       <div class="item-badges">
-        <span class="channel-${product.channel}">${esc(CHANNEL_LABEL[product.channel] ?? product.channel)}</span>
+        ${product.channel === "website" ? `<span class="channel-website">${CHANNEL_LABEL.website}</span>` : ""}
         <span>${esc(product.status)}</span>
         <span>${esc(product.category_name || "Uncategorized")}</span>
       </div>

@@ -903,9 +903,12 @@ check("test_PRD_P0_131_item_status_filter__the_collapsed_tile_shows_title_price_
   const res = await get("/items", STAFF, env(mirror));
   const body = await res.text();
   assert.match(body, /<div class="item-top"><h3>Wool Coat<\/h3>\s*<div class="item-top-right">\s*<span class="item-price">\$ 450<\/span>/);
+  /* REVISED: "I don't want to see the in-store tag... what's the in-store
+     for?" — direct_link (the default, seeded here) gets no channel tag at
+     all now, only the category. */
   assert.match(
     body,
-    /<div class="item-bottom"><span class="item-sku">VEM-100<\/span><div class="item-tags"><span class="item-tag channel-direct_link">In store<\/span><span class="item-tag">Outerwear<\/span><\/div><\/div>/,
+    /<div class="item-bottom"><span class="item-sku">VEM-100<\/span><div class="item-tags"><span class="item-tag">Outerwear<\/span><\/div><\/div>/,
   );
 });
 
@@ -936,6 +939,21 @@ check("test_PRD_P0_130_item_tile_photo__no_dedicated_expand_button_a_click_anywh
     /const tile = e\.target\.closest\("\.item-tile"\);\s*\n\s*if \(!tile \|\| e\.target\.closest\("\.item-edit"\) \|\| tile\.classList\.contains\("full"\)\) return;/,
     "a click anywhere on a COLLAPSED tile expands it, except inside the edit form or once already expanded",
   );
+});
+
+check("test_PRD_P0_130_item_tile_photo__only_a_website_item_gets_a_channel_tag", async () => {
+  /* "Web is a much shorter, cleaner tag... what's the in-store for?" —
+     direct_link (the assumed, unremarkable default) gets no tag at all;
+     only being ALSO on the website is worth calling out. */
+  const mirror = mirrorDb();
+  seedProduct(mirror, { channel: "website" });
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.match(
+    body,
+    /<div class="item-bottom"><span class="item-sku">VEM-100<\/span><div class="item-tags"><span class="item-tag channel-website">Web<\/span><span class="item-tag">Outerwear<\/span><\/div><\/div>/,
+  );
+  assert.doesNotMatch(body, />In store</, "In store is never rendered as a tag any more");
 });
 
 check("test_PRD_P0_130_item_tile_photo__the_channel_edit_control_is_a_single_checkbox", async () => {
