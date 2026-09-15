@@ -1906,14 +1906,16 @@ function setAgentCategories(names) {
    us just the items that are on the web... and then we have inactive,
    which will show all of the items that are inactive. By default,
    neither this in store nor the web view should show the inactive
-   items." In Store is every active product regardless of channel (the
-   owner's own reasoning elsewhere: everything is physically on premises
-   anyway); Web narrows that to the website channel; Inactive is the
-   complement (draft or archived), hidden from the other two either way. */
+   items." REVISED: "why are you using in_store? I wanted the opposite.
+   Everything in store except what's marked for web" — In Store and Web
+   are a PARTITION of the active products, not "all" vs. a narrower
+   subset of it: In Store is direct_link (excludes anything flagged for
+   the website), Web is website. Inactive is the complement of both
+   (draft or archived), hidden from the other two either way. */
 function matchesStatusFilter(el) {
   if (statusFilter === "inactive") return el.dataset.status === "inactive";
   if (el.dataset.status === "inactive") return false;
-  return statusFilter === "web" ? el.dataset.channel === "website" : true;
+  return statusFilter === "web" ? el.dataset.channel === "website" : el.dataset.channel !== "website";
 }
 function filterItems() {
   const q = itemSearch.value.trim().toLowerCase();

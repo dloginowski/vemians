@@ -3228,14 +3228,18 @@ that does not trace to one of these is a process failure (see §12).
     Three options, client-side only (`data-channel` joins `data-status`/`data-category`/
     `data-search` on every tile), matching the existing category filter's own architecture — the
     whole catalog already renders in one response, so there is nothing a server round trip would
-    add: **In Store** (every active product, any channel — "everything is in our database is
-    accessible... basically" the owner's own reasoning from P0-71's own revision, extended here to
-    mean the whole active catalog is "in store" regardless of whether it is ALSO on the web),
-    **Web** (narrows that to `channel === "website"`), **Inactive** (the complement — anything not
-    `data-status="active"`). In Store is both the default (`selected`) and the one applied the
-    moment the page loads — a bare `filterItems()` call right after the dropdown's own listener is
-    wired, the same reasoning Dashboard's own initial render already worked out: an inactive
-    product must not be visible for even one frame before a person touches anything.
+    add: **In Store** and **Web** PARTITION the active catalog — they do not overlap. This was
+    revised once, live: the first pass read "in store" as every active product regardless of
+    channel (extending P0-71's own "everything is in our database is accessible... basically"
+    reasoning to mean the whole catalog is "in store" whether or not it is ALSO on the web), and the
+    owner corrected it directly: "why are you using in_store? I wanted the opposite. Everything in
+    store except what's marked for web." So **In Store** is `channel !== "website"` (excludes
+    anything flagged for the website), **Web** is `channel === "website"`, and **Inactive** is the
+    complement of both — anything not `data-status="active"`. In Store is both the default
+    (`selected`) and the one applied the moment the page loads — a bare `filterItems()` call right
+    after the dropdown's own listener is wired, the same reasoning Dashboard's own initial render
+    already worked out: an inactive product must not be visible for even one frame before a person
+    touches anything.
 
     **The letterbox bars are a flat translucent fill now, not a fading gradient.** The owner's own
     words: "a dim, half-transparent gray background for the text on top and bottom... it's almost

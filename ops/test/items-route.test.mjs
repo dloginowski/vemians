@@ -904,16 +904,20 @@ check("test_PRD_P0_131_item_status_filter__the_dropdown_defaults_to_in_store", a
   assert.match(select[1], /<option value="inactive">Inactive<\/option>/);
 });
 
-check("test_PRD_P0_131_item_status_filter__in_store_shows_every_active_item_any_channel_web_narrows_to_website", async () => {
-  /* The owner's own words: "in store, which will show all of the items
-     that we have in store that are active, basically... web, which will
-     show us just the items that are on the web." */
+check("test_PRD_P0_131_item_status_filter__in_store_excludes_web_items_web_narrows_to_website", async () => {
+  /* REVISED: "why are you using in_store? I wanted the opposite.
+     Everything in store except what's marked for web" — In Store and Web
+     partition the active products, they do not overlap. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const res = await get("/items", STAFF, env(mirror));
   const body = await res.text();
   const fn = body.slice(body.indexOf("function matchesStatusFilter"), body.indexOf("function filterItems"));
-  assert.match(fn, /statusFilter === "web" \? el\.dataset\.channel === "website" : true/, "In Store ignores channel; Web narrows to website");
+  assert.match(
+    fn,
+    /statusFilter === "web" \? el\.dataset\.channel === "website" : el\.dataset\.channel !== "website"/,
+    "In Store excludes anything flagged for the website; Web narrows to it",
+  );
 });
 
 check("test_PRD_P0_131_item_status_filter__inactive_items_are_excluded_from_the_other_two_views", async () => {
