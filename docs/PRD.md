@@ -4072,6 +4072,86 @@ that does not trace to one of these is a process failure (see §12).
     (unarchived only) and so render as "No variations" until it is restored and re-synced — a known,
     accepted gap rather than a second widened query, since restoring it is one checkbox click away.
 
+73. **`Test-PRD-P0-138-nested_categories`** — The owner's own words, following up on the earlier
+    "separate categories section" request (P0-136's own style_id comment: "NN-NN-NNN — a 2-digit
+    category, a 2-digit subcategory"): "there's only up to 100 categories... zero to 99... it doesn't
+    matter how deep the levels are... once an ID is used by any subcategory, it stops being
+    available... a subcategory name can be used more than once, the ID cannot... what matters is that
+    the ID stays unique." Answering follow-up questions directly: the new hierarchical
+    category/subcategory tree **extends the existing flat, Square-backed category system** (rather
+    than replacing it or living beside it as a second, ops-only concept) by associating each category
+    name with a numeric_id, and assigning a category/subcategory's own numeric_id **retroactively
+    re-sorts every existing product** whose style_id already matches it, not just future ones.
+
+    **Nested, backed by Square's own REAL category hierarchy — verified against Square's own
+    CatalogCategory reference rather than assumed, the same discipline the inventory type enum and
+    the UpsertCatalogObject full-replacement bug below were both caught by.** `category_data.
+    parent_category` is GA, not a beta — Square's own Categories API has supported a real
+    parent/child tree all along; this codebase's own `mirror_category` simply never mirrored it.
+    `mirror_category` gains `parent_id` (OUR OWN uuid, self-referencing — NULL for a top-level
+    category, set to another row's id at any nesting depth for a subcategory) and `numeric_id` (OURS,
+    never Square's — see below). `mirror.js`'s own `syncCatalog` normalises Square's
+    `category_data.parent_category.id` (catalog.js) and resolves it to our own `parent_id` in a
+    SECOND pass, once every category in that sync has its own row — a child can arrive before its
+    own parent in Square's own list order — falling back to a DB lookup, not just the current
+    batch's own map, so an incremental sync of just the child alone never NULLs OUT an
+    already-known parent link the parent's own earlier sync already recorded.
+
+    **numeric_id is OURS, not Square's — a 2-digit `"00"`-`"99"` code, later embedded in a product's
+    own style_id (the first segment for a top-level category, the second for a subcategory at
+    whatever depth).** TWO SEPARATE pools, exactly matching the owner's own words: a top-level
+    category's own number is unique only among OTHER top-level categories; a subcategory's is unique
+    among EVERY subcategory in the WHOLE tree, regardless of depth or parent — enforced by two
+    partial unique indexes in `schema.sql`, not just application code. A category/subcategory NAME
+    may repeat elsewhere in the tree ("a subcategory name can be used more than once, the ID
+    cannot") — two same-named subcategories under different parents are told apart by their own
+    parent chain, never by name; the UI shows only a node's own leaf name. `catalog.set_category_
+    number` (T2, manager, `resources: ["square"]` for its own retroactive re-sort, `numeric_id` set
+    via a plain `UPDATE mirror_category` the same OURS-not-Square's shape `catalog.set_channel`'s
+    own `channel` column already establishes) assigns or changes it; `clear: true` removes it
+    (`numeric_id: ""` cannot — the generic schema validator refuses an empty string outright for any
+    required field, so clearing needed its own explicit flag rather than an empty value).
+
+    **`catalog.create_category` accepts an optional `parent_id`, making it a SUBCATEGORY instead of
+    a top-level category, at any nesting depth.** Its own near-duplicate/exact-duplicate name guard
+    — previously checked against the WHOLE flat list — is now scoped to SIBLINGS only (same parent):
+    a flat, tree-wide check would have wrongly refused a perfectly fine "Casual" under both "Pants"
+    and "Shirts," which the owner explicitly wants allowed.
+
+    **Deriving a product's own category from its style_id: the SUBCATEGORY segment is authoritative
+    when it matches something, the CATEGORY segment is only a fallback.** Since a subcategory's own
+    numeric_id is globally unique regardless of depth, a match on it alone already identifies the
+    exact node — `deriveCategoryIdForStyleId` (`catalog-writer.js`) tries the subcategory segment
+    first and only falls back to the category segment when nothing matches yet. A style_id matching
+    neither leaves a product's existing category_id untouched — this never CLEARS an assignment,
+    only ever improves one once a matching numeric_id starts to exist.
+
+    **Assigning or changing a numeric_id RETROACTIVELY re-sorts every existing product whose own
+    style_id now matches it — the owner's own explicit choice over "only apply going forward."**
+    `resortProductsByStyleId` (`catalog-writer.js`, on the Square writer object) walks every
+    unarchived product with a style_id and, for any whose derived category has changed, calls
+    `this.updateProduct({handle, categoryId})` — a REAL Square write (`reporting_category`), not a
+    direct mirror poke: category is Square's own fact under ADR-009, so writing only to the mirror
+    would be silently overwritten back by the very next full sync, which still reads it from Square.
+    One write per affected product, sequentially — fine at the boutique catalog scale this whole
+    feature is built for. Setting a product's own style_id (`catalog.set_square_attributes`) derives
+    and applies its category INLINE, in the same call, the same way — "anytime we submit items with
+    a style ID, those style IDs will actually be driving which categories and subcategories these
+    items automatically get sorted to."
+
+    **A second production-grade fix, found while wiring this feature up (the same class of bug as
+    `retractProduct`'s own fix, P0-137): `catalog-writer.js`'s `updateProduct` resolved an UNDEFINED
+    `categoryId` straight to `null`, and `itemData()` omits `categories`/`reporting_category`
+    entirely when its own `catRef` argument is falsy.** Square's UpsertCatalogObject is
+    FULL-REPLACEMENT (verified against Square's own spec for the `retractProduct` fix already) — so
+    EVERY `catalog.update_product` call that did not explicitly resend a `categoryId` — a title
+    edit, a vendor edit, a price edit, literally any edit through this tool — was silently WIPING
+    the product's own category in Square, for every product this codebase had ever categorized.
+    `row.category_id` (already selected, already available, simply never read) is now the fallback
+    when `categoryId` is undefined — `undefined` means "this call is not about that field," the
+    exact same "resend the whole thing" convention `style_id`/`vendor`/`description` already use one
+    line below it in the same function.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -4360,6 +4440,7 @@ Where each feature is enforced today:
 | P0-135 | `ops/test/items-route.test.mjs` |
 | P0-136 | `shared/commerce/square/test/square.test.mjs`, `ops/test/catalog-write.test.mjs`, `ops/test/items-route.test.mjs` |
 | P0-137 | `shared/commerce/square/test/square.test.mjs`, `ops/test/catalog-write.test.mjs`, `ops/test/items-route.test.mjs` |
+| P0-138 | `shared/commerce/square/test/square.test.mjs`, `ops/test/catalog-write.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

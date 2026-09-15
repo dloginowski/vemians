@@ -343,7 +343,8 @@ async function fixture({ actor = "mara@vemians.com", role = "manager", seedMirro
     calls: () => square.calls.slice(seededCalls),
     audit: (where = "") => auditDb._raw.prepare(`SELECT * FROM audit_log ${where} ORDER BY id`).all(),
     mirror: (sql) => mirrorDb._raw.prepare(sql).all(),
-    categories: () => mirrorDb._raw.prepare("SELECT id, name FROM mirror_category_index ORDER BY name").all(),
+    categories: () =>
+      mirrorDb._raw.prepare("SELECT id, name, parent_id, numeric_id FROM mirror_category_index ORDER BY name").all(),
   };
 }
 
@@ -1074,7 +1075,11 @@ check("test_PRD_P0_40_closed_category_set__categories_lists_what_exists_and_says
      vendor identifier above the adapter (Test-PRD-P0-16-commerce_port). */
   for (const c of res.data.categories) {
     assert.match(c.id, /^[0-9a-f-]{36}$/, "a category id handed out is OUR uuid");
-    assert.deepEqual(Object.keys(c).sort(), ["id", "name"]);
+    assert.deepEqual(Object.keys(c).sort(), ["id", "name", "numeric_id", "parent_id"]);
+    /* Every fixture category is top-level, with no numeric_id assigned yet —
+       Test-PRD-P0-138-nested_categories exercises the nested/numbered case. */
+    assert.equal(c.parent_id, null);
+    assert.equal(c.numeric_id, null);
   }
   /* And it is a read: not one Square call, not one mirror row changed. */
   assert.deepEqual(f.calls(), []);
@@ -1206,6 +1211,270 @@ check("test_PRD_P0_40_closed_category_set__creating_a_category_is_a_separate_gat
   assert.equal(made.data.existing_before, 3);
   assert.equal(f.categories().length, 4);
   assert.equal(f.calls().filter((c) => c.upsert === "CATEGORY").length, 1);
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-138 — nested categories/subcategories, and OUR OWN numeric_id, later
+ * embedded in a product's own style_id.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_138_nested_categories__create_category_with_parent_id_makes_a_real_square_subcategory", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const made = await approvedCall(f, "catalog.create_category", {
+    name: "Coats",
+    parent_id: outerwear.id,
+    reason: "organizing Outerwear further",
+  });
+  assert.equal(made.ok, true, made.error);
+  assert.equal(made.data.category.name, "Coats");
+
+  /* Square's own real hierarchy (category_data.parent_category, GA) — not
+     something this codebase invents on top of a flat category. */
+  const upsert = f.calls().find((c) => c.path === "/v2/catalog/object" && c.upsert === "CATEGORY");
+  assert.equal(upsert.body.object.category_data.parent_category.id, "CAT_OUTERWEAR");
+
+  const row = f.categories().find((c) => c.name === "Coats");
+  assert.equal(row.parent_id, outerwear.id, "the mirror's own parent_id resolves after sync");
+});
+
+check("test_PRD_P0_138_nested_categories__parent_id_must_already_exist", async () => {
+  const f = await fixture();
+  const res = await runTool(
+    "catalog.create_category",
+    { name: "Coats", parent_id: "does-not-exist", reason: "test" },
+    f.ctx,
+  );
+  assert.equal(res.ok, false);
+  assert.match(res.error, /no category 'does-not-exist' to nest this under/);
+  assert.deepEqual(f.calls(), []);
+});
+
+check("test_PRD_P0_138_nested_categories__a_name_may_repeat_under_a_different_parent_but_not_the_same_one", async () => {
+  /* The owner's own words: "it is possible that we might have a category
+     of pants and they might have a subcategory that matches another
+     subcategory's name, but that's parented to a different category...
+     what matters is that the ID stays unique." A flat, tree-wide duplicate
+     check would wrongly refuse the second "Casual" below. */
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const knitwear = f.categories().find((c) => c.name === "Knitwear");
+
+  const underOuterwear = await approvedCall(f, "catalog.create_category", {
+    name: "Casual",
+    parent_id: outerwear.id,
+    reason: "test",
+  });
+  assert.equal(underOuterwear.ok, true, underOuterwear.error);
+
+  const underKnitwear = await approvedCall(f, "catalog.create_category", {
+    name: "Casual",
+    parent_id: knitwear.id,
+    reason: "test",
+  });
+  assert.equal(underKnitwear.ok, true, underKnitwear.error, "same name, different parent, must not collide");
+
+  const dupSameParent = await runTool(
+    "catalog.create_category",
+    { name: "Casual", parent_id: outerwear.id, reason: "test" },
+    f.ctx,
+  );
+  assert.equal(dupSameParent.ok, false);
+  assert.match(dupSameParent.error, /already exists under "Outerwear"/);
+});
+
+check("test_PRD_P0_138_nested_categories__numeric_id_must_be_exactly_two_digits", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const res = await runTool(
+    "catalog.set_category_number",
+    { category_id: outerwear.id, numeric_id: "1a" },
+    f.ctx,
+  );
+  assert.equal(res.ok, false);
+  assert.match(res.error, /must be exactly two digits/);
+});
+
+check("test_PRD_P0_138_nested_categories__two_top_level_categories_cannot_share_a_numeric_id", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const knitwear = f.categories().find((c) => c.name === "Knitwear");
+  const first = await approvedCall(f, "catalog.set_category_number", { category_id: outerwear.id, numeric_id: "01" });
+  assert.equal(first.ok, true, first.error);
+
+  const conflict = await runTool(
+    "catalog.set_category_number",
+    { category_id: knitwear.id, numeric_id: "01" },
+    f.ctx,
+  );
+  assert.equal(conflict.ok, false);
+  assert.match(conflict.error, /already assigned to "Outerwear"/);
+  assert.match(conflict.error, /every top-level category shares one pool/);
+});
+
+check("test_PRD_P0_138_nested_categories__two_subcategories_under_different_parents_cannot_share_a_numeric_id", async () => {
+  /* The owner's own words: "once an ID is used by any subcategory, it
+     stops being available" — regardless of nesting depth or parent, ONE
+     shared pool for every subcategory in the whole tree. */
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const knitwear = f.categories().find((c) => c.name === "Knitwear");
+  const casualCoats = await approvedCall(f, "catalog.create_category", {
+    name: "Casual",
+    parent_id: outerwear.id,
+    reason: "test",
+  });
+  const casualKnits = await approvedCall(f, "catalog.create_category", {
+    name: "Casual",
+    parent_id: knitwear.id,
+    reason: "test",
+  });
+
+  const first = await approvedCall(f, "catalog.set_category_number", {
+    category_id: casualCoats.data.category.id,
+    numeric_id: "05",
+  });
+  assert.equal(first.ok, true, first.error);
+
+  const conflict = await runTool(
+    "catalog.set_category_number",
+    { category_id: casualKnits.data.category.id, numeric_id: "05" },
+    f.ctx,
+  );
+  assert.equal(conflict.ok, false);
+  assert.match(conflict.error, /every subcategory in the whole tree/);
+});
+
+check("test_PRD_P0_138_nested_categories__a_top_level_category_and_a_subcategory_may_share_the_same_number", async () => {
+  /* Two SEPARATE pools — the style_id's own first-segment/second-segment
+     split already keeps a category's "01" and a subcategory's "01"
+     structurally apart, so there is nothing for them to collide over. */
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const casual = await approvedCall(f, "catalog.create_category", {
+    name: "Casual",
+    parent_id: outerwear.id,
+    reason: "test",
+  });
+  const topLevel = await approvedCall(f, "catalog.set_category_number", { category_id: outerwear.id, numeric_id: "01" });
+  assert.equal(topLevel.ok, true, topLevel.error);
+  const sub = await approvedCall(f, "catalog.set_category_number", {
+    category_id: casual.data.category.id,
+    numeric_id: "01",
+  });
+  assert.equal(sub.ok, true, sub.error);
+});
+
+check("test_PRD_P0_138_nested_categories__clearing_a_numeric_id_frees_it_for_reuse", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const knitwear = f.categories().find((c) => c.name === "Knitwear");
+  await approvedCall(f, "catalog.set_category_number", { category_id: outerwear.id, numeric_id: "01" });
+  const cleared = await approvedCall(f, "catalog.set_category_number", { category_id: outerwear.id, clear: true });
+  assert.equal(cleared.ok, true, cleared.error);
+  assert.equal(f.categories().find((c) => c.id === outerwear.id).numeric_id, null);
+
+  const reused = await approvedCall(f, "catalog.set_category_number", { category_id: knitwear.id, numeric_id: "01" });
+  assert.equal(reused.ok, true, reused.error, "a cleared number must become available again");
+});
+
+check("test_PRD_P0_138_nested_categories__assigning_a_numeric_id_retroactively_resorts_matching_products", async () => {
+  /* The owner's own choice: retroactive, not "only going forward" — and a
+     REAL Square write per product, since reporting_category is Square's
+     own fact (ADR-009), not something poking the mirror directly would
+     keep straight against the next full sync. The fixture's own coat
+     starts in Outerwear (its own seeded reporting_category) — style_id
+     targets Knitwear's future numeric_id instead, so the resort has an
+     actual mismatch to fix, not a no-op match already in place. */
+  const f = await fixture();
+  const knitwear = f.categories().find((c) => c.name === "Knitwear");
+  await approvedCall(f, "catalog.set_square_attributes", { handle: COAT_HANDLE, style_id: "02-05-001" });
+
+  const assigned = await approvedCall(f, "catalog.set_category_number", { category_id: knitwear.id, numeric_id: "02" });
+  assert.equal(assigned.ok, true, assigned.error);
+  assert.equal(assigned.data.products_resorted, 1);
+
+  /* .pop(), not .find() — the LATEST ITEM upsert is the resort's own; an
+     earlier one (the style_id call above, before "02" existed) legitimately
+     still shows the OLD category. */
+  const itemUpsert = f.calls().filter((c) => c.path === "/v2/catalog/object" && c.upsert === "ITEM").pop();
+  assert.ok(itemUpsert, "the resort must actually write to Square, not just the mirror");
+  assert.equal(itemUpsert.body.object.item_data.reporting_category.id, "CAT_KNITWEAR");
+
+  const product = f.mirror(`SELECT category_id FROM mirror_product WHERE handle = '${COAT_HANDLE}'`)[0];
+  assert.equal(product.category_id, knitwear.id);
+});
+
+check("test_PRD_P0_138_nested_categories__a_subcategory_match_wins_over_a_top_level_match", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const casual = await approvedCall(f, "catalog.create_category", {
+    name: "Casual",
+    parent_id: outerwear.id,
+    reason: "test",
+  });
+  await approvedCall(f, "catalog.set_category_number", { category_id: outerwear.id, numeric_id: "01" });
+  await approvedCall(f, "catalog.set_square_attributes", { handle: COAT_HANDLE, style_id: "01-05-001" });
+
+  /* Only the top-level "01" matches so far — the product sorts there. */
+  let product = f.mirror(`SELECT category_id FROM mirror_product WHERE handle = '${COAT_HANDLE}'`)[0];
+  assert.equal(product.category_id, outerwear.id);
+
+  /* Once "05" is given to the subcategory, the SAME style_id's own
+     subcategory segment now matches something more specific, and wins. */
+  const resort = await approvedCall(f, "catalog.set_category_number", {
+    category_id: casual.data.category.id,
+    numeric_id: "05",
+  });
+  assert.equal(resort.data.products_resorted, 1);
+  product = f.mirror(`SELECT category_id FROM mirror_product WHERE handle = '${COAT_HANDLE}'`)[0];
+  assert.equal(product.category_id, casual.data.category.id);
+});
+
+check("test_PRD_P0_138_nested_categories__setting_a_style_id_auto_derives_the_products_own_category", async () => {
+  /* The owner's own words: "anytime we submit items with a style ID, those
+     style IDs will actually be driving which categories and subcategories
+     these items automatically get sorted to." No separate resort call
+     needed here — set_square_attributes' own run() derives it inline. */
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const casual = await approvedCall(f, "catalog.create_category", {
+    name: "Casual",
+    parent_id: outerwear.id,
+    reason: "test",
+  });
+  await approvedCall(f, "catalog.set_category_number", { category_id: casual.data.category.id, numeric_id: "05" });
+
+  const res = await approvedCall(f, "catalog.set_square_attributes", { handle: COAT_HANDLE, style_id: "01-05-001" });
+  assert.equal(res.ok, true, res.error);
+
+  const casualExternalRef = f.mirror(`SELECT external_ref FROM mirror_category WHERE id = '${casual.data.category.id}'`)[0].external_ref;
+  const itemUpsert = f.calls().find((c) => c.path === "/v2/catalog/object" && c.upsert === "ITEM");
+  assert.equal(itemUpsert.body.object.item_data.reporting_category.id, casualExternalRef);
+});
+
+check("test_PRD_P0_138_nested_categories__an_edit_that_does_not_touch_category_never_clears_it_in_square", async () => {
+  /* Bug found and fixed while wiring this feature up: an UNDEFINED
+     categoryId used to resolve to null, and itemData() (catalog-writer.js)
+     omits categories/reporting_category entirely when catRef is falsy —
+     which Square's own FULL-REPLACEMENT UpsertCatalogObject reads as an
+     intentional clear (the same semantics the retractProduct fix, P0-137,
+     verified against Square's own spec). Every update_product call that
+     did not explicitly resend a categoryId — a vendor edit, a title edit,
+     anything — was silently wiping the product's own category in Square. */
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  await approvedCall(f, "catalog.update_product", { handle: COAT_HANDLE, category_id: outerwear.id });
+
+  const unrelated = await approvedCall(f, "catalog.set_square_attributes", { handle: COAT_HANDLE, vendor: "Acme Mills", commission: 20 });
+  assert.equal(unrelated.ok, true, unrelated.error);
+
+  const upsert = f.calls().filter((c) => c.path === "/v2/catalog/object" && c.upsert === "ITEM").pop();
+  assert.equal(
+    upsert.body.object.item_data.reporting_category.id,
+    "CAT_OUTERWEAR",
+    "an edit that never mentioned category must still resend the CURRENT one, not omit it",
+  );
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -1409,25 +1678,30 @@ check("test_PRD_P0_37_mirror_is_ours__no_authoring_tool_writes_a_square_fact_to_
    * only writer of a Square-sourced column is shared/commerce/square/mirror.js,
    * reading back what Square now says.
    *
-   * TWO DELIBERATE EXCEPTIONS, allowlisted by name below rather than left to
-   * widen this regex's blind spot: catalog.set_channel's own
-   * `UPDATE mirror_product SET channel = ...` (Test-PRD-P0-71-product_channel)
-   * and catalog.set_custom_fields'/catalog.create_product's own
+   * THREE DELIBERATE EXCEPTIONS, allowlisted by name below rather than left
+   * to widen this regex's blind spot: catalog.set_channel's own
+   * `UPDATE mirror_product SET channel = ...` (Test-PRD-P0-71-product_channel),
+   * catalog.set_custom_fields'/catalog.create_product's own
    * `UPDATE mirror_product SET custom_fields = ...`
-   * (Test-PRD-P0-89-batch_preview_confirm's custom_fields entry). Neither
-   * `channel` nor `custom_fields` is a fact Square has any notion of at all
-   * — Square does not know our storefront exists, and it has no field for a
-   * fact we invented — so neither has a second writer to diverge from, and
-   * mirror.js's own sync deliberately never names either column in its
-   * UPDATE or INSERT, for exactly this reason (see the comments on both
-   * columns in shared/commerce/square/schema.sql). The assertion below still
-   * forbids that same file touching any OTHER mirror column.
+   * (Test-PRD-P0-89-batch_preview_confirm's custom_fields entry), and
+   * catalog.set_category_number's own `UPDATE mirror_category SET
+   * numeric_id = ...` (Test-PRD-P0-138-nested_categories). None of
+   * `channel`, `custom_fields` or `numeric_id` is a fact Square has any
+   * notion of at all — Square does not know our storefront exists, has no
+   * field for a fact we invented, and has no idea what "01" means to this
+   * shop's own style_id nomenclature — so none has a second writer to
+   * diverge from, and mirror.js's own sync deliberately never names any of
+   * the three in its UPDATE or INSERT, for exactly this reason (see the
+   * comments on all three columns in shared/commerce/square/schema.sql).
+   * The assertion below still forbids that same file touching any OTHER
+   * mirror column.
    */
   const offenders = [];
   for (const file of fs.readdirSync(TOOLS_DIR).filter((n) => n.endsWith(".js"))) {
     const src = fs.readFileSync(path.join(TOOLS_DIR, file), "utf8");
     for (const m of src.matchAll(/\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+mirror_\w+/gi)) {
       if (file === "catalog-write.js" && /^UPDATE\s+mirror_product$/i.test(m[0])) continue;
+      if (file === "catalog-write.js" && /^UPDATE\s+mirror_category$/i.test(m[0])) continue;
       offenders.push(`${file}: ${m[0]}`);
     }
   }
@@ -1447,6 +1721,12 @@ check("test_PRD_P0_37_mirror_is_ours__no_authoring_tool_writes_a_square_fact_to_
       `an UPDATE mirror_product in catalog-write.js touches an unexpected column: ${captured}`,
     );
   }
+
+  /* Same guard, for mirror_category's own OURS-only exception: numeric_id,
+     and only numeric_id. */
+  const categoryStmts = [...writer.matchAll(/UPDATE mirror_category SET ([\s\S]*?) WHERE/g)];
+  assert.equal(categoryStmts.length, 1, "catalog.set_category_number's own UPDATE has moved or been removed");
+  assert.equal(categoryStmts[0][1].trim(), "numeric_id = ?", "an UPDATE mirror_category in catalog-write.js touches an unexpected column");
 
   /* And the mirror schema itself refuses deletion, whatever anyone writes. */
   const f = await fixture();

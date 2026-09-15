@@ -995,6 +995,65 @@ check("test_PRD_P0_31_inventory_ledger__push_inventory_posts_a_physical_count_an
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
+ * P0-138 — nested categories, backed by Square's own real hierarchy
+ * ───────────────────────────────────────────────────────────────────────── */
+
+const rawCategory = (id, name, parentId = null) => ({
+  type: "CATEGORY",
+  id,
+  category_data: { name, ...(parentId ? { parent_category: { id: parentId } } : {}) },
+});
+
+check("test_PRD_P0_138_nested_categories__parent_id_resolves_regardless_of_list_order", async () => {
+  /* A child can arrive before its own parent in Square's own list order —
+     the second pass (mirror.js's own syncCatalog) must not care which came
+     first within the SAME sync call. */
+  const { mirrorDb, mirror } = stores();
+
+  const childFirst = normaliseCatalog([rawCategory("CAT_CHILD", "Casual", "CAT_PARENT"), rawCategory("CAT_PARENT", "Outerwear")]);
+  await mirror.syncCatalog(childFirst, { full: true });
+  const parentRow = mirrorDb._raw.prepare("SELECT id FROM mirror_category WHERE external_ref = 'CAT_PARENT'").get();
+  const childRow = mirrorDb._raw.prepare("SELECT parent_id FROM mirror_category WHERE external_ref = 'CAT_CHILD'").get();
+  assert.equal(childRow.parent_id, parentRow.id, "child-before-parent in the same batch still resolves");
+});
+
+check("test_PRD_P0_138_nested_categories__an_incremental_sync_of_just_the_child_still_finds_its_parent", async () => {
+  /* The realistic incremental case: the parent synced in an EARLIER call,
+     the child (a rename, say) syncs alone later. categoryIdByRef only ever
+     holds rows touched in THIS call, so this must fall back to a DB
+     lookup — never NULL out an already-known parent link. */
+  const { mirrorDb, mirror } = stores();
+  await mirror.syncCatalog(normaliseCatalog([rawCategory("CAT_PARENT", "Outerwear")]), { full: true });
+  await mirror.syncCatalog(normaliseCatalog([rawCategory("CAT_CHILD", "Casual", "CAT_PARENT")]), { full: false });
+
+  const parentRow = mirrorDb._raw.prepare("SELECT id FROM mirror_category WHERE external_ref = 'CAT_PARENT'").get();
+  const childRow = mirrorDb._raw.prepare("SELECT parent_id FROM mirror_category WHERE external_ref = 'CAT_CHILD'").get();
+  assert.equal(childRow.parent_id, parentRow.id);
+
+  /* And re-syncing the child AGAIN, alone, a third time (e.g. its name
+     changed once more) must not lose that link either. */
+  await mirror.syncCatalog(normaliseCatalog([rawCategory("CAT_CHILD", "Smart Casual", "CAT_PARENT")]), { full: false });
+  const childAgain = mirrorDb._raw.prepare("SELECT parent_id, name FROM mirror_category WHERE external_ref = 'CAT_CHILD'").get();
+  assert.equal(childAgain.parent_id, parentRow.id, "a later sync of the child alone must not NULL an already-known parent");
+  assert.equal(childAgain.name, "Smart Casual");
+});
+
+check("test_PRD_P0_138_nested_categories__numeric_id_survives_every_re_sync_untouched", async () => {
+  /* OURS, not Square's — the same "never named in mirror.js's own UPDATE"
+     convention channel/custom_fields already establish on mirror_product,
+     extended here to mirror_category's own numeric_id. */
+  const { mirrorDb, mirror } = stores();
+  await mirror.syncCatalog(normaliseCatalog([rawCategory("CAT_PARENT", "Outerwear")]), { full: true });
+  const row = mirrorDb._raw.prepare("SELECT id FROM mirror_category WHERE external_ref = 'CAT_PARENT'").get();
+  mirrorDb._raw.prepare("UPDATE mirror_category SET numeric_id = '01' WHERE id = ?").run(row.id);
+
+  await mirror.syncCatalog(normaliseCatalog([rawCategory("CAT_PARENT", "Outerwear (renamed)")]), { full: false });
+  const after = mirrorDb._raw.prepare("SELECT name, numeric_id FROM mirror_category WHERE id = ?").get(row.id);
+  assert.equal(after.name, "Outerwear (renamed)", "the sync still updates what Square DOES own");
+  assert.equal(after.numeric_id, "01", "but never touches what it does not");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
  * P0-137 — archiving/restoring a product must never destroy it
  * ───────────────────────────────────────────────────────────────────────── */
 

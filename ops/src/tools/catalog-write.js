@@ -10,7 +10,8 @@
  *   catalog.draft_product    T1  a complete proposal and a diff; writes nothing
  *   catalog.create_product   T2  ITEM + ITEM_VARIATIONs in Square, then sync
  *   catalog.update_product   T2  the same path for an edit
- *   catalog.create_category  T2  separate, deliberate, and rarely right
+ *   catalog.create_category  T2  separate, deliberate, and rarely right — now nestable
+ *   catalog.set_category_number T2 a category/subcategory's own 2-digit style_id code — OURS, not Square's
  *   catalog.set_channel      T2  which audience sees a product — OURS, not Square's
  *   catalog.set_active       T2  archive or restore a product — Square's own presence, not ours
  *   catalog.set_custom_fields T2 whatever else we track that Square doesn't — OURS too
@@ -92,7 +93,15 @@
  * edit. The originals in R2 are never removed by any code path in this repo.
  */
 import { CAPS } from "./caps.js";
-import { listCategories, mergeVariations, priceBand, productByHandle, variantsOf, vendorExists } from "./catalog-writer.js";
+import {
+  deriveCategoryIdForStyleId,
+  listCategories,
+  mergeVariations,
+  priceBand,
+  productByHandle,
+  variantsOf,
+  vendorExists,
+} from "./catalog-writer.js";
 import { contentTypeFor, isOurMediaKey, mediaKey, squareAcceptsType, STORABLE_IMAGE_TYPES } from "./media.js";
 
 /* The shop's own nomenclature for style_id (Test-PRD-P0-136-square_custom_
@@ -440,9 +449,12 @@ export const catalogWriteTools = {
     stores: ["catalog_mirror"],
     minRole: "staff",
     describe:
-      "List the product categories that ALREADY EXIST. This is a closed set: catalog.create_product " +
-      "accepts a category_id from this list and refuses anything else. Call this before drafting a " +
-      "product, and choose the closest existing category rather than reaching for a new one.",
+      "List the product categories that ALREADY EXIST, INCLUDING SUBCATEGORIES at any nesting depth — " +
+      "a row's own parent_id (null for a top-level category) is how the tree hangs together, and " +
+      "numeric_id (null until assigned) is its own 2-digit style_id code, if it has one yet. This is a " +
+      "closed set: catalog.create_product accepts a category_id from this list and refuses anything " +
+      "else. Call this before drafting a product, and choose the most specific existing node rather " +
+      "than reaching for a new one.",
     undo: null,
     schema: {},
     async run(_args, t) {
@@ -982,16 +994,20 @@ export const catalogWriteTools = {
     resources: ["square"],
     minRole: "manager",
     describe:
-      "RARELY THE RIGHT TOOL. Create a new product category in Square. Almost every product belongs in " +
-      "a category that already exists — call catalog.categories and choose from it. Categories are the " +
+      "RARELY THE RIGHT TOOL. Create a new product category — or, with parent_id, a SUBCATEGORY nested " +
+      "under an existing one, any number of levels deep — in Square. Almost every product belongs in a " +
+      "category that already exists — call catalog.categories and choose from it. Categories are the " +
       "storefront's navigation, and an agent that mints one whenever the existing name is not quite the " +
       "phrase it had in mind produces 'Coats', 'Outerwear', 'Jackets' and 'Coats & Jackets' inside a " +
       "month, at which point browsing the shop tells a customer nothing. This tool refuses a lexical " +
-      "near-duplicate outright, and everything it does not refuse still needs a manager to approve it. " +
-      "Use it when the shop genuinely starts selling something it has never sold before.",
+      "near-duplicate among SIBLINGS (same parent) outright — a name may repeat under a DIFFERENT " +
+      "parent, since what's unique is the numeric_id (catalog.set_category_number), not the name — and " +
+      "everything it does not refuse still needs a manager to approve it. Use it when the shop genuinely " +
+      "starts selling something it has never sold before, or is organizing its own tree further.",
     undo: "withdraw the category in Square; the mirror archives it and keeps the row",
     schema: {
       name: { type: "string", required: true, maxLength: 60 },
+      parent_id: { type: "string", format: "id" },
       reason: {
         type: "string",
         required: true,
@@ -1003,14 +1019,26 @@ export const catalogWriteTools = {
       if (!name) return { denied: "a category needs a name" };
 
       const categories = await listCategories(t.db.catalog_mirror);
-      const exact = categories.find((c) => c.name.toLowerCase() === name.toLowerCase());
-      if (exact) return { denied: `"${exact.name}" already exists. Use it.` };
+      let parent = null;
+      if (args.parent_id) {
+        parent = categories.find((c) => c.id === args.parent_id);
+        if (!parent) return { denied: `no category '${args.parent_id}' to nest this under` };
+      }
 
-      const near = nearestCategory(name, categories);
+      /* Siblings only — same parent (both top-level, or both nested under
+         the SAME node) — never the whole tree. The owner's own words: "a
+         subcategory name can be used more than once [under a different
+         parent]. The ID cannot." A flat, tree-wide check would refuse a
+         perfectly fine "Casual" under both "Pants" and "Shirts". */
+      const siblings = categories.filter((c) => (c.parent_id ?? null) === (args.parent_id ?? null));
+      const exact = siblings.find((c) => c.name.toLowerCase() === name.toLowerCase());
+      if (exact) return { denied: `"${exact.name}" already exists${parent ? ` under "${parent.name}"` : ""}. Use it.` };
+
+      const near = nearestCategory(name, siblings);
       if (near && near.score >= CAPS.CATEGORY_DUPLICATE_SIMILARITY) {
         return {
           denied:
-            `"${name}" overlaps the existing category "${near.name}" (${near.score}). ` +
+            `"${name}" overlaps the existing${parent ? ` "${parent.name}"` : ""} category "${near.name}" (${near.score}). ` +
             "Two near-identical categories make the storefront navigation meaningless, which is exactly " +
             "what this refusal exists to prevent. Put the product in the existing category, or rename " +
             "that category deliberately — do not add a second one beside it.",
@@ -1020,18 +1048,119 @@ export const catalogWriteTools = {
 
       return {
         ok: true,
-        summary: `create the category "${name}" beside the ${categories.length} that exist — ${args.reason}`,
-        preflight: { name, existing: categories.length, nearest: near },
+        summary:
+          `create the ${parent ? "subcategory" : "category"} "${name}"` +
+          `${parent ? ` under "${parent.name}"` : ""} beside the ${siblings.length} that exist there — ${args.reason}`,
+        preflight: { name, parentId: args.parent_id ?? null, existing: siblings.length, nearest: near },
       };
     },
     async run(args, t) {
-      const out = await t.square.createCategory({ name: t.preflight.name });
+      const out = await t.square.createCategory({ name: t.preflight.name, parentId: t.preflight.parentId });
       return {
         created: true,
         category: out.category,
         existing_before: t.preflight.existing,
         mirror_sync: out.sync,
         authority: "square",
+      };
+    },
+  },
+
+  /*
+   * OURS only, never Square's — a 2-digit code this shop assigns to a
+   * category/subcategory, later embedded in a product's own style_id
+   * (NN-NN-NNN). Deliberately its own tool, not folded into
+   * catalog.create_category: it needs no Square call at all (catalog.
+   * set_channel's own shape), and can re-assign/correct an already-created
+   * category's number without recreating it.
+   */
+  "catalog.set_category_number": {
+    tier: "T2",
+    domain: "catalog",
+    stores: ["catalog_mirror"],
+    resources: ["square"],
+    minRole: "manager",
+    describe:
+      "Assign or change a category or subcategory's own 2-digit numeric_id ('00'-'99'), the code that " +
+      "later becomes a product's own style_id segment (NN-NN-NNN: the first NN is a TOP-LEVEL " +
+      "category's own numeric_id, the second is a SUBCATEGORY's, at whatever nesting depth). Top-level " +
+      "categories share ONE '00'-'99' pool; ALL subcategories, regardless of depth or parent, share a " +
+      "SEPARATE '00'-'99' pool of their own — once a number is given to any subcategory anywhere in the " +
+      "tree, it stops being available to any other, even one nested under a different category " +
+      "entirely. Assigning or changing this RETROACTIVELY re-sorts every existing product whose own " +
+      "style_id segment now matches it — a real Square write (reporting_category) for each one, not " +
+      "just a mirror update, since Square is authoritative for a product's own category (ADR-009). " +
+      "Give numeric_id to set it, or clear: true (not both) to remove it.",
+    undo: "another catalog.set_category_number call, back to the previous value (or clear: true)",
+    schema: {
+      category_id: { type: "string", required: true, format: "id" },
+      /* Not required: the generic schema validator refuses an empty STRING
+         outright ("must not be empty"), so clearing an existing numeric_id
+         needs its own explicit flag rather than numeric_id: "". */
+      numeric_id: { type: "string", maxLength: 2 },
+      clear: { type: "boolean" },
+    },
+    async check(args, t) {
+      const categories = await listCategories(t.db.catalog_mirror);
+      const category = categories.find((c) => c.id === args.category_id);
+      if (!category) return { denied: `no category '${args.category_id}'` };
+
+      if (args.clear && args.numeric_id !== undefined) {
+        return { denied: "give either numeric_id or clear: true, not both" };
+      }
+      if (!args.clear && args.numeric_id === undefined) {
+        return { denied: "give a numeric_id ('00' through '99'), or clear: true to remove the existing one" };
+      }
+      const numericId = args.clear ? null : args.numeric_id;
+      if (numericId !== null && !/^\d{2}$/.test(numericId)) {
+        return { denied: `numeric_id '${args.numeric_id}' must be exactly two digits, "00" through "99"` };
+      }
+      if (numericId === category.numeric_id) {
+        return { denied: `"${category.name}" already has numeric_id '${numericId ?? "(none)"}'` };
+      }
+
+      if (numericId !== null) {
+        const isSubcategory = category.parent_id !== null;
+        const conflict = categories.find(
+          (c) => c.id !== category.id && c.numeric_id === numericId && (c.parent_id !== null) === isSubcategory,
+        );
+        if (conflict) {
+          return {
+            denied:
+              `numeric_id '${numericId}' is already assigned to "${conflict.name}" — ${
+                isSubcategory ? "every subcategory in the whole tree" : "every top-level category"
+              } shares one pool, so this number is not available until that one is freed.`,
+          };
+        }
+      }
+
+      return {
+        ok: true,
+        summary: `set "${category.name}"'s own numeric_id to '${numericId ?? "(none)"}' — resorts every matching product`,
+        preflight: { category, numericId },
+      };
+    },
+    async run(args, t) {
+      /* numeric_id is OURS, not Square's — a direct mirror write, the same
+         "no second writer to diverge from" shape catalog.set_channel's own
+         channel column already establishes, extended here to
+         mirror_category. The RETROACTIVE re-sort that follows is a real
+         Square write per affected product (reporting_category IS a
+         Square fact), so it goes through t.square, never a direct write
+         of its own. */
+      await t.db.catalog_mirror
+        .prepare("UPDATE mirror_category SET numeric_id = ? WHERE id = ?")
+        .bind(t.preflight.numericId, t.preflight.category.id)
+        .run();
+      const { resorted, errors } = await t.square.resortProductsByStyleId();
+      return {
+        updated: true,
+        category_id: t.preflight.category.id,
+        numeric_id: t.preflight.numericId,
+        previous_numeric_id: t.preflight.category.numeric_id,
+        products_resorted: resorted,
+        resort_errors: errors,
+        authority: "ours",
       };
     },
   },
@@ -1386,6 +1515,16 @@ export const catalogWriteTools = {
       };
     },
     async run(args, t) {
+      /* "Anytime we submit items with a style ID, those style IDs will
+         actually be driving which categories and subcategories these
+         items automatically get sorted to" — the owner's own words. Only
+         when style_id is ACTUALLY changing here (undefined otherwise), and
+         only when it resolves to a real category/subcategory numeric_id;
+         no match leaves categoryId undefined, which updateProduct's own
+         "resend the whole thing" fallback reads as "keep this product's
+         current category," never as "clear it" (P0-138's own bug fix). */
+      const derivedCategoryId =
+        args.style_id !== undefined ? await deriveCategoryIdForStyleId(t.db.catalog_mirror, args.style_id) : undefined;
       const out = await t.square.updateProduct({
         handle: args.handle,
         styleId: args.style_id,
@@ -1393,6 +1532,7 @@ export const catalogWriteTools = {
         vendorCode: args.vendor_code,
         unitCostMinor: args.unit_cost_minor,
         commissionPct: args.commission,
+        ...(derivedCategoryId ? { categoryId: derivedCategoryId } : {}),
       });
       return {
         updated: true,
