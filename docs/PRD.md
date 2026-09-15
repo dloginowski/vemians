@@ -759,6 +759,11 @@ that does not trace to one of these is a process failure (see §12).
     font needed less of the shared `3px 5px` padding to end up the same overall height as the
     stepper's own `11px` count field beside it — `style_id`'s own padding is `1px 5px` now.
 
+    **REVISED: both widened together.** "Make the inventory menu a tiny bit wider if you are at
+    limit with style id" — `style_id`'s own pattern was right at the edge of its box once its font
+    grew to fill it. `.variation-stock-stepper` and `style_id` share one width by design (the
+    latter tracks the former), so both moved from `5.5em` to `6em` together, keeping them aligned.
+
 31. **`Test-PRD-P0-32-tickets`** — Company-wide issues live in their own `tickets` store. A ticket
     cannot be deleted, only moved through status, and resolving one requires a timestamp.
     Comments are append-only. Links to orders, customers, products and shifts are id plus a
