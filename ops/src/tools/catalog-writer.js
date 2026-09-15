@@ -212,6 +212,11 @@ export function mergeVariations(current, patch) {
         sku: p.sku ?? null,
         price_minor: p.price_minor,
         currency: p.currency,
+        /* A brand-new row added through this same patch has no existing
+           unit cost to fall back to — undefined here means updateProduct's
+           own per-variation resolution falls back to the product-level
+           default, same as every other newly-added variation field. */
+        unit_cost_minor: p.unit_cost_minor,
       });
       continue;
     }
@@ -223,6 +228,11 @@ export function mergeVariations(current, patch) {
       sku: p.sku ?? cur.sku,
       price_minor: p.price_minor ?? cur.price_minor,
       currency: p.currency ?? cur.currency,
+      /* Revised — "all the variants can have a different unit cost too":
+         a variation's OWN cost now survives a merge that was not about
+         it, the same "resend or it may vanish" reasoning title/price
+         already use one line up. */
+      unit_cost_minor: p.unit_cost_minor ?? cur.unit_cost_minor,
     });
   }
   return { variations: [...order.map((id) => byId.get(id)), ...added] };
@@ -415,7 +425,7 @@ export function createSquareCatalogWriter(env, opts = {}) {
     return Object.keys(out).length ? out : undefined;
   }
 
-  function itemData({ title, description, catRef, variations, itemRef, imageIds, customAttributeValues: attrs, vendorInfo }) {
+  function itemData({ title, description, catRef, variations, itemRef, imageIds, customAttributeValues: attrs, vendorInfos }) {
     return {
       name: title,
       /* Photographs already in Square are LINKED here at creation rather than
@@ -456,10 +466,13 @@ export function createSquareCatalogWriter(env, opts = {}) {
             `variation ${v.title}`,
           ),
           track_inventory: true,
-          /* vendor_information (P0-136, revised) — the SAME entry on EVERY
-             variation, applied uniformly rather than per-variation, since
-             this shop treats vendor/cost as a fact about the PRODUCT. */
-          ...(vendorInfo ? { vendor_information: [vendorInfo] } : {}),
+          /* vendor_information (P0-136, revised again — "all the variants
+             can have a different unit cost too"): the vendor ITSELF is
+             still one fact about the product (resolved once, above), but
+             each variation now carries its OWN entry, so its own cost can
+             differ from its siblings' — vendorInfos is built index-aligned
+             with `variations` by every caller below. */
+          ...(vendorInfos?.[i] ? { vendor_information: [vendorInfos[i]] } : {}),
         },
       })),
     };
@@ -593,7 +606,10 @@ export function createSquareCatalogWriter(env, opts = {}) {
             itemRef,
             imageIds,
             customAttributeValues: customAttributeValues({ styleId, commissionPct }),
-            vendorInfo,
+            /* A brand-new product has no per-variation history yet — every
+               variation starts with the SAME vendor/cost, the one given at
+               creation time; they only diverge later, through updateProduct. */
+            vendorInfos: variations.map(() => vendorInfo),
           }),
         },
       };
@@ -635,10 +651,13 @@ export function createSquareCatalogWriter(env, opts = {}) {
       const cat = categoryId ? await categoryRef(categoryId) : null;
 
       /* The refs stay INSIDE this file: the ops tool validates against
-         `variantsOf`, which has no external_ref column in its SELECT. */
+         `variantsOf`, which has no external_ref column in its SELECT.
+         unit_cost_minor/unit_cost_currency ride along per row too, now
+         that a variation's own cost can outlive an edit that was not
+         about it — mergeVariations' own fallback below needs them. */
       const currentRes = await mirrorDb
         .prepare(
-          "SELECT id, external_ref, source_version, sku, title, ordinal, price_minor, currency" +
+          "SELECT id, external_ref, source_version, sku, title, ordinal, price_minor, currency, unit_cost_minor, unit_cost_currency" +
             " FROM mirror_variant_index WHERE product_id = ? ORDER BY ordinal",
         )
         .bind(row.id)
@@ -657,28 +676,33 @@ export function createSquareCatalogWriter(env, opts = {}) {
       const resolvedStyleId = styleId !== undefined ? styleId : row.style_id;
       const resolvedCommissionPct = commissionPct !== undefined ? commissionPct : row.commission_pct;
 
-      /* vendor/vendorCode/unitCost resolve the SAME way, one level down —
-         at the variation Square itself stores vendor_information on
-         (currentVendorInfo reads it off ordinal 0). A NEW vendor name
-         resolves-or-creates via vendorRef; leaving `vendor` undefined keeps
-         whatever Square already has (including no vendor at all). */
+      /* vendor/vendorCode resolve the SAME way as style_id/commission above
+         — one vendor per product, still (nobody has asked for a garment
+         sold under two vendors at once). Cost is different: "all the
+         variants can have a different unit cost too" — so unitCostMinor
+         here is ONLY the bulk, uniform override catalog.set_square_
+         attributes' own header field still sends; when it is not given,
+         each variation below falls back to its OWN current cost, not the
+         product's ordinal-0 one. */
       const current = await currentVendorInfo(row.id);
       const vref = vendor !== undefined ? await vendorRef(vendor) : null;
       const resolvedVendorExternalRef = vendor !== undefined ? vref?.external_ref ?? null : current.vendor_external_ref;
       const resolvedVendorCode = vendorCode !== undefined ? vendorCode : current.vendor_code;
-      const resolvedUnitCostMinor = unitCostMinor !== undefined ? unitCostMinor : current.unit_cost_minor;
-      const resolvedUnitCostCurrency = unitCostMinor !== undefined ? (unitCostCurrency ?? "USD") : current.unit_cost_currency;
-      const vendorInfo = vendorInformationFor({
-        vendorExternalRef: resolvedVendorExternalRef,
-        vendorCode: resolvedVendorCode,
-        unitCostMinor: resolvedUnitCostMinor,
-        unitCostCurrency: resolvedUnitCostCurrency,
+      const vendorInfos = keep.map((v) => {
+        const perUnitCostMinor = unitCostMinor ?? v.unit_cost_minor ?? current.unit_cost_minor;
+        const perUnitCostCurrency = (unitCostMinor !== undefined ? unitCostCurrency : v.unit_cost_currency) ?? current.unit_cost_currency ?? "USD";
+        return vendorInformationFor({
+          vendorExternalRef: resolvedVendorExternalRef,
+          vendorCode: resolvedVendorCode,
+          unitCostMinor: perUnitCostMinor,
+          unitCostCurrency: perUnitCostCurrency,
+        });
       });
 
       const body = {
         idempotency_key: idempotencyKey(
           `catalog.update:${row.external_ref}:${row.source_version}:${resolvedStyleId ?? ""}:` +
-            `${resolvedVendorExternalRef ?? ""}:${resolvedUnitCostMinor ?? ""}:${resolvedCommissionPct ?? ""}`,
+            `${resolvedVendorExternalRef ?? ""}:${JSON.stringify(vendorInfos)}:${resolvedCommissionPct ?? ""}`,
         ),
         object: {
           type: "ITEM",
@@ -698,7 +722,7 @@ export function createSquareCatalogWriter(env, opts = {}) {
               styleId: resolvedStyleId,
               commissionPct: resolvedCommissionPct,
             }),
-            vendorInfo,
+            vendorInfos,
           }),
         },
       };
