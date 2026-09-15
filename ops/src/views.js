@@ -1799,8 +1799,12 @@ ${INPUT_BAR_CSS}
 /* "The style ID is a little bit bigger than what I want. Decrease the
    padding a little to make it the same size" — the larger 13px font
    needs less of the shared 3px 5px padding to end up the same overall
-   height as the stepper's own 11px count field beside it. */
-.variations-header input[name="style_id"] { flex: 0 0 auto; width: 6em; font-size: 13px; padding: 1px 5px; }
+   height as the stepper's own 11px count field beside it.
+   REVISED: "remove some side padding, it's wider than it has to be" —
+   the box's own width already grew to 6em, so its side padding no longer
+   needs to be the shared 5px; 3px leaves more of that width to the
+   pattern itself. */
+.variations-header input[name="style_id"] { flex: 0 0 auto; width: 6em; font-size: 13px; padding: 1px 3px; }
 /* "Ensure the header's cost/MSRP align exactly with the children rows'
    own cost/price" — the row's own title absorbs all its row's leftover
    width (flex: 1 1 auto), pushing its fixed-width stepper/cost/price
