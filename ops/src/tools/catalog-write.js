@@ -685,10 +685,11 @@ export const catalogWriteTools = {
       "track that Square has no concept of at all (unit cost, a spreadsheet column with no home " +
       "elsewhere). It never reaches Square — it is written to our own mirror right after the item " +
       "is created — and survives every future sync untouched. Edit it later with " +
-      "catalog.set_custom_fields. `vendor` and `commission` ARE Square's own Custom Attributes " +
-      "(same as catalog.set_square_attributes) and MAY be set here at creation time, since this " +
-      "call already reaches Square for the item itself: commission (0-100) only makes sense " +
-      "alongside a vendor and is refused without one.",
+      "catalog.set_custom_fields. `style_id`, `vendor` and `commission` ARE Square's own Custom " +
+      "Attributes (same as catalog.set_square_attributes) and MAY be set here at creation time, " +
+      "since this call already reaches Square for the item itself: commission (0-100) only makes " +
+      "sense alongside a vendor and is refused without one; style_id follows this shop's own " +
+      "NN-NN-NNN nomenclature and is refused if another product already has it.",
     undo: "withdraw the item in Square; nothing is deleted, and the originals in R2 are untouched",
     schema: {
       title: { type: "string", required: true, maxLength: CAPS.CATALOG_TITLE_MAX },
@@ -696,6 +697,7 @@ export const catalogWriteTools = {
       category_id: { type: "string", required: true, format: "id" },
       variations: { type: "array", required: true, maxItems: CAPS.CATALOG_MAX_VARIATIONS, of: VARIATION },
       images: IMAGES,
+      style_id: { type: "string", maxLength: 20 },
       vendor: { type: "string", maxLength: 120 },
       commission: { type: "integer" },
       custom_fields: {
@@ -717,11 +719,30 @@ export const catalogWriteTools = {
           );
         }
       }
+      if (args.style_id !== undefined && !STYLE_ID_FORMAT.test(args.style_id)) {
+        problems.push(
+          `style_id '${args.style_id}' does not match this shop's own nomenclature — ` +
+            "NN-NN-NNN (2-digit category, 2-digit subcategory, 3-digit item number), e.g. \"01-04-001\".",
+        );
+      }
       if (problems.length) {
         return {
           denied: `refused before Square saw it: ${problems.join(" | ")}`,
           detail: { reason: "invalid_product", problems },
         };
+      }
+
+      if (args.style_id !== undefined) {
+        const conflict = await t.db.catalog_mirror
+          .prepare("SELECT handle FROM mirror_product WHERE style_id = ?")
+          .bind(args.style_id)
+          .first();
+        if (conflict) {
+          return {
+            denied: `style_id '${args.style_id}' is already assigned to '${conflict.handle}' — style IDs are unique, one per product`,
+            detail: { reason: "style_id_conflict" },
+          };
+        }
       }
 
       /* The closed set, read from the mirror. Not a prompt instruction. */
@@ -765,6 +786,7 @@ export const catalogWriteTools = {
         categoryId: args.category_id,
         variations: args.variations,
         images,
+        styleId: args.style_id,
         vendor: args.vendor,
         commissionPct: args.commission,
       });

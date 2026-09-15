@@ -82,21 +82,35 @@ const CATEGORY_KEYS = ["category", "category name", "type", "product type", "col
 const PRICE_KEYS = ["price", "price (usd)", "retail price", "unit price", "sale price", "msrp"];
 const CURRENCY_KEYS = ["currency"];
 const SKU_KEYS = ["sku", "style number", "item number", "product code"];
-/* vendor and commission are Square's own Custom Attributes now
+/* style_id, vendor and commission are Square's own Custom Attributes now
    (Test-PRD-P0-136-square_custom_attributes), not a custom_fields example —
    recognized here so a sheet carrying them reaches catalog.create_product as
    real arguments rather than inert text, and its own check() can flag the
-   owner's own rule before a row is ever parked: "if we have a vendor name
-   and we didn't provide a commission, that's a problem." */
+   owner's own rules before a row is ever parked: "if we have a vendor name
+   and we didn't provide a commission, that's a problem," and — walked
+   through a final time — "we always need to have a style ID." Deliberately
+   NOT "style number"/"item number" (SKU_KEYS above): those already mean the
+   SKU, a wholly different, Square-assigned identifier this codebase never
+   invents (see catalog-write.js's own STYLE_ID_FORMAT comment). */
+const STYLE_ID_KEYS = ["style id", "style_id"];
 const VENDOR_KEYS = ["vendor", "vendor name", "supplier"];
 const COMMISSION_KEYS = ["commission", "commission %", "commission pct", "commission percent", "commission rate"];
+/* unit cost is NOT one of Square's own Custom Attributes — the owner's own
+   words, correcting an earlier plan to add a dedicated "cogs" attribute:
+   "we don't need to do cogs, there is a unit cost, we just use the unit
+   cost." So this is deliberately left OUT of PRODUCT_KNOWN_KEYS below: a
+   "Unit Cost"/"Cost"/"COGS" column still falls through to custom_fields via
+   extraFields exactly as it always has, preserved verbatim. It is listed
+   here ONLY so this file can check whether a value was actually GIVEN, for
+   the "no vendor needs a unit cost" rule immediately below. */
+const UNIT_COST_KEYS = ["unit cost", "cost", "cogs", "cost of goods", "wholesale cost"];
 
 /* Every column name draftProductBatch/previewBatch already knows what to do
    with. Anything else in the sheet is CUSTOM — ours, not Square's, and not
    dropped just because neither of us has a named field for it yet. */
 const PRODUCT_KNOWN_KEYS = [
   ...TITLE_KEYS, ...DESCRIPTION_KEYS, ...CATEGORY_KEYS, ...PRICE_KEYS, ...CURRENCY_KEYS, ...SKU_KEYS,
-  ...VENDOR_KEYS, ...COMMISSION_KEYS,
+  ...STYLE_ID_KEYS, ...VENDOR_KEYS, ...COMMISSION_KEYS,
 ];
 
 /*
@@ -211,6 +225,16 @@ export async function draftProductBatch(env, { text, actor, role }) {
       return;
     }
 
+    /* "We always need to have a style ID" — the owner's own words, walked
+       through a final time. Presence only: format and cross-catalog
+       uniqueness are catalog.create_product's own check() (STYLE_ID_FORMAT),
+       relayed the same way a bad category or price already is. */
+    const styleId = pick(record, STYLE_ID_KEYS);
+    if (!styleId) {
+      skipped.push({ row: rowNumber, title, reason: "no style ID column, or it was empty — every product needs a style ID" });
+      return;
+    }
+
     const vendor = pick(record, VENDOR_KEYS);
     const commissionRaw = pick(record, COMMISSION_KEYS);
     let commission;
@@ -221,18 +245,33 @@ export async function draftProductBatch(env, { text, actor, role }) {
         return;
       }
     }
-    /* "If we have a vendor name and we didn't provide a commission, that's a
-       problem" — the owner's own words. catalog.create_product's own check()
-       already refuses this combination (and the reverse, commission with no
-       vendor); this is the same "runTool has no way to say it, so report it
-       before runTool ever sees it" pattern the title/category/price checks
-       above already follow, except here the tool's own refusal text already
-       says it clearly, so it is simply surfaced rather than duplicated. */
+    const hasUnitCost = Boolean(pick(record, UNIT_COST_KEYS));
+    /* The owner's own words, walked through a final time: "if we have a
+       vendor name, then we must have a commission. If we don't have a
+       vendor name, then we must have a cost of goods... if we're adding a
+       product that has a price, no vendor, and no cogs, that's a problem
+       too." Square's own "unit cost" IS the cost-of-goods value — there is
+       no separate cogs attribute (see UNIT_COST_KEYS above) — so this reads
+       whichever of the UNIT_COST_KEYS synonyms the sheet used, without
+       needing its actual value (extraFields captures that, unchanged,
+       into custom_fields). Two mutually exclusive, both-required paths:
+       vendor -> commission, no vendor -> a unit cost. catalog.create_product's
+       own check() already refuses commission with no vendor, so only the
+       "runTool has no way to say it" half — a vendor with no commission,
+       or neither vendor nor a unit cost — needs reporting here. */
     if (vendor && commission === undefined) {
       skipped.push({
         row: rowNumber,
         title,
         reason: `vendor "${vendor}" was given without a commission — a product with a vendor needs a commission (0-100)`,
+      });
+      return;
+    }
+    if (!vendor && !hasUnitCost) {
+      skipped.push({
+        row: rowNumber,
+        title,
+        reason: "no vendor and no unit cost — a product needs a vendor (with a commission) or a unit cost",
       });
       return;
     }
@@ -246,6 +285,7 @@ export async function draftProductBatch(env, { text, actor, role }) {
         title,
         ...(description ? { description } : {}),
         category_id: category.id,
+        style_id: styleId,
         ...(vendor ? { vendor } : {}),
         ...(commission !== undefined ? { commission } : {}),
         variations: [
@@ -361,6 +401,7 @@ function mapProductRow(record) {
     currency: (pick(record, CURRENCY_KEYS) || "USD").toUpperCase(),
     description: pick(record, DESCRIPTION_KEYS) || null,
     sku: pick(record, SKU_KEYS) || null,
+    style_id: pick(record, STYLE_ID_KEYS) || null,
     vendor: pick(record, VENDOR_KEYS) || null,
     commission: pick(record, COMMISSION_KEYS) || null,
     ...extraFields(record, PRODUCT_KNOWN_KEYS),

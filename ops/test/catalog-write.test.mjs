@@ -442,11 +442,11 @@ check("test_PRD_P0_60_spreadsheet_products__a_clean_row_becomes_one_ready_to_rev
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   const csv =
-    "title,description,category,price,sku\n" +
-    `Wool Coat,Warm and heavy,${outerwear.name},450.00,VEM-100\n`;
+    "title,description,category,price,sku,style id,cost\n" +
+    `Wool Coat,Warm and heavy,${outerwear.name},450.00,VEM-100,01-04-001,210.00\n`;
 
   const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
-  assert.equal(result.skipped.length, 0);
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
   assert.equal(result.ready.length, 1);
   assert.equal(result.ready[0].title, "Wool Coat");
   assert.match(result.ready[0].url, /\/approvals\//);
@@ -482,7 +482,7 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_vendor_with_no_co
      parked, rather than silently created with no commission set. */
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
-  const csv = "title,category,price,vendor\n" + `Wool Coat,${outerwear.name},450.00,Acme Mills\n`;
+  const csv = "title,category,price,style id,vendor\n" + `Wool Coat,${outerwear.name},450.00,01-04-001,Acme Mills\n`;
 
   const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
   assert.equal(result.ready.length, 0);
@@ -493,7 +493,9 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_vendor_with_no_co
 check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_vendor_and_commission_is_parked_and_sets_both", async () => {
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
-  const csv = "title,category,price,vendor,commission\n" + `Wool Coat,${outerwear.name},450.00,Acme Mills,20\n`;
+  const csv =
+    "title,category,price,style id,vendor,commission\n" +
+    `Wool Coat,${outerwear.name},450.00,01-04-001,Acme Mills,20\n`;
 
   const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
@@ -519,11 +521,66 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_vendor_a
 check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_commission_that_is_not_a_whole_number_is_flagged", async () => {
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
-  const csv = "title,category,price,vendor,commission\n" + `Wool Coat,${outerwear.name},450.00,Acme Mills,twenty\n`;
+  const csv =
+    "title,category,price,style id,vendor,commission\n" +
+    `Wool Coat,${outerwear.name},450.00,01-04-001,Acme Mills,twenty\n`;
 
   const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
   assert.equal(result.ready.length, 0);
   assert.match(result.skipped[0].reason, /commission "twenty" is not a plain whole number/);
+});
+
+check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_no_style_id_is_flagged", async () => {
+  /* "We always need to have a style ID" — the owner's own words, walked
+     through a final time. */
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const csv = "title,category,price,cost\n" + `Wool Coat,${outerwear.name},450.00,210.00\n`;
+
+  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  assert.equal(result.ready.length, 0);
+  assert.match(result.skipped[0].reason, /no style ID column, or it was empty/);
+});
+
+check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_no_vendor_and_no_unit_cost_is_flagged", async () => {
+  /* The owner's own words: "if we don't have a vendor name, then we must
+     have a cost of goods... if we're adding a product that has a price, no
+     vendor, and no cogs, that's a problem too." Square's own "unit cost" IS
+     the cost-of-goods value here — there is no separate cogs attribute. */
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const csv = "title,category,price,style id\n" + `Wool Coat,${outerwear.name},450.00,01-04-001\n`;
+
+  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  assert.equal(result.ready.length, 0);
+  assert.match(result.skipped[0].reason, /no vendor and no unit cost/);
+});
+
+check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_a_style_id_and_unit_cost_but_no_vendor_is_parked", async () => {
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const csv = "title,category,price,style id,cost\n" + `Wool Coat,${outerwear.name},450.00,01-04-001,210.00\n`;
+
+  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.ready.length, 1);
+
+  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
+  const id = new URL(result.ready[0].url).pathname.split("/").pop();
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let approved;
+  try {
+    approved = await approvePending(f.env, id, approver);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(approved.ok, true, approved.error);
+
+  const row = f.mirror("SELECT style_id, vendor, custom_fields FROM mirror_product WHERE title = 'Wool Coat'")[0];
+  assert.equal(row.style_id, "01-04-001");
+  assert.equal(row.vendor, null);
+  assert.deepEqual(JSON.parse(row.custom_fields), { cost: "210.00" });
 });
 
 check("test_PRD_P0_70_flexible_spreadsheet_columns__a_real_world_header_row_still_matches", async () => {
@@ -532,8 +589,8 @@ check("test_PRD_P0_70_flexible_spreadsheet_columns__a_real_world_header_row_stil
      instead of "price", punctuation and casing nobody typed to a spec. */
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
   const csv =
-    "Item Name,Product_Type,Retail Price\n" +
-    "Wool Coat,Outerwear,245.00\n";
+    "Item Name,Product_Type,Retail Price,Style ID,Cost\n" +
+    "Wool Coat,Outerwear,245.00,01-04-001,110.00\n";
 
   const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
@@ -551,8 +608,8 @@ check("test_PRD_P0_70_flexible_spreadsheet_columns__an_unrecognised_column_is_ke
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   const csv =
-    "title,category,price,Unit Cost,Fabric Note\n" +
-    `Wool Coat,${outerwear.name},450.00,210.00,Boiled wool\n`;
+    "title,category,price,Style ID,Unit Cost,Fabric Note\n" +
+    `Wool Coat,${outerwear.name},450.00,01-04-001,210.00,Boiled wool\n`;
 
   const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
@@ -586,7 +643,7 @@ check("test_PRD_P0_70_flexible_spreadsheet_columns__a_cost_column_is_no_longer_m
      next to it. */
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
-  const csv = "title,category,price,cost\n" + `Wool Coat,${outerwear.name},450.00,210.00\n`;
+  const csv = "title,category,price,style id,cost\n" + `Wool Coat,${outerwear.name},450.00,01-04-001,210.00\n`;
 
   const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
@@ -631,7 +688,7 @@ check("test_PRD_P0_60_spreadsheet_products__catalog_create_product_still_gates_o
      minRole is felt in exactly one place, not silently in two. */
   const f = await fixture({ actor: "ana@vemians.com", role: "staff" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
-  const csv = `title,category,price\nWool Coat,${outerwear.name},450.00\n`;
+  const csv = `title,category,price,style id,cost\nWool Coat,${outerwear.name},450.00,01-04-001,210.00\n`;
 
   const result = await draftProductBatch(f.env, { text: csv, actor: "ana@vemians.com", role: "staff" });
   assert.equal(result.ready.length, 0);
@@ -1619,6 +1676,44 @@ check("test_PRD_P0_136_square_custom_attributes__commission_must_be_a_whole_numb
   assert.match(res.error, /0-100/);
 });
 
+check("test_PRD_P0_136_square_custom_attributes__create_product_accepts_a_style_id_and_checks_the_same_format", async () => {
+  /* style_id CAN be set at creation time too (Test-PRD-P0-136), the same as
+     vendor/commission — this call already reaches Square for the item
+     itself, so there is no reason to force a second edit afterward. */
+  const f = await fixture();
+  const category = f.categories()[0];
+  const bad = await runTool(
+    "catalog.create_product",
+    { ...COAT, category_id: category.id, style_id: "not-a-style-id" },
+    f.ctx,
+  );
+  assert.equal(bad.ok, false);
+  assert.match(bad.error, /NN-NN-NNN/);
+  assert.deepEqual(f.calls(), [], "a refused style_id must never reach Square");
+
+  const res = await approvedCall(f, "catalog.create_product", {
+    ...COAT,
+    category_id: category.id,
+    style_id: "05-02-010",
+  });
+  assert.equal(res.ok, true, res.error);
+  assert.equal(res.data.product.style_id, "05-02-010");
+});
+
+check("test_PRD_P0_136_square_custom_attributes__create_product_refuses_a_duplicate_style_id", async () => {
+  const f = await fixture();
+  await approvedCall(f, "catalog.set_square_attributes", { handle: COAT_HANDLE, style_id: "01-04-001" });
+
+  const category = f.categories()[0];
+  const conflict = await runTool(
+    "catalog.create_product",
+    { ...COAT, category_id: category.id, style_id: "01-04-001" },
+    f.ctx,
+  );
+  assert.equal(conflict.ok, false);
+  assert.match(conflict.error, new RegExp(`already assigned to '${COAT_HANDLE}'`));
+});
+
 /* ─────────────────────────────────────────────────────────────────────────
  * P0-71 — custom_fields: the same "ours, not Square's" pattern as channel
  * ───────────────────────────────────────────────────────────────────────── */
@@ -2471,7 +2566,7 @@ check("test_PRD_P0_88_spreadsheet_via_chat__a_real_csv_drafts_through_the_same_p
      a wrong guess by the same deterministic parser /products/batch itself
      trusts. */
   const f = await fixture();
-  const csv = "title,category,price\nWool Coat,Outerwear,450.00\n,Outerwear,10\n";
+  const csv = "title,category,price,style id,cost\nWool Coat,Outerwear,450.00,01-04-001,210.00\n,Outerwear,10,,\n";
   const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
 
   const outcome = await dispatch(
@@ -2546,7 +2641,7 @@ check("test_PRD_P0_89_batch_preview_confirm__previews_the_first_rows_and_heading
      sample row now (PREVIEW_SAMPLE_ROWS, batch.js) — "just... one, two
      rows, one for the headings and one row of data" — even though the
      sheet itself has two. */
-  assert.deepEqual(outcome.table.columns, ["title", "category", "price", "currency", "description", "sku", "vendor", "commission"]);
+  assert.deepEqual(outcome.table.columns, ["title", "category", "price", "currency", "description", "sku", "style_id", "vendor", "commission"]);
   assert.equal(outcome.table.rows.length, 1, "only the first row is sampled");
   const titleCol = outcome.table.columns.indexOf("title");
   assert.equal(outcome.table.rows[0][titleCol], "Wool Coat");
@@ -2633,7 +2728,7 @@ check("test_PRD_P0_89_batch_preview_confirm__the_draft_tools_carry_a_structured_
   /* Not just the preview — the real draft result is ALSO structured, since a
      person cannot review forty skip reasons rendered as one text bubble. */
   const f = await fixture();
-  const csv = "title,category,price\nWool Coat,Outerwear,450.00\n,Outerwear,10\n";
+  const csv = "title,category,price,style id,cost\nWool Coat,Outerwear,450.00,01-04-001,210.00\n,Outerwear,10,,\n";
   const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
 
   const outcome = await dispatch(

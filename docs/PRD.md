@@ -3410,8 +3410,9 @@ that does not trace to one of these is a process failure (see §12).
     since a `CHECK` constraint on the column cannot see "the other value this call is also setting."
     The reverse (a vendor with no commission yet) is NOT refused here — that would break the ordinary
     "set vendor now, add commission later" edit — it is a spreadsheet-import concern instead, below.
-    `catalog.create_product` accepts `vendor`/`commission` too, at creation time, under the identical
-    rule, since it already reaches Square for the item itself.
+    `catalog.create_product` accepts `style_id`/`vendor`/`commission` too, at creation time, under the
+    identical rules (format + the whole-catalog conflict check for `style_id`; the vendor requirement
+    for `commission`), since it already reaches Square for the item itself.
 
     **style_id is explicitly NOT the SKU.** The owner's own words, correcting an earlier version of
     this feature that (before this revision) planned to key deep links and this nomenclature off the
@@ -3433,17 +3434,32 @@ that does not trace to one of these is a process failure (see §12).
     this form, a deliberate, known limitation rather than an oversight, since a blank style_id would
     fail its own format check with a confusing error if treated as an explicit value instead.
 
-    **Spreadsheet ingestion flags the same rule before a row is ever parked, rather than
-    silently importing an incomplete product.** The owner's own words, on top of the direct-edit
-    rule above: "it's important that... when you're ingesting spreadsheets... the agent flag[s] any
-    issues before submitting. So if we have a vendor name and we didn't provide a commission, that's
-    a problem." `ops/src/batch.js`'s `draftProductBatch` now recognizes `vendor`/`commission`
-    columns (previously they fell through as opaque `custom_fields` text) and skips a row with a
-    plain reason — the same "runTool has no way to say it, so report it before runTool ever sees it"
-    treatment the title/category/price checks already get — when a vendor is given with no
-    commission, or a commission cell does not parse as a plain whole number; the reverse (commission
-    with no vendor) is left to `catalog.create_product`'s own `check()`, whose refusal text is
-    already clear enough to relay verbatim through `parkRows`.
+    **Spreadsheet ingestion enforces the FULL set of rules before a row is ever parked, rather
+    than silently importing an incomplete product** — walked through a final time, more firmly than
+    the first pass: "if we have a vendor name, then we must have a commission. If we don't have a
+    vendor name, then we must have a cost of goods... we always need to have a style ID... if we're
+    adding a product that has a price, no vendor, and no cogs, that's a problem too." Square's own
+    "unit cost" (`custom_fields`, unchanged — not a new column) **IS** the cost-of-goods value the
+    owner means by "cogs": there is no separate `cogs` attribute, on purpose (see the fourth-field
+    discussion above). `ops/src/batch.js`'s `draftProductBatch` now recognizes `style_id`/`vendor`/
+    `commission` columns (previously `vendor`/`commission` fell through as opaque `custom_fields`
+    text, and `style_id` was not recognized at all) and skips a row with a plain reason — the same
+    "runTool has no way to say it, so report it before runTool ever sees it" treatment the
+    title/category/price checks already get — for any of: no style ID at all; a vendor given with no
+    commission; a commission cell that does not parse as a plain whole number; or NEITHER a vendor
+    NOR a unit cost value. (Price itself was already required before this revision — Square's own
+    MSRP, "already part of Square," needs no new check.) The one direction still left to
+    `catalog.create_product`'s own `check()` is commission given with no vendor, whose refusal text
+    is already clear enough to relay verbatim through `parkRows`; style_id's format and whole-catalog
+    uniqueness are likewise left to that same `check()` rather than duplicated here.
+
+    **Considered and set aside: a GTIN field for a vendor's own product code.** The owner raised it in
+    passing — "if there is some kind of specific invoice, like a vendor SKU or some kind of other
+    identification for the product... that's the GTIN number" — but this is a forward-looking note,
+    not a request with a concrete column or Square field name attached, so nothing was built for it.
+    **Confirmed, final field set for this feature: exactly three custom attributes — `style_id`
+    (text, this shop's own nomenclature), `vendor` (text) and `commission` (integer 0-100). No fourth
+    field.**
 
     **Considered and set aside: surfacing these to Square's own Dashboard, and switching
     `custom_fields` to Custom Attributes wholesale.** Square does support seller-visible custom
