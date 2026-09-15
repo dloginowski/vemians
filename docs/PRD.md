@@ -3633,6 +3633,16 @@ that does not trace to one of these is a process failure (see §12).
     `<span class="variations-label">Variations</span>` sits beside the caret, inside the same
     decorated bar — no control, nothing to click, just the word.
 
+    **REVISED: a real Style ID label, and unit cost ordered before MSRP to match the rows below.**
+    "Then we're going to have style ID label. Then the entry field just should have the hint for the
+    format, no parentheses." The placeholder was doing double duty as both label and format hint
+    (`"Style ID (NN-NN-NNN)"`); a real `<span class="variations-header-label">Style ID</span>` now
+    carries the label, and the placeholder shrank to just `"NN-NN-NNN"`. "On the right side...
+    right-justified... the unit cost and then the MSRP... so that they align with the children who
+    also have their own unit cost and their own MSRP" — the header's two broadcasters swapped order
+    (cost, then MSRP) and so did every variation row's own cost/price columns, so the two rows read
+    as one aligned pair of columns rather than a header and a differently-ordered body underneath it.
+
     **REVISED: title and description are editable from the Items tab too.** "Where's the item label
     and where is the description fields? Shouldn't we be able to change that?" Both always reached
     `catalog.update_product` — `title`/`description` have been in its schema since P0-37 — but nothing

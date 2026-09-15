@@ -1712,6 +1712,11 @@ ${INPUT_BAR_CSS}
    they're looking for" — a plain word, not another control, so it never
    competes with the fields beside it for width. */
 .variations-label { flex: 0 0 auto; font-size: 11px; color: var(--muted); }
+/* "Then we're going to have style ID label. Then the entry field just
+   should have the hint for the format, no parentheses" — a real label,
+   not the placeholder doing double duty as one; the placeholder shrinks
+   to just the format hint now that the label says what it is. */
+.variations-header-label { flex: 0 0 auto; font-size: 11px; color: var(--muted); margin-left: 4px; }
 .variations-header form { display: contents; }
 /* "The variation label itself is fine, it could be long... but indent
    them a little so it's clearer it's underneath the accordion it belongs
@@ -1966,10 +1971,10 @@ function itemTile(product, canEdit) {
         `<input type="hidden" name="variant_id_${i}" value="${esc(v.id)}">` +
         `<input type="hidden" name="currency_${i}" value="${esc(v.currency)}">` +
         `<input class="variation-title" name="title_${i}" value="${esc(v.title)}" placeholder="Variation name">` +
-        `<input class="variation-price" name="price_${i}" value="${esc((v.price_minor / 100).toFixed(2))}" placeholder="Price">` +
         (hasVendor
           ? `<input class="variation-unit-cost" name="unit_cost_${i}" value="${v.unit_cost_minor ? esc((v.unit_cost_minor / 100).toFixed(2)) : ""}" placeholder="Cost">`
           : "") +
+        `<input class="variation-price" name="price_${i}" value="${esc((v.price_minor / 100).toFixed(2))}" placeholder="Price">` +
         `</div>`,
     )
     .join("");
@@ -1979,10 +1984,11 @@ function itemTile(product, canEdit) {
            <button type="button" class="variations-toggle" aria-label="Show every variation" title="Show every variation">${CARET_ICON}</button>
            <span class="variations-label">Variations</span>
            <form method="post" action="/items/${esc(product.handle)}/square-attributes" class="row">
-             <input name="style_id" value="${esc(product.style_id ?? "")}" placeholder="Style ID (NN-NN-NNN)" pattern="\\d{2}-\\d{2}-\\d{3}" title="NN-NN-NNN — a 2-digit category, a 2-digit subcategory, a 3-digit item number, e.g. 01-04-001. Leave blank to keep it as it is.">
+             <span class="variations-header-label">Style ID</span>
+             <input name="style_id" value="${esc(product.style_id ?? "")}" placeholder="NN-NN-NNN" pattern="\\d{2}-\\d{2}-\\d{3}" title="NN-NN-NNN — a 2-digit category, a 2-digit subcategory, a 3-digit item number, e.g. 01-04-001. Leave blank to keep it as it is.">
            </form>
-           <input class="variations-msrp" placeholder="MSRP — every variation's price">
            ${hasVendor ? `<input class="variations-unit-cost" placeholder="Cost — every variation's cost">` : ""}
+           <input class="variations-msrp" placeholder="MSRP — every variation's price">
          </div>
          <div class="variations-body">
            ${

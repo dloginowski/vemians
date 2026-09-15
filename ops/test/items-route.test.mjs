@@ -826,7 +826,8 @@ check("test_PRD_P0_136_square_custom_attributes__the_edit_form_posts_to_square_a
   const body = await res.text();
   const squareAttrForms = [...body.matchAll(/<form method="post" action="\/items\/wool-coat\/square-attributes"[^>]*>/g)];
   assert.equal(squareAttrForms.length, 2, "style_id and vendor/vendor_code/commission are two separate forms now");
-  assert.match(body, /<input name="style_id" value="01-04-001" placeholder="Style ID \(NN-NN-NNN\)" pattern="\\d\{2\}-\\d\{2\}-\\d\{3\}"/);
+  assert.match(body, /<span class="variations-header-label">Style ID<\/span>/, "a real label now, not just the placeholder");
+  assert.match(body, /<input name="style_id" value="01-04-001" placeholder="NN-NN-NNN" pattern="\\d\{2\}-\\d\{2\}-\\d\{3\}"/);
   assert.doesNotMatch(body, /<input name="unit_cost"/, "unit_cost is no longer a real form field anywhere");
   assert.match(body, /<input class="variations-unit-cost" placeholder="Cost/);
   assert.match(body, /<input name="vendor" value="Acme Mills" placeholder="Vendor">/);
@@ -941,10 +942,22 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_variations_accordion_h
   /* style_id lives in the accordion's own header; unit cost is now this
      ONE variation's own field, since "all the variants can have a
      different unit cost too." */
-  assert.match(body, /<input name="style_id" value="01-04-001"/);
+  assert.match(body, /<span class="variations-header-label">Style ID<\/span>/);
+  assert.match(body, /<input name="style_id" value="01-04-001" placeholder="NN-NN-NNN"/, "just the format hint, no parentheses, now that there's a real label");
   assert.match(body, /<input class="variation-unit-cost" name="unit_cost_0" value="42\.50" placeholder="Cost">/);
   assert.match(body, /<input class="variations-msrp" placeholder="MSRP/);
   assert.match(body, /<input class="variations-unit-cost" placeholder="Cost/);
+  /* "On the right side... the unit cost and then the MSRP... so that they
+     align with the children who also have their own unit cost and their
+     own MSRP" — cost before price, in both the header and every row. */
+  assert.ok(
+    body.indexOf('class="variations-unit-cost"') < body.indexOf('class="variations-msrp"'),
+    "header: unit cost before MSRP",
+  );
+  assert.ok(
+    body.indexOf('name="unit_cost_0"') < body.indexOf('name="price_0"'),
+    "each variation row: unit cost before price, aligned with the header above it",
+  );
   /* The direct-link deep link is the one place a SKU still matters — the
      owner's own words: "if you do a direct link, that makes sense...
      otherwise it's completely not our problem" — so data-sku must still
