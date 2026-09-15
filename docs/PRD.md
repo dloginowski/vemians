@@ -3382,9 +3382,13 @@ that does not trace to one of these is a process failure (see §12).
     Square's own opaque definition id, which is what lets an app address its own attribute directly
     without persisting that id anywhere. A missing value, or one of a type other than `STRING`, reads
     as `null`, not guessed at. commission is a `STRING` attribute holding a plain integer string
-    (`"20"`), the same "never a float" discipline (Test-PRD-P0-15-money_minor_units) every money-
-    adjacent value in this codebase already follows, rather than Square's own `NUMBER` type, which
-    represents a decimal amount as a string.
+    (`"20"`) rather than Square's own `NUMBER` type — verified against Square's SDK source that this
+    is NOT to avoid float precision loss (`NUMBER`'s own `number_value` is string-encoded on the wire
+    too, exactly like `STRING`'s `string_value` — no floats involved either way) and NOT because
+    `NUMBER` offers range validation (it doesn't: `number_config` has only a decimal-places
+    `precision` field, no min/max, so "0-100" is enforced in `check()` regardless of type). The actual
+    reason is smaller: `STRING` keeps `customAttr()`/`customAttributeValues()` one code path for all
+    three attributes instead of two.
 
     **`catalog.set_square_attributes` (T2, manager+) is the mirror image of `catalog.set_channel`
     structurally: it DOES declare and use the `square` resource**, where `set_channel`/

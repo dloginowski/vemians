@@ -285,9 +285,11 @@ export function createSquareCatalogWriter(env, opts = {}) {
      never "clear it" — every caller resolves "not provided" to the
      product's own CURRENT value before calling this, so nothing is ever
      silently wiped by an edit that only meant to touch the other field.
-     commission is stored as a plain integer string, same "never a float"
-     discipline as everywhere else money-adjacent in this codebase — see
-     shared/commerce/square/catalog.js's own customAttrInt. */
+     commission is stored as a plain integer string (STRING type, not
+     Square's NUMBER type) purely to keep this builder and catalog.js's own
+     customAttr() as ONE code path for style_id/vendor/commission alike —
+     see customAttrInt's own comment there for why NUMBER was considered
+     and set aside. */
   function customAttributeValues({ styleId, vendor, commissionPct } = {}) {
     const out = {};
     if (styleId) out.style_id = { key: "style_id", type: "STRING", string_value: styleId };

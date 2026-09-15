@@ -156,10 +156,17 @@ function customAttr(data, key) {
   return typeof s === "string" && s ? s : null;
 }
 
-/* commission is a STRING-type attribute holding a plain integer 0-100 — the
-   SAME "never a float" discipline Test-PRD-P0-15-money_minor_units already
-   enforces for every money value in this codebase, rather than Square's own
-   NUMBER type, which represents a decimal amount as a string. */
+/* commission is a STRING-type attribute holding a plain integer 0-100, read
+   through the SAME customAttr() as style_id/vendor. Square's own NUMBER
+   type was considered and set aside — NOT because it would reintroduce
+   float precision loss (its own `number_value` is string-encoded on the
+   wire too, "20", same as STRING's `string_value` — verified against
+   Square's SDK source, no float involved either way) but because it buys
+   nothing here: Square's NUMBER definition only offers a decimal-places
+   `precision` config, no min/max/range validation, so "0-100" still has to
+   be enforced in our own check() regardless of type. STRING keeps this
+   reader, and customAttributeValues() in catalog-writer.js, as ONE code
+   path for all three attributes instead of two. */
 function customAttrInt(data, key) {
   const s = customAttr(data, key);
   if (s === null) return null;
