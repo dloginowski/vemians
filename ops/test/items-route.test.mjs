@@ -865,7 +865,7 @@ check("test_PRD_P0_136_square_custom_attributes__the_edit_form_posts_to_square_a
      short as possible... commission just say COMM" — short placeholders,
      with the fuller wording moved to a title tooltip instead of dropped. */
   assert.match(body, /<input name="vendor_code" value="ACME-4471" placeholder="Vendor SKU" title="The vendor's own SKU\/code">/);
-  assert.match(body, /<input name="commission" value="20" placeholder="COM&amp;" title="Commission % \(0-100\)">/);
+  assert.match(body, /<input name="commission" value="20" placeholder="COM%" title="Commission % \(0-100\)">/);
 });
 
 check("test_PRD_P0_136_square_custom_attributes__staff_cannot_reach_the_route_before_square_is_ever_touched", async () => {
@@ -1057,10 +1057,28 @@ check("test_PRD_P0_135_item_edit_applies_immediately__header_and_row_fields_are_
     body,
     /\.variations-header input, \.variations-body input\[name\^="price_"\], \.variations-body input\[name\^="unit_cost_"\]\s*\{\s*text-align: center;/,
   );
-  assert.match(body, /\.variations-header input\[name="style_id"\]\s*\{[^}]*width: 9ch/);
+  /* REVISED: "make the style ID box vertically aligned with the inventory
+     plus/minus box... shift the style ID label over... you may increase
+     the style ID font size to fill that box so it's the same width as
+     the inventory fields below it" — width now matches the stock
+     stepper's own 5.5em, with a larger font-size, and the spacer moved to
+     BEFORE style_id (between it and "Variations") so style_id/Cost/MSRP
+     read as one packed group at the header's own right end, the same way
+     stepper/Cost/price already are in each row. */
+  assert.match(body, /\.variations-header input\[name="style_id"\]\s*\{[^}]*width: 5\.5em[^}]*font-size: 13px/);
   assert.match(body, /<span class="variations-header-spacer"><\/span>/, "an invisible spacer absorbs the header's own leftover width, the same way each row's own title does");
   assert.match(body, /\.variations-header-spacer\s*\{\s*flex: 1 1 auto;\s*\}/);
   assert.match(body, /\.variations-body \.row\s*\{[^}]*padding: 3px 8px 3px 0/, "an 8px right inset matches the header's own 8px right padding");
+  const accordionMarkup2 = body.indexOf('<div class="variations-accordion">');
+  const spacerMarkup = body.indexOf('<span class="variations-header-spacer">');
+  /* Two forms share this same action now (the vendor form, moved above
+     the accordion in an earlier revision, and style_id's own, inside it)
+     — search from the accordion onward for style_id's own occurrence. */
+  const styleIdFormMarkup = body.indexOf('action="/items/wool-coat/square-attributes"', accordionMarkup2);
+  assert.ok(
+    body.indexOf('<span class="variations-label">Variations</span>') < spacerMarkup && spacerMarkup < styleIdFormMarkup,
+    "the spacer now sits between the Variations label and the style_id form",
+  );
 });
 
 check("test_PRD_P0_135_item_edit_applies_immediately__title_and_description_are_editable_by_a_manager", async () => {

@@ -737,6 +737,23 @@ that does not trace to one of these is a process failure (see §12).
     **REVISED: `"COM&"`, not `"Comm"`.** The owner's own follow-up, one word later: "instead of
     COMM, how about COM and then an ampersand sign?" — one character shorter, same idea.
 
+    **REVISED AGAIN: `"COM%"`, not `"COM&"`.** "Sorry, not ampersand, but percent sign" — a
+    correction of the correction, one message later.
+
+    **REVISED: style_id moves toward the header's own right-anchored group, and grows to fill its
+    own wider box.** "Make the style ID box vertically aligned with the inventory plus/minus box...
+    shift the style ID label over a little, give some padding so it fits nicely." `style_id` has no
+    per-variation counterpart of its own to line up with the way Cost/MSRP do, so instead of
+    sitting right after "Variations" — the caret's own label, which the stock stepper has no
+    equivalent of either — `.variations-header-spacer` now sits BEFORE it (between it and
+    "Variations") rather than between it and Cost. `style_id`/Cost/MSRP read as one fixed-width
+    group packed against the header's own right edge now, the same way the stepper/Cost/price
+    already are in each row below, so style_id lands roughly where the stepper sits instead of
+    hugging the caret. "You may increase the style ID font size to fill that box so it's the same
+    width as the inventory fields below it" — `style_id`'s own width now matches
+    `.variation-stock-stepper`'s `5.5em` exactly (was a 9-characters-exact `9ch`), with a larger
+    `13px` font-size so the pattern fills that wider box instead of looking sparse in it.
+
 31. **`Test-PRD-P0-32-tickets`** — Company-wide issues live in their own `tickets` store. A ticket
     cannot be deleted, only moved through status, and resolving one requires a timestamp.
     Comments are append-only. Links to orders, customers, products and shifts are id plus a

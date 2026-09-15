@@ -1779,12 +1779,22 @@ ${INPUT_BAR_CSS}
 .variations-header input, .variations-body input[name^="price_"], .variations-body input[name^="unit_cost_"] {
   text-align: center;
 }
-/* "Scale that input field to only fit that exact amount of characters" —
-   the style_id pattern (NN-NN-NNN) is exactly 9 characters; the ch unit
-   sizes to that directly instead of an em-based guess. The one header field with
-   no per-variation counterpart to line up with, so its own width is free
-   to be driven by its own content alone. */
-.variations-header input[name="style_id"] { flex: 0 0 auto; width: 9ch; }
+/* REVISED: "make the style ID box vertically aligned with the inventory
+   plus/minus box, so shift the style ID label over a little... give some
+   padding so it fits nicely" — style_id has no per-variation counterpart
+   of its own to line up with, so instead of sitting right after
+   "Variations" (which the stock stepper has no equivalent of either), a
+   variations-header-spacer now sits BEFORE it, absorbing the same
+   leftover width the row's own title already does — the same trick
+   already used to anchor Cost/MSRP to the header's right edge, just
+   applied one field earlier so style_id ends up roughly where the
+   stepper sits in each row instead of hugging the caret/label. "You may
+   increase the style ID font size to fill that box so it's the same
+   width as the inventory fields below it" — width now matches
+   .variation-stock-stepper's own 5.5em exactly (was a 9-characters-exact
+   9ch), with a larger font-size so the pattern actually fills it rather
+   than leaving it looking sparse. */
+.variations-header input[name="style_id"] { flex: 0 0 auto; width: 5.5em; font-size: 13px; }
 /* "Ensure the header's cost/MSRP align exactly with the children rows'
    own cost/price" — the row's own title absorbs all its row's leftover
    width (flex: 1 1 auto), pushing its fixed-width stepper/cost/price
@@ -1792,7 +1802,13 @@ ${INPUT_BAR_CSS}
    so cost/MSRP floated wherever style_id's own width happened to end
    instead. This spacer is the header's equivalent of that leftover-space
    absorber — invisible, no content, just flex: 1 1 auto — so cost/MSRP
-   land at the SAME right-edge-anchored position the rows' own fields do. */
+   land at the SAME right-edge-anchored position the rows' own fields do.
+   REVISED: now sits BEFORE style_id (between it and "Variations") rather
+   than between style_id and Cost, once the owner also wanted style_id
+   itself pushed toward that same right-anchored group, roughly where the
+   stock stepper sits in each row — style_id/Cost/MSRP are one fixed-width
+   packed group at the row's end now, same as stepper/Cost/price already
+   are below. */
 .variations-header-spacer { flex: 1 1 auto; }
 /* "Unit cost and MSRP boxes are way too big... ten thousand dollars is
    the maximum we'll charge for a piece of clothing" — $10,000.00 is 8
@@ -2054,11 +2070,11 @@ function itemTile(product, canEdit) {
          <div class="variations-header">
            <button type="button" class="variations-toggle" aria-label="Show every variation" title="Show every variation">${CARET_ICON}</button>
            <span class="variations-label">Variations</span>
+           <span class="variations-header-spacer"></span>
            <form method="post" action="/items/${esc(product.handle)}/square-attributes" class="row">
              <span class="variations-header-label">Style ID</span>
              <input name="style_id" value="${esc(product.style_id ?? "")}" placeholder="NN-NN-NNN" pattern="\\d{2}-\\d{2}-\\d{3}" title="NN-NN-NNN — a 2-digit category, a 2-digit subcategory, a 3-digit item number, e.g. 01-04-001. Leave blank to keep it as it is.">
            </form>
-           <span class="variations-header-spacer"></span>
            <input class="variations-unit-cost" placeholder="Cost">
            <input class="variations-msrp" placeholder="MSRP">
          </div>
@@ -2142,7 +2158,7 @@ function itemTile(product, canEdit) {
            <div class="row">
              <input name="vendor" value="${esc(product.vendor ?? "")}" placeholder="Vendor">
              <input name="vendor_code" value="${esc(product.vendor_code ?? "")}" placeholder="Vendor SKU" title="The vendor's own SKU/code">
-             <input name="commission" value="${esc(product.commission_pct != null ? String(product.commission_pct) : "")}" placeholder="COM&amp;" title="Commission % (0-100)">
+             <input name="commission" value="${esc(product.commission_pct != null ? String(product.commission_pct) : "")}" placeholder="COM%" title="Commission % (0-100)">
            </div>
          </form>
        </div>`
