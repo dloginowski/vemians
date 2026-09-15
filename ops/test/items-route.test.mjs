@@ -988,6 +988,32 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_page_script_propagates
   assert.match(body, /accordion\?\.querySelectorAll\("\.variation-price"\)\.forEach\(\(input\) => \{\s*\n\s*input\.value = e\.target\.value;/);
 });
 
+check("test_PRD_P0_135_item_edit_applies_immediately__a_changed_field_and_a_msrp_propagated_field_both_get_the_dirty_highlight", async () => {
+  /* The owner's own words: "any changed fields should be marked with an
+     orange highlight, and so is the save button." field-dirty is added to
+     the field the change event actually fired on, and ALSO to every
+     .variation-price input the MSRP field's own propagation touches — not
+     just whichever one the person actually typed into. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.match(body, /e\.target\.classList\.add\("field-dirty"\);\s*\n\s*markDirty\(form\);/);
+  assert.match(
+    body,
+    /input\.value = e\.target\.value;\s*\n\s*input\.classList\.add\("field-dirty"\);\s*\n\s*\}\);\s*\n\s*e\.target\.classList\.add\("field-dirty"\);/,
+    "every propagated variation price gets the highlight too, not just the MSRP field itself",
+  );
+});
+
+check("test_PRD_P0_135_item_edit_applies_immediately__the_dirty_highlight_css_covers_text_fields_selects_and_checkboxes", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.match(body, /\.item-tile input\.field-dirty, \.item-tile select\.field-dirty \{ border-color: var\(--accent\); \}/);
+  assert.match(body, /\.item-tile input\.field-dirty\[type="checkbox"\] \{ outline: [^}]*var\(--accent\)/);
+  assert.match(body, /\.item-save-all:not\(:disabled\) \{ color: var\(--accent\); \}/);
+});
+
 check("test_PRD_P0_135_item_edit_applies_immediately__the_edit_area_is_a_plain_div_not_a_details_disclosure", async () => {
   const mirror = mirrorDb();
   seedProduct(mirror, { style_id: "01-04-001", vendor: "Acme Mills", commission_pct: 20 });

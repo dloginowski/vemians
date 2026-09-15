@@ -3487,6 +3487,17 @@ that does not trace to one of these is a process failure (see §12).
     failed keeps its own inline error and the button re-enables, so the rest can be fixed and saved
     again without losing track of which section still needs attention.
 
+    **REVISED: an orange highlight, not just an enabled button.** "Any changed fields should be
+    marked with an orange highlight, and so is the save button." `onItemsGridChange` adds
+    `field-dirty` to the exact field a change fired on (never just the form it lives in), styled
+    with `border-color: var(--accent)` for a text/select field and an `outline` for a checkbox
+    (which has no visible border to recolour) — specific enough (`.item-tile input.field-dirty`,
+    element plus class plus an ancestor class) to beat every input-styling rule already declared
+    regardless of source order. The MSRP field's own bulk-propagation marks every `.variation-price`
+    input it touches too, not only the field someone actually typed into. `.item-save-all` needs no
+    separate class at all — `:not(:disabled)` already means "there is something dirty to save," so
+    that alone is what turns it `var(--accent)`.
+
     **Closing a dirty tile asks first.** "If you try to close the expanded page, it will warn you
     that you have unsaved changes." The Close button's own click handler checks `tile.classList.
     contains("dirty")` — the exact same class `markDirty` already sets, nothing new to keep in sync

@@ -1607,6 +1607,11 @@ ${INPUT_BAR_CSS}
 .item-tile.full .item-save-all { display: inline-flex; }
 .item-save-all:disabled { opacity: 0.35; cursor: default; }
 .item-save-all:disabled:hover { background: transparent; }
+/* The owner's own words: "any changed fields should be marked with an
+   orange highlight, and so is the save button" — enabled (there is
+   something dirty to save) IS the highlight; no separate class needed
+   since :disabled already carries the opposite state. */
+.item-save-all:not(:disabled) { color: var(--accent); }
 /* style_id took the SKU's old spot — the owner's own words: "these are
    generated automatically by Square and we should not be editing them at
    all... we don't need to see them in our ops dashboard." */
@@ -1707,6 +1712,14 @@ ${INPUT_BAR_CSS}
   flex: 1 1 auto; min-width: 0; font: inherit; font-size: 11px; padding: 3px 5px;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
 }
+/* "Any changed fields should be marked with an orange highlight" — added
+   to the specific field that changed (onItemsGridChange, below), not just
+   the form it lives in. Specific enough (element + class, twice over) to
+   beat every input-styling rule above regardless of source order — a
+   checkbox has no visible border to recolour, so it gets an outline
+   instead of the same border-color change every text/select field gets. */
+.item-tile input.field-dirty, .item-tile select.field-dirty { border-color: var(--accent); }
+.item-tile input.field-dirty[type="checkbox"] { outline: 1.5px solid var(--accent); outline-offset: 1px; }
 /* A check() refusal (a malformed style_id, a vendor with no commission, a
    unit cost with no vendor) shows up right here, next to the form that was
    refused — not on a separate page. The owner's own words: "I don't want
@@ -2382,12 +2395,17 @@ function onItemsGridChange(e) {
     const accordion = e.target.closest(".variations-accordion");
     accordion?.querySelectorAll(".variation-price").forEach((input) => {
       input.value = e.target.value;
+      input.classList.add("field-dirty");
     });
+    e.target.classList.add("field-dirty");
     markDirty(accordion?.querySelector(".variations-body form"));
     return;
   }
   const form = e.target.closest(".item-badges form, .item-edit form, .variations-header form, .variations-body form");
-  if (form) markDirty(form);
+  if (form) {
+    e.target.classList.add("field-dirty");
+    markDirty(form);
+  }
 }
 document.getElementById("items-grid").addEventListener("input", onItemsGridChange);
 document.getElementById("items-grid").addEventListener("change", onItemsGridChange);
