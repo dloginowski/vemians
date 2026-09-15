@@ -774,6 +774,9 @@ that does not trace to one of these is a process failure (see §12).
     itself carries no side padding at all — its two buttons sit flush against its own border — so
     zero, not any smaller nonzero value, is what actually matches it (`1px 3px` → `1px 0`).
 
+    **REVISED: `vendor_code` centered too.** "Center the vendor SKU content too" — extending the
+    centering cost/MSRP/style_id already got to this field as well.
+
 31. **`Test-PRD-P0-32-tickets`** — Company-wide issues live in their own `tickets` store. A ticket
     cannot be deleted, only moved through status, and resolving one requires a timestamp.
     Comments are append-only. Links to orders, customers, products and shifts are id plus a
