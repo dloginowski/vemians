@@ -186,6 +186,23 @@ export function createMirror(mirror, { commerce, locationId, audit = null, now =
         const row = await first("SELECT id FROM mirror_category WHERE external_ref = ?", cat.externalRef);
         if (row) categoryIdByRef.set(cat.externalRef, row.id);
       }
+      /* Second pass, only once every category in THIS sync has its own row
+         — a child can arrive before its own parent in Square's own list
+         order. Falls back to a DB lookup (not just categoryIdByRef, which
+         only holds rows touched in THIS call) so an incremental sync of
+         just the child alone does not NULL OUT an already-known parent
+         link the parent's own earlier sync already recorded. numeric_id is
+         deliberately never touched here: it is OURS, not Square's, and
+         survives every future re-sync untouched, the same convention
+         channel/custom_fields already establish on mirror_product. */
+      for (const cat of categories) {
+        const parentId = cat.parentExternalRef
+          ? (categoryIdByRef.get(cat.parentExternalRef) ??
+              (await first("SELECT id FROM mirror_category WHERE external_ref = ?", cat.parentExternalRef))?.id ??
+              null)
+          : null;
+        await run("UPDATE mirror_category SET parent_id = ? WHERE external_ref = ?", parentId, cat.externalRef);
+      }
 
       const seenProducts = new Set();
       const seenVariants = new Set();

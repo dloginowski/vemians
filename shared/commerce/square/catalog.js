@@ -241,6 +241,11 @@ export function normaliseCatalog(objects, { locationId = null, related = [] } = 
     categories.push({
       externalRef: o.id,
       name: o.category_data?.name ?? "",
+      /* Square's own real category hierarchy (GA, not a Categories 2.0
+         beta) — category_data.parent_category.id, absent for a top-level
+         category. Verified against Square's own CatalogCategory reference
+         rather than assumed. */
+      parentExternalRef: o.category_data?.parent_category?.id ?? null,
       withdrawn: isWithdrawn(o, locationId),
     });
   }

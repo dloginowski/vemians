@@ -53,17 +53,52 @@
 -- column exists in this file, and every `*_minor` column is INTEGER NOT NULL.
 
 -- ── categories ─────────────────────────────────────────────────────────────
-
+--
+-- NESTED, backed by Square's own real category hierarchy (GA, not a beta) —
+-- category_data.parent_category on the Square side, mirrored here as
+-- parent_id (OUR OWN uuid, never a Square id — same convention every other
+-- FK in this schema already follows). A row with parent_id NULL is a
+-- top-level category; any other row is a "subcategory" at whatever depth,
+-- with no structural difference between one level of nesting and five.
+--
+-- numeric_id is OURS, not Square's — a 2-digit "00".."99" code this shop
+-- assigns, later embedded in a product's own style_id (NN-NN-NNN: the first
+-- NN is a top-level category's own numeric_id, the second is a
+-- SUBCATEGORY's). The owner's own words: "there's only up to 100
+-- categories... zero to 99... it doesn't matter how deep the levels are...
+-- once an ID is used by any subcategory, it stops being available" — ONE
+-- shared 00-99 pool across every subcategory in the WHOLE tree regardless
+-- of nesting depth or parent (the two partial unique indexes below), kept
+-- SEPARATE from top-level categories' own 00-99 pool, so the style_id
+-- format itself never has to change to accommodate nesting. A subcategory
+-- NAME may repeat elsewhere in the tree (the owner's own words: "a
+-- subcategory name can be used more than once, the ID cannot") — what
+-- disambiguates two same-named subcategories is their own parent chain
+-- (path_to_root), not the name; the UI shows only a node's own leaf name.
 CREATE TABLE mirror_category (
   id           TEXT PRIMARY KEY,              -- ours
   external_ref TEXT NOT NULL UNIQUE,          -- Square CATEGORY id
   name         TEXT NOT NULL,
+  parent_id    TEXT REFERENCES mirror_category(id), -- NULL = top-level
+  numeric_id   TEXT,                          -- ours; "00".."99", NULL until assigned
   archived_at  TEXT,                          -- rolled off the working set, never deleted
   synced_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Two SEPARATE pools, not one: a top-level category's own numeric_id must
+-- be unique only among OTHER top-level categories, and a subcategory's
+-- must be unique among EVERY subcategory regardless of depth or parent —
+-- never against a top-level category's own numbers, which the style_id's
+-- own first-segment/second-segment split keeps structurally apart anyway.
+CREATE UNIQUE INDEX idx_mirror_category_toplevel_numeric_id
+  ON mirror_category (numeric_id)
+  WHERE parent_id IS NULL AND numeric_id IS NOT NULL AND archived_at IS NULL;
+CREATE UNIQUE INDEX idx_mirror_category_sub_numeric_id
+  ON mirror_category (numeric_id)
+  WHERE parent_id IS NOT NULL AND numeric_id IS NOT NULL AND archived_at IS NULL;
+
 CREATE VIEW mirror_category_index AS
-SELECT id, external_ref, name, synced_at
+SELECT id, external_ref, name, parent_id, numeric_id, synced_at
 FROM mirror_category WHERE archived_at IS NULL;
 
 -- ── vendors  (Square's own Vendor object, Vendors API — NOT the Catalog API) ─

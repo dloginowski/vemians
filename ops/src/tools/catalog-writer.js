@@ -51,11 +51,37 @@ import { createVendor } from "../../../shared/commerce/square/vendors.js";
 /** The closed set. Our uuid and a name — no `external_ref` leaves this file. */
 export async function listCategories(db) {
   const res = await db
-    .prepare("SELECT id, name FROM mirror_category_index ORDER BY name COLLATE NOCASE")
+    .prepare("SELECT id, name, parent_id, numeric_id FROM mirror_category_index ORDER BY name COLLATE NOCASE")
     .bind()
     .all();
-  return (res.results ?? []).map((r) => ({ id: r.id, name: r.name }));
+  return (res.results ?? []).map((r) => ({ id: r.id, name: r.name, parent_id: r.parent_id, numeric_id: r.numeric_id }));
 }
+
+/* NN-NN-NNN -> the category this style_id sorts to, or null if neither
+   segment matches anything yet. The second (subcategory) segment is
+   authoritative when it matches — subcategory numeric_ids are globally
+   unique across the WHOLE tree regardless of depth (the owner's own
+   words: "it doesn't matter how deep the levels are... once an ID is used
+   by any subcategory, it stops being available"), so the deepest matching
+   node is exactly the right one to file the product under; the first
+   (top-level category) segment is only a fallback for a style_id whose
+   subcategory segment does not (yet) match anything real. */
+export async function deriveCategoryIdForStyleId(db, styleId) {
+  const m = /^(\d{2})-(\d{2})-\d{3}$/.exec(styleId ?? "");
+  if (!m) return null;
+  const [, catCode, subCode] = m;
+  const subcategory = await db
+    .prepare("SELECT id FROM mirror_category_index WHERE parent_id IS NOT NULL AND numeric_id = ?")
+    .bind(subCode)
+    .first();
+  if (subcategory) return subcategory.id;
+  const category = await db
+    .prepare("SELECT id FROM mirror_category_index WHERE parent_id IS NULL AND numeric_id = ?")
+    .bind(catCode)
+    .first();
+  return category?.id ?? null;
+}
+
 
 /*
  * vendor/vendor_code/unit_cost_minor/unit_cost_currency are resolved off the
@@ -608,6 +634,42 @@ export function createSquareCatalogWriter(env, opts = {}) {
     syncAfterWrite,
 
     /**
+     * Retroactive re-sort (the owner's own explicit choice, over "only
+     * apply going forward"): every unarchived product whose style_id's own
+     * subcategory/category segment now matches a numeric_id that did not
+     * exist (or pointed elsewhere) before gets a REAL Square write, via
+     * this.updateProduct — category is Square's own concept
+     * (reporting_category), not ours, so poking mirror_product.category_id
+     * directly here would just be overwritten back by the very next full
+     * sync, which still reads it from Square. A product whose style_id
+     * matches nothing (yet) keeps whatever category_id it already had —
+     * this never CLEARS an assignment, only ever improves one. One write
+     * per affected product, sequentially (this codebase has no batch
+     * upsert) — fine at the boutique catalog scale this whole feature is
+     * built for; a much larger catalog would need real batching.
+     */
+    async resortProductsByStyleId() {
+      const products = await mirrorDb
+        .prepare("SELECT handle, style_id, category_id FROM mirror_product_index WHERE style_id IS NOT NULL")
+        .bind()
+        .all();
+      let resorted = 0;
+      const errors = [];
+      for (const p of products.results ?? []) {
+        const derived = await deriveCategoryIdForStyleId(mirrorDb, p.style_id);
+        if (!derived || derived === p.category_id) continue;
+        try {
+          await this.updateProduct({ handle: p.handle, categoryId: derived });
+          resorted += 1;
+        } catch (err) {
+          console.error(`ERROR catalog-writer: resort failed for ${p.handle} — ${err.message}`);
+          errors.push({ handle: p.handle, error: err.message });
+        }
+      }
+      return { resorted, errors };
+    },
+
+    /**
      * ITEM + ITEM_VARIATIONs in one UpsertCatalogObject, then the image copies,
      * then the mirror sync. In that order, always.
      */
@@ -696,7 +758,19 @@ export function createSquareCatalogWriter(env, opts = {}) {
       commissionPct,
     }) {
       const row = await productRow(handle);
-      const cat = categoryId ? await categoryRef(categoryId) : null;
+      /* Bug found while wiring up style_id-driven auto-categorization: an
+         UNDEFINED categoryId used to resolve straight to null, which
+         itemData() below reads as "omit categories/reporting_category
+         entirely" — and Square's UpsertCatalogObject is FULL-REPLACEMENT
+         (the same semantics the retractProduct fix, P0-137, verified
+         against Square's own spec), so EVERY update_product call that
+         did not explicitly resend a categoryId — a title edit, a price
+         edit, a style_id edit, anything — was silently clearing the
+         product's own category in Square. undefined now means "this call
+         is not about that field," the same "resend the whole thing"
+         fallback style_id/vendor/description already use one line below. */
+      const resolvedCategoryId = categoryId !== undefined ? categoryId : row.category_id;
+      const cat = resolvedCategoryId ? await categoryRef(resolvedCategoryId) : null;
 
       /* The refs stay INSIDE this file: the ops tool validates against
          `variantsOf`, which has no external_ref column in its SELECT.
@@ -787,25 +861,33 @@ export function createSquareCatalogWriter(env, opts = {}) {
      * Square object precisely so it cannot happen as a side effect of authoring
      * a product (Test-PRD-P0-40-closed_category_set).
      */
-    async createCategory({ name }) {
+    /* parentId (ours, optional) makes this a SUBCATEGORY instead of a
+       top-level category — Square's own real category hierarchy
+       (category_data.parent_category, GA, verified against Square's own
+       CatalogCategory reference), not something this codebase invents. */
+    async createCategory({ name, parentId }) {
+      const parent = parentId ? await categoryRef(parentId) : null;
       const temp = tempId("cat", 0);
       const res = await client.post("/v2/catalog/object", {
-        idempotency_key: idempotencyKey(`catalog.category:${name}`),
+        idempotency_key: idempotencyKey(`catalog.category:${name}:${parent?.external_ref ?? ""}`),
         object: {
           type: "CATEGORY",
           id: temp,
           present_at_all_locations: true,
-          category_data: { name },
+          category_data: {
+            name,
+            ...(parent ? { parent_category: { id: parent.external_ref } } : {}),
+          },
         },
       });
       const created = res?.catalog_object?.id ?? realId(res, temp);
       if (!created) throw new Error("Square returned no catalog object id for the new category");
       const sync = await syncAfterWrite();
       const row = await mirrorDb
-        .prepare("SELECT id, name FROM mirror_category WHERE external_ref = ?")
+        .prepare("SELECT id, name, parent_id FROM mirror_category WHERE external_ref = ?")
         .bind(created)
         .first();
-      return { category: row ? { id: row.id, name: row.name } : null, sync };
+      return { category: row ? { id: row.id, name: row.name, parent_id: row.parent_id } : null, sync };
     },
   };
 }
