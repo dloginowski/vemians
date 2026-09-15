@@ -1712,6 +1712,12 @@ ${INPUT_BAR_CSS}
   flex: 1 1 auto; min-width: 0; font: inherit; font-size: 11px; padding: 3px 5px;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
 }
+/* style_id, unit cost and MSRP are all short — "01-04-001," a dollar
+   amount — stretching them to fill an equal share of the header the way
+   .item-edit's own longer text fields do left each one eating a third of
+   the whole row width on a phone. Fixed, content-sized instead of
+   flex-stretched; overrides the generic rule above for just these three. */
+.variations-header input { flex: 0 0 auto; width: 6.5em; }
 /* "Any changed fields should be marked with an orange highlight" — added
    to the specific field that changed (onItemsGridChange, below), not just
    the form it lives in. Specific enough (element + class, twice over) to
