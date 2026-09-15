@@ -1660,6 +1660,8 @@ function itemTile(product, canEdit) {
     product.category_name,
     product.status,
     product.channel,
+    product.style_id,
+    product.vendor,
     ...product.variations.map((v) => v.sku ?? ""),
     ...fieldEntries.flat(),
   ]
@@ -1700,6 +1702,14 @@ function itemTile(product, canEdit) {
     ? fieldEntries.map(([k, v]) => `<div><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join("")
     : `<p class="item-empty">No custom fields yet.</p>`;
 
+  /* style_id and vendor are Square's own Custom Attributes now (P0-136),
+     not part of custom_fields — shown in their own row pair, blank rather
+     than an empty-state paragraph when neither is set yet (an empty text
+     field already says that, the same way the edit form below will). */
+  const attrRows =
+    (product.style_id ? `<div><span>Style ID</span><span>${esc(product.style_id)}</span></div>` : "") +
+    (product.vendor ? `<div><span>Vendor</span><span>${esc(product.vendor)}</span></div>` : "");
+
   /* Up to 3 blank rows past the existing fields, so there is somewhere to
      type a brand-new field without any add-row scripting — the same
      "generous but capped" trade this file makes elsewhere. */
@@ -1739,6 +1749,13 @@ function itemTile(product, canEdit) {
            ${fieldInputs}
            <button type="submit">Save fields</button>
          </form>
+         <form method="post" action="/items/${esc(product.handle)}/style-vendor">
+           <div class="row">
+             <input name="style_id" value="${esc(product.style_id ?? "")}" placeholder="Style ID (NN-NN-NNN)">
+             <input name="vendor" value="${esc(product.vendor ?? "")}" placeholder="Vendor">
+             <button type="submit">Save</button>
+           </div>
+         </form>
        </details>`
     : "";
 
@@ -1762,6 +1779,7 @@ function itemTile(product, canEdit) {
         <span>${esc(product.category_name || "Uncategorized")}</span>
       </div>
       <div class="item-variants">${variantRows}</div>
+      ${attrRows ? `<div class="item-fields">${attrRows}</div>` : ""}
       <div class="item-fields">${fieldRows}</div>
       ${editForms}
     </div>

@@ -919,13 +919,14 @@ that does not trace to one of these is a process failure (see §12).
     codebase does — no second, lighter-weight write path for "a manager clicked a button in ops."**
     Each tile's own edit form (visible only to manager+, matching `catalog.set_channel`'s and
     `catalog.set_custom_fields`'s own `minRole`) posts to `/items/<handle>/channel` or
-    `/items/<handle>/custom-fields`, which calls `runTool()` for the gate, `parkForApproval()` for
-    the token, and 303s the browser to the SAME `/approvals/<id>` page every other T2 write already
-    hands a human — the exact `applyFormEdits`-free "plain details" approval view `catalog.
-    set_channel` already got, not a new execute-on-click code path this codebase would then have
-    two of. `approvalResultPage()` gains an optional `backHref`/`backLabel` so approving an
-    Items-tab edit returns the approver to `/items` rather than the agent page every other approval
-    still returns to. The custom-fields form's own rows are numbered exactly the way `catalog.
+    `/items/<handle>/custom-fields`, which calls `runTool()` for the gate — the tool's own `check()`,
+    validation and audit trail, unchanged since. (Revised by P0-135: submitting this form now applies
+    the change in the same request rather than parking it and 303-ing to a separate `/approvals/<id>`
+    confirmation page — the SAME gate and tool contract, just no second click for a decision the
+    person already made by filling in and submitting the form themselves. `approvalResultPage()`'s own
+    `backHref`/`backLabel` addition described below is still real, still-used code — an AGENT
+    proposing either tool conversationally still parks and still lands a human on that exact page.) The
+    custom-fields form's own rows are numbered exactly the way `catalog.
     set_custom_fields`' own `fields` patch already works: a row with a value updates or adds that
     field, a row left blank removes it, and a field left off the form entirely is untouched — one
     edit, one merge, both places.
@@ -3328,6 +3329,101 @@ that does not trace to one of these is a process failure (see §12).
     copying an empty `#item-` link that would collide with every other SKU-less product — there is
     no stable identifier to hand anyone until the product has one.
 
+70. **`Test-PRD-P0-135-item_edit_applies_immediately`** — The owner's own words, reporting the
+    approval screen he kept hitting after saving a custom field: "I'm still seeing confirmation
+    dialogs whenever I try to add a custom field. Is that something that only happens once? Because
+    I shouldn't have to do this every time."
+
+    **The Items tab's own `/items/<handle>/channel` and `/items/<handle>/custom-fields` routes no
+    longer call `parkForApproval()` at all.** They still call `runTool()` — the tool's own
+    `check()`, validation, and audit trail (P0-23's own `writeAudit`) run exactly as before — but
+    instead of parking the result and 303-ing to `/approvals/<id>` for a SEPARATE "Yes, do this"
+    click, the route immediately makes the second `runTool()` call itself, with the approval token
+    the first call just issued, under the SAME already-verified manager identity that submitted the
+    form. `approvePending()` (`approvals.js`) already does exactly this two-call issue-then-consume
+    dance for the browser's own "Approve and run" button; this is the identical dance, just run
+    inline in the original request rather than after a redirect and a second page.
+
+    **Deliberately narrower than "T2 writes never need approval."** A person filling in this form
+    and clicking Save has already made the decision an approval click exists to capture — asking
+    them to approve their own already-privileged, already-submitted request a second time, seconds
+    later, added no real review, only a redundant click. An AGENT proposing `catalog.set_channel` or
+    `catalog.set_custom_fields` **conversationally**, in chat, is a genuinely different case — nobody
+    has directly filled in and submitted a form there, so `agent.js`'s own separate `stashPending`/
+    `PENDING` approval flow (an entirely different in-memory store from `approvals.js`'s
+    `parkForApproval`, untouched by this change) still parks it and waits for a human to review
+    before it runs. Revises the P0-71 text above: "the SAME T2 approval gate every other catalog
+    write in this codebase does" now means the tool's own tier, `check()`, and audit trail — not
+    necessarily a second browser round trip when the person invoking it directly IS a verified
+    human who just made the call.
+
+71. **`Test-PRD-P0-136-square_custom_attributes`** — The owner's own words, having weighed "ours,
+    not Square's" (P0-71's own `channel`/`custom_fields`) against not reinventing something Square
+    already offers: "why do we need to have our own custom fields then? It doesn't make sense... we
+    don't mind having our stuff being stored completely in Square, because we're using their
+    supported mechanism instead of fighting the system." Two fields, decided together: **style_id**
+    — this shop's own nomenclature, `NN-NN-NNN` (2-digit category, 2-digit subcategory, 3-digit item
+    number, e.g. `"01-04-001"`) — and **vendor**, a plain name, "how we will organize our products by
+    vendor." Both live as Square's own **Custom Attributes**, not a `custom_fields` entry.
+
+    **The opposite of `channel`/`custom_fields`'s own "ours, not Square's" argument, on purpose:
+    Square IS authoritative for these two now, the same as title or price.** `mirror_product` gains
+    `style_id`/`vendor` columns (`shared/commerce/square/schema.sql`) that `mirror.js`'s own
+    `syncCatalog` DOES name in its `UPDATE`/`INSERT` — unlike `channel`, a re-sync overwrites them
+    with whatever Square says now, never preserving a stale local value. `catalog.js`'s
+    `normaliseCatalog` reads them off `item_data.custom_attribute_values` by the well-known `key`
+    this codebase's own attribute definitions use ("style_id" / "vendor") — never Square's own opaque
+    definition id, which is what lets an app address its own attribute directly without persisting
+    that id anywhere. A missing value, or one of a type other than `STRING`, reads as `null`, not
+    guessed at.
+
+    **`catalog.set_style_and_vendor` (T2, manager+) is the mirror image of `catalog.set_channel`
+    structurally: it DOES declare and use the `square` resource**, where `set_channel`/
+    `set_custom_fields` declare none at all — this tool calls Square (`UpsertCatalogObject`, via
+    `catalog-writer.js`'s own `updateProduct`, extended with `styleId`/`vendor` params) and then
+    syncs the mirror back, exactly like `create_product`/`update_product` already do. Either field
+    can be given alone; the other resolves to whatever the product already has (`undefined` means
+    "this call is not about that field," never "clear it") — the same "resend the whole thing, not
+    just the diff" reasoning `update_product`'s own variation-merge already rests on, since
+    `UpsertCatalogObject` replaces `item_data` wholesale. (Fixed in the same change: `update_product`
+    itself had never resent `description` when a caller omitted it, risking silently clearing it on
+    any edit that wasn't ABOUT the description — now it falls back to the mirror's own current value,
+    the same way `title` already did.) `style_id` is validated against the `NN-NN-NNN` format and
+    checked for a conflict across the WHOLE catalog (`SELECT ... WHERE style_id = ? AND handle != ?`)
+    before it ever reaches Square — the owner's own words: "if the SKU already exists... you have to
+    let us know if it's a conflict" (said of what became style_id once "not the SKU" was clarified —
+    see below). Auto-generating one from a category and subcategory is deliberately NOT built yet:
+    this schema has no subcategory concept at all, and inventing the mapping without the owner's own
+    real category/subcategory table would risk assigning genuinely wrong numbers to real inventory.
+
+    **style_id is explicitly NOT the SKU.** The owner's own words, correcting an earlier version of
+    this feature that (before this revision) planned to key deep links and this nomenclature off the
+    same field: "SKU we're not going to set or touch. SKUs are generated automatically by Square, and
+    we don't want to mess with them. We still want to use SKUs for linking, but we don't want to
+    actually touch them or generate them at all." P0-134's own `#item-<sku>` deep link is UNCHANGED
+    by this feature — it already only ever reads a variation's own `sku`, verbatim from Square,
+    never writes one; style_id is a wholly separate identifier, at the ITEM level, that this codebase
+    invents the exact FORMAT of but still never assigns automatically.
+
+    **The Items tab's own edit form gets a third row, alongside the channel checkbox and custom
+    fields.** `/items/<handle>/style-vendor` (`ops/src/index.js`) follows P0-135's own
+    apply-immediately shape exactly — the same `runTool` twice, no `/approvals/<id>` hop — since the
+    owner's reasoning there ("a person filling in this form and clicking Save has already made the
+    decision") applies exactly as well to a real Square write as to `channel`/`custom_fields`: the
+    owner's own words, asking directly: "if we can add custom attributes without having me approve
+    it every time, then I would rather use that." A blank input means "leave this one as it is," not
+    "clear it" — there is currently no way to CLEAR a style_id or vendor once set from this form,
+    a deliberate, known limitation rather than an oversight, since a blank style_id would fail its
+    own format check with a confusing error if treated as an explicit value instead.
+
+    **Considered and set aside: surfacing these to Square's own Dashboard, and switching
+    `custom_fields` to Custom Attributes wholesale.** Square does support seller-visible custom
+    attributes editable right on its own Edit Item page, but caps them at 10 seller-visible + 10
+    seller-hidden per account and requires each to be a pre-declared, fixed field TYPE — the opposite
+    of `custom_fields`'s own open-ended "type any new field name" shape, which is why `custom_fields`
+    itself is NOT retired by this change: only style_id and vendor, a small, deliberately fixed pair
+    the owner named directly, moved out of it.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -3613,6 +3709,8 @@ Where each feature is enforced today:
 | P0-132 | `ops/test/items-route.test.mjs`, `ops/test/approvals.test.mjs` |
 | P0-133 | `ops/test/items-route.test.mjs` |
 | P0-134 | `ops/test/items-route.test.mjs` |
+| P0-135 | `ops/test/items-route.test.mjs` |
+| P0-136 | `shared/commerce/square/test/square.test.mjs`, `ops/test/catalog-write.test.mjs`, `ops/test/items-route.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

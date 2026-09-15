@@ -2,7 +2,7 @@
  * catalog.* authoring — a staff member describes a garment to their own AI
  * client, and it lands in Square, priced and categorised.
  *
- * Inherits agent-tool-contract, then catalog-skills. Nine tools:
+ * Inherits agent-tool-contract, then catalog-skills. Ten tools:
  *
  *   catalog.categories       T0  the closed set of categories that EXIST
  *   catalog.product          T0  read one mirrored product, variants and all
@@ -13,6 +13,7 @@
  *   catalog.create_category  T2  separate, deliberate, and rarely right
  *   catalog.set_channel      T2  which audience sees a product — OURS, not Square's
  *   catalog.set_custom_fields T2 whatever else we track that Square doesn't — OURS too
+ *   catalog.set_style_and_vendor T2 style_id + vendor — Square's OWN Custom Attributes
  *
  * ─── THREE DECISIONS, AND WHY EACH IS THE WAY IT IS ────────────────────────
  *
@@ -28,17 +29,30 @@
  *    `catalog.set_channel` and `catalog.set_custom_fields` are the deliberate
  *    exceptions, and each is one for the same reason: `channel` (website /
  *    direct_link — Test-PRD-P0-71-product_channel) and
- *    `custom_fields` (unit cost, a vendor name, anything else "our workers
- *    need more data tracking than square offers" — the owner's own words)
- *    are not facts Square has any notion of at all. Square does not know our
- *    storefront exists, and it has no field for a fact we invented, so
- *    neither has a second writer to diverge from. Both write `mirror_product`
- *    directly and declare no `square` resource at all — the tool that must
- *    not call Square holds nothing that could, the same structural argument
- *    as above, pointed the other way. `catalog.create_product` is allowed to
- *    ALSO set `custom_fields` at creation time (it already holds `square`,
- *    for the item itself) — the fields still never reach Square, only a
- *    second `UPDATE mirror_product` right after the sync that follows.
+ *    `custom_fields` (a fabric note, a reorder date, anything else ad hoc "our
+ *    workers need more data tracking than square offers" — the owner's own
+ *    words) are not facts Square has any notion of at all. Square does not
+ *    know our storefront exists, and it has no field for a fact we invented,
+ *    so neither has a second writer to diverge from. Both write
+ *    `mirror_product` directly and declare no `square` resource at all — the
+ *    tool that must not call Square holds nothing that could, the same
+ *    structural argument as above, pointed the other way. `catalog.
+ *    create_product` is allowed to ALSO set `custom_fields` at creation time
+ *    (it already holds `square`, for the item itself) — the fields still
+ *    never reach Square, only a second `UPDATE mirror_product` right after
+ *    the sync that follows.
+ *
+ *    `catalog.set_style_and_vendor` is the OPPOSITE case, on purpose: style_id
+ *    and vendor used to be `custom_fields` examples, and moved OUT once Square
+ *    turned out to already have a supported mechanism for exactly this — its
+ *    own Custom Attributes (Test-PRD-P0-136-square_custom_attributes). The
+ *    owner's own words, having weighed "ours, not Square's" against not
+ *    reinventing something Square already offers: "why do we need to have our
+ *    own custom fields then? It doesn't make sense... we don't mind having our
+ *    stuff being stored completely in Square." So this tool DOES declare
+ *    `square` and DOES call it — Square is authoritative for these two now,
+ *    the same as title or price, and the mirror sync overwrites them on every
+ *    re-sync rather than preserving them untouched the way `channel` is.
  *
  * 2. EVERY CATALOG WRITE IS T2.
  *    A price, a SKU and whether a thing is for sale are commercial facts.
@@ -72,6 +86,13 @@
 import { CAPS } from "./caps.js";
 import { listCategories, mergeVariations, priceBand, productByHandle, variantsOf } from "./catalog-writer.js";
 import { contentTypeFor, isOurMediaKey, mediaKey, squareAcceptsType, STORABLE_IMAGE_TYPES } from "./media.js";
+
+/* The shop's own nomenclature for style_id (Test-PRD-P0-136-square_custom_
+   attributes): 2-digit category, 2-digit subcategory, 3-digit item number,
+   dash-separated — e.g. "01-04-001". Never generated here — the category/
+   subcategory table this would need to auto-increment from does not exist
+   yet — only validated and checked for conflicts. */
+const STYLE_ID_FORMAT = /^\d{2}-\d{2}-\d{3}$/;
 
 /* ── category matching: a suggestion, with its reasoning ────────────────── */
 
@@ -967,8 +988,9 @@ export const catalogWriteTools = {
     describe:
       "Add, change or remove OUR OWN extra fields on a product, by handle — whatever a spreadsheet " +
       "import carried, or anything else \"our workers need more data tracking than square offers\" " +
-      "(the owner's own words): unit cost, a vendor name, a reorder note, anything Square has no " +
-      "field for at all. `fields` is a PATCH merged into what is already there: a key with a real " +
+      "(the owner's own words): unit cost, a reorder note, a fabric detail, anything Square has no " +
+      "field for at all. (style_id and vendor are NOT set here any more — catalog.set_style_and_vendor " +
+      "does those, as Square's own Custom Attributes.) `fields` is a PATCH merged into what is already there: a key with a real " +
       "value is set or updated, a key set to the empty string \"\" is removed, and every key not " +
       "mentioned is left untouched. This is OURS, not Square's — it never calls Square and never " +
       "triggers a mirror sync; it writes the mirror directly and the value survives every future " +
@@ -1048,6 +1070,92 @@ export const catalogWriteTools = {
         custom_fields: merged,
         previous_custom_fields: current,
         authority: "ours",
+      };
+    },
+  },
+
+  "catalog.set_style_and_vendor": {
+    tier: "T2",
+    domain: "catalog",
+    stores: ["catalog_mirror"],
+    resources: ["square"],
+    minRole: "manager",
+    describe:
+      "Set a product's own Style ID and/or vendor, by handle. Both are stored as SQUARE'S OWN " +
+      "Custom Attributes, not a fact this codebase invents — this DOES call Square, then syncs the " +
+      "mirror back, unlike catalog.set_channel or catalog.set_custom_fields. style_id follows this " +
+      "shop's own nomenclature — NN-NN-NNN: a 2-digit category, a 2-digit subcategory, a 3-digit " +
+      "item number, e.g. \"01-04-001\" — and is NEVER generated here: give one, or leave it as it " +
+      "is. Refused if another product already has the same style_id — style IDs are unique, one per " +
+      "product. vendor is a plain name. Give either alone to leave the other untouched. NEITHER of " +
+      "these is the SKU on a variation: Square assigns that automatically and nothing in this " +
+      "codebase ever sets it, reads it for anything but display, or treats it as this shop's own " +
+      "nomenclature.",
+    undo: "another catalog.set_style_and_vendor call, back to the previous value(s)",
+    schema: {
+      handle: { type: "string", required: true, format: "handle" },
+      style_id: { type: "string", maxLength: 20 },
+      vendor: { type: "string", maxLength: 120 },
+    },
+    async check(args, t) {
+      if (args.style_id === undefined && args.vendor === undefined) {
+        return { denied: "give a style_id, a vendor, or both — this call would change nothing" };
+      }
+      const existing = await productByHandle(t.db.catalog_mirror, args.handle);
+      if (!existing) return { denied: `no product with handle '${args.handle}' in the mirror` };
+
+      if (args.style_id !== undefined) {
+        if (!STYLE_ID_FORMAT.test(args.style_id)) {
+          return {
+            denied:
+              `style_id '${args.style_id}' does not match this shop's own nomenclature — ` +
+              "NN-NN-NNN (2-digit category, 2-digit subcategory, 3-digit item number), e.g. \"01-04-001\".",
+          };
+        }
+        const conflict = await t.db.catalog_mirror
+          .prepare("SELECT handle FROM mirror_product WHERE style_id = ? AND handle != ?")
+          .bind(args.style_id, args.handle)
+          .first();
+        if (conflict) {
+          return {
+            denied: `style_id '${args.style_id}' is already assigned to '${conflict.handle}' — style IDs are unique, one per product`,
+          };
+        }
+      }
+
+      const resultingStyleId = args.style_id !== undefined ? args.style_id : existing.style_id;
+      const resultingVendor = args.vendor !== undefined ? args.vendor : existing.vendor;
+      if (resultingStyleId === existing.style_id && resultingVendor === existing.vendor) {
+        return { denied: `'${args.handle}' already has that style_id and vendor — nothing would change` };
+      }
+
+      const changes = [
+        args.style_id !== undefined ? `style_id -> ${args.style_id}` : null,
+        args.vendor !== undefined ? `vendor -> ${args.vendor}` : null,
+      ]
+        .filter(Boolean)
+        .join(", ");
+      return {
+        ok: true,
+        summary: `set "${existing.title}" (${args.handle}): ${changes}`,
+        preflight: { existing },
+      };
+    },
+    async run(args, t) {
+      const out = await t.square.updateProduct({
+        handle: args.handle,
+        styleId: args.style_id,
+        vendor: args.vendor,
+      });
+      return {
+        updated: true,
+        handle: args.handle,
+        style_id: out.product?.style_id ?? null,
+        vendor: out.product?.vendor ?? null,
+        previous_style_id: t.preflight.existing.style_id,
+        previous_vendor: t.preflight.existing.vendor,
+        mirror_sync: out.sync,
+        authority: "square",
       };
     },
   },

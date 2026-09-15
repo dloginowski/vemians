@@ -59,7 +59,7 @@ export async function listCategories(db) {
 export async function productByHandle(db, handle) {
   return db
     .prepare(
-      "SELECT id, handle, title, source_description, status, channel, custom_fields, category_id " +
+      "SELECT id, handle, title, source_description, status, channel, custom_fields, style_id, vendor, category_id " +
         "FROM mirror_product_index WHERE handle = ?",
     )
     .bind(handle)
@@ -87,7 +87,7 @@ export async function variantsOf(db, productId) {
 export async function listAllProducts(db, { limit } = {}) {
   const products = await db
     .prepare(
-      `SELECT p.id, p.handle, p.title, p.status, p.channel, p.custom_fields, p.category_id, c.name AS category_name
+      `SELECT p.id, p.handle, p.title, p.status, p.channel, p.custom_fields, p.style_id, p.vendor, p.category_id, c.name AS category_name
          FROM mirror_product_index p
          LEFT JOIN mirror_category_index c ON c.id = p.category_id
         ORDER BY p.title COLLATE NOCASE
@@ -137,6 +137,8 @@ export async function listAllProducts(db, { limit } = {}) {
       channel: p.channel,
       category_name: p.category_name,
       custom_fields,
+      style_id: p.style_id ?? null,
+      vendor: p.vendor ?? null,
       variations: byProduct.get(p.id) ?? [],
       image_key: imageByProduct.get(p.id) ?? null,
     };
@@ -267,14 +269,29 @@ export function createSquareCatalogWriter(env, opts = {}) {
 
   async function productRow(handle) {
     const row = await mirrorDb
-      .prepare("SELECT id, external_ref, handle, title, source_version, category_id FROM mirror_product_index WHERE handle = ?")
+      .prepare(
+        "SELECT id, external_ref, handle, title, source_description, source_version, category_id, style_id, vendor" +
+          " FROM mirror_product_index WHERE handle = ?",
+      )
       .bind(handle)
       .first();
     if (!row) throw new Error(`no product with handle '${handle}'`);
     return row;
   }
 
-  function itemData({ title, description, catRef, variations, itemRef, imageIds }) {
+  /* { style_id: "01-04-001", vendor: undefined } -> only style_id in the
+     result; undefined always means "leave this one out of the request",
+     never "clear it" — every caller resolves "not provided" to the
+     product's own CURRENT value before calling this, so nothing is ever
+     silently wiped by an edit that only meant to touch the other field. */
+  function customAttributeValues({ styleId, vendor } = {}) {
+    const out = {};
+    if (styleId) out.style_id = { key: "style_id", type: "STRING", string_value: styleId };
+    if (vendor) out.vendor = { key: "vendor", type: "STRING", string_value: vendor };
+    return Object.keys(out).length ? out : undefined;
+  }
+
+  function itemData({ title, description, catRef, variations, itemRef, imageIds, customAttributeValues: attrs }) {
     return {
       name: title,
       /* Photographs already in Square are LINKED here at creation rather than
@@ -286,6 +303,15 @@ export function createSquareCatalogWriter(env, opts = {}) {
       ...(catRef
         ? { categories: [{ id: catRef, ordinal: 0 }], reporting_category: { id: catRef } }
         : {}),
+      /* Square's own Custom Attributes (P0-136) — style_id and vendor,
+         addressed by the well-known `key` this codebase's own attribute
+         definitions use, never by Square's opaque definition id. Omitted
+         entirely with neither set, rather than sent as an empty object —
+         UpsertCatalogObject replaces item_data wholesale (the same reason
+         `variations` below is always resent in full, not just what changed),
+         so every caller here is responsible for passing through whatever
+         value should survive, not just what it means to change. */
+      ...(attrs ? { custom_attribute_values: attrs } : {}),
       variations: variations.map((v, i) => ({
         type: "ITEM_VARIATION",
         id: v.external_ref ?? tempId("var", i),
@@ -365,10 +391,12 @@ export function createSquareCatalogWriter(env, opts = {}) {
 
   async function readBack(externalRef) {
     const row = await mirrorDb
-      .prepare("SELECT id, handle, title, status FROM mirror_product WHERE external_ref = ?")
+      .prepare("SELECT id, handle, title, status, style_id, vendor FROM mirror_product WHERE external_ref = ?")
       .bind(externalRef)
       .first();
-    return row ? { id: row.id, handle: row.handle, title: row.title, status: row.status } : null;
+    return row
+      ? { id: row.id, handle: row.handle, title: row.title, status: row.status, style_id: row.style_id, vendor: row.vendor }
+      : null;
   }
 
   return {
@@ -383,7 +411,7 @@ export function createSquareCatalogWriter(env, opts = {}) {
      * ITEM + ITEM_VARIATIONs in one UpsertCatalogObject, then the image copies,
      * then the mirror sync. In that order, always.
      */
-    async createProduct({ title, description = "", categoryId, variations, images = [] }) {
+    async createProduct({ title, description = "", categoryId, variations, images = [], styleId, vendor }) {
       const cat = categoryId ? await categoryRef(categoryId) : null;
       const itemRef = tempId("item", 0);
       /* Photographs that are already Square objects are linked on the item
@@ -403,6 +431,7 @@ export function createSquareCatalogWriter(env, opts = {}) {
             variations,
             itemRef,
             imageIds,
+            customAttributeValues: customAttributeValues({ styleId, vendor }),
           }),
         },
       };
@@ -426,7 +455,7 @@ export function createSquareCatalogWriter(env, opts = {}) {
      * counter since our last sync, Square refuses this write rather than
      * silently overwriting them, which is the behaviour ADR-009 is built on.
      */
-    async updateProduct({ handle, title, description, categoryId, variations, images = [] }) {
+    async updateProduct({ handle, title, description, categoryId, variations, images = [], styleId, vendor }) {
       const row = await productRow(handle);
       const cat = categoryId ? await categoryRef(categoryId) : null;
 
@@ -443,8 +472,20 @@ export function createSquareCatalogWriter(env, opts = {}) {
       if (merged.error) throw new Error(`${merged.error} ('${handle}')`);
       const keep = merged.variations;
 
+      /* Undefined means "this call is not about that field" for style_id and
+         vendor alike — resolved to whatever the mirror already has, the same
+         "resend the whole thing, not just the diff" reasoning `keep` above
+         already exists for. Neither is EVER generated here: style_id is
+         validated and conflict-checked one layer up, in catalog-write.js's
+         own tool, and a variation's own `sku` a few lines above is Square's,
+         read back verbatim, never invented in this file. */
+      const resolvedStyleId = styleId !== undefined ? styleId : row.style_id;
+      const resolvedVendor = vendor !== undefined ? vendor : row.vendor;
+
       const body = {
-        idempotency_key: idempotencyKey(`catalog.update:${row.external_ref}:${row.source_version}`),
+        idempotency_key: idempotencyKey(
+          `catalog.update:${row.external_ref}:${row.source_version}:${resolvedStyleId ?? ""}:${resolvedVendor ?? ""}`,
+        ),
         object: {
           type: "ITEM",
           id: row.external_ref,
@@ -452,10 +493,14 @@ export function createSquareCatalogWriter(env, opts = {}) {
           present_at_all_locations: true,
           item_data: itemData({
             title: title ?? row.title,
-            description,
+            /* description has the same "resend or it may vanish" property as
+               variations above — preserved from the mirror when this call
+               was not actually about changing it. */
+            description: description ?? row.source_description ?? undefined,
             catRef: cat?.external_ref ?? null,
             variations: keep,
             itemRef: row.external_ref,
+            customAttributeValues: customAttributeValues({ styleId: resolvedStyleId, vendor: resolvedVendor }),
           }),
         },
       };

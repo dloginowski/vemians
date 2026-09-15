@@ -98,27 +98,54 @@ CREATE TABLE mirror_product (
   -- ALL. The owner's own words: "I want to preserve all fields when
   -- ingesting spreadsheets. Even if they are not surfaced in square or ui
   -- for now... Our workers need more data tracking than square offers."
-  -- Unit cost, a vendor name, a fabric note, a reorder date — none of it is
-  -- a Square catalog concept, so there is no second writer for it to
-  -- diverge from, the same argument `channel` above already rests on.
-  -- A flat JSON object of field name -> string value, not a fixed set of
-  -- named columns: the whole point is that neither this schema nor the ops
-  -- UI has to know a field's name in advance to keep it. The sync job
-  -- (mirror.js) never names this column in its UPDATE, on purpose, so a
-  -- value set here survives every future re-sync untouched, exactly like
-  -- `channel`. ops-only: the public storefront's own read of this mirror
-  -- (P0-24) has no reason to select it, and never should.
+  -- A fabric note, a reorder date, anything ad hoc — none of it is a Square
+  -- catalog concept, so there is no second writer for it to diverge from,
+  -- the same argument `channel` above already rests on. (style_id and
+  -- vendor below used to be examples of this; they moved to Square's own
+  -- Custom Attributes instead — see their own comments.) A flat JSON object
+  -- of field name -> string value, not a fixed set of named columns: the
+  -- whole point is that neither this schema nor the ops UI has to know a
+  -- field's name in advance to keep it. The sync job (mirror.js) never
+  -- names this column in its UPDATE, on purpose, so a value set here
+  -- survives every future re-sync untouched, exactly like `channel`.
+  -- ops-only: the public storefront's own read of this mirror (P0-24) has
+  -- no reason to select it, and never should.
   custom_fields      TEXT NOT NULL DEFAULT '{}',
+  -- THE OPPOSITE OF channel/custom_fields ABOVE: Square's own Custom
+  -- Attributes (Test-PRD-P0-136-square_custom_attributes), so Square IS
+  -- authoritative for these two and the sync job DOES overwrite them on
+  -- every re-sync, the same as `title`. The owner's own words, having
+  -- weighed "ours, not Square's" against Square's own built-in mechanism:
+  -- "why do we need to have our own custom fields then? It doesn't make
+  -- sense. If it already exists in Square, why invent something extra? ...
+  -- we don't mind having our stuff being stored completely in Square." Each
+  -- is read from item_data.custom_attribute_values by a well-known `key`
+  -- ("style_id" / "vendor") this codebase defines once via Square's own
+  -- CatalogCustomAttributeDefinition — no opaque Square-assigned id is ever
+  -- stored here, because the API lets an app address its own attribute by
+  -- that key directly. style_id follows the owner's own nomenclature —
+  -- 2 digits (category) - 2 digits (subcategory) - 3 digits (item number),
+  -- e.g. "01-04-001" — validated and checked for conflicts in
+  -- ops/src/tools/catalog-write.js, never auto-generated yet (that needs
+  -- the category/subcategory table this schema does not have yet). It is
+  -- deliberately NOT the same thing as a variation's own `sku` on
+  -- mirror_variant below: "SKUs are generated automatically by Square, and
+  -- we don't want to mess with them... we still want to use SKUs for
+  -- linking, but we don't want to actually touch them or generate them at
+  -- all" — sku stays exactly as it always has, read-only, Square's own.
+  style_id           TEXT,
+  vendor             TEXT,
   category_id        TEXT REFERENCES mirror_category(id),
   source_version     INTEGER NOT NULL DEFAULT 0,  -- Square's optimistic-concurrency version
   archived_at        TEXT,
   synced_at          TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX idx_mirror_product_active ON mirror_product (archived_at, handle);
+CREATE INDEX idx_mirror_product_style_id ON mirror_product (style_id);
 
 CREATE VIEW mirror_product_index AS
 SELECT id, external_ref, handle, title, source_description, status, channel,
-       custom_fields, category_id, source_version, synced_at
+       custom_fields, style_id, vendor, category_id, source_version, synced_at
 FROM mirror_product WHERE archived_at IS NULL;
 
 -- ── variants  (Square ITEM_VARIATION) ──────────────────────────────────────

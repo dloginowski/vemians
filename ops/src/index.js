@@ -28,7 +28,7 @@
 import { notFoundPage } from "../../shared/view/html.js";
 import { explainRole, readAccessIdentity } from "./access.js";
 import { agentTurn, approve, roleFor, searchIntent } from "./agent.js";
-import { approvePending, parkForApproval, peekPending } from "./approvals.js";
+import { approvePending, peekPending } from "./approvals.js";
 import { CAPS } from "./tools/caps.js";
 import { roleAtLeast } from "./tools/roles.js";
 import { contentTypeFor, mediaKey, mintUploadTicket, verifyUploadTicket, STORABLE_IMAGE_TYPES } from "./tools/media.js";
@@ -73,7 +73,7 @@ const DEV_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "[::1]"]);
 /* Which /approvals/<id> writes were parked from an Items-tab tile, so the
    result page can send the approver back there instead of to the agent
    page every other approval link returns to. */
-const ITEMS_TAB_TOOLS = new Set(["catalog.set_channel", "catalog.set_custom_fields"]);
+const ITEMS_TAB_TOOLS = new Set(["catalog.set_channel", "catalog.set_custom_fields", "catalog.set_style_and_vendor"]);
 
 function servesOps(hostname, env) {
   /* An explicit SURFACE wins over the hostname, in both directions. */
@@ -464,7 +464,7 @@ async function ops(request, env, path) {
     return json(result);
   }
 
-  if (path.startsWith("/items/") && (path.endsWith("/channel") || path.endsWith("/custom-fields"))) {
+  if (path.startsWith("/items/") && (path.endsWith("/channel") || path.endsWith("/custom-fields") || path.endsWith("/style-vendor"))) {
     const email = identity.claims?.email;
     if (typeof email !== "string" || !email.includes("@")) {
       return html(refusalPage(403, "This page requires signing in as a person, not a service token."), 403);
@@ -484,8 +484,12 @@ async function ops(request, env, path) {
       return html(refusalPage(403, "Editing an item needs the manager role. Ask a manager, or draft the change with your assistant instead."), 403);
     }
 
-    const isChannel = path.endsWith("/channel");
-    const handle = path.slice("/items/".length, path.length - (isChannel ? "/channel".length : "/custom-fields".length));
+    const suffix = path.endsWith("/channel")
+      ? "/channel"
+      : path.endsWith("/custom-fields")
+        ? "/custom-fields"
+        : "/style-vendor";
+    const handle = path.slice("/items/".length, path.length - suffix.length);
 
     let form;
     try {
@@ -495,7 +499,7 @@ async function ops(request, env, path) {
     }
 
     let toolName, args, summaryNoun;
-    if (isChannel) {
+    if (suffix === "/channel") {
       /* A single "Visible on website" checkbox, not a 3-way select: every
          product already has a working direct-link page (P0-71), so the only
          real decision left is whether it is ALSO listed in the browsable
@@ -503,7 +507,7 @@ async function ops(request, env, path) {
       toolName = "catalog.set_channel";
       args = { handle, channel: form.get("on_website") ? "website" : "direct_link" };
       summaryNoun = "channel";
-    } else {
+    } else if (suffix === "/custom-fields") {
       /* field_name_0/field_value_0, field_name_1/field_value_1, ... — the
          same numbered-row shape itemTile() renders in views.js. A row with
          no name is skipped; a row with a name but no value is passed
@@ -517,21 +521,44 @@ async function ops(request, env, path) {
       toolName = "catalog.set_custom_fields";
       args = { handle, fields };
       summaryNoun = "custom fields";
+    } else {
+      /* style_id/vendor — Square's own Custom Attributes (P0-136), not ours.
+         A blank input means "leave this one as it is," not "clear it": only
+         a field the person actually typed something into is sent at all, so
+         catalog.set_style_and_vendor's own undefined-means-unchanged
+         handling applies the same way it would to a call that only ever
+         meant to touch one of the two. */
+      const styleId = String(form.get("style_id") ?? "").trim();
+      const vendor = String(form.get("vendor") ?? "").trim();
+      toolName = "catalog.set_style_and_vendor";
+      args = { handle, ...(styleId ? { style_id: styleId } : {}), ...(vendor ? { vendor } : {}) };
+      summaryNoun = "style ID or vendor";
     }
 
+    /* Applies immediately — no second, separate "Yes, do this" confirmation
+       page. The owner's own words: "I'm still seeing confirmation dialogs
+       whenever I try to add a custom field... I shouldn't have to do this
+       every time." A person filling in this very form and clicking Save
+       already IS the decision an approval click would otherwise ask them
+       to make again, seconds later, as the same verified manager identity
+       — parking it and redirecting to /approvals/<id> was asking them to
+       approve their own already-privileged request. This is deliberately
+       narrower than "T2 writes never need approval": an AGENT proposing
+       catalog.set_channel or catalog.set_custom_fields conversationally
+       (agent.js's own separate stashPending/PENDING flow, untouched here)
+       still parks and waits for a human, because nobody has directly
+       clicked Save on a form there — there is a real decision to review.
+       Here there already was one. The tool's own check()/audit trail is
+       unchanged either way; only the redundant second click is gone. */
     const gate = await runTool(toolName, args, { actor: email, role, env });
     if (!gate?.needsApproval) {
       return html(refusalPage(400, gate?.error || `That ${summaryNoun} change could not be proposed.`), 400);
     }
-    const { id } = await parkForApproval(env, {
-      name: toolName,
-      args,
-      actor: email,
-      role,
-      tier: "T2",
-      summary: gate.data.would,
-    });
-    return new Response(null, { status: 303, headers: { Location: `/approvals/${id}` } });
+    const result = await runTool(toolName, args, { actor: email, role, env, approvalToken: gate.data.approval.token });
+    if (result?.error || result?.denied) {
+      return html(refusalPage(400, result.error || result.denied || `That ${summaryNoun} change was refused.`), 400);
+    }
+    return new Response(null, { status: 303, headers: { Location: "/items" } });
   }
 
   /*
