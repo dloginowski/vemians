@@ -4015,13 +4015,17 @@ that does not trace to one of these is a process failure (see §12).
     should be clickable to toggle it... a little checkbox inside the tag") **back to a plain labeled
     checkbox** — the owner's own words this time are the opposite. `.item-tag-toggle` is gone;
     `.item-checkbox-toggle` (a `<label>` + `<input type=checkbox>`, no border or pill) is what both
-    Web and Active render now. Both moved out of `.item-badges` entirely into a new `.item-name-row`,
-    a plain div (forms cannot nest) holding the title's own `.item-details-form` at `flex: 1 1 auto`
-    beside `.item-name-toggles` (Web/Active's own separate forms) at a fixed width — "scale up the
-    item name to fill available space" falls out of that flex split for free, since the details
-    form's own title/description already stretch to their container's full width by default; the
-    title's own font-size is bumped from the shared 11px to 15px on top of that. `.category-form`
-    stays in `.item-badges` for now — a follow-up feature replaces its own flat, Square-backed model.
+    Web and Active render now, both still inside `.item-badges` beside the category control.
+    `.category-form` stays there too for now — a follow-up feature replaces its own flat,
+    Square-backed model.
+
+    **REVISED: a first pass moved Web/Active out of `.item-badges` entirely, into a new
+    `.item-name-row` opposite the title, meant to also let the title "scale up... to fill available
+    space."** The owner's own words, seeing it live: "why you added the checkbox to the title? You
+    broke the description... go back." Splitting the title's own form's internal flex layout to make
+    room for two sibling toggle forms (forms cannot nest) broke the title/description stacking this
+    tile has always relied on. Reverted in full — no `.item-name-row`, no title font-size bump —
+    back to the shape described above, which is the one this feature actually ships.
 
     **A production-grade fix, found before it ever shipped: `retractProduct` (already in the
     codebase, unused until this feature activated it) sent Square only `{ type, id,

@@ -1105,7 +1105,7 @@ check("test_PRD_P0_135_item_edit_applies_immediately__title_and_description_are_
   seedProduct(mirror, { description: "A warm winter coat." });
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
-  assert.match(body, /<form method="post" action="\/items\/wool-coat\/details" class="item-details-form">/);
+  assert.match(body, /<form method="post" action="\/items\/wool-coat\/details">/);
   assert.match(body, /<input class="item-title-input" name="title" value="Wool Coat" placeholder="Title">/);
   assert.match(body, /<textarea name="description" placeholder="Description">A warm winter coat\.<\/textarea>/);
   /* "Move the title, description, and the vendor fields up above the
@@ -1145,11 +1145,13 @@ check("test_PRD_P0_135_item_edit_applies_immediately__title_and_description_are_
  * the manager-only gate that refuses before runTool is even called.
  * ───────────────────────────────────────────────────────────────────────── */
 
-check("test_PRD_P0_137_item_active_toggle__web_and_active_sit_opposite_the_title_as_plain_checkboxes", async () => {
-  /* The owner's own words: "move the web and the active buttons... make
-     them the same style as the rest of the fields so that they're opposite
-     from the item name." Both render as .item-checkbox-toggle now, not the
-     old .item-tag-toggle pill. */
+check("test_PRD_P0_137_item_active_toggle__web_and_active_are_plain_checkboxes_in_item_badges", async () => {
+  /* The owner's own words: "the two buttons for active and web have the
+     same style like checkboxes so that I can toggle either one of them."
+     Both render as .item-checkbox-toggle now, not the old .item-tag-toggle
+     pill. An earlier pass moved them into the title's own row instead,
+     which broke the title/description layout, and was reverted — both
+     stay in .item-badges, beside the category control. */
   const mirror = mirrorDb();
   seedProduct(mirror, { channel: "website" });
   const res = await get("/items", MANAGER, env(mirror));
@@ -1159,14 +1161,12 @@ check("test_PRD_P0_137_item_active_toggle__web_and_active_sit_opposite_the_title
     body,
     /<form method="post" action="\/items\/wool-coat\/active" class="active-toggle-form">\s*<label class="item-checkbox-toggle">\s*<input type="checkbox" name="active" checked>\s*Active\s*<\/label>\s*<\/form>/,
   );
-  const nameRow = body.indexOf('<div class="item-name-row">');
-  const detailsForm = body.indexOf('<form method="post" action="/items/wool-coat/details" class="item-details-form">');
-  const toggles = body.indexOf('<div class="item-name-toggles">');
+  const badges = body.indexOf('<div class="item-badges">');
   const webForm = body.indexOf('<form method="post" action="/items/wool-coat/channel" class="web-toggle-form">');
   const activeForm = body.indexOf('<form method="post" action="/items/wool-coat/active" class="active-toggle-form">');
-  assert.ok(nameRow > -1 && nameRow < detailsForm, ".item-name-row wraps the title's own form");
-  assert.ok(detailsForm < toggles, "the title's own form comes first, the toggles opposite it");
-  assert.ok(toggles < webForm && webForm < activeForm, "Web then Active, inside .item-name-toggles");
+  const categoryForm = body.indexOf('<form method="post" action="/items/wool-coat/category" class="category-form">');
+  assert.ok(badges > -1 && badges < webForm, "Web/Active live inside .item-badges");
+  assert.ok(webForm < activeForm && activeForm < categoryForm, "Web, then Active, then the category control");
 });
 
 check("test_PRD_P0_137_item_active_toggle__unchecked_when_the_product_is_not_active", async () => {
@@ -1180,23 +1180,12 @@ check("test_PRD_P0_137_item_active_toggle__unchecked_when_the_product_is_not_act
   );
 });
 
-check("test_PRD_P0_137_item_active_toggle__the_item_name_row_scales_the_title_to_fill_available_space", async () => {
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  const res = await get("/items", MANAGER, env(mirror));
-  const body = await res.text();
-  assert.match(body, /\.item-name-row\s*\{\s*display:\s*flex;/);
-  assert.match(body, /\.item-details-form\s*\{\s*flex:\s*1 1 auto;/, "the title's own form grows into whatever the toggles do not need");
-  assert.match(body, /\.item-name-toggles\s*\{\s*display:\s*flex;\s*flex:\s*0 0 auto;/, "the toggles stay a fixed width, opposite it");
-  assert.match(body, /\.item-edit \.item-title-input\s*\{\s*font-weight:\s*600;\s*font-size:\s*15px;\s*\}/, "scaled up from the shared 11px");
-});
-
 check("test_PRD_P0_137_item_active_toggle__neither_toggle_is_editable_by_staff", async () => {
   const mirror = mirrorDb();
   seedProduct(mirror, { channel: "website" });
   const res = await get("/items", STAFF, env(mirror));
   const body = await res.text();
-  assert.doesNotMatch(body, /active-toggle-form/);
+  assert.doesNotMatch(body, /<form method="post" action="\/items\/wool-coat\/active"/);
   assert.doesNotMatch(body, /name="active"/);
 });
 
