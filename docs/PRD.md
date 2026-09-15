@@ -699,6 +699,31 @@ that does not trace to one of these is a process failure (see §12).
     blocks now, not one moved whole — each still gets that class's own border-top/spacing/input
     styling independently, reading as two sections rather than one.
 
+    **REVISED: centered, exactly-sized, and aligned to the row beneath it.** Three asks together.
+    (1) "Shorten the hints in the header to be only the pattern for style ID, without any
+    parentheses... for the cost field, again, just cost, nothing else... hints [should not be]
+    overflowing." The header's `variations-unit-cost`/`variations-msrp` broadcasters carry only
+    "Cost"/"MSRP" now, not the longer "— every variation's ..." tails; `style_id`'s own placeholder
+    was already just the bare `NN-NN-NNN` pattern from an earlier revision. (2) "Scale that
+    [style_id] input field to only fit that exact amount of characters" — 9, for `NN-NN-NNN` — so
+    its own width is `9ch` now (sized to characters directly) rather than an em-based guess. (3)
+    "Make them all center aligned, like the cost and the MSRP field" — every header input, and the
+    matching column in each row below, switched from right-justified to centered.
+
+    **REVISED AGAIN: the header's own cost/MSRP now land exactly above the row's own cost/price.**
+    "Ensure the two header fields, the cost and the MSRP, are aligned exactly with the cost and
+    MSRP fields in the children rows. Give the children rows a slight inset... on the right side."
+    Each row's own `title` absorbs all of that row's leftover width (`flex: 1 1 auto`), which
+    pushes its own fixed-width stepper/cost/price flush against the row's own right edge; nothing
+    in the header did the same, so the header's cost/MSRP floated wherever `style_id`'s own width
+    happened to end instead of at a matching right-anchored position. A new, invisible
+    `.variations-header-spacer` (`flex: 1 1 auto`, no content) between the `style_id` form and
+    `Cost` does for the header exactly what `title` already does for each row. Separately, the
+    header's own `padding: 5px 8px` insets its content 8px from its own right edge, while
+    `.variations-body .row` had no right padding of its own at all — so even flush-right, the
+    row's own fields still sat 8px further right than the header's. `.variations-body .row`'s own
+    padding is `3px 8px 3px 0` now, matching that 8px on the side that needed it.
+
 31. **`Test-PRD-P0-32-tickets`** — Company-wide issues live in their own `tickets` store. A ticket
     cannot be deleted, only moved through status, and resolving one requires a timestamp.
     Comments are append-only. Links to orders, customers, products and shifts are id plus a

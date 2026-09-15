@@ -1726,8 +1726,12 @@ ${INPUT_BAR_CSS}
 /* "Too much vertical padding! Needs to match side padding. Reduce by
    2px" — 5px read as more than the row's own fields' own side padding
    (.item-edit input's own 3px 5px), so this comes down to 3px vertical,
-   matching that. */
-.variations-body .row { display: flex; gap: 6px; align-items: center; padding: 3px 0; }
+   matching that. "Give the children rows a slight inset on the right
+   side... so they all fall in line" with the header above — the header's
+   own 8px comes from its own padding: 5px 8px; the row had no right
+   padding of its own at all, so its own rightmost field (price) sat 8px
+   further right than the header's own rightmost field (MSRP). */
+.variations-body .row { display: flex; gap: 6px; align-items: center; padding: 3px 8px 3px 0; }
 .item-edit { border-top: 1px solid var(--rule); margin-top: 2px; padding-top: 6px; cursor: default; }
 .item-edit form { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 .item-add-field { margin: 2px 0; }
@@ -1768,16 +1772,28 @@ ${INPUT_BAR_CSS}
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
 }
 .item-edit textarea::placeholder { font-size: 10px; }
-/* "Make the header, the values in the header, right justified" — applied
-   to every header input, and carried down to the matching column in each
-   variation row below so the two stay visually aligned, "the same size
-   and aligned properly with the contents." */
+/* REVISED: "make them all center aligned... like the cost and the MSRP
+   field, so that it's all centered" — was right-justified; every header
+   input, and the matching column in each variation row below, is now
+   centered instead, so the two stay visually aligned either way. */
 .variations-header input, .variations-body input[name^="price_"], .variations-body input[name^="unit_cost_"] {
-  text-align: right;
+  text-align: center;
 }
-/* "Make the style ID longer" — the one header field with no per-variation
-   counterpart to line up with, so it is free to be wider. */
-.variations-header input[name="style_id"] { flex: 0 0 auto; width: 9em; text-align: left; }
+/* "Scale that input field to only fit that exact amount of characters" —
+   the style_id pattern (NN-NN-NNN) is exactly 9 characters; the ch unit
+   sizes to that directly instead of an em-based guess. The one header field with
+   no per-variation counterpart to line up with, so its own width is free
+   to be driven by its own content alone. */
+.variations-header input[name="style_id"] { flex: 0 0 auto; width: 9ch; }
+/* "Ensure the header's cost/MSRP align exactly with the children rows'
+   own cost/price" — the row's own title absorbs all its row's leftover
+   width (flex: 1 1 auto), pushing its fixed-width stepper/cost/price
+   flush to the row's own right edge; nothing in the header did the same,
+   so cost/MSRP floated wherever style_id's own width happened to end
+   instead. This spacer is the header's equivalent of that leftover-space
+   absorber — invisible, no content, just flex: 1 1 auto — so cost/MSRP
+   land at the SAME right-edge-anchored position the rows' own fields do. */
+.variations-header-spacer { flex: 1 1 auto; }
 /* "Unit cost and MSRP boxes are way too big... ten thousand dollars is
    the maximum we'll charge for a piece of clothing" — $10,000.00 is 8
    characters; narrower than the old 6.5em, not the 10em default. */
@@ -2042,8 +2058,9 @@ function itemTile(product, canEdit) {
              <span class="variations-header-label">Style ID</span>
              <input name="style_id" value="${esc(product.style_id ?? "")}" placeholder="NN-NN-NNN" pattern="\\d{2}-\\d{2}-\\d{3}" title="NN-NN-NNN — a 2-digit category, a 2-digit subcategory, a 3-digit item number, e.g. 01-04-001. Leave blank to keep it as it is.">
            </form>
-           <input class="variations-unit-cost" placeholder="Cost — every variation's cost">
-           <input class="variations-msrp" placeholder="MSRP — every variation's price">
+           <span class="variations-header-spacer"></span>
+           <input class="variations-unit-cost" placeholder="Cost">
+           <input class="variations-msrp" placeholder="MSRP">
          </div>
          <div class="variations-body">
            ${
