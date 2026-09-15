@@ -1708,15 +1708,27 @@ ${INPUT_BAR_CSS}
 .item-add-field summary { cursor: pointer; color: var(--muted); font-size: 11px; }
 .item-add-field summary:hover { color: var(--accent); }
 .item-edit .row, .variations-header .row { display: flex; gap: 6px; align-items: center; }
+/* "Why are they all so wide?" — every text field used to stretch
+   (flex: 1 1 auto) to fill an equal share of whatever row it shared, so
+   a 0-100 commission or a style_id ended up as wide as a vendor name.
+   Reasonably sized by DEFAULT now — a fixed width, no grow — and only the
+   handful of fields whose content genuinely varies without a bound
+   (a vendor's own name, a custom field's own value, a variation's own
+   name) opt back into flexible/grow sizing below; everything short and
+   format-bounded (commission, a vendor code, a custom field's own name,
+   style_id/unit cost/MSRP) stays a fixed, content-sized width instead. */
 .item-edit input, .item-edit select, .variations-header input, .variations-body input {
-  flex: 1 1 auto; min-width: 0; font: inherit; font-size: 11px; padding: 3px 5px;
+  flex: 0 1 auto; min-width: 0; width: 10em; font: inherit; font-size: 11px; padding: 3px 5px;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
 }
+.item-edit input[name="vendor"], .item-edit input[name^="field_value_"], .variations-body input[name^="title_"] {
+  flex: 1 1 auto; width: auto;
+}
+.item-edit input[name="commission"] { width: 4em; }
+.item-edit input[name="vendor_code"], .item-edit input[name^="field_name_"] { width: 8em; }
+.variations-body input[name^="price_"] { flex: 0 0 auto; width: 6.5em; }
 /* style_id, unit cost and MSRP are all short — "01-04-001," a dollar
-   amount — stretching them to fill an equal share of the header the way
-   .item-edit's own longer text fields do left each one eating a third of
-   the whole row width on a phone. Fixed, content-sized instead of
-   flex-stretched; overrides the generic rule above for just these three. */
+   amount — narrower still than the 10em default above. */
 .variations-header input { flex: 0 0 auto; width: 6.5em; }
 /* "Any changed fields should be marked with an orange highlight" — added
    to the specific field that changed (onItemsGridChange, below), not just
