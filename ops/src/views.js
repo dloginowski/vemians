@@ -2107,7 +2107,15 @@ function itemTile(product, canEdit) {
      the plain, read-only heading it always was (everyone sees it, staff
      included), and this form is the one place a manager actually edits
      it, same as every other field on this tile. */
-  const editForms = canEdit
+  /* "Move the title, description, and the vendor fields up above the
+     variants" — these two forms now render BEFORE variationsAccordion;
+     custom fields stay where they were, after it, alongside fieldRows'
+     own read-only display of the same data. Two separate `.item-edit`
+     blocks, not one moved whole, since only PART of what used to be one
+     block is moving — each still gets `.item-edit`'s own border-top/
+     spacing/input styling independently, which reads as two sections now
+     rather than one. */
+  const titleVendorForms = canEdit
     ? `<div class="item-edit">
          <form method="post" action="/items/${esc(product.handle)}/details">
            <input class="item-title-input" name="title" value="${esc(product.title)}" placeholder="Title">
@@ -2120,6 +2128,10 @@ function itemTile(product, canEdit) {
              <input name="commission" value="${esc(product.commission_pct != null ? String(product.commission_pct) : "")}" placeholder="Commission % (0-100)">
            </div>
          </form>
+       </div>`
+    : "";
+  const customFieldsForm = canEdit
+    ? `<div class="item-edit">
          <form method="post" action="/items/${esc(product.handle)}/custom-fields">
            ${existingFieldInputs}
            ${
@@ -2151,10 +2163,11 @@ function itemTile(product, canEdit) {
         <span>${esc(product.status)}</span>
         ${categoryControl}
       </div>
+      ${titleVendorForms}
       ${variationsAccordion}
       ${attrRows ? `<div class="item-fields">${attrRows}</div>` : ""}
       <div class="item-fields">${fieldRows}</div>
-      ${editForms}
+      ${customFieldsForm}
     </div>
   </article>`;
 }
