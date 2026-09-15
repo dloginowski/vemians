@@ -1621,9 +1621,10 @@ ${INPUT_BAR_CSS}
 .item-fields span:last-child { color: var(--ink); text-align: right; overflow-wrap: anywhere; }
 .item-empty { color: var(--muted); font-style: italic; }
 .item-edit { border-top: 1px solid var(--rule); margin-top: 2px; padding-top: 6px; cursor: default; }
-.item-edit summary { cursor: pointer; color: var(--muted); font-size: 11px; }
-.item-edit summary:hover { color: var(--accent); }
 .item-edit form { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.item-add-field { margin: 2px 0; }
+.item-add-field summary { cursor: pointer; color: var(--muted); font-size: 11px; }
+.item-add-field summary:hover { color: var(--accent); }
 .item-edit .row { display: flex; gap: 6px; align-items: center; }
 .item-edit label { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); cursor: pointer; }
 .item-edit input:not([type="checkbox"]), .item-edit select {
@@ -1717,24 +1718,32 @@ function itemTile(product, canEdit) {
       : "") +
     (product.commission_pct != null ? `<div><span>Commission</span><span>${esc(String(product.commission_pct))}%</span></div>` : "");
 
-  /* Up to 3 blank rows past the existing fields, so there is somewhere to
-     type a brand-new field without any add-row scripting — the same
-     "generous but capped" trade this file makes elsewhere. */
+  /* Up to 3 blank rows for a brand-new field, tucked inside its own "Add
+     custom field" disclosure — collapsed by default, opened only when
+     actually adding one. The owner's own words: "that section that opens
+     up the add custom fields dropdown should only be opened when you're
+     trying to add a field, otherwise all the fields that are added need to
+     be easily accessible and visible" — so an EXISTING field's own row
+     (name + value, both still editable) stays outside the disclosure,
+     always visible, and only the blank rows for a field that doesn't exist
+     yet live inside it. Both sets post to the same form/endpoint
+     (catalog.set_custom_fields' own merge treats them identically), so
+     index.js's field_name_N/field_value_N parsing (contiguous from 0)
+     needs no change at all. */
   const blankRows = Math.max(0, Math.min(3, CAPS.CATALOG_CUSTOM_FIELDS_MAX_KEYS - fieldEntries.length));
-  const fieldInputs =
-    fieldEntries
-      .map(
-        ([k, v], i) =>
-          `<div class="row"><input name="field_name_${i}" value="${esc(k)}" placeholder="Field name">` +
-          `<input name="field_value_${i}" value="${esc(v)}" placeholder="Value (blank removes it)"></div>`,
-      )
-      .join("") +
-    Array.from(
-      { length: blankRows },
-      (_, i) =>
-        `<div class="row"><input name="field_name_${fieldEntries.length + i}" placeholder="Field name">` +
-        `<input name="field_value_${fieldEntries.length + i}" placeholder="Value"></div>`,
-    ).join("");
+  const existingFieldInputs = fieldEntries
+    .map(
+      ([k, v], i) =>
+        `<div class="row"><input name="field_name_${i}" value="${esc(k)}" placeholder="Field name">` +
+        `<input name="field_value_${i}" value="${esc(v)}" placeholder="Value (blank removes it)"></div>`,
+    )
+    .join("");
+  const blankFieldInputs = Array.from(
+    { length: blankRows },
+    (_, i) =>
+      `<div class="row"><input name="field_name_${fieldEntries.length + i}" placeholder="Field name">` +
+      `<input name="field_value_${fieldEntries.length + i}" placeholder="Value"></div>`,
+  ).join("");
 
   /* A single "Visible on website" checkbox, not a 3-way select — the
      owner's own words: "every item we have is in store... we only need the
@@ -1742,19 +1751,22 @@ function itemTile(product, canEdit) {
      really no need to specify that." Every product already has a working
      direct-link page (P0-71); this only decides whether it is ALSO listed
      in the browsable grid. Unchecked posts nothing, so index.js reads
-     form.get("on_website") and writes "direct_link" when it is absent. */
+     form.get("on_website") and writes "direct_link" when it is absent.
+     No disclosure around any of this any more — the owner's own words,
+     asking why the whole edit area was hidden behind one: "all the fields
+     that are added, they need to be easily accessible and visible."
+     .item-edit is now a plain container, not a <details> — the
+     click-delegation handler above still special-cases it by class alone,
+     so a click anywhere in here still never collapses the expanded tile.
+     Only a genuinely NEW custom field still hides behind a disclosure,
+     immediately below. */
   const editForms = canEdit
-    ? `<details class="item-edit">
-         <summary>Edit</summary>
+    ? `<div class="item-edit">
          <form method="post" action="/items/${esc(product.handle)}/channel">
            <div class="row">
              <label><input type="checkbox" name="on_website"${product.channel === "website" ? " checked" : ""}> Visible on website</label>
              <button type="submit">Save</button>
            </div>
-         </form>
-         <form method="post" action="/items/${esc(product.handle)}/custom-fields">
-           ${fieldInputs}
-           <button type="submit">Save fields</button>
          </form>
          <form method="post" action="/items/${esc(product.handle)}/square-attributes">
            <div class="row">
@@ -1766,7 +1778,16 @@ function itemTile(product, canEdit) {
              <button type="submit">Save</button>
            </div>
          </form>
-       </details>`
+         <form method="post" action="/items/${esc(product.handle)}/custom-fields">
+           ${existingFieldInputs}
+           ${
+             blankFieldInputs
+               ? `<details class="item-add-field"><summary>Add custom field</summary>${blankFieldInputs}</details>`
+               : ""
+           }
+           <button type="submit">Save fields</button>
+         </form>
+       </div>`
     : "";
 
   const photoStyle = product.image_key ? ` style="background-image:url('${MEDIA_BASE_URL}/${esc(product.image_key)}')"` : "";

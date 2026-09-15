@@ -252,28 +252,19 @@ export async function draftProductBatch(env, { text, actor, role }) {
     }
     const unitCostRaw = pick(record, UNIT_COST_KEYS);
     const hasUnitCost = Boolean(unitCostRaw);
-    /* The owner's own words, walked through a final time: "if we have a
-       vendor name, then we must have a commission. If we don't have a
-       vendor name, then we must have a cost of goods... if we're adding a
-       product that has a price, no vendor, and no cogs, that's a problem
-       too." Two mutually exclusive, both-required paths: vendor ->
-       commission, no vendor -> a unit cost. catalog.create_product's own
-       check() already refuses commission with no vendor, so only the
-       "runTool has no way to say it" half — a vendor with no commission,
-       or neither vendor nor a unit cost — needs reporting here. */
-    if (vendor && commission === undefined) {
-      skipped.push({
-        row: rowNumber,
-        title,
-        reason: `vendor "${vendor}" was given without a commission — a product with a vendor needs a commission (0-100)`,
-      });
-      return;
-    }
+    /* The owner's own words, walked through a final time, then revised: "if
+       we don't have a vendor name, then we must have a cost of goods... if
+       we're adding a product that has a price, no vendor, and no cogs,
+       that's a problem too" — still enforced below. The earlier "a vendor
+       needs a commission too" half was later dropped — "scratch the
+       requirement to add a commission when specifying vendor, that's not
+       always true" — so a vendor with no commission is a normal row now,
+       same as catalog.create_product's own check() already allows. */
     if (!vendor && !hasUnitCost) {
       skipped.push({
         row: rowNumber,
         title,
-        reason: "no vendor and no unit cost — a product needs a vendor (with a commission) or a unit cost",
+        reason: "no vendor and no unit cost — a product needs a vendor or a unit cost",
       });
       return;
     }

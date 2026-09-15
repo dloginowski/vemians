@@ -800,6 +800,39 @@ check("test_PRD_P0_136_square_custom_attributes__staff_cannot_reach_the_route_be
   assert.match(await res.text(), /manager/i);
 });
 
+check("test_PRD_P0_135_item_edit_applies_immediately__the_edit_area_is_a_plain_div_not_a_details_disclosure", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror, { style_id: "01-04-001", vendor: "Acme Mills", commission_pct: 20 });
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.match(body, /<div class="item-edit">/, "the edit area must no longer be a <details> a manager has to open first");
+  assert.doesNotMatch(body, /<details class="item-edit">/);
+  assert.doesNotMatch(body, /<summary>Edit<\/summary>/, "no more generic Edit toggle to click before anything is visible");
+});
+
+check("test_PRD_P0_135_item_edit_applies_immediately__existing_custom_fields_are_always_visible_only_a_new_blank_row_is_collapsed", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror); // seeds a "unit cost" custom field, see seedProduct()
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  const detail = /<div class="item-edit">([\s\S]*?)<\/div>\s*<\/div>\s*<\/article>/.exec(body);
+  assert.ok(detail, "the tile must carry an .item-edit section");
+  const editHtml = detail[1];
+
+  /* The existing "unit cost" field's own row sits OUTSIDE the add-field
+     disclosure — visible without opening anything. */
+  const addFieldStart = editHtml.indexOf('<details class="item-add-field">');
+  assert.ok(addFieldStart > -1, "a blank row must still be offered behind its own disclosure");
+  const existingFieldIndex = editHtml.indexOf('<input name="field_name_0" value="unit cost"');
+  assert.ok(existingFieldIndex > -1, "the existing field's row must render with its current name/value");
+  assert.ok(existingFieldIndex < addFieldStart, "the existing field must render before (outside) the add-field disclosure");
+
+  /* The blank row for a brand-new field is INSIDE the disclosure. */
+  const addFieldHtml = editHtml.slice(addFieldStart);
+  assert.match(addFieldHtml, /<summary>Add custom field<\/summary>/);
+  assert.match(addFieldHtml, /name="field_name_1" placeholder="Field name"/, "a blank row for a new field must be offered");
+});
+
 check("test_PRD_P0_71_items_tab__approving_an_items_tab_edit_sends_the_approver_back_to_items", () => {
   /* P0-135 made the Items tab's OWN form apply immediately, with no
      /approvals/<id> hop at all — but catalog.set_channel and catalog.

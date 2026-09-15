@@ -490,18 +490,20 @@ check("test_PRD_P0_60_spreadsheet_products__a_bad_row_is_reported_with_why_not_s
   assert.deepEqual(result.skipped.map((s) => s.row), [2, 3, 4]);
 });
 
-check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_vendor_with_no_commission_is_flagged_not_silently_imported", async () => {
-  /* The owner's own words: "if we have a vendor name and we didn't provide
-     a commission, that's a problem" — flagged here, before the row is ever
-     parked, rather than silently created with no commission set. */
+check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_vendor_with_no_commission_is_parked_commission_is_optional", async () => {
+  /* The owner's own words, revising an earlier, stricter rule: "scratch the
+     requirement to add a commission when specifying vendor, that's not
+     always true." A vendor with no commission column is a normal row now,
+     not a flagged one — commission may be set later, the same as the
+     direct edit tool already allowed. */
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   const csv = "title,category,price,style id,vendor\n" + `Wool Coat,${outerwear.name},450.00,01-04-001,Acme Mills\n`;
 
   const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
-  assert.equal(result.ready.length, 0);
-  assert.equal(result.skipped.length, 1);
-  assert.match(result.skipped[0].reason, /vendor "Acme Mills" was given without a commission/);
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.ready.length, 1);
+  assert.equal(result.ready[0].title, "Wool Coat");
 });
 
 check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_vendor_and_commission_is_parked_and_sets_both", async () => {
