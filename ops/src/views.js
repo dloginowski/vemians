@@ -1665,7 +1665,7 @@ ${INPUT_BAR_CSS}
   font-size: 10px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--rule); color: var(--muted);
 }
 .item-badges .channel-website { border-color: var(--accent); color: var(--accent); }
-.web-toggle-form, .active-toggle-form, .category-form { display: contents; }
+.web-toggle-form, .active-toggle-form { display: contents; }
 /* REVISED: "the two buttons for active and web have the same style like
    checkboxes so that I can toggle either one of them." This REVERSES the
    earlier pill-with-embedded-checkbox design ("the web tag itself should
@@ -1678,45 +1678,37 @@ ${INPUT_BAR_CSS}
    was reverted. */
 .item-checkbox-toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--ink); cursor: pointer; white-space: nowrap; }
 .item-checkbox-toggle input { width: 12px; height: 12px; margin: 0; accent-color: var(--accent); }
-/* The category picker — the owner's own words: "there should be a
-   category dropdown... you should be able to press the dropdown, and
-   you have a neat little menu where you can browse and select a
-   category, expand and select a subcategory... it should all resolve
-   to a path structure." A plain button (the same pill look the old
-   free-text combobox had) opens an absolutely-positioned tree menu,
-   .category-picker's own position: relative anchoring it — the SAME
-   recursive shape as the Categories accordion's own tree, minus the
-   +/numeric_id inputs that belong to editing the tree, not choosing
-   from it. */
-.category-picker { position: relative; }
-.category-picker-btn {
-  font: inherit; font-size: 10px; padding: 1px 6px; border-radius: 999px;
-  border: 1px solid var(--rule); background: transparent; color: var(--muted); cursor: pointer;
-  max-width: 16em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+/* The category/subcategory selects, right next to the item title — the
+   owner's own revision over the tree-popup picker: "right next to the
+   title, we need to have a category dropdown that actually selects its
+   category. And then right next to it is a selection of subcategories
+   that belong to the selected category... let's swap them around, so we
+   have the category path and then the item name at the end, as if it's
+   a continuation of the category path." Two plain native <select>s (no
+   NAME attribute — only the hidden category_id text input, right below,
+   actually submits) sit in the SAME row as the title input via display: contents
+   on both forms; the description textarea forces its own full-width
+   line with flex-basis: 100%. The subcategory select's own options are
+   swapped client-side from a page-level embedded map (itemsPage's own
+   CATEGORY_SUBCATEGORY_MAP_ID script) whenever the category select
+   changes, rather than round-tripping to the server. */
+.category-title-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+/* .item-edit form's own blanket display:flex/flex-direction:column
+   (below) would otherwise win this: both forms living in this row are
+   normal .item-edit forms too, and an equal-specificity .category-form
+   display:contents rule loses a same-specificity tie to whichever rule
+   comes later in the sheet. ".item-edit .category-title-row form" outranks
+   it outright (two classes, not one) regardless of order, so both forms
+   actually collapse into this row instead of each becoming its own
+   flex-column box — caught live: every child rendered stacked in a tall
+   column instead of side by side. */
+.item-edit .category-title-row form { display: contents; }
+.category-select-top, .category-select-sub {
+  flex: 0 1 auto; min-width: 0; max-width: 10em; font: inherit; font-size: 10px; padding: 1px 4px;
+  border-radius: 999px; border: 1px solid var(--rule); background: transparent; color: var(--muted);
 }
-.category-picker-btn:hover { border-color: var(--accent); color: var(--accent); }
-.category-picker-menu {
-  position: absolute; top: 100%; left: 0; z-index: 15; margin-top: 4px; min-width: 14em; max-height: 16em;
-  overflow-y: auto; padding: 4px 0; border: 1px solid var(--muted); border-radius: 8px; background: var(--ground);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-}
-.category-picker-row { display: flex; align-items: center; gap: 6px; padding: 3px 8px; }
-.category-picker-toggle {
-  flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; padding: 0;
-  display: inline-flex; align-items: center; justify-content: center; border: none; background: transparent;
-  color: var(--muted); cursor: pointer; transition: transform 0.15s;
-}
-.category-picker-toggle:hover { color: var(--accent); }
-.category-picker-node.expanded > .category-picker-row > .category-picker-toggle { transform: rotate(90deg); }
-.category-picker-toggle-spacer { flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; }
-.category-picker-option {
-  flex: 1 1 auto; text-align: left; font: inherit; font-size: 12px; padding: 2px 4px; border: none;
-  border-radius: 4px; background: transparent; color: var(--ink); cursor: pointer;
-}
-.category-picker-option:hover { background: rgba(255, 255, 255, 0.08); }
-.category-picker-option.selected { color: var(--accent); font-weight: 600; }
-.category-picker-children { display: none; }
-.category-picker-node.expanded > .category-picker-children { display: block; }
+.category-title-row .item-title-input { flex: 1 1 200px; }
+.category-title-row textarea { flex: 1 1 100%; }
 .item-variants, .item-fields { display: flex; flex-direction: column; gap: 2px; }
 .item-variants div, .item-fields div { display: flex; justify-content: space-between; gap: 6px; }
 .item-variants span:first-child, .item-fields span:first-child { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2087,49 +2079,44 @@ function categoryPath(categories, categoryId) {
   return names.join(" / ");
 }
 
-/* Every ANCESTOR of categoryId (never categoryId itself, which needs no
-   node of its own pre-opened to be visible) — so opening the picker on an
-   already-categorized product reveals the assigned node in place, the
-   same "show me where I am" a file tree gives the current file, rather
-   than a flat, fully-collapsed tree someone has to hunt back through. */
-function categoryAncestorIds(categories, categoryId) {
+/* The TOP-LEVEL category a given category/subcategory ultimately belongs
+   to, at any nesting depth — the category select's own correct value,
+   since the select only ever lists top-level categories; the subcategory
+   select (below) is what actually reaches an assigned node deeper than
+   one level. Returns null for an unassigned or unknown id. */
+function categoryRootId(categories, categoryId) {
   const byId = new Map(categories.map((c) => [c.id, c]));
-  const ids = new Set();
   let cur = categoryId ? byId.get(categoryId) : null;
-  cur = cur?.parent_id ? byId.get(cur.parent_id) : null;
-  while (cur) {
-    ids.add(cur.id);
-    cur = cur.parent_id ? byId.get(cur.parent_id) : null;
-  }
-  return ids;
+  if (!cur) return null;
+  while (cur.parent_id) cur = byId.get(cur.parent_id);
+  return cur.id;
 }
 
-/* The picker's own tree — same recursive shape and same toggle-width
-   indent as renderCategoryNodes above, but for SELECTING a product's
-   category rather than editing the tree itself: no +, no numeric_id, and
-   a node's own name is the control (clicking it picks that node,
-   whether or not it has subcategories of its own — a top-level category
-   is itself a valid category to assign, not only its leaves). */
-function renderCategoryPickerNodes(categories, parentId, selectedId, expandedIds) {
-  const children = categories
-    .filter((c) => (c.parent_id ?? null) === parentId)
-    .sort((a, b) => a.name.localeCompare(b.name));
-  return children
-    .map((c) => {
-      const hasChildren = categories.some((g) => g.parent_id === c.id);
-      const toggle = hasChildren
-        ? `<button type="button" class="category-picker-toggle" aria-label="Show subcategories of ${esc(c.name)}" title="Show subcategories">${CARET_ICON}</button>`
-        : `<span class="category-picker-toggle-spacer"></span>`;
-      const isExpanded = expandedIds.has(c.id);
-      return `<div class="category-picker-node${isExpanded ? " expanded" : ""}" style="padding-left: ${parentId === null ? 0 : CATEGORY_NODE_TOGGLE_PX}px">
-        <div class="category-picker-row">
-          ${toggle}
-          <button type="button" class="category-picker-option${c.id === selectedId ? " selected" : ""}" data-category-id="${esc(c.id)}" data-category-path="${esc(categoryPath(categories, c.id))}">${esc(c.name)}</button>
-        </div>
-        ${hasChildren ? `<div class="category-picker-children">${renderCategoryPickerNodes(categories, c.id, selectedId, expandedIds)}</div>` : ""}
-      </div>`;
-    })
-    .join("");
+/* Every PROPER descendant of topId, at any depth, flattened into one
+   list — "a selection of subcategories that belong to the selected
+   category" covers a whole subtree, not just its immediate children, so
+   a product can still be assigned three levels down through a single
+   second dropdown. Each option's own label is its OWN path relative to
+   topId (e.g. "Coats / Casual"), never just its bare leaf name, for the
+   same reason the picker's own path label never was: two nodes sharing a
+   name are told apart only by their parent chain. */
+function categoryDescendantOptions(categories, topId) {
+  const byParent = new Map();
+  for (const c of categories) {
+    const p = c.parent_id ?? null;
+    if (!byParent.has(p)) byParent.set(p, []);
+    byParent.get(p).push(c);
+  }
+  const out = [];
+  (function walk(parentId, prefix) {
+    const kids = (byParent.get(parentId) ?? []).slice().sort((a, b) => a.name.localeCompare(b.name));
+    for (const k of kids) {
+      const label = prefix ? `${prefix} / ${k.name}` : k.name;
+      out.push({ id: k.id, label });
+      walk(k.id, label);
+    }
+  })(topId, "");
+  return out;
 }
 
 function itemTile(product, canEdit, allCategories = []) {
@@ -2194,9 +2181,14 @@ function itemTile(product, canEdit, allCategories = []) {
     ? product.variations.map((v) => `<div><span>${esc(v.title)}</span><span>${esc(money(v.price_minor, v.currency))}</span></div>`).join("")
     : `<p class="item-empty">No variations.</p>`;
 
+  /* "Any custom fields will be added automatically. They don't need to
+     be specified that there is no custom fields added yet... nobody
+     needs to see that." No empty-state text any more — an empty product
+     just renders nothing here at all, the surrounding .item-edit blocks'
+     own borders are separator enough. */
   const fieldRows = fieldEntries.length
     ? fieldEntries.map(([k, v]) => `<div><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join("")
-    : `<p class="item-empty">No custom fields yet.</p>`;
+    : "";
 
   /* For someone who CAN edit, style_id and unit cost moved into the
      variations accordion's own header below — shown and edited there
@@ -2218,19 +2210,19 @@ function itemTile(product, canEdit, allCategories = []) {
       : "") +
     (product.commission_pct != null ? `<div><span>Commission</span><span>${esc(String(product.commission_pct))}%</span></div>` : "");
 
-  /* Up to 3 blank rows for a brand-new field, tucked inside its own "Add
-     custom field" disclosure — collapsed by default, opened only when
-     actually adding one. The owner's own words: "that section that opens
-     up the add custom fields dropdown should only be opened when you're
-     trying to add a field, otherwise all the fields that are added need to
-     be easily accessible and visible" — so an EXISTING field's own row
-     (name + value, both still editable) stays outside the disclosure,
-     always visible, and only the blank rows for a field that doesn't exist
-     yet live inside it. Both sets post to the same form/endpoint
-     (catalog.set_custom_fields' own merge treats them identically), so
-     index.js's field_name_N/field_value_N parsing (contiguous from 0)
-     needs no change at all. */
-  const blankRows = Math.max(0, Math.min(3, CAPS.CATALOG_CUSTOM_FIELDS_MAX_KEYS - fieldEntries.length));
+  /* ONE blank row for a brand-new field — "get rid of all except one add
+     custom field" — tucked inside the "Admin" disclosure (below) alongside
+     the category designer, collapsed by default, opened only when
+     actually adding one or managing categories. An EXISTING field's own
+     row (name + value, both still editable) stays outside the
+     disclosure, always visible; only the blank row for a field that
+     doesn't exist yet lives inside it. Both sets post to the same
+     form/endpoint (catalog.set_custom_fields' own merge treats them
+     identically — a key not mentioned is left untouched, so this and
+     the existing rows do not even need to share one <form> to stay
+     correct), so index.js's field_name_N/field_value_N parsing
+     (contiguous from 0) needs no change at all. */
+  const blankRows = Math.max(0, Math.min(1, CAPS.CATALOG_CUSTOM_FIELDS_MAX_KEYS - fieldEntries.length));
   const existingFieldInputs = fieldEntries
     .map(
       ([k, v], i) =>
@@ -2404,40 +2396,45 @@ function itemTile(product, canEdit, allCategories = []) {
          </label>
        </form>`
     : "";
-  /* "There should be a category dropdown... you should be able to press
-     the dropdown, and you have a neat little menu where you can browse
-     and select a category, expand and select a subcategory... it should
-     all resolve to a path structure, and that's how it shows the actual
-     category path." Replaces the old free-text/datalist combobox — the
-     Categories accordion below is now the one place a NEW category gets
-     created, so this control only ever needs to CHOOSE from the closed
-     set, over the SAME allCategories tree. category_id rides into the
-     tile's own "Save all" batch on a plain `hidden` ATTRIBUTE, not
-     type="hidden" — deliberately: a type="hidden" input has no "dirty
-     value" flag at all (its value IDL is just a direct alias of the value
-     content attribute, per the HTML spec's own value-mode table), so
-     isFieldDirty's `.value !== .defaultValue` check can never see a
-     script-driven change on one — caught live, the Save button silently
-     staying disabled after a real pick. type="text" keeps the normal
-     dirty-value semantics refreshDirtyState already relies on everywhere
-     else; `hidden` alone keeps it off-screen. */
+  /* "Right next to the title, we need to have a category dropdown that
+     actually selects its category. And then right next to it is a
+     selection of subcategories that belong to the selected category...
+     you're setting them right next to the item name." Replaces the old
+     free-text combobox AND the tree-popup picker that came before it: two
+     plain <select>s, category then subcategory — the Categories accordion
+     (now under Admin, below) is the one place a NEW category gets
+     created, so these only ever need to CHOOSE from the closed set.
+     Neither select carries a `name` — only the text input right after
+     actually submits `category_id`, kept in sync by the change handler
+     (views.js's own client script) reading the page-level subcategory map
+     itemsPage() renders once (CATEGORY_SUBCATEGORY_MAP_ID). type="text"
+     with a plain `hidden` ATTRIBUTE, not type="hidden" — deliberately: a
+     type="hidden" input has no "dirty value" flag at all (its value IDL
+     is just a direct alias of the value content attribute, per the HTML
+     spec's own value-mode table), so isFieldDirty's `.value !==
+     .defaultValue` check can never see a script-driven change on one —
+     caught live, the Save button silently staying disabled after a real
+     pick. type="text" keeps the normal dirty-value semantics
+     refreshDirtyState already relies on everywhere else; `hidden` alone
+     keeps it off-screen. */
   const categoryId = product.category_id ?? null;
+  const categoryTopId = categoryRootId(allCategories, categoryId);
   const categoryPathLabel = categoryPath(allCategories, categoryId) ?? "Uncategorized";
+  const topCategories = allCategories.filter((c) => (c.parent_id ?? null) === null).sort((a, b) => a.name.localeCompare(b.name));
+  const subOptions = categoryTopId ? categoryDescendantOptions(allCategories, categoryTopId) : [];
   const categoryControl = canEdit
     ? `<form method="post" action="/items/${esc(product.handle)}/category" class="category-form">
          <input type="text" name="category_id" value="${esc(categoryId ?? "")}" hidden>
-         <div class="category-picker">
-           <button type="button" class="category-picker-btn" aria-label="Choose a category" title="Choose a category">${esc(categoryPathLabel)}</button>
-           <div class="category-picker-menu" hidden>
-             ${
-               allCategories.length
-                 ? renderCategoryPickerNodes(allCategories, null, categoryId, categoryAncestorIds(allCategories, categoryId))
-                 : `<p class="item-empty">No categories yet.</p>`
-             }
-           </div>
-         </div>
+         <select class="category-select-top" aria-label="Category" title="Category">
+           <option value="">Uncategorized</option>
+           ${topCategories.map((c) => `<option value="${esc(c.id)}"${c.id === categoryTopId ? " selected" : ""}>${esc(c.name)}</option>`).join("")}
+         </select>
+         <select class="category-select-sub" aria-label="Subcategory" title="Subcategory"${subOptions.length ? "" : " disabled"}>
+           <option value="">(no subcategory)</option>
+           ${subOptions.map((o) => `<option value="${esc(o.id)}"${o.id === categoryId ? " selected" : ""}>${esc(o.label)}</option>`).join("")}
+         </select>
        </form>`
-    : `<span>${esc(categoryPathLabel)}</span>`;
+    : "";
 
   /* ONE Save for the whole expanded tile, not one per section — the
      owner's own words: "let's just have one save button for the whole
@@ -2458,21 +2455,26 @@ function itemTile(product, canEdit, allCategories = []) {
      `/items/<handle>/details` route; the collapsed tile's own `<h3>` stays
      the plain, read-only heading it always was (everyone sees it, staff
      included), and this form is the one place a manager actually edits
-     it, same as every other field on this tile. */
-  /* "Move the title, description, and the vendor fields up above the
-     variants" — these two forms now render BEFORE variationsAccordion;
-     custom fields stay where they were, after it, alongside fieldRows'
-     own read-only display of the same data. Two separate `.item-edit`
-     blocks, not one moved whole, since only PART of what used to be one
-     block is moving — each still gets `.item-edit`'s own border-top/
-     spacing/input styling independently, which reads as two sections now
-     rather than one. */
+     it, same as every other field on this tile. REVISED: "let's swap them
+     around, so we have the category path and then the item name at the
+     end, as if it's a continuation of the category path" — the category
+     selects and the title input now share one row (.category-title-row,
+     both forms display:contents so their own children become its direct
+     flex items), category first, title last; the description textarea
+     still belongs to the SAME title form (this route always resends both
+     together — a blank title is a real, refused edit, not "unchanged",
+     so splitting description into a form of its own would send a blank
+     title on every description-only save) and simply wraps onto its own
+     full-width line below (flex-basis: 100%). */
   const titleVendorForms = canEdit
     ? `<div class="item-edit">
-         <form method="post" action="/items/${esc(product.handle)}/details">
-           <input class="item-title-input" name="title" value="${esc(product.title)}" placeholder="Title">
-           <textarea name="description" placeholder="Description">${esc(product.description ?? "")}</textarea>
-         </form>
+         <div class="category-title-row">
+           ${categoryControl}
+           <form method="post" action="/items/${esc(product.handle)}/details">
+             <input class="item-title-input" name="title" value="${esc(product.title)}" placeholder="Title">
+             <textarea name="description" placeholder="Description">${esc(product.description ?? "")}</textarea>
+           </form>
+         </div>
          <form method="post" action="/items/${esc(product.handle)}/square-attributes">
            <div class="row">
              <input name="vendor" value="${esc(product.vendor ?? "")}" placeholder="Vendor">
@@ -2482,16 +2484,40 @@ function itemTile(product, canEdit, allCategories = []) {
          </form>
        </div>`
     : "";
+  /* "Get rid of the no custom fields... it should be just a horizontal
+     separator. And that dropdown where it says add custom fields, that
+     should be called Admin. Underneath of that... move the category
+     designer header. Put it in there because really that should be only
+     modified by an admin." The blank new-field row moves into its own
+     <form> INSIDE the renamed disclosure, separate from existingFieldInputs'
+     own — safe to split (catalog.set_custom_fields' own fields argument is
+     a PATCH; a key not mentioned is left untouched, so each half stays
+     correct submitted alone) and necessary to: categoriesAccordion's own
+     numeric_id/new-name inputs carry no `name` (so nesting them changes
+     nothing about what actually submits), but nesting them inside an
+     ACTUAL <form> would make the generic dirty-tracking fallthrough
+     (onItemsGridChange's own `.item-edit form` match) wrongly flag this
+     form dirty on every numeric_id edit, even though that field already
+     applies instantly through its own separate handler and "belongs to
+     no form at all, on purpose" (that handler's own comment). Keeping
+     categoriesAccordion a sibling of both forms, inside the <details> but
+     outside either <form>, avoids that regression entirely. */
   const customFieldsForm = canEdit
     ? `<div class="item-edit">
-         <form method="post" action="/items/${esc(product.handle)}/custom-fields">
-           ${existingFieldInputs}
+         ${
+           existingFieldInputs
+             ? `<form method="post" action="/items/${esc(product.handle)}/custom-fields">${existingFieldInputs}</form>`
+             : ""
+         }
+         <details class="item-add-field">
+           <summary>Admin</summary>
            ${
              blankFieldInputs
-               ? `<details class="item-add-field"><summary>Add custom field</summary>${blankFieldInputs}</details>`
+               ? `<form method="post" action="/items/${esc(product.handle)}/custom-fields">${blankFieldInputs}</form>`
                : ""
            }
-         </form>
+           ${categoriesAccordion}
+         </details>
        </div>`
     : "";
 
@@ -2513,13 +2539,12 @@ function itemTile(product, canEdit, allCategories = []) {
       <div class="item-badges">
         ${webToggle}
         ${activeToggle}
-        ${categoryControl}
+        ${!canEdit ? `<span>${esc(categoryPathLabel)}</span>` : ""}
       </div>
       ${titleVendorForms}
-      ${categoriesAccordion}
       ${variationsAccordion}
       ${attrRows ? `<div class="item-fields">${attrRows}</div>` : ""}
-      <div class="item-fields">${fieldRows}</div>
+      ${fieldRows ? `<div class="item-fields">${fieldRows}</div>` : ""}
       ${customFieldsForm}
     </div>
   </article>`;
@@ -2545,6 +2570,22 @@ export function itemsPage({ role }, products, allCategories = []) {
     ${categories.map((c) => `<button type="button" class="category-item" data-category="${esc(c)}">${esc(c)}</button>`).join("\n    ")}
   </div>`
     : "";
+
+  /* One shared map, rendered once rather than per tile (the same "one
+     page-level datalist every tile references" shape the old flat combobox
+     used) — { topCategoryId: [{id, label}, ...] } for every top-level
+     category, read by the client's own category-select-top change handler
+     to repopulate category-select-sub without a round trip. "</script"
+     is escaped so a category name could never prematurely close this
+     tag — vanishingly unlikely, but a name is free text someone typed. */
+  const subcategoryMap = Object.fromEntries(
+    allCategories
+      .filter((c) => (c.parent_id ?? null) === null)
+      .map((c) => [c.id, categoryDescendantOptions(allCategories, c.id)]),
+  );
+  const subcategoryMapScript = `<script type="application/json" id="category-subcategory-map">${JSON.stringify(
+    subcategoryMap,
+  ).replace(/<\//g, "<\\/")}</script>`;
 
   return page(
     "Items — Vemians ops",
@@ -2587,6 +2628,7 @@ export function itemsPage({ role }, products, allCategories = []) {
 ${tiles}
   </div>
   ${categoryMenu}
+  ${canEdit ? subcategoryMapScript : ""}
   <div class="input-bar">
     <button type="button" class="icon-btn" id="category-btn" aria-label="Filter by category" title="Filter by category"${categories.length ? "" : " hidden"}>${FILTER_ICON}</button>
     ${
@@ -2867,37 +2909,6 @@ if (!ItemSpeechRecognitionCtor) {
    (TABLE_CARD_CSS's own .table-card.full convention in the chat log)
    instead of opening a second element or tracking separate scroll state. */
 document.getElementById("items-grid").addEventListener("click", async (e) => {
-  /* The category picker — "press the dropdown, and you have a neat
-     little menu where you can browse and select a category, expand and
-     select a subcategory." Delegated, like everything else in this
-     handler, since there is one .category-picker per tile rather than
-     one shared id dropdownMenuScript could bind to. */
-  const pickerBtn = e.target.closest(".category-picker-btn");
-  if (pickerBtn) {
-    const menu = pickerBtn.nextElementSibling;
-    const wasHidden = menu.hidden;
-    document.querySelectorAll(".category-picker-menu").forEach((m) => (m.hidden = true));
-    menu.hidden = !wasHidden;
-    return;
-  }
-  const pickerToggle = e.target.closest(".category-picker-toggle");
-  if (pickerToggle) {
-    pickerToggle.closest(".category-picker-node")?.classList.toggle("expanded");
-    return;
-  }
-  const pickerOption = e.target.closest(".category-picker-option");
-  if (pickerOption) {
-    const form = pickerOption.closest(".category-form");
-    const hiddenInput = form.querySelector('input[name="category_id"]');
-    const btn = form.querySelector(".category-picker-btn");
-    hiddenInput.value = pickerOption.dataset.categoryId;
-    btn.textContent = pickerOption.dataset.categoryPath;
-    form.querySelectorAll(".category-picker-option.selected").forEach((el) => el.classList.remove("selected"));
-    pickerOption.classList.add("selected");
-    form.querySelector(".category-picker-menu").hidden = true;
-    hiddenInput.dispatchEvent(new Event("change", { bubbles: true }));
-    return;
-  }
   const shareBtn = e.target.closest(".item-share");
   if (shareBtn) {
     shareLink(shareBtn);
@@ -2988,19 +2999,6 @@ document.getElementById("items-grid").addEventListener("click", async (e) => {
   setDeepLinkHash(tile);
 });
 
-/* Closes any open category picker menu on an outside click — the same
-   "outside click closes it" convention dropdownMenuScript's own single
-   global menu already follows, generalized here since there is one
-   .category-picker-menu per tile rather than one shared id to bind to. */
-document.addEventListener("click", (e) => {
-  if (e.target.closest(".category-picker")) return;
-  document.querySelectorAll(".category-picker-menu").forEach((m) => (m.hidden = true));
-});
-document.addEventListener("keydown", (e) => {
-  if (e.key !== "Escape") return;
-  document.querySelectorAll(".category-picker-menu").forEach((m) => (m.hidden = true));
-});
-
 /* Dirty-tracking for the ONE Save button per tile — the owner's own
    words: "let's just have one save button for the whole page... disabled
    and becomes enabled when any changes are detected... instead of having
@@ -3045,6 +3043,41 @@ function refreshDirtyState(field) {
   if (saveBtn) saveBtn.disabled = !tileDirty;
 }
 function onItemsGridChange(e) {
+  /* "Right next to the title... a category dropdown that actually
+     selects its category. And then right next to it is a selection of
+     subcategories that belong to the selected category." Changing the
+     top select repopulates the subcategory select from the page-level
+     map (CATEGORY_SUBCATEGORY_MAP_ID, itemsPage()) rather than a round
+     trip, and resets it to "no subcategory" — a fresh top pick always
+     starts unqualified, the same way choosing a wholly different
+     category should. Either select then writes the ACTUAL id that gets
+     submitted (the more specific one) into the form's own category_id
+     field and dispatches change on it, so the existing dirty-tracking
+     fallthrough below picks it up exactly like any other field. */
+  if (e.target.matches(".category-select-top")) {
+    const form = e.target.closest(".category-form");
+    const sub = form.querySelector(".category-select-sub");
+    const map = JSON.parse(document.getElementById("category-subcategory-map")?.textContent ?? "{}");
+    const options = map[e.target.value] ?? [];
+    /* DOM APIs, not innerHTML string-building — a category name is free
+       text someone typed (managers, not a stranger, but still not a
+       constant this script wrote), so it goes into an Option's own
+       .text property rather than concatenated markup. */
+    sub.replaceChildren(new Option("(no subcategory)", ""), ...options.map((o) => new Option(o.label, o.id)));
+    sub.disabled = options.length === 0;
+    const hiddenInput = form.querySelector('input[name="category_id"]');
+    hiddenInput.value = e.target.value;
+    hiddenInput.dispatchEvent(new Event("change", { bubbles: true }));
+    return;
+  }
+  if (e.target.matches(".category-select-sub")) {
+    const form = e.target.closest(".category-form");
+    const top = form.querySelector(".category-select-top");
+    const hiddenInput = form.querySelector('input[name="category_id"]');
+    hiddenInput.value = e.target.value || top.value;
+    hiddenInput.dispatchEvent(new Event("change", { bubbles: true }));
+    return;
+  }
   if (e.target.matches(".variations-msrp")) {
     const accordion = e.target.closest(".variations-accordion");
     accordion?.querySelectorAll(".variation-price").forEach((input) => {

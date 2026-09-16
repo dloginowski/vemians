@@ -1224,15 +1224,23 @@ function seedCategoryTree(mirror) {
   mirror.db.exec("INSERT INTO mirror_category (id, external_ref, name) VALUES ('cat4', 'sqcat4', 'Knitwear')");
 }
 
-check("test_PRD_P0_138_nested_categories__the_accordion_sits_right_above_variations_collapsed_by_default", async () => {
+check("test_PRD_P0_138_nested_categories__the_accordion_lives_under_admin_collapsed_by_default", async () => {
+  /* REVISED: "move the category designer... header. Put it in there
+     because really that should be only modified by an admin." The
+     Categories accordion is no longer its own top-level section right
+     above Variations — it moved inside the renamed "Admin" disclosure,
+     alongside the one blank custom-field row, both after Variations. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   seedCategoryTree(mirror);
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
-  const categoriesMarkup = body.indexOf('<div class="categories-accordion">');
-  const variationsMarkup = body.indexOf('<div class="variations-accordion">');
-  assert.ok(categoriesMarkup > -1 && categoriesMarkup < variationsMarkup, "Categories renders right above Variations");
+  const adminIdx = body.indexOf("<summary>Admin</summary>");
+  const categoriesIdx = body.indexOf('<div class="categories-accordion">');
+  const variationsIdx = body.indexOf('<div class="variations-accordion">');
+  assert.ok(adminIdx > -1, "the disclosure is now labeled Admin");
+  assert.ok(variationsIdx > -1 && variationsIdx < adminIdx, "Variations still renders before Admin");
+  assert.ok(categoriesIdx > adminIdx, "the category designer now lives inside the Admin disclosure");
   assert.doesNotMatch(body, /class="categories-accordion expanded"/, "collapsed by default, the same as Variations");
 });
 
@@ -1508,44 +1516,48 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_web_toggle_is_checked_
   assert.match(body, /<label class="item-checkbox-toggle">\s*<input type="checkbox" name="on_website" checked>\s*Web\s*<\/label>/);
 });
 
-check("test_PRD_P0_135_item_edit_applies_immediately__the_category_control_is_a_picker_showing_the_full_path", async () => {
-  /* "There should be a category dropdown... you should be able to press
-     the dropdown, and you have a neat little menu where you can browse
-     and select a category, expand and select a subcategory... it should
-     all resolve to a path structure, and that's how it shows the actual
-     category path." Replaces the old free-text/datalist combobox — a
-     hidden input carries the id into the tile's own "Save all" batch,
-     and the button's own label is the full ancestor path, not just the
-     assigned node's own leaf name. */
+check("test_PRD_P0_135_item_edit_applies_immediately__the_category_control_is_two_cascading_selects", async () => {
+  /* REVISED: "right next to the title, we need to have a category
+     dropdown that actually selects its category. And then right next to
+     it is a selection of subcategories that belong to the selected
+     category." Two plain <select>s replace the earlier tree-popup
+     picker — a hidden text input still carries the actual id into the
+     tile's own "Save all" batch. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
   assert.match(body, /<input type="text" name="category_id" value="cat1" hidden>/);
-  assert.match(body, /<button type="button" class="category-picker-btn"[^>]*>Outerwear<\/button>/);
-  assert.match(body, /<button type="button" class="category-picker-option selected" data-category-id="cat1" data-category-path="Outerwear">Outerwear<\/button>/);
+  assert.match(body, /<select class="category-select-top"[^>]*>[\s\S]{0,120}<option value="cat1" selected>Outerwear<\/option>/);
 });
 
-check("test_PRD_P0_135_item_edit_applies_immediately__the_category_picker_shows_the_full_ancestor_path_when_nested", async () => {
+check("test_PRD_P0_135_item_edit_applies_immediately__the_subcategory_select_offers_every_descendant_flattened", async () => {
+  /* "A selection of subcategories that belong to the selected category"
+     covers the WHOLE subtree, not just immediate children — a product
+     assigned two levels down still shows up correctly selected, labeled
+     with its own path relative to the top category. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   mirror.db.exec("INSERT INTO mirror_category (id, external_ref, name, parent_id) VALUES ('cat2', 'sqcat2', 'Coats', 'cat1')");
-  mirror.db.exec("UPDATE mirror_product SET category_id = 'cat2' WHERE id = 'p1'");
+  mirror.db.exec("INSERT INTO mirror_category (id, external_ref, name, parent_id) VALUES ('cat3', 'sqcat3', 'Casual', 'cat2')");
+  mirror.db.exec("UPDATE mirror_product SET category_id = 'cat3' WHERE id = 'p1'");
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
-  assert.match(body, /<button type="button" class="category-picker-btn"[^>]*>Outerwear \/ Coats<\/button>/);
-  assert.match(body, /data-category-id="cat2" data-category-path="Outerwear \/ Coats"/);
+  assert.match(body, /<input type="text" name="category_id" value="cat3" hidden>/);
+  assert.match(body, /<option value="cat1" selected>Outerwear<\/option>/, "the top select resolves to the ROOT ancestor");
+  assert.match(body, /<option value="cat2">Coats<\/option>/);
+  assert.match(body, /<option value="cat3" selected>Coats \/ Casual<\/option>/, "a descendant's own label is its path relative to the top category");
 });
 
-check("test_PRD_P0_135_item_edit_applies_immediately__an_uncategorized_product_shows_the_placeholder_and_no_selection", async () => {
+check("test_PRD_P0_135_item_edit_applies_immediately__an_uncategorized_product_shows_no_selection", async () => {
   const mirror = mirrorDb();
   seedProduct(mirror);
   mirror.db.exec("UPDATE mirror_product SET category_id = NULL WHERE id = 'p1'");
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
   assert.match(body, /<input type="text" name="category_id" value="" hidden>/);
-  assert.match(body, /<button type="button" class="category-picker-btn"[^>]*>Uncategorized<\/button>/);
-  assert.doesNotMatch(body, /category-picker-option selected/);
+  assert.match(body, /<select class="category-select-sub"[^>]*disabled>/, "no top category picked yet, so the subcategory select starts disabled");
+  assert.doesNotMatch(body, /<option value="cat1" selected>/);
 });
 
 check("test_PRD_P0_135_item_edit_applies_immediately__the_save_button_starts_disabled_and_only_renders_for_a_manager", async () => {
@@ -1634,26 +1646,28 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_edit_area_is_a_plain_d
 });
 
 check("test_PRD_P0_135_item_edit_applies_immediately__existing_custom_fields_are_always_visible_only_a_new_blank_row_is_collapsed", async () => {
+  /* REVISED: "get rid of all except one add custom field... that dropdown
+     where it says add custom fields, that should be called admin." The
+     blank row for a brand-new field moved into its own <form>, still
+     inside the renamed "Admin" disclosure; the existing field's own row
+     stays outside it, in its own separate form, visible without opening
+     anything. */
   const mirror = mirrorDb();
   seedProduct(mirror); // seeds a "unit cost" custom field, see seedProduct()
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
-  const detail = /<div class="item-edit">([\s\S]*?)<\/div>\s*<\/div>\s*<\/article>/.exec(body);
-  assert.ok(detail, "the tile must carry an .item-edit section");
-  const editHtml = detail[1];
-
-  /* The existing "unit cost" field's own row sits OUTSIDE the add-field
-     disclosure — visible without opening anything. */
-  const addFieldStart = editHtml.indexOf('<details class="item-add-field">');
+  const addFieldStart = body.indexOf('<details class="item-add-field">');
   assert.ok(addFieldStart > -1, "a blank row must still be offered behind its own disclosure");
-  const existingFieldIndex = editHtml.indexOf('<input name="field_name_0" value="unit cost"');
+  const existingFieldIndex = body.indexOf('<input name="field_name_0" value="unit cost"');
   assert.ok(existingFieldIndex > -1, "the existing field's row must render with its current name/value");
-  assert.ok(existingFieldIndex < addFieldStart, "the existing field must render before (outside) the add-field disclosure");
+  assert.ok(existingFieldIndex < addFieldStart, "the existing field must render before (outside) the Admin disclosure");
 
-  /* The blank row for a brand-new field is INSIDE the disclosure. */
-  const addFieldHtml = editHtml.slice(addFieldStart);
-  assert.match(addFieldHtml, /<summary>Add custom field<\/summary>/);
+  /* The blank row for a brand-new field is INSIDE the disclosure, and it
+     is the ONLY blank row offered now — up to 3 were offered before. */
+  const addFieldHtml = body.slice(addFieldStart);
+  assert.match(addFieldHtml, /<summary>Admin<\/summary>/);
   assert.match(addFieldHtml, /name="field_name_1" placeholder="Field name"/, "a blank row for a new field must be offered");
+  assert.doesNotMatch(addFieldHtml, /name="field_name_2"/, "only one blank row now, not up to three");
 });
 
 check("test_PRD_P0_71_items_tab__approving_an_items_tab_edit_sends_the_approver_back_to_items", () => {
