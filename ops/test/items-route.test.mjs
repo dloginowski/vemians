@@ -902,35 +902,25 @@ check("test_PRD_P0_136_square_custom_attributes__staff_cannot_reach_the_route_be
  * the route itself can give with no Square client at all.
  * ───────────────────────────────────────────────────────────────────────── */
 
-check("test_PRD_P0_135_item_edit_applies_immediately__category_route_refuses_a_blank_name_before_square_is_touched", async () => {
+check("test_PRD_P0_135_item_edit_applies_immediately__category_route_refuses_a_blank_id_before_square_is_touched", async () => {
+  /* "There should be a category dropdown... browse and select a
+     category." The picker posts an id it read straight off the tree, so
+     this route no longer resolves or creates anything from free text — a
+     blank id (nothing picked yet) is refused before runTool is even
+     called. */
   const mirror = mirrorDb();
   seedProduct(mirror);
-  const res = await postForm("/items/wool-coat/category", MANAGER, env(mirror), { category: "  " });
+  const res = await postForm("/items/wool-coat/category", MANAGER, env(mirror), { category_id: "  " });
   assert.equal(res.status, 400);
   assert.match(res.headers.get("content-type") ?? "", /application\/json/);
   const body = await res.json();
-  assert.match(body.error, /give a category name/);
-});
-
-check("test_PRD_P0_135_item_edit_applies_immediately__category_route_reuses_an_existing_category_by_name_case_insensitively", async () => {
-  /* catalog.categories needs no Square client at all (it only reads the
-     mirror) — so resolving an EXISTING category by name, and never
-     reaching for catalog.create_category, is fully testable here even
-     with no fake Square client. Only the FOLLOW-UP catalog.update_product
-     call needs one, which is why this expects that later failure rather
-     than a clean 303 — see this section's own top comment. */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  const res = await postForm("/items/wool-coat/category", MANAGER, env(mirror), { category: "outerwear" });
-  assert.equal(res.status, 400);
-  const body = await res.json();
-  assert.doesNotMatch(body.error, /could not create/i, "an existing category must never be re-created");
+  assert.match(body.error, /choose a category/);
 });
 
 check("test_PRD_P0_135_item_edit_applies_immediately__category_route_staff_cannot_reach_it", async () => {
   const mirror = mirrorDb();
   seedProduct(mirror);
-  const res = await postForm("/items/wool-coat/category", STAFF, env(mirror), { category: "Outerwear" });
+  const res = await postForm("/items/wool-coat/category", STAFF, env(mirror), { category_id: "cat1" });
   assert.equal(res.status, 403);
   assert.match(await res.text(), /manager/i);
 });
@@ -1518,13 +1508,44 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_web_toggle_is_checked_
   assert.match(body, /<label class="item-checkbox-toggle">\s*<input type="checkbox" name="on_website" checked>\s*Web\s*<\/label>/);
 });
 
-check("test_PRD_P0_135_item_edit_applies_immediately__the_category_input_is_a_combobox_offering_every_existing_category", async () => {
+check("test_PRD_P0_135_item_edit_applies_immediately__the_category_control_is_a_picker_showing_the_full_path", async () => {
+  /* "There should be a category dropdown... you should be able to press
+     the dropdown, and you have a neat little menu where you can browse
+     and select a category, expand and select a subcategory... it should
+     all resolve to a path structure, and that's how it shows the actual
+     category path." Replaces the old free-text/datalist combobox — a
+     hidden input carries the id into the tile's own "Save all" batch,
+     and the button's own label is the full ancestor path, not just the
+     assigned node's own leaf name. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
-  assert.match(body, /<input class="category-input" list="items-category-list" name="category" value="Outerwear" placeholder="Uncategorized">/);
-  assert.match(body, /<datalist id="items-category-list"><option value="Outerwear"><\/datalist>/);
+  assert.match(body, /<input type="text" name="category_id" value="cat1" hidden>/);
+  assert.match(body, /<button type="button" class="category-picker-btn"[^>]*>Outerwear<\/button>/);
+  assert.match(body, /<button type="button" class="category-picker-option selected" data-category-id="cat1" data-category-path="Outerwear">Outerwear<\/button>/);
+});
+
+check("test_PRD_P0_135_item_edit_applies_immediately__the_category_picker_shows_the_full_ancestor_path_when_nested", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  mirror.db.exec("INSERT INTO mirror_category (id, external_ref, name, parent_id) VALUES ('cat2', 'sqcat2', 'Coats', 'cat1')");
+  mirror.db.exec("UPDATE mirror_product SET category_id = 'cat2' WHERE id = 'p1'");
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.match(body, /<button type="button" class="category-picker-btn"[^>]*>Outerwear \/ Coats<\/button>/);
+  assert.match(body, /data-category-id="cat2" data-category-path="Outerwear \/ Coats"/);
+});
+
+check("test_PRD_P0_135_item_edit_applies_immediately__an_uncategorized_product_shows_the_placeholder_and_no_selection", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  mirror.db.exec("UPDATE mirror_product SET category_id = NULL WHERE id = 'p1'");
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.match(body, /<input type="text" name="category_id" value="" hidden>/);
+  assert.match(body, /<button type="button" class="category-picker-btn"[^>]*>Uncategorized<\/button>/);
+  assert.doesNotMatch(body, /category-picker-option selected/);
 });
 
 check("test_PRD_P0_135_item_edit_applies_immediately__the_save_button_starts_disabled_and_only_renders_for_a_manager", async () => {
@@ -1890,7 +1911,7 @@ check("test_PRD_P0_132_item_deep_link__clicking_share_does_not_also_collapse_the
   seedProduct(mirror);
   const res = await get("/items", STAFF, env(mirror));
   const body = await res.text();
-  const handler = body.slice(body.indexOf('addEventListener("click", async (e) => {\n  const shareBtn'), body.indexOf("shareLink(shareBtn)") + 60);
+  const handler = body.slice(body.indexOf("const shareBtn = e.target.closest"), body.indexOf("shareLink(shareBtn)") + 60);
   assert.match(handler, /const shareBtn = e\.target\.closest\("\.item-share"\);/);
   assert.match(handler, /shareLink\(shareBtn\);\s*\n\s*return;/);
 });

@@ -723,41 +723,17 @@ async function ops(request, env, path) {
       args = numericId ? { category_id: categoryId, numeric_id: numericId } : { category_id: categoryId, clear: true };
       summaryNoun = "category number";
     } else if (suffix === "/category") {
-      /* A free-text name, resolved the same way vendor names already are
-         (vendorRef, catalog-writer.js) — the owner's own words: "I should
-         be able to... select an existing category subcategory, or just
-         type in... it will create one if there isn't one." Unlike vendor,
-         catalog.create_category keeps its own near-duplicate guard
-         (nearestCategory) — resolving on demand from this form does not
-         bypass it, since this still calls the SAME tool with the SAME
-         check(), only with a reason supplied here instead of typed by
-         hand. "Category/Subcategory" is not a real two-level hierarchy
-         this schema has never had (see P0-136's own style_id comment) —
-         it is a flat category whose own name happens to contain a "/",
-         same as any other name. */
-      const name = String(form.get("category") ?? "").trim();
-      if (!name) {
-        return json({ error: "give a category name, or choose one from the list" }, 400);
-      }
-      const listRes = await runTool("catalog.categories", {}, { actor: email, role, env });
-      if (!listRes.ok) return json({ error: listRes.error || "could not read the category list" }, 400);
-      const existing = listRes.data.categories.find((c) => c.name.toLowerCase() === name.toLowerCase());
-      let categoryId = existing?.id;
+      /* "There should be a category dropdown... browse and select a
+         category, expand and select a subcategory... it should all
+         resolve to a path structure." The picker (views.js) already walks
+         the SAME closed set catalog.categories offers and posts the
+         chosen node's own id directly — nothing here needs to resolve a
+         name or create one on the fly any more (that is the Categories
+         accordion's own job, catalog.create_category); update_product's
+         own check() already refuses an id outside the closed set. */
+      const categoryId = String(form.get("category_id") ?? "").trim();
       if (!categoryId) {
-        const reason = `created from the Items tab while categorizing '${handle}'`;
-        const createGate = await runTool("catalog.create_category", { name, reason }, { actor: email, role, env });
-        if (!createGate?.needsApproval) {
-          return json({ error: createGate?.error || `could not create the category '${name}'` }, 400);
-        }
-        const created = await runTool(
-          "catalog.create_category",
-          { name, reason },
-          { actor: email, role, env, approvalToken: createGate.data.approval.token },
-        );
-        if (created?.error || created?.denied) {
-          return json({ error: created.error || created.denied || `could not create the category '${name}'` }, 400);
-        }
-        categoryId = created.category.id;
+        return json({ error: "choose a category from the list" }, 400);
       }
       toolName = "catalog.update_product";
       args = { handle, category_id: categoryId };

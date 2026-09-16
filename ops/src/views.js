@@ -1678,15 +1678,45 @@ ${INPUT_BAR_CSS}
    was reverted. */
 .item-checkbox-toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--ink); cursor: pointer; white-space: nowrap; }
 .item-checkbox-toggle input { width: 12px; height: 12px; margin: 0; accent-color: var(--accent); }
-/* The category dropdown-or-type-in combobox — the owner's own words:
-   "uncategorized should be a drop down... select an existing category
-   subcategory, or just type in... it will create one if there isn't
-   one." list="items-category-list" (itemsPage()) supplies the suggestions;
-   typing anything else is still a valid submission. */
-.category-input {
+/* The category picker — the owner's own words: "there should be a
+   category dropdown... you should be able to press the dropdown, and
+   you have a neat little menu where you can browse and select a
+   category, expand and select a subcategory... it should all resolve
+   to a path structure." A plain button (the same pill look the old
+   free-text combobox had) opens an absolutely-positioned tree menu,
+   .category-picker's own position: relative anchoring it — the SAME
+   recursive shape as the Categories accordion's own tree, minus the
+   +/numeric_id inputs that belong to editing the tree, not choosing
+   from it. */
+.category-picker { position: relative; }
+.category-picker-btn {
   font: inherit; font-size: 10px; padding: 1px 6px; border-radius: 999px;
-  border: 1px solid var(--rule); background: transparent; color: var(--muted); width: 8em;
+  border: 1px solid var(--rule); background: transparent; color: var(--muted); cursor: pointer;
+  max-width: 16em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.category-picker-btn:hover { border-color: var(--accent); color: var(--accent); }
+.category-picker-menu {
+  position: absolute; top: 100%; left: 0; z-index: 15; margin-top: 4px; min-width: 14em; max-height: 16em;
+  overflow-y: auto; padding: 4px 0; border: 1px solid var(--muted); border-radius: 8px; background: var(--ground);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+.category-picker-row { display: flex; align-items: center; gap: 6px; padding: 3px 8px; }
+.category-picker-toggle {
+  flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center; border: none; background: transparent;
+  color: var(--muted); cursor: pointer; transition: transform 0.15s;
+}
+.category-picker-toggle:hover { color: var(--accent); }
+.category-picker-node.expanded > .category-picker-row > .category-picker-toggle { transform: rotate(90deg); }
+.category-picker-toggle-spacer { flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; }
+.category-picker-option {
+  flex: 1 1 auto; text-align: left; font: inherit; font-size: 12px; padding: 2px 4px; border: none;
+  border-radius: 4px; background: transparent; color: var(--ink); cursor: pointer;
+}
+.category-picker-option:hover { background: rgba(255, 255, 255, 0.08); }
+.category-picker-option.selected { color: var(--accent); font-weight: 600; }
+.category-picker-children { display: none; }
+.category-picker-node.expanded > .category-picker-children { display: block; }
 .item-variants, .item-fields { display: flex; flex-direction: column; gap: 2px; }
 .item-variants div, .item-fields div { display: flex; justify-content: space-between; gap: 6px; }
 .item-variants span:first-child, .item-fields span:first-child { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2037,6 +2067,71 @@ function renderCategoryNodes(categories, parentId) {
     .join("");
 }
 
+/* "It should all resolve to like a path structure, and that's how it
+   shows the actual category path" — a node's own displayed name is just
+   its own leaf name (renderCategoryNodes' own comment: "you could tell
+   them apart because they'll have a different parent"), so the per-
+   product picker below needs the FULL ancestor chain to actually show
+   which one is assigned. Returns null for an unassigned or unknown id,
+   never a partial/broken path. */
+function categoryPath(categories, categoryId) {
+  if (!categoryId) return null;
+  const byId = new Map(categories.map((c) => [c.id, c]));
+  const names = [];
+  let cur = byId.get(categoryId);
+  if (!cur) return null;
+  while (cur) {
+    names.unshift(cur.name);
+    cur = cur.parent_id ? byId.get(cur.parent_id) : null;
+  }
+  return names.join(" / ");
+}
+
+/* Every ANCESTOR of categoryId (never categoryId itself, which needs no
+   node of its own pre-opened to be visible) — so opening the picker on an
+   already-categorized product reveals the assigned node in place, the
+   same "show me where I am" a file tree gives the current file, rather
+   than a flat, fully-collapsed tree someone has to hunt back through. */
+function categoryAncestorIds(categories, categoryId) {
+  const byId = new Map(categories.map((c) => [c.id, c]));
+  const ids = new Set();
+  let cur = categoryId ? byId.get(categoryId) : null;
+  cur = cur?.parent_id ? byId.get(cur.parent_id) : null;
+  while (cur) {
+    ids.add(cur.id);
+    cur = cur.parent_id ? byId.get(cur.parent_id) : null;
+  }
+  return ids;
+}
+
+/* The picker's own tree — same recursive shape and same toggle-width
+   indent as renderCategoryNodes above, but for SELECTING a product's
+   category rather than editing the tree itself: no +, no numeric_id, and
+   a node's own name is the control (clicking it picks that node,
+   whether or not it has subcategories of its own — a top-level category
+   is itself a valid category to assign, not only its leaves). */
+function renderCategoryPickerNodes(categories, parentId, selectedId, expandedIds) {
+  const children = categories
+    .filter((c) => (c.parent_id ?? null) === parentId)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return children
+    .map((c) => {
+      const hasChildren = categories.some((g) => g.parent_id === c.id);
+      const toggle = hasChildren
+        ? `<button type="button" class="category-picker-toggle" aria-label="Show subcategories of ${esc(c.name)}" title="Show subcategories">${CARET_ICON}</button>`
+        : `<span class="category-picker-toggle-spacer"></span>`;
+      const isExpanded = expandedIds.has(c.id);
+      return `<div class="category-picker-node${isExpanded ? " expanded" : ""}" style="padding-left: ${parentId === null ? 0 : CATEGORY_NODE_TOGGLE_PX}px">
+        <div class="category-picker-row">
+          ${toggle}
+          <button type="button" class="category-picker-option${c.id === selectedId ? " selected" : ""}" data-category-id="${esc(c.id)}" data-category-path="${esc(categoryPath(categories, c.id))}">${esc(c.name)}</button>
+        </div>
+        ${hasChildren ? `<div class="category-picker-children">${renderCategoryPickerNodes(categories, c.id, selectedId, expandedIds)}</div>` : ""}
+      </div>`;
+    })
+    .join("");
+}
+
 function itemTile(product, canEdit, allCategories = []) {
   const fieldEntries = Object.entries(product.custom_fields ?? {});
   const searchText = [
@@ -2309,22 +2404,40 @@ function itemTile(product, canEdit, allCategories = []) {
          </label>
        </form>`
     : "";
-  /* "Uncategorized should be a drop down... select an existing category
-     subcategory, or just type in... category slash subcategory manually,
-     it will create one if there isn't one." A <datalist> combobox: pick a
-     suggestion from every category that exists (items-category-list,
-     rendered once per page in itemsPage()), or type something that
-     matches none of them, which /items/<handle>/category (index.js)
-     resolves-or-creates the same way a vendor name already is. Not a real
-     two-level Square hierarchy — this schema has never had a subcategory
-     concept (see style_id's own NN-NN-NNN comment) — "Category/
-     Subcategory" is a flat category whose own name happens to contain a
-     "/", same as any other name. */
+  /* "There should be a category dropdown... you should be able to press
+     the dropdown, and you have a neat little menu where you can browse
+     and select a category, expand and select a subcategory... it should
+     all resolve to a path structure, and that's how it shows the actual
+     category path." Replaces the old free-text/datalist combobox — the
+     Categories accordion below is now the one place a NEW category gets
+     created, so this control only ever needs to CHOOSE from the closed
+     set, over the SAME allCategories tree. category_id rides into the
+     tile's own "Save all" batch on a plain `hidden` ATTRIBUTE, not
+     type="hidden" — deliberately: a type="hidden" input has no "dirty
+     value" flag at all (its value IDL is just a direct alias of the value
+     content attribute, per the HTML spec's own value-mode table), so
+     isFieldDirty's `.value !== .defaultValue` check can never see a
+     script-driven change on one — caught live, the Save button silently
+     staying disabled after a real pick. type="text" keeps the normal
+     dirty-value semantics refreshDirtyState already relies on everywhere
+     else; `hidden` alone keeps it off-screen. */
+  const categoryId = product.category_id ?? null;
+  const categoryPathLabel = categoryPath(allCategories, categoryId) ?? "Uncategorized";
   const categoryControl = canEdit
     ? `<form method="post" action="/items/${esc(product.handle)}/category" class="category-form">
-         <input class="category-input" list="items-category-list" name="category" value="${esc(product.category_name ?? "")}" placeholder="Uncategorized">
+         <input type="text" name="category_id" value="${esc(categoryId ?? "")}" hidden>
+         <div class="category-picker">
+           <button type="button" class="category-picker-btn" aria-label="Choose a category" title="Choose a category">${esc(categoryPathLabel)}</button>
+           <div class="category-picker-menu" hidden>
+             ${
+               allCategories.length
+                 ? renderCategoryPickerNodes(allCategories, null, categoryId, categoryAncestorIds(allCategories, categoryId))
+                 : `<p class="item-empty">No categories yet.</p>`
+             }
+           </div>
+         </div>
        </form>`
-    : `<span>${esc(product.category_name || "Uncategorized")}</span>`;
+    : `<span>${esc(categoryPathLabel)}</span>`;
 
   /* ONE Save for the whole expanded tile, not one per section — the
      owner's own words: "let's just have one save button for the whole
@@ -2418,22 +2531,6 @@ export function itemsPage({ role }, products, allCategories = []) {
     ? products.map((p) => itemTile(p, canEdit, allCategories)).join("\n")
     : `<p class="hint">No products in the mirror yet.</p>`;
 
-  /* ONE shared list of every category that exists (the closed set,
-     catalog.categories — not just the ones a product here already uses),
-     referenced by every tile's own category input via list="..." rather
-     than repeated per tile. The owner's own words: "uncategorized should
-     be a drop down... select an existing category subcategory, or just
-     type in... it will create one if there isn't one" — a <datalist>
-     gives both in one native control: pick a suggestion, or type
-     something that matches none of them at all, which /items/<handle>/
-     category (index.js) resolves-or-creates the same way a vendor name
-     already is. */
-  const categoryDatalist = canEdit
-    ? `<datalist id="items-category-list">${[...allCategories]
-        .sort((a, b) => a.name.localeCompare(b.name))
-        .map((c) => `<option value="${esc(c.name)}">`)
-        .join("")}</datalist>`
-    : "";
 
   /* Existing categories only — the ones actually on a product here, not the
      full catalog.categories list a manager could create from. The owner's
@@ -2490,7 +2587,6 @@ export function itemsPage({ role }, products, allCategories = []) {
 ${tiles}
   </div>
   ${categoryMenu}
-  ${categoryDatalist}
   <div class="input-bar">
     <button type="button" class="icon-btn" id="category-btn" aria-label="Filter by category" title="Filter by category"${categories.length ? "" : " hidden"}>${FILTER_ICON}</button>
     ${
@@ -2771,6 +2867,37 @@ if (!ItemSpeechRecognitionCtor) {
    (TABLE_CARD_CSS's own .table-card.full convention in the chat log)
    instead of opening a second element or tracking separate scroll state. */
 document.getElementById("items-grid").addEventListener("click", async (e) => {
+  /* The category picker — "press the dropdown, and you have a neat
+     little menu where you can browse and select a category, expand and
+     select a subcategory." Delegated, like everything else in this
+     handler, since there is one .category-picker per tile rather than
+     one shared id dropdownMenuScript could bind to. */
+  const pickerBtn = e.target.closest(".category-picker-btn");
+  if (pickerBtn) {
+    const menu = pickerBtn.nextElementSibling;
+    const wasHidden = menu.hidden;
+    document.querySelectorAll(".category-picker-menu").forEach((m) => (m.hidden = true));
+    menu.hidden = !wasHidden;
+    return;
+  }
+  const pickerToggle = e.target.closest(".category-picker-toggle");
+  if (pickerToggle) {
+    pickerToggle.closest(".category-picker-node")?.classList.toggle("expanded");
+    return;
+  }
+  const pickerOption = e.target.closest(".category-picker-option");
+  if (pickerOption) {
+    const form = pickerOption.closest(".category-form");
+    const hiddenInput = form.querySelector('input[name="category_id"]');
+    const btn = form.querySelector(".category-picker-btn");
+    hiddenInput.value = pickerOption.dataset.categoryId;
+    btn.textContent = pickerOption.dataset.categoryPath;
+    form.querySelectorAll(".category-picker-option.selected").forEach((el) => el.classList.remove("selected"));
+    pickerOption.classList.add("selected");
+    form.querySelector(".category-picker-menu").hidden = true;
+    hiddenInput.dispatchEvent(new Event("change", { bubbles: true }));
+    return;
+  }
   const shareBtn = e.target.closest(".item-share");
   if (shareBtn) {
     shareLink(shareBtn);
@@ -2859,6 +2986,19 @@ document.getElementById("items-grid").addEventListener("click", async (e) => {
   if (!tile || e.target.closest(".item-edit, .item-badges, .variations-accordion") || tile.classList.contains("full")) return;
   tile.classList.add("full");
   setDeepLinkHash(tile);
+});
+
+/* Closes any open category picker menu on an outside click — the same
+   "outside click closes it" convention dropdownMenuScript's own single
+   global menu already follows, generalized here since there is one
+   .category-picker-menu per tile rather than one shared id to bind to. */
+document.addEventListener("click", (e) => {
+  if (e.target.closest(".category-picker")) return;
+  document.querySelectorAll(".category-picker-menu").forEach((m) => (m.hidden = true));
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  document.querySelectorAll(".category-picker-menu").forEach((m) => (m.hidden = true));
 });
 
 /* Dirty-tracking for the ONE Save button per tile — the owner's own
