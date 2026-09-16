@@ -1453,6 +1453,46 @@ check("test_PRD_P0_138_nested_categories__setting_a_style_id_auto_derives_the_pr
   assert.equal(itemUpsert.body.object.item_data.reporting_category.id, casualExternalRef);
 });
 
+check("test_PRD_P0_138_nested_categories__resync_from_square_is_manager_only", async () => {
+  const f = await fixture();
+  const denied = await runTool("catalog.resync_from_square", {}, { ...f.ctx, ...staff });
+  assert.equal(denied.ok, false);
+  assert.match(denied.error, /manager/i);
+});
+
+check("test_PRD_P0_138_nested_categories__resync_from_square_backfills_a_parent_link_square_already_had", async () => {
+  /* The owner's own question, after adding categories directly in Square's
+     own dashboard: "why aren't you synchronizing them?" The scheduled
+     sync only does a full ListCatalog sweep on its very first-ever run;
+     every run after that is an incremental SearchCatalogObjects that only
+     returns objects Square considers recently updated — so a category
+     Square already held, untouched since the mirror's own cursor was
+     recorded, never resurfaces on its own (in particular its own
+     parent_category link, a field this mirror only started reading once
+     nested categories shipped). This tool is the manual escape hatch: it
+     calls the adapter's own pullCatalog({full:true}) directly, the same
+     full sweep the cron only ever runs once, bypassing the cursor
+     entirely. Modeled here by editing the fake Square catalog AFTER the
+     fixture's own initial sync (which is itself a full sweep, so it
+     already saw Knitwear as top-level) — the same shape as a category
+     someone nests directly in Square after this mirror's first sync ever
+     ran. */
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const knitwearBefore = f.categories().find((c) => c.name === "Knitwear");
+  assert.equal(knitwearBefore.parent_id, null, "Knitwear starts top-level, same as the fixture's own Square seed");
+
+  f.square.objects.get("CAT_KNITWEAR").category_data.parent_category = { id: "CAT_OUTERWEAR" };
+
+  const res = await approvedCall(f, "catalog.resync_from_square", {});
+  assert.equal(res.ok, true, res.error);
+  assert.equal(res.data.resynced, true);
+  assert.equal(res.data.full, true);
+
+  const knitwearAfter = f.categories().find((c) => c.name === "Knitwear");
+  assert.equal(knitwearAfter.parent_id, outerwear.id, "the parent link Square already had is now reflected here");
+});
+
 check("test_PRD_P0_138_nested_categories__an_edit_that_does_not_touch_category_never_clears_it_in_square", async () => {
   /* Bug found and fixed while wiring this feature up: an UNDEFINED
      categoryId used to resolve to null, and itemData() (catalog-writer.js)

@@ -4235,6 +4235,26 @@ that does not trace to one of these is a process failure (see §12).
     parent, never computed from its absolute depth. Re-verified live: each level's own toggle column
     now starts exactly at the pixel where its immediate parent's toggle column ends, at every depth.
 
+    **`catalog.resync_from_square` (T2, manager) — the manual escape hatch for "there are already
+    defined category and subcategories on Square main page right now. Why aren't you synchronizing
+    them?"** Root cause, traced through `ops/src/sync.js`'s own cron logic
+    (Test-PRD-P0-48-scheduled_mirror_sync): `full = !since` — a full `ListCatalog` sweep runs ONLY on
+    the mirror's very first-ever sync (or after a lost cursor); every run after that is an
+    incremental `SearchCatalogObjects` for objects Square considers updated SINCE the last cursor. A
+    category already sitting in Square, untouched since that cursor was recorded, never resurfaces
+    on its own — in particular its own `parent_category` link, a field this mirror only started
+    reading at all once nested categories shipped (P0-138, above), so an old, stable category's
+    hierarchy can be permanently stuck outside the mirror's reach without a fresh full sweep, no
+    matter how many 15-minute cron ticks pass. The new tool calls `t.square.adapter.
+    pullCatalog({full: true})` directly — the SAME idempotent full-sweep path the cron itself only
+    ever takes once (`external_ref UNIQUE` already makes every upsert underneath safe to re-run,
+    same property the cron's own nightly-reconcile comment already leans on) — bypassing the
+    cursor-based decision entirely rather than needing to reset any stored state. Exposed as
+    `POST /items/resync`, gated the same way as every other manager-only Items route (denied before
+    `runTool` ever reaches Square), and as a manager-only refresh-icon button in the Items page's own
+    `.input-bar`, next to the category filter opener — a full page reload on success, since a resync
+    can touch every product's own category, not just the current filter state.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

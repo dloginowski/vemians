@@ -968,6 +968,13 @@ const FILTER_ICON = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden
   `<circle cx="2" cy="8" r="1" fill="currentColor"/><path d="M5 8h6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="13" cy="8" r="1" fill="currentColor"/>` +
   `<circle cx="2" cy="12" r="1" fill="currentColor"/><path d="M5 12h6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="13" cy="12" r="1" fill="currentColor"/></svg>`;
 
+/* catalog.resync_from_square's own button (Test-PRD-P0-138-nested_categories)
+   — a plain two-arrow refresh glyph, manager-only, next to the category
+   filter opener. */
+const SYNC_ICON = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">` +
+  `<path d="M3 8a5 5 0 0 1 8.5-3.5M13 2v3h-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>` +
+  `<path d="M13 8a5 5 0 0 1-8.5 3.5M3 14v-3h3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
 /*
  * Plain dictation — click to start, click to stop, the transcript appended
  * to one text field. Deliberately NOT the agentic mic pattern (.mic-btn,
@@ -2486,6 +2493,11 @@ ${tiles}
   ${categoryDatalist}
   <div class="input-bar">
     <button type="button" class="icon-btn" id="category-btn" aria-label="Filter by category" title="Filter by category"${categories.length ? "" : " hidden"}>${FILTER_ICON}</button>
+    ${
+      canEdit
+        ? `<button type="button" class="icon-btn" id="resync-btn" aria-label="Resync categories from Square" title="Resync categories from Square">${SYNC_ICON}</button>`
+        : ""
+    }
     <input type="text" id="item-search" placeholder="Search title, handle, SKU, custom fields...">
     <button type="button" class="icon-btn mic-btn" id="item-mic-btn" aria-label="Hold and describe what you're looking for" title="Hold and describe what you're looking for">${MIC_ICON}</button>
     <button type="button" class="send-btn" id="item-search-btn" aria-label="Search" title="Search">${SEARCH_ICON}</button>
@@ -2592,6 +2604,33 @@ ${dropdownMenuScript({
   menuId: "category-menu",
   onSelect: "toggleCategory(item.dataset.category); filterItems();",
 })}
+
+/* "There are already defined category and subcategories on Square main
+   page right now. Why aren't you synchronizing them?" — catalog.
+   resync_from_square (a manager-only, T2 tool) forces the full sweep the
+   scheduled sync only ever does on its own very first run; every run
+   after that is incremental and never revisits a category Square has not
+   itself touched since. A full page reload afterward, not an in-place
+   patch, since a resync can touch every product's own category, not just
+   this page's own filter state. */
+const resyncBtn = document.getElementById("resync-btn");
+if (resyncBtn) {
+  /* A native alert() on failure, not the tile's own .item-edit-error
+     pattern — the fixed, 42px-tall .input-bar this button lives in has no
+     room for an inline message the way a scrollable tile does. */
+  resyncBtn.addEventListener("click", async () => {
+    resyncBtn.disabled = true;
+    try {
+      const res = await fetch("/items/resync", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "resync failed");
+      location.reload();
+    } catch (err) {
+      resyncBtn.disabled = false;
+      alert("Resync from Square failed: " + err.message);
+    }
+  });
+}
 
 /* Voice search — the owner's own words: "by holding that microphone
    input, you can... describe what items you're looking for, and then
