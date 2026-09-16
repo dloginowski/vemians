@@ -902,6 +902,12 @@ const LINK_ICON = `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="
 const CARET_ICON = `<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">` +
   `<path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
+/* .category-node-toggle/.category-node-toggle-spacer's own rendered width
+   (see the shared CSS below) — the category tree's own per-depth indent
+   must equal this exactly so a subcategory's own toggle column lands
+   directly under its parent's, not just close to it. */
+const CATEGORY_NODE_TOGGLE_PX = 18;
+
 /* The one Save for a whole expanded item tile — the owner's own words:
    "one save button for the whole page... disabled and becomes enabled
    when any changes are detected." A checkmark, not a floppy disk: nothing
@@ -1760,13 +1766,13 @@ ${INPUT_BAR_CSS}
    lines up whether or not that particular row happens to have one. */
 .category-node-row { display: flex; align-items: center; gap: 6px; padding: 3px 8px 3px 0; }
 .category-node-toggle {
-  flex: 0 0 auto; width: 18px; height: 18px; padding: 0; display: inline-flex; align-items: center;
-  justify-content: center; border: none; background: transparent; color: var(--muted); cursor: pointer;
-  transition: transform 0.15s;
+  flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center; border: none; background: transparent;
+  color: var(--muted); cursor: pointer; transition: transform 0.15s;
 }
 .category-node-toggle:hover { color: var(--accent); }
 .category-node.expanded > .category-node-row > .category-node-toggle { transform: rotate(90deg); }
-.category-node-toggle-spacer { flex: 0 0 auto; width: 18px; height: 18px; }
+.category-node-toggle-spacer { flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; }
 .category-node-name { flex: 1 1 auto; font-size: 12px; overflow-wrap: anywhere; }
 .category-numeric-id {
   flex: 0 0 auto; width: 3em; font: inherit; font-size: 12px; padding: 3px 5px; text-align: center;
@@ -1970,13 +1976,15 @@ const MEDIA_BASE_URL = "https://media.vemians.com";
    variants... a header with a category name... an ID field... expand that
    and add subcategories... each one assigning an ID." Recursive: a node's
    own children are whatever other rows carry its own id as their
-   parent_id, at any depth, indented 14px per level so the nesting reads
-   without a single tree-line ever being drawn. Rendered fresh per tile
+   parent_id, at any depth, each level nested inside its own parent's own
+   box so a level's own toggle-width indent (CATEGORY_NODE_TOGGLE_PX)
+   compounds naturally with its ancestors' — no tree-line ever drawn.
+   Rendered fresh per tile
    from the SAME global allCategories list every tile already gets — this
    tree is Square-backed, not per-product, so what one tile creates or
    numbers shows up identically in every other tile's own accordion the
    next time the page loads. */
-function renderCategoryNodes(categories, parentId, depth) {
+function renderCategoryNodes(categories, parentId) {
   const children = categories
     .filter((c) => (c.parent_id ?? null) === parentId)
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -1993,7 +2001,19 @@ function renderCategoryNodes(categories, parentId, depth) {
       const toggle = hasChildren
         ? `<button type="button" class="category-node-toggle" aria-label="Show subcategories of ${esc(c.name)}" title="Show subcategories">${CARET_ICON}</button>`
         : `<span class="category-node-toggle-spacer"></span>`;
-      return `<div class="category-node" style="padding-left: ${depth * 14}px">
+      /* "The indentation of each subcategory... has to start right where
+         the chevron pointing down is." Each .category-node is nested
+         physically INSIDE its own parent's .category-node, so padding-left
+         values already compound through ordinary box-model nesting — a
+         node only ever needs ONE toggle-width's worth of its OWN padding
+         (matching CATEGORY_NODE_TOGGLE_PX, the toggle/spacer's own
+         rendered width) to land its toggle column exactly under its
+         immediate parent's. Multiplying by absolute depth here double-
+         counts that compounding (e.g. a depth-2 node would land 3 steps
+         deep, not 2) — caught by measuring actual rendered pixel
+         positions with a real headless browser, not just reading the
+         inline style values the tests assert on. */
+      return `<div class="category-node" style="padding-left: ${parentId === null ? 0 : CATEGORY_NODE_TOGGLE_PX}px">
         <div class="category-node-row">
           ${toggle}
           <span class="category-node-name">${esc(c.name)}</span>
@@ -2004,7 +2024,7 @@ function renderCategoryNodes(categories, parentId, depth) {
           <input type="text" class="category-new-name" placeholder="Subcategory name" maxlength="60">
           <button type="button" class="category-create" data-parent-id="${esc(c.id)}">Add</button>
         </div>
-        <div class="category-children">${renderCategoryNodes(categories, c.id, depth + 1)}</div>
+        <div class="category-children">${renderCategoryNodes(categories, c.id)}</div>
       </div>`;
     })
     .join("");
@@ -2218,7 +2238,7 @@ function itemTile(product, canEdit, allCategories = []) {
            <div class="categories-tree">
              ${
                allCategories.length
-                 ? renderCategoryNodes(allCategories, null, 0)
+                 ? renderCategoryNodes(allCategories, null)
                  : `<p class="item-empty">No categories yet.</p>`
              }
            </div>

@@ -4215,6 +4215,26 @@ that does not trace to one of these is a process failure (see §12).
     fixes above — the moved button correctly reveals/hides the (still-present, unchanged-position)
     add-form, and the per-node buttons are unaffected.
 
+    **A third real bug, found the same way once more, this time by measuring actual rendered pixel
+    positions rather than only reading source: subcategory indentation compounded instead of
+    stepping linearly.** The owner's own correction: "the indentation of each subcategory... has to
+    start right where the chevron pointing down is." Each `.category-node` nests physically INSIDE
+    its own parent's `.category-node` (via `.category-children`), so a node's own `padding-left`
+    already stacks with every ancestor's through ordinary box-model nesting — the previous code set
+    each node's own inline style to `depth * CATEGORY_NODE_TOGGLE_PX` (an ABSOLUTE, depth-scaled
+    value), which then got added ON TOP of that same compounding a second time. A depth-2 node
+    (Casual, under Coats, under Outerwear) landed 3 toggle-widths deep on screen (0+18+36=54px) —
+    visually a full step further right than its own parent Coats' 1-toggle-width offset would
+    suggest, not "right where the chevron is." Caught by measuring real `getBoundingClientRect()`
+    positions in a live headless-browser pass, not by reading the `padding-left` values the markup
+    tests already asserted on (those values were internally consistent with the OLD, buggy formula,
+    so they never caught this on their own). Fixed by giving every node ONLY its own ONE-STEP
+    contribution (`CATEGORY_NODE_TOGGLE_PX` for any node with a parent, `0` for a top-level one) and
+    letting the natural DOM nesting compound it correctly — `renderCategoryNodes` no longer needs or
+    threads a `depth` argument at all, since each node's own indent is now relative to its immediate
+    parent, never computed from its absolute depth. Re-verified live: each level's own toggle column
+    now starts exactly at the pixel where its immediate parent's toggle column ends, at every depth.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
