@@ -4177,6 +4177,27 @@ that does not trace to one of these is a process failure (see §12).
     selector — so EVERY node's own add-subcategory form showed open at once instead of only the one
     just clicked. Fixed with an explicit `.category-add-form[hidden] { display: none; }` override.
 
+    **REVISED: every node with subcategories of its own is now its own expandable row, collapsed by
+    default — not the whole subtree shown open the moment the outer Categories accordion is.** The
+    owner's own words, giving "Cocktail" (a real subcategory in the shop's own catalog) as the
+    example: "every row underneath the categories row needs to be an expandable row with its own
+    category name and a plus button and an ID field at the end of row." A node WITH children gets
+    the same caret convention the outer Categories/Variations accordions already use
+    (`.category-node-toggle`, its own `.expanded` class on that one `.category-node` — opening one
+    subcategory never opens or closes any sibling or ancestor's own); a leaf gets an equal-width
+    `.category-node-toggle-spacer` instead, so the name column still lines up either way. Row order,
+    left to right: the caret (or its spacer), the name, the "+" (add a subcategory), and the numeric
+    ID LAST — reordered from the previous caret-less shape, which had the ID before the "+".
+
+    **A second real bug caught the same way, in the same live pass: the top-level category list
+    went dark entirely once the per-node collapse-by-default rule shipped.** The tree's own
+    top-level wrapper had reused `.category-children` — the SAME class every node's own nested
+    children container uses — so the new blanket `.category-children { display: none; }` hid the
+    ENTIRE top-level list too, with no `.category-node.expanded` ancestor of its own able to ever
+    reveal it again (it sits directly under `.categories-body`, not under any `.category-node` at
+    all). Renamed to its own class, `.categories-tree`, which no node's own children container
+    shares.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

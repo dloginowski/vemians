@@ -1751,8 +1751,21 @@ ${INPUT_BAR_CSS}
 /* One node: its own name/id/add-toggle row, its own (initially hidden)
    add-subcategory form right below it, then its own children — indented
    per level via the inline padding-left renderCategoryNodes sets, so the
-   nesting reads without a single tree-line ever being drawn. */
+   nesting reads without a single tree-line ever being drawn. "Every row
+   underneath the categories row needs to be an expandable row" — a node
+   WITH subcategories of its own gets the same caret convention the outer
+   Categories/Variations accordions already use, collapsed by default; a
+   leaf gets an equal-width spacer instead, so the name column still
+   lines up whether or not that particular row happens to have one. */
 .category-node-row { display: flex; align-items: center; gap: 6px; padding: 3px 8px 3px 0; }
+.category-node-toggle {
+  flex: 0 0 auto; width: 18px; height: 18px; padding: 0; display: inline-flex; align-items: center;
+  justify-content: center; border: none; background: transparent; color: var(--muted); cursor: pointer;
+  transition: transform 0.15s;
+}
+.category-node-toggle:hover { color: var(--accent); }
+.category-node.expanded > .category-node-row > .category-node-toggle { transform: rotate(90deg); }
+.category-node-toggle-spacer { flex: 0 0 auto; width: 18px; height: 18px; }
 .category-node-name { flex: 1 1 auto; font-size: 12px; overflow-wrap: anywhere; }
 .category-add-row .category-node-name { color: var(--muted); font-style: italic; }
 .category-numeric-id {
@@ -1765,6 +1778,14 @@ ${INPUT_BAR_CSS}
 }
 .category-create { width: auto; padding: 0 8px; }
 .category-add-toggle:hover, .category-create:hover { color: var(--accent); border-color: var(--accent); }
+/* Collapsed by default — the same [hidden]-vs-class-selector trap the
+   add-form fix above already caught means this MUST be a real display:none
+   here, not left to a plain [hidden] toggle, since .category-children has
+   no attribute of its own to key off; the direct-child combinator (>)
+   keeps this scoped to a node's OWN children, not every descendant of an
+   ancestor that happens to also be expanded. */
+.category-children { display: none; }
+.category-node.expanded > .category-children { display: block; }
 /* [hidden], not just toggling the class: an unconditional display:flex
    here would otherwise beat the [hidden] attribute's own UA-stylesheet
    display:none, since a class selector outranks an attribute selector —
@@ -1960,20 +1981,32 @@ function renderCategoryNodes(categories, parentId, depth) {
     .filter((c) => (c.parent_id ?? null) === parentId)
     .sort((a, b) => a.name.localeCompare(b.name));
   return children
-    .map(
-      (c) => `<div class="category-node" style="padding-left: ${depth * 14}px">
+    .map((c) => {
+      /* "Every row underneath the categories row needs to be an expandable
+         row" — each node with children of its own gets the SAME caret
+         convention the outer Categories/Variations accordions already
+         use; a leaf gets a same-width spacer instead, so every row's own
+         name still lines up in one column regardless of depth or which
+         siblings happen to have children. Order: caret, name, + (add a
+         subcategory), then the numeric ID last in the row. */
+      const hasChildren = categories.some((g) => g.parent_id === c.id);
+      const toggle = hasChildren
+        ? `<button type="button" class="category-node-toggle" aria-label="Show subcategories of ${esc(c.name)}" title="Show subcategories">${CARET_ICON}</button>`
+        : `<span class="category-node-toggle-spacer"></span>`;
+      return `<div class="category-node" style="padding-left: ${depth * 14}px">
         <div class="category-node-row">
+          ${toggle}
           <span class="category-node-name">${esc(c.name)}</span>
-          <input class="category-numeric-id" data-category-id="${esc(c.id)}" data-category-name="${esc(c.name)}" value="${esc(c.numeric_id ?? "")}" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — leave blank to remove it">
           <button type="button" class="category-add-toggle" data-parent-id="${esc(c.id)}" aria-label="Add a subcategory under ${esc(c.name)}" title="Add a subcategory">+</button>
+          <input class="category-numeric-id" data-category-id="${esc(c.id)}" data-category-name="${esc(c.name)}" value="${esc(c.numeric_id ?? "")}" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — leave blank to remove it">
         </div>
         <div class="category-add-form" hidden>
           <input type="text" class="category-new-name" placeholder="Subcategory name" maxlength="60">
           <button type="button" class="category-create" data-parent-id="${esc(c.id)}">Add</button>
         </div>
         <div class="category-children">${renderCategoryNodes(categories, c.id, depth + 1)}</div>
-      </div>`,
-    )
+      </div>`;
+    })
     .join("");
 }
 
@@ -2178,7 +2211,7 @@ function itemTile(product, canEdit, allCategories = []) {
              <input type="text" class="category-new-name" placeholder="Category name" maxlength="60">
              <button type="button" class="category-create" data-parent-id="">Add</button>
            </div>
-           <div class="category-children">
+           <div class="categories-tree">
              ${
                allCategories.length
                  ? renderCategoryNodes(allCategories, null, 0)
@@ -2703,6 +2736,15 @@ document.getElementById("items-grid").addEventListener("click", async (e) => {
   const categoriesHeader = e.target.closest(".categories-header");
   if (categoriesHeader && !e.target.closest("input, button")) {
     categoriesHeader.closest(".categories-accordion")?.classList.toggle("expanded");
+    return;
+  }
+  /* "Every row underneath the categories row needs to be an expandable
+     row" — a node's own caret toggles only ITS OWN .category-node,
+     independent of every other one, so opening one subcategory never
+     opens or closes any sibling or ancestor's own. */
+  const nodeToggle = e.target.closest(".category-node-toggle");
+  if (nodeToggle) {
+    nodeToggle.closest(".category-node")?.classList.toggle("expanded");
     return;
   }
   /* "An add category button... that will create a subcategory in the
