@@ -240,6 +240,7 @@ export async function listAllProducts(db, { limit } = {}) {
       description: p.source_description ?? "",
       status: p.status,
       channel: p.channel,
+      category_id: p.category_id ?? null,
       category_name: p.category_name,
       custom_fields,
       style_id: p.style_id ?? null,

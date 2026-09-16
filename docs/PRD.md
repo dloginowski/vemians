@@ -4255,6 +4255,38 @@ that does not trace to one of these is a process failure (see §12).
     `.input-bar`, next to the category filter opener — a full page reload on success, since a resync
     can touch every product's own category, not just the current filter state.
 
+    **A product's own category is now assigned through a nested picker, not a free-text combobox —
+    "there should be a category dropdown... you should be able to press the dropdown, and you have a
+    neat little menu where you can browse and select a category, expand and select a subcategory...
+    it should all resolve to a path structure, and that's how it shows the actual category path."**
+    Replaces the old `<input list="items-category-list">` free-text-or-suggestion combobox (which
+    predates nested categories and only ever knew flat names) with `.category-picker`
+    (`views.js`): a pill button labeled with the assigned node's own FULL ancestor path (`Outerwear /
+    Coats`, joining `categoryPath()`'s own walk up `parent_id` — never just the leaf name, since two
+    nodes sharing a name are told apart only by their parent, same as the tree above) that opens a
+    small absolutely-positioned menu over the SAME `renderCategoryPickerNodes` recursive tree
+    (caret-or-spacer, one clickable name per node, no +/numeric_id — those belong to editing the
+    tree, not choosing from it). Opening it auto-expands every ANCESTOR of the currently-assigned
+    node (`categoryAncestorIds`), so a manager sees exactly where a product already sits rather than
+    a fully-collapsed tree to hunt back through. Free-text creation is gone from this control
+    entirely — the Categories accordion (P0-138, above) is now the one place a genuinely NEW category
+    gets created; this picker only ever chooses from the closed set `catalog.categories` already
+    offers, and `catalog.update_product`'s own `check()` still refuses an id outside it regardless.
+
+    **Staged, not instant — the SAME "one Save button for the whole tile" batch every other field on
+    this tile already uses**, not an immediate apply: picking a node updates a same-form `category_id`
+    field and the button's own label optimistically, then waits for the existing dirty-tracking/Save
+    flow (`refreshDirtyState`) to actually post it, exactly like every other field here. A real,
+    previously-impossible-to-hit bug caught live before shipping: that field started as `<input
+    type="hidden">`, but a `type="hidden"` input has NO "dirty value" flag at all — its `value` IDL
+    is a direct alias of the `value` CONTENT ATTRIBUTE per the HTML spec's own value-mode table, so
+    `isFieldDirty`'s `.value !== .defaultValue` check can never see a script-driven change on one, no
+    matter what gets picked — the Save button silently stayed disabled after a real selection. Fixed
+    by using `type="text"` (which keeps the normal dirty-value semantics `refreshDirtyState` already
+    relies on everywhere else) with a plain `hidden` ATTRIBUTE instead — a presentational hide only,
+    unrelated to the input's own value-mode behavior. Verified live end to end: picking a category
+    enables Save, and clicking it posts the correct `category_id`.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
