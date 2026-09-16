@@ -1254,9 +1254,9 @@ check("test_PRD_P0_138_nested_categories__the_tree_nests_and_indents_by_depth", 
   const body = await res.text();
   /* Outerwear (depth 0) -> Coats (depth 1) -> Casual (depth 2). */
   assert.match(body, /<span class="category-node-name">Outerwear<\/span>/);
-  assert.match(body, /padding-left: 0px"[\s\S]{0,120}Outerwear/);
-  assert.match(body, /padding-left: 14px"[\s\S]{0,120}Coats/);
-  assert.match(body, /padding-left: 28px"[\s\S]{0,120}Casual/);
+  assert.match(body, /padding-left: 0px"[\s\S]{0,220}Outerwear/);
+  assert.match(body, /padding-left: 14px"[\s\S]{0,220}Coats/);
+  assert.match(body, /padding-left: 28px"[\s\S]{0,220}Casual/);
   /* Each node's own numeric_id shows what it has (or a blank box for
      Casual, which has none yet), and carries its own category id for the
      change handler to post back. */
@@ -1269,6 +1269,61 @@ check("test_PRD_P0_138_nested_categories__the_tree_nests_and_indents_by_depth", 
     /<input class="category-numeric-id" data-category-id="cat3" data-category-name="Casual" value=""/,
   );
   assert.match(body, /<button type="button" class="category-add-toggle" data-parent-id="cat2"[^>]*>\+<\/button>/, "every node gets its own add-subcategory toggle");
+});
+
+check("test_PRD_P0_138_nested_categories__a_node_with_children_gets_its_own_expandable_caret", async () => {
+  /* The owner's own words: "every row underneath the categories row needs
+     to be an expandable row" — a node with subcategories of its own gets
+     the same caret convention the outer accordions already use,
+     collapsed by default; a leaf gets an equal-width spacer instead, so
+     the name column still lines up either way. Order within a row: the
+     caret, the name, the + (add a subcategory), then the numeric ID
+     LAST. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.match(body, /\.category-node\.expanded > \.category-children\s*\{\s*display:\s*block;\s*\}/);
+  assert.match(body, /\.category-children\s*\{\s*display:\s*none;\s*\}/, "collapsed by default");
+
+  const outerwearNameIdx = body.indexOf('<span class="category-node-name">Outerwear</span>');
+  const outerwearRow = body.slice(outerwearNameIdx - 400, outerwearNameIdx + 500);
+  assert.match(outerwearRow, /class="category-node-toggle"/, "Outerwear has a subcategory (Coats), so it gets a real caret");
+  const nameIdx = outerwearRow.indexOf("category-node-name");
+  const addIdx = outerwearRow.indexOf("category-add-toggle");
+  const idIdx = outerwearRow.indexOf("category-numeric-id");
+  assert.ok(nameIdx < addIdx && addIdx < idIdx, "name, then +, then the numeric ID last");
+
+  const casualNameIdx = body.indexOf('<span class="category-node-name">Casual</span>');
+  const casualRow = body.slice(casualNameIdx - 150, casualNameIdx + 200);
+  assert.match(casualRow, /class="category-node-toggle-spacer"/, "Casual has no children yet, so a spacer, not a caret");
+  assert.doesNotMatch(casualRow, /class="category-node-toggle"/);
+});
+
+check("test_PRD_P0_138_nested_categories__top_level_categories_use_their_own_wrapper_class_not_category_children", async () => {
+  /* Regression: also caught live, in the same headless-browser pass as the
+     [hidden] fix above. The top-level tree's own wrapper originally reused
+     the class ".category-children" — the SAME class every node's own
+     nested-children container uses — so the blanket "collapsed by
+     default" rule (.category-children { display: none }) hid the ENTIRE
+     top-level list too, with no .category-node.expanded ancestor able to
+     ever reveal it again. Renamed to .categories-tree, a name no node's
+     own children container shares. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.match(body, /<div class="categories-tree">/);
+  const treeIdx = body.indexOf('<div class="categories-tree">');
+  const outerwearIdx = body.indexOf('<span class="category-node-name">Outerwear</span>');
+  assert.ok(treeIdx > -1 && treeIdx < outerwearIdx, "the top-level tree wraps the real nodes, under its own class");
+  assert.doesNotMatch(
+    body.slice(treeIdx, treeIdx + 40),
+    /category-children/,
+    "the top-level wrapper must never be .category-children — that class is collapsed by default with no way to reopen it",
+  );
 });
 
 check("test_PRD_P0_138_nested_categories__add_forms_are_hidden_by_default_even_under_a_css_class_selector", async () => {
