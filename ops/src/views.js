@@ -1728,6 +1728,54 @@ ${INPUT_BAR_CSS}
    padding of its own at all, so its own rightmost field (price) sat 8px
    further right than the header's own rightmost field (MSRP). */
 .variations-body .row { display: flex; gap: 6px; align-items: center; padding: 3px 8px 3px 0; }
+/* The categories accordion (P0-138) — "take the current variants
+   workflow... adapt it to handle categories and subcategories." Same
+   shape as .variations-accordion above: a plain bar that toggles its own
+   body, collapsed by default, right above it. */
+.categories-accordion { border-top: 1px solid var(--rule); margin-top: 2px; padding-top: 6px; }
+.categories-header {
+  display: flex; align-items: center; gap: 6px; cursor: pointer;
+  background: var(--image-ground); border: 1px solid var(--rule); border-radius: 6px; padding: 5px 8px;
+}
+.categories-header:hover { border-color: var(--accent); }
+.categories-toggle {
+  flex: 0 0 auto; width: 18px; height: 18px; padding: 0; display: inline-flex; align-items: center;
+  justify-content: center; border: none; background: transparent; color: var(--muted); cursor: pointer;
+  transition: transform 0.15s;
+}
+.categories-toggle:hover { color: var(--accent); }
+.categories-accordion.expanded .categories-toggle { transform: rotate(90deg); }
+.categories-label { flex: 0 0 auto; font-size: 11px; color: var(--muted); }
+.categories-body { display: none; flex-direction: column; margin-top: 6px; padding-left: 10px; gap: 4px; }
+.categories-accordion.expanded .categories-body { display: flex; }
+/* One node: its own name/id/add-toggle row, its own (initially hidden)
+   add-subcategory form right below it, then its own children — indented
+   per level via the inline padding-left renderCategoryNodes sets, so the
+   nesting reads without a single tree-line ever being drawn. */
+.category-node-row { display: flex; align-items: center; gap: 6px; padding: 3px 8px 3px 0; }
+.category-node-name { flex: 1 1 auto; font-size: 12px; overflow-wrap: anywhere; }
+.category-add-row .category-node-name { color: var(--muted); font-style: italic; }
+.category-numeric-id {
+  flex: 0 0 auto; width: 3em; font: inherit; font-size: 12px; padding: 3px 5px; text-align: center;
+  border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
+}
+.category-add-toggle, .category-create {
+  flex: 0 0 auto; width: 20px; height: 20px; padding: 0; font-size: 13px; line-height: 1;
+  border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--muted); cursor: pointer;
+}
+.category-create { width: auto; padding: 0 8px; }
+.category-add-toggle:hover, .category-create:hover { color: var(--accent); border-color: var(--accent); }
+/* [hidden], not just toggling the class: an unconditional display:flex
+   here would otherwise beat the [hidden] attribute's own UA-stylesheet
+   display:none, since a class selector outranks an attribute selector —
+   caught live, every add-form showing open by default instead of only
+   the one just clicked. */
+.category-add-form { display: flex; gap: 6px; align-items: center; padding: 3px 8px 3px 0; }
+.category-add-form[hidden] { display: none; }
+.category-new-name {
+  flex: 1 1 auto; min-width: 0; font: inherit; font-size: 12px; padding: 3px 5px;
+  border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
+}
 .item-edit { border-top: 1px solid var(--rule); margin-top: 2px; padding-top: 6px; cursor: default; }
 .item-edit form { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 .item-add-field { margin: 2px 0; }
@@ -1897,7 +1945,39 @@ const CHANNEL_LABEL = { website: "Web" };
    precedent rather than introducing the first cross-package import for it. */
 const MEDIA_BASE_URL = "https://media.vemians.com";
 
-function itemTile(product, canEdit) {
+/* The categories/subcategories tree (P0-138) — "similar to how we do the
+   variants... a header with a category name... an ID field... expand that
+   and add subcategories... each one assigning an ID." Recursive: a node's
+   own children are whatever other rows carry its own id as their
+   parent_id, at any depth, indented 14px per level so the nesting reads
+   without a single tree-line ever being drawn. Rendered fresh per tile
+   from the SAME global allCategories list every tile already gets — this
+   tree is Square-backed, not per-product, so what one tile creates or
+   numbers shows up identically in every other tile's own accordion the
+   next time the page loads. */
+function renderCategoryNodes(categories, parentId, depth) {
+  const children = categories
+    .filter((c) => (c.parent_id ?? null) === parentId)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return children
+    .map(
+      (c) => `<div class="category-node" style="padding-left: ${depth * 14}px">
+        <div class="category-node-row">
+          <span class="category-node-name">${esc(c.name)}</span>
+          <input class="category-numeric-id" data-category-id="${esc(c.id)}" data-category-name="${esc(c.name)}" value="${esc(c.numeric_id ?? "")}" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — leave blank to remove it">
+          <button type="button" class="category-add-toggle" data-parent-id="${esc(c.id)}" aria-label="Add a subcategory under ${esc(c.name)}" title="Add a subcategory">+</button>
+        </div>
+        <div class="category-add-form" hidden>
+          <input type="text" class="category-new-name" placeholder="Subcategory name" maxlength="60">
+          <button type="button" class="category-create" data-parent-id="${esc(c.id)}">Add</button>
+        </div>
+        <div class="category-children">${renderCategoryNodes(categories, c.id, depth + 1)}</div>
+      </div>`,
+    )
+    .join("");
+}
+
+function itemTile(product, canEdit, allCategories = []) {
   const fieldEntries = Object.entries(product.custom_fields ?? {});
   const searchText = [
     product.title,
@@ -2078,6 +2158,36 @@ function itemTile(product, canEdit) {
         `</div>`,
     )
     .join("");
+  /* "Take the current variants workflow... adapt it to handle categories
+     and subcategories... an add category button... put it right above the
+     variants section." Same accordion shape as Variations below (a
+     .categories-toggle caret, collapsed by default), a global tree rather
+     than a per-product list — see renderCategoryNodes' own comment. */
+  const categoriesAccordion = canEdit
+    ? `<div class="categories-accordion">
+         <div class="categories-header">
+           <button type="button" class="categories-toggle" aria-label="Show categories" title="Show categories">${CARET_ICON}</button>
+           <span class="categories-label">Categories</span>
+         </div>
+         <div class="categories-body">
+           <div class="category-node-row category-add-row">
+             <span class="category-node-name">Add a category</span>
+             <button type="button" class="category-add-toggle" data-parent-id="" aria-label="Add a top-level category" title="Add a category">+</button>
+           </div>
+           <div class="category-add-form" hidden>
+             <input type="text" class="category-new-name" placeholder="Category name" maxlength="60">
+             <button type="button" class="category-create" data-parent-id="">Add</button>
+           </div>
+           <div class="category-children">
+             ${
+               allCategories.length
+                 ? renderCategoryNodes(allCategories, null, 0)
+                 : `<p class="item-empty">No categories yet.</p>`
+             }
+           </div>
+         </div>
+       </div>`
+    : "";
   const variationsAccordion = canEdit
     ? `<div class="variations-accordion">
          <div class="variations-header">
@@ -2229,6 +2339,7 @@ function itemTile(product, canEdit) {
         ${categoryControl}
       </div>
       ${titleVendorForms}
+      ${categoriesAccordion}
       ${variationsAccordion}
       ${attrRows ? `<div class="item-fields">${attrRows}</div>` : ""}
       <div class="item-fields">${fieldRows}</div>
@@ -2240,7 +2351,7 @@ function itemTile(product, canEdit) {
 export function itemsPage({ role }, products, allCategories = []) {
   const canEdit = role === "manager" || role === "owner";
   const tiles = products.length
-    ? products.map((p) => itemTile(p, canEdit)).join("\n")
+    ? products.map((p) => itemTile(p, canEdit, allCategories)).join("\n")
     : `<p class="hint">No products in the mirror yet.</p>`;
 
   /* ONE shared list of every category that exists (the closed set,
@@ -2584,6 +2695,35 @@ document.getElementById("items-grid").addEventListener("click", async (e) => {
     header.closest(".variations-accordion")?.classList.toggle("expanded");
     return;
   }
+  const categoriesCaret = e.target.closest(".categories-toggle");
+  if (categoriesCaret) {
+    categoriesCaret.closest(".categories-accordion")?.classList.toggle("expanded");
+    return;
+  }
+  const categoriesHeader = e.target.closest(".categories-header");
+  if (categoriesHeader && !e.target.closest("input, button")) {
+    categoriesHeader.closest(".categories-accordion")?.classList.toggle("expanded");
+    return;
+  }
+  /* "An add category button... that will create a subcategory in the
+     expanded view" — reveals a small inline name field + Add button right
+     below the node it belongs to (or at the very top, for a new top-level
+     category); a second click on the SAME toggle hides it again without
+     submitting anything. */
+  const addToggle = e.target.closest(".category-add-toggle");
+  if (addToggle) {
+    const form = addToggle.parentElement.nextElementSibling;
+    if (form?.classList.contains("category-add-form")) {
+      form.hidden = !form.hidden;
+      if (!form.hidden) form.querySelector(".category-new-name")?.focus();
+    }
+    return;
+  }
+  const createBtn = e.target.closest(".category-create");
+  if (createBtn) {
+    await createCategory(createBtn);
+    return;
+  }
   const saveBtn = e.target.closest(".item-save-all");
   if (saveBtn) {
     await saveTile(saveBtn.closest(".item-tile"));
@@ -2687,6 +2827,16 @@ function onItemsGridChange(e) {
 document.getElementById("items-grid").addEventListener("input", onItemsGridChange);
 document.getElementById("items-grid").addEventListener("change", onItemsGridChange);
 
+/* A category's own numeric_id applies the moment it changes (blur/Enter),
+   like the stock stepper's own +/- do — not part of the tile's big
+   resend-everything Save (this field belongs to no form at all, on
+   purpose), since this is a GLOBAL, Square-backed value shared by every
+   tile, not a per-product edit to batch with anything else. */
+document.getElementById("items-grid").addEventListener("change", async (e) => {
+  if (!e.target.matches(".category-numeric-id")) return;
+  await setCategoryNumber(e.target);
+});
+
 /* Pressing Enter in a field with no visible submit button any more still
    fires a native submit in most browsers — routed through the exact same
    Save flow as a click, rather than letting it POST just that one form on
@@ -2789,6 +2939,74 @@ async function stepStock(button) {
     showFormError(row, "Could not reach the server — try again.");
   } finally {
     steppers.forEach((b) => (b.disabled = false));
+  }
+}
+
+/* "An add category button... that will create a subcategory in the
+   expanded view" — a real Square write (catalog.create_category), applied
+   immediately like every other field on this tile. A full reload on
+   success, not a client-side DOM insert: the categories tree is the SAME
+   global data in every tile, so a reload picks up the new node everywhere
+   at once rather than this one tile alone drifting ahead of the rest. */
+async function createCategory(button) {
+  const addForm = button.closest(".category-add-form");
+  const nameInput = addForm.querySelector(".category-new-name");
+  const name = nameInput.value.trim();
+  const existingError = addForm.nextElementSibling;
+  if (existingError?.classList.contains("item-edit-error")) existingError.remove();
+  if (!name) {
+    showFormError(addForm, "Give the category a name.");
+    return;
+  }
+  const handle = button.closest(".item-tile")?.dataset.handle;
+  const body = new FormData();
+  body.set("name", name);
+  body.set("parent_id", button.dataset.parentId || "");
+  button.disabled = true;
+  try {
+    const res = await fetch("/items/" + handle + "/categories/create", { method: "POST", body });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showFormError(addForm, data.error || "That category could not be created.");
+      return;
+    }
+    location.reload();
+  } catch {
+    showFormError(addForm, "Could not reach the server — try again.");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+/* numeric_id is OURS, not Square's, and RETROACTIVELY re-sorts every
+   product whose style_id now matches it (catalog.set_category_number) —
+   applied the moment it changes, no reload needed: the input already
+   shows the value the person typed, and nothing else on THIS tile's own
+   screen depends on some OTHER product's category having just moved. */
+async function setCategoryNumber(input) {
+  const row = input.closest(".category-node-row");
+  const existingError = row?.nextElementSibling;
+  if (existingError?.classList.contains("item-edit-error")) existingError.remove();
+  const handle = input.closest(".item-tile")?.dataset.handle;
+  const previousValue = input.defaultValue;
+  const body = new FormData();
+  body.set("category_id", input.dataset.categoryId);
+  body.set("numeric_id", input.value.trim());
+  input.disabled = true;
+  try {
+    const res = await fetch("/items/" + handle + "/categories/number", { method: "POST", body });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      input.value = previousValue;
+      showFormError(row, data.error || "That number was refused.");
+      return;
+    }
+    input.setAttribute("value", input.value.trim());
+  } catch {
+    input.value = previousValue;
+    showFormError(row, "Could not reach the server — try again.");
+  } finally {
+    input.disabled = false;
   }
 }
 

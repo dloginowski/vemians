@@ -1214,6 +1214,99 @@ check("test_PRD_P0_137_item_active_toggle__an_archived_product_still_surfaces_so
   assert.match(body, /<span class="item-tag item-tag-inactive">Inactive<\/span>/);
 });
 
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-138 — the categories/subcategories accordion, right above Variants.
+ * The tool's own behaviour (the Square write, the retroactive resort) is
+ * exercised in catalog-write.test.mjs; this file's own env() has no
+ * SQUARE_ACCESS_TOKEN at all, so what's tested here is the markup, the
+ * tree structure, and the manager-only gate that refuses before runTool
+ * is even called.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+function seedCategoryTree(mirror) {
+  /* Beyond seedProduct's own single flat 'cat1'/Outerwear row: a real
+     nested tree — Outerwear (01) -> Coats (05) -> Casual (unnumbered) —
+     plus a second, unrelated top-level Knitwear, to prove sibling
+     ordering and indentation both work. */
+  mirror.db.exec("UPDATE mirror_category SET numeric_id = '01' WHERE id = 'cat1'");
+  mirror.db.exec("INSERT INTO mirror_category (id, external_ref, name, parent_id, numeric_id) VALUES ('cat2', 'sqcat2', 'Coats', 'cat1', '05')");
+  mirror.db.exec("INSERT INTO mirror_category (id, external_ref, name, parent_id) VALUES ('cat3', 'sqcat3', 'Casual', 'cat2')");
+  mirror.db.exec("INSERT INTO mirror_category (id, external_ref, name) VALUES ('cat4', 'sqcat4', 'Knitwear')");
+}
+
+check("test_PRD_P0_138_nested_categories__the_accordion_sits_right_above_variations_collapsed_by_default", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  const categoriesMarkup = body.indexOf('<div class="categories-accordion">');
+  const variationsMarkup = body.indexOf('<div class="variations-accordion">');
+  assert.ok(categoriesMarkup > -1 && categoriesMarkup < variationsMarkup, "Categories renders right above Variations");
+  assert.doesNotMatch(body, /class="categories-accordion expanded"/, "collapsed by default, the same as Variations");
+});
+
+check("test_PRD_P0_138_nested_categories__the_tree_nests_and_indents_by_depth", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  /* Outerwear (depth 0) -> Coats (depth 1) -> Casual (depth 2). */
+  assert.match(body, /<span class="category-node-name">Outerwear<\/span>/);
+  assert.match(body, /padding-left: 0px"[\s\S]{0,120}Outerwear/);
+  assert.match(body, /padding-left: 14px"[\s\S]{0,120}Coats/);
+  assert.match(body, /padding-left: 28px"[\s\S]{0,120}Casual/);
+  /* Each node's own numeric_id shows what it has (or a blank box for
+     Casual, which has none yet), and carries its own category id for the
+     change handler to post back. */
+  assert.match(
+    body,
+    /<input class="category-numeric-id" data-category-id="cat1" data-category-name="Outerwear" value="01"/,
+  );
+  assert.match(
+    body,
+    /<input class="category-numeric-id" data-category-id="cat3" data-category-name="Casual" value=""/,
+  );
+  assert.match(body, /<button type="button" class="category-add-toggle" data-parent-id="cat2"[^>]*>\+<\/button>/, "every node gets its own add-subcategory toggle");
+});
+
+check("test_PRD_P0_138_nested_categories__add_forms_are_hidden_by_default_even_under_a_css_class_selector", async () => {
+  /* Regression: caught live via a headless-browser check before shipping —
+     an unconditional `.category-add-form { display: flex }` was beating
+     the [hidden] attribute's own display:none (a class selector outranks
+     an attribute one), so every add-form showed open at once instead of
+     only the one just clicked. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.match(body, /\.category-add-form\[hidden\]\s*\{\s*display:\s*none;\s*\}/);
+  assert.match(body, /<div class="category-add-form" hidden>/);
+});
+
+check("test_PRD_P0_138_nested_categories__the_accordion_is_absent_for_staff", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.doesNotMatch(body, /<div class="categories-accordion">/);
+});
+
+check("test_PRD_P0_138_nested_categories__staff_cannot_reach_either_route_before_square_is_ever_touched", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const create = await postForm("/items/wool-coat/categories/create", STAFF, env(mirror), { name: "Eyewear" });
+  assert.equal(create.status, 403);
+  assert.match(await create.text(), /manager/i);
+
+  const number = await postForm("/items/wool-coat/categories/number", STAFF, env(mirror), { category_id: "cat1", numeric_id: "01" });
+  assert.equal(number.status, 403);
+  assert.match(await number.text(), /manager/i);
+});
+
 check("test_PRD_P0_31_inventory_ledger__stock_shows_zero_with_no_commerce_binding", async () => {
   /* A deployment with no COMMERCE binding still renders the Items tab —
      every variation just shows 0 in stock rather than the whole tab

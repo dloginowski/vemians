@@ -4152,6 +4152,31 @@ that does not trace to one of these is a process failure (see §12).
     exact same "resend the whole thing" convention `style_id`/`vendor`/`description` already use one
     line below it in the same function.
 
+    **The management UI: an accordion right above Variants, matching that same shape.** The owner's
+    own words: "take the current variants workflow... adapt it to handle categories and
+    subcategories... an add category button... put it right above the variants section." Same
+    collapsed-by-default `.categories-accordion` bar as `.variations-accordion`; its own body is a
+    recursive tree (`renderCategoryNodes`, `views.js`) over the SAME global `allCategories` list
+    already passed to every tile for the old flat category datalist — this tree is Square-backed,
+    not per-product, so a category created from ANY tile's own accordion shows up identically in
+    every other tile's the next time the page loads. Each node renders its own name, a 2-digit
+    `numeric_id` input (`catalog.set_category_number`, applied the instant it changes, no reload
+    needed — the value the person typed is already on screen), and its own "+" toggle revealing an
+    inline name field to add a subcategory directly under IT (`catalog.create_category`, reloading
+    on success since a brand-new node is shared page-wide). The old flat category dropdown
+    (`.category-form`, `.item-badges`) stays in place for now, unchanged — this feature is additive.
+
+    **A real bug caught live, before it ever shipped, by actually running the app rather than only
+    the test suite** — per the owner's own sharp correction on an earlier, unrelated change this
+    same session ("why you added the checkbox to the title? You broke the description... go back"),
+    this feature was checked against a REAL headless browser driving the REAL Worker's own
+    `fetch()` handler (no `wrangler dev`/Cloudflare Access needed — the same in-process approach
+    `items-route.test.mjs` already uses, just fed to Chromium instead of an assertion) before
+    shipping. It caught: `.category-add-form { display: flex; ... }` was unconditionally overriding
+    the `[hidden]` attribute's own `display: none` — a class selector outranks a bare attribute
+    selector — so EVERY node's own add-subcategory form showed open at once instead of only the one
+    just clicked. Fixed with an explicit `.category-add-form[hidden] { display: none; }` override.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -4440,7 +4465,7 @@ Where each feature is enforced today:
 | P0-135 | `ops/test/items-route.test.mjs` |
 | P0-136 | `shared/commerce/square/test/square.test.mjs`, `ops/test/catalog-write.test.mjs`, `ops/test/items-route.test.mjs` |
 | P0-137 | `shared/commerce/square/test/square.test.mjs`, `ops/test/catalog-write.test.mjs`, `ops/test/items-route.test.mjs` |
-| P0-138 | `shared/commerce/square/test/square.test.mjs`, `ops/test/catalog-write.test.mjs` |
+| P0-138 | `shared/commerce/square/test/square.test.mjs`, `ops/test/catalog-write.test.mjs`, `ops/test/items-route.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
