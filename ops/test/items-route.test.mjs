@@ -1350,6 +1350,27 @@ check("test_PRD_P0_138_nested_categories__the_accordion_is_absent_for_staff", as
   assert.doesNotMatch(body, /<div class="categories-accordion">/);
 });
 
+check("test_PRD_P0_138_nested_categories__the_top_level_add_button_lives_in_the_header_with_no_label_text", async () => {
+  /* "The add category button needs to be in the header on the right
+     side... we don't need the 'add category' text... it's pretty
+     self-explanatory." The top-level + moves out of its own labeled row
+     in .categories-body and into .categories-header itself, opposite the
+     caret; the "Add a category" label text is gone entirely. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  const headerIdx = body.indexOf('<div class="categories-header">');
+  const bodyIdx = body.indexOf('<div class="categories-body">');
+  assert.ok(headerIdx > -1 && bodyIdx > headerIdx, "the header comes before the body");
+  const header = body.slice(headerIdx, bodyIdx);
+  assert.match(header, /<button type="button" class="category-add-toggle" data-parent-id=""[^>]*>\+<\/button>/, "the top-level add toggle now lives in the header");
+  assert.doesNotMatch(body, />Add a category</, "no leftover label text — the button is self-explanatory");
+  const addFormIdx = body.indexOf('<div class="category-add-form" hidden>');
+  assert.ok(addFormIdx > bodyIdx, "the (still hidden) add-form itself stays in the body, right after the header");
+});
+
 check("test_PRD_P0_138_nested_categories__staff_cannot_reach_either_route_before_square_is_ever_touched", async () => {
   const mirror = mirrorDb();
   seedProduct(mirror);

@@ -4198,6 +4198,23 @@ that does not trace to one of these is a process failure (see §12).
     all). Renamed to its own class, `.categories-tree`, which no node's own children container
     shares.
 
+    **REVISED: the top-level "add category" button moved into `.categories-header` itself, and its
+    own label text is gone.** The owner's own words: "the add category button needs to be in the
+    header on the right side... we don't need the 'add category' text... it's pretty
+    self-explanatory." Previously the top-level "+" sat in its own labeled row as the first child of
+    `.categories-body` (`"Add a category" <button>+</button>`); now it sits in `.categories-header`
+    itself, opposite the caret, via a `.categories-header-spacer` that pushes it flush right — the
+    same right-anchored position every per-node "+" already has in its own row, just one level up.
+    The label text is removed outright rather than kept for symmetry with a per-node row, since a
+    lone "+" on a heading-style bar reads the same way the outer Categories/Variations accordion
+    bars already do. The click handler for `.category-add-toggle` now branches on whether
+    `data-parent-id` is set: a per-node button still finds its own form as `.category-node`'s own
+    next sibling of its row; the top-level button (its `data-parent-id` empty) now looks up
+    `.categories-body`'s own first child instead, since it no longer has a form as its own DOM
+    sibling once moved into the header bar above. Verified live again, the same discipline as both
+    fixes above — the moved button correctly reveals/hides the (still-present, unchanged-position)
+    add-form, and the per-node buttons are unaffected.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

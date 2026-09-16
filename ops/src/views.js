@@ -1746,6 +1746,7 @@ ${INPUT_BAR_CSS}
 .categories-toggle:hover { color: var(--accent); }
 .categories-accordion.expanded .categories-toggle { transform: rotate(90deg); }
 .categories-label { flex: 0 0 auto; font-size: 11px; color: var(--muted); }
+.categories-header-spacer { flex: 1 1 auto; }
 .categories-body { display: none; flex-direction: column; margin-top: 6px; padding-left: 10px; gap: 4px; }
 .categories-accordion.expanded .categories-body { display: flex; }
 /* One node: its own name/id/add-toggle row, its own (initially hidden)
@@ -1767,7 +1768,6 @@ ${INPUT_BAR_CSS}
 .category-node.expanded > .category-node-row > .category-node-toggle { transform: rotate(90deg); }
 .category-node-toggle-spacer { flex: 0 0 auto; width: 18px; height: 18px; }
 .category-node-name { flex: 1 1 auto; font-size: 12px; overflow-wrap: anywhere; }
-.category-add-row .category-node-name { color: var(--muted); font-style: italic; }
 .category-numeric-id {
   flex: 0 0 auto; width: 3em; font: inherit; font-size: 12px; padding: 3px 5px; text-align: center;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
@@ -2196,17 +2196,21 @@ function itemTile(product, canEdit, allCategories = []) {
      variants section." Same accordion shape as Variations below (a
      .categories-toggle caret, collapsed by default), a global tree rather
      than a per-product list — see renderCategoryNodes' own comment. */
+  /* REVISED: "the add category button needs to be in the header on the
+     right side... we don't need the 'add category' text... it's pretty
+     self-explanatory." The top-level + moves out of its own labeled row
+     in the body and into .categories-header itself, opposite the caret —
+     the same right-anchored position every per-node + already has in its
+     own row, just one level up. */
   const categoriesAccordion = canEdit
     ? `<div class="categories-accordion">
          <div class="categories-header">
            <button type="button" class="categories-toggle" aria-label="Show categories" title="Show categories">${CARET_ICON}</button>
            <span class="categories-label">Categories</span>
+           <span class="categories-header-spacer"></span>
+           <button type="button" class="category-add-toggle" data-parent-id="" aria-label="Add a top-level category" title="Add a category">+</button>
          </div>
          <div class="categories-body">
-           <div class="category-node-row category-add-row">
-             <span class="category-node-name">Add a category</span>
-             <button type="button" class="category-add-toggle" data-parent-id="" aria-label="Add a top-level category" title="Add a category">+</button>
-           </div>
            <div class="category-add-form" hidden>
              <input type="text" class="category-new-name" placeholder="Category name" maxlength="60">
              <button type="button" class="category-create" data-parent-id="">Add</button>
@@ -2749,13 +2753,15 @@ document.getElementById("items-grid").addEventListener("click", async (e) => {
   }
   /* "An add category button... that will create a subcategory in the
      expanded view" — reveals a small inline name field + Add button right
-     below the node it belongs to (or at the very top, for a new top-level
-     category); a second click on the SAME toggle hides it again without
-     submitting anything. */
+     below the node it belongs to (or, for the top-level one now living in
+     .categories-header, as the first child of .categories-body); a second
+     click on the SAME toggle hides it again without submitting anything. */
   const addToggle = e.target.closest(".category-add-toggle");
   if (addToggle) {
-    const form = addToggle.parentElement.nextElementSibling;
-    if (form?.classList.contains("category-add-form")) {
+    const form = addToggle.dataset.parentId
+      ? addToggle.closest(".category-node")?.querySelector(":scope > .category-add-form")
+      : addToggle.closest(".categories-accordion")?.querySelector(":scope > .categories-body > .category-add-form");
+    if (form) {
       form.hidden = !form.hidden;
       if (!form.hidden) form.querySelector(".category-new-name")?.focus();
     }
