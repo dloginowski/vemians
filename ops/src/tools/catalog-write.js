@@ -2,7 +2,7 @@
  * catalog.* authoring — a staff member describes a garment to their own AI
  * client, and it lands in Square, priced and categorised.
  *
- * Inherits agent-tool-contract, then catalog-skills. Ten tools:
+ * Inherits agent-tool-contract, then catalog-skills. Thirteen tools:
  *
  *   catalog.categories       T0  the closed set of categories that EXIST
  *   catalog.product          T0  read one mirrored product, variants and all
@@ -16,6 +16,7 @@
  *   catalog.set_active       T2  archive or restore a product — Square's own presence, not ours
  *   catalog.set_custom_fields T2 whatever else we track that Square doesn't — OURS too
  *   catalog.set_square_attributes T2 style_id + vendor + commission — Square's OWN Custom Attributes
+ *   catalog.resync_from_square T2 force a full sweep now, instead of waiting on the cron's own cursor
  *
  * ─── THREE DECISIONS, AND WHY EACH IS THE WAY IT IS ────────────────────────
  *
@@ -1162,6 +1163,32 @@ export const catalogWriteTools = {
         resort_errors: errors,
         authority: "ours",
       };
+    },
+  },
+
+  "catalog.resync_from_square": {
+    tier: "T2",
+    domain: "catalog",
+    stores: ["catalog_mirror"],
+    resources: ["square"],
+    minRole: "manager",
+    describe:
+      "Force an immediate FULL resync from Square, bypassing the scheduled sync's own incremental cursor " +
+      "(Test-PRD-P0-48-scheduled_mirror_sync, every 15 minutes). The owner's own question, after adding " +
+      "categories directly in Square's own dashboard: 'why aren't you synchronizing them?' — the scheduled " +
+      "sync only does a full sweep on its very first-ever run; every run after that asks Square for objects " +
+      "updated SINCE its last cursor, so a category that already existed in Square and has not been TOUCHED " +
+      "since (in particular its own parent_category link, a field this mirror only started reading once " +
+      "nested categories shipped) never surfaces on its own — only a real full sweep re-reads it. Safe to " +
+      "run any time: every upsert underneath is idempotent (external_ref UNIQUE), the same property that " +
+      "already makes the cron's own full-sweep path a no-op on an unchanged catalog.",
+    undo:
+      "Not applicable — this only re-reads Square's own current state into the mirror (ADR-009); nothing " +
+      "it touches is ours to revert, and running it again changes nothing beyond what Square itself says.",
+    schema: {},
+    async run(_args, t) {
+      const counts = await t.square.adapter.pullCatalog({ full: true });
+      return { resynced: true, full: true, ...counts };
     },
   },
 

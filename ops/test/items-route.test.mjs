@@ -1408,6 +1408,25 @@ check("test_PRD_P0_138_nested_categories__staff_cannot_reach_either_route_before
   assert.match(await number.text(), /manager/i);
 });
 
+check("test_PRD_P0_138_nested_categories__resync_route_is_manager_only_and_post_only", async () => {
+  /* "There are already defined category and subcategories on Square main
+     page right now. Why aren't you synchronizing them?" — /items/resync
+     (catalog.resync_from_square) is the manual escape hatch, gated the
+     same way as the two routes above: denied before runTool ever reaches
+     Square. This file's own env() has no SQUARE_ACCESS_TOKEN at all (see
+     the P0-136 section's own comment on why), so a MANAGER call is not
+     exercised end to end here — that belongs to catalog-write.test.mjs's
+     own fixture, which injects a fake Square client directly. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const denied = await postForm("/items/resync", STAFF, env(mirror), {});
+  assert.equal(denied.status, 403);
+  assert.match(await denied.text(), /manager/i);
+
+  const wrongMethod = await get("/items/resync", MANAGER, env(mirror));
+  assert.equal(wrongMethod.status, 405);
+});
+
 check("test_PRD_P0_31_inventory_ledger__stock_shows_zero_with_no_commerce_binding", async () => {
   /* A deployment with no COMMERCE binding still renders the Items tab —
      every variation just shows 0 in stock rather than the whole tab

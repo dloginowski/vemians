@@ -495,6 +495,35 @@ async function ops(request, env, path) {
     return json(result);
   }
 
+  /* "There are already defined category and subcategories on Square main
+     page right now. Why aren't you synchronizing them?" — the scheduled
+     sync (Test-PRD-P0-48-scheduled_mirror_sync) only does a full sweep on
+     its very first-ever run; every run after that is an incremental search
+     for objects Square considers recently updated, so a category that
+     already existed in Square untouched since before this mirror's own
+     cursor was recorded — in particular its own parent_category link,
+     a field this mirror only started reading once nested categories
+     shipped — never surfaces on its own. This is the manual escape hatch:
+     a manager-only button forcing the same full sweep right now, not
+     fifteen minutes and a lucky cron tick from now. Not scoped under
+     /items/<handle>/... below (this is global, not per-product) despite
+     sharing the /items/ prefix — checked first so it never falls into
+     that block's own path.startsWith("/items/") match. */
+  if (path === "/items/resync") {
+    if (request.method !== "POST") return json({ error: "POST only" }, 405);
+    const email = identity.claims?.email;
+    if (typeof email !== "string" || !email.includes("@")) {
+      return json({ error: "This page requires signing in as a person, not a service token." }, 403);
+    }
+    const role = await roleFor(identity, env);
+    if (!role) {
+      return json({ error: "Your Access identity is in no group this application maps to a role." }, 403);
+    }
+    const result = await runTool("catalog.resync_from_square", {}, { actor: email, role, env });
+    if (!result.ok) return json({ error: result.error || "could not resync from Square" }, 403);
+    return json(result.data);
+  }
+
   if (
     path.startsWith("/items/") &&
     (path.endsWith("/channel") ||
