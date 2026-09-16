@@ -1254,9 +1254,15 @@ check("test_PRD_P0_138_nested_categories__the_tree_nests_and_indents_by_depth", 
   const body = await res.text();
   /* Outerwear (depth 0) -> Coats (depth 1) -> Casual (depth 2). */
   assert.match(body, /<span class="category-node-name">Outerwear<\/span>/);
+  /* Each .category-node nests physically inside its own parent's box, so
+     a flat one-step indent (18px, the toggle/spacer's own rendered width)
+     on every non-top-level node compounds through ordinary box-model
+     nesting into the full depth*18px visual offset — Casual (two levels
+     down) still only carries its OWN 18px in the markup; the other 18px
+     comes from its parent Coats' own box already being shifted. */
   assert.match(body, /padding-left: 0px"[\s\S]{0,220}Outerwear/);
-  assert.match(body, /padding-left: 14px"[\s\S]{0,220}Coats/);
-  assert.match(body, /padding-left: 28px"[\s\S]{0,220}Casual/);
+  assert.match(body, /padding-left: 18px"[\s\S]{0,220}Coats/);
+  assert.match(body, /padding-left: 18px"[\s\S]{0,220}Casual/);
   /* Each node's own numeric_id shows what it has (or a blank box for
      Casual, which has none yet), and carries its own category id for the
      change handler to post back. */
@@ -1269,6 +1275,25 @@ check("test_PRD_P0_138_nested_categories__the_tree_nests_and_indents_by_depth", 
     /<input class="category-numeric-id" data-category-id="cat3" data-category-name="Casual" value=""/,
   );
   assert.match(body, /<button type="button" class="category-add-toggle" data-parent-id="cat2"[^>]*>\+<\/button>/, "every node gets its own add-subcategory toggle");
+});
+
+check("test_PRD_P0_138_nested_categories__the_indent_step_matches_the_toggles_own_rendered_width", async () => {
+  /* The owner's own correction: "the indentation of each subcategory...
+     has to start right where the chevron pointing down is." A subcategory
+     column only lands exactly under its parent's own toggle when the
+     per-depth indent step equals the toggle/spacer's own rendered width —
+     so this pins both numbers to the SAME value, not just to each other's
+     current hardcoded copies. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  const toggleWidth = /\.category-node-toggle\s*\{[^}]*width:\s*(\d+)px/.exec(body)?.[1];
+  const spacerWidth = /\.category-node-toggle-spacer\s*\{[^}]*width:\s*(\d+)px/.exec(body)?.[1];
+  assert.ok(toggleWidth, "the toggle's own width must be found in the rendered CSS");
+  assert.equal(spacerWidth, toggleWidth, "the leaf spacer must match the toggle's own width");
+  assert.match(body, new RegExp(`padding-left: ${toggleWidth}px"[\\s\\S]{0,220}Coats`), "depth 1's indent step equals the toggle's own width");
 });
 
 check("test_PRD_P0_138_nested_categories__a_node_with_children_gets_its_own_expandable_caret", async () => {
