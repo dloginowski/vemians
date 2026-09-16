@@ -502,6 +502,8 @@ async function ops(request, env, path) {
       path.endsWith("/custom-fields") ||
       path.endsWith("/square-attributes") ||
       path.endsWith("/category") ||
+      path.endsWith("/categories/create") ||
+      path.endsWith("/categories/number") ||
       path.endsWith("/variations") ||
       path.endsWith("/details") ||
       path.endsWith("/inventory"))
@@ -533,13 +535,17 @@ async function ops(request, env, path) {
           ? "/custom-fields"
           : path.endsWith("/square-attributes")
             ? "/square-attributes"
-            : path.endsWith("/category")
-              ? "/category"
-              : path.endsWith("/details")
-                ? "/details"
-                : path.endsWith("/inventory")
-                  ? "/inventory"
-                  : "/variations";
+            : path.endsWith("/categories/create")
+              ? "/categories/create"
+              : path.endsWith("/categories/number")
+                ? "/categories/number"
+                : path.endsWith("/category")
+                  ? "/category"
+                  : path.endsWith("/details")
+                    ? "/details"
+                    : path.endsWith("/inventory")
+                      ? "/inventory"
+                      : "/variations";
     const handle = path.slice("/items/".length, path.length - suffix.length);
 
     let form;
@@ -659,6 +665,34 @@ async function ops(request, env, path) {
       toolName = "inventory.adjust";
       args = { variant_id: variantId, delta };
       summaryNoun = "stock";
+    } else if (suffix === "/categories/create") {
+      /* The new nested category/subcategory tree (P0-138), rendered above
+         Variants — "an add category button... that will create a
+         subcategory in the expanded view." A blank parent_id means a new
+         TOP-LEVEL category; a real one nests under it, at whatever depth.
+         Applies immediately, no /approvals/<id> hop, the same reasoning
+         every other field on this tile already follows. */
+      const name = String(form.get("name") ?? "").trim();
+      const parentId = String(form.get("parent_id") ?? "").trim();
+      if (!name) return json({ error: "give a category name" }, 400);
+      toolName = "catalog.create_category";
+      args = {
+        name,
+        reason: `created from the Items tab while categorizing '${handle}'`,
+        ...(parentId ? { parent_id: parentId } : {}),
+      };
+      summaryNoun = "category";
+    } else if (suffix === "/categories/number") {
+      /* OURS, not Square's — a category/subcategory's own 2-digit style_id
+         code. A blank input clears it (catalog.set_category_number's own
+         clear: true — the generic schema validator refuses an empty
+         STRING outright, so a real "" cannot mean clear on its own). */
+      const categoryId = String(form.get("category_id") ?? "").trim();
+      const numericId = String(form.get("numeric_id") ?? "").trim();
+      if (!categoryId) return json({ error: "give a category" }, 400);
+      toolName = "catalog.set_category_number";
+      args = numericId ? { category_id: categoryId, numeric_id: numericId } : { category_id: categoryId, clear: true };
+      summaryNoun = "category number";
     } else if (suffix === "/category") {
       /* A free-text name, resolved the same way vendor names already are
          (vendorRef, catalog-writer.js) — the owner's own words: "I should
@@ -784,6 +818,13 @@ async function ops(request, env, path) {
        303 every resend-everything form still uses. */
     if (suffix === "/inventory") {
       return json({ on_hand: result.data.on_hand });
+    }
+    /* Both categories routes answer with JSON, not a redirect — the page
+       script below fetches them directly (not through a <form>, the same
+       reason the stock stepper does not use one either) and decides for
+       itself what to update. */
+    if (suffix === "/categories/create" || suffix === "/categories/number") {
+      return json(result.data);
     }
     return new Response(null, { status: 303, headers: { Location: "/items" } });
   }
