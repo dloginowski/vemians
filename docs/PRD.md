@@ -4287,6 +4287,64 @@ that does not trace to one of these is a process failure (see §12).
     unrelated to the input's own value-mode behavior. Verified live end to end: picking a category
     enables Save, and clicking it posts the correct `category_id`.
 
+    **REVISED again: the tree-popup picker above is replaced by two cascading `<select>`s, right next
+    to the item title, category first — "right next to the title, we need to have a category dropdown
+    that actually selects its category. And then right next to it is a selection of subcategories that
+    belong to the selected category... let's swap them around, so we have the category path and then
+    the item name at the end, as if it's a continuation of the category path."** Neither `<select>`
+    carries a `name` — only the same `category_id` text-with-`hidden`-attribute input actually submits,
+    kept in sync by a `change` handler. The category select lists every TOP-LEVEL category
+    (`categoryRootId` resolves a nested assignment back to its own root, so the right one is
+    pre-selected even three levels down); the subcategory select lists EVERY descendant of whichever
+    top category is chosen, flattened to any depth (`categoryDescendantOptions`), each option labeled
+    with its OWN path relative to the top category ("Coats", "Coats / Casual") — never just a bare leaf
+    name, the same disambiguation reason the picker's own path label never was just a leaf name either.
+    Changing the top select repopulates the subcategory select from a page-level embedded map
+    (`itemsPage`'s own `category-subcategory-map` JSON script, read once rather than round-tripping to
+    the server on every pick) and resets to "no subcategory"; changing either select writes whichever
+    is more specific into `category_id`. Built with DOM `Option` objects on the client, not
+    concatenated `innerHTML` markup — a category name is free text a manager typed, not a constant this
+    script wrote, so it never touches raw HTML string-building. The category/subcategory selects and
+    the title `<input>` share one row (`.category-title-row`, both forms `display: contents` so their
+    own children become its direct flex items); the description `<textarea>` still belongs to the SAME
+    form as the title (this route always resends both together — a blank title is a real, refused edit,
+    not "unchanged" — so splitting description into its own form would send a blank title on every
+    description-only save) and simply wraps onto its own full-width line (`flex-basis: 100%`).
+
+    **A real layout bug caught live before shipping, the same "measure the actual render, don't just
+    read the source" discipline this whole feature has used throughout:** every child rendered stacked
+    in one tall column instead of side by side. Root cause: `.item-edit form { display: flex;
+    flex-direction: column }` (pre-existing, styling the OTHER edit forms on this tile) now ALSO
+    matched the category and title forms once they moved inside `.item-edit` for this revision — at
+    equal specificity to their own intended `.category-form { display: contents }`, source order alone
+    decided the tie, and the flex-column rule happened to win. `display: contents` never took effect,
+    so each form kept its own real box, and `flex-basis` values meant as row-axis WIDTH hints (200px,
+    100%) were read as column-axis HEIGHT instead — a 718px-wide title `<input>` shrank to 110px wide
+    and stretched to 200px tall. Fixed with `.item-edit .category-title-row form { display: contents }`
+    — two classes outrank one regardless of order — confirmed by re-measuring real
+    `getBoundingClientRect()` geometry until the title `<input>` actually spanned the row's remaining
+    width at its own normal height.
+
+    **Custom fields: no more empty-state text, one blank row instead of three, and a renamed, expanded
+    "Admin" disclosure holding the category designer — "any custom fields will be added automatically...
+    nobody needs to see [that there are none]... get rid of all except one add custom field... move the
+    category designer... in there, because really that should be only modified by an admin."** The
+    "No custom fields yet." paragraph is gone outright (an empty product now renders nothing there at
+    all — the surrounding `.item-edit` block's own border is separator enough); `blankRows` is capped
+    to 1, not 3. The renamed `<summary>Admin</summary>` disclosure now holds the one blank-field `<form>`
+    AND the whole Categories accordion, moved out of its own former slot right above Variations. The
+    blank row moved into its OWN `<form>`, separate from the always-visible existing-fields `<form>` —
+    safe, since `catalog.set_custom_fields`'s own `fields` argument is a PATCH (a key not mentioned is
+    left untouched), so either half stays correct submitted alone — and NECESSARY: the Categories
+    accordion's own `numeric_id`/new-name inputs carry no `name` (nesting them changes nothing about
+    what actually submits), but nesting them inside an ACTUAL `<form>` would make the generic
+    dirty-tracking fallthrough (`onItemsGridChange`'s own `.item-edit form` match) wrongly flag that
+    form dirty on every `numeric_id` edit, even though that field already applies instantly through its
+    own separate handler and "belongs to no form at all, on purpose" (that handler's own comment).
+    Keeping the accordion a sibling of both forms, inside the `<details>` but outside either `<form>`,
+    avoids that regression — verified live: editing a `numeric_id` inside the now-relocated accordion
+    still applies instantly and never enables the tile's own Save button.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
