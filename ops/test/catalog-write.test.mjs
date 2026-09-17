@@ -1466,6 +1466,40 @@ check("test_PRD_P0_138_nested_categories__resync_from_square_is_manager_only", a
   assert.match(denied.error, /manager/i);
 });
 
+check("test_PRD_P0_138_nested_categories__the_resync_route_actually_completes_the_approval_step_not_just_the_gate", async () => {
+  /* A real bug, caught live from the owner's own copied error: POST
+     /items/resync (index.js) used to make ONE runTool call and treat
+     anything other than `ok: true` as a failure. resync_from_square is T2,
+     and a T2 call with no approvalToken never returns `ok: true` OR an
+     `.error` -- it returns `needsApproval: true` (tools/index.js's own
+     gate) -- so this route fell straight through to its own generic
+     "could not resync from Square" fallback on EVERY click, regardless of
+     whether Square or the sync itself was healthy. Driven through the
+     REAL HTTP route (worker.fetch), not runTool called directly the way
+     the tool-level tests above already do -- that is exactly the layer
+     the bug lived in and the tool-level tests could never have caught. */
+  const f = await fixture();
+  const worker = (await import("../src/index.js")).default;
+  const under = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const res = await worker.fetch(
+      new Request("http://localhost/items/resync", {
+        method: "POST",
+        headers: { "Cf-Access-Jwt-Assertion": assertion(MANAGER_CLAIMS) },
+      }),
+      { ...f.env, ...HTTP_ENV_EXTRA },
+    );
+    const text = await res.text();
+    assert.equal(res.status, 200, text);
+    const data = JSON.parse(text);
+    assert.equal(data.resynced, true);
+    assert.equal(data.full, true);
+  } finally {
+    globalThis.fetch = under;
+  }
+});
+
 check("test_PRD_P0_138_nested_categories__resync_from_square_backfills_a_parent_link_square_already_had", async () => {
   /* The owner's own question, after adding categories directly in Square's
      own dashboard: "why aren't you synchronizing them?" The scheduled
