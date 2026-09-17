@@ -1742,13 +1742,26 @@ ${INPUT_BAR_CSS}
    flex-column box — caught live: every child rendered stacked in a tall
    column instead of side by side. */
 .item-edit .category-title-row form { display: contents; }
+/* "As a general rule, in the details panel, there should not be any
+   orange highlights on anything unless it is dirty... the checkbox to
+   save the page, that's orange when something is dirty. If anything or
+   its children is dirty, then it becomes orange. That's it. Me clicking
+   on a chevron to open up a panel should not make that chevron orange."
+   A whole class of leftover hover rules across this panel — every
+   caret/chevron (category picker, Variations, Categories, a category
+   node's own), the category picker button itself, the +/remove buttons,
+   the Admin summary, the stock stepper — recolored orange on plain
+   hover, none of them tied to any actual unsaved-change state. All
+   removed outright below, each at its own declaration; orange now means
+   exactly one thing anywhere in this panel: a real .field-dirty marker
+   on the field itself, or on some field inside a .variations-accordion
+   with one — never a hover cue on its own. */
 .category-picker { position: relative; flex: 0 0 auto; }
 .category-picker-btn {
   display: inline-flex; align-items: center; gap: 4px; box-sizing: border-box;
   flex: 0 0 auto; font: inherit; font-size: 11px; padding: 3px 5px; white-space: nowrap;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink); cursor: pointer;
 }
-.category-picker-btn:hover { border-color: var(--accent); color: var(--accent); }
 .category-picker-btn svg { flex: 0 0 auto; color: var(--muted); transition: transform 0.15s; }
 .category-picker.expanded > .category-picker-btn svg { transform: rotate(90deg); }
 .category-picker-menu {
@@ -1762,7 +1775,6 @@ ${INPUT_BAR_CSS}
   display: inline-flex; align-items: center; justify-content: center; border: none; background: transparent;
   color: var(--muted); cursor: pointer; transition: transform 0.15s;
 }
-.category-picker-toggle:hover { color: var(--accent); }
 .category-picker-node.expanded > .category-picker-row > .category-picker-toggle { transform: rotate(90deg); }
 .category-picker-toggle-spacer { flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; }
 .category-picker-option {
@@ -1816,19 +1828,12 @@ ${INPUT_BAR_CSS}
   justify-content: center; border: none; background: transparent; color: var(--muted); cursor: pointer;
   transition: transform 0.15s;
 }
-.variations-toggle:hover { color: var(--accent); }
 .variations-accordion.expanded .variations-toggle { transform: rotate(90deg); }
 /* "The expandable header [needs] the label in it on the left, right next
    to the chevron, variations, so it makes sense, so people know what
    they're looking for" — a plain word, not another control, so it never
    competes with the fields beside it for width. */
 .variations-label { flex: 0 0 auto; font-size: 11px; color: var(--muted); }
-/* "Then we're going to have style ID label. Then the entry field just
-   should have the hint for the format, no parentheses" — a real label,
-   not the placeholder doing double duty as one; the placeholder shrinks
-   to just the format hint now that the label says what it is. */
-.variations-header-label { flex: 0 0 auto; font-size: 11px; color: var(--muted); margin-left: 4px; }
-.variations-header form { display: contents; }
 /* "The variation label itself is fine, it could be long... but indent
    them a little so it's clearer it's underneath the accordion it belongs
    to" — the body sits visibly inset from the header bar above it. */
@@ -1869,7 +1874,6 @@ ${INPUT_BAR_CSS}
   justify-content: center; border: none; background: transparent; color: var(--muted); cursor: pointer;
   transition: transform 0.15s;
 }
-.categories-toggle:hover { color: var(--accent); }
 .categories-accordion.expanded .categories-toggle { transform: rotate(90deg); }
 .categories-label { flex: 0 0 auto; font-size: 11px; color: var(--muted); }
 .categories-header-spacer { flex: 1 1 auto; }
@@ -1904,7 +1908,6 @@ ${INPUT_BAR_CSS}
   display: inline-flex; align-items: center; justify-content: center; border: none; background: transparent;
   color: var(--muted); cursor: pointer; transition: transform 0.15s;
 }
-.category-node-toggle:hover { color: var(--accent); }
 .category-node.expanded > .category-node-row > .category-node-toggle { transform: rotate(90deg); }
 .category-node-toggle-spacer { flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; }
 /* "All of these categories and subcategories need to be editable fields...
@@ -1963,9 +1966,7 @@ ${INPUT_BAR_CSS}
 .category-remove-toggle:disabled {
   cursor: not-allowed; opacity: 0.4;
 }
-.category-remove-toggle:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
 .category-create { width: auto; padding: 0 8px; }
-.category-add-toggle:hover, .category-create:hover { color: var(--accent); border-color: var(--accent); }
 /* Collapsed by default — the same [hidden]-vs-class-selector trap the
    add-form fix above already caught means this MUST be a real display:none
    here, not left to a plain [hidden] toggle, since .category-children has
@@ -1996,7 +1997,6 @@ ${INPUT_BAR_CSS}
 .item-edit form { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 .item-add-field { margin: 2px 0; }
 .item-add-field summary { cursor: pointer; color: var(--muted); font-size: 11px; }
-.item-add-field summary:hover { color: var(--accent); }
 .item-edit .row, .variations-header .row { display: flex; gap: 6px; align-items: center; }
 /* "Why are they all so wide?" — every text field used to stretch
    (flex: 1 1 auto) to fill an equal share of whatever row it shared, so
@@ -2042,36 +2042,16 @@ ${INPUT_BAR_CSS}
 .variations-header input, .variations-body input[name^="price_"], .variations-body input[name^="unit_cost_"] {
   text-align: center;
 }
-/* REVISED: "make the style ID box vertically aligned with the inventory
-   plus/minus box, so shift the style ID label over a little... give some
-   padding so it fits nicely" — style_id has no per-variation counterpart
-   of its own to line up with, so instead of sitting right after
-   "Variations" (which the stock stepper has no equivalent of either), a
-   variations-header-spacer now sits BEFORE it, absorbing the same
-   leftover width the row's own title already does — the same trick
-   already used to anchor Cost/MSRP to the header's right edge, just
-   applied one field earlier so style_id ends up roughly where the
-   stepper sits in each row instead of hugging the caret/label. "You may
-   increase the style ID font size to fill that box so it's the same
-   width as the inventory fields below it" — width matches
-   .variation-stock-stepper's own width exactly (was a 9-characters-exact
-   9ch), with a larger font-size so the pattern actually fills it rather
-   than leaving it looking sparse. REVISED: both widened from 5.5em to
-   6em — "make the inventory menu a tiny bit wider if you are at limit
-   with style id," the pattern was right at the edge of the box. */
-/* "The style ID is a little bit bigger than what I want. Decrease the
-   padding a little to make it the same size" — the larger 13px font
-   needs less of the shared 3px 5px padding to end up the same overall
-   height as the stepper's own 11px count field beside it.
-   REVISED: "remove some side padding, it's wider than it has to be" —
-   the box's own width already grew to 6em, so its side padding no longer
-   needs to be the shared 5px; 3px leaves more of that width to the
-   pattern itself.
-   REVISED AGAIN: "balance it out against inventory to get them matching
-   100%" — .variation-stock-stepper (below) has NO side padding at all,
-   its two buttons sit flush against its own border; zero is the actual
-   match, not any smaller-but-still-nonzero number. */
-.variations-header input[name="style_id"] { flex: 0 0 auto; width: 6em; font-size: 13px; padding: 1px 0; }
+/* REVISED: style_id no longer lives in the Variations header at all — the
+   owner's own words: "I want to get rid of the style ID label and I want
+   to take the style ID input field and put it to the left of the category
+   dropdown in the category row." It's the FIRST child of
+   .category-title-row now (the .item-edit .category-title-row form rule
+   above already gives it display: contents, the same as the category
+   picker and title forms beside it), with no label at all — the
+   placeholder (NN-NN-NNN) is the only hint, same as vendor/commission
+   already have no persistent label either. */
+.item-edit input[name="style_id"] { flex: 0 0 auto; width: 6em; text-align: center; }
 /* "Ensure the header's cost/MSRP align exactly with the children rows'
    own cost/price" — the row's own title absorbs all its row's leftover
    width (flex: 1 1 auto), pushing its fixed-width stepper/cost/price
@@ -2123,7 +2103,7 @@ ${INPUT_BAR_CSS}
   flex: 0 0 auto; width: 20px; height: 20px; padding: 0; line-height: 1; font: inherit; font-size: 13px;
   border: none; border-radius: 0; background: var(--ground); color: var(--muted); cursor: pointer;
 }
-.variation-stock-step:hover { color: var(--accent); background: var(--image-ground); }
+.variation-stock-step:hover { background: var(--image-ground); }
 .variation-stock-step:disabled { opacity: 0.5; cursor: default; }
 /* "Any changed fields should be marked with an orange highlight" — added
    to the specific field that changed (onItemsGridChange, below), not just
@@ -2367,9 +2347,13 @@ function itemTile(product, canEdit, allCategories = []) {
      REMARKABLE state — also on the website — earns a tag. This COLLAPSED
      tile's own tag stays a plain, non-interactive indicator; the toggle
      control lives once-expanded, in .item-badges below. */
+  /* "Remove the category pill from the bottom right of the image" — the
+     owner's own words. The category name no longer earns a tag here at
+     all; only the channel (Web) and Inactive still do. */
   const tags = isActive
-    ? (product.channel === "website" ? `<span class="item-tag channel-website">${CHANNEL_LABEL.website}</span>` : "") +
-      (product.category_name ? `<span class="item-tag">${esc(product.category_name)}</span>` : "")
+    ? product.channel === "website"
+      ? `<span class="item-tag channel-website">${CHANNEL_LABEL.website}</span>`
+      : ""
     : `<span class="item-tag item-tag-inactive">Inactive</span>`;
 
   /* Never a SKU here either — the read-only view every role gets. A
@@ -2545,10 +2529,6 @@ function itemTile(product, canEdit, allCategories = []) {
            <button type="button" class="variations-toggle" aria-label="Show every variation" title="Show every variation">${CARET_ICON}</button>
            <span class="variations-label">Variations</span>
            <span class="variations-header-spacer"></span>
-           <form method="post" action="/items/${esc(product.handle)}/square-attributes" class="row">
-             <span class="variations-header-label">Style ID</span>
-             <input name="style_id" value="${esc(product.style_id ?? "")}" placeholder="NN-NN-NNN" pattern="\\d{2}-\\d{2}-\\d{3}" title="NN-NN-NNN — a 2-digit category, a 2-digit subcategory, a 3-digit item number, e.g. 01-04-001. Leave blank to keep it as it is.">
-           </form>
            <input class="variations-unit-cost" placeholder="Cost">
            <input class="variations-msrp" placeholder="MSRP">
          </div>
@@ -2671,6 +2651,9 @@ function itemTile(product, canEdit, allCategories = []) {
   const titleVendorForms = canEdit
     ? `<div class="item-edit">
          <div class="category-title-row">
+           <form method="post" action="/items/${esc(product.handle)}/square-attributes" class="row style-id-form">
+             <input name="style_id" value="${esc(product.style_id ?? "")}" placeholder="NN-NN-NNN" pattern="\\d{2}-\\d{2}-\\d{3}" title="NN-NN-NNN — a 2-digit category, a 2-digit subcategory, a 3-digit item number, e.g. 01-04-001. Leave blank to keep it as it is.">
+           </form>
            ${categoryControl}
            <form method="post" action="/items/${esc(product.handle)}/details">
              <input class="item-title-input" name="title" value="${esc(product.title)}" placeholder="Title">
@@ -3305,7 +3288,7 @@ function isFieldDirty(el) {
 function refreshDirtyState(field) {
   field.classList.toggle("field-dirty", isFieldDirty(field));
 
-  const form = field.closest(".item-badges form, .item-edit form, .variations-header form, .variations-body form");
+  const form = field.closest(".item-badges form, .item-edit form, .variations-body form");
   if (!form) return;
   /* input AND textarea — the description field is a textarea element, and
      querySelectorAll("input") alone silently never sees it: a description-
@@ -3353,7 +3336,7 @@ function onItemsGridChange(e) {
      (below), updating this field's value AND its defaultValue together
      (stepStock, via setAttribute) so isFieldDirty never sees a diff here. */
   if (e.target.matches(".variation-stock-count")) return;
-  const form = e.target.closest(".item-badges form, .item-edit form, .variations-header form, .variations-body form");
+  const form = e.target.closest(".item-badges form, .item-edit form, .variations-body form");
   if (form) refreshDirtyState(e.target);
 }
 document.getElementById("items-grid").addEventListener("input", onItemsGridChange);
