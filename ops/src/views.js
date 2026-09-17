@@ -2803,19 +2803,27 @@ ${dropdownMenuScript({
    this page's own filter state. */
 const resyncBtn = document.getElementById("resync-btn");
 if (resyncBtn) {
-  /* A native alert() on failure, not the tile's own .item-edit-error
-     pattern — the fixed, 42px-tall .input-bar this button lives in has no
-     room for an inline message the way a scrollable tile does. */
+  /* Used to be a native alert() on failure — the fixed, 42px-tall
+     .input-bar this button lives in has no room for an inline message the
+     way a scrollable tile does. showFormError's own popover (below) no
+     longer needs any room: it floats OVER the layout via position: fixed,
+     so it works just as well anchored to this button as to a form inside a
+     tile — and, same as every other write failure on this page, click to
+     copy rather than a modal someone has to manually select text out of. */
   resyncBtn.addEventListener("click", async () => {
     resyncBtn.disabled = true;
     try {
       const res = await fetch("/items/resync", { method: "POST" });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "resync failed");
+      if (!res.ok) {
+        showFormError(resyncBtn, data.error || "resync failed");
+        return;
+      }
       location.reload();
-    } catch (err) {
+    } catch {
+      showFormError(resyncBtn, "Could not reach the server — try again.");
+    } finally {
       resyncBtn.disabled = false;
-      alert("Resync from Square failed: " + err.message);
     }
   });
 }
