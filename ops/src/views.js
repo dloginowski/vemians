@@ -612,7 +612,7 @@ html, body { height: 100%; margin: 0; }
 .shell-frame { width: 100%; height: 100%; border: 0; display: block; background: var(--ground); }
 `;
 
-const SHELL_TABS = [
+export const SHELL_TABS = [
   { key: "agent", label: "Agent", src: "/chat", href: "/" },
   { key: "items", label: "Items", src: "/items", href: "/?tab=items" },
   /* Test-PRD-P0-100-ticket_messaging, superseded by Test-PRD-P0-108-ops_dashboard:
@@ -657,6 +657,21 @@ document.querySelectorAll(".shell-nav button").forEach((btn) => {
     history.replaceState(null, "", btn.dataset.href);
   });
 });
+/* "I never should be able to allow to go in there [/items directly]... I
+   should always be redirected to the main top domain" — index.js's own
+   redirect now sends a direct /items#item-<sku> visit here instead
+   (Sec-Fetch-Dest: document, never the shell's own iframe request), and
+   the browser carries that fragment over onto THIS page's own URL since
+   the redirect's Location header names no fragment of its own — ordinary
+   browser behaviour, nothing this Worker does on purpose. It never reaches
+   the iframe by itself, though: the fragment lives on the OUTER shell
+   page's own location, and the iframe is a separate document with no
+   access to it unless this forwards it in explicitly, once, at load —
+   the same #item-<sku> key shareLink()/setDeepLinkHash() already use
+   inside the Items tab itself. */
+if (location.hash.startsWith("#item-") && "${initial.key}" === "items") {
+  document.getElementById("ops-frame").src = "${esc(initial.src)}" + location.hash;
+}
 </script>`,
     SHELL_CSS,
   );

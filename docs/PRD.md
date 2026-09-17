@@ -4647,6 +4647,37 @@ that does not trace to one of these is a process failure (see §12).
     provider-agnostic catch — `catalog-writer.js` already knows it is talking to Square, and a
     VERSION_MISMATCH means something specific and interpretable only there.
 
+75. **`Test-PRD-P0-140-shell_always_visible`** — The owner's own words, after noticing the tab header
+    was simply absent on a direct `/items` visit: "I never should be able to allow to go in there... I
+    should always be redirected to the main top domain... no matter what happens." `/chat`, `/items`
+    and `/dashboard` (`SHELL_TABS`' own `src` values, `ops/src/views.js`) exist ONLY to be loaded as the
+    shell's own `<iframe src>` — the persistent tab bar (`shellPage()`) is what draws the header at all,
+    and these three bare pages never drew their own copy of it. A bookmark, a pasted link, or browser
+    history landing directly on one of them now redirects to the shell instead (`SHELL_TABS`' own
+    `href`, e.g. `/items` -> `/?tab=items`), rather than showing that tab's content with no header at
+    all.
+
+    Told apart from the shell's OWN `<iframe>` requesting that exact same URL by `Sec-Fetch-Dest`, which
+    every evergreen browser sets to `"document"` for a real top-level navigation and `"iframe"` for a
+    frame's own request — no cooperation from the page itself needed, and nothing this Worker could get
+    right by inspecting the URL alone, since both requests ask for the identical path. Missing entirely
+    (an old browser, a tool that strips `Sec-Fetch` headers) fails OPEN on purpose: wrongly not
+    redirecting a genuine direct visit only reproduces the already-accepted prior behaviour, but
+    wrongly redirecting the shell's own iframe load would trap it loading a shell inside a shell inside
+    a shell, forever. Scoped to exactly the three paths `SHELL_TABS` names and `GET` only, never a
+    `startsWith` match — a `POST` to a route living under `/items/` (an ordinary form submission, not a
+    page load) is never swept in.
+
+    **A real regression this fix would otherwise have caused, caught before shipping: `shareLink()`
+    (views.js) points a copied link straight at `/items#item-<sku>`.** Once a direct visit to `/items`
+    redirects to `/?tab=items`, that fragment rides along on the browser's own address bar automatically
+    (a redirect's `Location` header names no fragment of its own, so the browser keeps the original)
+    but never reaches the iframe by itself — the fragment lives on the OUTER shell page's own location,
+    and the iframe is a separate document with no access to it. `shellPage()`'s own inline script now
+    forwards an incoming `#item-<sku>` hash into the items iframe's own `src`, once, at load, so a
+    shared link still lands on the exact item it named instead of silently losing its target the moment
+    it started going through the shell.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
