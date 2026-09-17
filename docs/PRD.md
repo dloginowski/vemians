@@ -4684,6 +4684,26 @@ that does not trace to one of these is a process failure (see §12).
     rule itself (exactly one class plus one type selector) — if a future edit ever gives `.item-edit
     input` a second class, this fix would need re-examining, and the test says so.
 
+    **REVISED YET AGAIN — removing a category actually failed in production: "Square POST /v2/catalog/
+    object failed with 400 — INVALID_REQUEST_ERROR/INVALID_VALUE... Object of type CATEGORY cannot be
+    disabled."** `catalog.remove_category`'s original implementation guessed that a CATEGORY object
+    carries the same presence lifecycle an ITEM does (`present_at_all_locations`), modeled directly on
+    `setProductPresence`. A live 400 from the real account says otherwise: Square has no presence
+    concept for a CATEGORY at all — `present_at_all_locations` only ever describes what actually gets
+    SOLD, and a category is never itself for sale. `DeleteCatalogObject` (a real `DELETE /v2/catalog/
+    object/{id}`, not an upsert) is Square's only removal path for one. Fixed by replacing the GET-
+    then-POST-disable call with a genuine `client.delete(...)` — `shared/commerce/square/client.js`
+    gains a `delete` method alongside its existing `get`/`post`/`put`, the same thin wrapper shape as
+    the others. ADR-008 still holds entirely on OUR side: this never deletes the `mirror_category` ROW,
+    only asks Square to delete ITS OWN object — the very next sync sees `is_deleted: true` on it
+    (`isWithdrawn`'s own FIRST check, ahead of any presence field, already handles this for a withdrawn
+    PRODUCT) and archives the mirror row through the IDENTICAL existing pipeline, no special-casing
+    needed for a category at all. The test fixture's own fake Square server now models the real rule
+    directly — any CATEGORY upsert attempting `present_at_all_locations: false` is rejected with the
+    exact same error text the live account returned — so a future regression back to the disable-based
+    approach fails the same way in the test suite that it failed in production, rather than passing
+    silently against a fake that never knew the real rule existed.
+
 74. **`Test-PRD-P0-139-honest_write_failures`** — A Square write refused with a plain `Square POST
     /v2/catalog/object failed with 400` and nothing else — the owner's own words, pasting exactly that
     line after an edit silently went nowhere: "just make sure all of the fields work... with this post
