@@ -103,7 +103,7 @@ import {
   priceBand,
   productByHandle,
   variantsOf,
-  vendorExists,
+  vendorCommission,
 } from "./catalog-writer.js";
 import { contentTypeFor, isOurMediaKey, mediaKey, squareAcceptsType, STORABLE_IMAGE_TYPES } from "./media.js";
 
@@ -726,16 +726,21 @@ export const catalogWriteTools = {
       "Square Vendor entity (Retail Plus/Premium), reused by name or created; vendor_code/" +
       "unit_cost_minor live on that same vendor association (see catalog.set_square_attributes for the " +
       "full description of each). vendor_code/unit_cost_minor/commission all only make sense alongside " +
-      "a vendor and are refused without one; a vendor NAME with no existing Square Vendor is refused " +
-      "without a commission given in the SAME call (creating a new vendor needs one; reusing an " +
-      "existing vendor by name does not); style_id follows this shop's own NN-NN-NNN nomenclature " +
-      "and is refused if another product already has it. INGESTING A BATCH (e.g. from a spreadsheet): " +
-      "every row needs style_id, title, quantity (set afterward via inventory.adjust) and MSRP " +
-      "(variations[].price_minor); WITHOUT a vendor, unit_cost_minor is also required (this shop's own " +
-      "cost of goods); WITH a vendor, commission is required instead (unless that vendor already " +
-      "exists, in which case its own commission is already on file) — a row missing what its own " +
-      "vendor/no-vendor case requires should be refused before this tool is ever called, not sent " +
-      "in and left for Square's own refusal to explain.",
+      "a vendor and are refused without one. `commission` is NOT re-stated for every item from a " +
+      "vendor already known: a vendor's own rate is centralized (mirror_vendor.commission_pct, OURS, " +
+      "not Square's — Square has no concept of a resale commission at all) and copied onto a new " +
+      "product automatically whenever `vendor` is given with no `commission` of its own — refused only " +
+      "when that vendor genuinely has nothing on file yet (brand new, or one Square already knew about " +
+      "that this shop never gave a rate). An EXPLICIT `commission` given alongside a vendor becomes " +
+      "that vendor's own new central rate, applied to every future item from it the same way. " +
+      "style_id follows this shop's own NN-NN-NNN nomenclature and is refused if another product " +
+      "already has it. INGESTING A BATCH (e.g. from a spreadsheet): every row needs style_id, title, " +
+      "quantity (set afterward via inventory.adjust) and MSRP (variations[].price_minor); WITHOUT a " +
+      "vendor, unit_cost_minor is also required (this shop's own cost of goods); WITH a vendor, give " +
+      "commission only for that vendor's OWN FIRST row (or omit it entirely and let this tool refuse, " +
+      "naming exactly which vendor still needs one) — do not ask a person to repeat a vendor's own " +
+      "commission on every row, it is privileged information and this tool already carries it forward " +
+      "once given.",
     undo: "withdraw the item in Square; nothing is deleted, and the originals in R2 are untouched",
     schema: {
       title: { type: "string", required: true, maxLength: CAPS.CATALOG_TITLE_MAX },
@@ -805,19 +810,23 @@ export const catalogWriteTools = {
         }
       }
 
-      /* A vendor NAME with no existing mirror_vendor match will call
-         Square's real CreateVendor once this write actually runs — the
-         owner's own words: "I need to specify a commission if I create a
-         vendor." Reusing an ALREADY-KNOWN vendor is exempt (see the
-         "vendor with no commission" case just below): the arrangement's
-         commission is presumably already on record from whenever that
-         vendor was first created. */
+      /* REVISED: "let's not force vendor's commission to be stated out
+         loud [on every item]... we store it in essential locations per
+         vendor so that their commission is recorded in a central
+         location and automatically applied" — the owner's own words.
+         A vendor with a rate already on file (mirror_vendor.
+         commission_pct, set by an earlier call that DID give one) needs
+         nothing here at all — run() below copies that rate onto this
+         product automatically. Only a vendor with NOTHING on file yet —
+         brand new, or one Square already knew about (created directly in
+         Square's own dashboard, say) that this shop has never given a
+         rate — actually needs one stated now. */
       if (args.vendor !== undefined && args.commission === undefined) {
-        const exists = await vendorExists(t.db.catalog_mirror, args.vendor);
-        if (!exists) {
+        const onFile = await vendorCommission(t.db.catalog_mirror, args.vendor);
+        if (onFile === null) {
           return {
-            denied: `vendor '${args.vendor}' does not exist yet — creating a new vendor needs a commission (0-100) given at the same time`,
-            detail: { reason: "new_vendor_needs_commission" },
+            denied: `vendor '${args.vendor}' has no commission on file yet — give one now (0-100); it is stored centrally against this vendor and applied automatically to every item from it after this`,
+            detail: { reason: "vendor_needs_commission_on_file" },
           };
         }
       }
@@ -886,6 +895,18 @@ export const catalogWriteTools = {
           : args.style_id !== undefined
             ? await deriveCategoryIdForStyleId(t.db.catalog_mirror, args.style_id)
             : null;
+      /* "We store it in essential locations per vendor so that their
+         commission is recorded in a central location and automatically
+         applied" — the owner's own words. An explicit commission always
+         wins outright; otherwise, a named vendor's own on-file rate
+         (mirror_vendor.commission_pct) is copied onto this product —
+         check() above already refused this call if neither exists. */
+      const commissionPct =
+        args.commission !== undefined
+          ? args.commission
+          : args.vendor !== undefined
+            ? await vendorCommission(t.db.catalog_mirror, args.vendor)
+            : undefined;
       const out = await t.square.createProduct({
         title: args.title,
         description: args.description ?? "",
@@ -896,7 +917,7 @@ export const catalogWriteTools = {
         vendor: args.vendor,
         vendorCode: args.vendor_code,
         unitCostMinor: args.unit_cost_minor,
-        commissionPct: args.commission,
+        commissionPct,
       });
 
       /* custom_fields never reaches Square — see the note on the schema
@@ -907,6 +928,22 @@ export const catalogWriteTools = {
         await t.db.catalog_mirror
           .prepare("UPDATE mirror_product SET custom_fields = ? WHERE handle = ?")
           .bind(JSON.stringify(args.custom_fields), out.product.handle)
+          .run();
+      }
+
+      /* An EXPLICITLY given commission becomes this vendor's own new
+         central rate — the moment this write ran is the moment this
+         became the vendor's own most-current known arrangement. Only
+         after t.square.createProduct() returns: that call's own
+         syncAfterWrite is what gives a BRAND NEW vendor its first
+         mirror_vendor row at all (vendorRef() itself only ever calls
+         Square, never the mirror directly — this file's own header,
+         "the agent writes to Square, never to the mirror" — so there is
+         nothing to UPDATE here before that sync has actually run). */
+      if (args.vendor !== undefined && args.commission !== undefined) {
+        await t.db.catalog_mirror
+          .prepare("UPDATE mirror_vendor SET commission_pct = ? WHERE name = ? COLLATE NOCASE")
+          .bind(args.commission, args.vendor)
           .run();
       }
 
@@ -1637,16 +1674,21 @@ export const catalogWriteTools = {
       "2-digit category, a 2-digit subcategory, a 3-digit item number, e.g. \"01-04-001\" — and is " +
       "NEVER generated here: give one, or leave it as it is. Refused if another product already has " +
       "the same style_id — style IDs are unique, one per product. vendor is a plain name: an " +
-      "existing Square Vendor with that name is reused, or a new one is created — CREATING one needs " +
-      "a commission given in this SAME call (the owner's own words: \"I need to specify a commission " +
-      "if I create a vendor\"); reusing an existing vendor by name does not. vendor_code is the " +
+      "existing Square Vendor with that name is reused, or a new one is created. vendor_code is the " +
       "VENDOR's own SKU/product code for this item (their invoice/catalog identifier — never Square's " +
       "own `sku`, never this shop's `style_id`). unit_cost_minor is what this shop PAID the vendor, " +
       "integer minor units like every other price in this codebase. commission is an integer 0-100 " +
-      "(a percentage). vendor_code/unit_cost_minor/commission all only make sense for a product that " +
-      "HAS a vendor — the owner's own words on commission: \"that's only for vendors — anything that " +
-      "has a vendor, it has a commission\" — so each is refused for a product with no vendor, " +
-      "resolved from whatever this same call also sets. Give any subset to leave the rest untouched. " +
+      "(a percentage) — the owner's own words: \"that's only for vendors — anything that has a vendor, " +
+      "it has a commission\" — so vendor_code/unit_cost_minor/commission all only make sense for a " +
+      "product that HAS a vendor, resolved from whatever this same call also sets, and are refused " +
+      "for one with none. `commission` is NOT re-stated for every item, though: a vendor's own rate " +
+      "is centralized (mirror_vendor.commission_pct, OURS, not Square's) and copied onto THIS product " +
+      "automatically whenever `vendor` is being (re)assigned here with no `commission` of its own — " +
+      "refused only when that vendor genuinely has nothing on file yet. An EXPLICIT `commission` given " +
+      "alongside a vendor becomes that vendor's own new central rate, applied the same way to every " +
+      "future item from it — reassigning a product to a DIFFERENT vendor with no fresh commission " +
+      "adopts THAT vendor's own on-file rate, never the product's previous vendor's own leftover value. " +
+      "Give any subset to leave the rest untouched. " +
       "NONE of these is the SKU on a variation: Square assigns that automatically and nothing in " +
       "this codebase ever sets it, reads it for anything but display, or treats it as this shop's " +
       "own nomenclature.",
@@ -1717,21 +1759,32 @@ export const catalogWriteTools = {
         return { denied: `unit_cost_minor '${args.unit_cost_minor}' must be a non-negative integer minor amount` };
       }
 
-      /* Same "creating a new vendor needs a commission" rule as
+      /* REVISED: the exact same central-commission rule as
          catalog.create_product — the owner's own words apply just as well
-         to an edit that hands this product its first vendor. A CHANGE to an
-         already-known vendor name is exempt, the same as create_product. */
+         to an edit that (re)assigns this product's own vendor. A vendor
+         with a rate already on file needs nothing stated here at all;
+         only one with nothing on file yet does. */
       if (args.vendor !== undefined && args.commission === undefined) {
-        const exists = await vendorExists(t.db.catalog_mirror, args.vendor);
-        if (!exists) {
+        const onFile = await vendorCommission(t.db.catalog_mirror, args.vendor);
+        if (onFile === null) {
           return {
-            denied: `vendor '${args.vendor}' does not exist yet — creating a new vendor needs a commission (0-100) given at the same time`,
+            denied: `vendor '${args.vendor}' has no commission on file yet — give one now (0-100); it is stored centrally against this vendor and applied automatically to every item from it after this`,
           };
         }
       }
 
       const resultingStyleId = args.style_id !== undefined ? args.style_id : existing.style_id;
-      const resultingCommission = args.commission !== undefined ? args.commission : existing.commission_pct;
+      /* A vendor actually CHANGING here (even to a different name) adopts
+         THAT vendor's own on-file rate when no fresh commission comes
+         along with it — check() above already refused this call if
+         neither exists — rather than blindly carrying over whatever this
+         product's own PREVIOUS vendor happened to leave behind. */
+      const resultingCommission =
+        args.commission !== undefined
+          ? args.commission
+          : args.vendor !== undefined
+            ? await vendorCommission(t.db.catalog_mirror, args.vendor)
+            : existing.commission_pct;
       const resultingVendorCode = args.vendor_code !== undefined ? args.vendor_code : existing.vendor_code;
       const resultingUnitCostMinor = args.unit_cost_minor !== undefined ? args.unit_cost_minor : existing.unit_cost_minor;
       if (
@@ -1770,15 +1823,42 @@ export const catalogWriteTools = {
          current category," never as "clear it" (P0-138's own bug fix). */
       const derivedCategoryId =
         args.style_id !== undefined ? await deriveCategoryIdForStyleId(t.db.catalog_mirror, args.style_id) : undefined;
+      /* "We store it in essential locations per vendor so that their
+         commission is recorded in a central location and automatically
+         applied" — the owner's own words. An explicit commission always
+         wins outright; a vendor actually changing here with none given
+         adopts that vendor's own on-file rate instead (check() above
+         already refused this call if neither exists); leaving BOTH
+         undefined, unchanged, reaches updateProduct's own "resend the
+         whole thing" fallback, which reads undefined as "keep this
+         product's current commission," never as "clear it." */
+      const commissionPct =
+        args.commission !== undefined
+          ? args.commission
+          : args.vendor !== undefined
+            ? await vendorCommission(t.db.catalog_mirror, args.vendor)
+            : undefined;
       const out = await t.square.updateProduct({
         handle: args.handle,
         styleId: args.style_id,
         vendor: args.vendor,
         vendorCode: args.vendor_code,
         unitCostMinor: args.unit_cost_minor,
-        commissionPct: args.commission,
+        commissionPct,
         ...(derivedCategoryId ? { categoryId: derivedCategoryId } : {}),
       });
+      /* An EXPLICITLY given commission becomes this vendor's own new
+         central rate — see catalog.create_product's own identical
+         comment. Safe to run after updateProduct: the vendor named here
+         either already had a mirror row (reused) or this same call's own
+         resolve-or-create path just gave it one, through Square, before
+         updateProduct's own syncAfterWrite ran. */
+      if (args.vendor !== undefined && args.commission !== undefined) {
+        await t.db.catalog_mirror
+          .prepare("UPDATE mirror_vendor SET commission_pct = ? WHERE name = ? COLLATE NOCASE")
+          .bind(args.commission, args.vendor)
+          .run();
+      }
       return {
         updated: true,
         handle: args.handle,

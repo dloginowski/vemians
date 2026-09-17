@@ -550,12 +550,33 @@ check("test_PRD_P0_60_spreadsheet_products__a_bad_row_is_reported_with_why_not_s
   assert.deepEqual(result.skipped.map((s) => s.row), [2, 3, 4]);
 });
 
-check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_vendor_with_no_commission_is_parked_when_the_vendor_already_exists", async () => {
-  /* The owner's own words, revising an earlier, stricter rule: "scratch the
-     requirement to add a commission when specifying vendor, that's not
-     always true" — then narrowed again: "I need to specify a commission if
-     I create a vendor." Reusing an ALREADY-KNOWN vendor needs no commission
-     at all; only creating a brand-new one does (the next test below). */
+check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_vendor_with_no_commission_is_parked_when_the_vendor_already_has_one_on_file", async () => {
+  /* REVISED: "let's not force vendor's commission to be stated out loud...
+     if we are entering items that has a vendor, that's when we want to
+     make sure there is a commission included. Or at least we store it in
+     essential locations per vendor so that their commission is recorded
+     in a central location and automatically applied" — the owner's own
+     words. A vendor merely EXISTING is no longer enough on its own; it
+     needs a commission actually ON FILE (mirror_vendor.commission_pct)
+     for a later row naming it with none of its own to go through clean. */
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  f.mirrorDb._raw
+    .prepare("INSERT INTO mirror_vendor (id, external_ref, name, commission_pct) VALUES ('vendor-seed', 'sqvendor-seed', 'Acme Mills', 15)")
+    .run();
+  const csv = "title,category,price,style id,vendor\n" + `Wool Coat,${outerwear.name},450.00,01-04-001,Acme Mills\n`;
+
+  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.ready.length, 1);
+  assert.equal(result.ready[0].title, "Wool Coat");
+});
+
+check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_vendor_with_nothing_on_file_yet_is_flagged_even_though_it_already_exists", async () => {
+  /* The other half of the same REVISED rule: existing in mirror_vendor at
+     all (synced in directly from Square, never given a rate by this shop)
+     is not enough — flagged here, before the row is ever parked, same
+     treatment every other spreadsheet rule already gets. */
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   f.mirrorDb._raw
@@ -564,9 +585,9 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_vendor_with_no_co
   const csv = "title,category,price,style id,vendor\n" + `Wool Coat,${outerwear.name},450.00,01-04-001,Acme Mills\n`;
 
   const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
-  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.equal(result.ready.length, 1);
-  assert.equal(result.ready[0].title, "Wool Coat");
+  assert.equal(result.ready.length, 0);
+  assert.equal(result.skipped.length, 1);
+  assert.match(result.skipped[0].reason, /vendor 'Acme Mills' has no commission on file yet — give one now/);
 });
 
 check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_brand_new_vendor_with_no_commission_is_flagged", async () => {
@@ -581,7 +602,7 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_brand_new_vendor_
   const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
   assert.equal(result.ready.length, 0);
   assert.equal(result.skipped.length, 1);
-  assert.match(result.skipped[0].reason, /vendor 'Acme Mills' does not exist yet — creating a new vendor needs a commission/);
+  assert.match(result.skipped[0].reason, /vendor 'Acme Mills' has no commission on file yet — give one now/);
 });
 
 check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_vendor_and_commission_is_parked_and_sets_both", async () => {
@@ -2150,23 +2171,27 @@ check("test_PRD_P0_37_mirror_is_ours__no_authoring_tool_writes_a_square_fact_to_
    * only writer of a Square-sourced column is shared/commerce/square/mirror.js,
    * reading back what Square now says.
    *
-   * THREE DELIBERATE EXCEPTIONS, allowlisted by name below rather than left
+   * FOUR DELIBERATE EXCEPTIONS, allowlisted by name below rather than left
    * to widen this regex's blind spot: catalog.set_channel's own
    * `UPDATE mirror_product SET channel = ...` (Test-PRD-P0-71-product_channel),
    * catalog.set_custom_fields'/catalog.create_product's own
    * `UPDATE mirror_product SET custom_fields = ...`
-   * (Test-PRD-P0-89-batch_preview_confirm's custom_fields entry), and
+   * (Test-PRD-P0-89-batch_preview_confirm's custom_fields entry),
    * catalog.set_category_number's own `UPDATE mirror_category SET
-   * numeric_id = ...` (Test-PRD-P0-138-nested_categories). None of
-   * `channel`, `custom_fields` or `numeric_id` is a fact Square has any
-   * notion of at all — Square does not know our storefront exists, has no
-   * field for a fact we invented, and has no idea what "01" means to this
-   * shop's own style_id nomenclature — so none has a second writer to
-   * diverge from, and mirror.js's own sync deliberately never names any of
-   * the three in its UPDATE or INSERT, for exactly this reason (see the
-   * comments on all three columns in shared/commerce/square/schema.sql).
-   * The assertion below still forbids that same file touching any OTHER
-   * mirror column.
+   * numeric_id = ...` (Test-PRD-P0-138-nested_categories), and
+   * catalog.create_product's/catalog.set_square_attributes' own
+   * `UPDATE mirror_vendor SET commission_pct = ...`
+   * (Test-PRD-P0-138-nested_categories' own vendor-commission-centralization
+   * entry). None of `channel`, `custom_fields`, `numeric_id` or a VENDOR's
+   * own `commission_pct` is a fact Square has any notion of at all — Square
+   * does not know our storefront exists, has no field for a fact we
+   * invented, has no idea what "01" means to this shop's own style_id
+   * nomenclature, and has no concept of a resale commission at all — so
+   * none has a second writer to diverge from, and mirror.js's own sync
+   * deliberately never names any of the four in its UPDATE or INSERT, for
+   * exactly this reason (see the comments on all four columns in
+   * shared/commerce/square/schema.sql). The assertion below still forbids
+   * that same file touching any OTHER mirror column.
    */
   const offenders = [];
   for (const file of fs.readdirSync(TOOLS_DIR).filter((n) => n.endsWith(".js"))) {
@@ -2174,6 +2199,7 @@ check("test_PRD_P0_37_mirror_is_ours__no_authoring_tool_writes_a_square_fact_to_
     for (const m of src.matchAll(/\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+mirror_\w+/gi)) {
       if (file === "catalog-write.js" && /^UPDATE\s+mirror_product$/i.test(m[0])) continue;
       if (file === "catalog-write.js" && /^UPDATE\s+mirror_category$/i.test(m[0])) continue;
+      if (file === "catalog-write.js" && /^UPDATE\s+mirror_vendor$/i.test(m[0])) continue;
       offenders.push(`${file}: ${m[0]}`);
     }
   }
@@ -2206,6 +2232,19 @@ check("test_PRD_P0_37_mirror_is_ours__no_authoring_tool_writes_a_square_fact_to_
   );
   for (const [, captured] of categoryStmts) {
     assert.equal(captured.trim(), "numeric_id = ?", "an UPDATE mirror_category in catalog-write.js touches an unexpected column");
+  }
+
+  /* Same guard again, for mirror_vendor's own OURS-only exception:
+     commission_pct, and only commission_pct — written directly from TWO
+     places (catalog.create_product, catalog.set_square_attributes), the
+     same "every match, not just the first" reasoning as both loops above. */
+  const vendorStmts = [...writer.matchAll(/UPDATE mirror_vendor SET ([\s\S]*?) WHERE/g)];
+  assert.ok(
+    vendorStmts.length >= 2,
+    "catalog.create_product's and catalog.set_square_attributes' own commission_pct UPDATEs have moved or been removed",
+  );
+  for (const [, captured] of vendorStmts) {
+    assert.equal(captured.trim(), "commission_pct = ?", "an UPDATE mirror_vendor in catalog-write.js touches an unexpected column");
   }
 
   /* And the mirror schema itself refuses deletion, whatever anyone writes. */
@@ -2812,7 +2851,7 @@ check("test_PRD_P0_136_square_custom_attributes__reusing_an_existing_vendor_name
 check("test_PRD_P0_136_square_custom_attributes__creating_a_new_vendor_via_set_square_attributes_requires_a_commission", async () => {
   /* The owner's own words: "I need to specify a commission if I create a
      vendor." "Acme Mills" does not exist anywhere in this fresh fixture, so
-     this call would CREATE it. */
+     this call would CREATE it — and, either way, it has nothing on file. */
   const f = await fixture();
   const res = await runTool(
     "catalog.set_square_attributes",
@@ -2820,7 +2859,7 @@ check("test_PRD_P0_136_square_custom_attributes__creating_a_new_vendor_via_set_s
     f.ctx,
   );
   assert.equal(res.ok, false);
-  assert.match(res.error, /does not exist yet — creating a new vendor needs a commission/);
+  assert.match(res.error, /has no commission on file yet — give one now/);
   assert.deepEqual(f.calls(), [], "a refused new-vendor-with-no-commission call must never reach Square");
 });
 
@@ -2834,13 +2873,37 @@ check("test_PRD_P0_136_square_custom_attributes__creating_a_new_vendor_via_creat
     vendor: "Acme Mills",
   }, f.ctx);
   assert.equal(res.ok, false);
-  assert.match(res.error, /does not exist yet — creating a new vendor needs a commission/);
+  assert.match(res.error, /has no commission on file yet — give one now/);
   assert.deepEqual(f.calls(), [], "a refused new-vendor-with-no-commission call must never reach Square");
 });
 
-check("test_PRD_P0_136_square_custom_attributes__reusing_a_vendor_via_set_square_attributes_needs_no_commission", async () => {
-  /* The other half of the same rule: a vendor name that ALREADY EXISTS is
-     free to assign with no commission at all — only creating one needs it. */
+check("test_PRD_P0_136_square_custom_attributes__a_vendor_with_no_commission_on_file_anywhere_still_needs_one_even_if_square_already_knows_it", async () => {
+  /* REVISED: "let's not force vendor's commission to be stated out loud...
+     but if we are entering items that has a vendor, that's when we want
+     to make sure there is a commission included" -- the owner's own
+     words. Existing is no longer enough on its own: a vendor Square
+     already has on record (synced in directly, never given a rate by
+     this shop) is exactly as unable to supply one automatically as a
+     brand-new one. */
+  const f = await fixture();
+  f.mirrorDb._raw
+    .prepare("INSERT INTO mirror_vendor (id, external_ref, name) VALUES ('vendor-seed', 'sqvendor-seed', 'Acme Mills')")
+    .run();
+  const res = await runTool(
+    "catalog.set_square_attributes",
+    { handle: COAT_HANDLE, vendor: "Acme Mills" },
+    f.ctx,
+  );
+  assert.equal(res.ok, false);
+  assert.match(res.error, /has no commission on file yet — give one now/);
+});
+
+check("test_PRD_P0_136_square_custom_attributes__a_vendors_own_on_file_commission_is_applied_automatically_with_no_commission_restated", async () => {
+  /* REVISED: "we store it in essential locations per vendor so that their
+     commission is recorded in a central location and automatically
+     applied" -- the owner's own words. Once ANY call gives Acme Mills a
+     commission, every later product naming that same vendor with no
+     commission of its own picks up that exact rate, unprompted. */
   const f = await fixture();
   const category = f.categories()[0];
   await approvedCall(f, "catalog.create_product", {
@@ -2854,7 +2917,10 @@ check("test_PRD_P0_136_square_custom_attributes__reusing_a_vendor_via_set_square
   const res = await approvedCall(f, "catalog.set_square_attributes", { handle: COAT_HANDLE, vendor: "Acme Mills" });
   assert.equal(res.ok, true, res.error);
   assert.equal(res.data.vendor, "Acme Mills");
-  assert.equal(res.data.commission, null, "commission was never given or previously set for THIS product");
+  assert.equal(res.data.commission, 15, "the vendor's own on-file rate, applied with nothing restated");
+
+  const vendorRow = f.mirror("SELECT commission_pct FROM mirror_vendor WHERE name = 'Acme Mills'")[0];
+  assert.equal(vendorRow.commission_pct, 15, "the central rate itself is unaffected by reading it for a second product");
 });
 
 check("test_PRD_P0_136_square_custom_attributes__commission_must_be_a_whole_number_0_to_100", async () => {
