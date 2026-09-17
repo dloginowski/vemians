@@ -28,9 +28,23 @@
  * that is the only sweep that can archive on absence, because absence is only
  * meaningful when you asked for everything. Afterwards it is a
  * SearchCatalogObjects since the last successful cursor, which is what keeps a
- * fifteen-minute cron cheap on a catalog of any size. A nightly full sweep is
- * the reconcile ADR-009 describes and is the schedule this trigger drops to
- * once it is trusted.
+ * fifteen-minute cron cheap on a catalog of any size.
+ *
+ * A periodic FULL sweep ALSO runs on its own schedule (FULL_SWEEP_INTERVAL_MS,
+ * tracked as its own "catalog_full" sync-state row, independent of the plain
+ * incremental cursor above) — the owner's own words, after a category's own
+ * real parent_category link in Square (set there, confirmed directly in
+ * Square's own app) still hadn't shown up here: "should not require manual
+ * syncing." An incremental SearchCatalogObjects only ever asks Square for
+ * objects it considers RECENTLY UPDATED — a category whose own parent link
+ * was set a while ago, and has not been touched since, never resurfaces on
+ * an incremental sweep alone, no matter how many of them run. Only a real
+ * full sweep re-reads it. This was previously a MANUAL escape hatch only
+ * (catalog.resync_from_square) — it still exists for "I need this synced
+ * right now," but the mirror no longer depends on someone finding and
+ * clicking it: it self-heals within FULL_SWEEP_INTERVAL_MS on its own,
+ * forever, the "nightly full sweep... reconcile" ADR-009 always described,
+ * now actually running rather than only planned.
  *
  * ─── FAILURE, AND SAYING WHICH ONE IT WAS (RULES.md §14) ───────────────────
  *
@@ -67,6 +81,17 @@ export const SYNC_CRON = "*/15 * * * *";
  * closes that window; the upsert absorbs the overlap.
  */
 const OVERLAP_MS = 60_000;
+
+/*
+ * How often a periodic FULL ListCatalog sweep runs on its own, regardless of
+ * the incremental cursor — see this file's own top comment for why one is
+ * needed at all. An hour keeps the mirror self-healing on a timescale a
+ * person would actually notice as "automatic," without asking Square for
+ * everything on every fifteen-minute tick — `external_ref UNIQUE` already
+ * makes a full sweep idempotent, so the cost here is Square API load and
+ * this Worker's own execution time, not correctness.
+ */
+const FULL_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
 
 /**
  * Classify a service-boundary failure into something a human can act on.
@@ -185,7 +210,11 @@ export async function syncFromSquare(env, opts = {}) {
   const now = opts.now ?? (() => new Date());
 
   /* First run — or a lost cursor — is the full sweep that can archive on
-     absence. Everything after is a search since the last good cursor. */
+     absence. Everything after is a search since the last good cursor,
+     UNLESS the periodic full sweep (this file's own top comment) is due —
+     tracked as its own "catalog_full" sync-state row, independent of the
+     incremental cursor, so a chain of successful incremental runs never
+     resets how overdue a real full sweep is. */
   let cursor = null;
   try {
     cursor = (await mirror.syncState("catalog"))?.cursor ?? null;
@@ -194,12 +223,24 @@ export async function syncFromSquare(env, opts = {}) {
       `WARNING ops/sync: could not read the catalog cursor, falling back to a full sweep — ${err.message}`,
     );
   }
+  let lastFullSweepAt = null;
+  try {
+    lastFullSweepAt = (await mirror.syncState("catalog_full"))?.cursor ?? null;
+  } catch (err) {
+    console.warn(
+      `WARNING ops/sync: could not read the last full-sweep timestamp, falling back to a full sweep — ${err.message}`,
+    );
+  }
   const since = cursor ? new Date(Date.parse(cursor) - OVERLAP_MS).toISOString() : null;
-  const full = !since;
+  const fullSweepDue = !lastFullSweepAt || now().getTime() - Date.parse(lastFullSweepAt) >= FULL_SWEEP_INTERVAL_MS;
+  const full = !since || fullSweepDue;
 
   let catalog;
   try {
     catalog = await adapter.pullCatalog({ full, since });
+    if (full) {
+      await mirror.recordSync("catalog_full", { cursor: now().toISOString() });
+    }
   } catch (err) {
     return fail(err, "catalog");
   }

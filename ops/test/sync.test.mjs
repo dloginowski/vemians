@@ -201,13 +201,52 @@ check("test_PRD_P0_48_scheduled_mirror_sync__the_first_sweep_is_full_and_the_nex
   assert.ok(!after.some((c) => c.url.includes("/v2/catalog/list")), "the second run re-listed the whole catalog");
 });
 
+check("test_PRD_P0_48_scheduled_mirror_sync__a_periodic_full_sweep_runs_even_with_a_fresh_incremental_cursor", async () => {
+  /* The owner's own words, after a category's own real parent_category link
+     in Square — set there, confirmed directly in Square's own app — still
+     had not shown up here: "should not require manual syncing." An
+     incremental SearchCatalogObjects only ever asks Square for objects it
+     considers recently updated, so a relationship Square already holds
+     but has not touched again never resurfaces on an incremental sweep
+     alone, no matter how fresh the cursor is. A periodic full sweep, on
+     its own separate schedule, is what makes the mirror self-heal without
+     anyone needing to notice and click anything. */
+  const s = stores();
+  const fetchImpl = fakeFetch(CATALOG_ROUTES);
+  let clock = new Date("2026-01-01T00:00:00Z");
+  const opts = () => ({ clientOptions: { fetchImpl }, now: () => clock });
+
+  const first = await syncFromSquare(env({}, s), opts());
+  assert.equal(first.full, true, "the very first run is always full");
+
+  clock = new Date(clock.getTime() + 5 * 60 * 1000);
+  const soon = await syncFromSquare(env({}, s), opts());
+  assert.equal(soon.full, false, "well within the periodic interval, a fresh cursor stays incremental");
+
+  clock = new Date(clock.getTime() + 61 * 60 * 1000);
+  const overdue = await syncFromSquare(env({}, s), opts());
+  assert.equal(
+    overdue.full,
+    true,
+    "overdue for the periodic full sweep, even though the incremental cursor is still perfectly fresh",
+  );
+  assert.ok(
+    fetchImpl.calls.slice(-5).some((c) => c.url.includes("/v2/catalog/list")),
+    "the periodic full sweep must actually re-list the whole catalog, not just claim to",
+  );
+});
+
 check("test_PRD_P0_48_scheduled_mirror_sync__every_run_records_its_outcome", async () => {
   const s = stores();
   await syncFromSquare(env({}, s), { clientOptions: { fetchImpl: fakeFetch(CATALOG_ROUTES) } });
 
   const state = rows(s.mirrorDb, "SELECT * FROM mirror_sync");
   const ids = state.map((r) => r.id).sort();
-  assert.deepEqual(ids, ["catalog", "inventory"], "both halves must leave a receipt");
+  /* THREE rows on a first (full) run: the usual catalog/inventory pair, plus
+     catalog_full — its own timestamp for the periodic full-sweep schedule,
+     kept separate from the plain incremental cursor (see this file's own
+     "periodic full sweep" tests below). */
+  assert.deepEqual(ids, ["catalog", "catalog_full", "inventory"], "every half, and the full-sweep timestamp, must leave a receipt");
   for (const r of state) {
     assert.equal(r.ok, 1, `${r.id} recorded a failure on a clean run`);
     assert.ok(r.cursor, `${r.id} recorded no cursor, so the next run cannot resume`);

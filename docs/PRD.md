@@ -4255,6 +4255,23 @@ that does not trace to one of these is a process failure (see §12).
     `.input-bar`, next to the category filter opener — a full page reload on success, since a resync
     can touch every product's own category, not just the current filter state.
 
+    **REVISED: the manual button was never the actual fix — the owner's own words, after confirming
+    directly in Square's own app that Cocktail already had Dresses set as its own real parent category,
+    and that it still had not shown up here: "no such button... should not require manual syncing."**
+    The mirror now self-heals on its own, on a schedule, with nothing to click. `ops/src/sync.js` tracks
+    a SEPARATE `catalog_full` timestamp (its own row in `mirror_sync`, independent of the plain
+    incremental `catalog` cursor) and forces a real full `ListCatalog` sweep — the same idempotent path
+    `catalog.resync_from_square` already used — whenever `FULL_SWEEP_INTERVAL_MS` (one hour) has passed
+    since the last one, REGARDLESS of how fresh the incremental cursor is. This is exactly the
+    "nightly full sweep... reconcile" ADR-009 always described but this codebase had never actually
+    scheduled — only ever planned in a comment. `mirror_sync`'s own CHECK constraint only allowed
+    `'catalog'`/`'inventory'` as an `id`, so widening it to also accept `'catalog_full'` needed a real
+    migration (`ops/migrations/catalog_mirror/0004_periodic_full_sweep.sql`) — SQLite has no `ALTER
+    TABLE` for a `CHECK`, so it is the standard rebuild-and-rename. `catalog.resync_from_square` and its
+    button stay in place as a genuine convenience — "I need this synced in the next few seconds, not
+    within the hour" is still a real, occasional need — but the mirror's own correctness no longer
+    depends on anyone finding or remembering to click it.
+
     **A product's own category is now assigned through a nested picker, not a free-text combobox —
     "there should be a category dropdown... you should be able to press the dropdown, and you have a
     neat little menu where you can browse and select a category, expand and select a subcategory...
