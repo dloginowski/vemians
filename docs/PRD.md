@@ -4021,6 +4021,26 @@ that does not trace to one of these is a process failure (see §12).
     product claiming it is. The migration backfills every `style_id` already live on a product today,
     so upgrading never opens a window where an in-use number could be claimed twice.
 
+    **REVISED: the style_id field itself now auto-formats and turns red while incomplete.** The
+    owner's own words: "when I'm entering a style ID, I should just type it in, like type in digits,
+    say 010101, it should automatically insert dashes between these numbers as I type... until I type
+    out the full complete number, the entry field border should be red to indicate that it's not
+    acceptable, only when it's fully acceptable should it be orange and ready to be saved."
+    `formatStyleId` strips anything that is not a digit, caps the result at 7, and re-inserts the two
+    dashes at their fixed `NN-NN-NNN` positions, the same way a credit-card-number field works;
+    `reformatStyleIdInput` runs it on every keystroke (`onItemsGridChange`, already bound to both
+    `input` and `change`) and separately re-derives the caret's position from how many digits sat
+    before it in the OLD value, since naively reassigning `.value` would otherwise always snap the
+    caret to the end. The red/orange distinction needed no new JS state at all: the field's own
+    existing `pattern="\\d{2}-\\d{2}-\\d{3}"` already makes the browser mark it native `:invalid` the
+    instant it is non-empty and not yet a full match, and native `:valid` on an empty field too, since
+    it is never `required` — a product with no style_id yet is not an error. A new
+    `.item-edit input[name="style_id"]:invalid { border-color: var(--invalid); }` rule reads that
+    state directly; its specificity (0,3,1) beats `.item-tile input.field-dirty`'s own (0,2,1)
+    outright, so a changed-but-incomplete value reads red, never orange, until it is a complete,
+    savable style_id — at which point `:invalid` no longer matches and the existing dirty-orange rule
+    takes back over.
+
     **REVISED: the header names itself.** "Make sure that the expandable header has the label in it
     on the left, right next to the chevron... so people know what they're looking for." A plain
     `<span class="variations-label">Variations</span>` sits beside the caret, inside the same

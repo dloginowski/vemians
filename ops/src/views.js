@@ -79,6 +79,7 @@ const OPS_DARK_CSS = `
   --rule:         #7B7369;
   --muted:        #B8B3A8;
   --accent:       #D97757;
+  --invalid:      #E5484D;
 }
 
 a { color: var(--accent); }
@@ -2052,6 +2053,19 @@ ${INPUT_BAR_CSS}
    placeholder (NN-NN-NNN) is the only hint, same as vendor/commission
    already have no persistent label either. */
 .item-edit input[name="style_id"] { flex: 0 0 auto; width: 6em; text-align: center; }
+/* "As I'm typing it, until I type out the full complete number, the entry
+   field border should be red to indicate that it's not acceptable. Only
+   when it's fully acceptable should it be orange and ready to be saved."
+   The input's own existing pattern (NN-NN-NNN) already makes the browser
+   mark it :invalid the moment it is non-empty and does not fully match —
+   :valid on an EMPTY field, by the same native behavior, since this is
+   never required: a product with no style_id yet is not an error. No
+   JS validation needed, only a border color keyed off what the browser
+   already knows. Specificity (0,3,1) — .item-edit, [name=], :invalid,
+   plus the input type — beats .item-tile input.field-dirty's own
+   (0,2,1) outright, so an incomplete-but-changed value reads red, never
+   orange, until it is actually a complete, savable style_id. */
+.item-edit input[name="style_id"]:invalid { border-color: var(--invalid); }
 /* "Ensure the header's cost/MSRP align exactly with the children rows'
    own cost/price" — the row's own title absorbs all its row's leftover
    width (flex: 1 1 auto), pushing its fixed-width stepper/cost/price
@@ -3312,7 +3326,42 @@ function refreshDirtyState(field) {
   const saveBtn = tile.querySelector(".item-save-all");
   if (saveBtn) saveBtn.disabled = !tileDirty;
 }
+/* "When I'm entering a style ID... I should just type in digits, say
+   010101. It should automatically insert dashes between these numbers
+   as I type. So it auto formats it." Strips anything that is not a
+   digit, caps at 7 (2+2+3, the NN-NN-NNN shape), and re-inserts the two
+   dashes at their fixed positions — never asks the person to type a
+   dash themselves, the same way a credit-card-number field works. */
+function formatStyleId(raw) {
+  const digits = raw.replace(/\\D/g, "").slice(0, 7);
+  return [digits.slice(0, 2), digits.slice(2, 4), digits.slice(4, 7)].filter(Boolean).join("-");
+}
+/* Reformatting on every keystroke would otherwise always snap the caret
+   to the very end (setting .value does that natively), making it
+   impossible to fix a digit in the middle without the cursor jumping
+   away first. Counts how many DIGITS (never dashes, which this function
+   itself inserts) sat before the caret, reformats, then walks the new
+   string back out to the position right after that same count of
+   digits — the caret lands in the same logical spot even though the
+   dashes around it may have shifted. */
+function reformatStyleIdInput(input) {
+  const digitsBeforeCaret = input.value.slice(0, input.selectionStart ?? input.value.length).replace(/\\D/g, "").length;
+  input.value = formatStyleId(input.value);
+  let seen = 0;
+  let caret = input.value.length;
+  for (let i = 0; i < input.value.length; i += 1) {
+    if (seen >= digitsBeforeCaret) {
+      caret = i;
+      break;
+    }
+    if (/\\d/.test(input.value[i])) seen += 1;
+  }
+  input.setSelectionRange(caret, caret);
+}
 function onItemsGridChange(e) {
+  if (e.target.matches('input[name="style_id"]')) {
+    reformatStyleIdInput(e.target);
+  }
   if (e.target.matches(".variations-msrp")) {
     const accordion = e.target.closest(".variations-accordion");
     accordion?.querySelectorAll(".variation-price").forEach((input) => {
