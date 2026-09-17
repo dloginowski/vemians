@@ -1469,6 +1469,24 @@ check("test_PRD_P0_138_nested_categories__resync_route_is_manager_only_and_post_
   assert.equal(wrongMethod.status, 405);
 });
 
+check("test_PRD_P0_139_honest_write_failures__a_failed_resync_shows_the_same_click_to_copy_popover_not_a_native_alert", async () => {
+  /* The owner's own words after actually hitting a failed resync: had to
+     manually read and retype a native alert()'s text to report it back --
+     exactly the friction the click-to-copy popover already exists to
+     remove from every other write failure on this page. The alert() here
+     predated that popover and was never revisited once position: fixed
+     stopped needing any layout room to float in. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.doesNotMatch(body, /alert\("Resync from Square failed/, "no more native alert on a failed resync");
+  assert.match(
+    body,
+    /if \(!res\.ok\) \{\s*\n\s*showFormError\(resyncBtn, data\.error \|\| "resync failed"\);/,
+    "a failed resync must use the same copyable popover every other write failure uses",
+  );
+});
+
 check("test_PRD_P0_31_inventory_ledger__stock_shows_zero_with_no_commerce_binding", async () => {
   /* A deployment with no COMMERCE binding still renders the Items tab —
      every variation just shows 0 in stock rather than the whole tab
