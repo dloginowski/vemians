@@ -3846,6 +3846,26 @@ that does not trace to one of these is a process failure (see §12).
     reverts to plain `.item-edit`). Nothing in the expanded item detail view draws a dividing line
     anywhere, at any depth, any more.
 
+    **REVISED YET AGAIN — the previous pass over-corrected on two of the three: "I told you just to
+    make it gray, not to make it orange. Why'd you remove it entirely?" and "I didn't tell you to
+    remove that one" (the bar above Admin), then, sharper still: "I just told you it has to be gray
+    unless it's dirty. If it's dirty or any of its children are dirty, then it's orange."** Removing
+    `.variations-header`/`.categories-header`'s own border and `.item-edit-admin`'s `border-top`
+    outright was wrong — only the two OUTER accordion wrappers' own separate `border-top`
+    (`.variations-accordion`, `.categories-accordion`) and the title-block's own top border were ever
+    meant to go, from the very first pass. All three reverted: both header pills keep their own full
+    border, gray (`var(--rule)`) by default, and `.item-edit-admin` keeps its bar. On top of restoring
+    them, `.variations-header` now does exactly what was actually asked from the start — a REAL dirty
+    check, not a hover cue: `.variations-accordion:has(.field-dirty) .variations-header { border-
+    color: var(--accent); }` turns the border orange precisely when the accordion has a genuinely
+    unsaved field anywhere inside it, the SAME `.field-dirty` marker `refreshDirtyState` already
+    applies to any changed field on this tile — `:has()` reaching into `.variations-body` means a
+    changed PER-VARIATION field counts as "a child is dirty," not just the header's own style_id/unit
+    cost/MSRP fields. `.categories-header` gets no such rule: nothing inside the Categories accordion
+    is ever left dirty-but-unsaved in the first place (every field there applies immediately, no
+    batching, unlike Variations), so it stays plain gray — there is no dirty state for `:has()` to
+    ever find there today.
+
 71. **`Test-PRD-P0-136-square_custom_attributes`** — The owner's own words, having weighed "ours,
     not Square's" (P0-71's own `channel`/`custom_fields`) against not reinventing something Square
     already offers: "why do we need to have our own custom fields then? It doesn't make sense... we
