@@ -931,5 +931,38 @@ export function createSquareCatalogWriter(env, opts = {}) {
         .first();
       return { category: row ? { id: row.id, name: row.name, parent_id: row.parent_id } : null, sync };
     },
+
+    /**
+     * Rename an EXISTING category or subcategory in place. mirror_category
+     * has no source_version column (unlike mirror_product), so this can't
+     * resend a locally-tracked version the way updateProduct does — it
+     * follows setProductPresence's own pattern instead: GET the object live
+     * from Square right before writing, so nothing we don't track locally
+     * (present_at_all_locations, parent_category, ...) gets silently
+     * clobbered by a stale local copy.
+     */
+    async renameCategory({ categoryId, name }) {
+      const cat = await categoryRef(categoryId);
+      const res = await client.get(`/v2/catalog/object/${encodeURIComponent(cat.external_ref)}`);
+      if (!res?.object) {
+        throw new Error(`Square has no catalog object '${cat.external_ref}' to rename`);
+      }
+      await client.post("/v2/catalog/object", {
+        idempotency_key: idempotencyKey(`catalog.rename_category:${cat.external_ref}:${res.object.version}:${name}`),
+        object: {
+          ...res.object,
+          category_data: {
+            ...res.object.category_data,
+            name,
+          },
+        },
+      });
+      const sync = await syncAfterWrite();
+      const row = await mirrorDb
+        .prepare("SELECT id, name, parent_id FROM mirror_category WHERE external_ref = ?")
+        .bind(cat.external_ref)
+        .first();
+      return { category: row ? { id: row.id, name: row.name, parent_id: row.parent_id } : null, sync };
+    },
   };
 }

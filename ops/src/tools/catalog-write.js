@@ -2,7 +2,7 @@
  * catalog.* authoring — a staff member describes a garment to their own AI
  * client, and it lands in Square, priced and categorised.
  *
- * Inherits agent-tool-contract, then catalog-skills. Thirteen tools:
+ * Inherits agent-tool-contract, then catalog-skills. Fourteen tools:
  *
  *   catalog.categories       T0  the closed set of categories that EXIST
  *   catalog.product          T0  read one mirrored product, variants and all
@@ -11,6 +11,7 @@
  *   catalog.create_product   T2  ITEM + ITEM_VARIATIONs in Square, then sync
  *   catalog.update_product   T2  the same path for an edit
  *   catalog.create_category  T2  separate, deliberate, and rarely right — now nestable
+ *   catalog.rename_category  T2  the deliberate rename create_category's own describe text points at
  *   catalog.set_category_number T2 a category/subcategory's own 2-digit style_id code — OURS, not Square's
  *   catalog.set_channel      T2  which audience sees a product — OURS, not Square's
  *   catalog.set_active       T2  archive or restore a product — Square's own presence, not ours
@@ -1061,6 +1062,61 @@ export const catalogWriteTools = {
         created: true,
         category: out.category,
         existing_before: t.preflight.existing,
+        mirror_sync: out.sync,
+        authority: "square",
+      };
+    },
+  },
+
+  /*
+   * The deliberate rename catalog.create_category's own describe text
+   * points at ("rename that category deliberately — do not add a second
+   * one beside it"). A real Square write (category_data.name), not a
+   * mirror-only field like numeric_id, since the category's name is
+   * Square's own storefront navigation label (ADR-009).
+   */
+  "catalog.rename_category": {
+    tier: "T2",
+    domain: "catalog",
+    stores: ["catalog_mirror"],
+    resources: ["square"],
+    minRole: "manager",
+    describe:
+      "Rename an EXISTING category or subcategory in Square. Refuses a lexical exact-duplicate among " +
+      "SIBLINGS (same parent) — the same rule catalog.create_category enforces on creation, so a rename " +
+      "can never produce the 'Coats'/'Outerwear' duplication that tool already refuses to create. Does " +
+      "not touch numeric_id, parent, or any product's own category assignment — only the name.",
+    undo: "another catalog.rename_category call, back to the previous name",
+    schema: {
+      category_id: { type: "string", required: true, format: "id" },
+      name: { type: "string", required: true, maxLength: 60 },
+    },
+    async check(args, t) {
+      const categories = await listCategories(t.db.catalog_mirror);
+      const category = categories.find((c) => c.id === args.category_id);
+      if (!category) return { denied: `no category '${args.category_id}'` };
+
+      const name = args.name.trim();
+      if (!name) return { denied: "a category needs a name" };
+      if (name === category.name) return { denied: `"${category.name}" is already named that` };
+
+      const siblings = categories.filter(
+        (c) => c.id !== category.id && (c.parent_id ?? null) === (category.parent_id ?? null),
+      );
+      const exact = siblings.find((c) => c.name.toLowerCase() === name.toLowerCase());
+      if (exact) return { denied: `"${exact.name}" already exists at that level. Use it instead of renaming into a duplicate.` };
+
+      return {
+        ok: true,
+        summary: `rename "${category.name}" to "${name}"`,
+        preflight: { categoryId: category.id, name },
+      };
+    },
+    async run(args, t) {
+      const out = await t.square.renameCategory({ categoryId: t.preflight.categoryId, name: t.preflight.name });
+      return {
+        renamed: true,
+        category: out.category,
         mirror_sync: out.sync,
         authority: "square",
       };

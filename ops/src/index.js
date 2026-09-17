@@ -582,6 +582,7 @@ async function ops(request, env, path) {
       path.endsWith("/category") ||
       path.endsWith("/categories/create") ||
       path.endsWith("/categories/number") ||
+      path.endsWith("/categories/rename") ||
       path.endsWith("/variations") ||
       path.endsWith("/details") ||
       path.endsWith("/inventory"))
@@ -617,13 +618,15 @@ async function ops(request, env, path) {
               ? "/categories/create"
               : path.endsWith("/categories/number")
                 ? "/categories/number"
-                : path.endsWith("/category")
-                  ? "/category"
-                  : path.endsWith("/details")
-                    ? "/details"
-                    : path.endsWith("/inventory")
-                      ? "/inventory"
-                      : "/variations";
+                : path.endsWith("/categories/rename")
+                  ? "/categories/rename"
+                  : path.endsWith("/category")
+                    ? "/category"
+                    : path.endsWith("/details")
+                      ? "/details"
+                      : path.endsWith("/inventory")
+                        ? "/inventory"
+                        : "/variations";
     const handle = path.slice("/items/".length, path.length - suffix.length);
 
     let form;
@@ -771,6 +774,19 @@ async function ops(request, env, path) {
       toolName = "catalog.set_category_number";
       args = numericId ? { category_id: categoryId, numeric_id: numericId } : { category_id: categoryId, clear: true };
       summaryNoun = "category number";
+    } else if (suffix === "/categories/rename") {
+      /* Renaming a category/subcategory in place — "all of these categories
+         and subcategories need to be editable fields... I should be able to
+         rename the categories." A real Square write (catalog.
+         rename_category), same apply-immediately shape as every other field
+         on this tile. */
+      const categoryId = String(form.get("category_id") ?? "").trim();
+      const name = String(form.get("name") ?? "").trim();
+      if (!categoryId) return json({ error: "give a category" }, 400);
+      if (!name) return json({ error: "give a category name" }, 400);
+      toolName = "catalog.rename_category";
+      args = { category_id: categoryId, name };
+      summaryNoun = "category name";
     } else if (suffix === "/category") {
       /* "There should be a category dropdown... browse and select a
          category, expand and select a subcategory... it should all
@@ -873,11 +889,11 @@ async function ops(request, env, path) {
     if (suffix === "/inventory") {
       return json({ on_hand: result.data.on_hand });
     }
-    /* Both categories routes answer with JSON, not a redirect — the page
-       script below fetches them directly (not through a <form>, the same
-       reason the stock stepper does not use one either) and decides for
-       itself what to update. */
-    if (suffix === "/categories/create" || suffix === "/categories/number") {
+    /* All three categories routes answer with JSON, not a redirect — the
+       page script below fetches them directly (not through a <form>, the
+       same reason the stock stepper does not use one either) and decides
+       for itself what to update. */
+    if (suffix === "/categories/create" || suffix === "/categories/number" || suffix === "/categories/rename") {
       return json(result.data);
     }
     return new Response(null, { status: 303, headers: { Location: "/items" } });
