@@ -4489,6 +4489,27 @@ that does not trace to one of these is a process failure (see §12).
     `reporting_category` still wins when it is live and accurate -- this only changes behavior for the
     orphaned case, which previously had no fallback at all.
 
+74. **`Test-PRD-P0-139-honest_write_failures`** — A Square write refused with a plain `Square POST
+    /v2/catalog/object failed with 400` and nothing else — the owner's own words, pasting exactly that
+    line after an edit silently went nowhere: "just make sure all of the fields work... with this post
+    method." Square's own client (`shared/commerce/square/client.js`) already captures the PROVIDER's
+    real reason on every rejection — `SquareError.errors`, the category/code/detail/field straight from
+    Square's response body, the same shape `ops/src/sync.js`'s own `describeFailure` already formats for
+    a cron failure — but `ops/src/tools/index.js`'s generic `runTool` catch caught the THROWN error and
+    used only its `.message`, which is nothing but that one templated sentence: the actual reason —
+    which field, which rule — was logged to `console.error` (reachable only from inside the Worker) and
+    then discarded before it ever reached the audit row or the string a refused form on the Items tab
+    shows inline. Fixed with a small, provider-agnostic `errorDetail(err)` helper in `runTool` itself:
+    when a thrown error carries a non-empty `.errors` array, its own category/code/field/detail is
+    appended to the message; every other kind of failure (a bad D1 query, a thrown validation `Error`
+    with no `.errors` at all) falls straight through to the plain message exactly as before. Duck-typed
+    on `.errors` rather than importing anything Square-specific, since `tools/index.js` is generic tool
+    infrastructure, not an adapter (Test-PRD-P0-16-commerce_port's own boundary) — the same detail would
+    surface just as well for a future second commerce provider's own thrown error, provided it carries
+    the same shape. Proven against a fake Square server that answers a real `UpsertCatalogObject` with a
+    400 and a realistic `errors` array, asserting the specific category/code/field it names reaches
+    `runTool`'s own returned `error` string, not just that a failure occurred.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
