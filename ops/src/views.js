@@ -1796,15 +1796,21 @@ ${INPUT_BAR_CSS}
    --image-ground/--rule "second surface" pattern .ticket-tile already
    uses) that visibly INVITES a click, since the whole thing now toggles
    the body below, not just the caret. */
-/* "One above variants and one above categories, and then one at the very
-   top -- that's three that I want to remove." The header's own full
-   border (all four sides, including the top edge this reads as a "bar")
-   is gone; the shaded background/rounded corners/padding stay, so it
-   still reads as its own header bar without a drawn line around it. */
+/* REVISED: removing the header's own border entirely was wrong — the
+   owner's own words: "I just told you it has to be gray unless it's
+   dirty. If it's dirty or any of its children are dirty, then it's
+   orange." The border stays, always — gray (var(--rule)) by default,
+   the same as before any of this started — and turns orange only when
+   .variations-accordion actually has a genuinely dirty field somewhere
+   inside it (its own header inputs — style_id/unit cost/MSRP — or any
+   per-variation row in .variations-body below), using the SAME
+   .field-dirty marker refreshDirtyState already applies to any changed
+   field on this tile. Never a plain hover cue. */
 .variations-header {
   display: flex; align-items: center; gap: 6px; cursor: pointer;
-  background: var(--image-ground); border-radius: 6px; padding: 5px 8px;
+  background: var(--image-ground); border: 1px solid var(--rule); border-radius: 6px; padding: 5px 8px;
 }
+.variations-accordion:has(.field-dirty) .variations-header { border-color: var(--accent); }
 .variations-toggle {
   flex: 0 0 auto; width: 18px; height: 18px; padding: 0; display: inline-flex; align-items: center;
   justify-content: center; border: none; background: transparent; color: var(--muted); cursor: pointer;
@@ -1846,17 +1852,17 @@ ${INPUT_BAR_CSS}
    header border should not be orange unless it has modified children!"
    Orange is reserved for a real, meaningful state elsewhere on this tile
    — agentic input, or a field's own .field-dirty (unsaved change) marker
-   — never a plain hover cue. This header's own cursor: pointer already
-   signals it opens/closes; nothing inside the Categories accordion is
-   ever left "dirty, not yet saved" in the first place (every field here
-   applies immediately, no batching), so there is no orange state for it
-   to earn at all right now. */
-/* Same removal as .variations-header above, for the identical reason:
-   the full border (its own top edge read as "a bar above categories")
-   is gone; the shaded background/rounded corners/padding stay. */
+   — never a plain hover cue. REVISED: the border itself was never meant
+   to go away — "I just told you it has to be gray unless it's dirty" —
+   it stays, always, gray (var(--rule)) by default. It just never has
+   reason to actually turn orange right now: nothing inside the
+   Categories accordion is ever left "dirty, not yet saved" in the first
+   place (every field here applies immediately, no batching, unlike
+   Variations below), so there is no .field-dirty for a :has() rule to
+   ever match here — this stays plain gray until that changes. */
 .categories-header {
   display: flex; align-items: center; gap: 6px; cursor: pointer;
-  background: var(--image-ground); border-radius: 6px; padding: 5px 8px;
+  background: var(--image-ground); border: 1px solid var(--rule); border-radius: 6px; padding: 5px 8px;
 }
 .categories-toggle {
   flex: 0 0 auto; width: 18px; height: 18px; padding: 0; display: inline-flex; align-items: center;
@@ -1970,13 +1976,14 @@ ${INPUT_BAR_CSS}
   flex: 1 1 auto; min-width: 0; font: inherit; font-size: 12px; padding: 3px 5px;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
 }
-/* REVISED: "one at the very top... that's three that I want to remove" —
-   the one bar this panel used to keep (right above the custom-fields/
-   Admin block) is now gone too, along with the .variations-header/
-   .categories-header borders above. Nothing in the whole expanded item
-   detail view draws a dividing line anymore; margin-top/padding-top
-   alone still keep each section visually distinct. */
+/* REVISED AGAIN: "I didn't tell you to remove that one" — the bar right
+   above the custom-fields/Admin block was never meant to go. .item-edit
+   is shared by BOTH the title/vendor div above and the custom-fields/
+   Admin div below (same class, two separate elements), so the border
+   can't just live on the base rule — .item-edit-admin, added only to
+   the second div, restores it there alone, exactly as before. */
 .item-edit { margin-top: 2px; padding-top: 6px; cursor: default; }
+.item-edit.item-edit-admin { border-top: 1px solid var(--rule); }
 .item-edit form { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 .item-add-field { margin: 2px 0; }
 .item-add-field summary { cursor: pointer; color: var(--muted); font-size: 11px; }
@@ -2689,7 +2696,7 @@ function itemTile(product, canEdit, allCategories = []) {
      categoriesAccordion a sibling of both forms, inside the <details> but
      outside either <form>, avoids that regression entirely. */
   const customFieldsForm = canEdit
-    ? `<div class="item-edit">
+    ? `<div class="item-edit item-edit-admin">
          ${
            existingFieldInputs
              ? `<form method="post" action="/items/${esc(product.handle)}/custom-fields">${existingFieldInputs}</form>`

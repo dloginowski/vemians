@@ -2002,40 +2002,60 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_edit_area_is_a_plain_d
   assert.doesNotMatch(body, /<summary>Edit<\/summary>/, "no more generic Edit toggle to click before anything is visible");
 });
 
-check("test_PRD_P0_135_item_edit_applies_immediately__no_horizontal_bar_remains_anywhere_in_the_details_panel", async () => {
-  /* REVISED: the owner's first pass asked to keep exactly one bar, right
-     above the Admin dropdown ("except the one that's right above the
-     admin dropdown"). The very next message named three MORE still
-     visible and asked for all of them gone too: "There is one above
-     variants and one above categories, and then one at the very top.
-     Those, that's three that I want to remove." The first two were the
-     .variations-header/.categories-header pills' own full border (all
-     four sides — the top edge of a box reads as "a bar" just as much as
-     a bare border-top does); the third was the one bar the earlier pass
-     had deliberately kept. All three are gone now — nothing in this
-     panel draws a dividing line at all, anywhere, at any depth. */
+check("test_PRD_P0_135_item_edit_applies_immediately__the_two_outer_bars_stay_removed_but_the_headers_own_borders_do_not", async () => {
+  /* REVISED YET AGAIN — the previous pass over-corrected. The owner's own
+     words: "I told you just to make it gray, not to make it orange. Why'd
+     you remove it entirely?" and "I didn't tell you to remove that one"
+     (the bar above Admin). The header PILLS (.variations-header,
+     .categories-header) keep their own full border, always — gray by
+     default — and the bar right above the custom-fields/Admin block
+     (.item-edit-admin) comes back too. Only the OUTER accordion wrappers'
+     own border-top (.variations-accordion, .categories-accordion) and the
+     title-block's own top border stay removed, from the very first pass. */
   const mirror = mirrorDb();
   seedProduct(mirror, { style_id: "01-04-001", vendor: "Acme Mills", commission_pct: 20 });
   seedCategoryTree(mirror);
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
 
-  assert.doesNotMatch(body, /class="item-edit item-edit-admin"/, "the now-pointless second class must be gone from the template too");
-  assert.doesNotMatch(body, /\.item-edit\.item-edit-admin/, "and its own CSS rule must be gone");
-  assert.match(body, /\.item-edit \{ margin-top: 2px; padding-top: 6px; cursor: default; \}/, "the base class itself must never draw a border");
+  assert.match(body, /class="item-edit item-edit-admin"/, "the custom-fields/Admin wrapper must carry its bar-restoring class again");
+  assert.match(
+    body,
+    /\.item-edit\.item-edit-admin \{ border-top: 1px solid var\(--rule\); \}/,
+    "and the bar right above Admin must be back",
+  );
+  assert.match(body, /\.item-edit \{ margin-top: 2px; padding-top: 6px; cursor: default; \}/, "the base class itself still never draws one on its own");
 
   assert.match(
     body,
-    /\.variations-header \{\s*\n\s*display: flex; align-items: center; gap: 6px; cursor: pointer;\s*\n\s*background: var\(--image-ground\); border-radius: 6px; padding: 5px 8px;\s*\n\}/,
-    "the Variants header must keep its shaded background/rounded corners but lose its own full border",
+    /\.variations-header \{\s*\n\s*display: flex; align-items: center; gap: 6px; cursor: pointer;\s*\n\s*background: var\(--image-ground\); border: 1px solid var\(--rule\); border-radius: 6px; padding: 5px 8px;\s*\n\}/,
+    "the Variants header must keep its own full border, gray by default",
   );
   assert.match(
     body,
-    /\.categories-header \{\s*\n\s*display: flex; align-items: center; gap: 6px; cursor: pointer;\s*\n\s*background: var\(--image-ground\); border-radius: 6px; padding: 5px 8px;\s*\n\}/,
-    "the Categories header must keep its shaded background/rounded corners but lose its own full border",
+    /\.categories-header \{\s*\n\s*display: flex; align-items: center; gap: 6px; cursor: pointer;\s*\n\s*background: var\(--image-ground\); border: 1px solid var\(--rule\); border-radius: 6px; padding: 5px 8px;\s*\n\}/,
+    "the Categories header must keep its own full border too, gray by default",
   );
-  assert.match(body, /\.variations-accordion \{ margin-top: 2px; padding-top: 6px; \}/, "the Variations accordion's own top border stays removed");
-  assert.match(body, /\.categories-accordion \{ margin-top: 2px; padding-top: 6px; \}/, "the Categories accordion's own top border stays removed");
+  assert.match(body, /\.variations-accordion \{ margin-top: 2px; padding-top: 6px; \}/, "the Variations ACCORDION's own separate top border stays removed");
+  assert.match(body, /\.categories-accordion \{ margin-top: 2px; padding-top: 6px; \}/, "the Categories ACCORDION's own separate top border stays removed");
+});
+
+check("test_PRD_P0_135_item_edit_applies_immediately__the_variants_header_only_turns_orange_when_something_inside_it_is_actually_dirty", async () => {
+  /* The owner's own words: "I just told you it has to be gray unless
+     it's dirty. If it's dirty or any of its children are dirty, then
+     it's orange." A real dirty-state check (.field-dirty, the same
+     marker every other changed field on this tile already gets), never
+     a plain hover cue -- :has() reaches into .variations-body below the
+     header too, so a changed PER-VARIATION field counts as "a child" is
+     dirty, not just the header's own style_id/unit cost/MSRP fields. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.match(
+    body,
+    /\.variations-accordion:has\(\.field-dirty\) \.variations-header \{ border-color: var\(--accent\); \}/,
+    "the header's own border must turn orange exactly when the accordion has a genuinely dirty field anywhere inside it, header or body",
+  );
 });
 
 check("test_PRD_P0_135_item_edit_applies_immediately__existing_custom_fields_are_always_visible_only_a_new_blank_row_is_collapsed", async () => {
