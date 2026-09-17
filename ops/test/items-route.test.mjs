@@ -2193,6 +2193,97 @@ check("test_PRD_P0_132_item_deep_link__expanding_or_closing_a_tile_keeps_the_has
   assert.match(expandHandler, /tile\.classList\.add\("full"\);\s*\n\s*setDeepLinkHash\(tile\);/);
 });
 
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-140 — a direct visit to a shell tab's own content page always sends
+ * you back to the shell, so the tab header is never missing
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_140_shell_always_visible__a_top_level_visit_to_items_redirects_to_the_shell", async () => {
+  /* The owner's own words: "I never should be able to allow to go in
+     there... I should always be redirected to the main top domain... no
+     matter what happens." A real top-level navigation sets
+     Sec-Fetch-Dest: document; the shell's own <iframe> loading the exact
+     same URL sets it to "iframe" instead, and every evergreen browser
+     sends one or the other. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await worker.fetch(
+    new Request("http://localhost/items", {
+      headers: { "Cf-Access-Jwt-Assertion": assertion(MANAGER), "sec-fetch-dest": "document" },
+    }),
+    env(mirror),
+  );
+  assert.equal(res.status, 302);
+  assert.equal(new URL(res.headers.get("location")).pathname + new URL(res.headers.get("location")).search, "/?tab=items");
+});
+
+check("test_PRD_P0_140_shell_always_visible__the_shells_own_iframe_load_is_never_redirected", async () => {
+  /* The other half: redirecting the shell's OWN <iframe src="/items">
+     request would trap it loading a shell inside a shell inside a shell,
+     forever. Sec-Fetch-Dest: iframe is exactly how the shell's own request
+     is told apart from a real top-level visit to the same URL. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await worker.fetch(
+    new Request("http://localhost/items", {
+      headers: { "Cf-Access-Jwt-Assertion": assertion(MANAGER), "sec-fetch-dest": "iframe" },
+    }),
+    env(mirror),
+  );
+  assert.equal(res.status, 200);
+  assert.match(await res.text(), /Wool Coat/);
+});
+
+check("test_PRD_P0_140_shell_always_visible__a_missing_sec_fetch_dest_header_fails_open_not_closed", async () => {
+  /* An old browser or a tool that strips Sec-Fetch headers must still be
+     ABLE to reach the page's own content — reproducing today's already-
+     accepted behaviour is the safe failure mode here, not a redirect loop
+     for a request this Worker cannot classify either way. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", MANAGER, env(mirror));
+  assert.equal(res.status, 200);
+});
+
+check("test_PRD_P0_140_shell_always_visible__a_sub_path_post_is_never_swept_into_the_redirect", async () => {
+  /* Only the three bare paths SHELL_TABS itself names (/chat, /items,
+     /dashboard) are ever redirected — a POST to a route living UNDER
+     /items/ is a real form submission, never a page load, and must not be
+     caught by a startsWith-style match this route intentionally avoids. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await worker.fetch(
+    new Request("http://localhost/items/wool-coat/details", {
+      method: "POST",
+      headers: {
+        "Cf-Access-Jwt-Assertion": assertion(MANAGER),
+        "sec-fetch-dest": "document",
+        "content-type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({ title: "Wool Coat", description: "" }).toString(),
+    }),
+    env(mirror),
+  );
+  assert.notEqual(res.status, 302);
+});
+
+check("test_PRD_P0_140_shell_always_visible__the_shell_forwards_an_incoming_item_deep_link_hash_into_its_own_iframe", async () => {
+  /* A shared link (shareLink(), views.js) points straight at
+     /items#item-<sku> — once that now redirects here instead, the
+     fragment rides along on the browser's OWN address bar (a redirect's
+     Location header names no fragment of its own, so the browser keeps
+     the original one), but it never reaches the iframe by itself: the
+     fragment lives on the OUTER shell page's own location, and the iframe
+     is a separate document with no access to it unless the shell forwards
+     it in explicitly, once, at load. */
+  const body = await (await get("/?tab=items", MANAGER, env(mirrorDb()))).text();
+  assert.match(
+    body,
+    /if \(location\.hash\.startsWith\("#item-"\) && "items" === "items"\) \{\s*\n\s*document\.getElementById\("ops-frame"\)\.src = "\/items" \+ location\.hash;\s*\n\}/,
+    "the shell must forward an #item-<sku> hash into the items iframe's own src when that is the active tab",
+  );
+});
+
 test("test_PRD_P0_30_prd_traceability__every_label_used_in_this_file_exists_in_the_prd", async () => {
   const prd = fs.readFileSync(
     path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "docs", "PRD.md"),

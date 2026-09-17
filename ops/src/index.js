@@ -57,6 +57,7 @@ import {
   opsPage,
   refusalPage,
   shellPage,
+  SHELL_TABS,
   ticketPage,
   ticketsPage,
   whoamiPage,
@@ -279,6 +280,33 @@ async function ops(request, env, path) {
     return AGENT_PATHS.has(path)
       ? json({ error: identity.reason }, identity.status)
       : html(refusalPage(identity.status, identity.reason), identity.status);
+  }
+
+  /*
+   * A direct top-level visit to one of the shell's own tab pages (/chat,
+   * /items, /dashboard — SHELL_TABS' own `src` values, views.js) used to
+   * render that tab's bare content with no header at all — the owner's own
+   * words: "I never should be able to allow to go in there... I should
+   * always be redirected to the main top domain... no matter what
+   * happens." These three paths only exist to be loaded AS the shell's own
+   * <iframe src>; a bookmark, a pasted link, or browser history landing
+   * directly on one of them now sends it back to the shell instead
+   * (SHELL_TABS' own `href`, e.g. /items -> /?tab=items).
+   *
+   * Sec-Fetch-Dest is how a server tells the two apart with no cooperation
+   * from the page itself: every evergreen browser sets it to "iframe" for
+   * the shell's own <iframe> requesting its src, and "document" for a real
+   * top-level navigation. Missing entirely (an old browser, a tool that
+   * strips Sec-Fetch headers) fails OPEN here on purpose — wrongly not
+   * redirecting a genuine direct visit just reproduces today's already-
+   * accepted behaviour, but wrongly redirecting a real iframe load would
+   * trap the shell inside itself, a shell loading a shell loading a shell.
+   * GET only: a POST to one of these three exact paths is never a page
+   * load to begin with (and none of the routes below actually accept one).
+   */
+  if (request.method === "GET" && request.headers.get("sec-fetch-dest") === "document") {
+    const tab = SHELL_TABS.find((t) => t.src === path);
+    if (tab) return Response.redirect(new URL(tab.href, request.url), 302);
   }
 
   /*
