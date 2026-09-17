@@ -1386,36 +1386,6 @@ check("test_PRD_P0_138_nested_categories__clicking_anywhere_on_a_category_row_ex
   );
 });
 
-check("test_PRD_P0_138_nested_categories__an_expandable_row_gets_the_same_box_the_main_header_uses_a_leaf_does_not", async () => {
-  /* The owner's own words: "I want a box, the same kind of treatment as
-     for the main header, so that when the item can be expanded it should
-     look like a header. If a category is not expandable it should not
-     have that box around it — that's what tells me it has subcategories."
-     .category-node-row:has(.category-node-toggle) reuses .categories-
-     header's own box exactly; a leaf (spacer, not a real toggle) never
-     matches that selector, so it never gets it. */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  seedCategoryTree(mirror);
-  const res = await get("/items", MANAGER, env(mirror));
-  const body = await res.text();
-  assert.match(
-    body,
-    /\.categories-header \{\s*\n\s*display: flex; align-items: center; gap: 6px; cursor: pointer;\s*\n\s*background: var\(--image-ground\); border: 1px solid var\(--rule\); border-radius: 6px; padding: 5px 8px;/,
-    "the main header's own box declaration must be present to compare against",
-  );
-  assert.match(
-    body,
-    /\.category-node-row:has\(\.category-node-toggle\) \{\s*\n\s*cursor: pointer;\s*\n\s*background: var\(--image-ground\); border: 1px solid var\(--rule\); border-radius: 6px; padding: 5px 8px;/,
-    "an expandable category row must use the exact same box treatment as the main header",
-  );
-  assert.match(
-    body,
-    /\.category-node-row \{ display: flex; align-items: center; gap: 6px; padding: 3px 8px 3px 0; \}/,
-    "the BASE row rule (which also matches every leaf) must stay unboxed",
-  );
-});
-
 check("test_PRD_P0_138_nested_categories__the_name_is_a_real_editable_input_not_a_static_label", async () => {
   /* The owner's own words: "all of these categories and subcategories need
      to be editable fields... right now it's just static labels." */

@@ -1851,19 +1851,11 @@ ${INPUT_BAR_CSS}
    leaf gets an equal-width spacer instead, so the name column still
    lines up whether or not that particular row happens to have one. */
 .category-node-row { display: flex; align-items: center; gap: 6px; padding: 3px 8px 3px 0; }
-/* "I want a box, the same kind of treatment as for the main header, so
-   that when the item can be expanded it should look like a header. If a
-   category is not expandable it should not have that box around it —
-   that's what tells me it has subcategories." Reuses .categories-header's
-   own box exactly (background/border/radius/padding); a leaf keeps the
-   plain unboxed row above, since :has(.category-node-toggle) only ever
-   matches a node that actually has children to reveal — a leaf renders
-   .category-node-toggle-spacer instead, so it never matches. */
-.category-node-row:has(.category-node-toggle) {
-  cursor: pointer;
-  background: var(--image-ground); border: 1px solid var(--rule); border-radius: 6px; padding: 5px 8px;
-}
-.category-node-row:has(.category-node-toggle):hover { border-color: var(--accent); }
+/* A leaf category renders a spacer, not a real .category-node-toggle
+   button, in its own place — a pointer cursor on a row with nothing
+   underneath it to reveal would be a real (if small) affordance lie. */
+.category-node-row:has(.category-node-toggle) { cursor: pointer; }
+.category-node-row:has(.category-node-toggle):hover .category-node-name { color: var(--accent); }
 .category-node-toggle {
   flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; padding: 0;
   display: inline-flex; align-items: center; justify-content: center; border: none; background: transparent;

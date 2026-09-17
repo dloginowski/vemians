@@ -4564,21 +4564,17 @@ that does not trace to one of these is a process failure (see §12).
     state nor accidentally submits anything, and the rendered row order places the `+` button visibly
     to the right of the ID input, not the other way around.
 
-    **REVISED YET AGAIN: a box around expandable rows, and real rename-in-place — the owner's own
-    words: "I want a box, the same kind of treatment as for the main header, so that when the item can
-    be expanded it should look like a header. If a category is not expandable it should not have that
-    box around it — that's what tells me it has subcategories. Also, all of these categories and
-    subcategories need to be editable fields... right now it's just static labels."** Two changes.
-    First, `.category-node-row:has(.category-node-toggle)` — already scoped to exactly the rows with a
-    real toggle (a leaf renders `.category-node-toggle-spacer` instead, so it never matches) — now
-    carries the SAME `background`/`border`/`border-radius`/`padding` declarations `.categories-header`
-    already uses, copied literally, so an expandable row visually reads as its own header the same way
-    the outer Categories/Variations accordion bars already do; the base `.category-node-row` rule (still
-    matching every row, leaf included) stays unboxed. Second, a category or subcategory's own name is
-    now a real `<input class="category-node-name">` carrying the current name as its `value`, not a
-    static `<span>` — the click-anywhere-to-expand handler already excludes any `input` or `button`
-    (the previous fix, above), so this needed no change at all to keep a click on the name itself
-    focusing it for editing rather than toggling the row.
+    **REVISED YET AGAIN: real rename-in-place, no box — the owner's own words: "all of these
+    categories and subcategories need to be editable fields... right now it's just static labels,"**
+    followed immediately by "forget about the boxes, I don't care about the boxes so much." A box
+    treatment matching `.categories-header` was tried on `.category-node-row:has(.category-node-toggle)`
+    first and then explicitly dropped at the owner's own request — the row keeps its plain, unboxed
+    look (`cursor: pointer` on an expandable row, a `color: var(--accent)` hover on its own name, the
+    same as before this revision), and only the editability itself is new. A category or subcategory's
+    own name is now a real `<input class="category-node-name">` carrying the current name as its
+    `value`, not a static `<span>` — the click-anywhere-to-expand handler already excludes any `input`
+    or `button` (the previous fix, above), so this needed no change at all to keep a click on the name
+    itself focusing it for editing rather than toggling the row.
 
     **Renaming is a real Square write, `catalog.rename_category` (T2, manager, `resources: ["square"]`)
     — no existing tool could do this at all.** `mirror_category` carries no `source_version` column
