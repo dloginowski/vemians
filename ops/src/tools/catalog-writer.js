@@ -964,5 +964,31 @@ export function createSquareCatalogWriter(env, opts = {}) {
         .first();
       return { category: row ? { id: row.id, name: row.name, parent_id: row.parent_id } : null, sync };
     },
+
+    /**
+     * Remove a category/subcategory — Square's own presence lifecycle
+     * (setProductPresence's own pattern, reused here for a CATEGORY object),
+     * never a real DELETE: ADR-008's "archived, not deleted" applies to
+     * every mirror_* table, mirror_category's own archived_at included.
+     * catalog.remove_category's own check() already refuses this while the
+     * category still has subcategories — this only ever runs on a leaf.
+     */
+    async removeCategory({ categoryId }) {
+      const cat = await categoryRef(categoryId);
+      const res = await client.get(`/v2/catalog/object/${encodeURIComponent(cat.external_ref)}`);
+      if (!res?.object) {
+        throw new Error(`Square has no catalog object '${cat.external_ref}' to remove`);
+      }
+      await client.post("/v2/catalog/object", {
+        idempotency_key: idempotencyKey(`catalog.remove_category:${cat.external_ref}:${res.object.version}`),
+        object: {
+          ...res.object,
+          present_at_all_locations: false,
+          present_at_location_ids: [],
+        },
+      });
+      const sync = await syncAfterWrite();
+      return { sync };
+    },
   };
 }

@@ -917,6 +917,15 @@ const LINK_ICON = `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="
 const CARET_ICON = `<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">` +
   `<path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
+/* "I need a delete button right next to the plus button, an X button, so
+   or like a trash icon button." A plain outline can, same stroke-only
+   style as every other icon on this tile — never filled, so it never
+   reads as already-pressed/active the way a solid glyph would. */
+const TRASH_ICON = `<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">` +
+  `<path d="M3.5 4.5h9M6 4.5V3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5M6.5 7.5v4M9.5 7.5v4" ` +
+  `fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>` +
+  `<path d="M4.5 4.5l.6 8a1 1 0 0 0 1 .9h3.8a1 1 0 0 0 1-.9l.6-8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
 /* .category-node-toggle/.category-node-toggle-spacer's own rendered width
    (see the shared CSS below) — the category tree's own per-depth indent
    must equal this exactly so a subcategory's own toggle column lands
@@ -1868,19 +1877,35 @@ ${INPUT_BAR_CSS}
    right now it's just static labels." A real <input>, not a span — the
    same visible-border treatment .category-numeric-id already uses beside
    it, so the row reads as editable rather than as plain text with a
-   number box tacked on. */
+   number box tacked on. "The name scales, right? Scales to fit the
+   content row. And then we have a fixed width for the ID entry" —
+   min-width: 0 is required here: a flex item's default min-width is its
+   own intrinsic content size, and for a real <input> (unlike the plain
+   <span> this used to be) that floor is wide enough that a deeply nested
+   row could not actually shrink to fit, silently overflowing past the
+   row's own right edge and knocking the ID/remove/add buttons out of
+   alignment with every shallower row's own. */
 .category-node-name {
-  flex: 1 1 auto; font: inherit; font-size: 12px; padding: 3px 5px; overflow-wrap: anywhere;
+  flex: 1 1 auto; min-width: 0; font: inherit; font-size: 12px; padding: 3px 5px; overflow-wrap: anywhere;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
 }
+/* Fixed width, never shrinking or growing — the owner's own words: "a
+   fixed width for the ID entry" — so it (and everything after it: the
+   remove and add buttons) lands at the exact same column on every row,
+   at any depth, regardless of how long a sibling's own name happens to
+   render. */
 .category-numeric-id {
-  flex: 0 0 auto; width: 3em; font: inherit; font-size: 12px; padding: 3px 5px; text-align: center;
+  flex: 0 0 3em; width: 3em; font: inherit; font-size: 12px; padding: 3px 5px; text-align: center;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
 }
-.category-add-toggle, .category-create {
+.category-add-toggle, .category-remove-toggle, .category-create {
   flex: 0 0 auto; width: 20px; height: 20px; padding: 0; font-size: 13px; line-height: 1;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--muted); cursor: pointer;
 }
+.category-remove-toggle:disabled {
+  cursor: not-allowed; opacity: 0.4;
+}
+.category-remove-toggle:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
 .category-create { width: auto; padding: 0 8px; }
 .category-add-toggle:hover, .category-create:hover { color: var(--accent); border-color: var(--accent); }
 /* Collapsed by default — the same [hidden]-vs-class-selector trap the
@@ -2129,11 +2154,22 @@ function renderCategoryNodes(categories, parentId) {
          deep, not 2) — caught by measuring actual rendered pixel
          positions with a real headless browser, not just reading the
          inline style values the tests assert on. */
+      /* "I should not be able to delete a category until it has no more
+         subcategories" — disabled, not hidden, using the SAME hasChildren
+         this row already computes for its own caret, so a manager can see
+         the control exists and why it refuses, rather than wondering where
+         it went. Placed right before the "+" (the owner's own words: "a
+         delete button right next to the plus button"), so "+" keeps its
+         own established true-rightmost position. */
+      const removeDisabled = hasChildren
+        ? ` disabled title="Remove ${esc(c.name)} — it still has subcategories of its own; remove those first"`
+        : ` title="Remove ${esc(c.name)}"`;
       return `<div class="category-node" style="padding-left: ${parentId === null ? 0 : CATEGORY_NODE_TOGGLE_PX}px">
         <div class="category-node-row">
           ${toggle}
           <input type="text" class="category-node-name" data-category-id="${esc(c.id)}" value="${esc(c.name)}" maxlength="60" title="Click to rename">
           <input class="category-numeric-id" data-category-id="${esc(c.id)}" data-category-name="${esc(c.name)}" value="${esc(c.numeric_id ?? "")}" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — leave blank to remove it">
+          <button type="button" class="category-remove-toggle" data-category-id="${esc(c.id)}" aria-label="Remove ${esc(c.name)}"${removeDisabled}>${TRASH_ICON}</button>
           <button type="button" class="category-add-toggle" data-parent-id="${esc(c.id)}" aria-label="Add a subcategory under ${esc(c.name)}" title="Add a subcategory">+</button>
         </div>
         <div class="category-add-form" hidden>
@@ -3090,6 +3126,16 @@ document.getElementById("items-grid").addEventListener("click", async (e) => {
     nodeRow.closest(".category-node")?.classList.toggle("expanded");
     return;
   }
+  /* "I need a delete button right next to the plus button... I should not
+     be able to delete a category until it has no more subcategories."
+     The button itself is already disabled server-side (renderCategoryNodes)
+     whenever the node has children, so a real browser refuses the click
+     outright before this handler ever runs — nothing extra to check here. */
+  const removeToggle = e.target.closest(".category-remove-toggle");
+  if (removeToggle) {
+    await removeCategory(removeToggle);
+    return;
+  }
   /* "An add category button... that will create a subcategory in the
      expanded view" — reveals a small inline name field + Add button right
      below the node it belongs to (or, for the top-level one now living in
@@ -3518,6 +3564,38 @@ async function renameCategory(input) {
     showFormError(row, "Could not reach the server — try again.");
   } finally {
     input.disabled = false;
+  }
+}
+
+/* "I need a delete button right next to the plus button... I should not
+   be able to delete a category until it has no more subcategories, so
+   they should be disabled for them." The button itself already renders
+   disabled (renderCategoryNodes) whenever the node has children, so a
+   real browser refuses the click before this ever runs in normal use;
+   the server's own catalog.remove_category check() still refuses it too,
+   in case a subcategory was added from another tab in the meantime.
+   Reloads on success, the same as create/rename — the removed category
+   also disappears from every other tile's own category picker. */
+async function removeCategory(button) {
+  const row = button.closest(".category-node-row");
+  const existingError = row?.nextElementSibling;
+  if (existingError?.classList.contains("item-edit-error")) existingError.remove();
+  const handle = button.closest(".item-tile")?.dataset.handle;
+  const body = new FormData();
+  body.set("category_id", button.dataset.categoryId);
+  button.disabled = true;
+  try {
+    const res = await fetch("/items/" + handle + "/categories/remove", { method: "POST", body });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showFormError(row, data.error || "That category could not be removed.");
+      return;
+    }
+    location.reload();
+  } catch {
+    showFormError(row, "Could not reach the server — try again.");
+  } finally {
+    button.disabled = false;
   }
 }
 
