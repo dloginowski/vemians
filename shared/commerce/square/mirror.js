@@ -215,12 +215,20 @@ export function createMirror(mirror, { commerce, locationId, audit = null, now =
         );
         const archivedAt = p.withdrawn ? stamp : null;
         const status = p.withdrawn ? "archived" : (p.status ?? "active");
+        /* catalog.js hands us candidates in priority order (reporting_category
+           first, then categories[], then the legacy singular category_id) —
+           but reporting_category can be stale or orphaned (see catalog.js's
+           own comment on categoryExternalRefs), so a candidate that does not
+           resolve to a row we actually hold is skipped rather than treated
+           as "uncategorized": the next, less-preferred but still-live
+           candidate wins instead. */
         let categoryId = null;
-        if (p.categoryExternalRef) {
+        for (const ref of p.categoryExternalRefs ?? []) {
           categoryId =
-            categoryIdByRef.get(p.categoryExternalRef) ??
-            (await first("SELECT id FROM mirror_category WHERE external_ref = ?", p.categoryExternalRef))?.id ??
+            categoryIdByRef.get(ref) ??
+            (await first("SELECT id FROM mirror_category WHERE external_ref = ?", ref))?.id ??
             null;
+          if (categoryId) break;
         }
 
         let productId;
@@ -283,7 +291,7 @@ export function createMirror(mirror, { commerce, locationId, audit = null, now =
              never reaches here because money.js refused it upstream. */
           const priceMinor = toStorableMinor(v.price?.amountMinor ?? 0n, `variant ${v.externalRef}`);
           /* vendor_information carries Square's own vendor_id, resolved to
-             OUR mirror_vendor.id the same way categoryExternalRef resolves
+             OUR mirror_vendor.id the same way categoryExternalRefs resolves
              to category_id above — a query per variant rather than a
              pre-built map, since vendors sync in their own separate pass
              (syncVendors, called before this one) rather than arriving as

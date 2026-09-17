@@ -4416,6 +4416,29 @@ that does not trace to one of these is a process failure (see §12).
     reading the computed `transform` back, which is now this feature's own standing verification step
     for any future change to this handler, not just this one.
 
+    **REVISED once more: a specific product still showed as uncategorized despite the periodic full
+    sweep above, and despite the owner confirming directly in Square's own app that it was correctly
+    filed under a real subcategory -- "why is the black dress not categorized if it clearly is
+    categorized and is in a subcategory?"** Root cause was not staleness (the item had synced many
+    times over) but a wrong PRIORITY in `normaliseCatalog`'s own category resolution: `item_data.
+    reporting_category` was tried first, unconditionally, ahead of `item_data.categories[]`. Square
+    does not require `reporting_category` to be updated or cleared when an item's real `categories[]`
+    membership changes -- the two are independently maintained -- so a merchant who re-files an item
+    purely through the plain category browser (never separately revisiting "Reporting category") ends
+    up with a `reporting_category` still pointing at a category the item no longer belongs to, or one
+    Square has since deleted outright, while `categories[]` carries the current, correct assignment the
+    whole time. The old code trusted that stale pointer unconditionally: it resolved to nothing in the
+    mirror, and the whole item silently fell back to uncategorized instead of ever trying the next
+    candidate. Fixed by having `normaliseCatalog` hand `mirror.js`'s `syncCatalog` an ORDERED LIST of
+    candidates (`categoryExternalRefs`: `reporting_category`, then every id in `categories[]`, then the
+    legacy singular `category_id`, deduplicated) rather than picking one itself -- `catalog.js` has no
+    database to check a candidate against, but `mirror.js` does, so it is the one that tries each
+    candidate in turn and skips any that does not resolve to a category row actually held in the
+    mirror, falling through to the next rather than giving up
+    (`test_PRD_P0_138_nested_categories__a_stale_reporting_category_falls_through_to_a_live_categories_membership`).
+    `reporting_category` still wins when it is live and accurate -- this only changes behavior for the
+    orphaned case, which previously had no fallback at all.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
