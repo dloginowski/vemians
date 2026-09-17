@@ -4363,6 +4363,21 @@ that does not trace to one of these is a process failure (see §12).
     always matches the picked path, the tree still auto-expands to the current selection when reopened,
     and Save still enables correctly on a real pick.
 
+    **REVISED once more: the picker's own pill shape didn't match the rest of the UI — "it needs to be
+    the same square style, exactly the same height, the same style, has a chevron in it... it has to
+    feel like it's an extension of the same UI [as] the field for the name."** `.category-picker-btn`
+    drops the rounded-pill look (`border-radius: 999px`, `border-color: var(--rule)`, transparent
+    background) entirely and instead carries the SAME `border: 1px solid var(--muted); border-radius:
+    4px; background: var(--ground); color: var(--ink); padding: 3px 5px; font-size: 11px;` declarations
+    `.item-edit input` already uses — copied literally rather than relying on the shared selector, since
+    a `<button>` never matches an `input`-scoped rule. Verified by measuring real computed styles and
+    `getBoundingClientRect()` heights side by side with the title `<input>`: identical border, radius,
+    background, and a 23.125px height on both, not just visually similar. A static, always-down-pointing
+    chevron (`CARET_ICON`, rotated 90°) now renders after the path text, the same disclosure convention
+    a native `<select>` gives for free — the label moved into its own `<span class="category-picker-btn-
+    label">` specifically so the click handler that rewrites it on a pick (`btn.textContent = ...`)
+    updates only the text, never wiping out the icon sitting beside it in the same button.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
