@@ -1885,7 +1885,17 @@ ${INPUT_BAR_CSS}
    row could not actually shrink to fit, silently overflowing past the
    row's own right edge and knocking the ID/remove/add buttons out of
    alignment with every shallower row's own. */
-.category-node-name {
+/* .item-edit (below, in the same cascade) qualifies EVERY category input
+   selector here with that same ancestor class — not for scoping, they
+   already only ever render inside it, but for SPECIFICITY: a bare
+   ".category-node-name" (0,1,0) loses outright to ".item-edit input"
+   (0,1,1) regardless of source order, since these category inputs live
+   inside .item-edit too (the Admin disclosure). That silent loss is
+   exactly the bug the owner kept hitting — every fixed width set here
+   was being fully overridden by .item-edit input's own "width: 10em",
+   which a source-text check (grep, or a test asserting this rule merely
+   EXISTS) can never catch, only a real computed style can. */
+.item-edit .category-node-name {
   flex: 1 1 auto; min-width: 0; font: inherit; font-size: 12px; padding: 3px 5px; overflow-wrap: anywhere;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
 }
@@ -1899,7 +1909,7 @@ ${INPUT_BAR_CSS}
    times two) fits the field to exactly the two characters it accepts,
    still a fixed value, never fluid. Shared with .category-new-numeric-id
    below — the add-form's own ID field, same size for the same reason. */
-.category-numeric-id, .category-new-numeric-id {
+.item-edit .category-numeric-id, .item-edit .category-new-numeric-id {
   flex: 0 0 2ch; width: 2ch; font: inherit; font-size: 12px; padding: 3px 5px; text-align: center;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
 }
@@ -1928,7 +1938,7 @@ ${INPUT_BAR_CSS}
    the one just clicked. */
 .category-add-form { display: flex; gap: 6px; align-items: center; padding: 3px 8px 3px 0; }
 .category-add-form[hidden] { display: none; }
-.category-new-name {
+.item-edit .category-new-name {
   flex: 1 1 auto; min-width: 0; font: inherit; font-size: 12px; padding: 3px 5px;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
 }

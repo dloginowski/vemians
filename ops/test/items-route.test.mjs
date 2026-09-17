@@ -1442,19 +1442,42 @@ check("test_PRD_P0_138_nested_categories__the_name_scales_and_the_id_stays_a_fix
      REVISED: "your ID entry are too wide... they are to accept two
      characters... fit to content, fixed width" -- 3em rendered wider than
      two digits need; 2ch (twice the font's own "0" glyph width) is fixed,
-     never fluid, and actually fits the two characters the field accepts. */
+     never fluid, and actually fits the two characters the field accepts.
+     REVISED AGAIN -- the real bug behind the owner still seeing it too
+     wide even after that fix: the category accordion lives inside
+     .item-edit (the Admin disclosure), and .item-edit input's own
+     "width: 10em" (0,1,1 specificity) was silently beating a bare
+     .category-numeric-id (0,1,0) regardless of source order -- CSS
+     specificity, not cascade order, decides that, so the 2ch rule above
+     was never actually winning no matter how it read in the stylesheet.
+     Every category input selector is now qualified with .item-edit
+     itself (0,2,0), which beats it outright. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const body = await (await get("/items", MANAGER, env(mirror))).text();
   assert.match(
     body,
-    /\.category-node-name \{\s*\n\s*flex: 1 1 auto; min-width: 0;/,
-    "the name must be allowed to shrink below its own intrinsic content width",
+    /\.item-edit \.category-node-name \{\s*\n\s*flex: 1 1 auto; min-width: 0;/,
+    "the name must be allowed to shrink below its own intrinsic content width, at specificity (0,2,0) -- two classes, beating .item-edit input's (0,1,1)",
   );
   assert.match(
     body,
-    /\.category-numeric-id, \.category-new-numeric-id \{\s*\n\s*flex: 0 0 2ch; width: 2ch;/,
-    "the ID field must never grow or shrink -- a fixed width, fitted to exactly two characters, so every row's own ID/remove/add lands in the same column",
+    /\.item-edit \.category-numeric-id, \.item-edit \.category-new-numeric-id \{\s*\n\s*flex: 0 0 2ch; width: 2ch;/,
+    "the ID field must never grow or shrink -- a fixed width, fitted to exactly two characters -- and must actually WIN the cascade against .item-edit input's own width: 10em",
+  );
+  assert.match(
+    body,
+    /\.item-edit \.category-new-name \{\s*\n\s*flex: 1 1 auto; min-width: 0;/,
+    "the add-form's own name field needs the same specificity fix",
+  );
+  /* The actual competing rule this whole bug came from, confirmed still
+     present and still shaped the way this fix assumes (one class,
+     .item-edit, plus one type selector, input) -- if a future change
+     gives it MORE classes, the fix above would need re-checking. */
+  assert.match(
+    body,
+    /\.item-edit input, \.item-edit select, \.variations-header input, \.variations-body input \{\s*\n\s*flex: 0 1 auto; min-width: 0; width: 10em;/,
+    "the known-competing generic rule must still be exactly one class plus one type selector for the specificity fix above to actually be sufficient",
   );
 });
 
