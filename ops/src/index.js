@@ -37,7 +37,7 @@ import { contentTypeForAsset, extractText } from "./tools/assets.js";
 import { scanReceipt } from "./tools/receipt-ocr.js";
 import { listAllProducts, listCategories } from "./tools/catalog-writer.js";
 import { applyFormEdits } from "./approval-forms.js";
-import { syncFromSquare } from "./sync.js";
+import { syncFromSquare, SYNC_CRON, FREQUENT_CRON } from "./sync.js";
 import { verifyWebhook, normaliseWebhook } from "../../shared/commerce/square/webhooks.js";
 import { backfillMedia } from "./media-backfill.js";
 import { intakeContactTickets } from "./contact-intake.js";
@@ -1671,9 +1671,22 @@ export default {
   },
 
   /*
-   * The cron (Test-PRD-P0-48-scheduled_mirror_sync). Square's catalog and stock
-   * into our mirror, on a schedule, through the adapter — see src/sync.js for
-   * why the orchestration is there and the mapping is not.
+   * TWO cron triggers land here now, not one — SYNC_CRON (nightly, the
+   * catalog reconcile) and FREQUENT_CRON (every 15 minutes, unchanged,
+   * sync.js's own comment on why). They used to be the same schedule,
+   * because the catalog sync was the only thing this Worker ran on a
+   * timer — media backfill (P0-73) and contact-form intake (P0-100) just
+   * rode along. Dropping the catalog's OWN cadence to nightly (the owner's
+   * own words, once the webhook made the frequent catalog poll redundant:
+   * "you shouldn't have to get everything") would have dropped those two
+   * unrelated features down to nightly right alongside it, entirely as a
+   * side effect — a customer's contact-form submission waiting up to a day
+   * to become a ticket staff can see. `event.cron` says which schedule
+   * actually fired; each step below only runs on the schedule that owns
+   * it, so a change to one never silently changes the other's cadence
+   * again. No `event.cron` at all (a local/manual invocation) runs
+   * everything, the same convenience the old unconditional code gave for
+   * testing.
    *
    * IT IS ON THE OPS WORKER AND NOT THE STOREFRONT, and that is the same split
    * everything else here follows: the sync holds the Square credential and
@@ -1689,57 +1702,64 @@ export default {
    * up as a mirror that is mysteriously half-synced.
    */
   async scheduled(event, env, ctx) {
-    const run = syncFromSquare(env, { cron: event?.cron ?? null });
-    ctx?.waitUntil?.(run);
-    const out = await run;
-    /* Already logged in detail, with the reason named, inside syncFromSquare.
-       This line is the one a `wrangler tail` filtered to "scheduled" sees. */
-    console.info(`INFO ops/scheduled: ${event?.cron ?? "manual"} -> ${out.ok ? "ok" : out.reason}`);
+    const cron = event?.cron ?? null;
+    let out = { ok: true, reason: "not_this_schedule" };
 
-    /*
-     * The media backfill (Test-PRD-P0-73-real_photography) is a SEPARATE step
-     * with its own failure mode, run after the sync rather than folded into
-     * it: a photograph that fails to fetch must never mark the catalog sync
-     * itself as failed, and a sync that fails must not stop the previous
-     * run's photographs from still backfilling on schedule. try/catch here,
-     * not inside backfillMedia, so a bug in this wiring cannot take the cron
-     * down with it — the next run tries again regardless.
-     */
-    try {
-      /* Checked directly rather than via mediaStoreFor(env): with no bucket
-         bound, mediaStoreFor falls back to constructing a Square uploader,
-         which throws with no SQUARE_ACCESS_TOKEN — a real, if unlikely,
-         possibility on a Worker whose sync has never run. There is nothing
-         for this step to do without a bucket regardless, so it never needs
-         to reach that construction at all. */
-      if (env.MEDIA) {
-        const backfill = await backfillMedia(env, { media: mediaStoreFor(env) });
-        if (backfill.attempted > 0) {
-          console.info(
-            `INFO ops/scheduled: media backfill -> ${backfill.backfilled}/${backfill.attempted} ok, ${backfill.failed} failed`,
-          );
-        }
-      }
-    } catch (err) {
-      console.error(`ERROR ops/scheduled: media backfill step did not run — ${err.message}`);
+    if (cron === SYNC_CRON || cron === null) {
+      const run = syncFromSquare(env, { cron });
+      ctx?.waitUntil?.(run);
+      out = await run;
+      /* Already logged in detail, with the reason named, inside syncFromSquare.
+         This line is the one a `wrangler tail` filtered to "scheduled" sees. */
+      console.info(`INFO ops/scheduled: ${cron ?? "manual"} -> ${out.ok ? "ok" : out.reason}`);
     }
 
-    /*
-     * Contact-form intake (Test-PRD-P0-100-ticket_messaging) — the same
-     * independent-step shape as the media backfill just above, for the same
-     * reason: a failure here must never mark the catalog sync itself
-     * failed, and a sync failure must not stop a contact-form submission
-     * from still becoming a ticket on schedule.
-     */
-    try {
-      if (env.TICKETS) {
-        const intake = await intakeContactTickets(env);
-        if (intake.ok && intake.created > 0) {
-          console.info(`INFO ops/scheduled: contact intake -> ${intake.created} new ticket(s)`);
+    if (cron === FREQUENT_CRON || cron === null) {
+      /*
+       * The media backfill (Test-PRD-P0-73-real_photography) is a SEPARATE step
+       * with its own failure mode: a photograph that fails to fetch must never
+       * mark the catalog sync itself as failed, and a sync failure must not
+       * stop the previous run's photographs from still backfilling on
+       * schedule. try/catch here, not inside backfillMedia, so a bug in this
+       * wiring cannot take the cron down with it — the next run tries again
+       * regardless.
+       */
+      try {
+        /* Checked directly rather than via mediaStoreFor(env): with no bucket
+           bound, mediaStoreFor falls back to constructing a Square uploader,
+           which throws with no SQUARE_ACCESS_TOKEN — a real, if unlikely,
+           possibility on a Worker whose sync has never run. There is nothing
+           for this step to do without a bucket regardless, so it never needs
+           to reach that construction at all. */
+        if (env.MEDIA) {
+          const backfill = await backfillMedia(env, { media: mediaStoreFor(env) });
+          if (backfill.attempted > 0) {
+            console.info(
+              `INFO ops/scheduled: media backfill -> ${backfill.backfilled}/${backfill.attempted} ok, ${backfill.failed} failed`,
+            );
+          }
         }
+      } catch (err) {
+        console.error(`ERROR ops/scheduled: media backfill step did not run — ${err.message}`);
       }
-    } catch (err) {
-      console.error(`ERROR ops/scheduled: contact intake step did not run — ${err.message}`);
+
+      /*
+       * Contact-form intake (Test-PRD-P0-100-ticket_messaging) — the same
+       * independent-step shape as the media backfill just above, for the same
+       * reason: a failure here must never mark the catalog sync itself
+       * failed, and a sync failure must not stop a contact-form submission
+       * from still becoming a ticket on schedule.
+       */
+      try {
+        if (env.TICKETS) {
+          const intake = await intakeContactTickets(env);
+          if (intake.ok && intake.created > 0) {
+            console.info(`INFO ops/scheduled: contact intake -> ${intake.created} new ticket(s)`);
+          }
+        }
+      } catch (err) {
+        console.error(`ERROR ops/scheduled: contact intake step did not run — ${err.message}`);
+      }
     }
 
     return out;

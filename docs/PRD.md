@@ -176,6 +176,30 @@ that does not trace to one of these is a process failure (see §12).
     itself never appears in a log line. A failed run changes nothing: the last good mirror
     stands, and the shop keeps selling what it last knew to be true.
 
+    **REVISED: the catalog sync itself dropped to nightly, once the webhook (P0-38, below)
+    actually started working — the owner's own words: "why don't you just have them pushed...
+    you shouldn't have to get everything."** Every fifteen minutes was the STARTING value
+    (`ops/src/sync.js`'s own `SYNC_CRON`), back when a sync nobody could watch was a sync nobody
+    trusted and nothing else told the mirror a change had happened at all. That stopped being true
+    once the webhook fix landed: it pushes a change into the mirror within seconds of it landing in
+    Square, so re-listing the whole catalog four times an hour was paying Square's rate limiter to
+    catch what the webhook already delivered. `SYNC_CRON` is now `0 3 * * *` — exactly the nightly
+    reconcile cadence ADR-009 always described, not the primary path any more.
+
+    **Media backfill (P0-73) and contact-form intake (P0-100) never actually belonged to the
+    catalog's own schedule, and the cadence change above must not silently drop theirs too.**
+    Both only ever rode along on the catalog sync's cron because it was the one scheduled trigger
+    this Worker had (`contact-intake.js`'s own top comment said so outright: "rides the SAME cron
+    ops/src/sync.js already runs every 15 minutes"). Dropping that cron to nightly for the catalog's
+    own sake would have dropped a customer's contact-form submission to a day's latency before
+    becoming a ticket staff can see, entirely as a side effect of a change nobody asked to make about
+    them. Fixed with a SECOND cron trigger, `ops/src/sync.js`'s own `FREQUENT_CRON`
+    (`*/15 * * * *`, unchanged from the original cadence), registered alongside `SYNC_CRON` in
+    `ops/wrangler.toml`'s `[triggers]`; `index.js`'s own `scheduled` handler checks `event.cron`
+    and only runs the step(s) that schedule actually owns — the catalog sync on `SYNC_CRON`, media
+    backfill and contact intake on `FREQUENT_CRON` — so a future change to one schedule's cadence
+    can never again silently change the other's.
+
 19. **`Test-PRD-P0-38-webhook_authenticity`** — Provider webhooks are verified before their
     contents reach any code that trusts them: signature checked over the notification URL and
     raw body with a constant-time comparison, and an unrecognised event normalised to `null`

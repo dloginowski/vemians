@@ -227,17 +227,31 @@ id      = "29ad4b3d8fb340ab960cd248fa5df609"
 # writes the CATALOG_MIRROR store below. Without this trigger the adapter is
 # code nothing runs, and the mirror the storefront reads stays empty.
 #
-# EVERY FIFTEEN MINUTES IS A STARTING VALUE, NOT THE INTENDED ONE. It is here
-# because a sync nobody can watch is a sync nobody trusts: at this rate a
-# `wrangler tail` shows a run within a coffee, and a wrong token or an unbound
-# store is found the same afternoon rather than the next morning. Once it has
-# run clean for a few days, DROP IT TO NIGHTLY — "0 3 * * *" — which is the
-# reconcile cadence ADR-009 actually describes; the webhook is what keeps the
-# mirror current between reconciles, and re-listing a whole catalog four times
-# an hour to catch a price change that arrives by webhook anyway is paying
+# THE CATALOG SYNC ITSELF IS NOW NIGHTLY ("0 3 * * *", src/sync.js's own
+# SYNC_CRON) — the owner's own words, once the webhook actually started
+# working: "why don't you just have them pushed... you shouldn't have to get
+# everything." Every fifteen minutes was the STARTING value, back when a sync
+# nobody could watch was a sync nobody trusted and nothing else told the
+# mirror a change had happened at all. That is no longer true: the webhook
+# (POST /webhooks/square) pushes a change into the mirror within seconds of
+# it landing in Square, and this cron is now exactly the reconcile cadence
+# ADR-009 always described — a nightly full sweep catching whatever a webhook
+# delivery missed, not the primary path. Re-listing the whole catalog four
+# times an hour to catch a change the webhook already delivered was paying
 # Square's rate limiter for nothing.
+#
+# THE FIFTEEN-MINUTE TRIGGER STAYS ("*/15 * * * *", src/sync.js's own
+# FREQUENT_CRON) — it never actually belonged to the catalog sync. Media
+# backfill (P0-73) and contact-form intake (P0-100) only ever rode along on
+# this schedule because it was the one cron trigger this Worker had; dropping
+# it to nightly for the catalog's own sake would have dropped those two
+# unrelated features to nightly right alongside it, entirely as a side
+# effect — a customer's contact-form submission waiting up to a day to
+# become a ticket a member of staff can see. index.js's own `scheduled`
+# checks which of these two cron strings actually fired and only runs the
+# step(s) that schedule owns.
 [triggers]
-crons = ["*/15 * * * *"]
+crons = ["0 3 * * *", "*/15 * * * *"]
 
 [observability]
 enabled = true

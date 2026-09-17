@@ -66,11 +66,33 @@ import { createMirror } from "../../shared/commerce/square/mirror.js";
 
 /*
  * The cron, mirrored from wrangler.toml so a test can assert the two agree.
- * Every fifteen minutes to start with, because a sync nobody can observe is a
- * sync nobody trusts; see the comment on [triggers] there for when it drops to
- * nightly.
+ * Nightly now — the owner's own words, once the webhook (ops/src/index.js's
+ * squareWebhook) actually started working: "why don't you just have them
+ * pushed... you shouldn't have to get everything." Every fifteen minutes was
+ * the STARTING value, back when nothing else told the mirror a change had
+ * happened and a sync nobody could observe was a sync nobody trusted. The
+ * webhook is what keeps the mirror current now, in real time, the moment a
+ * save lands in Square; this cron is the reconcile ADR-009 always described —
+ * a nightly full sweep catching whatever a webhook delivery missed — not the
+ * primary path any more.
  */
-export const SYNC_CRON = "*/15 * * * *";
+export const SYNC_CRON = "0 3 * * *";
+
+/*
+ * The OTHER cron — media backfill (P0-73) and contact-form intake (P0-100,
+ * contact-intake.js's own top comment: "rides the SAME cron ops/src/sync.js
+ * already runs every 15 minutes") never had anything to do with the catalog
+ * mirror at all; they only ever shared SYNC_CRON's schedule because it was
+ * the one cron trigger this Worker had. Dropping THAT cron to nightly for
+ * the catalog's own sake would have dropped these two down to nightly right
+ * alongside it — a customer's contact-form submission waiting up to a day to
+ * become a ticket a member of staff can see, entirely as a side effect of a
+ * catalog-sync change nobody asked to make about them. Kept at the ORIGINAL
+ * fifteen-minute cadence, on its own separate trigger, index.js's own
+ * `scheduled` branches on which cron string fired to run only the tasks that
+ * schedule owns.
+ */
+export const FREQUENT_CRON = "*/15 * * * *";
 
 /*
  * How far back an incremental sweep reaches beyond the recorded cursor.

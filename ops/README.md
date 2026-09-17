@@ -144,15 +144,25 @@ Tuesday" is a query. A failed run leaves the last good mirror standing.
 ```bash
 npm run db:local                                  # includes catalog_mirror
 npx wrangler dev --local --test-scheduled         # then, in another shell:
-curl "http://localhost:8788/cdn-cgi/handler/scheduled?cron=*/15+*+*+*+*"
+curl "http://localhost:8788/cdn-cgi/handler/scheduled?cron=0+3+*+*+*"
 ```
 
 With no `SQUARE_ACCESS_TOKEN` set that prints the unset-credential ERROR and
 records the failed run, which is the intended behaviour rather than a crash.
 
-The cron starts at every fifteen minutes so a wrong token or an unbound store is
-found the same afternoon; `wrangler.toml` says to drop it to nightly once it is
-trusted, which is the reconcile cadence ADR-009 actually describes.
+Two separate cron strings land on the same `scheduled` handler now, and it
+checks which one actually fired before deciding what to run — `src/sync.js`'s
+own top comments on `SYNC_CRON` and `FREQUENT_CRON` say why. The catalog sync
+itself runs nightly (`0 3 * * *`, the query string above): once the webhook
+(`POST /webhooks/square`) started pushing a change into the mirror within
+seconds of it landing in Square, a full ListCatalog sweep four times an hour
+was paying Square's rate limiter to catch what the webhook already delivered
+— this cron is now the reconcile cadence ADR-009 always described, not the
+primary path. Media backfill and contact-form intake kept the ORIGINAL
+every-fifteen-minutes cadence on their own separate trigger (`*/15 * * * *`)
+— they never actually needed the catalog's own schedule, they only ever rode
+along on it because it was the one cron trigger this Worker had, and dropping
+the catalog's cadence must not silently drop theirs with it.
 
 **Photographs.** MCP tool arguments are JSON, so image bytes in an argument mean
 base64 that the MODEL has to emit — roughly one to two million output tokens for
