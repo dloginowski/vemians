@@ -1981,8 +1981,15 @@ ${INPUT_BAR_CSS}
   flex: 0 0 2ch; width: 2ch; box-sizing: content-box; font: inherit; font-size: 12px; padding: 3px 5px; text-align: center;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
 }
+/* "Make sure that the add button has the same height as all the other
+   buttons... so that all the chevrons['] content is always aligned with
+   the chevrons." Previously a separate, hardcoded 20px, agreeing with
+   CATEGORY_NODE_TOGGLE_PX (the chevrons' own size) only by coincidence —
+   now sized off that exact same constant, the same fix already applied
+   to .variations-toggle/.categories-toggle, so every button/chevron
+   anywhere in the category UI is one consistent size by construction. */
 .category-add-toggle, .category-remove-toggle, .category-create {
-  flex: 0 0 auto; width: 20px; height: 20px; padding: 0; font-size: 13px; line-height: 1;
+  flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; padding: 0; font-size: 13px; line-height: 1;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--muted); cursor: pointer;
 }
 .category-remove-toggle:disabled {
@@ -1995,9 +2002,11 @@ ${INPUT_BAR_CSS}
    nothing to remove yet -- so its own Add button has to fill BOTH the
    remove button's own slot and the real add button's, plus the gap that
    would have sat between them, to land its own right edge exactly where
-   a node row's own rightmost button does: 20px (one button) * 2 + 6px
-   (the row's own gap) = 46px, not just a plain doubled 40px. */
-.category-create { width: 46px; padding: 0; }
+   a node row's own rightmost button does: one button width, doubled,
+   plus the row's own 6px gap -- recomputed here against the same
+   CATEGORY_NODE_TOGGLE_PX the row's own buttons now use, not a number
+   pinned to their old, separate 20px. */
+.category-create { width: ${CATEGORY_NODE_TOGGLE_PX * 2 + 6}px; padding: 0; }
 /* Collapsed by default — the same [hidden]-vs-class-selector trap the
    add-form fix above already caught means this MUST be a real display:none
    here, not left to a plain [hidden] toggle, since .category-children has
@@ -2290,10 +2299,13 @@ function renderCategoryNodes(categories, parentId) {
 /* "It should all resolve to like a path structure, and that's how it
    shows the actual category path" — a node's own displayed name is just
    its own leaf name (renderCategoryNodes' own comment: "you could tell
-   them apart because they'll have a different parent"), so the per-
-   product picker below needs the FULL ancestor chain to actually show
-   which one is assigned. Returns null for an unassigned or unknown id,
-   never a partial/broken path. */
+   them apart because they'll have a different parent"), so the picker's
+   own selected-category label (below) still needs the FULL ancestor
+   chain — REVISED, no longer as its own VISIBLE label ("I only want to
+   see the last entry after the last slash"), but as its title, so two
+   differently-nested categories sharing a leaf name are still
+   distinguishable on hover. Returns null for an unassigned or unknown
+   id, never a partial/broken path. */
 function categoryPath(categories, categoryId) {
   if (!categoryId) return null;
   const byId = new Map(categories.map((c) => [c.id, c]));
@@ -2663,15 +2675,25 @@ function itemTile(product, canEdit, allCategories = []) {
      caught live, the Save button silently staying disabled after a real
      pick, the first time this same mistake was made. type="text" keeps
      the normal dirty-value semantics refreshDirtyState already relies on
-     everywhere else; `hidden` alone keeps it off-screen. */
+     everywhere else; `hidden` alone keeps it off-screen.
+     REVISED: "in the category selector, I want to only see the last
+     entry after the last slash... so that it's not taking up so much
+     space." The button's own VISIBLE label is now just the leaf name —
+     the same bare name renderCategoryPickerNodes already renders on each
+     option, no separate lookup needed — while the full ancestor path
+     (categoryPath, unchanged) moves to the button's own `title`, so
+     hovering still disambiguates two differently-nested categories that
+     happen to share a leaf name, without spending any layout width on
+     it. */
   const categoryId = product.category_id ?? null;
-  const categoryPathLabel = categoryPath(allCategories, categoryId) ?? "Uncategorized";
+  const categoryFullPath = categoryPath(allCategories, categoryId);
+  const categoryLeafLabel = allCategories.find((c) => c.id === categoryId)?.name ?? "Uncategorized";
   const categoryControl = canEdit
     ? `<form method="post" action="/items/${esc(product.handle)}/category" class="category-form">
          <input type="text" name="category_id" value="${esc(categoryId ?? "")}" hidden>
          <div class="category-picker">
-           <button type="button" class="category-picker-btn" aria-label="Choose a category" title="Choose a category">
-             ${CARET_ICON}<span class="category-picker-btn-label">${esc(categoryPathLabel)}</span>
+           <button type="button" class="category-picker-btn" aria-label="Choose a category" title="${esc(categoryFullPath ?? "Choose a category")}">
+             ${CARET_ICON}<span class="category-picker-btn-label">${esc(categoryLeafLabel)}</span>
            </button>
            <div class="category-picker-menu" hidden>
              ${
@@ -2793,7 +2815,7 @@ function itemTile(product, canEdit, allCategories = []) {
       <div class="item-badges">
         ${webToggle}
         ${activeToggle}
-        ${!canEdit ? `<span>${esc(categoryPathLabel)}</span>` : ""}
+        ${!canEdit ? `<span>${esc(categoryFullPath ?? "Uncategorized")}</span>` : ""}
       </div>
       ${titleVendorForms}
       ${variationsAccordion}
@@ -3184,9 +3206,17 @@ document.getElementById("items-grid").addEventListener("click", async (e) => {
   if (pickerOption) {
     const form = pickerOption.closest(".category-form");
     const hiddenInput = form.querySelector('input[name="category_id"]');
-    const btn = form.querySelector(".category-picker-btn-label");
+    const pickerBtnEl = form.querySelector(".category-picker-btn");
+    const label = pickerBtnEl.querySelector(".category-picker-btn-label");
     hiddenInput.value = pickerOption.dataset.categoryId;
-    btn.textContent = pickerOption.dataset.categoryPath;
+    /* "I just want to see the last entry after the last slash... so
+       that it's not taking up so much space." The option's own visible
+       text is already just the leaf name (renderCategoryPickerNodes),
+       so the button's own label copies that directly rather than the
+       full data-category-path — which still moves onto the button's
+       own title, for a hover disambiguating hint. */
+    label.textContent = pickerOption.textContent;
+    pickerBtnEl.title = pickerOption.dataset.categoryPath;
     form.querySelectorAll(".category-picker-option.selected").forEach((el) => el.classList.remove("selected"));
     pickerOption.classList.add("selected");
     closeAllCategoryPickers();
