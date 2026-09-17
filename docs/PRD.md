@@ -4934,6 +4934,29 @@ that does not trace to one of these is a process failure (see §12).
     already-shipped fix established — that invariant is a different concern from the accordion
     chevrons this pass tightens, and unifying it in here too would have quietly undone it.
 
+    **REVISED YET AGAIN — the add-category form itself now matches a real row's own style and
+    indentation, lands as the last item, and its own Add button stays aligned.** The owner's own
+    words: "whenever I click add category, this new category field needs to be exactly the same style
+    and indentation as the current subcategories fields. And it should be underneath, it should be the
+    last item, right? ... when I enter the category name, the add button needs to be double wide so
+    that it all fits nicely and is perfectly aligned with the rest of the fields above it." Three
+    fixes, in both the top-level add-form (`.categories-body`'s own) and the per-node one:
+
+    `.category-add-form` now renders AFTER `.category-children`/`.categories-tree` instead of before
+    it, so opening it on a node (or the tree) that already has entries previews the new one below the
+    existing list, never inserted visually above it. A leading `<span class="category-node-toggle-
+    spacer">` — the same element a childless node's own row already renders — lands the name field at
+    the exact same x-position a sibling row's own name field occupies; the per-node form's own existing
+    `padding-left: ${CATEGORY_NODE_TOGGLE_PX}px` (previewing one level deeper than its parent) only
+    ever matched a child's outer BOX before this, one toggle-width short of that child's own NAME
+    column, which starts after the child's own toggle-or-spacer plus the row's own gap — the new spacer
+    closes exactly that gap. And `.category-create` grows from an auto-sized, text-padded button to a
+    fixed 46px: an add-form has one fewer trailing column than a real row (no remove button — there is
+    nothing yet to remove), so its own Add button has to fill both the remove button's own slot and the
+    real add button's, plus the gap that would have sat between them, to land its own right edge
+    exactly under a row's own rightmost button — one 20px button doubled, plus the row's own 6px gap,
+    not a plain 40px.
+
 74. **`Test-PRD-P0-139-honest_write_failures`** — A Square write refused with a plain `Square POST
     /v2/catalog/object failed with 400` and nothing else — the owner's own words, pasting exactly that
     line after an edit silently went nowhere: "just make sure all of the fields work... with this post

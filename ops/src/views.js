@@ -1988,7 +1988,16 @@ ${INPUT_BAR_CSS}
 .category-remove-toggle:disabled {
   cursor: not-allowed; opacity: 0.4;
 }
-.category-create { width: auto; padding: 0 8px; }
+/* "When I enter the category name, the add button needs to be double
+   wide so that it all fits nicely and is perfectly aligned with the
+   rest of the fields above it." An add-form has one fewer trailing
+   column than a real node row -- no remove button, since there is
+   nothing to remove yet -- so its own Add button has to fill BOTH the
+   remove button's own slot and the real add button's, plus the gap that
+   would have sat between them, to land its own right edge exactly where
+   a node row's own rightmost button does: 20px (one button) * 2 + 6px
+   (the row's own gap) = 46px, not just a plain doubled 40px. */
+.category-create { width: 46px; padding: 0; }
 /* Collapsed by default — the same [hidden]-vs-class-selector trap the
    add-form fix above already caught means this MUST be a real display:none
    here, not left to a plain [hidden] toggle, since .category-children has
@@ -2244,6 +2253,20 @@ function renderCategoryNodes(categories, parentId) {
       const removeDisabled = hasChildren
         ? ` disabled title="Remove ${esc(c.name)} — it still has subcategories of its own; remove those first"`
         : ` title="Remove ${esc(c.name)}"`;
+      /* "Whenever I click add category, this new category field needs to
+         be exactly the same style and indentation as the current
+         subcategories fields. And it should be underneath, it should be
+         the last item." Two fixes: (1) .category-add-form now renders
+         AFTER .category-children instead of before it, so opening it on
+         a node that already has subcategories previews the new one below
+         the existing list, not inserted visually above it; (2) a leading
+         .category-node-toggle-spacer, the same element a childless node's
+         own row already uses, makes the add-form's own name field land at
+         the exact same x-position a real child row's name field would —
+         its own inline padding-left (below) alone only matched a child's
+         outer BOX, one toggle-width short of that child's own NAME
+         column, which starts after ITS OWN toggle-or-spacer plus the
+         row's own gap. */
       return `<div class="category-node" style="padding-left: ${parentId === null ? 0 : CATEGORY_NODE_TOGGLE_PX}px">
         <div class="category-node-row">
           ${toggle}
@@ -2252,12 +2275,13 @@ function renderCategoryNodes(categories, parentId) {
           <button type="button" class="category-remove-toggle" data-category-id="${esc(c.id)}" aria-label="Remove ${esc(c.name)}"${removeDisabled}>${TRASH_ICON}</button>
           <button type="button" class="category-add-toggle" data-parent-id="${esc(c.id)}" aria-label="Add a subcategory under ${esc(c.name)}" title="Add a subcategory">+</button>
         </div>
+        <div class="category-children">${renderCategoryNodes(categories, c.id)}</div>
         <div class="category-add-form" hidden style="padding-left: ${CATEGORY_NODE_TOGGLE_PX}px">
+          <span class="category-node-toggle-spacer"></span>
           <input type="text" class="category-new-name" placeholder="Subcategory name" maxlength="60">
           <input class="category-new-numeric-id" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — optional, can be set later">
           <button type="button" class="category-create" data-parent-id="${esc(c.id)}">Add</button>
         </div>
-        <div class="category-children">${renderCategoryNodes(categories, c.id)}</div>
       </div>`;
     })
     .join("");
@@ -2533,7 +2557,16 @@ function itemTile(product, canEdit, allCategories = []) {
      self-explanatory." The top-level + moves out of its own labeled row
      in the body and into .categories-header itself, opposite the caret —
      the same right-anchored position every per-node + already has in its
-     own row, just one level up. */
+     own row, just one level up.
+     REVISED AGAIN: "this new category field needs to be exactly the same
+     style and indentation as the current subcategories fields. And it
+     should be underneath, it should be the last item." The top-level
+     add-form now renders AFTER .categories-tree instead of before it —
+     opening it previews the new category below the existing list, not
+     inserted visually above it — and carries the same leading
+     .category-node-toggle-spacer a top-level node's own row already has
+     (it needs no padding-left of its own, unlike the per-node add-form
+     above: a top-level node's own indent is already 0). */
   const categoriesAccordion = canEdit
     ? `<div class="categories-accordion">
          <div class="categories-header">
@@ -2543,17 +2576,18 @@ function itemTile(product, canEdit, allCategories = []) {
            <button type="button" class="category-add-toggle" data-parent-id="" aria-label="Add a top-level category" title="Add a category">+</button>
          </div>
          <div class="categories-body">
-           <div class="category-add-form" hidden>
-             <input type="text" class="category-new-name" placeholder="Category name" maxlength="60">
-             <input class="category-new-numeric-id" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — optional, can be set later">
-             <button type="button" class="category-create" data-parent-id="">Add</button>
-           </div>
            <div class="categories-tree">
              ${
                allCategories.length
                  ? renderCategoryNodes(allCategories, null)
                  : `<p class="item-empty">No categories yet.</p>`
              }
+           </div>
+           <div class="category-add-form" hidden>
+             <span class="category-node-toggle-spacer"></span>
+             <input type="text" class="category-new-name" placeholder="Category name" maxlength="60">
+             <input class="category-new-numeric-id" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — optional, can be set later">
+             <button type="button" class="category-create" data-parent-id="">Add</button>
            </div>
          </div>
        </div>`
@@ -3228,8 +3262,9 @@ document.getElementById("items-grid").addEventListener("click", async (e) => {
   /* "An add category button... that will create a subcategory in the
      expanded view" — reveals a small inline name field + Add button right
      below the node it belongs to (or, for the top-level one now living in
-     .categories-header, as the first child of .categories-body); a second
-     click on the SAME toggle hides it again without submitting anything. */
+     .categories-header, as the LAST child of .categories-body, after the
+     whole tree); a second click on the SAME toggle hides it again without
+     submitting anything. */
   const addToggle = e.target.closest(".category-add-toggle");
   if (addToggle) {
     const form = addToggle.dataset.parentId

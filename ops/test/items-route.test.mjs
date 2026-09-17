@@ -1715,21 +1715,72 @@ check("test_PRD_P0_138_nested_categories__the_add_form_previews_at_the_indent_th
      that same extra padding-left, so it visually previews exactly where
      the new row is about to appear rather than sitting flush with its own
      parent's row. The top-level add-form (a brand-new TOP-LEVEL category
-     needs no extra indent) is untouched. */
+     needs no extra indent) has no padding-left of its own.
+     REVISED: "this new category field needs to be exactly the same style
+     and indentation as the current subcategories fields" — both add-forms
+     now also carry the same leading .category-node-toggle-spacer a real
+     row's own toggle-or-spacer column occupies, landing the name field at
+     the exact same x-position a sibling row's own name field would. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   seedCategoryTree(mirror);
   const body = await (await get("/items", MANAGER, env(mirror))).text();
   assert.match(
     body,
-    /<div class="category-add-form" hidden style="padding-left: 14px">\s*\n\s*<input type="text" class="category-new-name"/,
-    "a per-node add-form previews one toggle-width deeper than its own parent row",
+    /<div class="category-add-form" hidden style="padding-left: 14px">\s*\n\s*<span class="category-node-toggle-spacer"><\/span>\s*\n\s*<input type="text" class="category-new-name"/,
+    "a per-node add-form previews one toggle-width deeper than its own parent row, plus its own leading spacer",
   );
   assert.match(
     body,
-    /<div class="categories-body">\s*\n\s*<div class="category-add-form" hidden>\s*\n\s*<input type="text" class="category-new-name" placeholder="Category name"/,
-    "the top-level add-form gets no extra indent -- a new top-level category has none to preview",
+    /<div class="category-add-form" hidden>\s*\n\s*<span class="category-node-toggle-spacer"><\/span>\s*\n\s*<input type="text" class="category-new-name" placeholder="Category name"/,
+    "the top-level add-form gets no extra indent -- a new top-level category has none to preview -- but still gets the same leading spacer",
   );
+});
+
+check("test_PRD_P0_138_nested_categories__the_add_form_is_the_last_item_not_inserted_above_existing_children", async () => {
+  /* The owner's own words: "it should be underneath, it should be the
+     last item, right?" Opening the add-form on a node that already has
+     subcategories (or the top-level tree, which already has categories)
+     must preview the new one BELOW the existing list, not pop in above
+     it -- so .category-add-form now renders after .category-children /
+     .categories-tree in the markup, not before. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  const categoriesBodyIdx = body.indexOf('<div class="categories-body">');
+  const treeIdx = body.indexOf('<div class="categories-tree">', categoriesBodyIdx);
+  const topAddFormIdx = body.indexOf('<div class="category-add-form" hidden>', categoriesBodyIdx);
+  assert.ok(treeIdx > -1 && topAddFormIdx > treeIdx, "the top-level add-form must come after the tree, not before it");
+
+  /* Outerwear -> Coats -> Casual (seedCategoryTree). Coats has a child
+     (Casual) of its own, so its own add-form must land after Casual's
+     entire subtree, not between Coats' own row and Casual's. */
+  const coatsNameIdx = body.indexOf('data-category-id="cat2" value="Coats"');
+  const coatsChildrenIdx = body.indexOf('<div class="category-children">', coatsNameIdx);
+  const casualNameIdx = body.indexOf('data-category-id="cat3" value="Casual"', coatsChildrenIdx);
+  const coatsAddFormIdx = body.indexOf('<button type="button" class="category-create" data-parent-id="cat2">', coatsChildrenIdx);
+  assert.ok(
+    casualNameIdx > coatsChildrenIdx && coatsAddFormIdx > casualNameIdx,
+    "Coats' own add-form must render after its existing child Casual, not before it",
+  );
+});
+
+check("test_PRD_P0_138_nested_categories__the_add_button_is_double_wide_to_stay_aligned_with_the_row_above_it", async () => {
+  /* The owner's own words: "when I enter the category name, the add
+     button needs to be double wide so that it all fits nicely and is
+     perfectly aligned with the rest of the fields above it." An add-form
+     has one fewer trailing column than a real node row (no remove button
+     -- there is nothing to remove yet), so its own Add button must cover
+     BOTH the remove button's own slot and the real add button's, plus
+     the gap that would have sat between them, to land its own right edge
+     exactly under a node row's own rightmost button: one button (20px)
+     doubled, PLUS the row's own 6px gap = 46px, not a plain 40px. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.match(body, /\.category-add-toggle, \.category-remove-toggle, \.category-create\s*\{[^}]*width: 20px;/, "a normal row button is 20px");
+  assert.match(body, /\.category-create\s*\{\s*width: 46px;/, "20px doubled plus the row's own 6px gap");
 });
 
 check("test_PRD_P0_138_nested_categories__the_add_form_also_takes_a_numeric_id", async () => {
