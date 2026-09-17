@@ -323,11 +323,25 @@ export function normaliseCatalog(objects, { locationId = null, related = [] } = 
          descriptions — it lives in Git, keyed by handle. */
       sourceDescription: data.description_plaintext ?? data.description ?? "",
       status: withdrawn ? "archived" : "active",
-      categoryExternalRef:
-        data.reporting_category?.id ??
-        data.categories?.[0]?.id ??
-        data.category_id ??
-        null,
+      /* reporting_category is Square's own accounting/reporting pick, but it
+         can go stale: Square does not require it to be cleared or updated
+         when an item's actual categories[] membership changes (confirmed
+         against Square's own CatalogItem documentation — categories and
+         reporting_category are independently maintained). A merchant who
+         only ever re-files an item through the plain category browser, and
+         never revisits "Reporting category" explicitly, ends up with a
+         reporting_category pointing at a category the item no longer
+         belongs to, or one that has since been deleted outright — while
+         categories[] carries the current, correct assignment the whole
+         time. Every candidate is offered here, in priority order; mirror.js
+         is what actually has the category table to check against, so it is
+         the one that skips a candidate that does not resolve to a real row
+         and falls through to the next. */
+      categoryExternalRefs: [
+        data.reporting_category?.id,
+        ...(data.categories ?? []).map((c) => c?.id),
+        data.category_id,
+      ].filter((id, i, arr) => id && arr.indexOf(id) === i),
       styleId: customAttr(data, "style_id"),
       commissionPct: customAttrInt(data, "commission"),
       sourceVersion: Number(o.version ?? 0),

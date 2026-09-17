@@ -1017,6 +1017,55 @@ check("test_PRD_P0_138_nested_categories__parent_id_resolves_regardless_of_list_
   assert.equal(childRow.parent_id, parentRow.id, "child-before-parent in the same batch still resolves");
 });
 
+const rawItemIn = (id, name, { reportingCategory = null, categories = [] } = {}) => ({
+  type: "ITEM",
+  id,
+  updated_at: "2026-09-02T11:02:00.000Z",
+  version: 1,
+  is_deleted: false,
+  item_data: {
+    name,
+    ...(reportingCategory ? { reporting_category: { id: reportingCategory } } : {}),
+    ...(categories.length ? { categories: categories.map((catId, ordinal) => ({ id: catId, ordinal })) } : {}),
+  },
+});
+
+check("test_PRD_P0_138_nested_categories__a_stale_reporting_category_falls_through_to_a_live_categories_membership", async () => {
+  /* Square does not require reporting_category to be cleared or updated
+     when an item's real categories[] membership changes — a merchant who
+     re-files an item purely through the plain category browser (never
+     revisiting "Reporting category" explicitly) ends up with a
+     reporting_category still pointing at a category the item no longer
+     belongs to, or one Square has since deleted outright. CAT_DELETED here
+     is never itself synced as a CATEGORY object, standing in for exactly
+     that: a reference to nothing we hold. The item's LIVE assignment
+     (CAT_COCKTAIL, nested under CAT_DRESSES) must still resolve. */
+  const { mirrorDb, mirror } = stores();
+  const objects = [
+    rawCategory("CAT_DRESSES", "Dresses"),
+    rawCategory("CAT_COCKTAIL", "Cocktail", "CAT_DRESSES"),
+    rawItemIn("ITEM_BLACK_DRESS", "Black Dress", {
+      reportingCategory: "CAT_DELETED",
+      categories: ["CAT_COCKTAIL"],
+    }),
+  ];
+  const normalised = normaliseCatalog(objects);
+  assert.deepEqual(
+    normalised.products[0].categoryExternalRefs,
+    ["CAT_DELETED", "CAT_COCKTAIL"],
+    "candidates offered in priority order, stale one first",
+  );
+
+  await mirror.syncCatalog(normalised, { full: true });
+  const product = one(mirrorDb, "SELECT * FROM mirror_product_index WHERE external_ref = 'ITEM_BLACK_DRESS'");
+  const cocktail = one(mirrorDb, "SELECT id FROM mirror_category_index WHERE external_ref = 'CAT_COCKTAIL'");
+  assert.equal(
+    product.category_id,
+    cocktail.id,
+    "a dead reporting_category must not blank out a real, current categories[] membership",
+  );
+});
+
 check("test_PRD_P0_138_nested_categories__an_incremental_sync_of_just_the_child_still_finds_its_parent", async () => {
   /* The realistic incremental case: the parent synced in an EARLIER call,
      the child (a rename, say) syncs alone later. categoryIdByRef only ever
