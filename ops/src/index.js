@@ -1606,6 +1606,11 @@ async function squareWebhook(request, env, ctx) {
   }
 
   const normalised = normaliseWebhook(event, { locationId: env.SQUARE_LOCATION_ID });
+  /* The one line `wrangler tail` needs to answer "did my Square edit even
+     arrive" — syncFromSquare below already logs its own outcome, success or
+     failure, but that line alone cannot tell a webhook-triggered run apart
+     from the next cron tick landing in the same window. */
+  console.info(`INFO ops/webhooks: verified Square event ${event?.type ?? "?"} -> ${normalised?.kind ?? "unhandled"}`);
   if (normalised?.kind === "catalog.updated" || normalised?.kind === "inventory.updated") {
     /*
      * Square's own event never says WHAT changed — webhooks.js's own comment
