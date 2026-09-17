@@ -1328,17 +1328,68 @@ check("test_PRD_P0_138_nested_categories__the_tree_nests_and_indents_by_depth", 
   assert.match(body, /padding-left: 14px"[\s\S]{0,220}Coats/);
   assert.match(body, /padding-left: 14px"[\s\S]{0,220}Casual/);
   /* Each node's own numeric_id shows what it has (or a blank box for
-     Casual, which has none yet), and carries its own category id for the
-     change handler to post back. */
+     Casual, which has none yet). */
   assert.match(
     body,
-    /<input class="category-numeric-id" data-category-id="cat1" data-category-name="Outerwear" value="01"/,
+    /<input class="category-numeric-id" name="numeric_id" data-category-id="cat1" data-category-name="Outerwear" value="01"/,
   );
   assert.match(
     body,
-    /<input class="category-numeric-id" data-category-id="cat3" data-category-name="Casual" value=""/,
+    /<input class="category-numeric-id" name="numeric_id" data-category-id="cat3" data-category-name="Casual" value=""/,
   );
   assert.match(body, /<button type="button" class="category-add-toggle" data-parent-id="cat2"[^>]*>\+<\/button>/, "every node gets its own add-subcategory toggle");
+});
+
+check("test_PRD_P0_138_nested_categories__setting_a_numeric_id_now_folds_into_the_tiles_one_big_save", async () => {
+  /* The owner's own words: "IDs must also trigger dirty state... we
+     probably don't even need the add button because the checkbox would
+     save that" -- extended to numeric_id too. It used to belong to no
+     form at all, on purpose, and apply immediately on its own dedicated
+     change listener. Now it lives inside a real .category-number-form
+     (posting to the same /categories/number route, unchanged), folded
+     into the generic ".item-edit form" dirty-tracking/Save-all flow
+     exactly like everything else -- no separate immediate fetch, no
+     dedicated apply-on-change listener. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.match(
+    body,
+    /<form method="post" action="\/items\/wool-coat\/categories\/number" class="category-number-form">\s*\n\s*<input type="hidden" name="category_id" value="cat1">\s*\n\s*<input class="category-numeric-id" name="numeric_id"/,
+    "the numeric_id field now lives inside its own real form, with category_id riding along as a hidden field",
+  );
+  assert.doesNotMatch(body, /function setCategoryNumber\(/, "the old dedicated immediate-apply function is gone");
+  assert.doesNotMatch(body, /function createCategory\(/, "the old dedicated immediate-apply create function is gone too");
+});
+
+check("test_PRD_P0_138_nested_categories__typing_a_numeric_id_instantly_resorts_its_siblings_client_side", async () => {
+  /* The owner's own words: "as soon as I change that ID, I expect it to
+     sort based on that ID... it's not a server thing, it should
+     immediately in my browser update its sorting and make sure that it
+     sorts underneath the lower ID." reorderSiblingsByNumericId runs on
+     every keystroke (input, not change/blur) -- well before the actual
+     write is ever sent -- reading each sibling's own numeric-id LIVE so
+     a sibling with its own unsaved edit still sorts correctly, blank
+     ones sorting last. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.match(body, /function reorderSiblingsByNumericId\(input\) \{/);
+  assert.match(body, /const siblings = \[\.\.\.parent\.querySelectorAll\(":scope > \.category-node"\)\];/);
+  assert.match(
+    body,
+    /const raw = el\.querySelector\(":scope > \.category-node-row \.category-numeric-id"\)\?\.value\.trim\(\);\s*\n\s*return raw \? Number\(raw\) : Infinity;/,
+    "blank/unassigned must sort last, everything else ascending by its own live-typed value",
+  );
+  assert.match(body, /parent\.append\(\.\.\.sorted\);/, "reorders the real DOM nodes in place, not a fresh render");
+  assert.match(
+    body,
+    /document\.getElementById\("items-grid"\)\.addEventListener\("input", \(e\) => \{\s*\n\s*if \(!e\.target\.matches\("\.category-numeric-id"\)\) return;\s*\n\s*reorderSiblingsByNumericId\(e\.target\);/,
+    "wired to the input event, not change -- resorting must not wait for blur",
+  );
 });
 
 check("test_PRD_P0_138_nested_categories__the_indent_step_matches_the_toggles_own_rendered_width", async () => {
@@ -1600,7 +1651,7 @@ check("test_PRD_P0_138_nested_categories__add_forms_are_hidden_by_default_even_u
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
   assert.match(body, /\.category-add-form\[hidden\]\s*\{\s*display:\s*none;\s*\}/);
-  assert.match(body, /<div class="category-add-form" hidden>/);
+  assert.match(body, /<form method="post" action="\/items\/wool-coat\/categories\/create" class="category-add-form" hidden>/);
 });
 
 check("test_PRD_P0_138_nested_categories__the_accordion_is_absent_for_staff", async () => {
@@ -1670,7 +1721,7 @@ check("test_PRD_P0_135_item_edit_applies_immediately__no_hover_state_anywhere_in
     /\.categories-toggle:hover \{ color: var\(--accent\); \}/,
     /\.category-node-toggle:hover \{ color: var\(--accent\); \}/,
     /\.category-remove-toggle:hover:not\(:disabled\) \{ color: var\(--accent\); border-color: var\(--accent\); \}/,
-    /\.category-add-toggle:hover, \.category-create:hover \{ color: var\(--accent\); border-color: var\(--accent\); \}/,
+    /\.category-add-toggle:hover \{ color: var\(--accent\); border-color: var\(--accent\); \}/,
     /\.item-add-field summary:hover \{ color: var\(--accent\); \}/,
   ];
   for (const rule of goneRules) {
@@ -1703,7 +1754,7 @@ check("test_PRD_P0_138_nested_categories__the_top_level_add_button_lives_in_the_
   const header = body.slice(headerIdx, bodyIdx);
   assert.match(header, /<button type="button" class="category-add-toggle" data-parent-id=""[^>]*>\+<\/button>/, "the top-level add toggle now lives in the header");
   assert.doesNotMatch(body, />Add a category</, "no leftover label text — the button is self-explanatory");
-  const addFormIdx = body.indexOf('<div class="category-add-form" hidden>');
+  const addFormIdx = body.indexOf('<form method="post" action="/items/wool-coat/categories/create" class="category-add-form" hidden>');
   assert.ok(addFormIdx > bodyIdx, "the (still hidden) add-form itself stays in the body, right after the header");
 });
 
@@ -1727,12 +1778,12 @@ check("test_PRD_P0_138_nested_categories__the_add_form_previews_at_the_indent_th
   const body = await (await get("/items", MANAGER, env(mirror))).text();
   assert.match(
     body,
-    /<div class="category-add-form" hidden style="padding-left: 14px">\s*\n\s*<span class="category-node-toggle-spacer"><\/span>\s*\n\s*<input type="text" class="category-new-name"/,
+    /<form method="post" action="\/items\/wool-coat\/categories\/create" class="category-add-form" hidden style="padding-left: 14px">\s*\n\s*<input type="hidden" name="parent_id" value="cat\d+">\s*\n\s*<span class="category-node-toggle-spacer"><\/span>\s*\n\s*<input type="text" class="category-new-name"/,
     "a per-node add-form previews one toggle-width deeper than its own parent row, plus its own leading spacer",
   );
   assert.match(
     body,
-    /<div class="category-add-form" hidden>\s*\n\s*<span class="category-node-toggle-spacer"><\/span>\s*\n\s*<input type="text" class="category-new-name" placeholder="Category name"/,
+    /<form method="post" action="\/items\/wool-coat\/categories\/create" class="category-add-form" hidden>\s*\n\s*<input type="hidden" name="parent_id" value="">\s*\n\s*<span class="category-node-toggle-spacer"><\/span>\s*\n\s*<input type="text" class="category-new-name" name="name" placeholder="Category name"/,
     "the top-level add-form gets no extra indent -- a new top-level category has none to preview -- but still gets the same leading spacer",
   );
 });
@@ -1750,7 +1801,7 @@ check("test_PRD_P0_138_nested_categories__the_add_form_is_the_last_item_not_inse
   const body = await (await get("/items", MANAGER, env(mirror))).text();
   const categoriesBodyIdx = body.indexOf('<div class="categories-body">');
   const treeIdx = body.indexOf('<div class="categories-tree">', categoriesBodyIdx);
-  const topAddFormIdx = body.indexOf('<div class="category-add-form" hidden>', categoriesBodyIdx);
+  const topAddFormIdx = body.indexOf('<form method="post" action="/items/wool-coat/categories/create" class="category-add-form" hidden>', categoriesBodyIdx);
   assert.ok(treeIdx > -1 && topAddFormIdx > treeIdx, "the top-level add-form must come after the tree, not before it");
 
   /* Outerwear -> Coats -> Casual (seedCategoryTree). Coats has a child
@@ -1759,30 +1810,24 @@ check("test_PRD_P0_138_nested_categories__the_add_form_is_the_last_item_not_inse
   const coatsNameIdx = body.indexOf('data-category-id="cat2" value="Coats"');
   const coatsChildrenIdx = body.indexOf('<div class="category-children">', coatsNameIdx);
   const casualNameIdx = body.indexOf('data-category-id="cat3" value="Casual"', coatsChildrenIdx);
-  const coatsAddFormIdx = body.indexOf('<button type="button" class="category-create" data-parent-id="cat2">', coatsChildrenIdx);
+  const coatsAddFormIdx = body.indexOf('<input type="hidden" name="parent_id" value="cat2">', coatsChildrenIdx);
   assert.ok(
     casualNameIdx > coatsChildrenIdx && coatsAddFormIdx > casualNameIdx,
     "Coats' own add-form must render after its existing child Casual, not before it",
   );
 });
 
-check("test_PRD_P0_138_nested_categories__the_add_button_is_double_wide_to_stay_aligned_with_the_row_above_it", async () => {
-  /* The owner's own words: "when I enter the category name, the add
-     button needs to be double wide so that it all fits nicely and is
-     perfectly aligned with the rest of the fields above it." An add-form
-     has one fewer trailing column than a real node row (no remove button
-     -- there is nothing to remove yet), so its own Add button must cover
-     BOTH the remove button's own slot and the real add button's, plus
-     the gap that would have sat between them, to land its own right edge
-     exactly under a node row's own rightmost button: one button width,
-     doubled, PLUS the row's own 6px gap -- not a plain doubling.
-     REVISED: "make sure that the add button has the same height as all
+check("test_PRD_P0_138_nested_categories__the_row_buttons_share_the_chevrons_own_size", async () => {
+  /* REVISED: "make sure that the add button has the same height as all
      the other buttons... so that all the chevrons['] content is always
-     aligned with the chevrons" -- the row's own buttons are no longer a
-     separate hardcoded 20px, they size off CATEGORY_NODE_TOGGLE_PX too
-     (the same constant every chevron on the tile already shares), so
-     this test derives its expected numbers from that rendered value
-     rather than assuming either number by hand. */
+     aligned with the chevrons" -- the row's own remove/add-toggle buttons
+     are no longer a separate hardcoded 20px, they size off
+     CATEGORY_NODE_TOGGLE_PX too (the same constant every chevron on the
+     tile already shares). The standalone "Add" button this test used to
+     also check (its own separate double-wide sizing) is gone outright --
+     "we probably don't even need the add button because the checkbox
+     would save that" -- creating a category folds into the tile's one
+     big Save now instead. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const body = await (await get("/items", MANAGER, env(mirror))).text();
@@ -1790,15 +1835,10 @@ check("test_PRD_P0_138_nested_categories__the_add_button_is_double_wide_to_stay_
   assert.ok(toggleWidth, "the toggle's own width must be found in the rendered CSS");
   assert.match(
     body,
-    new RegExp(`\\.category-add-toggle, \\.category-remove-toggle, \\.category-create\\s*\\{[^}]*width: ${toggleWidth}px; height: ${toggleWidth}px;`),
+    new RegExp(`\\.category-add-toggle, \\.category-remove-toggle\\s*\\{[^}]*width: ${toggleWidth}px; height: ${toggleWidth}px;`),
     "every row button is the exact same size as the chevrons, not its own separate number",
   );
-  const doubleWidth = Number(toggleWidth) * 2 + 6;
-  assert.match(
-    body,
-    new RegExp(`\\.category-create\\s*\\{\\s*width: ${doubleWidth}px;`),
-    "the chevron width doubled, plus the row's own 6px gap",
-  );
+  assert.doesNotMatch(body, /class="category-create"/, "the standalone Add button is gone -- Save-all creates the category now");
 });
 
 check("test_PRD_P0_138_nested_categories__the_add_form_also_takes_a_numeric_id", async () => {
@@ -1811,24 +1851,23 @@ check("test_PRD_P0_138_nested_categories__the_add_form_also_takes_a_numeric_id",
   seedProduct(mirror);
   seedCategoryTree(mirror);
   const body = await (await get("/items", MANAGER, env(mirror))).text();
-  const matches = [...body.matchAll(/<input class="category-new-numeric-id" placeholder="ID" maxlength="2" pattern="\\d\{2\}"/g)];
+  const matches = [...body.matchAll(/<input class="category-new-numeric-id" name="numeric_id" placeholder="ID" maxlength="2" pattern="\\d\{2\}"/g)];
   assert.equal(matches.length, 5, "every add-form (the top-level one, plus one per existing category/subcategory) must carry its own ID field");
 });
 
 check("test_PRD_P0_138_nested_categories__creating_a_category_posts_the_id_field_when_filled_in", async () => {
+  /* REVISED: "we probably don't even need the add button because the
+     checkbox would save that" -- there is no dedicated JS create flow to
+     read the ID field any more. .category-new-numeric-id is a real,
+     named form field (name="numeric_id") inside .category-add-form, so
+     a filled-in ID travels to /categories/create the same way any other
+     field's value travels to its own route: as part of new FormData(form)
+     when the tile's one big Save submits this form. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const body = await (await get("/items", MANAGER, env(mirror))).text();
-  assert.match(
-    body,
-    /const numericId = addForm\.querySelector\("\.category-new-numeric-id"\)\?\.value\.trim\(\) \?\? "";/,
-    "the create-category flow must read the ID field's value",
-  );
-  assert.match(
-    body,
-    /if \(numericId\) body\.set\("numeric_id", numericId\);/,
-    "a filled-in ID must be sent along with the new category",
-  );
+  const matches = [...body.matchAll(/<input class="category-new-numeric-id" name="numeric_id" placeholder="ID"/g)];
+  assert.ok(matches.length > 0, "the new-category ID field must be a real, named form field");
 });
 
 check("test_PRD_P0_138_nested_categories__staff_cannot_reach_either_route_before_square_is_ever_touched", async () => {
@@ -2808,13 +2847,19 @@ check("test_PRD_P0_132_item_deep_link__category_create_rename_and_remove_all_sna
   /* Category actions already reload on success (the tree is shared, global
      data); without this, that reload would always land back at a fully
      collapsed view no matter how deep the owner had navigated to make the
-     edit in the first place. */
+     edit in the first place.
+     REVISED: creating a category (and setting its own numeric_id) no
+     longer has its own dedicated reload path -- both fold into the
+     tile's one big Save now, which already snapshots the hash the exact
+     same way before its own reload. Only renameCategory and
+     removeCategory still have their own separate immediate-apply reload;
+     saveTile covers the rest. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
   const matches = [...body.matchAll(/setDeepLinkHash\(tile\);\s*\n\s*location\.reload\(\);/g)];
-  assert.ok(matches.length >= 3, "createCategory, renameCategory, and removeCategory must each snapshot the hash right before reloading");
+  assert.ok(matches.length >= 3, "renameCategory, removeCategory, and saveTile must each snapshot the hash right before reloading");
 });
 
 /* ─────────────────────────────────────────────────────────────────────────

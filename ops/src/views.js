@@ -1988,25 +1988,30 @@ ${INPUT_BAR_CSS}
    now sized off that exact same constant, the same fix already applied
    to .variations-toggle/.categories-toggle, so every button/chevron
    anywhere in the category UI is one consistent size by construction. */
-.category-add-toggle, .category-remove-toggle, .category-create {
+.category-add-toggle, .category-remove-toggle {
   flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; padding: 0; font-size: 13px; line-height: 1;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--muted); cursor: pointer;
 }
 .category-remove-toggle:disabled {
   cursor: not-allowed; opacity: 0.4;
 }
-/* "When I enter the category name, the add button needs to be double
-   wide so that it all fits nicely and is perfectly aligned with the
-   rest of the fields above it." An add-form has one fewer trailing
-   column than a real node row -- no remove button, since there is
-   nothing to remove yet -- so its own Add button has to fill BOTH the
-   remove button's own slot and the real add button's, plus the gap that
-   would have sat between them, to land its own right edge exactly where
-   a node row's own rightmost button does: one button width, doubled,
-   plus the row's own 6px gap -- recomputed here against the same
-   CATEGORY_NODE_TOGGLE_PX the row's own buttons now use, not a number
-   pinned to their old, separate 20px. */
-.category-create { width: ${CATEGORY_NODE_TOGGLE_PX * 2 + 6}px; padding: 0; }
+/* REVISED: "we probably don't even need the add button because the
+   checkbox would save that" — .category-create (the standalone Add
+   button, and its own "double wide" sizing to stay aligned with a real
+   row) is gone outright now that creating a category folds into the
+   tile's one big Save like everything else; nothing replaces it.
+   .category-add-form and .category-number-form (below) are real <form>s
+   now, both living inside .item-edit, so .item-edit form's own blanket
+   display:flex/flex-direction:column (further below) would otherwise
+   win on both — the exact same specificity trap .category-title-row
+   form already had to be fixed for. .category-add-form needs its own
+   ROW layout preserved (two classes beats one class + one tag,
+   regardless of source order); .category-number-form needs to disappear
+   entirely into .category-node-row's own flex layout instead, the same
+   "form as a transparent wrapper" trick .category-title-row form
+   already uses for the very same reason. */
+.item-edit .category-add-form { display: flex; gap: 6px; align-items: center; padding: 3px 4px 3px 0; margin-top: 0; }
+.item-edit .category-number-form { display: contents; }
 /* Collapsed by default — the same [hidden]-vs-class-selector trap the
    add-form fix above already caught means this MUST be a real display:none
    here, not left to a plain [hidden] toggle, since .category-children has
@@ -2019,8 +2024,10 @@ ${INPUT_BAR_CSS}
    here would otherwise beat the [hidden] attribute's own UA-stylesheet
    display:none, since a class selector outranks an attribute selector —
    caught live, every add-form showing open by default instead of only
-   the one just clicked. */
-.category-add-form { display: flex; gap: 6px; align-items: center; padding: 3px 4px 3px 0; }
+   the one just clicked. (The visible-state rule itself now lives above,
+   as .item-edit .category-add-form, for the specificity reasons
+   explained there — this one only needs to win the hidden case, which
+   its own two-selector-part specificity already does regardless.) */
 .category-add-form[hidden] { display: none; }
 .item-edit .category-new-name {
   flex: 1 1 auto; min-width: 0; font: inherit; font-size: 12px; padding: 3px 5px;
@@ -2219,7 +2226,7 @@ const MEDIA_BASE_URL = "https://media.vemians.com";
    tree is Square-backed, not per-product, so what one tile creates or
    numbers shows up identically in every other tile's own accordion the
    next time the page loads. */
-function renderCategoryNodes(categories, parentId) {
+function renderCategoryNodes(categories, parentId, handle) {
   const children = categories
     .filter((c) => (c.parent_id ?? null) === parentId)
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -2275,22 +2282,35 @@ function renderCategoryNodes(categories, parentId) {
          its own inline padding-left (below) alone only matched a child's
          outer BOX, one toggle-width short of that child's own NAME
          column, which starts after ITS OWN toggle-or-spacer plus the
-         row's own gap. */
+         row's own gap.
+         REVISED: "I don't see it turning orange... I think you should be
+         triggering the main checkbox orange... we probably don't even
+         need the add button because the checkbox would save that." Both
+         .category-add-form (below) and this row's own numeric_id field
+         are now real <form>s posting to the SAME routes they always did,
+         folded into the tile's one big Save the exact same way every
+         other field already is — no separate immediate fetch, no
+         dedicated Add/apply button. category_id rides along as a hidden
+         field, the same convention the item-level category picker's own
+         hidden input already uses. */
       return `<div class="category-node" style="padding-left: ${parentId === null ? 0 : CATEGORY_NODE_TOGGLE_PX}px">
         <div class="category-node-row">
           ${toggle}
           <input type="text" class="category-node-name" data-category-id="${esc(c.id)}" value="${esc(c.name)}" maxlength="60" title="Click to rename">
-          <input class="category-numeric-id" data-category-id="${esc(c.id)}" data-category-name="${esc(c.name)}" value="${esc(c.numeric_id ?? "")}" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — leave blank to remove it">
+          <form method="post" action="/items/${esc(handle)}/categories/number" class="category-number-form">
+            <input type="hidden" name="category_id" value="${esc(c.id)}">
+            <input class="category-numeric-id" name="numeric_id" data-category-id="${esc(c.id)}" data-category-name="${esc(c.name)}" value="${esc(c.numeric_id ?? "")}" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — leave blank to remove it">
+          </form>
           <button type="button" class="category-remove-toggle" data-category-id="${esc(c.id)}" aria-label="Remove ${esc(c.name)}"${removeDisabled}>${TRASH_ICON}</button>
           <button type="button" class="category-add-toggle" data-parent-id="${esc(c.id)}" aria-label="Add a subcategory under ${esc(c.name)}" title="Add a subcategory">+</button>
         </div>
-        <div class="category-children">${renderCategoryNodes(categories, c.id)}</div>
-        <div class="category-add-form" hidden style="padding-left: ${CATEGORY_NODE_TOGGLE_PX}px">
+        <div class="category-children">${renderCategoryNodes(categories, c.id, handle)}</div>
+        <form method="post" action="/items/${esc(handle)}/categories/create" class="category-add-form" hidden style="padding-left: ${CATEGORY_NODE_TOGGLE_PX}px">
+          <input type="hidden" name="parent_id" value="${esc(c.id)}">
           <span class="category-node-toggle-spacer"></span>
-          <input type="text" class="category-new-name" placeholder="Subcategory name" maxlength="60">
-          <input class="category-new-numeric-id" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — optional, can be set later">
-          <button type="button" class="category-create" data-parent-id="${esc(c.id)}">Add</button>
-        </div>
+          <input type="text" class="category-new-name" name="name" placeholder="Subcategory name" maxlength="60">
+          <input class="category-new-numeric-id" name="numeric_id" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — optional, can be set later">
+        </form>
       </div>`;
     })
     .join("");
@@ -2578,7 +2598,13 @@ function itemTile(product, canEdit, allCategories = []) {
      inserted visually above it — and carries the same leading
      .category-node-toggle-spacer a top-level node's own row already has
      (it needs no padding-left of its own, unlike the per-node add-form
-     above: a top-level node's own indent is already 0). */
+     above: a top-level node's own indent is already 0).
+     REVISED YET AGAIN: "I don't see it turning orange... trigger the
+     main checkbox orange... we probably don't even need the add button
+     because the checkbox would save that." A real <form> now, folded
+     into the tile's one big Save exactly like every other field — no
+     separate immediate fetch, no dedicated Add button. parent_id (blank
+     here — a new TOP-LEVEL category) rides along as a hidden field. */
   const categoriesAccordion = canEdit
     ? `<div class="categories-accordion">
          <div class="categories-header">
@@ -2591,16 +2617,16 @@ function itemTile(product, canEdit, allCategories = []) {
            <div class="categories-tree">
              ${
                allCategories.length
-                 ? renderCategoryNodes(allCategories, null)
+                 ? renderCategoryNodes(allCategories, null, product.handle)
                  : `<p class="item-empty">No categories yet.</p>`
              }
            </div>
-           <div class="category-add-form" hidden>
+           <form method="post" action="/items/${esc(product.handle)}/categories/create" class="category-add-form" hidden>
+             <input type="hidden" name="parent_id" value="">
              <span class="category-node-toggle-spacer"></span>
-             <input type="text" class="category-new-name" placeholder="Category name" maxlength="60">
-             <input class="category-new-numeric-id" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — optional, can be set later">
-             <button type="button" class="category-create" data-parent-id="">Add</button>
-           </div>
+             <input type="text" class="category-new-name" name="name" placeholder="Category name" maxlength="60">
+             <input class="category-new-numeric-id" name="numeric_id" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — optional, can be set later">
+           </form>
          </div>
        </div>`
     : "";
@@ -2768,16 +2794,22 @@ function itemTile(product, canEdit, allCategories = []) {
      <form> INSIDE the renamed disclosure, separate from existingFieldInputs'
      own — safe to split (catalog.set_custom_fields' own fields argument is
      a PATCH; a key not mentioned is left untouched, so each half stays
-     correct submitted alone) and necessary to: categoriesAccordion's own
-     numeric_id/new-name inputs carry no `name` (so nesting them changes
-     nothing about what actually submits), but nesting them inside an
-     ACTUAL <form> would make the generic dirty-tracking fallthrough
-     (onItemsGridChange's own `.item-edit form` match) wrongly flag this
-     form dirty on every numeric_id edit, even though that field already
-     applies instantly through its own separate handler and "belongs to
-     no form at all, on purpose" (that handler's own comment). Keeping
-     categoriesAccordion a sibling of both forms, inside the <details> but
-     outside either <form>, avoids that regression entirely. */
+     correct submitted alone). categoriesAccordion stays a sibling of both
+     of these two forms, never nested inside either — its own category
+     name/numeric_id fields post to entirely different routes with an
+     entirely different body shape (categories/create, categories/number),
+     so folding them into a custom-fields PATCH would be simply wrong, not
+     just untidy.
+     REVISED: categoriesAccordion's own inputs DO now carry their own real
+     <form>s of their own (.category-add-form, .category-number-form,
+     inside renderCategoryNodes/above) — "IDs must also trigger dirty
+     state... we probably don't even need the add button because the
+     checkbox would save that" — the opposite of the ORIGINAL reasoning
+     here, which deliberately kept them formless so the generic
+     ".item-edit form" dirty-tracking fallthrough would never touch them.
+     That was correct for the immediate-apply design this replaces; it is
+     not correct any more now that both fields fold into the tile's one
+     big Save like everything else. */
   const customFieldsForm = canEdit
     ? `<div class="item-edit item-edit-admin">
          ${
@@ -3306,11 +3338,6 @@ document.getElementById("items-grid").addEventListener("click", async (e) => {
     }
     return;
   }
-  const createBtn = e.target.closest(".category-create");
-  if (createBtn) {
-    await createCategory(createBtn);
-    return;
-  }
   const saveBtn = e.target.closest(".item-save-all");
   if (saveBtn) {
     await saveTile(saveBtn.closest(".item-tile"));
@@ -3492,14 +3519,21 @@ document.getElementById("items-grid").addEventListener(
   true,
 );
 
-/* A category's own numeric_id applies the moment it changes (blur/Enter),
-   like the stock stepper's own +/- do — not part of the tile's big
-   resend-everything Save (this field belongs to no form at all, on
-   purpose), since this is a GLOBAL, Square-backed value shared by every
-   tile, not a per-product edit to batch with anything else. */
-document.getElementById("items-grid").addEventListener("change", async (e) => {
+/* REVISED: a category's own numeric_id used to apply the moment it
+   changed, immediately, on its own — "IDs must also trigger dirty
+   state," so it now lives inside .category-number-form and is folded
+   into the tile's one big Save like everything else (the generic
+   ".item-edit form" fallthrough in onItemsGridChange, above, already
+   covers its own dirty-tracking; nothing extra needed here for that
+   half). "As soon as I enter that ID... it should immediately in my
+   browser update its sorting" is the one part that still cannot wait
+   for a save-and-reload round trip — reorderSiblingsByNumericId runs on
+   every keystroke (input, not change/blur), moving the row in the DOM
+   the moment the typed value would change its own sort position, well
+   before the actual write is ever sent. */
+document.getElementById("items-grid").addEventListener("input", (e) => {
   if (!e.target.matches(".category-numeric-id")) return;
-  await setCategoryNumber(e.target);
+  reorderSiblingsByNumericId(e.target);
 });
 
 /* A category or subcategory's own NAME, unlike its numeric_id, is a real
@@ -3663,81 +3697,40 @@ async function stepStock(button) {
   }
 }
 
-/* "An add category button... that will create a subcategory in the
-   expanded view" — a real Square write (catalog.create_category), applied
-   immediately like every other field on this tile. A full reload on
-   success, not a client-side DOM insert: the categories tree is the SAME
-   global data in every tile, so a reload picks up the new node everywhere
-   at once rather than this one tile alone drifting ahead of the rest. */
-async function createCategory(button) {
-  const addForm = button.closest(".category-add-form");
-  const nameInput = addForm.querySelector(".category-new-name");
-  const name = nameInput.value.trim();
-  const existingError = addForm.nextElementSibling;
-  if (existingError?.classList.contains("item-edit-error")) existingError.remove();
-  if (!name) {
-    showFormError(addForm, "Give the category a name.");
-    return;
-  }
-  const tile = button.closest(".item-tile");
-  const handle = tile?.dataset.handle;
-  const numericId = addForm.querySelector(".category-new-numeric-id")?.value.trim() ?? "";
-  const body = new FormData();
-  body.set("name", name);
-  body.set("parent_id", button.dataset.parentId || "");
-  if (numericId) body.set("numeric_id", numericId);
-  button.disabled = true;
-  try {
-    const res = await fetch("/items/" + handle + "/categories/create", { method: "POST", body });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      showFormError(addForm, data.error || "That category could not be created.");
-      return;
-    }
-    /* "I should not have the page reload and lose everything... that
-       actually should be a deep link." setDeepLinkHash reads the tile's
-       OWN currently-open Admin/Categories/node state right before the
-       reload it's about to trigger, so the very next load restores
-       exactly this view instead of collapsing back to the top. */
-    setDeepLinkHash(tile);
-    location.reload();
-  } catch {
-    showFormError(addForm, "Could not reach the server — try again.");
-  } finally {
-    button.disabled = false;
-  }
-}
-
-/* numeric_id is OURS, not Square's, and RETROACTIVELY re-sorts every
-   product whose style_id now matches it (catalog.set_category_number) —
-   applied the moment it changes, no reload needed: the input already
-   shows the value the person typed, and nothing else on THIS tile's own
-   screen depends on some OTHER product's category having just moved. */
-async function setCategoryNumber(input) {
-  const row = input.closest(".category-node-row");
-  const existingError = row?.nextElementSibling;
-  if (existingError?.classList.contains("item-edit-error")) existingError.remove();
-  const handle = input.closest(".item-tile")?.dataset.handle;
-  const previousValue = input.defaultValue;
-  const body = new FormData();
-  body.set("category_id", input.dataset.categoryId);
-  body.set("numeric_id", input.value.trim());
-  input.disabled = true;
-  try {
-    const res = await fetch("/items/" + handle + "/categories/number", { method: "POST", body });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      input.value = previousValue;
-      showFormError(row, data.error || "That number was refused.");
-      return;
-    }
-    input.setAttribute("value", input.value.trim());
-  } catch {
-    input.value = previousValue;
-    showFormError(row, "Could not reach the server — try again.");
-  } finally {
-    input.disabled = false;
-  }
+/* REVISED: "I don't see it turning orange... trigger the main checkbox
+   orange... we probably don't even need the add button because the
+   checkbox would save that." Creating a category, and setting a
+   category's own numeric_id, are no longer their own immediate fetch —
+   .category-add-form and .category-number-form are real <form>s now,
+   dirty-tracked and submitted by the tile's one big Save exactly like
+   every other field (onItemsGridChange's own generic ".item-edit form"
+   fallthrough, saveTile's own dirty-form scan) — createCategory() and
+   setCategoryNumber() are both gone outright, nothing replaces them.
+   The one thing that still can't wait for a page reload: "I expect it
+   to sort based on that ID... it should immediately in my browser
+   update its sorting" — reorderSiblingsByNumericId (below) handles that
+   half on its own, client-side, independent of when the save itself
+   actually happens. */
+function reorderSiblingsByNumericId(input) {
+  const node = input.closest(".category-node");
+  const parent = node?.parentElement;
+  if (!parent) return;
+  const siblings = [...parent.querySelectorAll(":scope > .category-node")];
+  /* Stable sort (guaranteed by spec since ES2019): reading each sibling's
+     own numeric-id input LIVE (not its original server-rendered value)
+     means a sibling with its own pending, unsaved edit still sorts by
+     what is actually typed. Blank/unassigned sorts last, since it has no
+     real position to claim yet — everything else is a plain ascending
+     numeric comparison, "sorts underneath the lower ID." Ties (including
+     blank vs. blank) fall back to whatever order they were already in,
+     which is alphabetical by name on a fresh render and otherwise
+     whatever the person's own previous edits already settled into. */
+  const key = (el) => {
+    const raw = el.querySelector(":scope > .category-node-row .category-numeric-id")?.value.trim();
+    return raw ? Number(raw) : Infinity;
+  };
+  const sorted = [...siblings].sort((a, b) => key(a) - key(b));
+  parent.append(...sorted);
 }
 
 /* "All of these categories and subcategories need to be editable fields...

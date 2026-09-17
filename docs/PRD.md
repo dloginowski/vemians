@@ -4984,6 +4984,35 @@ that does not trace to one of these is a process failure (see §12).
     right edge still lands exactly under a real row's own rightmost button once that button's width
     changed too.
 
+    **REVISED YET AGAIN — creating a category and setting its own numeric_id both fold into the
+    tile's one big Save now, dropping their own separate immediate-apply mechanisms entirely.** The
+    owner's own words, first about creating one: "I just added a new subcategory and I typed in the
+    category name, but I don't see it turning orange and the add button turning orange... I think you
+    should be triggering the main checkbox orange, right? Not the add. We probably don't even need the
+    add button because the checkbox would save that." Then, immediately after, about numbering one:
+    "IDs must also trigger dirty state." Both `.category-add-form` and the numeric_id field's own new
+    `.category-number-form` are real `<form>`s now — the FIRST time either has ever been one —
+    submitting to the exact same routes (`/categories/create`, `/categories/number`) they always did,
+    but through the tile's own generic dirty-tracking and `saveTile`'s own dirty-form batch, exactly
+    like every other field on this tile, rather than their own dedicated immediate `fetch()`.
+    `createCategory()` and `setCategoryNumber()` — and the standalone `.category-create` "Add" button
+    together with its own now-pointless "double wide" sizing — are gone outright, nothing replaces
+    them. `category_id`/`parent_id` ride along as hidden fields inside their own forms, the same
+    convention the item-level category picker's own hidden `category_id` input already established.
+    Both new forms needed the exact same specificity fix `.category-title-row form` already required:
+    `.item-edit form`'s own blanket `display:flex; flex-direction:column` would otherwise beat either
+    one's own layout, so `.item-edit .category-add-form`/`.item-edit .category-number-form` (one
+    keeping its own row layout, the other disappearing entirely into `.category-node-row`'s own flex
+    layout via `display: contents`, the same "transparent form wrapper" trick) both outrank it on
+    specificity alone, regardless of source order. **The one thing that could not simply wait for the
+    next Save-and-reload: "as soon as I change that ID, I expect it to sort based on that ID... it's
+    not a server thing, it should immediately in my browser update its sorting and make sure that it
+    sorts underneath the lower ID."** `reorderSiblingsByNumericId` runs on every keystroke (`input`,
+    not `change`/blur) — well before any write is ever sent, batched or otherwise — reading every
+    sibling `.category-node`'s own numeric-id LIVE (so a sibling with its own pending, unsaved edit
+    still sorts correctly) and moving the real DOM nodes into ascending order via `parent.append(...)`,
+    a blank/unassigned id sorting last since it has no real position yet to claim.
+
 74. **`Test-PRD-P0-139-honest_write_failures`** — A Square write refused with a plain `Square POST
     /v2/catalog/object failed with 400` and nothing else — the owner's own words, pasting exactly that
     line after an edit silently went nowhere: "just make sure all of the fields work... with this post
