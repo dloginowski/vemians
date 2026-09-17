@@ -62,6 +62,7 @@ import { normaliseWebhook, verifyWebhook, SIGNATURE_HEADER, LEGACY_SIGNATURE_HEA
 import { createMirror, SYNC_ACTOR } from "../mirror.js";
 import { createSquareAdapter, orderFromSquare } from "../index.js";
 import { moneyFromSquare, MoneyError } from "../money.js";
+import { listVendors } from "../vendors.js";
 import { derivedId, NS_SQUARE_INVENTORY_CHANGE } from "../ids.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -1606,6 +1607,76 @@ check("test_PRD_P0_136_square_custom_attributes__syncing_a_vendor_lets_a_variant
   const vendorRows = rows(s.mirrorDb, "SELECT name FROM mirror_vendor WHERE external_ref = 'SQ_VENDOR_1'");
   assert.equal(vendorRows.length, 1, "one row, not two");
   assert.equal(vendorRows[0].name, "Acme Mills Inc.", "Square is authoritative for the vendor's own name too");
+});
+
+check("test_PRD_P0_136_square_custom_attributes__list_vendors_sends_a_non_empty_filter_square_now_requires", async () => {
+  /* A real bug, caught live from the owner's own copied error: "Square
+     POST /v2/vendors/search failed with 400 —
+     INVALID_REQUEST_ERROR/VALUE_EMPTY (field: filter): Value for filter
+     should not be empty." listVendors used to send a bare {} body for
+     "everything" — Square's own current API reference (confirmed against
+     a real documented example, since developer.squareup.com itself is
+     unreachable from this environment) now requires query.filter to be
+     present and non-empty. This fake asserts the EXACT shape Square's own
+     docs show, not just that a body was sent — the same discipline
+     idempotency_key/category material get elsewhere in this suite. */
+  const seenBodies = [];
+  const fetchImpl = async (url, init = {}) => {
+    if (!url.includes("/v2/vendors/search")) return new Response(JSON.stringify({ errors: [{ code: "NOT_FOUND" }] }), { status: 404 });
+    const body = init.body ? JSON.parse(init.body) : {};
+    seenBodies.push(body);
+    if (!body?.query?.filter || Object.keys(body.query.filter).length === 0) {
+      return new Response(
+        JSON.stringify({ errors: [{ category: "INVALID_REQUEST_ERROR", code: "VALUE_EMPTY", field: "filter" }] }),
+        { status: 400 },
+      );
+    }
+    return new Response(JSON.stringify({ vendors: [{ id: "SQ_VENDOR_1", name: "Acme Mills", status: "ACTIVE" }] }));
+  };
+  const client = createSquareClient(squareEnv(), { fetchImpl });
+
+  const vendors = await listVendors(client);
+  assert.equal(vendors.length, 1);
+  assert.deepEqual(
+    seenBodies[0]?.query?.filter?.status?.slice().sort(),
+    ["ACTIVE", "INACTIVE"],
+    "both statuses, matching this function's own \"the full list\" contract — an inactive vendor must not be excluded by the fix",
+  );
+});
+
+check("test_PRD_P0_136_square_custom_attributes__a_full_catalog_pull_does_not_die_on_the_vendor_list_first", async () => {
+  /* listVendors runs FIRST, unconditionally, inside pullCatalog
+     (shared/commerce/square/index.js), with no try/catch around it — the
+     real bug above meant EVERY pullCatalog call, cron-scheduled or
+     manual, threw before ever reaching a single catalog object. Proven
+     here the same way P0-37's own pagination test proves the whole
+     adapter, not just the pure normaliser: a fake server that enforces
+     Square's own real current validation on /v2/vendors/search, and a
+     full sweep that must still complete against it. */
+  const fetchImpl = async (url, init = {}) => {
+    if (url.includes("/v2/vendors/search")) {
+      const body = init.body ? JSON.parse(init.body) : {};
+      if (!body?.query?.filter || Object.keys(body.query.filter).length === 0) {
+        return new Response(
+          JSON.stringify({ errors: [{ category: "INVALID_REQUEST_ERROR", code: "VALUE_EMPTY", field: "filter" }] }),
+          { status: 400 },
+        );
+      }
+      return new Response(JSON.stringify({ vendors: [] }));
+    }
+    if (url.includes("/v2/catalog/list")) return new Response(JSON.stringify({ objects: [] }));
+    return new Response(JSON.stringify({ errors: [{ code: "NOT_FOUND" }] }), { status: 404 });
+  };
+  const { mirrorDb, commerceDb } = stores();
+  const adapter = createSquareAdapter(squareEnv(), {
+    mirrorDb,
+    commerceDb,
+    locationId: OUR_LOCATION,
+    clientOptions: { fetchImpl },
+  });
+
+  const counts = await adapter.pullCatalog({ full: true });
+  assert.equal(counts.productsInserted, 0, "an empty catalog, but a COMPLETED one -- not a throw");
 });
 
 check("test_PRD_P0_136_square_custom_attributes__an_unsynced_vendor_id_resolves_to_null_not_a_guess", async () => {

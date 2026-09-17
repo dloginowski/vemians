@@ -23,7 +23,19 @@ import { idempotencyKey } from "./ids.js";
 export async function listVendors(client) {
   const vendors = [];
   for await (const page of client.paginate("POST", "/v2/vendors/search", {
-    body: {},
+    /* A real bug, caught live from the owner's own copied error:
+       "Square POST /v2/vendors/search failed with 400 —
+       INVALID_REQUEST_ERROR/VALUE_EMPTY (field: filter): Value for filter
+       should not be empty." SearchVendors used to accept an unfiltered
+       {} body for "everything"; Square's own current API reference
+       (confirmed against a real documented example, since
+       developer.squareup.com is unreachable from this environment) now
+       requires query.filter to be present and non-empty. Filtering on
+       BOTH statuses is still "the full list" this function's own doc
+       comment promises — status is mapped to "inactive"/"active" right
+       below, so an inactive vendor still needs to come back, not be
+       excluded by the fix. */
+    body: { query: { filter: { status: ["ACTIVE", "INACTIVE"] } } },
     cursorIn: "body",
   })) {
     for (const v of page.vendors ?? []) {
