@@ -1796,11 +1796,15 @@ ${INPUT_BAR_CSS}
    --image-ground/--rule "second surface" pattern .ticket-tile already
    uses) that visibly INVITES a click, since the whole thing now toggles
    the body below, not just the caret. */
+/* "One above variants and one above categories, and then one at the very
+   top -- that's three that I want to remove." The header's own full
+   border (all four sides, including the top edge this reads as a "bar")
+   is gone; the shaded background/rounded corners/padding stay, so it
+   still reads as its own header bar without a drawn line around it. */
 .variations-header {
   display: flex; align-items: center; gap: 6px; cursor: pointer;
-  background: var(--image-ground); border: 1px solid var(--rule); border-radius: 6px; padding: 5px 8px;
+  background: var(--image-ground); border-radius: 6px; padding: 5px 8px;
 }
-.variations-header:hover { border-color: var(--accent); }
 .variations-toggle {
   flex: 0 0 auto; width: 18px; height: 18px; padding: 0; display: inline-flex; align-items: center;
   justify-content: center; border: none; background: transparent; color: var(--muted); cursor: pointer;
@@ -1847,9 +1851,12 @@ ${INPUT_BAR_CSS}
    ever left "dirty, not yet saved" in the first place (every field here
    applies immediately, no batching), so there is no orange state for it
    to earn at all right now. */
+/* Same removal as .variations-header above, for the identical reason:
+   the full border (its own top edge read as "a bar above categories")
+   is gone; the shaded background/rounded corners/padding stay. */
 .categories-header {
   display: flex; align-items: center; gap: 6px; cursor: pointer;
-  background: var(--image-ground); border: 1px solid var(--rule); border-radius: 6px; padding: 5px 8px;
+  background: var(--image-ground); border-radius: 6px; padding: 5px 8px;
 }
 .categories-toggle {
   flex: 0 0 auto; width: 18px; height: 18px; padding: 0; display: inline-flex; align-items: center;
@@ -1963,13 +1970,13 @@ ${INPUT_BAR_CSS}
   flex: 1 1 auto; min-width: 0; font: inherit; font-size: 12px; padding: 3px 5px;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
 }
+/* REVISED: "one at the very top... that's three that I want to remove" —
+   the one bar this panel used to keep (right above the custom-fields/
+   Admin block) is now gone too, along with the .variations-header/
+   .categories-header borders above. Nothing in the whole expanded item
+   detail view draws a dividing line anymore; margin-top/padding-top
+   alone still keep each section visually distinct. */
 .item-edit { margin-top: 2px; padding-top: 6px; cursor: default; }
-/* "Remove all horizontal bars from the details panel, except the one
-   right above the admin dropdown" — .item-edit wraps BOTH the title/
-   vendor block above and the custom-fields/Admin block below (same
-   class, two separate divs); only the second one keeps its own top
-   border, via this second class added just to it. */
-.item-edit.item-edit-admin { border-top: 1px solid var(--rule); }
 .item-edit form { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 .item-add-field { margin: 2px 0; }
 .item-add-field summary { cursor: pointer; color: var(--muted); font-size: 11px; }
@@ -2682,7 +2689,7 @@ function itemTile(product, canEdit, allCategories = []) {
      categoriesAccordion a sibling of both forms, inside the <details> but
      outside either <form>, avoids that regression entirely. */
   const customFieldsForm = canEdit
-    ? `<div class="item-edit item-edit-admin">
+    ? `<div class="item-edit">
          ${
            existingFieldInputs
              ? `<form method="post" action="/items/${esc(product.handle)}/custom-fields">${existingFieldInputs}</form>`
