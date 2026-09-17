@@ -387,10 +387,20 @@ CREATE INDEX idx_mirror_change_sku ON mirror_inventory_change (sku, occurred_at 
 -- Square's catalog webhook (`catalog.version.updated`) says only that SOMETHING
 -- changed, never what. So the cursor here is what makes the follow-up a
 -- SearchCatalogObjects since a timestamp rather than a full re-list every time.
+--
+-- 'catalog_full' tracks the periodic FULL ListCatalog sweep's own timestamp
+-- (ops/src/sync.js's own FULL_SWEEP_INTERVAL_MS), independent of 'catalog'
+-- itself — an incremental SearchCatalogObjects only ever asks for objects
+-- Square considers recently updated, so a real relationship Square already
+-- holds (a category's own parent_category, set once and never touched
+-- again) can never resurface on an incremental sweep alone, no matter how
+-- many of them run; only a genuine full sweep re-reads it. This row is what
+-- lets that full sweep keep happening on its own, without anyone needing to
+-- notice and trigger one by hand.
 
 CREATE TABLE mirror_sync (
-  id          TEXT PRIMARY KEY               -- 'catalog' | 'inventory'
-                CHECK (id IN ('catalog','inventory')),
+  id          TEXT PRIMARY KEY               -- 'catalog' | 'inventory' | 'catalog_full'
+                CHECK (id IN ('catalog','inventory','catalog_full')),
   cursor      TEXT,
   ran_at      TEXT NOT NULL DEFAULT (datetime('now')),
   ok          INTEGER NOT NULL DEFAULT 1,
