@@ -1609,6 +1609,24 @@ check("test_PRD_P0_138_nested_categories__the_categories_header_never_turns_oran
   );
 });
 
+check("test_PRD_P0_138_nested_categories__the_name_input_never_turns_orange_on_a_plain_hover_either", async () => {
+  /* The owner's own words: "When I click on Dresses category and I click
+     on the entry field, it immediately turns orange. That's not right.
+     It should only become orange as soon as I start typing and I change
+     it." Left over from when the name was a static <span>, hovering an
+     expandable row used to recolor its own name text orange -- clicking
+     into the field to edit it unavoidably hovers it first, so this alone
+     made every rename look "already dirty" before a single keystroke. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.doesNotMatch(
+    body,
+    /\.category-node-row:has\(\.category-node-toggle\):hover \.category-node-name \{ color: var\(--accent\); \}/,
+    "hovering (which merely focusing the field to edit it also does) must never recolor the name orange",
+  );
+});
+
 check("test_PRD_P0_138_nested_categories__the_top_level_add_button_lives_in_the_header_with_no_label_text", async () => {
   /* "The add category button needs to be in the header on the right
      side... we don't need the 'add category' text... it's pretty
@@ -2370,7 +2388,7 @@ check("test_PRD_P0_134_deep_link_by_sku__the_link_is_keyed_on_sku_not_the_handle
   assert.match(body, /const sku = btn\.closest\("\.item-tile"\)\.dataset\.sku;/, "shareLink must copy the tile's own SKU, not its handle");
   assert.match(
     body,
-    /const sku = decodeURIComponent\(location\.hash\.slice\("#item-"\.length\)\);\s*\n\s*const linked = \[\.\.\.document\.querySelectorAll\("\.item-tile"\)\]\.find\(\(el\) => el\.dataset\.sku === sku\);/,
+    /const sku = decodeURIComponent\(hashTokens\[0\]\.slice\("item-"\.length\)\);\s*\n\s*const linked = \[\.\.\.document\.querySelectorAll\("\.item-tile"\)\]\.find\(\(el\) => el\.dataset\.sku === sku\);/,
     "opening a link must match the tile by SKU, not handle",
   );
 });
@@ -2468,14 +2486,110 @@ check("test_PRD_P0_132_item_deep_link__expanding_or_closing_a_tile_keeps_the_has
   seedProduct(mirror);
   const res = await get("/items", STAFF, env(mirror));
   const body = await res.text();
-  assert.match(
-    body,
-    /function setDeepLinkHash\(tile\) \{\s*\n\s*const sku = tile\?\.dataset\.sku;\s*\n\s*const hash = sku \? "#item-" \+ encodeURIComponent\(sku\) : "";\s*\n\s*history\.replaceState\(null, "", location\.pathname \+ hash\);\s*\n\}/,
-  );
+  assert.match(body, /function setDeepLinkHash\(tile\) \{\s*\n\s*const sku = tile\?\.dataset\.sku;\s*\n\s*if \(!sku\) \{/);
   const closeHandler = body.slice(body.indexOf('const closeBtn = e.target.closest(".item-close");'), body.indexOf('const closeBtn = e.target.closest(".item-close");') + 700);
   assert.match(closeHandler, /tile\.classList\.remove\("full"\);\s*\n\s*setDeepLinkHash\(null\);/);
   const expandHandler = body.slice(body.indexOf('tile.classList.contains("full")) return;'), body.indexOf('tile.classList.contains("full")) return;') + 200);
   assert.match(expandHandler, /tile\.classList\.add\("full"\);\s*\n\s*setDeepLinkHash\(tile\);/);
+});
+
+check("test_PRD_P0_132_item_deep_link__the_hash_also_folds_in_admin_categories_and_expanded_node_state", async () => {
+  /* The owner's own words: "if I have the admin panel open and I'm working
+     on the categories... I delete something, I should not have the page
+     reload and lose everything... my admin panel has to be a deep link...
+     my category being expanded, that's a deep link too, because I want to
+     be able to paste this to a coworker." setDeepLinkHash now reads the
+     tile's own live Admin/Categories/node-expansion state at call time,
+     rather than tracking only which item is open. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.match(
+    body,
+    /if \(tile\.querySelector\("\.item-add-field"\)\?\.open\) parts\.push\("admin"\);/,
+    "the Admin disclosure's own open state must be folded into the hash",
+  );
+  assert.match(
+    body,
+    /if \(tile\.querySelector\("\.categories-accordion"\)\?\.classList\.contains\("expanded"\)\) parts\.push\("categories"\);/,
+    "the Categories accordion's own expanded state must be folded in too",
+  );
+  assert.match(
+    body,
+    /const expandedIds = \[\.\.\.tile\.querySelectorAll\("\.category-node\.expanded"\)\]/,
+    "every individually expanded category node must be collected, not just the accordion as a whole",
+  );
+});
+
+check("test_PRD_P0_132_item_deep_link__every_category_toggle_re_syncs_the_hash", async () => {
+  /* Admin/Categories/a node's own caret/row, and the top-level categories
+     caret -- every one of the four places that can change what is
+     expanded inside a tile must call back into the same sync, or the URL
+     would silently fall behind what is actually on screen. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.match(
+    body,
+    /categoriesCaret\.closest\("\.categories-accordion"\)\?\.classList\.toggle\("expanded"\);\s*\n\s*syncDeepLinkFromEvent\(e\);/,
+  );
+  assert.match(
+    body,
+    /categoriesHeader\.closest\("\.categories-accordion"\)\?\.classList\.toggle\("expanded"\);\s*\n\s*syncDeepLinkFromEvent\(e\);/,
+  );
+  assert.match(
+    body,
+    /nodeToggle\.closest\("\.category-node"\)\?\.classList\.toggle\("expanded"\);\s*\n\s*syncDeepLinkFromEvent\(e\);/,
+  );
+  assert.match(
+    body,
+    /nodeRow\.closest\("\.category-node"\)\?\.classList\.toggle\("expanded"\);\s*\n\s*syncDeepLinkFromEvent\(e\);/,
+  );
+  assert.match(
+    body,
+    /addEventListener\(\s*\n\s*"toggle",\s*\n\s*\(e\) => \{\s*\n\s*if \(!e\.target\.matches\("\.item-add-field"\)\) return;\s*\n\s*syncDeepLinkFromEvent\(e\);\s*\n\s*\},\s*\n\s*true,\s*\n\s*\);/,
+    "the Admin <details> native toggle event must be caught in the capture phase, since it does not bubble",
+  );
+});
+
+check("test_PRD_P0_132_item_deep_link__loading_a_link_restores_admin_categories_and_expanded_nodes", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.match(
+    body,
+    /if \(hashTokens\.includes\("admin"\)\) \{\s*\n\s*const admin = linked\.querySelector\("\.item-add-field"\);\s*\n\s*if \(admin\) admin\.open = true;\s*\n\s*\}/,
+  );
+  assert.match(
+    body,
+    /if \(hashTokens\.includes\("categories"\)\) \{\s*\n\s*linked\.querySelector\("\.categories-accordion"\)\?\.classList\.add\("expanded"\);\s*\n\s*\}/,
+  );
+  assert.match(
+    body,
+    /const nodesToken = hashTokens\.find\(\(t\) => t\.startsWith\("nodes="\)\);/,
+    "a nodes= token in the hash must be parsed out",
+  );
+  assert.match(
+    body,
+    /node = node\.closest\("\.category-children"\)\?\.closest\("\.category-node"\) \?\? null;/,
+    "each expanded node's own ancestors must also open, or a deeply nested one would stay invisible under a still-collapsed parent",
+  );
+});
+
+check("test_PRD_P0_132_item_deep_link__category_create_rename_and_remove_all_snapshot_the_hash_before_reloading", async () => {
+  /* Category actions already reload on success (the tree is shared, global
+     data); without this, that reload would always land back at a fully
+     collapsed view no matter how deep the owner had navigated to make the
+     edit in the first place. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  const matches = [...body.matchAll(/setDeepLinkHash\(tile\);\s*\n\s*location\.reload\(\);/g)];
+  assert.ok(matches.length >= 3, "createCategory, renameCategory, and removeCategory must each snapshot the hash right before reloading");
 });
 
 /* ─────────────────────────────────────────────────────────────────────────

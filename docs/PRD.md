@@ -3543,6 +3543,45 @@ that does not trace to one of these is a process failure (see §12).
     navigation, so neither action grows the back-button history by one entry per click. This makes
     every reload behave like opening a shared link, whether or not one was ever copied.
 
+    **REVISED AGAIN — the deep link now covers everything open inside a tile, not just which one:
+    "if I have the admin panel open and I'm working on the categories, right? And I delete
+    something, I should not have the page reload and lose everything... my admin panel has to be a
+    deep link, right? And my category being expanded, that's a deep link too, because I want to be
+    able to paste this to a coworker, that exact link and tell them, hey, adjust this."** Reload-
+    preserving state and a shareable link turn out to be the SAME problem — both just mean "the URL
+    always matches what is actually open" — so `setDeepLinkHash(tile)` now reads three more things
+    off the tile at call time, appended to the same hash as `&`-separated tokens after `item-<sku>`:
+    whether the Admin `<details>` is `.open`, whether `.categories-accordion` carries `.expanded`,
+    and — since more than one category/subcategory node can be independently expanded in the tree at
+    once — every `.category-node.expanded`'s own `data-category-id`, joined as `nodes=<id1>,<id2>,...`.
+    A new `syncDeepLinkFromEvent(e)` helper (just `setDeepLinkHash` re-run against
+    `e.target.closest(".item-tile")`, only while that tile is the one currently open) is called after
+    every one of the four places a category/subcategory node, the Categories accordion, or its own
+    caret can toggle `.expanded`. The Admin `<details>` needed its own separate listener: its native
+    `toggle` event does not bubble, so catching it from a delegated listener on `#items-grid` requires
+    the CAPTURE phase specifically (`addEventListener("toggle", ..., true)`) — capture always visits
+    every ancestor on the way down to the actual target regardless of whether the event itself
+    bubbles back up.
+
+    **`catalog.create_category`/`rename_category`/`remove_category` each snapshot the hash via
+    `setDeepLinkHash(tile)` immediately before the `location.reload()` they already trigger on
+    success** — the same tile-scoped call `saveTile()` now also makes before its own reload. Since
+    the hash is kept live-synced by `syncDeepLinkFromEvent` on every toggle leading up to that click,
+    this is mostly a defensive freshness guarantee rather than new state capture — by the time a
+    manager clicks Remove three levels deep into an expanded tree, the hash already reflects exactly
+    that.
+
+    **Restoring it is the same on-load block as before, extended to read the new tokens.** `location.
+    hash` is split on `&` once; the first token is still `item-<sku>`, matched exactly as before. If
+    `admin` is present, the tile's own `.item-add-field` is forced `.open = true`; if `categories` is
+    present, `.categories-accordion` gets `.expanded`; a `nodes=` token is parsed into individual ids,
+    and for each one, its own `.category-node` AND every ANCESTOR `.category-node` (found by walking
+    `.closest(".category-children")?.closest(".category-node")` repeatedly) also gets `.expanded` —
+    without walking ancestors, a deeply nested node's own `.expanded` class would do nothing, since
+    `.category-node.expanded > .category-children { display: block }` only reveals a node's own
+    children when THAT node itself is visible, which requires every parent above it to already be
+    expanded too.
+
 68. **`Test-PRD-P0-133-item_close_button`** — The owner's own words, after P0-132 shipped
     click-anywhere-to-expand and lived with it: "it's too easy to click somewhere wrong and it will
     close, and that's not a good experience... maybe it just needs a proper close button." (Floated
@@ -4772,6 +4811,16 @@ that does not trace to one of these is a process failure (see §12).
     signals it opens and closes. (`.variations-header`'s own identical hover-border was left untouched
     — its own fields DO carry a real `.field-dirty` state through the tile's batched Save, so whether
     it should key off that instead is a separate, more involved question nobody has asked yet.)
+
+    **REVISED YET AGAIN — the same hover-orange leak, one level down: "When I click on Dresses
+    category and I click on the entry field, it immediately turns orange. That's not right. It
+    should only become orange as soon as I start typing and I change it."** Left over from when the
+    name was a static `<span>` with nothing else to signal "click to expand" with,
+    `.category-node-row:has(.category-node-toggle):hover .category-node-name { color: var(--accent);
+    }` recolored the name text orange on plain hover — and clicking into a field to place a cursor
+    and start editing it unavoidably hovers it first, so every rename looked "already dirty" before a
+    single keystroke. Removed outright, the same as the header border above: orange means dirty,
+    nowhere else on this tile, and hovering is not a change.
 
 74. **`Test-PRD-P0-139-honest_write_failures`** — A Square write refused with a plain `Square POST
     /v2/catalog/object failed with 400` and nothing else — the owner's own words, pasting exactly that

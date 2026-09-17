@@ -1889,7 +1889,16 @@ ${INPUT_BAR_CSS}
    button, in its own place — a pointer cursor on a row with nothing
    underneath it to reveal would be a real (if small) affordance lie. */
 .category-node-row:has(.category-node-toggle) { cursor: pointer; }
-.category-node-row:has(.category-node-toggle):hover .category-node-name { color: var(--accent); }
+/* REVISED: this used to also recolor .category-node-name orange on
+   plain hover — left over from when the name was a static <span> with
+   nothing else to signal "click to expand" with. The owner's own words,
+   catching it now that the name is a real, editable <input>: "when I
+   click on Dresses category and I click on the entry field, it
+   immediately turns orange. That's not right. It should only become
+   orange as soon as I start typing and I change it." Hovering (which
+   simply placing a cursor in the field to edit it does, unavoidably)
+   is not a change — orange means dirty, nothing else, everywhere else
+   on this tile; this rule was the one place still contradicting that. */
 .category-node-toggle {
   flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; padding: 0;
   display: inline-flex; align-items: center; justify-content: center; border: none; background: transparent;
@@ -3155,11 +3164,13 @@ document.getElementById("items-grid").addEventListener("click", async (e) => {
   const categoriesCaret = e.target.closest(".categories-toggle");
   if (categoriesCaret) {
     categoriesCaret.closest(".categories-accordion")?.classList.toggle("expanded");
+    syncDeepLinkFromEvent(e);
     return;
   }
   const categoriesHeader = e.target.closest(".categories-header");
   if (categoriesHeader && !e.target.closest("input, button")) {
     categoriesHeader.closest(".categories-accordion")?.classList.toggle("expanded");
+    syncDeepLinkFromEvent(e);
     return;
   }
   /* "Every row underneath the categories row needs to be an expandable
@@ -3169,6 +3180,7 @@ document.getElementById("items-grid").addEventListener("click", async (e) => {
   const nodeToggle = e.target.closest(".category-node-toggle");
   if (nodeToggle) {
     nodeToggle.closest(".category-node")?.classList.toggle("expanded");
+    syncDeepLinkFromEvent(e);
     return;
   }
   /* REVISED — the owner's own words: "you click the whole header and it
@@ -3182,6 +3194,7 @@ document.getElementById("items-grid").addEventListener("click", async (e) => {
   const nodeRow = e.target.closest(".category-node-row");
   if (nodeRow && !e.target.closest("input, button")) {
     nodeRow.closest(".category-node")?.classList.toggle("expanded");
+    syncDeepLinkFromEvent(e);
     return;
   }
   /* "I need a delete button right next to the plus button... I should not
@@ -3346,6 +3359,21 @@ function onItemsGridChange(e) {
 document.getElementById("items-grid").addEventListener("input", onItemsGridChange);
 document.getElementById("items-grid").addEventListener("change", onItemsGridChange);
 
+/* The Admin <details> toggles via native browser behavior, never through
+   the delegated click handler above — so its own open/closed state is
+   caught here instead, the other half of "my admin panel has to be a
+   deep link too." The native "toggle" event does not bubble, so this
+   listener has to run in the CAPTURE phase (true, below) to see it at
+   all from an ancestor. */
+document.getElementById("items-grid").addEventListener(
+  "toggle",
+  (e) => {
+    if (!e.target.matches(".item-add-field")) return;
+    syncDeepLinkFromEvent(e);
+  },
+  true,
+);
+
 /* A category's own numeric_id applies the moment it changes (blur/Enter),
    like the stock stepper's own +/- do — not part of the tile's big
    resend-everything Save (this field belongs to no form at all, on
@@ -3469,6 +3497,7 @@ async function saveTile(tile) {
     if (!(await submitEditForm(form))) allOk = false;
   }
   if (allOk) {
+    setDeepLinkHash(tile);
     location.reload();
   } else if (saveBtn) {
     saveBtn.disabled = false;
@@ -3532,7 +3561,8 @@ async function createCategory(button) {
     showFormError(addForm, "Give the category a name.");
     return;
   }
-  const handle = button.closest(".item-tile")?.dataset.handle;
+  const tile = button.closest(".item-tile");
+  const handle = tile?.dataset.handle;
   const numericId = addForm.querySelector(".category-new-numeric-id")?.value.trim() ?? "";
   const body = new FormData();
   body.set("name", name);
@@ -3546,6 +3576,12 @@ async function createCategory(button) {
       showFormError(addForm, data.error || "That category could not be created.");
       return;
     }
+    /* "I should not have the page reload and lose everything... that
+       actually should be a deep link." setDeepLinkHash reads the tile's
+       OWN currently-open Admin/Categories/node state right before the
+       reload it's about to trigger, so the very next load restores
+       exactly this view instead of collapsing back to the top. */
+    setDeepLinkHash(tile);
     location.reload();
   } catch {
     showFormError(addForm, "Could not reach the server — try again.");
@@ -3597,7 +3633,8 @@ async function renameCategory(input) {
   const row = input.closest(".category-node-row");
   const existingError = row?.nextElementSibling;
   if (existingError?.classList.contains("item-edit-error")) existingError.remove();
-  const handle = input.closest(".item-tile")?.dataset.handle;
+  const tile = input.closest(".item-tile");
+  const handle = tile?.dataset.handle;
   const previousValue = input.defaultValue;
   const name = input.value.trim();
   if (!name) {
@@ -3618,6 +3655,7 @@ async function renameCategory(input) {
       showFormError(row, data.error || "That name was refused.");
       return;
     }
+    setDeepLinkHash(tile);
     location.reload();
   } catch {
     input.value = previousValue;
@@ -3640,7 +3678,8 @@ async function removeCategory(button) {
   const row = button.closest(".category-node-row");
   const existingError = row?.nextElementSibling;
   if (existingError?.classList.contains("item-edit-error")) existingError.remove();
-  const handle = button.closest(".item-tile")?.dataset.handle;
+  const tile = button.closest(".item-tile");
+  const handle = tile?.dataset.handle;
   const body = new FormData();
   body.set("category_id", button.dataset.categoryId);
   button.disabled = true;
@@ -3651,6 +3690,7 @@ async function removeCategory(button) {
       showFormError(row, data.error || "That category could not be removed.");
       return;
     }
+    setDeepLinkHash(tile);
     location.reload();
   } catch {
     showFormError(row, "Could not reach the server — try again.");
@@ -3695,11 +3735,40 @@ async function shareLink(btn) {
    tile is open, on every expand and close, makes the on-load block below
    reopen it after ANY reload, not just one that started from a shared
    link. replaceState (not a real navigation) so this never grows the back
-   button history one entry per click. */
+   button history one entry per click.
+   REVISED: "if I have the admin panel open and I'm working on the
+   categories... I delete something, I should not have the page reload
+   and lose everything... my admin panel has to be a deep link... my
+   category being expanded, that's a deep link too, because I want to be
+   able to paste this to a coworker." Reload-preserving state and a
+   shareable link are the SAME problem — both just mean "the URL always
+   matches what's actually open" — so this now reads the tile's own
+   Admin/Categories/node-expansion state at call time and folds it into
+   the same hash, rather than tracking it separately: whatever a reload
+   needs to restore is exactly what a pasted link needs to restore too. */
 function setDeepLinkHash(tile) {
   const sku = tile?.dataset.sku;
-  const hash = sku ? "#item-" + encodeURIComponent(sku) : "";
-  history.replaceState(null, "", location.pathname + hash);
+  if (!sku) {
+    history.replaceState(null, "", location.pathname);
+    return;
+  }
+  const parts = ["item-" + encodeURIComponent(sku)];
+  if (tile.querySelector(".item-add-field")?.open) parts.push("admin");
+  if (tile.querySelector(".categories-accordion")?.classList.contains("expanded")) parts.push("categories");
+  const expandedIds = [...tile.querySelectorAll(".category-node.expanded")]
+    .map((n) => n.querySelector(":scope > .category-node-row .category-node-name")?.dataset.categoryId)
+    .filter(Boolean);
+  if (expandedIds.length) parts.push("nodes=" + expandedIds.map(encodeURIComponent).join(","));
+  history.replaceState(null, "", location.pathname + "#" + parts.join("&"));
+}
+/* Same tile-scoped re-derivation as above, called after any Admin/
+   Categories/node toggle so the hash never lags behind what is actually
+   open — only while that tile is the one currently expanded, since a
+   collapsed tile's own internal state is not what the URL should be
+   describing. */
+function syncDeepLinkFromEvent(e) {
+  const tile = e.target.closest(".item-tile");
+  if (tile?.classList.contains("full")) setDeepLinkHash(tile);
 }
 
 /* The other half of the link above: opening it lands on the grid like any
@@ -3707,14 +3776,44 @@ function setDeepLinkHash(tile) {
    — forced visible regardless of today's category or status filter, since
    the whole point of a link someone sent you is that IT decides what you
    see, not whatever was selected when they made it. Matched by SKU, the
-   same stable key shareLink() copies. */
-if (location.hash.startsWith("#item-")) {
-  const sku = decodeURIComponent(location.hash.slice("#item-".length));
+   same stable key shareLink() copies.
+   REVISED: "my admin panel has to be a deep link... my category being
+   expanded, that's a deep link too" — the hash now carries more than just
+   which item is open (setDeepLinkHash's own comment explains why: reload-
+   preserving state and a shareable link are the same problem), so this
+   splits on "&" and restores each piece in turn: Admin, then the
+   Categories accordion, then every individually expanded category node,
+   walking each one's own ancestors open too so a deeply nested node is
+   actually visible, not just marked .expanded underneath a still-
+   collapsed parent. */
+const hashTokens = location.hash.startsWith("#item-") ? location.hash.slice(1).split("&") : [];
+if (hashTokens.length) {
+  const sku = decodeURIComponent(hashTokens[0].slice("item-".length));
   const linked = [...document.querySelectorAll(".item-tile")].find((el) => el.dataset.sku === sku);
   if (linked) {
     linked.hidden = false;
     linked.classList.add("full");
     linked.scrollIntoView({ block: "start" });
+
+    if (hashTokens.includes("admin")) {
+      const admin = linked.querySelector(".item-add-field");
+      if (admin) admin.open = true;
+    }
+    if (hashTokens.includes("categories")) {
+      linked.querySelector(".categories-accordion")?.classList.add("expanded");
+    }
+    const nodesToken = hashTokens.find((t) => t.startsWith("nodes="));
+    if (nodesToken) {
+      const ids = nodesToken.slice("nodes=".length).split(",").map(decodeURIComponent).filter(Boolean);
+      for (const id of ids) {
+        const nameInput = linked.querySelector('.category-node-name[data-category-id="' + CSS.escape(id) + '"]');
+        let node = nameInput?.closest(".category-node") ?? null;
+        while (node) {
+          node.classList.add("expanded");
+          node = node.closest(".category-children")?.closest(".category-node") ?? null;
+        }
+      }
+    }
   }
 }
 </script>`,
