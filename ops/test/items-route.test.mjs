@@ -1304,657 +1304,6 @@ function seedCategoryTree(mirror) {
   mirror.db.exec("INSERT INTO mirror_category (id, external_ref, name) VALUES ('cat4', 'sqcat4', 'Knitwear')");
 }
 
-check("test_PRD_P0_138_nested_categories__the_accordion_lives_under_admin_collapsed_by_default", async () => {
-  /* REVISED: "move the category designer... header. Put it in there
-     because really that should be only modified by an admin." The
-     Categories accordion is no longer its own top-level section right
-     above Variations — it moved inside the renamed "Admin" disclosure,
-     alongside the one blank custom-field row, both after Variations. */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  seedCategoryTree(mirror);
-  const res = await get("/items", MANAGER, env(mirror));
-  const body = await res.text();
-  const adminIdx = body.indexOf("<summary>Admin</summary>");
-  const categoriesIdx = body.indexOf('<div class="categories-accordion">');
-  const variationsIdx = body.indexOf('<div class="variations-accordion">');
-  assert.ok(adminIdx > -1, "the disclosure is now labeled Admin");
-  assert.ok(variationsIdx > -1 && variationsIdx < adminIdx, "Variations still renders before Admin");
-  assert.ok(categoriesIdx > adminIdx, "the category designer now lives inside the Admin disclosure");
-  assert.doesNotMatch(body, /class="categories-accordion expanded"/, "collapsed by default, the same as Variations");
-});
-
-check("test_PRD_P0_138_nested_categories__the_tree_nests_and_indents_by_depth", async () => {
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  seedCategoryTree(mirror);
-  const res = await get("/items", MANAGER, env(mirror));
-  const body = await res.text();
-  /* Outerwear (depth 0) -> Coats (depth 1) -> Casual (depth 2). */
-  assert.match(body, /<input type="text" class="category-node-name" data-category-id="cat1" value="Outerwear"/);
-  /* Each .category-node nests physically inside its own parent's box, so
-     a flat one-step indent (CATEGORY_NODE_TOGGLE_PX, the toggle/spacer's
-     own rendered width) on every non-top-level node compounds through
-     ordinary box-model nesting into the full depth*step visual offset —
-     Casual (two levels down) still only carries its OWN one step in the
-     markup; the other step comes from its parent Coats' own box already
-     being shifted. */
-  assert.match(body, /padding-left: 0px"[\s\S]{0,220}Outerwear/);
-  assert.match(body, /padding-left: 14px"[\s\S]{0,220}Coats/);
-  assert.match(body, /padding-left: 14px"[\s\S]{0,220}Casual/);
-  /* Each node's own numeric_id shows what it has (or a blank box for
-     Casual, which has none yet). */
-  assert.match(
-    body,
-    /<input class="category-numeric-id" name="numeric_id" data-category-id="cat1" data-category-name="Outerwear" value="01"/,
-  );
-  assert.match(
-    body,
-    /<input class="category-numeric-id" name="numeric_id" data-category-id="cat3" data-category-name="Casual" value=""/,
-  );
-  assert.match(body, /<button type="button" class="category-add-toggle" data-parent-id="cat2"[^>]*>\+<\/button>/, "every node gets its own add-subcategory toggle");
-});
-
-check("test_PRD_P0_138_nested_categories__setting_a_numeric_id_now_folds_into_the_tiles_one_big_save", async () => {
-  /* The owner's own words: "IDs must also trigger dirty state... we
-     probably don't even need the add button because the checkbox would
-     save that" -- extended to numeric_id too. It used to belong to no
-     form at all, on purpose, and apply immediately on its own dedicated
-     change listener. Now it lives inside a real .category-number-form
-     (posting to the same /categories/number route, unchanged), folded
-     into the generic ".item-edit form" dirty-tracking/Save-all flow
-     exactly like everything else -- no separate immediate fetch, no
-     dedicated apply-on-change listener. */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  seedCategoryTree(mirror);
-  const res = await get("/items", MANAGER, env(mirror));
-  const body = await res.text();
-  assert.match(
-    body,
-    /<form method="post" action="\/items\/wool-coat\/categories\/number" class="category-number-form">\s*\n\s*<input type="hidden" name="category_id" value="cat1">\s*\n\s*<input class="category-numeric-id" name="numeric_id"/,
-    "the numeric_id field now lives inside its own real form, with category_id riding along as a hidden field",
-  );
-  assert.doesNotMatch(body, /function setCategoryNumber\(/, "the old dedicated immediate-apply function is gone");
-  assert.doesNotMatch(body, /function createCategory\(/, "the old dedicated immediate-apply create function is gone too");
-});
-
-check("test_PRD_P0_138_nested_categories__typing_a_numeric_id_instantly_resorts_its_siblings_client_side", async () => {
-  /* The owner's own words: "as soon as I change that ID, I expect it to
-     sort based on that ID... it's not a server thing, it should
-     immediately in my browser update its sorting and make sure that it
-     sorts underneath the lower ID." reorderSiblingsByNumericId runs on
-     every keystroke (input, not change/blur) -- well before the actual
-     write is ever sent -- reading each sibling's own numeric-id LIVE so
-     a sibling with its own unsaved edit still sorts correctly, blank
-     ones sorting last. */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  const res = await get("/items", MANAGER, env(mirror));
-  const body = await res.text();
-  assert.match(body, /function reorderSiblingsByNumericId\(input\) \{/);
-  assert.match(body, /const siblings = \[\.\.\.parent\.querySelectorAll\(":scope > \.category-node"\)\];/);
-  assert.match(
-    body,
-    /const raw = el\.querySelector\(":scope > \.category-node-row \.category-numeric-id"\)\?\.value\.trim\(\);\s*\n\s*return raw \? Number\(raw\) : Infinity;/,
-    "blank/unassigned must sort last, everything else ascending by its own live-typed value",
-  );
-  assert.match(body, /parent\.append\(\.\.\.sorted\);/, "reorders the real DOM nodes in place, not a fresh render");
-  assert.match(
-    body,
-    /document\.getElementById\("items-grid"\)\.addEventListener\("input", \(e\) => \{\s*\n\s*if \(!e\.target\.matches\("\.category-numeric-id"\)\) return;\s*\n\s*reorderSiblingsByNumericId\(e\.target\);/,
-    "wired to the input event, not change -- resorting must not wait for blur",
-  );
-});
-
-check("test_PRD_P0_138_nested_categories__the_indent_step_matches_the_toggles_own_rendered_width", async () => {
-  /* The owner's own correction: "the indentation of each subcategory...
-     has to start right where the chevron pointing down is." A subcategory
-     column only lands exactly under its parent's own toggle when the
-     per-depth indent step equals the toggle/spacer's own rendered width —
-     so this pins both numbers to the SAME value, not just to each other's
-     current hardcoded copies. */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  seedCategoryTree(mirror);
-  const res = await get("/items", MANAGER, env(mirror));
-  const body = await res.text();
-  const toggleWidth = /\.category-node-toggle\s*\{[^}]*width:\s*(\d+)px/.exec(body)?.[1];
-  const spacerWidth = /\.category-node-toggle-spacer\s*\{[^}]*width:\s*(\d+)px/.exec(body)?.[1];
-  assert.ok(toggleWidth, "the toggle's own width must be found in the rendered CSS");
-  assert.equal(spacerWidth, toggleWidth, "the leaf spacer must match the toggle's own width");
-  assert.match(body, new RegExp(`padding-left: ${toggleWidth}px"[\\s\\S]{0,220}Coats`), "depth 1's indent step equals the toggle's own width");
-});
-
-check("test_PRD_P0_138_nested_categories__a_node_with_children_gets_its_own_expandable_caret", async () => {
-  /* The owner's own words: "every row underneath the categories row needs
-     to be an expandable row" — a node with subcategories of its own gets
-     the same caret convention the outer accordions already use,
-     collapsed by default; a leaf gets an equal-width spacer instead, so
-     the name column still lines up either way. REVISED — the owner's own
-     words: "a plus button on the far right side, and then an ID field."
-     Order within a row: the caret, the name, the numeric ID, then the +
-     (add a subcategory) LAST — the true rightmost element. */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  seedCategoryTree(mirror);
-  const res = await get("/items", MANAGER, env(mirror));
-  const body = await res.text();
-  assert.match(body, /\.category-node\.expanded > \.category-children\s*\{\s*display:\s*block;\s*\}/);
-  assert.match(body, /\.category-children\s*\{\s*display:\s*none;\s*\}/, "collapsed by default");
-
-  const outerwearNameIdx = body.indexOf('data-category-id="cat1" value="Outerwear"');
-  const outerwearRow = body.slice(outerwearNameIdx - 400, outerwearNameIdx + 1500);
-  assert.match(outerwearRow, /class="category-node-toggle"/, "Outerwear has a subcategory (Coats), so it gets a real caret");
-  const nameIdx = outerwearRow.indexOf("category-node-name");
-  const idIdx = outerwearRow.indexOf("category-numeric-id");
-  const removeIdx = outerwearRow.indexOf("category-remove-toggle");
-  const addIdx = outerwearRow.indexOf("category-add-toggle");
-  assert.ok(
-    nameIdx < idIdx && idIdx < removeIdx && removeIdx < addIdx,
-    "name, then the numeric ID, then remove, then + last — the true rightmost element",
-  );
-
-  const casualNameIdx = body.indexOf('data-category-id="cat3" value="Casual"');
-  const casualRow = body.slice(casualNameIdx - 150, casualNameIdx + 200);
-  assert.match(casualRow, /class="category-node-toggle-spacer"/, "Casual has no children yet, so a spacer, not a caret");
-  assert.doesNotMatch(casualRow, /class="category-node-toggle"/);
-});
-
-check("test_PRD_P0_138_nested_categories__clicking_anywhere_on_a_category_row_expands_it_not_just_the_caret", async () => {
-  /* The owner's own words, still not satisfied on an earlier pass: "you
-     click the whole header and it expands the section" — the SAME
-     construction the outer Categories accordion header already uses
-     (categoriesHeader, above, toggled by a click anywhere on it except an
-     input or button), now applied identically to every category and
-     subcategory row at any depth, not just its own tiny caret button. */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  const body = await (await get("/items", MANAGER, env(mirror))).text();
-  assert.match(
-    body,
-    /const nodeRow = e\.target\.closest\("\.category-node-row"\);\s*\n\s*if \(nodeRow && !e\.target\.closest\("input, button"\)\) \{\s*\n\s*nodeRow\.closest\("\.category-node"\)\?\.classList\.toggle\("expanded"\);/,
-    "clicking anywhere on a category's own row must expand it, excluding only its own + button and ID input",
-  );
-});
-
-check("test_PRD_P0_138_nested_categories__the_name_is_a_real_editable_input_not_a_static_label", async () => {
-  /* The owner's own words: "all of these categories and subcategories need
-     to be editable fields... right now it's just static labels." */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  seedCategoryTree(mirror);
-  const res = await get("/items", MANAGER, env(mirror));
-  const body = await res.text();
-  assert.match(
-    body,
-    /<input type="text" class="category-node-name" data-category-id="cat1" value="Outerwear" maxlength="60"/,
-    "the name renders as a real input carrying the category's current name",
-  );
-  assert.doesNotMatch(body, /<span class="category-node-name">/, "no more static span for the name");
-});
-
-check("test_PRD_P0_138_nested_categories__renaming_posts_to_its_own_route_and_reloads_on_success", async () => {
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  const body = await (await get("/items", MANAGER, env(mirror))).text();
-  assert.match(
-    body,
-    /document\.getElementById\("items-grid"\)\.addEventListener\("change", async \(e\) => \{\s*\n\s*if \(!e\.target\.matches\("\.category-node-name"\)\) return;\s*\n\s*await renameCategory\(e\.target\);/,
-    "renaming a category/subcategory name must wire through its own change handler",
-  );
-  assert.match(body, /fetch\("\/items\/" \+ handle \+ "\/categories\/rename", \{ method: "POST", body \}\)/);
-  assert.match(
-    body,
-    /async function renameCategory\(input\) \{[\s\S]{0,1200}location\.reload\(\);/,
-    "a successful rename must reload — the same closed set of names is baked into other tiles' own pickers",
-  );
-});
-
-check("test_PRD_P0_138_nested_categories__staff_cannot_reach_the_rename_route", async () => {
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  const rename = await postForm("/items/wool-coat/categories/rename", STAFF, env(mirror), { category_id: "cat1", name: "Coats" });
-  assert.equal(rename.status, 403);
-  assert.match(await rename.text(), /manager/i);
-});
-
-check("test_PRD_P0_138_nested_categories__the_name_scales_and_the_id_stays_a_fixed_width_so_add_buttons_align", async () => {
-  /* The owner's own words: "the name scales, right? Scales to fit the
-     content row. And then we have a fixed width for the ID entry." A
-     real <input> (unlike the plain <span> this used to be) needs an
-     explicit min-width: 0 to actually shrink in a flex row — its default
-     flex min-width is its own intrinsic content size, wide enough that a
-     deeply nested row could not shrink to fit, silently overflowing and
-     knocking every button after it out of alignment with shallower rows.
-     REVISED: "your ID entry are too wide... they are to accept two
-     characters... fit to content, fixed width" -- 3em rendered wider than
-     two digits need; 2ch (twice the font's own "0" glyph width) is fixed,
-     never fluid, and actually fits the two characters the field accepts.
-     REVISED AGAIN -- the real bug behind the owner still seeing it too
-     wide even after that fix: the category accordion lives inside
-     .item-edit (the Admin disclosure), and .item-edit input's own
-     "width: 10em" (0,1,1 specificity) was silently beating a bare
-     .category-numeric-id (0,1,0) regardless of source order -- CSS
-     specificity, not cascade order, decides that, so the 2ch rule above
-     was never actually winning no matter how it read in the stylesheet.
-     Every category input selector is now qualified with .item-edit
-     itself (0,2,0), which beats it outright.
-     REVISED YET AGAIN -- "now you made ID entry fields too small... make
-     them fit 2 numbers, min size": shared/design/theme.css sets a global
-     `* { box-sizing: border-box }`, so "width: 2ch" was being read as the
-     field's own TOTAL width, with its own 10px padding and 2px border
-     eaten OUT of those two characters' worth of room -- box-sizing:
-     content-box makes "2ch" mean the CONTENT alone, so the field is
-     finally sized to fit two actual digits, not two digits minus its own
-     chrome. */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  const body = await (await get("/items", MANAGER, env(mirror))).text();
-  assert.match(
-    body,
-    /\.item-edit \.category-node-name \{\s*\n\s*flex: 1 1 auto; min-width: 0;/,
-    "the name must be allowed to shrink below its own intrinsic content width, at specificity (0,2,0) -- two classes, beating .item-edit input's (0,1,1)",
-  );
-  assert.match(
-    body,
-    /\.item-edit \.category-numeric-id, \.item-edit \.category-new-numeric-id \{\s*\n\s*flex: 0 0 2ch; width: 2ch; box-sizing: content-box;/,
-    "the ID field must never grow or shrink -- a fixed CONTENT width (not counting its own padding/border) fitted to exactly two characters -- and must actually WIN the cascade against .item-edit input's own width: 10em",
-  );
-  assert.match(
-    body,
-    /\.item-edit \.category-new-name \{\s*\n\s*flex: 1 1 auto; min-width: 0;/,
-    "the add-form's own name field needs the same specificity fix",
-  );
-  /* The actual competing rule this whole bug came from, confirmed still
-     present and still shaped the way this fix assumes (one class,
-     .item-edit, plus one type selector, input) -- if a future change
-     gives it MORE classes, the fix above would need re-checking. */
-  assert.match(
-    body,
-    /\.item-edit input, \.item-edit select, \.variations-header input, \.variations-body input \{\s*\n\s*flex: 0 1 auto; min-width: 0; width: 10em;/,
-    "the known-competing generic rule must still be exactly one class plus one type selector for the specificity fix above to actually be sufficient",
-  );
-});
-
-check("test_PRD_P0_138_nested_categories__a_category_with_subcategories_cannot_be_removed_from_the_ui", async () => {
-  /* The owner's own words: "I should not be able to delete a category
-     until it has no more subcategories, so they should be disabled for
-     them." Outerwear has a subcategory (Coats); Casual, seeded with no
-     children, does not. */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  seedCategoryTree(mirror);
-  const body = await (await get("/items", MANAGER, env(mirror))).text();
-
-  const outerwearIdx = body.indexOf('data-category-id="cat1" value="Outerwear"');
-  const outerwearRow = body.slice(outerwearIdx, outerwearIdx + 900);
-  assert.match(
-    outerwearRow,
-    /<button type="button" class="category-remove-toggle" data-category-id="cat1" aria-label="Remove Outerwear" disabled title="Remove Outerwear — it still has subcategories/,
-    "a category with subcategories renders its own remove button disabled",
-  );
-
-  const casualIdx = body.indexOf('data-category-id="cat3" value="Casual"');
-  const casualRow = body.slice(casualIdx, casualIdx + 900);
-  assert.match(
-    casualRow,
-    /<button type="button" class="category-remove-toggle" data-category-id="cat3" aria-label="Remove Casual" title="Remove Casual">/,
-    "a leaf category's own remove button is enabled, with no disabled attribute between aria-label and title",
-  );
-});
-
-check("test_PRD_P0_138_nested_categories__removing_posts_to_its_own_route_and_reloads_on_success", async () => {
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  const body = await (await get("/items", MANAGER, env(mirror))).text();
-  assert.match(
-    body,
-    /const removeToggle = e\.target\.closest\("\.category-remove-toggle"\);\s*\n\s*if \(removeToggle\) \{\s*\n\s*await removeCategory\(removeToggle\);/,
-    "clicking the remove button must call removeCategory",
-  );
-  assert.match(body, /fetch\("\/items\/" \+ handle \+ "\/categories\/remove", \{ method: "POST", body \}\)/);
-  assert.match(
-    body,
-    /async function removeCategory\(button\) \{[\s\S]{0,900}location\.reload\(\);/,
-    "a successful remove must reload -- the removed category also disappears from other tiles' own pickers",
-  );
-});
-
-check("test_PRD_P0_138_nested_categories__staff_cannot_reach_the_remove_route", async () => {
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  const remove = await postForm("/items/wool-coat/categories/remove", STAFF, env(mirror), { category_id: "cat1" });
-  assert.equal(remove.status, 403);
-  assert.match(await remove.text(), /manager/i);
-});
-
-check("test_PRD_P0_138_nested_categories__top_level_categories_use_their_own_wrapper_class_not_category_children", async () => {
-  /* Regression: also caught live, in the same headless-browser pass as the
-     [hidden] fix above. The top-level tree's own wrapper originally reused
-     the class ".category-children" — the SAME class every node's own
-     nested-children container uses — so the blanket "collapsed by
-     default" rule (.category-children { display: none }) hid the ENTIRE
-     top-level list too, with no .category-node.expanded ancestor able to
-     ever reveal it again. Renamed to .categories-tree, a name no node's
-     own children container shares. */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  seedCategoryTree(mirror);
-  const res = await get("/items", MANAGER, env(mirror));
-  const body = await res.text();
-  assert.match(body, /<div class="categories-tree">/);
-  const treeIdx = body.indexOf('<div class="categories-tree">');
-  const outerwearIdx = body.indexOf('data-category-id="cat1" value="Outerwear"');
-  assert.ok(treeIdx > -1 && treeIdx < outerwearIdx, "the top-level tree wraps the real nodes, under its own class");
-  assert.doesNotMatch(
-    body.slice(treeIdx, treeIdx + 40),
-    /category-children/,
-    "the top-level wrapper must never be .category-children — that class is collapsed by default with no way to reopen it",
-  );
-});
-
-check("test_PRD_P0_138_nested_categories__add_forms_are_hidden_by_default_even_under_a_css_class_selector", async () => {
-  /* Regression: caught live via a headless-browser check before shipping —
-     an unconditional `.category-add-form { display: flex }` was beating
-     the [hidden] attribute's own display:none (a class selector outranks
-     an attribute one), so every add-form showed open at once instead of
-     only the one just clicked. */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  seedCategoryTree(mirror);
-  const res = await get("/items", MANAGER, env(mirror));
-  const body = await res.text();
-  assert.match(body, /\.category-add-form\[hidden\]\s*\{\s*display:\s*none;\s*\}/);
-  assert.match(body, /<form method="post" action="\/items\/wool-coat\/categories\/create" class="category-add-form" hidden>/);
-});
-
-check("test_PRD_P0_138_nested_categories__the_accordion_is_absent_for_staff", async () => {
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  seedCategoryTree(mirror);
-  const res = await get("/items", STAFF, env(mirror));
-  const body = await res.text();
-  assert.doesNotMatch(body, /<div class="categories-accordion">/);
-});
-
-check("test_PRD_P0_138_nested_categories__the_categories_header_never_turns_orange_on_a_plain_hover", async () => {
-  /* The owner's own words: "Only highlight dirty elements with orange!
-     That expanding categories header border should not be orange unless
-     it has modified children!" Orange is reserved for a real, meaningful
-     state elsewhere on this tile (agentic input, or a field's own real
-     .field-dirty marker) -- never a plain hover cue. Nothing inside the
-     Categories accordion is ever left dirty-but-unsaved in the first
-     place (every field here applies immediately), so there is no state
-     for this header to earn orange from at all right now. */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  const body = await (await get("/items", MANAGER, env(mirror))).text();
-  assert.doesNotMatch(
-    body,
-    /\.categories-header:hover \{ border-color: var\(--accent\); \}/,
-    "the header must not turn orange on mere hover -- it has no dirty-children concept to represent",
-  );
-});
-
-check("test_PRD_P0_138_nested_categories__the_name_input_never_turns_orange_on_a_plain_hover_either", async () => {
-  /* The owner's own words: "When I click on Dresses category and I click
-     on the entry field, it immediately turns orange. That's not right.
-     It should only become orange as soon as I start typing and I change
-     it." Left over from when the name was a static <span>, hovering an
-     expandable row used to recolor its own name text orange -- clicking
-     into the field to edit it unavoidably hovers it first, so this alone
-     made every rename look "already dirty" before a single keystroke. */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  const body = await (await get("/items", MANAGER, env(mirror))).text();
-  assert.doesNotMatch(
-    body,
-    /\.category-node-row:has\(\.category-node-toggle\):hover \.category-node-name \{ color: var\(--accent\); \}/,
-    "hovering (which merely focusing the field to edit it also does) must never recolor the name orange",
-  );
-});
-
-check("test_PRD_P0_135_item_edit_applies_immediately__no_hover_state_anywhere_in_the_details_panel_turns_anything_orange", async () => {
-  /* The owner's own words: "As a general rule, in the details panel,
-     there should not be any orange highlights on anything unless it is
-     dirty. So the checkbox to save the page, that's orange when
-     something is dirty. If anything or its children is dirty, then it
-     becomes orange. That's it. Me clicking on a chevron to open up a
-     panel should not make that chevron orange, okay?" A full sweep: every
-     caret/chevron, the category picker button, the +/remove buttons, the
-     Admin summary, and the stock stepper all used to recolor orange on
-     plain hover. None of them do any more. */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  seedCategoryTree(mirror);
-  const body = await (await get("/items", MANAGER, env(mirror))).text();
-  const goneRules = [
-    /\.category-picker-btn:hover \{ border-color: var\(--accent\); color: var\(--accent\); \}/,
-    /\.category-picker-toggle:hover \{ color: var\(--accent\); \}/,
-    /\.variations-toggle:hover \{ color: var\(--accent\); \}/,
-    /\.categories-toggle:hover \{ color: var\(--accent\); \}/,
-    /\.category-node-toggle:hover \{ color: var\(--accent\); \}/,
-    /\.category-remove-toggle:hover:not\(:disabled\) \{ color: var\(--accent\); border-color: var\(--accent\); \}/,
-    /\.category-add-toggle:hover \{ color: var\(--accent\); border-color: var\(--accent\); \}/,
-    /\.item-add-field summary:hover \{ color: var\(--accent\); \}/,
-  ];
-  for (const rule of goneRules) {
-    assert.doesNotMatch(body, rule, `must be gone: ${rule}`);
-  }
-  /* The stock stepper's own hover keeps its neutral background shift
-     (not orange) -- only the orange text color was removed from it. */
-  assert.doesNotMatch(body, /\.variation-stock-step:hover \{ color: var\(--accent\)/, "no orange text on stock-step hover");
-  assert.match(body, /\.variation-stock-step:hover \{ background: var\(--image-ground\); \}/, "a neutral hover background is fine, since it is not orange");
-  /* Orange survives in exactly the two places it is supposed to: a real
-     dirty field, and the Variants header's own real dirty-children check. */
-  assert.match(body, /\.item-tile input\.field-dirty, \.item-tile select\.field-dirty, \.item-tile textarea\.field-dirty \{ border-color: var\(--accent\); \}/);
-  assert.match(body, /\.variations-accordion:has\(\.field-dirty\) \.variations-header \{ border-color: var\(--accent\); \}/);
-});
-
-check("test_PRD_P0_138_nested_categories__the_top_level_add_button_lives_in_the_header_with_no_label_text", async () => {
-  /* "The add category button needs to be in the header on the right
-     side... we don't need the 'add category' text... it's pretty
-     self-explanatory." The top-level + moves out of its own labeled row
-     in .categories-body and into .categories-header itself, opposite the
-     caret; the "Add a category" label text is gone entirely. */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  seedCategoryTree(mirror);
-  const res = await get("/items", MANAGER, env(mirror));
-  const body = await res.text();
-  const headerIdx = body.indexOf('<div class="categories-header">');
-  const bodyIdx = body.indexOf('<div class="categories-body">');
-  assert.ok(headerIdx > -1 && bodyIdx > headerIdx, "the header comes before the body");
-  const header = body.slice(headerIdx, bodyIdx);
-  assert.match(header, /<button type="button" class="category-add-toggle" data-parent-id=""[^>]*>\+<\/button>/, "the top-level add toggle now lives in the header");
-  assert.doesNotMatch(body, />Add a category</, "no leftover label text — the button is self-explanatory");
-  const addFormIdx = body.indexOf('<form method="post" action="/items/wool-coat/categories/create" class="category-add-form" hidden>');
-  assert.ok(addFormIdx > bodyIdx, "the (still hidden) add-form itself stays in the body, right after the header");
-});
-
-check("test_PRD_P0_138_nested_categories__the_add_form_previews_at_the_indent_the_new_subcategory_will_land_at", async () => {
-  /* The owner's own words: "when clicking the add button, I want the next
-     row to match the indent of the subcategory that you're adding it to."
-     A subcategory added under Outerwear will itself land one toggle-width
-     deeper than Outerwear's own row — the per-node add-form now carries
-     that same extra padding-left, so it visually previews exactly where
-     the new row is about to appear rather than sitting flush with its own
-     parent's row. The top-level add-form (a brand-new TOP-LEVEL category
-     needs no extra indent) has no padding-left of its own.
-     REVISED: "this new category field needs to be exactly the same style
-     and indentation as the current subcategories fields" — both add-forms
-     now also carry the same leading .category-node-toggle-spacer a real
-     row's own toggle-or-spacer column occupies, landing the name field at
-     the exact same x-position a sibling row's own name field would. */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  seedCategoryTree(mirror);
-  const body = await (await get("/items", MANAGER, env(mirror))).text();
-  assert.match(
-    body,
-    /<form method="post" action="\/items\/wool-coat\/categories\/create" class="category-add-form" hidden style="padding-left: 14px">\s*\n\s*<input type="hidden" name="parent_id" value="cat\d+">\s*\n\s*<span class="category-node-toggle-spacer"><\/span>\s*\n\s*<input type="text" class="category-new-name"/,
-    "a per-node add-form previews one toggle-width deeper than its own parent row, plus its own leading spacer",
-  );
-  assert.match(
-    body,
-    /<form method="post" action="\/items\/wool-coat\/categories\/create" class="category-add-form" hidden>\s*\n\s*<input type="hidden" name="parent_id" value="">\s*\n\s*<span class="category-node-toggle-spacer"><\/span>\s*\n\s*<input type="text" class="category-new-name" name="name" placeholder="Category name"/,
-    "the top-level add-form gets no extra indent -- a new top-level category has none to preview -- but still gets the same leading spacer",
-  );
-});
-
-check("test_PRD_P0_138_nested_categories__the_add_form_is_the_last_item_not_inserted_above_existing_children", async () => {
-  /* The owner's own words: "it should be underneath, it should be the
-     last item, right?" Opening the add-form on a node that already has
-     subcategories (or the top-level tree, which already has categories)
-     must preview the new one BELOW the existing list, not pop in above
-     it -- so .category-add-form now renders after .category-children /
-     .categories-tree in the markup, not before. */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  seedCategoryTree(mirror);
-  const body = await (await get("/items", MANAGER, env(mirror))).text();
-  const categoriesBodyIdx = body.indexOf('<div class="categories-body">');
-  const treeIdx = body.indexOf('<div class="categories-tree">', categoriesBodyIdx);
-  const topAddFormIdx = body.indexOf('<form method="post" action="/items/wool-coat/categories/create" class="category-add-form" hidden>', categoriesBodyIdx);
-  assert.ok(treeIdx > -1 && topAddFormIdx > treeIdx, "the top-level add-form must come after the tree, not before it");
-
-  /* Outerwear -> Coats -> Casual (seedCategoryTree). Coats has a child
-     (Casual) of its own, so its own add-form must land after Casual's
-     entire subtree, not between Coats' own row and Casual's. */
-  const coatsNameIdx = body.indexOf('data-category-id="cat2" value="Coats"');
-  const coatsChildrenIdx = body.indexOf('<div class="category-children">', coatsNameIdx);
-  const casualNameIdx = body.indexOf('data-category-id="cat3" value="Casual"', coatsChildrenIdx);
-  const coatsAddFormIdx = body.indexOf('<input type="hidden" name="parent_id" value="cat2">', coatsChildrenIdx);
-  assert.ok(
-    casualNameIdx > coatsChildrenIdx && coatsAddFormIdx > casualNameIdx,
-    "Coats' own add-form must render after its existing child Casual, not before it",
-  );
-});
-
-check("test_PRD_P0_138_nested_categories__the_row_buttons_share_the_chevrons_own_size", async () => {
-  /* REVISED: "make sure that the add button has the same height as all
-     the other buttons... so that all the chevrons['] content is always
-     aligned with the chevrons" -- the row's own remove/add-toggle buttons
-     are no longer a separate hardcoded 20px, they size off
-     CATEGORY_NODE_TOGGLE_PX too (the same constant every chevron on the
-     tile already shares). The standalone "Add" button this test used to
-     also check (its own separate double-wide sizing) is gone outright --
-     "we probably don't even need the add button because the checkbox
-     would save that" -- creating a category folds into the tile's one
-     big Save now instead. */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  const body = await (await get("/items", MANAGER, env(mirror))).text();
-  const toggleWidth = /\.category-node-toggle\s*\{[^}]*width:\s*(\d+)px/.exec(body)?.[1];
-  assert.ok(toggleWidth, "the toggle's own width must be found in the rendered CSS");
-  assert.match(
-    body,
-    new RegExp(`\\.category-add-toggle, \\.category-remove-toggle\\s*\\{[^}]*width: ${toggleWidth}px; height: ${toggleWidth}px;`),
-    "every row button is the exact same size as the chevrons, not its own separate number",
-  );
-  assert.doesNotMatch(body, /class="category-create"/, "the standalone Add button is gone -- Save-all creates the category now");
-});
-
-check("test_PRD_P0_138_nested_categories__the_add_form_also_takes_a_numeric_id", async () => {
-  /* The owner's own words: "the add row is supposed to have ID as well."
-     Both add-forms (a brand-new top-level category, and a brand-new
-     subcategory under an existing node) get the same 2-character ID
-     field every existing row already has, so a manager can assign it at
-     creation time instead of a separate follow-up edit. */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  seedCategoryTree(mirror);
-  const body = await (await get("/items", MANAGER, env(mirror))).text();
-  const matches = [...body.matchAll(/<input class="category-new-numeric-id" name="numeric_id" placeholder="ID" maxlength="2" pattern="\\d\{2\}"/g)];
-  assert.equal(matches.length, 5, "every add-form (the top-level one, plus one per existing category/subcategory) must carry its own ID field");
-});
-
-check("test_PRD_P0_138_nested_categories__creating_a_category_posts_the_id_field_when_filled_in", async () => {
-  /* REVISED: "we probably don't even need the add button because the
-     checkbox would save that" -- there is no dedicated JS create flow to
-     read the ID field any more. .category-new-numeric-id is a real,
-     named form field (name="numeric_id") inside .category-add-form, so
-     a filled-in ID travels to /categories/create the same way any other
-     field's value travels to its own route: as part of new FormData(form)
-     when the tile's one big Save submits this form. */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  const body = await (await get("/items", MANAGER, env(mirror))).text();
-  const matches = [...body.matchAll(/<input class="category-new-numeric-id" name="numeric_id" placeholder="ID"/g)];
-  assert.ok(matches.length > 0, "the new-category ID field must be a real, named form field");
-});
-
-check("test_PRD_P0_138_nested_categories__staff_cannot_reach_either_route_before_square_is_ever_touched", async () => {
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  const create = await postForm("/items/wool-coat/categories/create", STAFF, env(mirror), { name: "Eyewear" });
-  assert.equal(create.status, 403);
-  assert.match(await create.text(), /manager/i);
-
-  const number = await postForm("/items/wool-coat/categories/number", STAFF, env(mirror), { category_id: "cat1", numeric_id: "01" });
-  assert.equal(number.status, 403);
-  assert.match(await number.text(), /manager/i);
-});
-
-check("test_PRD_P0_138_nested_categories__resync_route_is_manager_only_and_post_only", async () => {
-  /* "There are already defined category and subcategories on Square main
-     page right now. Why aren't you synchronizing them?" — /items/resync
-     (catalog.resync_from_square) is the manual escape hatch, gated the
-     same way as the two routes above: denied before runTool ever reaches
-     Square. This file's own env() has no SQUARE_ACCESS_TOKEN at all (see
-     the P0-136 section's own comment on why), so a MANAGER call is not
-     exercised end to end here — that belongs to catalog-write.test.mjs's
-     own fixture, which injects a fake Square client directly. */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  const denied = await postForm("/items/resync", STAFF, env(mirror), {});
-  assert.equal(denied.status, 403);
-  assert.match(await denied.text(), /manager/i);
-
-  const wrongMethod = await get("/items/resync", MANAGER, env(mirror));
-  assert.equal(wrongMethod.status, 405);
-});
-
-check("test_PRD_P0_138_nested_categories__every_chevron_and_its_bars_own_horizontal_padding_now_match_across_categories_and_variations", async () => {
-  /* The owner's own words: "reduce the horizontal padding of the chevron
-     in the categories drop down box by half so it's tighter... use the
-     overall same chevron padding... apply it to all of the other
-     chevrons that are on the details page... the categories and the
-     variations, they should all have the same sized [chevron] and the
-     padding on the chevrons... tighten all of the paddings on all of the
-     chevrons and the indentation so that it's not so horizontally
-     heavy." The Categories accordion header's own horizontal padding
-     (8px) is the one halved to 4px directly; every other chevron-bearing
-     bar/row on the tile now shares that exact value, and all four
-     chevron buttons (Categories/Variations headers, a category tree
-     node, the category picker menu) share one sizing constant rather
-     than four numbers that merely happened to agree. */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  seedCategoryTree(mirror);
-  const res = await get("/items", MANAGER, env(mirror));
-  const body = await res.text();
-  assert.match(body, /\.categories-header\s*\{[^}]*padding: 5px 4px;/);
-  assert.match(body, /\.variations-header\s*\{[^}]*padding: 5px 4px;/);
-  assert.match(body, /\.category-picker-row\s*\{[^}]*padding: 3px 4px;/);
-  assert.match(body, /\.category-node-row\s*\{[^}]*padding: 3px 4px 3px 0;/);
-  assert.match(body, /\.variations-body \.row\s*\{[^}]*padding: 3px 4px 3px 0;/);
-  assert.match(body, /\.category-add-form\s*\{[^}]*padding: 3px 4px 3px 0;/);
-  const toggleWidth = /\.category-node-toggle\s*\{[^}]*width:\s*(\d+)px/.exec(body)?.[1];
-  assert.ok(toggleWidth, "the toggle's own width must be found in the rendered CSS");
-  for (const selector of [".category-picker-toggle", ".variations-toggle", ".categories-toggle"]) {
-    const width = new RegExp(`\\${selector}\\s*\\{[^}]*width:\\s*(\\d+)px`).exec(body)?.[1];
-    assert.equal(width, toggleWidth, `${selector} must render at the exact same width as .category-node-toggle`);
-  }
-  /* The item-level category picker button is a different concern -- its
-     own padding is deliberately kept EXACTLY equal to .item-edit input's
-     own (3px 5px) so it stays the same height as the title field beside
-     it, an earlier, already-shipped fix this tightening pass must not
-     quietly undo. */
-  assert.match(body, /\.category-picker-btn\s*\{[^}]*padding: 3px 5px;/);
-});
-
 check("test_PRD_P0_139_honest_write_failures__a_failed_resync_shows_the_same_click_to_copy_popover_not_a_native_alert", async () => {
   /* The owner's own words after actually hitting a failed resync: had to
      manually read and retype a native alert()'s text to report it back --
@@ -2272,15 +1621,17 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_two_outer_bars_stay_re
   /* REVISED YET AGAIN — the previous pass over-corrected. The owner's own
      words: "I told you just to make it gray, not to make it orange. Why'd
      you remove it entirely?" and "I didn't tell you to remove that one"
-     (the bar above Admin). The header PILLS (.variations-header,
-     .categories-header) keep their own full border, always — gray by
-     default — and the bar right above the custom-fields/Admin block
-     (.item-edit-admin) comes back too. Only the OUTER accordion wrappers'
-     own border-top (.variations-accordion, .categories-accordion) and the
-     title-block's own top border stay removed, from the very first pass. */
+     (the bar above Admin). The header PILL (.variations-header) keeps
+     its own full border, always — gray by default — and the bar right
+     above the custom-fields/Admin block (.item-edit-admin) comes back
+     too. Only the OUTER accordion wrapper's own border-top
+     (.variations-accordion) and the title-block's own top border stay
+     removed, from the very first pass.
+     REVISED AGAIN: the Categories header/accordion this test used to
+     also check moved out to the global /admin page entirely — see
+     adminPage's own tests instead. */
   const mirror = mirrorDb();
   seedProduct(mirror, { style_id: "01-04-001", vendor: "Acme Mills", commission_pct: 20 });
-  seedCategoryTree(mirror);
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
 
@@ -2297,13 +1648,7 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_two_outer_bars_stay_re
     /\.variations-header \{\s*\n\s*display: flex; align-items: center; gap: 6px; cursor: pointer;\s*\n\s*background: var\(--image-ground\); border: 1px solid var\(--rule\); border-radius: 6px; padding: 5px 4px;\s*\n\}/,
     "the Variants header must keep its own full border, gray by default",
   );
-  assert.match(
-    body,
-    /\.categories-header \{\s*\n\s*display: flex; align-items: center; gap: 6px; cursor: pointer;\s*\n\s*background: var\(--image-ground\); border: 1px solid var\(--rule\); border-radius: 6px; padding: 5px 4px;\s*\n\}/,
-    "the Categories header must keep its own full border too, gray by default",
-  );
   assert.match(body, /\.variations-accordion \{ margin-top: 2px; padding-top: 6px; \}/, "the Variations ACCORDION's own separate top border stays removed");
-  assert.match(body, /\.categories-accordion \{ margin-top: 2px; padding-top: 6px; \}/, "the Categories ACCORDION's own separate top border stays removed");
 });
 
 check("test_PRD_P0_135_item_edit_applies_immediately__the_variants_header_only_turns_orange_when_something_inside_it_is_actually_dirty", async () => {
@@ -2344,7 +1689,7 @@ check("test_PRD_P0_135_item_edit_applies_immediately__existing_custom_fields_are
   /* The blank row for a brand-new field is INSIDE the disclosure, and it
      is the ONLY blank row offered now — up to 3 were offered before. */
   const addFieldHtml = body.slice(addFieldStart);
-  assert.match(addFieldHtml, /<summary>Admin<\/summary>/);
+  assert.match(addFieldHtml, /<summary>Add field<\/summary>/);
   assert.match(addFieldHtml, /name="field_name_1" placeholder="Field name"/, "a blank row for a new field must be offered");
   assert.doesNotMatch(addFieldHtml, /name="field_name_2"/, "only one blank row now, not up to three");
 });
@@ -2772,14 +2117,13 @@ check("test_PRD_P0_132_item_deep_link__the_hash_is_also_mirrored_onto_the_shell_
   );
 });
 
-check("test_PRD_P0_132_item_deep_link__the_hash_also_folds_in_admin_categories_and_expanded_node_state", async () => {
-  /* The owner's own words: "if I have the admin panel open and I'm working
-     on the categories... I delete something, I should not have the page
-     reload and lose everything... my admin panel has to be a deep link...
-     my category being expanded, that's a deep link too, because I want to
-     be able to paste this to a coworker." setDeepLinkHash now reads the
-     tile's own live Admin/Categories/node-expansion state at call time,
-     rather than tracking only which item is open. */
+check("test_PRD_P0_132_item_deep_link__the_hash_still_folds_in_the_admin_disclosures_own_open_state", async () => {
+  /* REVISED: this used to also fold in the Categories accordion's own
+     expanded state and every individually expanded category node --
+     Categories moved out to the global /admin page entirely (see
+     adminPage's own tests), which needs no per-item hash to reach. Only
+     the Admin (custom fields) disclosure's own open/closed state still
+     lives here. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const res = await get("/items", MANAGER, env(mirror));
@@ -2789,51 +2133,10 @@ check("test_PRD_P0_132_item_deep_link__the_hash_also_folds_in_admin_categories_a
     /if \(tile\.querySelector\("\.item-add-field"\)\?\.open\) parts\.push\("admin"\);/,
     "the Admin disclosure's own open state must be folded into the hash",
   );
-  assert.match(
-    body,
-    /if \(tile\.querySelector\("\.categories-accordion"\)\?\.classList\.contains\("expanded"\)\) parts\.push\("categories"\);/,
-    "the Categories accordion's own expanded state must be folded in too",
-  );
-  assert.match(
-    body,
-    /const expandedIds = \[\.\.\.tile\.querySelectorAll\("\.category-node\.expanded"\)\]/,
-    "every individually expanded category node must be collected, not just the accordion as a whole",
-  );
+  assert.doesNotMatch(body, /parts\.push\("categories"\)/, "Categories no longer lives in a per-tile hash token");
 });
 
-check("test_PRD_P0_132_item_deep_link__every_category_toggle_re_syncs_the_hash", async () => {
-  /* Admin/Categories/a node's own caret/row, and the top-level categories
-     caret -- every one of the four places that can change what is
-     expanded inside a tile must call back into the same sync, or the URL
-     would silently fall behind what is actually on screen. */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  const res = await get("/items", MANAGER, env(mirror));
-  const body = await res.text();
-  assert.match(
-    body,
-    /categoriesCaret\.closest\("\.categories-accordion"\)\?\.classList\.toggle\("expanded"\);\s*\n\s*syncDeepLinkFromEvent\(e\);/,
-  );
-  assert.match(
-    body,
-    /categoriesHeader\.closest\("\.categories-accordion"\)\?\.classList\.toggle\("expanded"\);\s*\n\s*syncDeepLinkFromEvent\(e\);/,
-  );
-  assert.match(
-    body,
-    /nodeToggle\.closest\("\.category-node"\)\?\.classList\.toggle\("expanded"\);\s*\n\s*syncDeepLinkFromEvent\(e\);/,
-  );
-  assert.match(
-    body,
-    /nodeRow\.closest\("\.category-node"\)\?\.classList\.toggle\("expanded"\);\s*\n\s*syncDeepLinkFromEvent\(e\);/,
-  );
-  assert.match(
-    body,
-    /addEventListener\(\s*\n\s*"toggle",\s*\n\s*\(e\) => \{\s*\n\s*if \(!e\.target\.matches\("\.item-add-field"\)\) return;\s*\n\s*syncDeepLinkFromEvent\(e\);\s*\n\s*\},\s*\n\s*true,\s*\n\s*\);/,
-    "the Admin <details> native toggle event must be caught in the capture phase, since it does not bubble",
-  );
-});
-
-check("test_PRD_P0_132_item_deep_link__loading_a_link_restores_admin_categories_and_expanded_nodes", async () => {
+check("test_PRD_P0_132_item_deep_link__loading_a_link_restores_the_admin_disclosure", async () => {
   const mirror = mirrorDb();
   seedProduct(mirror);
   const res = await get("/items", MANAGER, env(mirror));
@@ -2842,39 +2145,15 @@ check("test_PRD_P0_132_item_deep_link__loading_a_link_restores_admin_categories_
     body,
     /if \(hashTokens\.includes\("admin"\)\) \{\s*\n\s*const admin = linked\.querySelector\("\.item-add-field"\);\s*\n\s*if \(admin\) admin\.open = true;\s*\n\s*\}/,
   );
-  assert.match(
-    body,
-    /if \(hashTokens\.includes\("categories"\)\) \{\s*\n\s*linked\.querySelector\("\.categories-accordion"\)\?\.classList\.add\("expanded"\);\s*\n\s*\}/,
-  );
-  assert.match(
-    body,
-    /const nodesToken = hashTokens\.find\(\(t\) => t\.startsWith\("nodes="\)\);/,
-    "a nodes= token in the hash must be parsed out",
-  );
-  assert.match(
-    body,
-    /node = node\.closest\("\.category-children"\)\?\.closest\("\.category-node"\) \?\? null;/,
-    "each expanded node's own ancestors must also open, or a deeply nested one would stay invisible under a still-collapsed parent",
-  );
 });
 
-check("test_PRD_P0_132_item_deep_link__category_create_rename_and_remove_all_snapshot_the_hash_before_reloading", async () => {
-  /* Category actions already reload on success (the tree is shared, global
-     data); without this, that reload would always land back at a fully
-     collapsed view no matter how deep the owner had navigated to make the
-     edit in the first place.
-     REVISED: creating a category (and setting its own numeric_id) no
-     longer has its own dedicated reload path -- both fold into the
-     tile's one big Save now, which already snapshots the hash the exact
-     same way before its own reload. Only renameCategory and
-     removeCategory still have their own separate immediate-apply reload;
-     saveTile covers the rest. */
+check("test_PRD_P0_132_item_deep_link__save_tile_still_snapshots_the_hash_before_reloading", async () => {
   const mirror = mirrorDb();
   seedProduct(mirror);
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
   const matches = [...body.matchAll(/setDeepLinkHash\(tile\);\s*\n\s*location\.reload\(\);/g)];
-  assert.ok(matches.length >= 3, "renameCategory, removeCategory, and saveTile must each snapshot the hash right before reloading");
+  assert.ok(matches.length >= 1, "saveTile must snapshot the hash right before reloading");
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -2966,6 +2245,182 @@ check("test_PRD_P0_140_shell_always_visible__the_shell_forwards_an_incoming_item
     /if \(location\.hash\.startsWith\("#item-"\) && "items" === "items"\) \{\s*\n\s*document\.getElementById\("ops-frame"\)\.src = "\/items" \+ location\.hash;\s*\n\}/,
     "the shell must forward an #item-<sku> hash into the items iframe's own src when that is the active tab",
   );
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * /admin — Categories and Vendors administered from one global page,
+ * reached from the shell's own hamburger menu, instead of duplicated
+ * inside every product tile. The owner's own words: "move the admin
+ * section into that hamburger menu so that I can administer everything
+ * from that one location instead of under each product."
+ * ───────────────────────────────────────────────────────────────────────── */
+
+function seedVendor(mirror, { commission } = {}) {
+  mirror.db.exec(
+    commission === undefined
+      ? "INSERT INTO mirror_vendor (id, external_ref, name) VALUES ('vendor1', 'sqvendor1', 'Acme Mills')"
+      : `INSERT INTO mirror_vendor (id, external_ref, name, commission_pct) VALUES ('vendor1', 'sqvendor1', 'Acme Mills', ${commission})`,
+  );
+}
+
+check("test_PRD_P0_138_nested_categories__admin_lists_the_whole_tree_expanded_with_no_toggle_needed", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const res = await get("/admin", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.equal(res.status, 200);
+  assert.match(body, /Outerwear/);
+  assert.match(body, /Coats/);
+  assert.match(body, /Casual/);
+  assert.match(body, /Knitwear/);
+  /* No caret/toggle anywhere -- the whole tree always renders, unlike the
+     old per-tile accordion's own collapsed-by-default tree. */
+  assert.doesNotMatch(body, /admin-category-toggle/);
+});
+
+check("test_PRD_P0_138_nested_categories__admin_tree_indents_children_by_the_same_shared_toggle_width", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  assert.match(body, /class="admin-category-node" style="padding-left: 0px"/, "a top-level category has no indent");
+  assert.match(
+    body,
+    new RegExp(`class="admin-category-node" style="padding-left: 14px"`),
+    "a subcategory indents by exactly CATEGORY_NODE_TOGGLE_PX",
+  );
+});
+
+check("test_PRD_P0_138_nested_categories__admin_a_category_with_subcategories_cannot_be_removed", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  /* cat1 (Outerwear) has a child (Coats), so its own remove button must be
+     disabled; cat4 (Knitwear) is a leaf and must not be. */
+  const cat1Idx = body.indexOf("Outerwear");
+  const cat1Row = body.slice(cat1Idx, body.indexOf("admin-category-children", cat1Idx));
+  assert.match(cat1Row, /disabled/);
+  const cat4Idx = body.indexOf("Knitwear");
+  const cat4Row = body.slice(cat4Idx, body.indexOf("admin-category-children", cat4Idx));
+  assert.doesNotMatch(cat4Row, /disabled/);
+});
+
+check("test_PRD_P0_138_nested_categories__admin_staff_cannot_reach_the_page_at_all", async () => {
+  const mirror = mirrorDb();
+  const res = await get("/admin", STAFF, env(mirror));
+  assert.equal(res.status, 403);
+});
+
+/* create/number/rename/remove (leaf) all declare resources: ["square"] —
+   catalog.create_category etc. really do write to Square, not just the
+   mirror — so, matching the P0-136 comment above (this file's own env()
+   deliberately carries no SQUARE_ACCESS_TOKEN, real ops.vemians.com never
+   runs without one), what these can prove is that the route reaches
+   runTool with correctly-built args, not a full round trip. Reaching the
+   "SQUARE_ACCESS_TOKEN is unset" refusal (rather than a route-level "give
+   a category name" or "give a category" 400) proves the form's own
+   fields parsed and validated correctly before ever touching Square. */
+check("test_PRD_P0_138_nested_categories__admin_creating_a_category_reaches_the_tool_layer", async () => {
+  const mirror = mirrorDb();
+  const res = await postForm("/admin/categories/create", MANAGER, env(mirror), { name: "Dresses", numeric_id: "02" });
+  assert.equal(res.status, 400);
+  assert.match(await res.text(), /SQUARE_ACCESS_TOKEN is unset/);
+});
+
+check("test_PRD_P0_138_nested_categories__admin_setting_a_numeric_id_reaches_the_tool_layer", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const res = await postForm("/admin/categories/number", MANAGER, env(mirror), { category_id: "cat4", numeric_id: "09" });
+  assert.equal(res.status, 400);
+  assert.match(await res.text(), /SQUARE_ACCESS_TOKEN is unset/);
+});
+
+check("test_PRD_P0_138_nested_categories__admin_renaming_reaches_the_tool_layer", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const res = await postForm("/admin/categories/rename", MANAGER, env(mirror), { category_id: "cat4", name: "Sweaters" });
+  assert.equal(res.status, 400);
+  assert.match(await res.text(), /SQUARE_ACCESS_TOKEN is unset/);
+});
+
+/* Whether removing cat1 (has a child) is refused by check()'s own "still
+   has subcategories" rule specifically, rather than the missing Square
+   client this file's env() always hits first, is catalog-write.test.mjs's
+   own job (a fake Square client, testing the tool directly) -- this file
+   can only prove the route reaches runTool with the right args, matching
+   the P0-136 comment above. */
+check("test_PRD_P0_138_nested_categories__admin_removing_a_leaf_category_reaches_the_tool_layer", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const res = await postForm("/admin/categories/remove", MANAGER, env(mirror), { category_id: "cat4" });
+  assert.equal(res.status, 400);
+  assert.match(await res.text(), /SQUARE_ACCESS_TOKEN is unset/);
+});
+
+check("test_PRD_P0_138_nested_categories__admin_staff_cannot_reach_any_of_the_post_routes", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const res = await postForm("/admin/categories/create", STAFF, env(mirror), { name: "Dresses" });
+  assert.equal(res.status, 403);
+});
+
+check("test_PRD_P0_136_square_custom_attributes__admin_lists_every_vendor_with_its_own_commission", async () => {
+  const mirror = mirrorDb();
+  seedVendor(mirror, { commission: 15 });
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  assert.match(body, /Acme Mills/);
+  assert.match(body, /value="15"/);
+});
+
+check("test_PRD_P0_136_square_custom_attributes__admin_creating_a_vendor_requires_a_commission", async () => {
+  const mirror = mirrorDb();
+  const refused = await postForm("/admin/vendors/create", MANAGER, env(mirror), { name: "New Vendor" });
+  assert.equal(refused.status, 400);
+  assert.doesNotMatch(await refused.text(), /SQUARE_ACCESS_TOKEN/, "a missing commission is refused before ever touching Square");
+  /* catalog.create_vendor declares resources: ["square"] (a real, standalone
+     Vendor entity) -- with a commission given, the route reaches the tool
+     layer instead, the same "SQUARE_ACCESS_TOKEN is unset" boundary the
+     category tests above hit, since this file's own env() carries none. */
+  const res = await postForm("/admin/vendors/create", MANAGER, env(mirror), { name: "New Vendor", commission: "10" });
+  assert.equal(res.status, 400);
+  assert.match(await res.text(), /SQUARE_ACCESS_TOKEN is unset/);
+});
+
+check("test_PRD_P0_136_square_custom_attributes__admin_setting_a_vendors_own_commission_applies_immediately", async () => {
+  const mirror = mirrorDb();
+  seedVendor(mirror);
+  const res = await postForm("/admin/vendors/commission", MANAGER, env(mirror), { vendor_id: "vendor1", commission: "12" });
+  assert.equal(res.status, 303);
+  const row = mirror.db.prepare("SELECT commission_pct FROM mirror_vendor WHERE id = 'vendor1'").get();
+  assert.equal(row.commission_pct, 12);
+});
+
+check("test_PRD_P0_136_square_custom_attributes__admin_staff_cannot_change_a_vendors_commission", async () => {
+  const mirror = mirrorDb();
+  seedVendor(mirror);
+  const res = await postForm("/admin/vendors/commission", STAFF, env(mirror), { vendor_id: "vendor1", commission: "12" });
+  assert.equal(res.status, 403);
+});
+
+check("test_PRD_P0_71_items_tab__a_direct_visit_to_admin_redirects_to_the_shell", async () => {
+  /* Same "no bookmark reaches a bare iframe page directly" rule every
+     other shell tab's own src already gets (P0-140) — /admin is reached
+     the same way, just from the hamburger menu rather than a visible
+     tab. */
+  const res = await worker.fetch(
+    new Request("http://localhost/admin", {
+      headers: { "Cf-Access-Jwt-Assertion": assertion(MANAGER), "sec-fetch-dest": "document" },
+    }),
+    env(mirrorDb()),
+  );
+  assert.equal(res.status, 302);
+  assert.equal(res.headers.get("location"), "http://localhost/?tab=admin");
 });
 
 test("test_PRD_P0_30_prd_traceability__every_label_used_in_this_file_exists_in_the_prd", async () => {
