@@ -758,12 +758,14 @@ async function ops(request, env, path) {
          every other field on this tile already follows. */
       const name = String(form.get("name") ?? "").trim();
       const parentId = String(form.get("parent_id") ?? "").trim();
+      const numericId = String(form.get("numeric_id") ?? "").trim();
       if (!name) return json({ error: "give a category name" }, 400);
       toolName = "catalog.create_category";
       args = {
         name,
         reason: `created from the Items tab while categorizing '${handle}'`,
         ...(parentId ? { parent_id: parentId } : {}),
+        ...(numericId ? { numeric_id: numericId } : {}),
       };
       summaryNoun = "category";
     } else if (suffix === "/categories/number") {

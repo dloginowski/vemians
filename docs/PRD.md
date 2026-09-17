@@ -4630,6 +4630,40 @@ that does not trace to one of these is a process failure (see §12).
     and `rename_category` already use, for the identical reason: a removed category also has to
     disappear from every other tile's own category picker, not just this one's own tree.
 
+    **REVISED YET AGAIN, three more corrections in the same round: the ID field was still too wide,
+    the add-form's own preview didn't match where the new row would land, and the add-form had no ID
+    field at all.** The owner's own words, verbatim: "your ID entry are too wide. They are to accept
+    two characters... fit to content, fixed width." The revision two above this one made `.category-
+    numeric-id`'s width EXPLICIT (`flex: 0 0 3em`) without actually shrinking it — `3em` renders
+    noticeably wider than the two digits the field's own `maxlength="2"` accepts. Fixed to `flex: 0 0
+    2ch; width: 2ch` — `ch` is the width of the font's own `"0"` glyph, so two of them fit the field to
+    exactly the two characters it accepts, still a fixed value, never fluid. Shared with the add-form's
+    own new ID field below, for the same reason.
+
+    **"When clicking the add button, I want the next row to match the indent of the subcategory that
+    you're adding it to. This is common sense."** The per-node `.category-add-form` — the inline name
+    field + Add button revealed by a node's own "+" — is a direct sibling of `.category-node-row`
+    inside the SAME `.category-node`, so it inherited that node's OWN `padding-left`, not the ONE
+    LEVEL DEEPER indent the subcategory being typed into it will actually have once created. Fixed
+    with an inline `style="padding-left: ${CATEGORY_NODE_TOGGLE_PX}px"` on the per-node add-form only
+    — it now previews at the exact depth the new row is about to land at, rather than sitting flush
+    with its own parent's row. The top-level add-form (a brand-new TOP-LEVEL category needs no preview
+    indent at all) is untouched.
+
+    **"The add row is supposed to have ID as well. What the fuck?"** Both add-forms — the top-level
+    one and every per-node one — gain their own `<input class="category-new-numeric-id">`, the same
+    2-character field every existing row already has, so a manager can assign a numeric_id at creation
+    time instead of a mandatory separate `catalog.set_category_number` call right after. `catalog.
+    create_category`'s own schema gains an OPTIONAL `numeric_id`, validated with the identical two-pool
+    rule `catalog.set_category_number`'s own `check()` already enforces (inlined rather than shared,
+    since both are small and independently readable) — a brand-new category can be given a number that
+    collides with an existing one in its own pool refused exactly the same way an existing category's
+    number change already is. `run()` applies it with the SAME direct `UPDATE mirror_category SET
+    numeric_id = ?` `catalog.set_category_number`'s own run() makes (P0-37's own governance test now
+    checks every such statement in the file, not just the first, since there are legitimately two now)
+    — no resort is needed here, since a numeric_id that did not exist a moment ago cannot already match
+    any existing product's own style_id.
+
 74. **`Test-PRD-P0-139-honest_write_failures`** — A Square write refused with a plain `Square POST
     /v2/catalog/object failed with 400` and nothing else — the owner's own words, pasting exactly that
     line after an edit silently went nowhere: "just make sure all of the fields work... with this post
