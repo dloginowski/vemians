@@ -966,27 +966,25 @@ export function createSquareCatalogWriter(env, opts = {}) {
     },
 
     /**
-     * Remove a category/subcategory — Square's own presence lifecycle
-     * (setProductPresence's own pattern, reused here for a CATEGORY object),
-     * never a real DELETE: ADR-008's "archived, not deleted" applies to
-     * every mirror_* table, mirror_category's own archived_at included.
+     * Remove a category/subcategory. Real production error, ground truth
+     * over the setProductPresence-style guess this used to make: "Square
+     * POST /v2/catalog/object failed with 400 — INVALID_REQUEST_ERROR/
+     * INVALID_VALUE... Object of type CATEGORY cannot be disabled." Unlike
+     * ITEM, a CATEGORY object has no presence lifecycle in Square at all —
+     * present_at_all_locations only ever meant something for what actually
+     * gets sold. A real DeleteCatalogObject is Square's only removal path
+     * for one. ADR-008's "archived, not deleted" still holds on OUR side:
+     * this never deletes the mirror_category ROW, only asks Square to
+     * delete ITS OWN object — the very next sync sees is_deleted: true on
+     * it (isWithdrawn's own FIRST check, ahead of any presence field) and
+     * archives the row exactly the same way a withdrawn product already
+     * is, through the identical pipeline, no special-casing needed.
      * catalog.remove_category's own check() already refuses this while the
      * category still has subcategories — this only ever runs on a leaf.
      */
     async removeCategory({ categoryId }) {
       const cat = await categoryRef(categoryId);
-      const res = await client.get(`/v2/catalog/object/${encodeURIComponent(cat.external_ref)}`);
-      if (!res?.object) {
-        throw new Error(`Square has no catalog object '${cat.external_ref}' to remove`);
-      }
-      await client.post("/v2/catalog/object", {
-        idempotency_key: idempotencyKey(`catalog.remove_category:${cat.external_ref}:${res.object.version}`),
-        object: {
-          ...res.object,
-          present_at_all_locations: false,
-          present_at_location_ids: [],
-        },
-      });
+      await client.delete(`/v2/catalog/object/${encodeURIComponent(cat.external_ref)}`);
       const sync = await syncAfterWrite();
       return { sync };
     },

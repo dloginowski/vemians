@@ -185,6 +185,21 @@ function fakeSquare(seed = SEED, { vendors = [], failSearch = false, failUpsert 
       return jsonRes({ object: obj });
     }
 
+    /* DeleteCatalogObject — the real production error this fake now models:
+       "Object of type CATEGORY cannot be disabled." A CATEGORY has no
+       presence lifecycle at all in Square, unlike ITEM — removeCategory's
+       own real fix is a genuine DELETE, never a disable-via-POST. Kept as
+       a soft is_deleted flag (never actually removed from `objects`), the
+       same "still visible with include_deleted_objects, tells sync apart
+       from never-synced" shape catalog.js's own comment describes. */
+    if (p.startsWith("/v2/catalog/object/") && method === "DELETE") {
+      const id = p.slice("/v2/catalog/object/".length);
+      const obj = objects.get(id);
+      if (!obj) return jsonRes({ errors: [{ category: "INVALID_REQUEST_ERROR", code: "NOT_FOUND" }] }, 404);
+      obj.is_deleted = true;
+      return jsonRes({ deleted_object_ids: [id], deleted_at: new Date().toISOString() });
+    }
+
     if (p === "/v2/catalog/object") {
       const body = JSON.parse(init.body);
       record.body = body;
@@ -194,6 +209,26 @@ function fakeSquare(seed = SEED, { vendors = [], failSearch = false, failUpsert 
          field) actually reaches runTool's own returned error string
          instead of being dropped at "failed with 400". */
       if (failUpsert) return jsonRes({ errors: failUpsert }, 400);
+      /* The real bug this whole handler is now guarding against: Square
+         rejects a CATEGORY object upsert that tries to disable it via
+         present_at_all_locations: false — "Object of type CATEGORY cannot
+         be disabled." A regression back to removeCategory's old
+         GET-then-POST-disable approach must fail exactly this way, not
+         silently succeed against a fake that doesn't know the real rule. */
+      if (body.object?.type === "CATEGORY" && body.object?.present_at_all_locations === false) {
+        return jsonRes(
+          {
+            errors: [
+              {
+                category: "INVALID_REQUEST_ERROR",
+                code: "INVALID_VALUE",
+                detail: `Invalid object: Invalid Object with Id: ${body.object.id}. Object of type CATEGORY cannot be disabled.`,
+              },
+            ],
+          },
+          400,
+        );
+      }
       const obj = structuredClone(body.object);
       record.upsert = obj.type;
       const mappings = [];
@@ -1677,7 +1712,12 @@ check("test_PRD_P0_138_nested_categories__renaming_to_the_current_name_is_refuse
   assert.match(res.error, /already named that/);
 });
 
-check("test_PRD_P0_138_nested_categories__remove_category_archives_it_in_square_never_a_real_delete", async () => {
+check("test_PRD_P0_138_nested_categories__remove_category_is_a_real_square_delete_the_mirror_still_only_archives", async () => {
+  /* A real production error, ground truth over the setProductPresence-style
+     guess this used to make: "Square POST /v2/catalog/object failed with
+     400 -- INVALID_REQUEST_ERROR/INVALID_VALUE... Object of type CATEGORY
+     cannot be disabled." Unlike ITEM, a CATEGORY has no presence lifecycle
+     in Square at all -- DeleteCatalogObject is the only removal path. */
   const tool = TOOLS["catalog.remove_category"];
   assert.equal(tool.tier, "T2");
   assert.equal(tool.minRole, "manager");
@@ -1695,13 +1735,42 @@ check("test_PRD_P0_138_nested_categories__remove_category_archives_it_in_square_
   const removed = await approvedCall(f, "catalog.remove_category", { category_id: casual.data.category.id });
   assert.equal(removed.ok, true, removed.error);
 
-  /* Archived, never a real DELETE (ADR-008) -- the same lifecycle
-     catalog.set_active already uses for a product. */
-  const removeUpsert = f.calls().filter((c) => c.path === "/v2/catalog/object" && c.upsert === "CATEGORY").pop();
-  assert.equal(removeUpsert.body.object.present_at_all_locations, false);
-  assert.deepEqual(removeUpsert.body.object.present_at_location_ids, []);
+  /* A genuine Square DELETE, never the disable-via-POST this used to try. */
+  const externalRef = f.mirror(`SELECT external_ref FROM mirror_category WHERE id = '${casual.data.category.id}'`)[0].external_ref;
+  assert.ok(
+    f.calls().some((c) => c.method === "DELETE" && c.path === `/v2/catalog/object/${externalRef}`),
+    "removing a category must call Square's own DeleteCatalogObject, never an upsert",
+  );
+  assert.ok(!f.calls().some((c) => c.upsert === "CATEGORY" && c.body?.object?.id === externalRef), "no POST upsert for this object at all");
 
+  /* ADR-008 still holds on OUR side: the mirror ROW is archived, never
+     deleted -- the same is_deleted-first check isWithdrawn already makes
+     for a withdrawn PRODUCT picks this up through the identical sync
+     pipeline, no special-casing needed for a category. */
   assert.ok(!f.categories().some((c) => c.id === casual.data.category.id), "the working set no longer lists it");
+  const row = f.mirror(`SELECT archived_at FROM mirror_category WHERE id = '${casual.data.category.id}'`)[0];
+  assert.ok(row, "the row itself must still exist -- archived, not deleted");
+  assert.ok(row.archived_at, "and must actually be marked archived");
+});
+
+check("test_PRD_P0_138_nested_categories__disabling_a_category_via_presence_is_refused_by_square_itself", async () => {
+  /* Proves the fake actually models the real rule (rather than a removeCategory
+     bug going undetected because nothing would catch it): the OLD approach --
+     upserting a CATEGORY with present_at_all_locations: false -- must still
+     fail exactly the way the real account did, so a future regression back
+     to that shape is caught here, not discovered again in production. */
+  const f = await fixture();
+  await assert.rejects(
+    () =>
+      f.writer.adapter.client.post("/v2/catalog/object", {
+        idempotency_key: "test-disable-category",
+        object: { id: "CAT_OUTERWEAR", type: "CATEGORY", version: 1, present_at_all_locations: false, category_data: { name: "Outerwear" } },
+      }),
+    (err) => {
+      assert.match(err.errors?.[0]?.detail ?? "", /cannot be disabled/);
+      return true;
+    },
+  );
 });
 
 check("test_PRD_P0_138_nested_categories__a_category_with_subcategories_cannot_be_removed", async () => {

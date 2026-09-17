@@ -1182,13 +1182,14 @@ export const catalogWriteTools = {
     resources: ["square"],
     minRole: "manager",
     describe:
-      "Remove a category or subcategory from the working set — archives it in Square (present_at_all_" +
-      "locations: false), the same lifecycle catalog.set_active already uses for a product; the mirror " +
-      "row is archived, not deleted, and the object still exists in Square for anyone who needs to " +
-      "restore it there directly (no restore tool exists on this side yet). Refuses outright while the " +
-      "category still has any subcategory of its own — remove those first, or this would silently strand " +
-      "them with a parent no longer in the working set.",
-    undo: "restore it directly in Square's own app — there is no restore tool here yet",
+      "Remove a category or subcategory from the working set — deletes the object in Square " +
+      "(DeleteCatalogObject; unlike an ITEM, a CATEGORY has no presence lifecycle to archive it through " +
+      "instead — Square itself refuses to disable one). The mirror row is only ever archived, never " +
+      "deleted, the same as every mirror_* table (ADR-008) — it picks up archived_at on the next sync " +
+      "once Square reports the object is_deleted. Refuses outright while the category still has any " +
+      "subcategory of its own — remove those first, or this would silently strand them with a parent no " +
+      "longer in the working set.",
+    undo: "recreate it in Square directly — there is no restore tool here yet",
     schema: {
       category_id: { type: "string", required: true, format: "id" },
     },

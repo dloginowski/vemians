@@ -283,5 +283,6 @@ export function createSquareClient(env, opts = {}) {
     get: (path, o) => request("GET", path, o),
     post: (path, body, o) => request("POST", path, { ...o, body }),
     put: (path, body, o) => request("PUT", path, { ...o, body }),
+    delete: (path, o) => request("DELETE", path, o),
   };
 }
