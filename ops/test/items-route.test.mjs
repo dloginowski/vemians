@@ -1774,13 +1774,31 @@ check("test_PRD_P0_138_nested_categories__the_add_button_is_double_wide_to_stay_
      -- there is nothing to remove yet), so its own Add button must cover
      BOTH the remove button's own slot and the real add button's, plus
      the gap that would have sat between them, to land its own right edge
-     exactly under a node row's own rightmost button: one button (20px)
-     doubled, PLUS the row's own 6px gap = 46px, not a plain 40px. */
+     exactly under a node row's own rightmost button: one button width,
+     doubled, PLUS the row's own 6px gap -- not a plain doubling.
+     REVISED: "make sure that the add button has the same height as all
+     the other buttons... so that all the chevrons['] content is always
+     aligned with the chevrons" -- the row's own buttons are no longer a
+     separate hardcoded 20px, they size off CATEGORY_NODE_TOGGLE_PX too
+     (the same constant every chevron on the tile already shares), so
+     this test derives its expected numbers from that rendered value
+     rather than assuming either number by hand. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const body = await (await get("/items", MANAGER, env(mirror))).text();
-  assert.match(body, /\.category-add-toggle, \.category-remove-toggle, \.category-create\s*\{[^}]*width: 20px;/, "a normal row button is 20px");
-  assert.match(body, /\.category-create\s*\{\s*width: 46px;/, "20px doubled plus the row's own 6px gap");
+  const toggleWidth = /\.category-node-toggle\s*\{[^}]*width:\s*(\d+)px/.exec(body)?.[1];
+  assert.ok(toggleWidth, "the toggle's own width must be found in the rendered CSS");
+  assert.match(
+    body,
+    new RegExp(`\\.category-add-toggle, \\.category-remove-toggle, \\.category-create\\s*\\{[^}]*width: ${toggleWidth}px; height: ${toggleWidth}px;`),
+    "every row button is the exact same size as the chevrons, not its own separate number",
+  );
+  const doubleWidth = Number(toggleWidth) * 2 + 6;
+  assert.match(
+    body,
+    new RegExp(`\\.category-create\\s*\\{\\s*width: ${doubleWidth}px;`),
+    "the chevron width doubled, plus the row's own 6px gap",
+  );
 });
 
 check("test_PRD_P0_138_nested_categories__the_add_form_also_takes_a_numeric_id", async () => {
@@ -2019,13 +2037,19 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_category_control_is_on
 });
 
 check("test_PRD_P0_135_item_edit_applies_immediately__the_picker_shows_the_full_ancestor_path_when_nested", async () => {
+  /* REVISED: "in the category selector, I want to only see the last
+     entry after the last slash... so that it's not taking up so much
+     space." The button's own VISIBLE label is now just the leaf name;
+     the full ancestor path moves to the button's own title instead, so
+     it is still available on hover without spending layout width on it. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   mirror.db.exec("INSERT INTO mirror_category (id, external_ref, name, parent_id) VALUES ('cat2', 'sqcat2', 'Coats', 'cat1')");
   mirror.db.exec("UPDATE mirror_product SET category_id = 'cat2' WHERE id = 'p1'");
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
-  assert.match(body, /<span class="category-picker-btn-label">Outerwear \/ Coats<\/span>/);
+  assert.match(body, /<button type="button" class="category-picker-btn" aria-label="Choose a category" title="Outerwear \/ Coats">/);
+  assert.match(body, /<span class="category-picker-btn-label">Coats<\/span>/);
   assert.match(body, /data-category-id="cat2" data-category-path="Outerwear \/ Coats"/);
 });
 
@@ -2059,7 +2083,28 @@ check("test_PRD_P0_135_item_edit_applies_immediately__an_uncategorized_product_s
   const body = await res.text();
   assert.match(body, /<input type="text" name="category_id" value="" hidden>/);
   assert.match(body, /<span class="category-picker-btn-label">Uncategorized<\/span>/);
+  assert.match(body, /title="Choose a category">[\s\S]{0,300}<span class="category-picker-btn-label">Uncategorized/, "no full-path title when nothing is assigned yet");
   assert.doesNotMatch(body, /category-picker-option selected/);
+});
+
+check("test_PRD_P0_135_item_edit_applies_immediately__picking_an_option_updates_the_buttons_label_and_title_separately", async () => {
+  /* REVISED: "in the category selector, I want to only see the last
+     entry after the last slash... so that it's not taking up so much
+     space." Picking a category client-side must keep the same split the
+     server-rendered markup already has: the button's own visible label
+     copies the OPTION's own bare text (already just the leaf name), and
+     the full data-category-path moves onto the button's own title
+     instead — never both crammed into the visible label again. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  const clickHandlerIdx = body.indexOf('const pickerOption = e.target.closest(".category-picker-option");');
+  const clickHandler = body.slice(clickHandlerIdx, clickHandlerIdx + 1200);
+  assert.match(clickHandler, /const pickerBtnEl = form\.querySelector\("\.category-picker-btn"\);/);
+  assert.match(clickHandler, /const label = pickerBtnEl\.querySelector\("\.category-picker-btn-label"\);/);
+  assert.match(clickHandler, /label\.textContent = pickerOption\.textContent;/, "the visible label copies the option's own bare leaf name, not the full path");
+  assert.match(clickHandler, /pickerBtnEl\.title = pickerOption\.dataset\.categoryPath;/, "the full path still lands on the button's own title");
 });
 
 check("test_PRD_P0_135_item_edit_applies_immediately__the_save_button_starts_disabled_and_only_renders_for_a_manager", async () => {

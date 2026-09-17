@@ -3971,6 +3971,21 @@ that does not trace to one of these is a process failure (see §12).
     form selector are both gone too, since no `<form>` lives inside `.variations-header` any more at
     all — `.item-edit form` in that same selector already covers style_id's new location.
 
+    **REVISED YET AGAIN — the category picker's own label is now just the leaf name, not the full
+    path.** The owner's own words: "in the category selector, I want to only see the last entry after
+    the last slash... if it's dresses slash cocktail dresses, I just want to see the cocktail dresses
+    when I actually select, so that it's not taking up so much space." `.category-picker-btn-label`'s
+    own text is now the bare category name (`renderCategoryPickerNodes`' own option already renders
+    exactly that; the button's own server-render just looks the category up directly rather than
+    building the full path for display) instead of `categoryPath`'s full ancestor chain — but that
+    full chain does not disappear, it moves onto the button's own `title`, so hovering still tells two
+    differently-nested categories that happen to share a leaf name apart, without spending any layout
+    width on it at rest. Picking an option client-side keeps the same split: the visible label copies
+    the clicked option's own bare text (already just its leaf name), while `data-category-path` (still
+    the full chain, unchanged) lands on the button's own `title` instead of its label. The read-only
+    staff view (no picker, just a plain `<span>` since there is nothing to click) is untouched and
+    still shows the full path — there is no hover on a `<span>` to hand it off to.
+
 71. **`Test-PRD-P0-136-square_custom_attributes`** — The owner's own words, having weighed "ours,
     not Square's" (P0-71's own `channel`/`custom_fields`) against not reinventing something Square
     already offers: "why do we need to have our own custom fields then? It doesn't make sense... we
@@ -4956,6 +4971,18 @@ that does not trace to one of these is a process failure (see §12).
     real add button's, plus the gap that would have sat between them, to land its own right edge
     exactly under a row's own rightmost button — one 20px button doubled, plus the row's own 6px gap,
     not a plain 40px.
+
+    **REVISED YET AGAIN — the row's own remove/add/create buttons are no longer a separate 20px.** The
+    owner's own words: "make sure that the add button has the same height as all the other buttons...
+    so that all the chevrons['] content is always aligned with the chevrons." `.category-add-toggle`,
+    `.category-remove-toggle` and `.category-create` shared a hardcoded `20px` that only ever happened
+    to be close to `CATEGORY_NODE_TOGGLE_PX` (18, then 14 once tightened) rather than actually equal to
+    it — now all three size off that exact same constant, the identical fix already given to
+    `.variations-toggle`/`.categories-toggle`, so every chevron AND every action button anywhere in the
+    category UI is the same height by construction. `.category-create`'s own "double wide" formula
+    (above) is recomputed against this same constant rather than the old, now-stale `20px`, so its own
+    right edge still lands exactly under a real row's own rightmost button once that button's width
+    changed too.
 
 74. **`Test-PRD-P0-139-honest_write_failures`** — A Square write refused with a plain `Square POST
     /v2/catalog/object failed with 400` and nothing else — the owner's own words, pasting exactly that
