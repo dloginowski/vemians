@@ -141,16 +141,23 @@ export async function variantById(db, id) {
     .first();
 }
 
-/* Same case-insensitive lookup vendorRef() does before ever calling
-   Square's real CreateVendor — exposed here so a T2 tool's own check() can
-   tell, BEFORE any write, whether resolving a given name would create a
-   brand-new Vendor. Read-only: this never decides to create one itself. */
-export async function vendorExists(db, name) {
+/* REVISED: "let's not force vendor's commission to be stated out loud [on
+   every item]... we store it in essential locations per vendor so that
+   their commission is recorded in a central location and automatically
+   applied" — the owner's own words. Replaces the old vendorExists(): a
+   plain existence check was never actually the fact either T2 tool's own
+   check() cared about — a vendor Square already knows about (created
+   directly in Square's own dashboard, say) but with no commission_pct of
+   OURS on file yet is exactly as unable to supply one automatically as a
+   vendor that does not exist at all. Read-only: this never decides to
+   create or update a vendor itself, and returns null for either case a
+   caller must treat identically — "give me one now." */
+export async function vendorCommission(db, name) {
   const row = await db
-    .prepare("SELECT external_ref FROM mirror_vendor_index WHERE name = ? COLLATE NOCASE")
+    .prepare("SELECT commission_pct FROM mirror_vendor_index WHERE name = ? COLLATE NOCASE")
     .bind(name)
     .first();
-  return Boolean(row);
+  return row?.commission_pct ?? null;
 }
 
 export async function variantsOf(db, productId) {

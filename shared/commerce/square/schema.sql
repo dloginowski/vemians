@@ -114,17 +114,34 @@ FROM mirror_category WHERE archived_at IS NULL;
 -- way categories are, though: a new vendor is created in Square on demand
 -- (ops/src/tools/catalog-writer.js's own resolve-or-create), because an
 -- evolving supplier list is exactly what this feature is for.
+-- commission_pct: OURS, not Square's — the same reasoning mirror_product's
+-- own commission_pct comment already gives ("Square has no concept of a
+-- resale commission at all"), moved up a level. REVISED: "let's not force
+-- vendor's commission to be stated out loud [on every item]... we store it
+-- in essential locations per vendor so that their commission is recorded
+-- in a central location and automatically applied" — the owner's own
+-- words. A vendor's own rate lives HERE now, the one place it is actually
+-- given or changed; a product's own commission_pct (mirror_product, above)
+-- is still what Square's own per-item Custom Attribute actually holds, but
+-- it is now populated FROM this column whenever a caller does not name one
+-- explicitly (ops/src/tools/catalog-write.js), rather than left blank or
+-- demanded again for every single item. Square's own Vendors sync
+-- (syncVendors, mirror.js) never names this column in its own UPSERT, on
+-- purpose — the same "named exception the sync job must never touch"
+-- convention channel/custom_fields already established on mirror_product —
+-- so a rate set here survives every future vendor re-sync untouched.
 CREATE TABLE mirror_vendor (
-  id           TEXT PRIMARY KEY,              -- ours
-  external_ref TEXT NOT NULL UNIQUE,          -- Square Vendor id
-  name         TEXT NOT NULL,
-  status       TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive')),
-  archived_at  TEXT,                          -- same archive-only convention as every mirror_* table
-  synced_at    TEXT NOT NULL DEFAULT (datetime('now'))
+  id             TEXT PRIMARY KEY,              -- ours
+  external_ref   TEXT NOT NULL UNIQUE,          -- Square Vendor id
+  name           TEXT NOT NULL,
+  status         TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive')),
+  commission_pct INTEGER,
+  archived_at    TEXT,                          -- same archive-only convention as every mirror_* table
+  synced_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE VIEW mirror_vendor_index AS
-SELECT id, external_ref, name, status, synced_at
+SELECT id, external_ref, name, status, commission_pct, synced_at
 FROM mirror_vendor WHERE archived_at IS NULL;
 
 -- ── products  (Square ITEM) ────────────────────────────────────────────────
@@ -220,6 +237,13 @@ CREATE TABLE mirror_product (
   -- and catalog.create_product rather than as a CHECK constraint here (a
   -- constraint cannot see "the OTHER value this same call is also
   -- setting").
+  --
+  -- REVISED: mirror_vendor's OWN commission_pct (above) is now the central
+  -- rate for a given vendor — an item's own value here still mirrors
+  -- whatever Square's own per-ITEM Custom Attribute actually holds (that is
+  -- the fact this column exists to reflect), but an item that names a
+  -- vendor and no commission of its own gets the vendor's own on-file rate
+  -- copied in here automatically, rather than being asked to restate it.
   commission_pct     INTEGER,
   category_id        TEXT REFERENCES mirror_category(id),
   source_version     INTEGER NOT NULL DEFAULT 0,  -- Square's optimistic-concurrency version

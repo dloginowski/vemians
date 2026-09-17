@@ -4292,6 +4292,48 @@ that does not trace to one of these is a process failure (see §12).
     `pullCatalog` against that same fake asserting the whole sweep completes rather than throwing on the
     very first thing it does.
 
+    **REVISED YET AGAIN — a vendor's own commission rate is now centralized and applied
+    automatically, instead of being asked for on every item.** The owner's own words, describing a
+    fully automated ingestion process: "let's not force vendor's commission to be stated out loud [on
+    every item] because that's privileged information... if we are entering items that has a vendor
+    in the interface, that's when we want to make sure that there is a commission included. Or at
+    least we store it in essential locations per vendor so that their commission is recorded in a
+    central location and automatically applied." `mirror_vendor` gains its own `commission_pct`
+    column (`shared/commerce/square/schema.sql`, migration `0005_vendor_commission.sql`) — OURS, not
+    Square's, the same reasoning `mirror_product.commission_pct`'s own comment already gives, moved up
+    a level; Square's own Vendors sync (`syncVendors`, `mirror.js`) never names it in its own UPSERT,
+    the same "named exception the sync job must never touch" convention `channel`/`custom_fields`
+    already established.
+
+    `vendorExists` (a plain existence check) is gone, replaced by `vendorCommission` (`catalog-
+    writer.js`), which reads a vendor's own on-file rate directly — `null` for a vendor with nothing
+    recorded, whether that is because it does not exist at all or because Square already knew about it
+    (created directly in Square's own dashboard, say) and this shop simply never gave it one. Both
+    `catalog.create_product` and `catalog.set_square_attributes` now check THIS instead of mere
+    existence: a vendor with a rate on file needs nothing restated at all — the rate is copied onto the
+    product automatically, in `run()`, after the write actually reaches Square (a vendor's own mirror
+    row is not guaranteed to exist yet before that, for a brand-new one — `vendorRef`'s own header
+    comment: "the agent writes to Square, never to the mirror," so nothing writes there directly until
+    `syncAfterWrite` has actually run). A vendor with nothing on file is refused, naming exactly which
+    vendor still needs a rate, the same as before — REVISED from the earlier, looser rule ("reusing an
+    existing vendor by name does not [need a commission]"), which this replaces: existing was never
+    actually the fact either tool's own `check()` cared about, having one on file is.
+
+    **The reverse direction matters just as much: an EXPLICIT commission given alongside a vendor
+    becomes that vendor's own new central rate**, a direct `UPDATE mirror_vendor SET commission_pct = ?
+    WHERE name = ? COLLATE NOCASE` in the tool layer (the fourth such named exception this codebase
+    now has, alongside `channel`/`custom_fields`/`numeric_id` —
+    `Test-PRD-P0-37-mirror_is_ours`'s own structural scan updated to allow it, and to prove every such
+    statement in `catalog-write.js` touches `commission_pct` and nothing else). `catalog.
+    set_square_attributes` reassigning a product to a DIFFERENT vendor with no fresh commission of its
+    own adopts THAT vendor's own on-file rate, never blindly carrying over whatever the product's
+    PREVIOUS vendor happened to leave in its own `commission_pct` column. `ops/src/batch.js`'s own CSV
+    ingestion path needed no code change at all for either half — it relays whatever
+    `catalog.create_product`'s own `check()`/`run()` actually do, by design, so both the refusal
+    wording and the auto-apply behavior reach a spreadsheet row exactly the same way a single chat-agent
+    call already does; only its own comments, describing the OLD "reusing an existing vendor needs
+    nothing" rule this replaces, needed correcting.
+
 72. **`Test-PRD-P0-137-item_active_toggle`** — The owner's own words, in the same request that moved
     Web and the newly-added Active checkbox beside the item's own name: "move the web and the active
     buttons... make them the same style as the rest of the fields... have the same style like

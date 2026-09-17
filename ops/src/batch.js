@@ -87,13 +87,18 @@ const SKU_KEYS = ["sku", "style number", "item number", "product code"];
    recognized here so a sheet carrying them reaches catalog.create_product as
    real arguments rather than inert text, and its own check() can flag the
    owner's own rules before a row is ever parked: "we always need to have a
-   style ID," and — separately — a vendor NAME with no existing Square
-   Vendor needs a commission given in the same row ("I need to specify a
-   commission if I create a vendor"; reusing an already-known vendor does
-   not). Deliberately NOT "style number"/"item number" (SKU_KEYS above):
-   those already mean the SKU, a wholly different, Square-assigned
-   identifier this codebase never invents (see catalog-write.js's own
-   STYLE_ID_FORMAT comment). */
+   style ID," and — separately — a vendor NAME with no commission on file
+   yet (mirror_vendor.commission_pct — brand new to this shop, or a vendor
+   Square already knew about that was never given a rate) needs one given
+   in the same row. REVISED: "let's not force vendor's commission to be
+   stated out loud [on every row]... we store it in essential locations
+   per vendor so their commission is recorded in a central location and
+   automatically applied" — a vendor with a rate already on file needs
+   nothing repeated here at all; catalog.create_product's own check()
+   copies that rate onto the row's own product automatically. Deliberately
+   NOT "style number"/"item number" (SKU_KEYS above): those already mean
+   the SKU, a wholly different, Square-assigned identifier this codebase
+   never invents (see catalog-write.js's own STYLE_ID_FORMAT comment). */
 const STYLE_ID_KEYS = ["style id", "style_id"];
 const VENDOR_KEYS = ["vendor", "vendor name", "supplier"];
 /* The vendor's OWN SKU/product code for this item — "an invoice-like
@@ -257,11 +262,14 @@ export async function draftProductBatch(env, { text, actor, role }) {
     /* The owner's own words, walked through a final time, then revised: "if
        we don't have a vendor name, then we must have a cost of goods... if
        we're adding a product that has a price, no vendor, and no cogs,
-       that's a problem too" — still enforced below. The earlier "a vendor
-       needs a commission too" half was later dropped — "scratch the
-       requirement to add a commission when specifying vendor, that's not
-       always true" — so a vendor with no commission is a normal row now,
-       same as catalog.create_product's own check() already allows. */
+       that's a problem too" — still enforced below. A vendor row with no
+       commission of its own is a normal row too — the same
+       catalog.create_product's own check() already allows, REVISED once
+       more: only when that vendor already has a rate ON FILE centrally.
+       One with nothing on file at all (brand new, or one Square already
+       knew about) is not a normal row — catalog.create_product's own
+       check() refuses it, and that refusal is relayed as this row's own
+       skip reason exactly like a bad category or price already is. */
     if (!vendor && !hasUnitCost) {
       skipped.push({
         row: rowNumber,
