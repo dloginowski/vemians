@@ -3819,6 +3819,18 @@ that does not trace to one of these is a process failure (see §12).
     the description now enables Save immediately and gives the textarea the same accent-colored
     border every other dirty field gets.
 
+    **REVISED YET AGAIN: "Remove all horizontal bars from the details panel, except the one that's
+    right above the admin dropdown."** Three `border-top` rules previously drew a line above the
+    title/vendor block, above the Variations accordion, and above the Categories accordion (nested
+    inside Admin) — on top of the ONE the owner wanted kept, above the custom-fields/Admin block.
+    `.item-edit` is shared by BOTH the title/vendor `<div>` and the custom-fields/Admin `<div>` (same
+    class, two separate elements), so the border could not simply be dropped from the class itself —
+    the base `.item-edit` rule loses its own `border-top` entirely, and a second class,
+    `.item-edit-admin`, added only to the custom-fields/Admin `<div>`, restores it there alone.
+    `.variations-accordion` and `.categories-accordion` both lose their own `border-top` outright,
+    keeping their existing `margin-top`/`padding-top` so sections still read as distinct without a
+    drawn line between every one of them.
+
 71. **`Test-PRD-P0-136-square_custom_attributes`** — The owner's own words, having weighed "ours,
     not Square's" (P0-71's own `channel`/`custom_fields`) against not reinventing something Square
     already offers: "why do we need to have our own custom fields then? It doesn't make sense... we

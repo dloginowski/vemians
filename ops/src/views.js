@@ -1786,7 +1786,11 @@ ${INPUT_BAR_CSS}
    .expanded) — the header alone (style_id, unit cost, MSRP) is the thing
    worth seeing without an extra tap; the per-variation list is the detail
    an accordion exists to defer. */
-.variations-accordion { border-top: 1px solid var(--rule); margin-top: 2px; padding-top: 6px; }
+/* "Remove all horizontal bars from the details panel, except the one
+   right above the admin dropdown" — the top border is gone; the spacing
+   above it (margin-top/padding-top) stays, so sections still read as
+   distinct without a drawn line between every one of them. */
+.variations-accordion { margin-top: 2px; padding-top: 6px; }
 /* "Decorate the header so it's obvious it's an expandable accordion...
    a different color header... not just a chevron" — a plain bar (same
    --image-ground/--rule "second surface" pattern .ticket-tile already
@@ -1833,7 +1837,7 @@ ${INPUT_BAR_CSS}
    workflow... adapt it to handle categories and subcategories." Same
    shape as .variations-accordion above: a plain bar that toggles its own
    body, collapsed by default, right above it. */
-.categories-accordion { border-top: 1px solid var(--rule); margin-top: 2px; padding-top: 6px; }
+.categories-accordion { margin-top: 2px; padding-top: 6px; }
 /* "Only highlight dirty elements with orange! That expanding categories
    header border should not be orange unless it has modified children!"
    Orange is reserved for a real, meaningful state elsewhere on this tile
@@ -1959,7 +1963,13 @@ ${INPUT_BAR_CSS}
   flex: 1 1 auto; min-width: 0; font: inherit; font-size: 12px; padding: 3px 5px;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
 }
-.item-edit { border-top: 1px solid var(--rule); margin-top: 2px; padding-top: 6px; cursor: default; }
+.item-edit { margin-top: 2px; padding-top: 6px; cursor: default; }
+/* "Remove all horizontal bars from the details panel, except the one
+   right above the admin dropdown" — .item-edit wraps BOTH the title/
+   vendor block above and the custom-fields/Admin block below (same
+   class, two separate divs); only the second one keeps its own top
+   border, via this second class added just to it. */
+.item-edit.item-edit-admin { border-top: 1px solid var(--rule); }
 .item-edit form { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 .item-add-field { margin: 2px 0; }
 .item-add-field summary { cursor: pointer; color: var(--muted); font-size: 11px; }
@@ -2672,7 +2682,7 @@ function itemTile(product, canEdit, allCategories = []) {
      categoriesAccordion a sibling of both forms, inside the <details> but
      outside either <form>, avoids that regression entirely. */
   const customFieldsForm = canEdit
-    ? `<div class="item-edit">
+    ? `<div class="item-edit item-edit-admin">
          ${
            existingFieldInputs
              ? `<form method="post" action="/items/${esc(product.handle)}/custom-fields">${existingFieldInputs}</form>`
