@@ -4378,6 +4378,27 @@ that does not trace to one of these is a process failure (see §12).
     label">` specifically so the click handler that rewrites it on a pick (`btn.textContent = ...`)
     updates only the text, never wiping out the icon sitting beside it in the same button.
 
+    **REVISED once more: the chevron was never meant to be a static down-arrow.** The owner's own words:
+    "it has a chevron on the left... has to be pointing to the right... when you press it, it will
+    expand, aiming down." Moved before the label (left of the path text, not after it), and its rotation
+    is no longer unconditional — it now follows the SAME right-pointing-until-expanded convention every
+    other caret on this tile already uses (`.categories-toggle`, `.category-node-toggle`): unrotated by
+    default, rotating 90° only once its own `.category-picker` wrapper carries `.expanded`
+    (`.category-picker.expanded > .category-picker-btn svg`), toggled by the same click that opens the
+    menu.
+
+    **A real, previously-invisible bug caught only by driving the actual click in a real browser, not by
+    reading the code:** the chevron never rotated at all, in either direction, no matter how many times
+    the picker was opened or closed. `wasHidden` (the menu's OWN hidden state just before the click) was
+    reused, negated, for BOTH `menu.hidden`'s own new value (`!wasHidden` — correct: open it if it was
+    closed) AND the `expanded` class's new value (also written as `!wasHidden` — wrong: "is now open"
+    is the OPPOSITE sense of "was hidden," so the class needed `wasHidden` itself, not its negation). The
+    two assignments look like they should share one expression; they need opposite ones. Static analysis
+    and the unit tests (which only ever assert the two CSS rules exist, never simulate an actual click)
+    both missed it outright — caught only by clicking the real button in a real headless browser and
+    reading the computed `transform` back, which is now this feature's own standing verification step
+    for any future change to this handler, not just this one.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

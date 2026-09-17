@@ -1700,8 +1700,13 @@ ${INPUT_BAR_CSS}
    exact border/radius/background/padding/font-size declarations
    (copied literally, not inherited through the selector, since a
    <button> is not an <input> and .item-edit input's own selector does
-   not match it), plus a static down-pointing chevron (CARET_ICON,
-   rotated) the way a native <select> always shows one. */
+   not match it). REVISED: "it has a chevron on the left... has to be
+   pointing to the right... when you press it, it will expand, aiming
+   down" — the chevron is not a static down-arrow after all; it is the
+   SAME right-pointing-until-expanded convention every other caret on
+   this tile already uses (.categories-toggle, .category-node-toggle),
+   just on the LEFT of the label instead of the right, rotating 90°
+   only once its own .category-picker wrapper carries .expanded. */
 .category-title-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 /* .item-edit form's own blanket display:flex/flex-direction:column
    (below) would otherwise win this: both forms living in this row are
@@ -1720,7 +1725,8 @@ ${INPUT_BAR_CSS}
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink); cursor: pointer;
 }
 .category-picker-btn:hover { border-color: var(--accent); color: var(--accent); }
-.category-picker-btn svg { flex: 0 0 auto; transform: rotate(90deg); color: var(--muted); }
+.category-picker-btn svg { flex: 0 0 auto; color: var(--muted); transition: transform 0.15s; }
+.category-picker.expanded > .category-picker-btn svg { transform: rotate(90deg); }
 .category-picker-menu {
   position: absolute; top: 100%; left: 0; z-index: 15; margin-top: 4px; min-width: 14em; max-height: 16em;
   overflow-y: auto; padding: 4px 0; border: 1px solid var(--muted); border-radius: 8px; background: var(--ground);
@@ -2468,7 +2474,7 @@ function itemTile(product, canEdit, allCategories = []) {
          <input type="text" name="category_id" value="${esc(categoryId ?? "")}" hidden>
          <div class="category-picker">
            <button type="button" class="category-picker-btn" aria-label="Choose a category" title="Choose a category">
-             <span class="category-picker-btn-label">${esc(categoryPathLabel)}</span>${CARET_ICON}
+             ${CARET_ICON}<span class="category-picker-btn-label">${esc(categoryPathLabel)}</span>
            </button>
            <div class="category-picker-menu" hidden>
              ${
@@ -2948,10 +2954,17 @@ document.getElementById("items-grid").addEventListener("click", async (e) => {
      dropdownMenuScript could bind to. */
   const pickerBtn = e.target.closest(".category-picker-btn");
   if (pickerBtn) {
+    const picker = pickerBtn.closest(".category-picker");
     const menu = pickerBtn.nextElementSibling;
     const wasHidden = menu.hidden;
-    document.querySelectorAll(".category-picker-menu").forEach((m) => (m.hidden = true));
+    closeAllCategoryPickers();
+    /* menu.hidden's NEW value is !wasHidden (open it if it was closed);
+       "expanded" (is now OPEN) is the opposite sense — wasHidden itself,
+       not !wasHidden — caught live: the chevron never rotated, because
+       this line used !wasHidden for both, when the two need opposite
+       boolean expressions. */
     menu.hidden = !wasHidden;
+    picker.classList.toggle("expanded", wasHidden);
     return;
   }
   const pickerToggle = e.target.closest(".category-picker-toggle");
@@ -2968,7 +2981,7 @@ document.getElementById("items-grid").addEventListener("click", async (e) => {
     btn.textContent = pickerOption.dataset.categoryPath;
     form.querySelectorAll(".category-picker-option.selected").forEach((el) => el.classList.remove("selected"));
     pickerOption.classList.add("selected");
-    form.querySelector(".category-picker-menu").hidden = true;
+    closeAllCategoryPickers();
     hiddenInput.dispatchEvent(new Event("change", { bubbles: true }));
     return;
   }
@@ -3062,17 +3075,24 @@ document.getElementById("items-grid").addEventListener("click", async (e) => {
   setDeepLinkHash(tile);
 });
 
+/* Closes every open category picker — its own menu AND its own chevron's
+   .expanded state, kept together so the arrow never stays rotated down
+   with nothing actually open below it. */
+function closeAllCategoryPickers() {
+  document.querySelectorAll(".category-picker-menu").forEach((m) => (m.hidden = true));
+  document.querySelectorAll(".category-picker.expanded").forEach((p) => p.classList.remove("expanded"));
+}
 /* Closes any open category picker menu on an outside click — the same
    "outside click closes it" convention dropdownMenuScript's own single
    global menu already follows, generalized here since there is one
    .category-picker-menu per tile rather than one shared id to bind to. */
 document.addEventListener("click", (e) => {
   if (e.target.closest(".category-picker")) return;
-  document.querySelectorAll(".category-picker-menu").forEach((m) => (m.hidden = true));
+  closeAllCategoryPickers();
 });
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
-  document.querySelectorAll(".category-picker-menu").forEach((m) => (m.hidden = true));
+  closeAllCategoryPickers();
 });
 
 /* Dirty-tracking for the ONE Save button per tile — the owner's own
