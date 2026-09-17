@@ -4052,6 +4052,26 @@ that does not trace to one of these is a process failure (see §12).
     small, deliberately fixed pair); vendor moved past Custom Attributes entirely, onto Square's own
     Vendor entity, per the revision above.
 
+    **REVISED: the real reason the mirror stayed stale through this whole session's investigation,
+    caught live from the owner's own copied error — `Square POST /v2/vendors/search failed with 400 —
+    INVALID_REQUEST_ERROR/VALUE_EMPTY (field: filter): Value for filter should not be empty.`**
+    `listVendors` (`shared/commerce/square/vendors.js`) sent a bare `{}` body for "everything," which
+    Square's `SearchVendors` API used to accept. Square's own current API reference (its real documented
+    example, since `developer.squareup.com` itself is unreachable from this environment) now requires
+    `query.filter` to be present and non-empty. `pullCatalog` (`shared/commerce/square/index.js`) calls
+    `listVendors` FIRST, unconditionally, with no `try`/`catch` around it, on EVERY call — full sweep or
+    incremental, cron-scheduled or the manual "Resync from Square" button alike. So this single 400 was
+    silently aborting every catalog sync this entire codebase has, before it ever reached a single
+    catalog object: not a webhook configuration problem, not a cron scheduling problem, not the resync
+    button's own approval-gate bug (a real, separate bug also found and fixed this session) — every one
+    of those was a real issue in its own right, but this is why fixing them still left the mirror stuck.
+    Fixed by sending `query.filter.status: ["ACTIVE", "INACTIVE"]` — both statuses, since this
+    function's own contract is "the full list" and status is what tells an active vendor from an
+    inactive one one line below, not a criterion to exclude by. Proven two ways: `listVendors` against a
+    fake server that returns Square's own real error shape for an empty filter, asserting the exact
+    `query.filter.status` sent; and a full `pullCatalog` against that same strict fake, asserting the
+    whole sweep completes rather than throwing on the very first thing it does.
+
 72. **`Test-PRD-P0-137-item_active_toggle`** — The owner's own words, in the same request that moved
     Web and the newly-added Active checkbox beside the item's own name: "move the web and the active
     buttons... make them the same style as the rest of the fields... have the same style like
