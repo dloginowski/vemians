@@ -869,7 +869,29 @@ export function createSquareCatalogWriter(env, opts = {}) {
         },
       };
 
-      await client.post("/v2/catalog/object", body);
+      try {
+        await client.post("/v2/catalog/object", body);
+      } catch (err) {
+        /* Square's own optimistic concurrency doing exactly its job — the
+           object changed in Square (directly, or by another edit) since
+           this mirror row's own source_version was last synced, and Square
+           correctly refuses to blindly overwrite it. Not a bug, but the
+           raw category/code/field dump (P0-139) reads like one to a
+           manager who has no reason to know what "VERSION_MISMATCH" or a
+           request/latest version pair means. Rethrown with a plain-English
+           hint IN FRONT of that same technical detail (err.errors carried
+           over so errorDetail — ops/src/tools/index.js — still appends it
+           after this sentence), never in place of it: the raw detail is
+           still worth having if reloading does not actually resolve it. */
+        if ((err?.errors ?? []).some((e) => e.code === "VERSION_MISMATCH")) {
+          const friendly = new Error(
+            "This item was changed directly in Square since this page last loaded — reload the Items tab to see the current version, then try your edit again.",
+          );
+          friendly.errors = err.errors;
+          throw friendly;
+        }
+        throw err;
+      }
       const media = await attachImages(row.external_ref, images);
       const sync = await syncAfterWrite();
 
