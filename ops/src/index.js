@@ -38,6 +38,7 @@ import { scanReceipt } from "./tools/receipt-ocr.js";
 import { listAllProducts, listCategories } from "./tools/catalog-writer.js";
 import { applyFormEdits } from "./approval-forms.js";
 import { syncFromSquare } from "./sync.js";
+import { verifyWebhook, normaliseWebhook } from "../../shared/commerce/square/webhooks.js";
 import { backfillMedia } from "./media-backfill.js";
 import { intakeContactTickets } from "./contact-intake.js";
 import {
@@ -1554,11 +1555,85 @@ async function ops(request, env, path) {
   return html(notFoundPage(), 404);
 }
 
+/*
+ * Square's PUSH half of the mirror sync — ADR-009: "mirrored... on webhook
+ * and on a nightly reconcile." sync.js's cron is the reconcile half; this is
+ * the webhook half, and until this existed the mirror only ever had the
+ * first half, sweeping on a timer because nothing ever told it a change had
+ * actually happened (see PR #176's own history for the category bug that
+ * cost, and the owner's own words: "I expect it to be instant").
+ *
+ * Reached BEFORE servesOps/readAccessIdentity below, the same as /healthz —
+ * Square's own servers carry no Cloudflare Access identity, so this request
+ * would fail closed like every other route if it went through ops(). The
+ * signature check below (verifyWebhook) IS this endpoint's authentication,
+ * standing in for Access.
+ *
+ * THAT IS NOT THE WHOLE STORY: Cloudflare Access gates ops.vemians.com/* at
+ * Cloudflare's own edge, before a request ever reaches this Worker's code at
+ * all (this file's own top comment: "fails closed"). No code here can change
+ * that. Square's webhook calls only ever arrive at this handler once a
+ * separate Access "Bypass" policy exists for the path
+ * ops.vemians.com/webhooks/square in the Zero Trust dashboard — dashboard
+ * configuration, not something this repository can do or verify, same
+ * category as the Custom Domain / Access application setup deploy-
+ * cloudflare.md already documents by hand.
+ */
+async function squareWebhook(request, env, ctx) {
+  if (request.method !== "POST") {
+    return new Response("POST only\n", { status: 405 });
+  }
+
+  const body = await request.text();
+  const verified = await verifyWebhook(request.headers, body, {
+    signatureKey: env.SQUARE_WEBHOOK_SIGNATURE_KEY,
+    notificationUrl: env.SQUARE_WEBHOOK_URL,
+  });
+  if (!verified) {
+    /* Already logged, in detail, inside verifyWebhook/verifySquareSignature —
+       RULES.md §14 says which reason, not just that it failed. */
+    return new Response("signature rejected\n", { status: 401 });
+  }
+
+  let event;
+  try {
+    event = JSON.parse(body);
+  } catch (err) {
+    console.error(`ERROR ops/webhooks: signature verified but the body is not JSON — ${err.message}`);
+    /* 2xx regardless: a malformed body is not something Square can fix by
+       retrying the same bytes, so there is nothing to gain by asking it to. */
+    return new Response("ok\n");
+  }
+
+  const normalised = normaliseWebhook(event, { locationId: env.SQUARE_LOCATION_ID });
+  if (normalised?.kind === "catalog.updated" || normalised?.kind === "inventory.updated") {
+    /*
+     * Square's own event never says WHAT changed — webhooks.js's own comment
+     * on catalog.version.updated: "the honest normalisation is 'resync from
+     * this timestamp'... pretending to know which item changed would be
+     * inventing a fact." So this triggers the exact same syncFromSquare the
+     * cron already calls on a schedule — the SAME idempotent, cursor-based
+     * pull (external_ref UNIQUE makes a re-run a no-op, sync.js's own top
+     * comment) — rather than a second, parallel way of reaching the mirror.
+     * ctx.waitUntil so Square gets its 2xx back immediately: it expects a
+     * fast ack, not for the sync to finish, and a slow webhook response is
+     * how Square starts disabling a subscription for looking unhealthy.
+     */
+    const run = syncFromSquare(env, {}).catch((err) => {
+      console.error(`ERROR ops/webhooks: sync triggered by ${normalised.kind} failed — ${err.message}`);
+    });
+    ctx?.waitUntil?.(run);
+  }
+  return new Response("ok\n");
+}
+
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
     if (url.pathname === "/healthz") return new Response("ok\n", { headers: { "content-type": "text/plain" } });
+
+    if (url.pathname === "/webhooks/square") return squareWebhook(request, env, ctx);
 
     if (!servesOps(url.hostname, env)) {
       console.error(`ERROR ops: refusing ${url.hostname} — SURFACE=${env.SURFACE ?? "unset"}, OPS_HOST=${env.OPS_HOST ?? "unset"}`);

@@ -131,6 +131,45 @@ SQUARE_LOCATION_ID = "L846PQNSM9TF4"
 LOCATION_ID = "main"
 
 # ---------------------------------------------------------------------------
+# Square webhooks — the PUSH half of the mirror sync (ADR-009: "mirrored...
+# on webhook and on a nightly reconcile"). src/index.js's squareWebhook
+# verifies and consumes catalog.version.updated / inventory.count.updated at
+# POST /webhooks/square, triggering the same syncFromSquare the cron below
+# calls on a schedule — the reconcile stays as the safety net for whatever a
+# webhook delivery misses, not the primary path once this is live.
+#
+# TWO THINGS MUST EXIST BEFORE SQUARE'S REQUESTS EVER REACH THIS WORKER, and
+# neither is done by this file or by `wrangler deploy`:
+#
+#   1. A Cloudflare Access "Bypass" policy scoped to the exact path
+#      ops.vemians.com/webhooks/square, in the Zero Trust dashboard. Access
+#      gates the WHOLE ops.vemians.com host (this file's own note on
+#      [[routes]] below, and index.js's own top comment: "fails closed") —
+#      without a bypass for this one path, Square's POST never gets past
+#      Cloudflare's edge to run any code at all, and every attempt answers
+#      401 with no assertion to check, same as any other unauthenticated
+#      request to this host.
+#   2. A webhook subscription created in Square's own (production) Developer
+#      Dashboard, pointed at https://ops.vemians.com/webhooks/square, for
+#      event types catalog.version.updated and inventory.count.updated.
+#      Creating it there is what mints the signature key below — it is
+#      generated per subscription, not chosen.
+#
+# Set as a SECRET, never a var — this key signs every payload Square ever
+# sends here, and a log line or a repo commit is not where it belongs:
+#
+#   npx wrangler secret put SQUARE_WEBHOOK_SIGNATURE_KEY
+#
+# SQUARE_WEBHOOK_URL is a plain var, not a secret, but it is NOT decorative:
+# webhooks.js signs over notificationUrl + rawBody, and that URL is the one
+# Square's own dashboard has on file for this subscription, character for
+# character (scheme, host, path, no trailing slash) — reconstructing it from
+# the incoming request instead is how verification passes in a dev tunnel
+# and fails in production, the exact trap webhooks.js's own top comment
+# warns about.
+SQUARE_WEBHOOK_URL = "https://ops.vemians.com/webhooks/square"
+
+# ---------------------------------------------------------------------------
 # Custom Domain. The zone is on Cloudflare: vemians.com, www.vemians.com and
 # staging.vemians.com all deploy and answer 200 today (deploy-workers.yml runs
 # #32-41), so the precondition this used to be commented out for no longer

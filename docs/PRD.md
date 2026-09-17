@@ -181,6 +181,38 @@ that does not trace to one of these is a process failure (see §12).
     raw body with a constant-time comparison, and an unrecognised event normalised to `null`
     rather than guessed at. An unverified payload is not a slow path, it is refused.
 
+    **REVISED: verification and normalisation existed, and nothing ever called them — the owner's
+    own words, after the category-priority bug above still took several sync cycles to surface:
+    "I expect this shit to be working instantly... where the hell, what do I need to do to do this
+    webhook."** `shared/commerce/square/webhooks.js` had a complete, tested signature check and
+    event normaliser since ADR-009, but no route on the ops Worker ever received a Square
+    callback — Test-PRD-P0-48's own text already claimed "what runs on a schedule is exactly what
+    runs on a webhook" while nothing made that true. `POST /webhooks/square` (`ops/src/index.js`,
+    `squareWebhook`) is the missing wire: verify the raw body first (unsigned or tampered is a
+    401, nothing past that line ever gets `JSON.parse`d), normalise it, and for
+    `catalog.version.updated` / `inventory.count.updated` call the exact same `syncFromSquare` the
+    cron already runs — Square's own event never says WHAT changed, only that something did
+    (webhooks.js's own comment), so "resync now" through the SAME idempotent, cursor-based path is
+    the honest response, not a second way of reaching the mirror. `ctx.waitUntil` runs that resync
+    after Square's own 2xx ack goes out, since Square expects a fast response and a slow one is how
+    a provider starts treating a subscription as unhealthy.
+
+    Reached BEFORE `servesOps`/`readAccessIdentity`, the same as `/healthz` — Square's own servers
+    carry no Cloudflare Access identity, so this route's OWN signature check is its authentication,
+    standing in for Access. That is necessary but not sufficient: Access gates the WHOLE
+    `ops.vemians.com` host at Cloudflare's own edge, before any request reaches this Worker's code
+    at all, so Square's calls only arrive here once a separate Access "Bypass" policy exists for
+    exactly `ops.vemians.com/webhooks/square` in the Zero Trust dashboard — dashboard
+    configuration no code in this repository can do or verify, the same category as the Access
+    application setup `deploy-cloudflare.md` already documents by hand. `SQUARE_WEBHOOK_URL`
+    (`ops/wrangler.toml`) is the exact registered callback URL — load-bearing, since webhooks.js
+    signs over `notificationUrl + rawBody`, not whatever the request happens to arrive on behind a
+    proxy — and `SQUARE_WEBHOOK_SIGNATURE_KEY` is a Worker secret minted the moment the webhook
+    subscription is created in Square's own dashboard, never a var. Once both dashboard steps are
+    done, `ops/src/sync.js`'s own periodic-full-sweep cron (P0-138, above) stops being the only way
+    the mirror ever hears about a change and becomes what ADR-009 always called it: the reconcile
+    for whatever a webhook delivery misses, not the primary path.
+
 20. **`Test-PRD-P0-39-provider_rate_limits`** — The adapter treats a provider's rate limit as an
     expected condition rather than a failure: 429 is backed off and retried, and a
     service-boundary failure is logged with no credential in the message.
