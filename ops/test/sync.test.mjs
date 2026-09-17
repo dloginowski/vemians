@@ -58,7 +58,7 @@ import { d1FromSql } from "../../shared/test/d1.mjs";
    dynamic import rather than a static one. */
 register("../../shared/test/text-modules.mjs", import.meta.url);
 
-const { describeFailure, SYNC_CRON, syncFromSquare } = await import("../src/sync.js");
+const { describeFailure, SYNC_CRON, FREQUENT_CRON, syncFromSquare } = await import("../src/sync.js");
 const worker = (await import("../src/index.js")).default;
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -356,9 +356,21 @@ check("test_PRD_P0_48_scheduled_mirror_sync__the_worker_exposes_the_handler_and_
   const crons = /\[triggers\]\s*\ncrons\s*=\s*\[([^\]]*)\]/.exec(toml);
   assert.ok(crons, "ops/wrangler.toml declares no [triggers] crons");
   assert.ok(crons[1].includes(SYNC_CRON), `the declared cron must match SYNC_CRON (${SYNC_CRON})`);
-  /* Frequent enough to be observable now, with the intent to slow down written
-     down rather than remembered. */
-  assert.match(toml, /DROP IT TO NIGHTLY/, "the cron must say it is a starting value");
+  /* NOW NIGHTLY — the owner's own words, once the webhook actually started
+     working: "why don't you just have them pushed... you shouldn't have to
+     get everything." This started as every fifteen minutes precisely so a
+     sync nobody could watch yet was still observable; once the webhook
+     pushes a change within seconds of it landing in Square, re-listing the
+     whole catalog four times an hour was paying Square's rate limiter to
+     catch what the webhook already delivered. */
+  assert.equal(SYNC_CRON, "0 3 * * *", "the reconcile cadence ADR-009 always described, not the starting value");
+  /* FREQUENT_CRON never actually belonged to the catalog sync — media
+     backfill and contact-form intake only ever rode along on it because it
+     was the one trigger this Worker had. Dropping the catalog's own
+     schedule to nightly must not silently drop these two down with it, so
+     the original fifteen-minute trigger stays registered in its own right. */
+  assert.ok(crons[1].includes(FREQUENT_CRON), `the declared crons must also include FREQUENT_CRON (${FREQUENT_CRON})`);
+  assert.equal(FREQUENT_CRON, "*/15 * * * *", "media backfill and contact intake keep their original cadence");
 
   /* And the store it writes to is actually bound on this Worker. */
   assert.match(toml, /binding\s*=\s*"CATALOG_MIRROR"/);
@@ -386,6 +398,32 @@ check("test_PRD_P0_48_scheduled_mirror_sync__the_scheduled_handler_runs_a_real_s
   assert.ok(
     rows(s.mirrorDb, "SELECT * FROM mirror_product_index").length > 0,
     "the scheduled handler wrote nothing to the mirror",
+  );
+});
+
+check("test_PRD_P0_48_scheduled_mirror_sync__the_frequent_cron_tick_never_runs_the_catalog_sync", async () => {
+  /* The whole point of splitting the two schedules apart: a FREQUENT_CRON
+     tick (media backfill, contact intake) must never ALSO run the catalog
+     sync, or the nightly cadence above is nightly in name only -- the
+     catalog would still be re-listed every fifteen minutes regardless of
+     which cron string index.js's own `scheduled` claims to be honouring. */
+  const s = stores();
+  const realFetch = globalThis.fetch;
+  let squareWasCalled = false;
+  globalThis.fetch = async (...args) => {
+    squareWasCalled = true;
+    return fakeFetch(CATALOG_ROUTES)(...args);
+  };
+  try {
+    await captureConsole(() => worker.scheduled({ cron: FREQUENT_CRON }, env({}, s), { waitUntil: () => {} }));
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(squareWasCalled, false, "a frequent-cron tick must never reach Square for the catalog sync");
+  assert.equal(
+    rows(s.mirrorDb, "SELECT * FROM mirror_product_index").length,
+    0,
+    "the mirror must stay untouched on the schedule that does not own it",
   );
 });
 
