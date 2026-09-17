@@ -4564,6 +4564,39 @@ that does not trace to one of these is a process failure (see §12).
     state nor accidentally submits anything, and the rendered row order places the `+` button visibly
     to the right of the ID input, not the other way around.
 
+    **REVISED YET AGAIN: a box around expandable rows, and real rename-in-place — the owner's own
+    words: "I want a box, the same kind of treatment as for the main header, so that when the item can
+    be expanded it should look like a header. If a category is not expandable it should not have that
+    box around it — that's what tells me it has subcategories. Also, all of these categories and
+    subcategories need to be editable fields... right now it's just static labels."** Two changes.
+    First, `.category-node-row:has(.category-node-toggle)` — already scoped to exactly the rows with a
+    real toggle (a leaf renders `.category-node-toggle-spacer` instead, so it never matches) — now
+    carries the SAME `background`/`border`/`border-radius`/`padding` declarations `.categories-header`
+    already uses, copied literally, so an expandable row visually reads as its own header the same way
+    the outer Categories/Variations accordion bars already do; the base `.category-node-row` rule (still
+    matching every row, leaf included) stays unboxed. Second, a category or subcategory's own name is
+    now a real `<input class="category-node-name">` carrying the current name as its `value`, not a
+    static `<span>` — the click-anywhere-to-expand handler already excludes any `input` or `button`
+    (the previous fix, above), so this needed no change at all to keep a click on the name itself
+    focusing it for editing rather than toggling the row.
+
+    **Renaming is a real Square write, `catalog.rename_category` (T2, manager, `resources: ["square"]`)
+    — no existing tool could do this at all.** `mirror_category` carries no `source_version` column
+    (unlike `mirror_product`, which `catalog.update_product` resends), so a rename cannot use that
+    tool's own "resend the locally-tracked version" shape. It follows `setProductPresence`'s own
+    pattern instead (`shared/commerce/square/index.js`): GET the object live from Square immediately
+    before writing, then POST the WHOLE object back with only `category_data.name` changed — Square's
+    own UpsertCatalogObject is full-replacement, so anything this mirror does not itself track
+    (`present_at_all_locations`, `parent_category`, ...) has to come from a live read, never from a
+    locally-reconstructed guess. Refuses an exact-duplicate name among SIBLINGS only (same parent), the
+    identical rule `catalog.create_category` already enforces on creation — a rename can never produce
+    the "Coats"/"Outerwear" duplication that tool already refuses to create — and refuses renaming to
+    the category's own current name as a no-op. Wired as `POST /items/<handle>/categories/rename`,
+    the same manager-gated, apply-immediately, JSON-not-redirect shape every other Items tab route
+    already uses; the client posts on `change` (blur or Enter, like the numeric_id field beside it) and
+    reloads on success rather than trying to patch every other place this same closed set of names is
+    baked into rendered HTML (every other tile's own category picker).
+
 74. **`Test-PRD-P0-139-honest_write_failures`** — A Square write refused with a plain `Square POST
     /v2/catalog/object failed with 400` and nothing else — the owner's own words, pasting exactly that
     line after an edit silently went nowhere: "just make sure all of the fields work... with this post

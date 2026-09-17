@@ -1295,7 +1295,7 @@ check("test_PRD_P0_138_nested_categories__the_tree_nests_and_indents_by_depth", 
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
   /* Outerwear (depth 0) -> Coats (depth 1) -> Casual (depth 2). */
-  assert.match(body, /<span class="category-node-name">Outerwear<\/span>/);
+  assert.match(body, /<input type="text" class="category-node-name" data-category-id="cat1" value="Outerwear"/);
   /* Each .category-node nests physically inside its own parent's box, so
      a flat one-step indent (18px, the toggle/spacer's own rendered width)
      on every non-top-level node compounds through ordinary box-model
@@ -1355,7 +1355,7 @@ check("test_PRD_P0_138_nested_categories__a_node_with_children_gets_its_own_expa
   assert.match(body, /\.category-node\.expanded > \.category-children\s*\{\s*display:\s*block;\s*\}/);
   assert.match(body, /\.category-children\s*\{\s*display:\s*none;\s*\}/, "collapsed by default");
 
-  const outerwearNameIdx = body.indexOf('<span class="category-node-name">Outerwear</span>');
+  const outerwearNameIdx = body.indexOf('data-category-id="cat1" value="Outerwear"');
   const outerwearRow = body.slice(outerwearNameIdx - 400, outerwearNameIdx + 500);
   assert.match(outerwearRow, /class="category-node-toggle"/, "Outerwear has a subcategory (Coats), so it gets a real caret");
   const nameIdx = outerwearRow.indexOf("category-node-name");
@@ -1363,7 +1363,7 @@ check("test_PRD_P0_138_nested_categories__a_node_with_children_gets_its_own_expa
   const addIdx = outerwearRow.indexOf("category-add-toggle");
   assert.ok(nameIdx < idIdx && idIdx < addIdx, "name, then the numeric ID, then + last — the true rightmost element");
 
-  const casualNameIdx = body.indexOf('<span class="category-node-name">Casual</span>');
+  const casualNameIdx = body.indexOf('data-category-id="cat3" value="Casual"');
   const casualRow = body.slice(casualNameIdx - 150, casualNameIdx + 200);
   assert.match(casualRow, /class="category-node-toggle-spacer"/, "Casual has no children yet, so a spacer, not a caret");
   assert.doesNotMatch(casualRow, /class="category-node-toggle"/);
@@ -1386,6 +1386,77 @@ check("test_PRD_P0_138_nested_categories__clicking_anywhere_on_a_category_row_ex
   );
 });
 
+check("test_PRD_P0_138_nested_categories__an_expandable_row_gets_the_same_box_the_main_header_uses_a_leaf_does_not", async () => {
+  /* The owner's own words: "I want a box, the same kind of treatment as
+     for the main header, so that when the item can be expanded it should
+     look like a header. If a category is not expandable it should not
+     have that box around it — that's what tells me it has subcategories."
+     .category-node-row:has(.category-node-toggle) reuses .categories-
+     header's own box exactly; a leaf (spacer, not a real toggle) never
+     matches that selector, so it never gets it. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.match(
+    body,
+    /\.categories-header \{\s*\n\s*display: flex; align-items: center; gap: 6px; cursor: pointer;\s*\n\s*background: var\(--image-ground\); border: 1px solid var\(--rule\); border-radius: 6px; padding: 5px 8px;/,
+    "the main header's own box declaration must be present to compare against",
+  );
+  assert.match(
+    body,
+    /\.category-node-row:has\(\.category-node-toggle\) \{\s*\n\s*cursor: pointer;\s*\n\s*background: var\(--image-ground\); border: 1px solid var\(--rule\); border-radius: 6px; padding: 5px 8px;/,
+    "an expandable category row must use the exact same box treatment as the main header",
+  );
+  assert.match(
+    body,
+    /\.category-node-row \{ display: flex; align-items: center; gap: 6px; padding: 3px 8px 3px 0; \}/,
+    "the BASE row rule (which also matches every leaf) must stay unboxed",
+  );
+});
+
+check("test_PRD_P0_138_nested_categories__the_name_is_a_real_editable_input_not_a_static_label", async () => {
+  /* The owner's own words: "all of these categories and subcategories need
+     to be editable fields... right now it's just static labels." */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.match(
+    body,
+    /<input type="text" class="category-node-name" data-category-id="cat1" value="Outerwear" maxlength="60"/,
+    "the name renders as a real input carrying the category's current name",
+  );
+  assert.doesNotMatch(body, /<span class="category-node-name">/, "no more static span for the name");
+});
+
+check("test_PRD_P0_138_nested_categories__renaming_posts_to_its_own_route_and_reloads_on_success", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.match(
+    body,
+    /document\.getElementById\("items-grid"\)\.addEventListener\("change", async \(e\) => \{\s*\n\s*if \(!e\.target\.matches\("\.category-node-name"\)\) return;\s*\n\s*await renameCategory\(e\.target\);/,
+    "renaming a category/subcategory name must wire through its own change handler",
+  );
+  assert.match(body, /fetch\("\/items\/" \+ handle \+ "\/categories\/rename", \{ method: "POST", body \}\)/);
+  assert.match(
+    body,
+    /async function renameCategory\(input\) \{[\s\S]{0,1200}location\.reload\(\);/,
+    "a successful rename must reload — the same closed set of names is baked into other tiles' own pickers",
+  );
+});
+
+check("test_PRD_P0_138_nested_categories__staff_cannot_reach_the_rename_route", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const rename = await postForm("/items/wool-coat/categories/rename", STAFF, env(mirror), { category_id: "cat1", name: "Coats" });
+  assert.equal(rename.status, 403);
+  assert.match(await rename.text(), /manager/i);
+});
+
 check("test_PRD_P0_138_nested_categories__top_level_categories_use_their_own_wrapper_class_not_category_children", async () => {
   /* Regression: also caught live, in the same headless-browser pass as the
      [hidden] fix above. The top-level tree's own wrapper originally reused
@@ -1402,7 +1473,7 @@ check("test_PRD_P0_138_nested_categories__top_level_categories_use_their_own_wra
   const body = await res.text();
   assert.match(body, /<div class="categories-tree">/);
   const treeIdx = body.indexOf('<div class="categories-tree">');
-  const outerwearIdx = body.indexOf('<span class="category-node-name">Outerwear</span>');
+  const outerwearIdx = body.indexOf('data-category-id="cat1" value="Outerwear"');
   assert.ok(treeIdx > -1 && treeIdx < outerwearIdx, "the top-level tree wraps the real nodes, under its own class");
   assert.doesNotMatch(
     body.slice(treeIdx, treeIdx + 40),

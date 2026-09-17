@@ -1558,6 +1558,77 @@ check("test_PRD_P0_138_nested_categories__an_edit_that_does_not_touch_category_n
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
+ * P0-138 (revised) — "all of these categories and subcategories need to be
+ * editable fields... I should be able to rename the categories." No local
+ * source_version to resend the way update_product does (mirror_category has
+ * none), so this GETs the object live from Square first and only then
+ * writes it back, the same pattern setProductPresence already established.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_138_nested_categories__rename_category_is_a_real_square_write_not_a_mirror_only_field", async () => {
+  const tool = TOOLS["catalog.rename_category"];
+  assert.equal(tool.tier, "T2");
+  assert.equal(tool.minRole, "manager");
+
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const denied = await runTool(
+    "catalog.rename_category",
+    { category_id: outerwear.id, name: "Coats & Jackets" },
+    { ...f.ctx, ...staff },
+  );
+  assert.equal(denied.ok, false);
+  assert.match(denied.error, /requires the manager role/);
+  assert.ok(!describeTools("staff").some((d) => d.name === "catalog.rename_category"));
+
+  const renamed = await approvedCall(f, "catalog.rename_category", { category_id: outerwear.id, name: "Coats & Jackets" });
+  assert.equal(renamed.ok, true, renamed.error);
+  assert.equal(renamed.data.category.name, "Coats & Jackets");
+
+  const get = f.calls().find((c) => c.method === "GET" && c.path === "/v2/catalog/object/CAT_OUTERWEAR");
+  assert.ok(get, "must read the object live from Square before writing it back");
+  const upsert = f.calls().find((c) => c.path === "/v2/catalog/object" && c.upsert === "CATEGORY");
+  assert.equal(upsert.body.object.category_data.name, "Coats & Jackets");
+  assert.equal(upsert.body.object.id, "CAT_OUTERWEAR", "the SAME object, not a new one");
+
+  const row = f.categories().find((c) => c.id === outerwear.id);
+  assert.equal(row.name, "Coats & Jackets", "the mirror picks up the new name after sync");
+});
+
+check("test_PRD_P0_138_nested_categories__renaming_never_touches_numeric_id_or_parent", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  await approvedCall(f, "catalog.set_category_number", { category_id: outerwear.id, numeric_id: "01" });
+  const coats = await approvedCall(f, "catalog.create_category", { name: "Coats", parent_id: outerwear.id, reason: "test" });
+
+  await approvedCall(f, "catalog.rename_category", { category_id: coats.data.category.id, name: "Coats & Jackets" });
+
+  const row = f.categories().find((c) => c.id === coats.data.category.id);
+  assert.equal(row.name, "Coats & Jackets");
+  assert.equal(row.parent_id, outerwear.id, "renaming a subcategory must not detach it from its parent");
+});
+
+check("test_PRD_P0_138_nested_categories__renaming_into_a_sibling_exact_duplicate_is_refused", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const knitwear = f.categories().find((c) => c.name === "Knitwear");
+
+  const res = await runTool("catalog.rename_category", { category_id: outerwear.id, name: "knitwear" }, f.ctx);
+  assert.equal(res.ok, false);
+  assert.match(res.error, /already exists at that level/);
+  assert.deepEqual(f.calls(), []);
+  assert.equal(knitwear.name, "Knitwear", "untouched");
+});
+
+check("test_PRD_P0_138_nested_categories__renaming_to_the_current_name_is_refused_as_a_no_op", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const res = await runTool("catalog.rename_category", { category_id: outerwear.id, name: "Outerwear" }, f.ctx);
+  assert.equal(res.ok, false);
+  assert.match(res.error, /already named that/);
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
  * P0-139 (continued) — two different edits must never collide on one
  * idempotency key, and a VERSION_MISMATCH must read as Square's own
  * concurrency control doing its job, not a bug

@@ -1851,11 +1851,19 @@ ${INPUT_BAR_CSS}
    leaf gets an equal-width spacer instead, so the name column still
    lines up whether or not that particular row happens to have one. */
 .category-node-row { display: flex; align-items: center; gap: 6px; padding: 3px 8px 3px 0; }
-/* A leaf category renders a spacer, not a real .category-node-toggle
-   button, in its own place — a pointer cursor on a row with nothing
-   underneath it to reveal would be a real (if small) affordance lie. */
-.category-node-row:has(.category-node-toggle) { cursor: pointer; }
-.category-node-row:has(.category-node-toggle):hover .category-node-name { color: var(--accent); }
+/* "I want a box, the same kind of treatment as for the main header, so
+   that when the item can be expanded it should look like a header. If a
+   category is not expandable it should not have that box around it —
+   that's what tells me it has subcategories." Reuses .categories-header's
+   own box exactly (background/border/radius/padding); a leaf keeps the
+   plain unboxed row above, since :has(.category-node-toggle) only ever
+   matches a node that actually has children to reveal — a leaf renders
+   .category-node-toggle-spacer instead, so it never matches. */
+.category-node-row:has(.category-node-toggle) {
+  cursor: pointer;
+  background: var(--image-ground); border: 1px solid var(--rule); border-radius: 6px; padding: 5px 8px;
+}
+.category-node-row:has(.category-node-toggle):hover { border-color: var(--accent); }
 .category-node-toggle {
   flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; padding: 0;
   display: inline-flex; align-items: center; justify-content: center; border: none; background: transparent;
@@ -1864,7 +1872,15 @@ ${INPUT_BAR_CSS}
 .category-node-toggle:hover { color: var(--accent); }
 .category-node.expanded > .category-node-row > .category-node-toggle { transform: rotate(90deg); }
 .category-node-toggle-spacer { flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; }
-.category-node-name { flex: 1 1 auto; font-size: 12px; overflow-wrap: anywhere; }
+/* "All of these categories and subcategories need to be editable fields...
+   right now it's just static labels." A real <input>, not a span — the
+   same visible-border treatment .category-numeric-id already uses beside
+   it, so the row reads as editable rather than as plain text with a
+   number box tacked on. */
+.category-node-name {
+  flex: 1 1 auto; font: inherit; font-size: 12px; padding: 3px 5px; overflow-wrap: anywhere;
+  border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
+}
 .category-numeric-id {
   flex: 0 0 auto; width: 3em; font: inherit; font-size: 12px; padding: 3px 5px; text-align: center;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
@@ -2124,7 +2140,7 @@ function renderCategoryNodes(categories, parentId) {
       return `<div class="category-node" style="padding-left: ${parentId === null ? 0 : CATEGORY_NODE_TOGGLE_PX}px">
         <div class="category-node-row">
           ${toggle}
-          <span class="category-node-name">${esc(c.name)}</span>
+          <input type="text" class="category-node-name" data-category-id="${esc(c.id)}" value="${esc(c.name)}" maxlength="60" title="Click to rename">
           <input class="category-numeric-id" data-category-id="${esc(c.id)}" data-category-name="${esc(c.name)}" value="${esc(c.numeric_id ?? "")}" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — leave blank to remove it">
           <button type="button" class="category-add-toggle" data-parent-id="${esc(c.id)}" aria-label="Add a subcategory under ${esc(c.name)}" title="Add a subcategory">+</button>
         </div>
@@ -3244,6 +3260,17 @@ document.getElementById("items-grid").addEventListener("change", async (e) => {
   await setCategoryNumber(e.target);
 });
 
+/* A category or subcategory's own NAME, unlike its numeric_id, is a real
+   Square write (catalog.rename_category) and shows up everywhere else
+   this closed set is rendered on the page — every other tile's own
+   category picker and .category-numeric-id's own data-category-name.
+   Reloads on success, the same as creating one, rather than trying to
+   patch every other place the old name is baked into rendered HTML. */
+document.getElementById("items-grid").addEventListener("change", async (e) => {
+  if (!e.target.matches(".category-node-name")) return;
+  await renameCategory(e.target);
+});
+
 /* Pressing Enter in a field with no visible submit button any more still
    fires a native submit in most browsers — routed through the exact same
    Save flow as a click, rather than letting it POST just that one form on
@@ -3453,6 +3480,47 @@ async function setCategoryNumber(input) {
       return;
     }
     input.setAttribute("value", input.value.trim());
+  } catch {
+    input.value = previousValue;
+    showFormError(row, "Could not reach the server — try again.");
+  } finally {
+    input.disabled = false;
+  }
+}
+
+/* "All of these categories and subcategories need to be editable fields...
+   I should be able to rename the categories and the subcategories."
+   Unlike numeric_id, a name is a real Square write, and this same closed
+   set of names is baked into rendered HTML in more than one place on this
+   page (every other tile's own category picker) — a reload on success,
+   the same as creating a category, is simpler and safer than trying to
+   patch every one of those in place. */
+async function renameCategory(input) {
+  const row = input.closest(".category-node-row");
+  const existingError = row?.nextElementSibling;
+  if (existingError?.classList.contains("item-edit-error")) existingError.remove();
+  const handle = input.closest(".item-tile")?.dataset.handle;
+  const previousValue = input.defaultValue;
+  const name = input.value.trim();
+  if (!name) {
+    input.value = previousValue;
+    showFormError(row, "A category needs a name.");
+    return;
+  }
+  if (name === previousValue) return;
+  const body = new FormData();
+  body.set("category_id", input.dataset.categoryId);
+  body.set("name", name);
+  input.disabled = true;
+  try {
+    const res = await fetch("/items/" + handle + "/categories/rename", { method: "POST", body });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      input.value = previousValue;
+      showFormError(row, data.error || "That name was refused.");
+      return;
+    }
+    location.reload();
   } catch {
     input.value = previousValue;
     showFormError(row, "Could not reach the server — try again.");
