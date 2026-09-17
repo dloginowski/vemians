@@ -247,6 +247,30 @@ function scopedResources(tool, ctx) {
   return out;
 }
 
+/*
+ * A thrown provider error (SquareError, shared/commerce/square/client.js) carries
+ * the REAL reason — category/code/detail/field straight from the provider's own
+ * response body — on `.errors`, entirely separate from `.message`, which is only
+ * ever the generic "Square POST /v2/catalog/object failed with 400." Every path
+ * below this point (the console.error, the audit row's own detail, and the
+ * `error` string a form on the Items tab shows inline) used `.message` alone, so
+ * the one thing that actually explains a 400 — which field, which rule — never
+ * left the client. Duck-typed on `.errors` rather than importing anything
+ * Square-specific: this file is generic tool infrastructure, not an adapter, and
+ * every OTHER kind of failure here (a bad D1 query, a thrown validation Error)
+ * has no `.errors` array and falls straight through to the plain message.
+ */
+function errorDetail(err) {
+  if (!Array.isArray(err?.errors) || err.errors.length === 0) return err?.message ?? "unknown error";
+  const detail = err.errors
+    .map(
+      (e) =>
+        `${e.category ?? "?"}/${e.code ?? "?"}${e.field ? ` (field: ${e.field})` : ""}${e.detail ? `: ${e.detail}` : ""}`,
+    )
+    .join("; ");
+  return `${err.message} — ${detail}`;
+}
+
 export async function runTool(name, args = {}, ctx = {}) {
   const { actor, role, env } = ctx;
   const tool = TOOLS[name];
@@ -437,7 +461,8 @@ export async function runTool(name, args = {}, ctx = {}) {
   try {
     data = await tool.run(value, t);
   } catch (err) {
-    console.error(`ERROR tools: ${name} failed after its audit row (${auditId}) — ${err.message}`);
+    const detail = errorDetail(err);
+    console.error(`ERROR tools: ${name} failed after its audit row (${auditId}) — ${detail}`);
     /*
      * 10. The log is append-only, so the failure is a SECOND row pointing at the
      *    first. Editing row `auditId` to say `error` is what the trigger exists
@@ -451,12 +476,12 @@ export async function runTool(name, args = {}, ctx = {}) {
         tool: name,
         arguments: value,
         result: "error",
-        detail: { reverses: auditId, message: err.message, stores: tool.stores },
+        detail: { reverses: auditId, message: detail, stores: tool.stores },
       });
     } catch (auditErr) {
       console.error(`ERROR tools: could not audit the failure of ${name} — ${auditErr.message}`);
     }
-    return { ok: false, error: err.message, tier: tool.tier, auditId };
+    return { ok: false, error: detail, tier: tool.tier, auditId };
   }
 
   /*

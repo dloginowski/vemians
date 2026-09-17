@@ -149,7 +149,7 @@ const jsonRes = (body, status = 200) =>
  * is recorded IN ORDER, which is what makes "Square first, mirror second" an
  * assertion about a list rather than a hope.
  */
-function fakeSquare(seed = SEED, { vendors = [], failSearch = false } = {}) {
+function fakeSquare(seed = SEED, { vendors = [], failSearch = false, failUpsert = null } = {}) {
   const objects = new Map(seed.map((o) => [o.id, structuredClone(o)]));
   const vendorObjects = new Map(vendors.map((v) => [v.id, structuredClone(v)]));
   const calls = [];
@@ -188,6 +188,12 @@ function fakeSquare(seed = SEED, { vendors = [], failSearch = false } = {}) {
     if (p === "/v2/catalog/object") {
       const body = JSON.parse(init.body);
       record.body = body;
+      /* Models a REAL Square rejection — a 400 with its own detailed
+         errors array — rather than the fake server's usual unconditional
+         success, for the one test that proves that detail (category/code/
+         field) actually reaches runTool's own returned error string
+         instead of being dropped at "failed with 400". */
+      if (failUpsert) return jsonRes({ errors: failUpsert }, 400);
       const obj = structuredClone(body.object);
       record.upsert = obj.type;
       const mappings = [];
@@ -300,8 +306,8 @@ function squareEnv() {
 }
 
 /* One place to build a ctx, so no check can accidentally invent an actor. */
-async function fixture({ actor = "mara@vemians.com", role = "manager", seedMirror = true, failSearch = false } = {}) {
-  const square = fakeSquare(SEED, { failSearch });
+async function fixture({ actor = "mara@vemians.com", role = "manager", seedMirror = true, failSearch = false, failUpsert = null } = {}) {
+  const square = fakeSquare(SEED, { failSearch, failUpsert });
   const mirrorDb = d1FromSql(MIRROR_SQL);
   const auditDb = d1FromSql(AUDIT_SQL);
   const bucket = fakeR2();
@@ -1515,6 +1521,44 @@ check("test_PRD_P0_138_nested_categories__an_edit_that_does_not_touch_category_n
     "CAT_OUTERWEAR",
     "an edit that never mentioned category must still resend the CURRENT one, not omit it",
   );
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-139 — a Square rejection's own reason must reach the caller, not just
+ * "failed with 400"
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_139_honest_write_failures__a_squares_own_rejection_detail_reaches_runtools_error_string", async () => {
+  /* The owner's own words, pasting the raw line verbatim after an edit
+     silently went nowhere: "Square POST /v2/catalog/object failed with
+     400." SquareError.errors carries Square's own category/code/detail/
+     field on every rejection, already logged to console — the bug was
+     that nothing past runTool's own catch ever looked at it, so this is
+     the only place that reason could actually be lost, and the only
+     place that proves it no longer is. */
+  const f = await fixture({
+    failUpsert: [
+      {
+        category: "INVALID_REQUEST_ERROR",
+        code: "BAD_REQUEST",
+        detail: "Item variation `price_money` must be a non-negative amount.",
+        field: "object.item_data.variations[0].item_variation_data.price_money",
+      },
+    ],
+  });
+  const res = await approvedCall(f, "catalog.update_product", { handle: COAT_HANDLE, title: "Renamed Coat" });
+  assert.equal(res.ok, false);
+  assert.match(res.error, /Square POST \/v2\/catalog\/object failed with 400/, "the generic sentence is still there");
+  assert.match(res.error, /INVALID_REQUEST_ERROR\/BAD_REQUEST/, "Square's own category/code must reach the caller");
+  assert.match(
+    res.error,
+    /field: object\.item_data\.variations\[0\]\.item_variation_data\.price_money/,
+    "the specific field Square objected to must reach the caller",
+  );
+  assert.match(res.error, /non-negative amount/, "Square's own human-readable detail must reach the caller");
+
+  const row = f.audit("WHERE result = 'error'").pop();
+  assert.match(row.detail, /INVALID_REQUEST_ERROR\/BAD_REQUEST/, "the audit trail gets the same detail, not just the template");
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
