@@ -927,6 +927,34 @@ check("test_PRD_P0_136_square_custom_attributes__the_edit_form_posts_to_square_a
   assert.match(body, /\.item-edit input\[name="vendor_code"\]\s*\{\s*text-align: center;\s*\}/);
 });
 
+check("test_PRD_P0_136_square_custom_attributes__style_id_auto_formats_with_dashes_and_reads_red_until_a_full_match", async () => {
+  /* "When I'm entering a style ID... I should just type it in, like type
+     in digits, say 010101, it should automatically insert dashes between
+     these numbers as I type... until I type out the full complete number,
+     the entry field border should be red to indicate that it's not
+     acceptable, only when it's fully acceptable should it be orange." No
+     JS validation state -- the field's own existing pattern already makes
+     an incomplete, non-empty value native :invalid, and an empty one
+     native :valid, since it is never required. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.match(body, /--invalid:\s*#E5484D;/);
+  assert.match(body, /\.item-edit input\[name="style_id"\]:invalid\s*\{\s*border-color:\s*var\(--invalid\);\s*\}/);
+  assert.doesNotMatch(body, /<input name="style_id"[^>]*\brequired\b/, "empty must stay :valid -- no style_id yet is not an error");
+  assert.match(body, /function formatStyleId\(raw\)\s*\{/);
+  assert.match(body, /const digits = raw\.replace\(\/\\D\/g, ""\)\.slice\(0, 7\);/);
+  assert.match(body, /function reformatStyleIdInput\(input\)\s*\{/);
+  const gridChangeIdx = body.indexOf("function onItemsGridChange(e) {");
+  const reformatCallIdx = body.indexOf('reformatStyleIdInput(e.target);', gridChangeIdx);
+  const msrpBranchIdx = body.indexOf('e.target.matches(".variations-msrp")', gridChangeIdx);
+  assert.ok(
+    gridChangeIdx > -1 && reformatCallIdx > gridChangeIdx && reformatCallIdx < msrpBranchIdx,
+    "the style_id reformat must run first, on every input/change event the grid already listens for",
+  );
+});
+
 check("test_PRD_P0_136_square_custom_attributes__staff_cannot_reach_the_route_before_square_is_ever_touched", async () => {
   /* The route's own manager-only gate refuses BEFORE calling runTool at
      all, so this never needs a working Square client to test — the same
