@@ -822,10 +822,32 @@ export function createSquareCatalogWriter(env, opts = {}) {
         });
       });
 
+      const resolvedTitle = title ?? row.title;
+      /* description has the same "resend or it may vanish" property as
+         variations above — preserved from the mirror when this call was
+         not actually about changing it. */
+      const resolvedDescription = description ?? row.source_description ?? undefined;
+
       const body = {
+        /* A real bug, caught live from the owner's own pasted error:
+           "IDEMPOTENCY_KEY_REUSED... can only be retried with the same
+           request data." The key used to hash only external_ref/
+           source_version/style_id/vendor/commission — NOT title,
+           description, category or variations. source_version stays the
+           SAME across every failed or not-yet-synced attempt (Square never
+           applied one, so it never bumped), so two DIFFERENT edits made
+           back to back while it hadn't moved yet — two different
+           descriptions, say — hashed to the IDENTICAL key while sending
+           DIFFERENT bodies, which is exactly what Square's own idempotency
+           contract refuses: same key, different data. Every field that can
+           actually vary this upsert's own content is now in the key
+           material, so two calls only ever collide when they would send
+           the identical body anyway — the correct idempotent-retry case. */
         idempotency_key: idempotencyKey(
-          `catalog.update:${row.external_ref}:${row.source_version}:${resolvedStyleId ?? ""}:` +
-            `${resolvedVendorExternalRef ?? ""}:${JSON.stringify(vendorInfos)}:${resolvedCommissionPct ?? ""}`,
+          `catalog.update:${row.external_ref}:${row.source_version}:${resolvedTitle}:` +
+            `${resolvedDescription ?? ""}:${cat?.external_ref ?? ""}:${JSON.stringify(keep)}:` +
+            `${resolvedStyleId ?? ""}:${resolvedVendorExternalRef ?? ""}:${JSON.stringify(vendorInfos)}:` +
+            `${resolvedCommissionPct ?? ""}`,
         ),
         object: {
           type: "ITEM",
@@ -833,11 +855,8 @@ export function createSquareCatalogWriter(env, opts = {}) {
           version: Number(row.source_version ?? 0),
           present_at_all_locations: true,
           item_data: itemData({
-            title: title ?? row.title,
-            /* description has the same "resend or it may vanish" property as
-               variations above — preserved from the mirror when this call
-               was not actually about changing it. */
-            description: description ?? row.source_description ?? undefined,
+            title: resolvedTitle,
+            description: resolvedDescription,
             catRef: cat?.external_ref ?? null,
             variations: keep,
             itemRef: row.external_ref,

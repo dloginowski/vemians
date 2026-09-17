@@ -798,6 +798,50 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_page_intercepts_edit_f
   );
 });
 
+check("test_PRD_P0_139_honest_write_failures__the_error_popover_floats_above_the_field_and_copies_on_click", async () => {
+  /* The owner's own words, after the previous fix made a real Square
+     rejection's own detail long enough to actually read: "in smaller
+     font... have a little error message pop up somewhere in a more
+     elegant way, like above the field, not modifying heights and shit...
+     I should be able to just click on it and it copies into my
+     clipboard." Source-pattern checks here, the same discipline every
+     other client-script guarantee in this file uses; the live behavior
+     (tile height provably unchanged, a click actually copying to the
+     clipboard, outside-click dismissal) was verified separately in a
+     real headless browser before shipping. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.match(
+    body,
+    /\.item-edit-error \{\s*\n\s*position: fixed;/,
+    "the popover must not sit in normal document flow, or it pushes the rows below it down",
+  );
+  assert.match(body, /font-size: 10px/, "smaller font, the owner's own explicit ask");
+  assert.match(body, /function positionErrorPopover\(p, anchor\) \{/);
+  assert.match(
+    body,
+    /const above = rect\.top - p\.offsetHeight - 6;/,
+    "floats above the field by default",
+  );
+  assert.match(body, /function copyErrorText\(p, message\) \{/);
+  assert.match(
+    body,
+    /navigator\.clipboard\s*\n?\s*\.writeText\(message\)/,
+    "clicking the popover must copy its own exact message, not a button beside it",
+  );
+  assert.match(
+    body,
+    /p\.addEventListener\("click", \(\) => copyErrorText\(p, message\)\)/,
+    "the whole popover is the click target",
+  );
+  assert.match(
+    body,
+    /document\.querySelectorAll\("\.item-edit-error"\)\.forEach\(\(p\) => p\.remove\(\)\)/,
+    "an outside click must dismiss it, the same convention closeAllCategoryPickers already uses",
+  );
+});
+
 /* ─────────────────────────────────────────────────────────────────────────
  * P0-136 — style_id and vendor, Square's own Custom Attributes, in the
  * Items tab. The tool's own behaviour (format, conflicts, Square calls) is

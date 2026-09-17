@@ -1524,6 +1524,45 @@ check("test_PRD_P0_138_nested_categories__an_edit_that_does_not_touch_category_n
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
+ * P0-140 — two different edits must never collide on one idempotency key
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_140_idempotency_key_covers_the_whole_edit__two_different_descriptions_never_share_a_key", async () => {
+  /* A real bug, caught live from the owner's own pasted error:
+     "IDEMPOTENCY_KEY_REUSED... can only be retried with the same request
+     data." The key used to hash only external_ref/source_version/style_id/
+     vendor/commission -- NEVER title, description, category or variations.
+     source_version stays the SAME across every attempt that has not yet
+     been picked up by a sync, so two edits with different CONTENT, made
+     before either landed in the mirror, hashed to the IDENTICAL key while
+     sending DIFFERENT bodies -- exactly what Square's own idempotency
+     contract refuses. Forcing source_version back down after the first
+     call simulates exactly that: a second edit arriving before the first
+     one's own resync ever ran. */
+  const f = await fixture();
+  const before = f.mirror(`SELECT source_version FROM mirror_product WHERE handle = '${COAT_HANDLE}'`)[0];
+
+  const first = await approvedCall(f, "catalog.update_product", { handle: COAT_HANDLE, description: "First description." });
+  assert.equal(first.ok, true, first.error);
+
+  /* Roll source_version back to what it was BEFORE the first call, as if
+     that call's own syncAfterWrite never ran -- the exact window the real
+     bug lived in. */
+  f.mirrorDb._raw
+    .prepare(`UPDATE mirror_product SET source_version = ? WHERE handle = '${COAT_HANDLE}'`)
+    .run(before.source_version);
+
+  const second = await approvedCall(f, "catalog.update_product", { handle: COAT_HANDLE, description: "A completely different description." });
+  assert.equal(second.ok, true, second.error);
+
+  const keys = f.calls()
+    .filter((c) => c.path === "/v2/catalog/object" && c.upsert === "ITEM")
+    .map((c) => c.body.idempotency_key);
+  assert.equal(keys.length, 2);
+  assert.notEqual(keys[0], keys[1], "two different descriptions must never hash to the same idempotency key");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
  * P0-139 — a Square rejection's own reason must reach the caller, not just
  * "failed with 400"
  * ───────────────────────────────────────────────────────────────────────── */
