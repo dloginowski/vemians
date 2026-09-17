@@ -1289,6 +1289,55 @@ check("test_PRD_P0_138_nested_categories__a_name_may_repeat_under_a_different_pa
   assert.match(dupSameParent.error, /already exists under "Outerwear"/);
 });
 
+check("test_PRD_P0_138_nested_categories__create_category_can_set_its_own_numeric_id_at_creation_time", async () => {
+  /* The owner's own words: "the add row is supposed to have ID as well."
+     Set once, at creation, instead of a separate catalog.set_category_
+     number follow-up call. */
+  const f = await fixture();
+  const made = await approvedCall(f, "catalog.create_category", { name: "Eyewear", numeric_id: "42", reason: "test" });
+  assert.equal(made.ok, true, made.error);
+  assert.equal(made.data.category.numeric_id, "42");
+  const row = f.categories().find((c) => c.name === "Eyewear");
+  assert.equal(row.numeric_id, "42", "the mirror actually persists it, not just the tool's own response");
+});
+
+check("test_PRD_P0_138_nested_categories__create_category_numeric_id_is_optional", async () => {
+  const f = await fixture();
+  const made = await approvedCall(f, "catalog.create_category", { name: "Eyewear", reason: "test" });
+  assert.equal(made.ok, true, made.error);
+  const row = f.categories().find((c) => c.name === "Eyewear");
+  assert.equal(row.numeric_id, null, "leaving it blank must not assign anything");
+});
+
+check("test_PRD_P0_138_nested_categories__create_category_numeric_id_must_be_exactly_two_digits", async () => {
+  const f = await fixture();
+  const res = await runTool("catalog.create_category", { name: "Eyewear", numeric_id: "4", reason: "test" }, f.ctx);
+  assert.equal(res.ok, false);
+  assert.match(res.error, /must be exactly two digits/);
+  assert.equal(f.categories().find((c) => c.name === "Eyewear"), undefined, "refused, so nothing was created at all");
+});
+
+check("test_PRD_P0_138_nested_categories__create_category_numeric_id_respects_the_same_two_pools", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  await approvedCall(f, "catalog.set_category_number", { category_id: outerwear.id, numeric_id: "01" });
+
+  const topLevelConflict = await runTool("catalog.create_category", { name: "Eyewear", numeric_id: "01", reason: "test" }, f.ctx);
+  assert.equal(topLevelConflict.ok, false);
+  assert.match(topLevelConflict.error, /already assigned to "Outerwear"/);
+  assert.match(topLevelConflict.error, /every top-level category shares one pool/);
+
+  /* The SAME number is fine for a SUBCATEGORY -- separate pool. */
+  const subOk = await approvedCall(f, "catalog.create_category", {
+    name: "Casual",
+    parent_id: outerwear.id,
+    numeric_id: "01",
+    reason: "test",
+  });
+  assert.equal(subOk.ok, true, subOk.error);
+  assert.equal(subOk.data.category.numeric_id, "01");
+});
+
 check("test_PRD_P0_138_nested_categories__numeric_id_must_be_exactly_two_digits", async () => {
   const f = await fixture();
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
@@ -2023,10 +2072,18 @@ check("test_PRD_P0_37_mirror_is_ours__no_authoring_tool_writes_a_square_fact_to_
   }
 
   /* Same guard, for mirror_category's own OURS-only exception: numeric_id,
-     and only numeric_id. */
+     and only numeric_id — now written directly from TWO places
+     (catalog.set_category_number, and catalog.create_category's own
+     "set it at creation time" convenience), so this checks every match,
+     not just the first, the same way the mirror_product loop above does. */
   const categoryStmts = [...writer.matchAll(/UPDATE mirror_category SET ([\s\S]*?) WHERE/g)];
-  assert.equal(categoryStmts.length, 1, "catalog.set_category_number's own UPDATE has moved or been removed");
-  assert.equal(categoryStmts[0][1].trim(), "numeric_id = ?", "an UPDATE mirror_category in catalog-write.js touches an unexpected column");
+  assert.ok(
+    categoryStmts.length >= 2,
+    "catalog.set_category_number's and catalog.create_category's own numeric_id UPDATEs have moved or been removed",
+  );
+  for (const [, captured] of categoryStmts) {
+    assert.equal(captured.trim(), "numeric_id = ?", "an UPDATE mirror_category in catalog-write.js touches an unexpected column");
+  }
 
   /* And the mirror schema itself refuses deletion, whatever anyone writes. */
   const f = await fixture();

@@ -1004,13 +1004,20 @@ export const catalogWriteTools = {
       "phrase it had in mind produces 'Coats', 'Outerwear', 'Jackets' and 'Coats & Jackets' inside a " +
       "month, at which point browsing the shop tells a customer nothing. This tool refuses a lexical " +
       "near-duplicate among SIBLINGS (same parent) outright — a name may repeat under a DIFFERENT " +
-      "parent, since what's unique is the numeric_id (catalog.set_category_number), not the name — and " +
-      "everything it does not refuse still needs a manager to approve it. Use it when the shop genuinely " +
-      "starts selling something it has never sold before, or is organizing its own tree further.",
+      "parent, since what's unique is the numeric_id, not the name — and everything it does not refuse " +
+      "still needs a manager to approve it. numeric_id is optional here (catalog.set_category_number " +
+      "can still assign or change it later) but, when given, is validated against the same two pools " +
+      "that tool enforces. Use it when the shop genuinely starts selling something it has never sold " +
+      "before, or is organizing its own tree further.",
     undo: "withdraw the category in Square; the mirror archives it and keeps the row",
     schema: {
       name: { type: "string", required: true, maxLength: 60 },
       parent_id: { type: "string", format: "id" },
+      /* "The add row is supposed to have ID as well" — set it at creation
+         time instead of needing a separate catalog.set_category_number
+         follow-up call right after. Optional: a manager can still leave it
+         blank and assign one later, exactly as before this. */
+      numeric_id: { type: "string", maxLength: 2 },
       reason: {
         type: "string",
         required: true,
@@ -1049,16 +1056,51 @@ export const catalogWriteTools = {
         };
       }
 
+      /* Same validation catalog.set_category_number's own check() applies,
+         inlined rather than shared: two SEPARATE '00'-'99' pools (every
+         top-level category shares one, every subcategory regardless of
+         depth or parent shares the other), the same partial unique indexes
+         in schema.sql enforce at the database level either way. */
+      let numericId = null;
+      if (args.numeric_id !== undefined && args.numeric_id.trim() !== "") {
+        numericId = args.numeric_id.trim();
+        if (!/^\d{2}$/.test(numericId)) {
+          return { denied: `numeric_id '${args.numeric_id}' must be exactly two digits, "00" through "99"` };
+        }
+        const isSubcategory = Boolean(parent);
+        const conflict = categories.find((c) => c.numeric_id === numericId && (c.parent_id !== null) === isSubcategory);
+        if (conflict) {
+          return {
+            denied:
+              `numeric_id '${numericId}' is already assigned to "${conflict.name}" — ${
+                isSubcategory ? "every subcategory in the whole tree" : "every top-level category"
+              } shares one pool, so this number is not available until that one is freed.`,
+          };
+        }
+      }
+
       return {
         ok: true,
         summary:
           `create the ${parent ? "subcategory" : "category"} "${name}"` +
           `${parent ? ` under "${parent.name}"` : ""} beside the ${siblings.length} that exist there — ${args.reason}`,
-        preflight: { name, parentId: args.parent_id ?? null, existing: siblings.length, nearest: near },
+        preflight: { name, parentId: args.parent_id ?? null, numericId, existing: siblings.length, nearest: near },
       };
     },
     async run(args, t) {
       const out = await t.square.createCategory({ name: t.preflight.name, parentId: t.preflight.parentId });
+      /* numeric_id is OURS, not Square's — the same direct mirror write
+         catalog.set_category_number's own run() makes, applied here to the
+         row this call itself just created. No resort is needed: a
+         brand-new numeric_id cannot already match any existing product's
+         style_id, since nothing could have referenced it before it existed. */
+      if (t.preflight.numericId && out.category) {
+        await t.db.catalog_mirror
+          .prepare("UPDATE mirror_category SET numeric_id = ? WHERE id = ?")
+          .bind(t.preflight.numericId, out.category.id)
+          .run();
+        out.category.numeric_id = t.preflight.numericId;
+      }
       return {
         created: true,
         category: out.category,

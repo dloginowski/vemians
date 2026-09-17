@@ -1438,7 +1438,11 @@ check("test_PRD_P0_138_nested_categories__the_name_scales_and_the_id_stays_a_fix
      explicit min-width: 0 to actually shrink in a flex row — its default
      flex min-width is its own intrinsic content size, wide enough that a
      deeply nested row could not shrink to fit, silently overflowing and
-     knocking every button after it out of alignment with shallower rows. */
+     knocking every button after it out of alignment with shallower rows.
+     REVISED: "your ID entry are too wide... they are to accept two
+     characters... fit to content, fixed width" -- 3em rendered wider than
+     two digits need; 2ch (twice the font's own "0" glyph width) is fixed,
+     never fluid, and actually fits the two characters the field accepts. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const body = await (await get("/items", MANAGER, env(mirror))).text();
@@ -1449,8 +1453,8 @@ check("test_PRD_P0_138_nested_categories__the_name_scales_and_the_id_stays_a_fix
   );
   assert.match(
     body,
-    /\.category-numeric-id \{\s*\n\s*flex: 0 0 3em; width: 3em;/,
-    "the ID field must never grow or shrink -- a fixed width so every row's own ID/remove/add lands in the same column",
+    /\.category-numeric-id, \.category-new-numeric-id \{\s*\n\s*flex: 0 0 2ch; width: 2ch;/,
+    "the ID field must never grow or shrink -- a fixed width, fitted to exactly two characters, so every row's own ID/remove/add lands in the same column",
   );
 });
 
@@ -1574,6 +1578,61 @@ check("test_PRD_P0_138_nested_categories__the_top_level_add_button_lives_in_the_
   assert.doesNotMatch(body, />Add a category</, "no leftover label text — the button is self-explanatory");
   const addFormIdx = body.indexOf('<div class="category-add-form" hidden>');
   assert.ok(addFormIdx > bodyIdx, "the (still hidden) add-form itself stays in the body, right after the header");
+});
+
+check("test_PRD_P0_138_nested_categories__the_add_form_previews_at_the_indent_the_new_subcategory_will_land_at", async () => {
+  /* The owner's own words: "when clicking the add button, I want the next
+     row to match the indent of the subcategory that you're adding it to."
+     A subcategory added under Outerwear will itself land one toggle-width
+     deeper than Outerwear's own row — the per-node add-form now carries
+     that same extra padding-left, so it visually previews exactly where
+     the new row is about to appear rather than sitting flush with its own
+     parent's row. The top-level add-form (a brand-new TOP-LEVEL category
+     needs no extra indent) is untouched. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.match(
+    body,
+    /<div class="category-add-form" hidden style="padding-left: 18px">\s*\n\s*<input type="text" class="category-new-name"/,
+    "a per-node add-form previews one toggle-width deeper than its own parent row",
+  );
+  assert.match(
+    body,
+    /<div class="categories-body">\s*\n\s*<div class="category-add-form" hidden>\s*\n\s*<input type="text" class="category-new-name" placeholder="Category name"/,
+    "the top-level add-form gets no extra indent -- a new top-level category has none to preview",
+  );
+});
+
+check("test_PRD_P0_138_nested_categories__the_add_form_also_takes_a_numeric_id", async () => {
+  /* The owner's own words: "the add row is supposed to have ID as well."
+     Both add-forms (a brand-new top-level category, and a brand-new
+     subcategory under an existing node) get the same 2-character ID
+     field every existing row already has, so a manager can assign it at
+     creation time instead of a separate follow-up edit. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  const matches = [...body.matchAll(/<input class="category-new-numeric-id" placeholder="ID" maxlength="2" pattern="\\d\{2\}"/g)];
+  assert.equal(matches.length, 5, "every add-form (the top-level one, plus one per existing category/subcategory) must carry its own ID field");
+});
+
+check("test_PRD_P0_138_nested_categories__creating_a_category_posts_the_id_field_when_filled_in", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.match(
+    body,
+    /const numericId = addForm\.querySelector\("\.category-new-numeric-id"\)\?\.value\.trim\(\) \?\? "";/,
+    "the create-category flow must read the ID field's value",
+  );
+  assert.match(
+    body,
+    /if \(numericId\) body\.set\("numeric_id", numericId\);/,
+    "a filled-in ID must be sent along with the new category",
+  );
 });
 
 check("test_PRD_P0_138_nested_categories__staff_cannot_reach_either_route_before_square_is_ever_touched", async () => {

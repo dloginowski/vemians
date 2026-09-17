@@ -1893,9 +1893,14 @@ ${INPUT_BAR_CSS}
    fixed width for the ID entry" — so it (and everything after it: the
    remove and add buttons) lands at the exact same column on every row,
    at any depth, regardless of how long a sibling's own name happens to
-   render. */
-.category-numeric-id {
-  flex: 0 0 3em; width: 3em; font: inherit; font-size: 12px; padding: 3px 5px; text-align: center;
+   render. REVISED: "too wide... they are to accept two characters...
+   fit to content, fixed width" — 3em rendered noticeably wider than two
+   digits actually need. 2ch (the width of the font's own "0" glyph,
+   times two) fits the field to exactly the two characters it accepts,
+   still a fixed value, never fluid. Shared with .category-new-numeric-id
+   below — the add-form's own ID field, same size for the same reason. */
+.category-numeric-id, .category-new-numeric-id {
+  flex: 0 0 2ch; width: 2ch; font: inherit; font-size: 12px; padding: 3px 5px; text-align: center;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
 }
 .category-add-toggle, .category-remove-toggle, .category-create {
@@ -2172,8 +2177,9 @@ function renderCategoryNodes(categories, parentId) {
           <button type="button" class="category-remove-toggle" data-category-id="${esc(c.id)}" aria-label="Remove ${esc(c.name)}"${removeDisabled}>${TRASH_ICON}</button>
           <button type="button" class="category-add-toggle" data-parent-id="${esc(c.id)}" aria-label="Add a subcategory under ${esc(c.name)}" title="Add a subcategory">+</button>
         </div>
-        <div class="category-add-form" hidden>
+        <div class="category-add-form" hidden style="padding-left: ${CATEGORY_NODE_TOGGLE_PX}px">
           <input type="text" class="category-new-name" placeholder="Subcategory name" maxlength="60">
+          <input class="category-new-numeric-id" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — optional, can be set later">
           <button type="button" class="category-create" data-parent-id="${esc(c.id)}">Add</button>
         </div>
         <div class="category-children">${renderCategoryNodes(categories, c.id)}</div>
@@ -2460,6 +2466,7 @@ function itemTile(product, canEdit, allCategories = []) {
          <div class="categories-body">
            <div class="category-add-form" hidden>
              <input type="text" class="category-new-name" placeholder="Category name" maxlength="60">
+             <input class="category-new-numeric-id" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — optional, can be set later">
              <button type="button" class="category-create" data-parent-id="">Add</button>
            </div>
            <div class="categories-tree">
@@ -3475,9 +3482,11 @@ async function createCategory(button) {
     return;
   }
   const handle = button.closest(".item-tile")?.dataset.handle;
+  const numericId = addForm.querySelector(".category-new-numeric-id")?.value.trim() ?? "";
   const body = new FormData();
   body.set("name", name);
   body.set("parent_id", button.dataset.parentId || "");
+  if (numericId) body.set("numeric_id", numericId);
   button.disabled = true;
   try {
     const res = await fetch("/items/" + handle + "/categories/create", { method: "POST", body });
