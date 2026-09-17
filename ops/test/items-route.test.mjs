@@ -1521,13 +1521,20 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_category_control_is_on
      is a path... dresses / cocktail... right next to it is the full
      width name of the item... the path auto scales, auto fits... the
      content." Back to ONE button labeled with the full path, opening a
-     tree menu — the two-select design (a prior revision) is gone. */
+     tree menu — the two-select design (a prior revision) is gone.
+     REVISED once more: "it needs to be the same square style, exactly
+     the same height, the same style, has a chevron in it... an
+     extension of the same UI [as] the field for the name" — the label
+     is its own span (so the JS that updates it on a pick never wipes
+     out the chevron icon sitting beside it), and a CARET_ICON <svg>
+     renders right after it, rotated to point down like a <select>'s
+     own arrow. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
   assert.match(body, /<input type="text" name="category_id" value="cat1" hidden>/);
-  assert.match(body, /<button type="button" class="category-picker-btn"[^>]*>Outerwear<\/button>/);
+  assert.match(body, /<button type="button" class="category-picker-btn"[^>]*>[\s\S]{0,40}<span class="category-picker-btn-label">Outerwear<\/span><svg/);
   assert.match(body, /<button type="button" class="category-picker-option selected" data-category-id="cat1" data-category-path="Outerwear">Outerwear<\/button>/);
 });
 
@@ -1538,7 +1545,7 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_picker_shows_the_full_
   mirror.db.exec("UPDATE mirror_product SET category_id = 'cat2' WHERE id = 'p1'");
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
-  assert.match(body, /<button type="button" class="category-picker-btn"[^>]*>Outerwear \/ Coats<\/button>/);
+  assert.match(body, /<span class="category-picker-btn-label">Outerwear \/ Coats<\/span>/);
   assert.match(body, /data-category-id="cat2" data-category-path="Outerwear \/ Coats"/);
 });
 
@@ -1549,7 +1556,7 @@ check("test_PRD_P0_135_item_edit_applies_immediately__an_uncategorized_product_s
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
   assert.match(body, /<input type="text" name="category_id" value="" hidden>/);
-  assert.match(body, /<button type="button" class="category-picker-btn"[^>]*>Uncategorized<\/button>/);
+  assert.match(body, /<span class="category-picker-btn-label">Uncategorized<\/span>/);
   assert.doesNotMatch(body, /category-picker-option selected/);
 });
 

@@ -1686,13 +1686,22 @@ ${INPUT_BAR_CSS}
    it is the name of the item that you type in... the dropdown opens up
    a set of expandable rows and you can expand them and select
    submenus... and that's how you assign the category, which will
-   resolve in that path." Back to a single pill button labeled with the
+   resolve in that path." Back to a single button labeled with the
    full path (categoryPath), opening the SAME recursive tree menu the
    very first picker had (renderCategoryPickerNodes, auto-expanded to
    the current selection) — the two-select design is gone. "Auto
-   scales... to fit the content": no max-width/ellipsis truncation this
-   time, flex: 0 0 auto sizes the button to its own path text, however
-   long, and the title input (flex: 1 1 auto) takes whatever is left. */
+   scales... to fit the content": no max-width/ellipsis truncation,
+   flex: 0 0 auto sizes the button to its own path text, however long,
+   and the title input (flex: 1 1 auto) takes whatever is left.
+   REVISED: "it needs to be the same square style, exactly the same
+   height, the same style, has a chevron in it... it has to feel like
+   it's an extension of the same UI [as] the field for the name" — the
+   pill shape is gone; the button now shares .item-edit input's own
+   exact border/radius/background/padding/font-size declarations
+   (copied literally, not inherited through the selector, since a
+   <button> is not an <input> and .item-edit input's own selector does
+   not match it), plus a static down-pointing chevron (CARET_ICON,
+   rotated) the way a native <select> always shows one. */
 .category-title-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 /* .item-edit form's own blanket display:flex/flex-direction:column
    (below) would otherwise win this: both forms living in this row are
@@ -1706,10 +1715,12 @@ ${INPUT_BAR_CSS}
 .item-edit .category-title-row form { display: contents; }
 .category-picker { position: relative; flex: 0 0 auto; }
 .category-picker-btn {
-  font: inherit; font-size: 10px; padding: 1px 6px; border-radius: 999px; white-space: nowrap;
-  border: 1px solid var(--rule); background: transparent; color: var(--muted); cursor: pointer;
+  display: inline-flex; align-items: center; gap: 4px; box-sizing: border-box;
+  flex: 0 0 auto; font: inherit; font-size: 11px; padding: 3px 5px; white-space: nowrap;
+  border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink); cursor: pointer;
 }
 .category-picker-btn:hover { border-color: var(--accent); color: var(--accent); }
+.category-picker-btn svg { flex: 0 0 auto; transform: rotate(90deg); color: var(--muted); }
 .category-picker-menu {
   position: absolute; top: 100%; left: 0; z-index: 15; margin-top: 4px; min-width: 14em; max-height: 16em;
   overflow-y: auto; padding: 4px 0; border: 1px solid var(--muted); border-radius: 8px; background: var(--ground);
@@ -2456,7 +2467,9 @@ function itemTile(product, canEdit, allCategories = []) {
     ? `<form method="post" action="/items/${esc(product.handle)}/category" class="category-form">
          <input type="text" name="category_id" value="${esc(categoryId ?? "")}" hidden>
          <div class="category-picker">
-           <button type="button" class="category-picker-btn" aria-label="Choose a category" title="Choose a category">${esc(categoryPathLabel)}</button>
+           <button type="button" class="category-picker-btn" aria-label="Choose a category" title="Choose a category">
+             <span class="category-picker-btn-label">${esc(categoryPathLabel)}</span>${CARET_ICON}
+           </button>
            <div class="category-picker-menu" hidden>
              ${
                allCategories.length
@@ -2950,7 +2963,7 @@ document.getElementById("items-grid").addEventListener("click", async (e) => {
   if (pickerOption) {
     const form = pickerOption.closest(".category-form");
     const hiddenInput = form.querySelector('input[name="category_id"]');
-    const btn = form.querySelector(".category-picker-btn");
+    const btn = form.querySelector(".category-picker-btn-label");
     hiddenInput.value = pickerOption.dataset.categoryId;
     btn.textContent = pickerOption.dataset.categoryPath;
     form.querySelectorAll(".category-picker-option.selected").forEach((el) => el.classList.remove("selected"));
