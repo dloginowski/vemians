@@ -1678,20 +1678,21 @@ ${INPUT_BAR_CSS}
    was reverted. */
 .item-checkbox-toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--ink); cursor: pointer; white-space: nowrap; }
 .item-checkbox-toggle input { width: 12px; height: 12px; margin: 0; accent-color: var(--accent); }
-/* The category/subcategory selects, right next to the item title — the
-   owner's own revision over the tree-popup picker: "right next to the
-   title, we need to have a category dropdown that actually selects its
-   category. And then right next to it is a selection of subcategories
-   that belong to the selected category... let's swap them around, so we
-   have the category path and then the item name at the end, as if it's
-   a continuation of the category path." Two plain native <select>s (no
-   NAME attribute — only the hidden category_id text input, right below,
-   actually submits) sit in the SAME row as the title input via display: contents
-   on both forms; the description textarea forces its own full-width
-   line with flex-basis: 100%. The subcategory select's own options are
-   swapped client-side from a page-level embedded map (itemsPage's own
-   CATEGORY_SUBCATEGORY_MAP_ID script) whenever the category select
-   changes, rather than round-tripping to the server. */
+/* ONE category picker, right next to the item title — the owner's own
+   correction over the two-select revision: "I want one menu, one
+   dropdown, just one. And in it is a path... dresses / cocktail...
+   right next to it is the full width name of the item... the path
+   auto scales, auto fits to take up... the content. And then next to
+   it is the name of the item that you type in... the dropdown opens up
+   a set of expandable rows and you can expand them and select
+   submenus... and that's how you assign the category, which will
+   resolve in that path." Back to a single pill button labeled with the
+   full path (categoryPath), opening the SAME recursive tree menu the
+   very first picker had (renderCategoryPickerNodes, auto-expanded to
+   the current selection) — the two-select design is gone. "Auto
+   scales... to fit the content": no max-width/ellipsis truncation this
+   time, flex: 0 0 auto sizes the button to its own path text, however
+   long, and the title input (flex: 1 1 auto) takes whatever is left. */
 .category-title-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 /* .item-edit form's own blanket display:flex/flex-direction:column
    (below) would otherwise win this: both forms living in this row are
@@ -1703,11 +1704,35 @@ ${INPUT_BAR_CSS}
    flex-column box — caught live: every child rendered stacked in a tall
    column instead of side by side. */
 .item-edit .category-title-row form { display: contents; }
-.category-select-top, .category-select-sub {
-  flex: 0 1 auto; min-width: 0; max-width: 10em; font: inherit; font-size: 10px; padding: 1px 4px;
-  border-radius: 999px; border: 1px solid var(--rule); background: transparent; color: var(--muted);
+.category-picker { position: relative; flex: 0 0 auto; }
+.category-picker-btn {
+  font: inherit; font-size: 10px; padding: 1px 6px; border-radius: 999px; white-space: nowrap;
+  border: 1px solid var(--rule); background: transparent; color: var(--muted); cursor: pointer;
 }
-.category-title-row .item-title-input { flex: 1 1 200px; }
+.category-picker-btn:hover { border-color: var(--accent); color: var(--accent); }
+.category-picker-menu {
+  position: absolute; top: 100%; left: 0; z-index: 15; margin-top: 4px; min-width: 14em; max-height: 16em;
+  overflow-y: auto; padding: 4px 0; border: 1px solid var(--muted); border-radius: 8px; background: var(--ground);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+.category-picker-row { display: flex; align-items: center; gap: 6px; padding: 3px 8px; }
+.category-picker-toggle {
+  flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center; border: none; background: transparent;
+  color: var(--muted); cursor: pointer; transition: transform 0.15s;
+}
+.category-picker-toggle:hover { color: var(--accent); }
+.category-picker-node.expanded > .category-picker-row > .category-picker-toggle { transform: rotate(90deg); }
+.category-picker-toggle-spacer { flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; }
+.category-picker-option {
+  flex: 1 1 auto; text-align: left; font: inherit; font-size: 12px; padding: 2px 4px; border: none;
+  border-radius: 4px; background: transparent; color: var(--ink); cursor: pointer;
+}
+.category-picker-option:hover { background: rgba(255, 255, 255, 0.08); }
+.category-picker-option.selected { color: var(--accent); font-weight: 600; }
+.category-picker-children { display: none; }
+.category-picker-node.expanded > .category-picker-children { display: block; }
+.category-title-row .item-title-input { flex: 1 1 auto; min-width: 0; }
 .category-title-row textarea { flex: 1 1 100%; }
 .item-variants, .item-fields { display: flex; flex-direction: column; gap: 2px; }
 .item-variants div, .item-fields div { display: flex; justify-content: space-between; gap: 6px; }
@@ -2084,39 +2109,49 @@ function categoryPath(categories, categoryId) {
    since the select only ever lists top-level categories; the subcategory
    select (below) is what actually reaches an assigned node deeper than
    one level. Returns null for an unassigned or unknown id. */
-function categoryRootId(categories, categoryId) {
+/* Every ANCESTOR of categoryId (never categoryId itself, which needs no
+   node of its own pre-opened to be visible) — so opening the picker on an
+   already-categorized product reveals the assigned node in place, the
+   same "show me where I am" a file tree gives the current file, rather
+   than a flat, fully-collapsed tree someone has to hunt back through. */
+function categoryAncestorIds(categories, categoryId) {
   const byId = new Map(categories.map((c) => [c.id, c]));
+  const ids = new Set();
   let cur = categoryId ? byId.get(categoryId) : null;
-  if (!cur) return null;
-  while (cur.parent_id) cur = byId.get(cur.parent_id);
-  return cur.id;
+  cur = cur?.parent_id ? byId.get(cur.parent_id) : null;
+  while (cur) {
+    ids.add(cur.id);
+    cur = cur.parent_id ? byId.get(cur.parent_id) : null;
+  }
+  return ids;
 }
 
-/* Every PROPER descendant of topId, at any depth, flattened into one
-   list — "a selection of subcategories that belong to the selected
-   category" covers a whole subtree, not just its immediate children, so
-   a product can still be assigned three levels down through a single
-   second dropdown. Each option's own label is its OWN path relative to
-   topId (e.g. "Coats / Casual"), never just its bare leaf name, for the
-   same reason the picker's own path label never was: two nodes sharing a
-   name are told apart only by their parent chain. */
-function categoryDescendantOptions(categories, topId) {
-  const byParent = new Map();
-  for (const c of categories) {
-    const p = c.parent_id ?? null;
-    if (!byParent.has(p)) byParent.set(p, []);
-    byParent.get(p).push(c);
-  }
-  const out = [];
-  (function walk(parentId, prefix) {
-    const kids = (byParent.get(parentId) ?? []).slice().sort((a, b) => a.name.localeCompare(b.name));
-    for (const k of kids) {
-      const label = prefix ? `${prefix} / ${k.name}` : k.name;
-      out.push({ id: k.id, label });
-      walk(k.id, label);
-    }
-  })(topId, "");
-  return out;
+/* The picker's own tree — same recursive shape and same toggle-width
+   indent as renderCategoryNodes above, but for SELECTING a product's
+   category rather than editing the tree itself: no +, no numeric_id, and
+   a node's own name is the control (clicking it picks that node,
+   whether or not it has subcategories of its own — a top-level category
+   is itself a valid category to assign, not only its leaves). */
+function renderCategoryPickerNodes(categories, parentId, selectedId, expandedIds) {
+  const children = categories
+    .filter((c) => (c.parent_id ?? null) === parentId)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return children
+    .map((c) => {
+      const hasChildren = categories.some((g) => g.parent_id === c.id);
+      const toggle = hasChildren
+        ? `<button type="button" class="category-picker-toggle" aria-label="Show subcategories of ${esc(c.name)}" title="Show subcategories">${CARET_ICON}</button>`
+        : `<span class="category-picker-toggle-spacer"></span>`;
+      const isExpanded = expandedIds.has(c.id);
+      return `<div class="category-picker-node${isExpanded ? " expanded" : ""}" style="padding-left: ${parentId === null ? 0 : CATEGORY_NODE_TOGGLE_PX}px">
+        <div class="category-picker-row">
+          ${toggle}
+          <button type="button" class="category-picker-option${c.id === selectedId ? " selected" : ""}" data-category-id="${esc(c.id)}" data-category-path="${esc(categoryPath(categories, c.id))}">${esc(c.name)}</button>
+        </div>
+        ${hasChildren ? `<div class="category-picker-children">${renderCategoryPickerNodes(categories, c.id, selectedId, expandedIds)}</div>` : ""}
+      </div>`;
+    })
+    .join("");
 }
 
 function itemTile(product, canEdit, allCategories = []) {
@@ -2396,43 +2431,40 @@ function itemTile(product, canEdit, allCategories = []) {
          </label>
        </form>`
     : "";
-  /* "Right next to the title, we need to have a category dropdown that
-     actually selects its category. And then right next to it is a
-     selection of subcategories that belong to the selected category...
-     you're setting them right next to the item name." Replaces the old
-     free-text combobox AND the tree-popup picker that came before it: two
-     plain <select>s, category then subcategory — the Categories accordion
-     (now under Admin, below) is the one place a NEW category gets
-     created, so these only ever need to CHOOSE from the closed set.
-     Neither select carries a `name` — only the text input right after
-     actually submits `category_id`, kept in sync by the change handler
-     (views.js's own client script) reading the page-level subcategory map
-     itemsPage() renders once (CATEGORY_SUBCATEGORY_MAP_ID). type="text"
-     with a plain `hidden` ATTRIBUTE, not type="hidden" — deliberately: a
+  /* REVISED again: "I want one menu, one dropdown, just one. And in it is
+     a path... dresses / cocktail... the dropdown opens up a set of
+     expandable rows and you can expand them and select submenus... and
+     that's how you assign the category, which will resolve in that
+     path." Back to ONE pill button labeled with the full path
+     (categoryPath), opening the same recursive tree menu the very first
+     picker had (renderCategoryPickerNodes) — the two-select design is
+     gone. The Categories accordion (now under Admin, below) is still the
+     one place a NEW category gets created; this only ever CHOOSES from
+     the closed set. category_id rides into the tile's own "Save all"
+     batch on a plain `hidden` ATTRIBUTE, not type="hidden" — a
      type="hidden" input has no "dirty value" flag at all (its value IDL
      is just a direct alias of the value content attribute, per the HTML
      spec's own value-mode table), so isFieldDirty's `.value !==
      .defaultValue` check can never see a script-driven change on one —
      caught live, the Save button silently staying disabled after a real
-     pick. type="text" keeps the normal dirty-value semantics
-     refreshDirtyState already relies on everywhere else; `hidden` alone
-     keeps it off-screen. */
+     pick, the first time this same mistake was made. type="text" keeps
+     the normal dirty-value semantics refreshDirtyState already relies on
+     everywhere else; `hidden` alone keeps it off-screen. */
   const categoryId = product.category_id ?? null;
-  const categoryTopId = categoryRootId(allCategories, categoryId);
   const categoryPathLabel = categoryPath(allCategories, categoryId) ?? "Uncategorized";
-  const topCategories = allCategories.filter((c) => (c.parent_id ?? null) === null).sort((a, b) => a.name.localeCompare(b.name));
-  const subOptions = categoryTopId ? categoryDescendantOptions(allCategories, categoryTopId) : [];
   const categoryControl = canEdit
     ? `<form method="post" action="/items/${esc(product.handle)}/category" class="category-form">
          <input type="text" name="category_id" value="${esc(categoryId ?? "")}" hidden>
-         <select class="category-select-top" aria-label="Category" title="Category">
-           <option value="">Uncategorized</option>
-           ${topCategories.map((c) => `<option value="${esc(c.id)}"${c.id === categoryTopId ? " selected" : ""}>${esc(c.name)}</option>`).join("")}
-         </select>
-         <select class="category-select-sub" aria-label="Subcategory" title="Subcategory"${subOptions.length ? "" : " disabled"}>
-           <option value="">(no subcategory)</option>
-           ${subOptions.map((o) => `<option value="${esc(o.id)}"${o.id === categoryId ? " selected" : ""}>${esc(o.label)}</option>`).join("")}
-         </select>
+         <div class="category-picker">
+           <button type="button" class="category-picker-btn" aria-label="Choose a category" title="Choose a category">${esc(categoryPathLabel)}</button>
+           <div class="category-picker-menu" hidden>
+             ${
+               allCategories.length
+                 ? renderCategoryPickerNodes(allCategories, null, categoryId, categoryAncestorIds(allCategories, categoryId))
+                 : `<p class="item-empty">No categories yet.</p>`
+             }
+           </div>
+         </div>
        </form>`
     : "";
 
@@ -2458,10 +2490,13 @@ function itemTile(product, canEdit, allCategories = []) {
      it, same as every other field on this tile. REVISED: "let's swap them
      around, so we have the category path and then the item name at the
      end, as if it's a continuation of the category path" — the category
-     selects and the title input now share one row (.category-title-row,
+     picker and the title input now share one row (.category-title-row,
      both forms display:contents so their own children become its direct
-     flex items), category first, title last; the description textarea
-     still belongs to the SAME title form (this route always resends both
+     flex items), category first, title last; the picker's own button
+     sizes to fit its path text ("auto scales, auto fits... the content")
+     and the title input (flex: 1 1 auto) takes whatever width is left,
+     "the full width name of the item." The description textarea still
+     belongs to the SAME title form (this route always resends both
      together — a blank title is a real, refused edit, not "unchanged",
      so splitting description into a form of its own would send a blank
      title on every description-only save) and simply wraps onto its own
@@ -2571,22 +2606,6 @@ export function itemsPage({ role }, products, allCategories = []) {
   </div>`
     : "";
 
-  /* One shared map, rendered once rather than per tile (the same "one
-     page-level datalist every tile references" shape the old flat combobox
-     used) — { topCategoryId: [{id, label}, ...] } for every top-level
-     category, read by the client's own category-select-top change handler
-     to repopulate category-select-sub without a round trip. "</script"
-     is escaped so a category name could never prematurely close this
-     tag — vanishingly unlikely, but a name is free text someone typed. */
-  const subcategoryMap = Object.fromEntries(
-    allCategories
-      .filter((c) => (c.parent_id ?? null) === null)
-      .map((c) => [c.id, categoryDescendantOptions(allCategories, c.id)]),
-  );
-  const subcategoryMapScript = `<script type="application/json" id="category-subcategory-map">${JSON.stringify(
-    subcategoryMap,
-  ).replace(/<\//g, "<\\/")}</script>`;
-
   return page(
     "Items — Vemians ops",
     /* No bar here either — see the same note on opsPage(). No "Items"
@@ -2628,7 +2647,6 @@ export function itemsPage({ role }, products, allCategories = []) {
 ${tiles}
   </div>
   ${categoryMenu}
-  ${canEdit ? subcategoryMapScript : ""}
   <div class="input-bar">
     <button type="button" class="icon-btn" id="category-btn" aria-label="Filter by category" title="Filter by category"${categories.length ? "" : " hidden"}>${FILTER_ICON}</button>
     ${
@@ -2909,6 +2927,38 @@ if (!ItemSpeechRecognitionCtor) {
    (TABLE_CARD_CSS's own .table-card.full convention in the chat log)
    instead of opening a second element or tracking separate scroll state. */
 document.getElementById("items-grid").addEventListener("click", async (e) => {
+  /* The category picker — "the dropdown opens up a set of expandable
+     rows and you can expand them and select submenus... and that's how
+     you assign the category, which will resolve in that path."
+     Delegated, like everything else in this handler, since there is one
+     .category-picker per tile rather than one shared id
+     dropdownMenuScript could bind to. */
+  const pickerBtn = e.target.closest(".category-picker-btn");
+  if (pickerBtn) {
+    const menu = pickerBtn.nextElementSibling;
+    const wasHidden = menu.hidden;
+    document.querySelectorAll(".category-picker-menu").forEach((m) => (m.hidden = true));
+    menu.hidden = !wasHidden;
+    return;
+  }
+  const pickerToggle = e.target.closest(".category-picker-toggle");
+  if (pickerToggle) {
+    pickerToggle.closest(".category-picker-node")?.classList.toggle("expanded");
+    return;
+  }
+  const pickerOption = e.target.closest(".category-picker-option");
+  if (pickerOption) {
+    const form = pickerOption.closest(".category-form");
+    const hiddenInput = form.querySelector('input[name="category_id"]');
+    const btn = form.querySelector(".category-picker-btn");
+    hiddenInput.value = pickerOption.dataset.categoryId;
+    btn.textContent = pickerOption.dataset.categoryPath;
+    form.querySelectorAll(".category-picker-option.selected").forEach((el) => el.classList.remove("selected"));
+    pickerOption.classList.add("selected");
+    form.querySelector(".category-picker-menu").hidden = true;
+    hiddenInput.dispatchEvent(new Event("change", { bubbles: true }));
+    return;
+  }
   const shareBtn = e.target.closest(".item-share");
   if (shareBtn) {
     shareLink(shareBtn);
@@ -2999,6 +3049,19 @@ document.getElementById("items-grid").addEventListener("click", async (e) => {
   setDeepLinkHash(tile);
 });
 
+/* Closes any open category picker menu on an outside click — the same
+   "outside click closes it" convention dropdownMenuScript's own single
+   global menu already follows, generalized here since there is one
+   .category-picker-menu per tile rather than one shared id to bind to. */
+document.addEventListener("click", (e) => {
+  if (e.target.closest(".category-picker")) return;
+  document.querySelectorAll(".category-picker-menu").forEach((m) => (m.hidden = true));
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  document.querySelectorAll(".category-picker-menu").forEach((m) => (m.hidden = true));
+});
+
 /* Dirty-tracking for the ONE Save button per tile — the owner's own
    words: "let's just have one save button for the whole page... disabled
    and becomes enabled when any changes are detected... instead of having
@@ -3043,41 +3106,6 @@ function refreshDirtyState(field) {
   if (saveBtn) saveBtn.disabled = !tileDirty;
 }
 function onItemsGridChange(e) {
-  /* "Right next to the title... a category dropdown that actually
-     selects its category. And then right next to it is a selection of
-     subcategories that belong to the selected category." Changing the
-     top select repopulates the subcategory select from the page-level
-     map (CATEGORY_SUBCATEGORY_MAP_ID, itemsPage()) rather than a round
-     trip, and resets it to "no subcategory" — a fresh top pick always
-     starts unqualified, the same way choosing a wholly different
-     category should. Either select then writes the ACTUAL id that gets
-     submitted (the more specific one) into the form's own category_id
-     field and dispatches change on it, so the existing dirty-tracking
-     fallthrough below picks it up exactly like any other field. */
-  if (e.target.matches(".category-select-top")) {
-    const form = e.target.closest(".category-form");
-    const sub = form.querySelector(".category-select-sub");
-    const map = JSON.parse(document.getElementById("category-subcategory-map")?.textContent ?? "{}");
-    const options = map[e.target.value] ?? [];
-    /* DOM APIs, not innerHTML string-building — a category name is free
-       text someone typed (managers, not a stranger, but still not a
-       constant this script wrote), so it goes into an Option's own
-       .text property rather than concatenated markup. */
-    sub.replaceChildren(new Option("(no subcategory)", ""), ...options.map((o) => new Option(o.label, o.id)));
-    sub.disabled = options.length === 0;
-    const hiddenInput = form.querySelector('input[name="category_id"]');
-    hiddenInput.value = e.target.value;
-    hiddenInput.dispatchEvent(new Event("change", { bubbles: true }));
-    return;
-  }
-  if (e.target.matches(".category-select-sub")) {
-    const form = e.target.closest(".category-form");
-    const top = form.querySelector(".category-select-top");
-    const hiddenInput = form.querySelector('input[name="category_id"]');
-    hiddenInput.value = e.target.value || top.value;
-    hiddenInput.dispatchEvent(new Event("change", { bubbles: true }));
-    return;
-  }
   if (e.target.matches(".variations-msrp")) {
     const accordion = e.target.closest(".variations-accordion");
     accordion?.querySelectorAll(".variation-price").forEach((input) => {

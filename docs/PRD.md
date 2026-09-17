@@ -4345,6 +4345,24 @@ that does not trace to one of these is a process failure (see §12).
     avoids that regression — verified live: editing a `numeric_id` inside the now-relocated accordion
     still applies instantly and never enables the tile's own Save button.
 
+    **REVISED ONCE MORE: the two-select design above did not match the actual spec — back to ONE
+    picker, per the owner's own correction: "I want one menu, one dropdown, just one. And in it is a
+    path... dresses / cocktail... right next to it is the full width name of the item... the path auto
+    scales, auto fits... the content. And then next to it is the name of the item that you type in... the
+    dropdown opens up a set of expandable rows and you can expand them and select submenus... and that's
+    how you assign the category, which will resolve in that path."** The two `<select>`s and the
+    page-level subcategory map are gone; `renderCategoryPickerNodes` and `categoryAncestorIds` (the tree
+    menu and its auto-expand-to-current-selection logic, first built for the ORIGINAL popup picker
+    before the two-select detour) come back essentially unchanged, still living in `.category-title-row`
+    next to the title. The one change from that original popup: `.category-picker-btn` drops its earlier
+    `max-width`/`text-overflow: ellipsis` truncation entirely — "auto scales, auto fits... the content"
+    means the button always sizes to its own full path text, however long, rather than clipping it, with
+    `flex: 0 0 auto` on the button and `flex: 1 1 auto` on the title `<input>` so the title still takes
+    "the full width" of whatever the picker's own path text leaves behind. Verified live end to end
+    again, including a 4-level-deep pick (Outerwear → Coats → Casual → Blazers): the button's own label
+    always matches the picked path, the tree still auto-expands to the current selection when reopened,
+    and Save still enables correctly on a real pick.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

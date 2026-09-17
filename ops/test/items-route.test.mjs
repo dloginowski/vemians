@@ -1516,48 +1516,41 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_web_toggle_is_checked_
   assert.match(body, /<label class="item-checkbox-toggle">\s*<input type="checkbox" name="on_website" checked>\s*Web\s*<\/label>/);
 });
 
-check("test_PRD_P0_135_item_edit_applies_immediately__the_category_control_is_two_cascading_selects", async () => {
-  /* REVISED: "right next to the title, we need to have a category
-     dropdown that actually selects its category. And then right next to
-     it is a selection of subcategories that belong to the selected
-     category." Two plain <select>s replace the earlier tree-popup
-     picker — a hidden text input still carries the actual id into the
-     tile's own "Save all" batch. */
+check("test_PRD_P0_135_item_edit_applies_immediately__the_category_control_is_one_picker_showing_the_full_path", async () => {
+  /* REVISED AGAIN: "I want one menu, one dropdown, just one. And in it
+     is a path... dresses / cocktail... right next to it is the full
+     width name of the item... the path auto scales, auto fits... the
+     content." Back to ONE button labeled with the full path, opening a
+     tree menu — the two-select design (a prior revision) is gone. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
   assert.match(body, /<input type="text" name="category_id" value="cat1" hidden>/);
-  assert.match(body, /<select class="category-select-top"[^>]*>[\s\S]{0,120}<option value="cat1" selected>Outerwear<\/option>/);
+  assert.match(body, /<button type="button" class="category-picker-btn"[^>]*>Outerwear<\/button>/);
+  assert.match(body, /<button type="button" class="category-picker-option selected" data-category-id="cat1" data-category-path="Outerwear">Outerwear<\/button>/);
 });
 
-check("test_PRD_P0_135_item_edit_applies_immediately__the_subcategory_select_offers_every_descendant_flattened", async () => {
-  /* "A selection of subcategories that belong to the selected category"
-     covers the WHOLE subtree, not just immediate children — a product
-     assigned two levels down still shows up correctly selected, labeled
-     with its own path relative to the top category. */
+check("test_PRD_P0_135_item_edit_applies_immediately__the_picker_shows_the_full_ancestor_path_when_nested", async () => {
   const mirror = mirrorDb();
   seedProduct(mirror);
   mirror.db.exec("INSERT INTO mirror_category (id, external_ref, name, parent_id) VALUES ('cat2', 'sqcat2', 'Coats', 'cat1')");
-  mirror.db.exec("INSERT INTO mirror_category (id, external_ref, name, parent_id) VALUES ('cat3', 'sqcat3', 'Casual', 'cat2')");
-  mirror.db.exec("UPDATE mirror_product SET category_id = 'cat3' WHERE id = 'p1'");
+  mirror.db.exec("UPDATE mirror_product SET category_id = 'cat2' WHERE id = 'p1'");
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
-  assert.match(body, /<input type="text" name="category_id" value="cat3" hidden>/);
-  assert.match(body, /<option value="cat1" selected>Outerwear<\/option>/, "the top select resolves to the ROOT ancestor");
-  assert.match(body, /<option value="cat2">Coats<\/option>/);
-  assert.match(body, /<option value="cat3" selected>Coats \/ Casual<\/option>/, "a descendant's own label is its path relative to the top category");
+  assert.match(body, /<button type="button" class="category-picker-btn"[^>]*>Outerwear \/ Coats<\/button>/);
+  assert.match(body, /data-category-id="cat2" data-category-path="Outerwear \/ Coats"/);
 });
 
-check("test_PRD_P0_135_item_edit_applies_immediately__an_uncategorized_product_shows_no_selection", async () => {
+check("test_PRD_P0_135_item_edit_applies_immediately__an_uncategorized_product_shows_the_placeholder_and_no_selection", async () => {
   const mirror = mirrorDb();
   seedProduct(mirror);
   mirror.db.exec("UPDATE mirror_product SET category_id = NULL WHERE id = 'p1'");
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
   assert.match(body, /<input type="text" name="category_id" value="" hidden>/);
-  assert.match(body, /<select class="category-select-sub"[^>]*disabled>/, "no top category picked yet, so the subcategory select starts disabled");
-  assert.doesNotMatch(body, /<option value="cat1" selected>/);
+  assert.match(body, /<button type="button" class="category-picker-btn"[^>]*>Uncategorized<\/button>/);
+  assert.doesNotMatch(body, /category-picker-option selected/);
 });
 
 check("test_PRD_P0_135_item_edit_applies_immediately__the_save_button_starts_disabled_and_only_renders_for_a_manager", async () => {
