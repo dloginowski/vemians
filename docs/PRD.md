@@ -4366,6 +4366,18 @@ that does not trace to one of these is a process failure (see §12).
     `/items/<handle>/square-attributes` route needed no change at all for the picker itself, since it
     already accepted a plain `vendor` name — only the markup driving that same hidden input changed.
 
+    **REVISED AGAIN: the Vendors accordion moves out of every product tile onto the global `/admin`
+    page (P0-138's own entry, below, has the fuller writeup — the same page now holds Categories
+    too).** The owner's own words, this time about BOTH: "move the admin section into that hamburger
+    menu so that I can administer everything from that one location instead of under each product."
+    `.vendors-accordion`/`.vendor-row`/`.vendor-commission-form`/`.vendor-add-form` and their own
+    `/items/<handle>/vendors/*` routes are gone outright, replaced by `adminPage()`'s own vendor list
+    and new `/admin/vendors/create`/`/admin/vendors/commission` routes (`index.js`) — same two tools,
+    same required-commission-on-creation rule, just reached from one global page instead of every
+    tile repeating an identical copy of the same closed set. The per-product `.vendor-picker` is
+    UNCHANGED — picking an existing vendor for a product is still a per-product decision, only
+    ADMINISTERING the vendor list itself (creating one, changing its central rate) moved.
+
 72. **`Test-PRD-P0-137-item_active_toggle`** — The owner's own words, in the same request that moved
     Web and the newly-added Active checkbox beside the item's own name: "move the web and the active
     buttons... make them the same style as the rest of the fields... have the same style like
@@ -5126,6 +5138,59 @@ that does not trace to one of these is a process failure (see §12).
     agent constructing each row's own call has the validation matrix in front of it on every turn (tool
     descriptions are always sent; an on-demand skill doc is not) rather than needing to infer an
     unstated procedure.
+
+    **REVISED: Categories (and Vendors, P0-136's own entry above) move out of every product tile
+    entirely, onto one global `/admin` page reached from a new hamburger menu.** The owner's own
+    words: "I want to see a hamburger menu on the top right... move the admin section into that
+    hamburger menu so that I can administer everything from that one location instead of under each
+    product." Before this, `.categories-accordion` and `.vendors-accordion` rendered identically
+    inside EVERY single tile's own "Admin" disclosure — the same global closed set, redrawn once per
+    product, editable from any of them, purely because there had been nowhere else to put it. That
+    duplication, along with the accordion's own collapse/expand chrome, its instant client-side
+    resort-by-numeric_id (`reorderSiblingsByNumericId`), its own rename/remove immediate-fetch
+    functions (`renameCategory`, `removeCategory`), and the deep-link hash's own `categories`/`nodes=`
+    tokens (all P0-132's own "my admin panel has to be a deep link" work), are gone outright — a
+    single global page needs none of it. `renderCategoryNodes` is replaced by
+    `renderAdminCategoryNodes` (`views.js`): the same recursive tree, at the same
+    `CATEGORY_NODE_TOGGLE_PX` indent step, but with no toggle at all (the whole tree always renders —
+    there is nothing else on this page competing for space) and no hidden add-form (a subcategory's
+    own add row is simply always visible at the end of its parent's children).
+
+    **`adminPage()` (`views.js`) is deliberately the simplest possible page: plain `<form>`s, no
+    client-side JS at all.** The Items tab's own tile needed dirty-tracking and one batched "Save all"
+    because MANY unrelated fields shared one small space and one save button beat one per field
+    (P0-138's own earlier "we probably don't even need the add button because the checkbox would save
+    that" reasoning); here there is exactly ONE thing being edited at a time, so an ordinary form
+    submit — `refusalPage` on error, a 303 back to `/admin` on success, the same shape `/tickets/new`
+    already uses — is simplest and needs nothing clever to get right. New routes
+    `/admin/categories/create|number|rename|remove` and `/admin/vendors/create|commission`
+    (`index.js`) call the SAME six T2 tools the old per-item routes did (`catalog.create_category`,
+    `catalog.set_category_number`, `catalog.rename_category`, `catalog.remove_category`,
+    `catalog.create_vendor`, `catalog.set_vendor_commission`) — the old `/items/<handle>/categories/*`
+    and `/items/<handle>/vendors/*` routes are deleted, not kept as a second way in, since Categories
+    and Vendors were never actually per-item data. `/admin` itself, and every one of its own POST
+    routes, refuses below manager outright (`Test-PRD-P0-138-nested_categories__admin_staff_cannot_*`)
+    — Admin is manager-only full stop, unlike Items' own view-as-staff/edit-as-manager split.
+
+    **The hamburger menu (`shellPage`, `views.js`) is new: a plain three-bar icon, top right of the
+    shell header, opposite the tab row** — rendered only for a manager or owner (`canEditAdmin`,
+    computed in `index.js`'s own `/` route from `roleFor`), since Admin is the only thing it currently
+    opens and a menu that only ever leads to a 403 would be a dead end for staff. Clicking it opens a
+    small dropdown (`.shell-menu-dropdown`) with one item, "Admin," which swaps the shell's own
+    `<iframe src>` to `/admin` the exact same way a tab click already does — `ADMIN_TAB`, a
+    `SHELL_TABS`-shaped constant that is deliberately NOT itself a member of `SHELL_TABS` (it never
+    renders as a persistent tab), gives it the same `key`/`src`/`href` resolution `initial` already
+    does for the visible tabs, so `/?tab=admin` and a direct `/admin` visit (redirected to the shell,
+    the same P0-140 "no bookmark reaches a bare iframe page directly" rule every other tab's own `src`
+    already gets) both work with no special-casing beyond that one extra branch.
+
+    **Category and Vendor administration was always the exact same closed set on every tile — moving
+    it does not change WHAT can be done, only WHERE.** A category created, renamed, numbered, or
+    removed from `/admin` shows up identically in every product's own `.category-picker`/vendor's own
+    `.vendor-picker` the next page load, exactly as it did when the old per-tile accordion did the
+    same write — nothing about `catalog.create_category`'s own conflict/resort/auto-categorization
+    behavior (P0-138's own earlier entries, above) changed at all, only the one surface that reaches
+    it.
 
 74. **`Test-PRD-P0-139-honest_write_failures`** — A Square write refused with a plain `Square POST
     /v2/catalog/object failed with 400` and nothing else — the owner's own words, pasting exactly that

@@ -576,7 +576,7 @@ html, body { height: 100%; margin: 0; }
    grid's own flush layout — back down to a flat 8px, the same point
    .items-grid's own content starts at too. The tab now lines up with
    every tab's own content edge, not only the chat's. */
-.shell-header { flex: 0 0 auto; padding: 10px 8px 0; background: var(--bar); }
+.shell-header { flex: 0 0 auto; padding: 10px 8px 0; background: var(--bar); display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; }
 .shell-nav { --tab-radius: 14px; display: flex; align-items: flex-end; gap: 16px; }
 /* Flat and borderless until active — every tab drawn as its own
    bordered box, active or not, was what read as a row of separate
@@ -611,6 +611,26 @@ html, body { height: 100%; margin: 0; }
 }
 .shell-panel { flex: 1 1 auto; border-top: 1px solid var(--accent); }
 .shell-frame { width: 100%; height: 100%; border: 0; display: block; background: var(--ground); }
+/* The hamburger menu — top right of the header, opposite the tabs, the
+   owner's own words: "I want to see a hamburger menu on the top right."
+   position: relative on the wrapper (not the button) so the dropdown
+   below anchors to a box that never itself rotates or resizes. */
+.shell-menu { position: relative; flex: 0 0 auto; padding-bottom: 7px; }
+.shell-menu-btn {
+  display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px;
+  padding: 0; border: none; background: transparent; color: var(--muted); cursor: pointer;
+}
+.shell-menu-btn:hover { color: var(--accent); }
+.shell-menu-dropdown {
+  position: absolute; top: 100%; right: 0; z-index: 20; margin-top: 4px; min-width: 10em;
+  padding: 4px 0; border: 1px solid var(--muted); border-radius: 8px; background: var(--ground);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+.shell-menu-item {
+  display: block; width: 100%; text-align: left; font: inherit; font-size: 12px; padding: 6px 10px;
+  border: none; background: transparent; color: var(--ink); cursor: pointer;
+}
+.shell-menu-item:hover { background: rgba(255, 255, 255, 0.08); }
 `;
 
 export const SHELL_TABS = [
@@ -628,12 +648,31 @@ export const SHELL_TABS = [
   { key: "website", label: "Website", src: "https://vemians.com", href: "/?tab=website" },
 ];
 
-export function shellPage(active = "agent") {
-  const initial = SHELL_TABS.find((t) => t.key === active) ?? SHELL_TABS[0];
+/* Admin (below) is reached from the hamburger menu, never a persistent tab
+   beside Agent/Items/Dashboard/Website — the owner's own words:
+   "administer everything from that one location instead of under each
+   product," a place to GO, not a thing to keep glancing at. It still needs
+   its own `src`/`href`/`key` for the same iframe-swap/history mechanism
+   SHELL_TABS already drives, so it exists here as one more resolvable
+   target, just never mapped into `.shell-nav`'s own visible row. */
+const ADMIN_TAB = { key: "admin", label: "Admin", src: "/admin", href: "/?tab=admin" };
+
+export function shellPage(active = "agent", canEditAdmin = false) {
+  const initial = SHELL_TABS.find((t) => t.key === active) ?? (active === "admin" ? ADMIN_TAB : SHELL_TABS[0]);
   const nav = SHELL_TABS.map(
     (t) =>
       `<button type="button" data-src="${esc(t.src)}" data-href="${esc(t.href)}"${t.key === initial.key ? ' class="active"' : ""}>${esc(t.label)}</button>`,
   ).join("");
+  /* No menu at all for staff/unmapped — Admin is manager-only, and a menu
+     that only ever opens to a 403 would just be a dead end. */
+  const menu = canEditAdmin
+    ? `<div class="shell-menu">
+         <button type="button" class="shell-menu-btn" id="shell-menu-btn" aria-label="Menu" title="Menu">${HAMBURGER_ICON}</button>
+         <div class="shell-menu-dropdown" id="shell-menu-dropdown" hidden>
+           <button type="button" class="shell-menu-item" data-src="${esc(ADMIN_TAB.src)}" data-href="${esc(ADMIN_TAB.href)}">${esc(ADMIN_TAB.label)}</button>
+         </div>
+       </div>`
+    : "";
 
   return page(
     "Vemians ops",
@@ -644,6 +683,7 @@ export function shellPage(active = "agent") {
     `<div class="shell">
   <div class="shell-header">
     <nav class="shell-nav">${nav}</nav>
+    ${menu}
   </div>
   <div class="shell-panel">
     <iframe class="shell-frame" id="ops-frame" src="${esc(initial.src)}" title="Vemians ops"></iframe>
@@ -658,6 +698,26 @@ document.querySelectorAll(".shell-nav button").forEach((btn) => {
     history.replaceState(null, "", btn.dataset.href);
   });
 });
+${
+  canEditAdmin
+    ? `const shellMenuBtn = document.getElementById("shell-menu-btn");
+const shellMenuDropdown = document.getElementById("shell-menu-dropdown");
+shellMenuBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  shellMenuDropdown.hidden = !shellMenuDropdown.hidden;
+});
+document.querySelectorAll(".shell-menu-item").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".shell-nav button").forEach((b) => b.classList.remove("active"));
+    document.getElementById("ops-frame").src = btn.dataset.src;
+    history.replaceState(null, "", btn.dataset.href);
+    shellMenuDropdown.hidden = true;
+  });
+});
+document.addEventListener("click", () => { shellMenuDropdown.hidden = true; });
+`
+    : ""
+}
 /* "I never should be able to allow to go in there [/items directly]... I
    should always be redirected to the main top domain" — index.js's own
    redirect now sends a direct /items#item-<sku> visit here instead
@@ -927,18 +987,18 @@ const TRASH_ICON = `<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden=
   `fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>` +
   `<path d="M4.5 4.5l.6 8a1 1 0 0 0 1 .9h3.8a1 1 0 0 0 1-.9l.6-8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
-/* .category-node-toggle/.category-node-toggle-spacer's own rendered width
-   (see the shared CSS below) — the category tree's own per-depth indent
-   must equal this exactly so a subcategory's own toggle column lands
-   directly under its parent's, not just close to it.
+/* .category-picker-toggle/.category-picker-toggle-spacer's own rendered
+   width (see the shared CSS below) — the category tree's own per-depth
+   indent (both the picker's own tree here, and the Admin page's own
+   renderAdminCategoryNodes) must equal this exactly so a subcategory's
+   own column lands directly under its parent's, not just close to it.
    REVISED: "tighten all of the paddings on all of the chevrons and the
    indentation so that it's not so horizontally heavy" — down from 18,
    still comfortably wider than CARET_ICON's own 12px so the glyph isn't
-   clipped, but noticeably tighter per nesting level; .variations-toggle/
-   .categories-toggle (below) now size off this same constant instead of
-   their own separate hardcoded 18px, so every chevron on this tile,
-   category tree or accordion header alike, stays the same size by
-   construction, not by four numbers happening to agree today. */
+   clipped, but noticeably tighter per nesting level; .variations-toggle
+   (below) sizes off this same constant instead of its own separate
+   hardcoded 18px, so every chevron on this tile stays the same size by
+   construction, not by numbers happening to agree today. */
 const CATEGORY_NODE_TOGGLE_PX = 14;
 
 /* The one Save for a whole expanded item tile — the owner's own words:
@@ -1007,6 +1067,13 @@ const FILTER_ICON = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden
 const SYNC_ICON = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">` +
   `<path d="M3 8a5 5 0 0 1 8.5-3.5M13 2v3h-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>` +
   `<path d="M13 8a5 5 0 0 1-8.5 3.5M3 14v-3h3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+/* The shell's own hamburger menu (top right) — "move the admin section
+   into that hamburger menu so that I can administer everything from that
+   one location." Plain three bars, no dots — unlike FILTER_ICON above,
+   this opens a real navigation menu, not a filter. */
+const HAMBURGER_ICON = `<svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true" focusable="false">` +
+  `<path d="M2 4h12M2 8h12M2 12h12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>`;
 
 /*
  * Plain dictation — click to start, click to stop, the transcript appended
@@ -1737,7 +1804,7 @@ ${INPUT_BAR_CSS}
    pointing to the right... when you press it, it will expand, aiming
    down" — the chevron is not a static down-arrow after all; it is the
    SAME right-pointing-until-expanded convention every other caret on
-   this tile already uses (.categories-toggle, .category-node-toggle),
+   this tile already uses (.variations-toggle, .category-picker-toggle),
    just on the LEFT of the label instead of the right, rotating 90°
    only once its own .category-picker wrapper carries .expanded. */
 .category-title-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
@@ -1894,221 +1961,6 @@ ${INPUT_BAR_CSS}
    indentation" — this and the header's own horizontal padding came down
    together, still matched to each other for the same reason. */
 .variations-body .row { display: flex; gap: 6px; align-items: center; padding: 3px 4px 3px 0; }
-/* The categories accordion (P0-138) — "take the current variants
-   workflow... adapt it to handle categories and subcategories." Same
-   shape as .variations-accordion above: a plain bar that toggles its own
-   body, collapsed by default, right above it. */
-.categories-accordion { margin-top: 2px; padding-top: 6px; }
-/* "Only highlight dirty elements with orange! That expanding categories
-   header border should not be orange unless it has modified children!"
-   Orange is reserved for a real, meaningful state elsewhere on this tile
-   — agentic input, or a field's own .field-dirty (unsaved change) marker
-   — never a plain hover cue. REVISED: the border itself was never meant
-   to go away — "I just told you it has to be gray unless it's dirty" —
-   it stays, always, gray (var(--rule)) by default.
-   REVISED AGAIN: "nothing inside the Categories accordion is ever left
-   dirty... every field here applies immediately, no batching" stopped
-   being true the moment creating a category and setting its own
-   numeric_id folded into the tile's one big Save (above) — this header
-   now gets the exact same :has(.field-dirty) rule the Variants header
-   already had, for the same reason.
-   REVISED: "reduce the horizontal padding of the chevron in the
-   categories drop down box by half so it's tighter... use the overall
-   same chevron padding... apply it to all of the other chevrons... the
-   categories and the variations, they should all have the same sized...
-   padding on the chevrons." Own horizontal padding down from 8px to 4px,
-   the reference value every other chevron-bearing bar/row on this tile
-   (.variations-header, .category-picker-row, .category-node-row and
-   .variations-body .row's own trailing inset, .category-add-form) now
-   matches exactly, rather than four separate 8px declarations that
-   happened to agree. */
-.categories-header {
-  display: flex; align-items: center; gap: 6px; cursor: pointer;
-  background: var(--image-ground); border: 1px solid var(--rule); border-radius: 6px; padding: 5px 4px;
-}
-.categories-accordion:has(.field-dirty) .categories-header { border-color: var(--accent); }
-.categories-toggle {
-  flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; padding: 0; display: inline-flex; align-items: center;
-  justify-content: center; border: none; background: transparent; color: var(--muted); cursor: pointer;
-  transition: transform 0.15s;
-}
-.categories-accordion.expanded .categories-toggle { transform: rotate(90deg); }
-.categories-label { flex: 0 0 auto; font-size: 11px; color: var(--muted); }
-.categories-header-spacer { flex: 1 1 auto; }
-.categories-body { display: none; flex-direction: column; margin-top: 6px; padding-left: 10px; gap: 4px; }
-.categories-accordion.expanded .categories-body { display: flex; }
-/* The Vendors accordion — "the same kind of drop down schema that we
-   have for categories... so we don't have to fill out any of these
-   stuff per product." Same shape as .categories-accordion above (a
-   header bar toggling its own body, collapsed by default, the top-level
-   + living in the header itself), flat rather than nested: a vendor has
-   no subcategory-style hierarchy, so there is no tree here, just a
-   plain list of rows. */
-.vendors-accordion { margin-top: 2px; padding-top: 6px; }
-.vendors-header {
-  display: flex; align-items: center; gap: 6px; cursor: pointer;
-  background: var(--image-ground); border: 1px solid var(--rule); border-radius: 6px; padding: 5px 4px;
-}
-.vendors-accordion:has(.field-dirty) .vendors-header { border-color: var(--accent); }
-.vendors-toggle {
-  flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; padding: 0; display: inline-flex; align-items: center;
-  justify-content: center; border: none; background: transparent; color: var(--muted); cursor: pointer;
-  transition: transform 0.15s;
-}
-.vendors-accordion.expanded .vendors-toggle { transform: rotate(90deg); }
-.vendors-label { flex: 0 0 auto; font-size: 11px; color: var(--muted); }
-.vendors-header-spacer { flex: 1 1 auto; }
-.vendors-body { display: none; flex-direction: column; margin-top: 6px; padding-left: 10px; gap: 4px; }
-.vendors-accordion.expanded .vendors-body { display: flex; }
-.vendor-row { display: flex; align-items: center; gap: 6px; padding: 3px 4px 3px 0; }
-.vendor-row-name { flex: 1 1 auto; min-width: 0; font-size: 12px; overflow-wrap: anywhere; }
-.item-edit .vendor-commission-input, .item-edit .vendor-new-commission {
-  flex: 0 0 3em; width: 3em; box-sizing: content-box; font: inherit; font-size: 12px; padding: 3px 5px; text-align: center;
-  border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
-}
-.item-edit .vendor-new-name {
-  flex: 1 1 auto; min-width: 0; font: inherit; font-size: 12px; padding: 3px 5px;
-  border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
-}
-/* Same "form as a transparent wrapper" trick .category-title-row form
-   and .category-number-form already use, and for the identical reason:
-   .item-edit form's own blanket display:flex/flex-direction:column
-   would otherwise beat .vendor-row's own row layout, since a class plus
-   a tag beats a single class regardless of source order. */
-.item-edit .vendor-commission-form { display: contents; }
-.item-edit .vendor-add-form { display: flex; gap: 6px; align-items: center; padding: 3px 4px 3px 0; margin-top: 0; }
-/* One node: its own name/id/add-toggle row, its own (initially hidden)
-   add-subcategory form right below it, then its own children — indented
-   per level via the inline padding-left renderCategoryNodes sets, so the
-   nesting reads without a single tree-line ever being drawn. "Every row
-   underneath the categories row needs to be an expandable row" — a node
-   WITH subcategories of its own gets the same caret convention the outer
-   Categories/Variations accordions already use, collapsed by default; a
-   leaf gets an equal-width spacer instead, so the name column still
-   lines up whether or not that particular row happens to have one. */
-.category-node-row { display: flex; align-items: center; gap: 6px; padding: 3px 4px 3px 0; }
-/* A leaf category renders a spacer, not a real .category-node-toggle
-   button, in its own place — a pointer cursor on a row with nothing
-   underneath it to reveal would be a real (if small) affordance lie. */
-.category-node-row:has(.category-node-toggle) { cursor: pointer; }
-/* REVISED: this used to also recolor .category-node-name orange on
-   plain hover — left over from when the name was a static <span> with
-   nothing else to signal "click to expand" with. The owner's own words,
-   catching it now that the name is a real, editable <input>: "when I
-   click on Dresses category and I click on the entry field, it
-   immediately turns orange. That's not right. It should only become
-   orange as soon as I start typing and I change it." Hovering (which
-   simply placing a cursor in the field to edit it does, unavoidably)
-   is not a change — orange means dirty, nothing else, everywhere else
-   on this tile; this rule was the one place still contradicting that. */
-.category-node-toggle {
-  flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; padding: 0;
-  display: inline-flex; align-items: center; justify-content: center; border: none; background: transparent;
-  color: var(--muted); cursor: pointer; transition: transform 0.15s;
-}
-.category-node.expanded > .category-node-row > .category-node-toggle { transform: rotate(90deg); }
-.category-node-toggle-spacer { flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; }
-/* "All of these categories and subcategories need to be editable fields...
-   right now it's just static labels." A real <input>, not a span — the
-   same visible-border treatment .category-numeric-id already uses beside
-   it, so the row reads as editable rather than as plain text with a
-   number box tacked on. "The name scales, right? Scales to fit the
-   content row. And then we have a fixed width for the ID entry" —
-   min-width: 0 is required here: a flex item's default min-width is its
-   own intrinsic content size, and for a real <input> (unlike the plain
-   <span> this used to be) that floor is wide enough that a deeply nested
-   row could not actually shrink to fit, silently overflowing past the
-   row's own right edge and knocking the ID/remove/add buttons out of
-   alignment with every shallower row's own. */
-/* .item-edit (below, in the same cascade) qualifies EVERY category input
-   selector here with that same ancestor class — not for scoping, they
-   already only ever render inside it, but for SPECIFICITY: a bare
-   ".category-node-name" (0,1,0) loses outright to ".item-edit input"
-   (0,1,1) regardless of source order, since these category inputs live
-   inside .item-edit too (the Admin disclosure). That silent loss is
-   exactly the bug the owner kept hitting — every fixed width set here
-   was being fully overridden by .item-edit input's own "width: 10em",
-   which a source-text check (grep, or a test asserting this rule merely
-   EXISTS) can never catch, only a real computed style can. */
-.item-edit .category-node-name {
-  flex: 1 1 auto; min-width: 0; font: inherit; font-size: 12px; padding: 3px 5px; overflow-wrap: anywhere;
-  border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
-}
-/* Fixed width, never shrinking or growing — the owner's own words: "a
-   fixed width for the ID entry" — so it (and everything after it: the
-   remove and add buttons) lands at the exact same column on every row,
-   at any depth, regardless of how long a sibling's own name happens to
-   render. REVISED: "too wide... they are to accept two characters...
-   fit to content, fixed width" — 3em rendered noticeably wider than two
-   digits actually need. 2ch (the width of the font's own "0" glyph,
-   times two) fits the field to exactly the two characters it accepts,
-   still a fixed value, never fluid. Shared with .category-new-numeric-id
-   below — the add-form's own ID field, same size for the same reason.
-   REVISED AGAIN: "now you made ID entry fields too small... make them
-   fit 2 numbers, min size" — shared/design/theme.css sets box-sizing:
-   border-box globally on every element, so that "2ch" was being read as the
-   field's own TOTAL width, with its own padding (10px) and border (2px)
-   eaten OUT OF those two characters' worth of room, leaving almost none
-   for the digits themselves. box-sizing: content-box here makes "2ch"
-   mean the CONTENT alone, exactly two digits, with the padding/border
-   added on top the normal way — actually "fit to content, minimum
-   size" now, not fit-minus-its-own-chrome. */
-.item-edit .category-numeric-id, .item-edit .category-new-numeric-id {
-  flex: 0 0 2ch; width: 2ch; box-sizing: content-box; font: inherit; font-size: 12px; padding: 3px 5px; text-align: center;
-  border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
-}
-/* "Make sure that the add button has the same height as all the other
-   buttons... so that all the chevrons['] content is always aligned with
-   the chevrons." Previously a separate, hardcoded 20px, agreeing with
-   CATEGORY_NODE_TOGGLE_PX (the chevrons' own size) only by coincidence —
-   now sized off that exact same constant, the same fix already applied
-   to .variations-toggle/.categories-toggle, so every button/chevron
-   anywhere in the category UI is one consistent size by construction. */
-.category-add-toggle, .category-remove-toggle {
-  flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; padding: 0; font-size: 13px; line-height: 1;
-  border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--muted); cursor: pointer;
-}
-.category-remove-toggle:disabled {
-  cursor: not-allowed; opacity: 0.4;
-}
-/* REVISED: "we probably don't even need the add button because the
-   checkbox would save that" — .category-create (the standalone Add
-   button, and its own "double wide" sizing to stay aligned with a real
-   row) is gone outright now that creating a category folds into the
-   tile's one big Save like everything else; nothing replaces it.
-   .category-add-form and .category-number-form (below) are real <form>s
-   now, both living inside .item-edit, so .item-edit form's own blanket
-   display:flex/flex-direction:column (further below) would otherwise
-   win on both — the exact same specificity trap .category-title-row
-   form already had to be fixed for. .category-add-form needs its own
-   ROW layout preserved (two classes beats one class + one tag,
-   regardless of source order); .category-number-form needs to disappear
-   entirely into .category-node-row's own flex layout instead, the same
-   "form as a transparent wrapper" trick .category-title-row form
-   already uses for the very same reason. */
-.item-edit .category-add-form { display: flex; gap: 6px; align-items: center; padding: 3px 4px 3px 0; margin-top: 0; }
-.item-edit .category-number-form { display: contents; }
-/* Collapsed by default — the same [hidden]-vs-class-selector trap the
-   add-form fix above already caught means this MUST be a real display:none
-   here, not left to a plain [hidden] toggle, since .category-children has
-   no attribute of its own to key off; the direct-child combinator (>)
-   keeps this scoped to a node's OWN children, not every descendant of an
-   ancestor that happens to also be expanded. */
-.category-children { display: none; }
-.category-node.expanded > .category-children { display: block; }
-/* [hidden], not just toggling the class: an unconditional display:flex
-   here would otherwise beat the [hidden] attribute's own UA-stylesheet
-   display:none, since a class selector outranks an attribute selector —
-   caught live, every add-form showing open by default instead of only
-   the one just clicked. (The visible-state rule itself now lives above,
-   as .item-edit .category-add-form, for the specificity reasons
-   explained there — this one only needs to win the hidden case, which
-   its own two-selector-part specificity already does regardless.) */
-.category-add-form[hidden] { display: none; }
-.item-edit .category-new-name {
-  flex: 1 1 auto; min-width: 0; font: inherit; font-size: 12px; padding: 3px 5px;
-  border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
-}
 /* REVISED AGAIN: "I didn't tell you to remove that one" — the bar right
    above the custom-fields/Admin block was never meant to go. .item-edit
    is shared by BOTH the title/vendor div above and the custom-fields/
@@ -2290,102 +2142,61 @@ const CHANNEL_LABEL = { website: "Web" };
    precedent rather than introducing the first cross-package import for it. */
 const MEDIA_BASE_URL = "https://media.vemians.com";
 
-/* The categories/subcategories tree (P0-138) — "similar to how we do the
-   variants... a header with a category name... an ID field... expand that
-   and add subcategories... each one assigning an ID." Recursive: a node's
-   own children are whatever other rows carry its own id as their
-   parent_id, at any depth, each level nested inside its own parent's own
-   box so a level's own toggle-width indent (CATEGORY_NODE_TOGGLE_PX)
-   compounds naturally with its ancestors' — no tree-line ever drawn.
-   Rendered fresh per tile
-   from the SAME global allCategories list every tile already gets — this
-   tree is Square-backed, not per-product, so what one tile creates or
-   numbers shows up identically in every other tile's own accordion the
-   next time the page loads. */
-function renderCategoryNodes(categories, parentId, handle) {
+/* The categories/subcategories tree (P0-138), rendered on the global
+   /admin page (adminPage, below) — "similar to how we do the variants...
+   a header with a category name... an ID field... expand that and add
+   subcategories... each one assigning an ID." Recursive: a node's own
+   children are whatever other rows carry its own id as their parent_id,
+   at any depth, each level nested inside its own parent's own box so a
+   level's own indent (CATEGORY_NODE_TOGGLE_PX) compounds naturally with
+   its ancestors' — no tree-line ever drawn.
+   REVISED: this used to render once per product tile, collapsed inside
+   an accordion, with its own hidden add-forms and instant client-side
+   resort — "move the admin section into that hamburger menu so that I
+   can administer everything from that one location instead of under
+   each product." One global page needs none of that: the whole tree
+   renders expanded (nothing to toggle), every row is a plain <form> that
+   posts and reloads (no dirty-tracking Save-all needed — there is
+   exactly one thing being edited at a time here, unlike the Items tab's
+   own busy tile), and an add-row is simply always visible rather than
+   revealed by its own +. */
+function renderAdminCategoryNodes(categories, parentId) {
   const children = categories
     .filter((c) => (c.parent_id ?? null) === parentId)
     .sort((a, b) => a.name.localeCompare(b.name));
   return children
     .map((c) => {
-      /* "Every row underneath the categories row needs to be an expandable
-         row" — each node with children of its own gets the SAME caret
-         convention the outer Categories/Variations accordions already
-         use; a leaf gets a same-width spacer instead, so every row's own
-         name still lines up in one column regardless of depth or which
-         siblings happen to have children. REVISED — the owner's own
-         words: "a plus button on the far right side, and then an ID
-         field." Order is now caret, name, the numeric ID, THEN + last —
-         + is the true rightmost element in the row, not the ID input, so
-         every category and subcategory at any depth reads the same way
-         left to right. */
       const hasChildren = categories.some((g) => g.parent_id === c.id);
-      const toggle = hasChildren
-        ? `<button type="button" class="category-node-toggle" aria-label="Show subcategories of ${esc(c.name)}" title="Show subcategories">${CARET_ICON}</button>`
-        : `<span class="category-node-toggle-spacer"></span>`;
-      /* "The indentation of each subcategory... has to start right where
-         the chevron pointing down is." Each .category-node is nested
-         physically INSIDE its own parent's .category-node, so padding-left
-         values already compound through ordinary box-model nesting — a
-         node only ever needs ONE toggle-width's worth of its OWN padding
-         (matching CATEGORY_NODE_TOGGLE_PX, the toggle/spacer's own
-         rendered width) to land its toggle column exactly under its
-         immediate parent's. Multiplying by absolute depth here double-
-         counts that compounding (e.g. a depth-2 node would land 3 steps
-         deep, not 2) — caught by measuring actual rendered pixel
-         positions with a real headless browser, not just reading the
-         inline style values the tests assert on. */
       /* "I should not be able to delete a category until it has no more
-         subcategories" — disabled, not hidden, using the SAME hasChildren
-         this row already computes for its own caret, so a manager can see
-         the control exists and why it refuses, rather than wondering where
-         it went. Placed right before the "+" (the owner's own words: "a
-         delete button right next to the plus button"), so "+" keeps its
-         own established true-rightmost position. */
+         subcategories" — disabled, not hidden, so a manager can see the
+         control exists and why it refuses, rather than wondering where
+         it went. */
       const removeDisabled = hasChildren
         ? ` disabled title="Remove ${esc(c.name)} — it still has subcategories of its own; remove those first"`
         : ` title="Remove ${esc(c.name)}"`;
-      /* "Whenever I click add category, this new category field needs to
-         be exactly the same style and indentation as the current
-         subcategories fields. And it should be underneath, it should be
-         the last item." Two fixes: (1) .category-add-form now renders
-         AFTER .category-children instead of before it, so opening it on
-         a node that already has subcategories previews the new one below
-         the existing list, not inserted visually above it; (2) a leading
-         .category-node-toggle-spacer, the same element a childless node's
-         own row already uses, makes the add-form's own name field land at
-         the exact same x-position a real child row's name field would —
-         its own inline padding-left (below) alone only matched a child's
-         outer BOX, one toggle-width short of that child's own NAME
-         column, which starts after ITS OWN toggle-or-spacer plus the
-         row's own gap.
-         REVISED: "I don't see it turning orange... I think you should be
-         triggering the main checkbox orange... we probably don't even
-         need the add button because the checkbox would save that." Both
-         .category-add-form (below) and this row's own numeric_id field
-         are now real <form>s posting to the SAME routes they always did,
-         folded into the tile's one big Save the exact same way every
-         other field already is — no separate immediate fetch, no
-         dedicated Add/apply button. category_id rides along as a hidden
-         field, the same convention the item-level category picker's own
-         hidden input already uses. */
-      return `<div class="category-node" style="padding-left: ${parentId === null ? 0 : CATEGORY_NODE_TOGGLE_PX}px">
-        <div class="category-node-row">
-          ${toggle}
-          <input type="text" class="category-node-name" data-category-id="${esc(c.id)}" value="${esc(c.name)}" maxlength="60" title="Click to rename">
-          <form method="post" action="/items/${esc(handle)}/categories/number" class="category-number-form">
+      return `<div class="admin-category-node" style="padding-left: ${parentId === null ? 0 : CATEGORY_NODE_TOGGLE_PX}px">
+        <div class="admin-category-row">
+          <form method="post" action="/admin/categories/rename" class="admin-category-rename-form">
             <input type="hidden" name="category_id" value="${esc(c.id)}">
-            <input class="category-numeric-id" name="numeric_id" data-category-id="${esc(c.id)}" data-category-name="${esc(c.name)}" value="${esc(c.numeric_id ?? "")}" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — leave blank to remove it">
+            <input type="text" class="admin-category-name" name="name" value="${esc(c.name)}" maxlength="60" title="Rename ${esc(c.name)}">
+            <button type="submit" class="admin-save-btn" aria-label="Rename ${esc(c.name)}" title="Rename ${esc(c.name)}">${SAVE_ICON}</button>
           </form>
-          <button type="button" class="category-remove-toggle" data-category-id="${esc(c.id)}" aria-label="Remove ${esc(c.name)}"${removeDisabled}>${TRASH_ICON}</button>
-          <button type="button" class="category-add-toggle" data-parent-id="${esc(c.id)}" aria-label="Add a subcategory under ${esc(c.name)}" title="Add a subcategory">+</button>
+          <form method="post" action="/admin/categories/number" class="admin-category-number-form">
+            <input type="hidden" name="category_id" value="${esc(c.id)}">
+            <input class="admin-category-numeric-id" name="numeric_id" value="${esc(c.numeric_id ?? "")}" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — leave blank to remove it">
+            <button type="submit" class="admin-save-btn" aria-label="Set ${esc(c.name)}'s own ID" title="Set ${esc(c.name)}'s own ID">${SAVE_ICON}</button>
+          </form>
+          <form method="post" action="/admin/categories/remove" class="admin-category-remove-form">
+            <input type="hidden" name="category_id" value="${esc(c.id)}">
+            <button type="submit" class="admin-remove-btn" aria-label="Remove ${esc(c.name)}"${removeDisabled}>${TRASH_ICON}</button>
+          </form>
         </div>
-        <div class="category-children">${renderCategoryNodes(categories, c.id, handle)}</div>
-        <form method="post" action="/items/${esc(handle)}/categories/create" class="category-add-form" hidden style="padding-left: ${CATEGORY_NODE_TOGGLE_PX}px">
+        <div class="admin-category-children">${renderAdminCategoryNodes(categories, c.id)}</div>
+        <form method="post" action="/admin/categories/create" class="admin-category-add-form" style="padding-left: ${CATEGORY_NODE_TOGGLE_PX}px">
           <input type="hidden" name="parent_id" value="${esc(c.id)}">
-          <span class="category-node-toggle-spacer"></span>
-          <input type="text" class="category-new-name" name="name" placeholder="Subcategory name" maxlength="60">
-          <input class="category-new-numeric-id" name="numeric_id" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — optional, can be set later">
+          <input type="text" name="name" placeholder="Subcategory name" maxlength="60">
+          <input name="numeric_id" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — optional, can be set later">
+          <button type="submit" class="admin-add-btn" aria-label="Add a subcategory under ${esc(c.name)}" title="Add a subcategory">+</button>
         </form>
       </div>`;
     })
@@ -2394,14 +2205,12 @@ function renderCategoryNodes(categories, parentId, handle) {
 
 /* "It should all resolve to like a path structure, and that's how it
    shows the actual category path" — a node's own displayed name is just
-   its own leaf name (renderCategoryNodes' own comment: "you could tell
-   them apart because they'll have a different parent"), so the picker's
-   own selected-category label (below) still needs the FULL ancestor
-   chain — REVISED, no longer as its own VISIBLE label ("I only want to
-   see the last entry after the last slash"), but as its title, so two
-   differently-nested categories sharing a leaf name are still
-   distinguishable on hover. Returns null for an unassigned or unknown
-   id, never a partial/broken path. */
+   its own leaf name, so the picker's own selected-category label (below)
+   still needs the FULL ancestor chain — REVISED, no longer as its own
+   VISIBLE label ("I only want to see the last entry after the last
+   slash"), but as its title, so two differently-nested categories
+   sharing a leaf name are still distinguishable on hover. Returns null
+   for an unassigned or unknown id, never a partial/broken path. */
 function categoryPath(categories, categoryId) {
   if (!categoryId) return null;
   const byId = new Map(categories.map((c) => [c.id, c]));
@@ -2675,101 +2484,6 @@ function itemTile(product, canEdit, allCategories = [], allVendors = []) {
         `</div>`,
     )
     .join("");
-  /* "Take the current variants workflow... adapt it to handle categories
-     and subcategories... an add category button... put it right above the
-     variants section." Same accordion shape as Variations below (a
-     .categories-toggle caret, collapsed by default), a global tree rather
-     than a per-product list — see renderCategoryNodes' own comment. */
-  /* REVISED: "the add category button needs to be in the header on the
-     right side... we don't need the 'add category' text... it's pretty
-     self-explanatory." The top-level + moves out of its own labeled row
-     in the body and into .categories-header itself, opposite the caret —
-     the same right-anchored position every per-node + already has in its
-     own row, just one level up.
-     REVISED AGAIN: "this new category field needs to be exactly the same
-     style and indentation as the current subcategories fields. And it
-     should be underneath, it should be the last item." The top-level
-     add-form now renders AFTER .categories-tree instead of before it —
-     opening it previews the new category below the existing list, not
-     inserted visually above it — and carries the same leading
-     .category-node-toggle-spacer a top-level node's own row already has
-     (it needs no padding-left of its own, unlike the per-node add-form
-     above: a top-level node's own indent is already 0).
-     REVISED YET AGAIN: "I don't see it turning orange... trigger the
-     main checkbox orange... we probably don't even need the add button
-     because the checkbox would save that." A real <form> now, folded
-     into the tile's one big Save exactly like every other field — no
-     separate immediate fetch, no dedicated Add button. parent_id (blank
-     here — a new TOP-LEVEL category) rides along as a hidden field. */
-  const categoriesAccordion = canEdit
-    ? `<div class="categories-accordion">
-         <div class="categories-header">
-           <button type="button" class="categories-toggle" aria-label="Show categories" title="Show categories">${CARET_ICON}</button>
-           <span class="categories-label">Categories</span>
-           <span class="categories-header-spacer"></span>
-           <button type="button" class="category-add-toggle" data-parent-id="" aria-label="Add a top-level category" title="Add a category">+</button>
-         </div>
-         <div class="categories-body">
-           <div class="categories-tree">
-             ${
-               allCategories.length
-                 ? renderCategoryNodes(allCategories, null, product.handle)
-                 : `<p class="item-empty">No categories yet.</p>`
-             }
-           </div>
-           <form method="post" action="/items/${esc(product.handle)}/categories/create" class="category-add-form" hidden>
-             <input type="hidden" name="parent_id" value="">
-             <span class="category-node-toggle-spacer"></span>
-             <input type="text" class="category-new-name" name="name" placeholder="Category name" maxlength="60">
-             <input class="category-new-numeric-id" name="numeric_id" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — optional, can be set later">
-           </form>
-         </div>
-       </div>`
-    : "";
-  /* The Vendors accordion — "the same kind of drop down schema that we
-     have for categories... add vendors and add their commissions... and
-     then when we are actually adding them, they'll just appear in a
-     dropbox and we don't have to fill out any of these stuff per
-     product." A vendor's own commission is a real <form> here (folded
-     into the tile's one big Save, no separate Add/apply button — the
-     exact same fold-into-Save-all convention this whole session already
-     established for categories), and the add-new-vendor row at the
-     bottom is one too — commission is REQUIRED there since a brand-new
-     vendor has nothing on file yet. Vendor creation only ever happens
-     here, never from the per-product picker (titleVendorForms below) —
-     the same division of labor the Categories accordion/picker split
-     already established. */
-  const vendorsAccordion = canEdit
-    ? `<div class="vendors-accordion">
-         <div class="vendors-header">
-           <button type="button" class="vendors-toggle" aria-label="Show vendors" title="Show vendors">${CARET_ICON}</button>
-           <span class="vendors-label">Vendors</span>
-           <span class="vendors-header-spacer"></span>
-         </div>
-         <div class="vendors-body">
-           ${
-             allVendors.length
-               ? allVendors
-                   .map(
-                     (v) =>
-                       `<div class="vendor-row">
-                          <span class="vendor-row-name">${esc(v.name)}</span>
-                          <form method="post" action="/items/${esc(product.handle)}/vendors/commission" class="vendor-commission-form">
-                            <input type="hidden" name="vendor_id" value="${esc(v.id)}">
-                            <input class="vendor-commission-input" name="commission" value="${v.commission_pct != null ? esc(String(v.commission_pct)) : ""}" placeholder="COM%" title="Commission % (0-100)">
-                          </form>
-                        </div>`,
-                   )
-                   .join("")
-               : `<p class="item-empty">No vendors yet.</p>`
-           }
-           <form method="post" action="/items/${esc(product.handle)}/vendors/create" class="vendor-add-form">
-             <input type="text" class="vendor-new-name" name="name" placeholder="Vendor name" maxlength="120">
-             <input class="vendor-new-commission" name="commission" placeholder="COM%" title="Commission % (0-100) — required for a brand-new vendor">
-           </form>
-         </div>
-       </div>`
-    : "";
   const variationsAccordion = canEdit
     ? `<div class="variations-accordion">
          <div class="variations-header">
@@ -2943,29 +2657,20 @@ function itemTile(product, canEdit, allCategories = [], allVendors = []) {
        </div>`
     : "";
   /* "Get rid of the no custom fields... it should be just a horizontal
-     separator. And that dropdown where it says add custom fields, that
-     should be called Admin. Underneath of that... move the category
-     designer header. Put it in there because really that should be only
-     modified by an admin." The blank new-field row moves into its own
-     <form> INSIDE the renamed disclosure, separate from existingFieldInputs'
-     own — safe to split (catalog.set_custom_fields' own fields argument is
-     a PATCH; a key not mentioned is left untouched, so each half stays
-     correct submitted alone). categoriesAccordion stays a sibling of both
-     of these two forms, never nested inside either — its own category
-     name/numeric_id fields post to entirely different routes with an
-     entirely different body shape (categories/create, categories/number),
-     so folding them into a custom-fields PATCH would be simply wrong, not
-     just untidy.
-     REVISED: categoriesAccordion's own inputs DO now carry their own real
-     <form>s of their own (.category-add-form, .category-number-form,
-     inside renderCategoryNodes/above) — "IDs must also trigger dirty
-     state... we probably don't even need the add button because the
-     checkbox would save that" — the opposite of the ORIGINAL reasoning
-     here, which deliberately kept them formless so the generic
-     ".item-edit form" dirty-tracking fallthrough would never touch them.
-     That was correct for the immediate-apply design this replaces; it is
-     not correct any more now that both fields fold into the tile's one
-     big Save like everything else. */
+     separator." The blank new-field row moves into its own <form> INSIDE
+     a disclosure, separate from existingFieldInputs' own — safe to split
+     (catalog.set_custom_fields' own fields argument is a PATCH; a key not
+     mentioned is left untouched, so each half stays correct submitted
+     alone).
+     REVISED: this disclosure used to also hold the Categories/Vendors
+     accordions ("that should be called Admin... move the category
+     designer header... in there because really that should be only
+     modified by an admin") — moved out to a single global /admin page
+     instead (adminPage, below), reached from the shell's own hamburger
+     menu: "move the admin section into that hamburger menu so that I can
+     administer everything from that one location instead of under each
+     product." This disclosure now only ever holds a blank custom-field
+     row, so it goes back to naming what it actually does. */
   const customFieldsForm = canEdit
     ? `<div class="item-edit item-edit-admin">
          ${
@@ -2974,14 +2679,12 @@ function itemTile(product, canEdit, allCategories = [], allVendors = []) {
              : ""
          }
          <details class="item-add-field">
-           <summary>Admin</summary>
+           <summary>Add field</summary>
            ${
              blankFieldInputs
                ? `<form method="post" action="/items/${esc(product.handle)}/custom-fields">${blankFieldInputs}</form>`
                : ""
            }
-           ${categoriesAccordion}
-           ${vendorsAccordion}
          </details>
        </div>`
     : "";
@@ -3461,81 +3164,6 @@ document.getElementById("items-grid").addEventListener("click", async (e) => {
     header.closest(".variations-accordion")?.classList.toggle("expanded");
     return;
   }
-  const categoriesCaret = e.target.closest(".categories-toggle");
-  if (categoriesCaret) {
-    categoriesCaret.closest(".categories-accordion")?.classList.toggle("expanded");
-    syncDeepLinkFromEvent(e);
-    return;
-  }
-  const categoriesHeader = e.target.closest(".categories-header");
-  if (categoriesHeader && !e.target.closest("input, button")) {
-    categoriesHeader.closest(".categories-accordion")?.classList.toggle("expanded");
-    syncDeepLinkFromEvent(e);
-    return;
-  }
-  const vendorsCaret = e.target.closest(".vendors-toggle");
-  if (vendorsCaret) {
-    vendorsCaret.closest(".vendors-accordion")?.classList.toggle("expanded");
-    syncDeepLinkFromEvent(e);
-    return;
-  }
-  const vendorsHeader = e.target.closest(".vendors-header");
-  if (vendorsHeader && !e.target.closest("input, button")) {
-    vendorsHeader.closest(".vendors-accordion")?.classList.toggle("expanded");
-    syncDeepLinkFromEvent(e);
-    return;
-  }
-  /* "Every row underneath the categories row needs to be an expandable
-     row" — a node's own caret toggles only ITS OWN .category-node,
-     independent of every other one, so opening one subcategory never
-     opens or closes any sibling or ancestor's own. */
-  const nodeToggle = e.target.closest(".category-node-toggle");
-  if (nodeToggle) {
-    nodeToggle.closest(".category-node")?.classList.toggle("expanded");
-    syncDeepLinkFromEvent(e);
-    return;
-  }
-  /* REVISED — the owner's own words: "you click the whole header and it
-     expands the section," the SAME construction every category and
-     subcategory at any depth already shares with the top-level
-     .categories-header handler above. The caret above still has its own
-     dedicated handler (a decorative-looking element must stay clickable
-     on its own), but the rest of the row — the name, its own padding —
-     now toggles the identical way, excluding the "+" button and the ID
-     input so neither one accidentally collapses the row it belongs to. */
-  const nodeRow = e.target.closest(".category-node-row");
-  if (nodeRow && !e.target.closest("input, button")) {
-    nodeRow.closest(".category-node")?.classList.toggle("expanded");
-    syncDeepLinkFromEvent(e);
-    return;
-  }
-  /* "I need a delete button right next to the plus button... I should not
-     be able to delete a category until it has no more subcategories."
-     The button itself is already disabled server-side (renderCategoryNodes)
-     whenever the node has children, so a real browser refuses the click
-     outright before this handler ever runs — nothing extra to check here. */
-  const removeToggle = e.target.closest(".category-remove-toggle");
-  if (removeToggle) {
-    await removeCategory(removeToggle);
-    return;
-  }
-  /* "An add category button... that will create a subcategory in the
-     expanded view" — reveals a small inline name field + Add button right
-     below the node it belongs to (or, for the top-level one now living in
-     .categories-header, as the LAST child of .categories-body, after the
-     whole tree); a second click on the SAME toggle hides it again without
-     submitting anything. */
-  const addToggle = e.target.closest(".category-add-toggle");
-  if (addToggle) {
-    const form = addToggle.dataset.parentId
-      ? addToggle.closest(".category-node")?.querySelector(":scope > .category-add-form")
-      : addToggle.closest(".categories-accordion")?.querySelector(":scope > .categories-body > .category-add-form");
-    if (form) {
-      form.hidden = !form.hidden;
-      if (!form.hidden) form.querySelector(".category-new-name")?.focus();
-    }
-    return;
-  }
   const saveBtn = e.target.closest(".item-save-all");
   if (saveBtn) {
     await saveTile(saveBtn.closest(".item-tile"));
@@ -3721,34 +3349,6 @@ document.getElementById("items-grid").addEventListener(
   true,
 );
 
-/* REVISED: a category's own numeric_id used to apply the moment it
-   changed, immediately, on its own — "IDs must also trigger dirty
-   state," so it now lives inside .category-number-form and is folded
-   into the tile's one big Save like everything else (the generic
-   ".item-edit form" fallthrough in onItemsGridChange, above, already
-   covers its own dirty-tracking; nothing extra needed here for that
-   half). "As soon as I enter that ID... it should immediately in my
-   browser update its sorting" is the one part that still cannot wait
-   for a save-and-reload round trip — reorderSiblingsByNumericId runs on
-   every keystroke (input, not change/blur), moving the row in the DOM
-   the moment the typed value would change its own sort position, well
-   before the actual write is ever sent. */
-document.getElementById("items-grid").addEventListener("input", (e) => {
-  if (!e.target.matches(".category-numeric-id")) return;
-  reorderSiblingsByNumericId(e.target);
-});
-
-/* A category or subcategory's own NAME, unlike its numeric_id, is a real
-   Square write (catalog.rename_category) and shows up everywhere else
-   this closed set is rendered on the page — every other tile's own
-   category picker and .category-numeric-id's own data-category-name.
-   Reloads on success, the same as creating one, rather than trying to
-   patch every other place the old name is baked into rendered HTML. */
-document.getElementById("items-grid").addEventListener("change", async (e) => {
-  if (!e.target.matches(".category-node-name")) return;
-  await renameCategory(e.target);
-});
-
 /* Pressing Enter in a field with no visible submit button any more still
    fires a native submit in most browsers — routed through the exact same
    Save flow as a click, rather than letting it POST just that one form on
@@ -3899,119 +3499,6 @@ async function stepStock(button) {
   }
 }
 
-/* REVISED: "I don't see it turning orange... trigger the main checkbox
-   orange... we probably don't even need the add button because the
-   checkbox would save that." Creating a category, and setting a
-   category's own numeric_id, are no longer their own immediate fetch —
-   .category-add-form and .category-number-form are real <form>s now,
-   dirty-tracked and submitted by the tile's one big Save exactly like
-   every other field (onItemsGridChange's own generic ".item-edit form"
-   fallthrough, saveTile's own dirty-form scan) — createCategory() and
-   setCategoryNumber() are both gone outright, nothing replaces them.
-   The one thing that still can't wait for a page reload: "I expect it
-   to sort based on that ID... it should immediately in my browser
-   update its sorting" — reorderSiblingsByNumericId (below) handles that
-   half on its own, client-side, independent of when the save itself
-   actually happens. */
-function reorderSiblingsByNumericId(input) {
-  const node = input.closest(".category-node");
-  const parent = node?.parentElement;
-  if (!parent) return;
-  const siblings = [...parent.querySelectorAll(":scope > .category-node")];
-  /* Stable sort (guaranteed by spec since ES2019): reading each sibling's
-     own numeric-id input LIVE (not its original server-rendered value)
-     means a sibling with its own pending, unsaved edit still sorts by
-     what is actually typed. Blank/unassigned sorts last, since it has no
-     real position to claim yet — everything else is a plain ascending
-     numeric comparison, "sorts underneath the lower ID." Ties (including
-     blank vs. blank) fall back to whatever order they were already in,
-     which is alphabetical by name on a fresh render and otherwise
-     whatever the person's own previous edits already settled into. */
-  const key = (el) => {
-    const raw = el.querySelector(":scope > .category-node-row .category-numeric-id")?.value.trim();
-    return raw ? Number(raw) : Infinity;
-  };
-  const sorted = [...siblings].sort((a, b) => key(a) - key(b));
-  parent.append(...sorted);
-}
-
-/* "All of these categories and subcategories need to be editable fields...
-   I should be able to rename the categories and the subcategories."
-   Unlike numeric_id, a name is a real Square write, and this same closed
-   set of names is baked into rendered HTML in more than one place on this
-   page (every other tile's own category picker) — a reload on success,
-   the same as creating a category, is simpler and safer than trying to
-   patch every one of those in place. */
-async function renameCategory(input) {
-  const row = input.closest(".category-node-row");
-  const existingError = row?.nextElementSibling;
-  if (existingError?.classList.contains("item-edit-error")) existingError.remove();
-  const tile = input.closest(".item-tile");
-  const handle = tile?.dataset.handle;
-  const previousValue = input.defaultValue;
-  const name = input.value.trim();
-  if (!name) {
-    input.value = previousValue;
-    showFormError(row, "A category needs a name.");
-    return;
-  }
-  if (name === previousValue) return;
-  const body = new FormData();
-  body.set("category_id", input.dataset.categoryId);
-  body.set("name", name);
-  input.disabled = true;
-  try {
-    const res = await fetch("/items/" + handle + "/categories/rename", { method: "POST", body });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      input.value = previousValue;
-      showFormError(row, data.error || "That name was refused.");
-      return;
-    }
-    setDeepLinkHash(tile);
-    location.reload();
-  } catch {
-    input.value = previousValue;
-    showFormError(row, "Could not reach the server — try again.");
-  } finally {
-    input.disabled = false;
-  }
-}
-
-/* "I need a delete button right next to the plus button... I should not
-   be able to delete a category until it has no more subcategories, so
-   they should be disabled for them." The button itself already renders
-   disabled (renderCategoryNodes) whenever the node has children, so a
-   real browser refuses the click before this ever runs in normal use;
-   the server's own catalog.remove_category check() still refuses it too,
-   in case a subcategory was added from another tab in the meantime.
-   Reloads on success, the same as create/rename — the removed category
-   also disappears from every other tile's own category picker. */
-async function removeCategory(button) {
-  const row = button.closest(".category-node-row");
-  const existingError = row?.nextElementSibling;
-  if (existingError?.classList.contains("item-edit-error")) existingError.remove();
-  const tile = button.closest(".item-tile");
-  const handle = tile?.dataset.handle;
-  const body = new FormData();
-  body.set("category_id", button.dataset.categoryId);
-  button.disabled = true;
-  try {
-    const res = await fetch("/items/" + handle + "/categories/remove", { method: "POST", body });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      showFormError(row, data.error || "That category could not be removed.");
-      return;
-    }
-    setDeepLinkHash(tile);
-    location.reload();
-  } catch {
-    showFormError(row, "Could not reach the server — try again.");
-  } finally {
-    button.disabled = false;
-  }
-}
-
 /* "I need to have a button somewhere, maybe top right, when I expand the
    product. I want to get a deep link into that expanded view so I can
    send it to somebody." #item-<sku> rather than a server route — the
@@ -4055,21 +3542,21 @@ async function shareLink(btn) {
    category being expanded, that's a deep link too, because I want to be
    able to paste this to a coworker." Reload-preserving state and a
    shareable link are the SAME problem — both just mean "the URL always
-   matches what's actually open" — so this now reads the tile's own
-   Admin/Categories/node-expansion state at call time and folds it into
-   the same hash, rather than tracking it separately: whatever a reload
-   needs to restore is exactly what a pasted link needs to restore too. */
+   matches what's actually open" — so this reads the tile's own state at
+   call time and folds it into the same hash, rather than tracking it
+   separately: whatever a reload needs to restore is exactly what a
+   pasted link needs to restore too.
+   REVISED AGAIN: the "categories"/"nodes=" tokens this used to also carry
+   are gone — Categories moved out of the per-product tile entirely, onto
+   its own global /admin page (adminPage, below), which needs no deep
+   link into a collapsed tile to reach. Only the Admin (custom fields)
+   disclosure's own open/closed state still lives here. */
 function setDeepLinkHash(tile) {
   const sku = tile?.dataset.sku;
   let hash = "";
   if (sku) {
     const parts = ["item-" + encodeURIComponent(sku)];
     if (tile.querySelector(".item-add-field")?.open) parts.push("admin");
-    if (tile.querySelector(".categories-accordion")?.classList.contains("expanded")) parts.push("categories");
-    const expandedIds = [...tile.querySelectorAll(".category-node.expanded")]
-      .map((n) => n.querySelector(":scope > .category-node-row .category-node-name")?.dataset.categoryId)
-      .filter(Boolean);
-    if (expandedIds.length) parts.push("nodes=" + expandedIds.map(encodeURIComponent).join(","));
     hash = "#" + parts.join("&");
   }
   history.replaceState(null, "", location.pathname + hash);
@@ -4084,8 +3571,8 @@ function setDeepLinkHash(tile) {
     parent.history.replaceState(null, "", parent.location.pathname + parent.location.search + hash);
   }
 }
-/* Same tile-scoped re-derivation as above, called after any Admin/
-   Categories/node toggle so the hash never lags behind what is actually
+/* Same tile-scoped re-derivation as above, called after the Admin
+   disclosure toggles so the hash never lags behind what is actually
    open — only while that tile is the one currently expanded, since a
    collapsed tile's own internal state is not what the URL should be
    describing. */
@@ -4100,15 +3587,13 @@ function syncDeepLinkFromEvent(e) {
    the whole point of a link someone sent you is that IT decides what you
    see, not whatever was selected when they made it. Matched by SKU, the
    same stable key shareLink() copies.
-   REVISED: "my admin panel has to be a deep link... my category being
-   expanded, that's a deep link too" — the hash now carries more than just
-   which item is open (setDeepLinkHash's own comment explains why: reload-
-   preserving state and a shareable link are the same problem), so this
-   splits on "&" and restores each piece in turn: Admin, then the
-   Categories accordion, then every individually expanded category node,
-   walking each one's own ancestors open too so a deeply nested node is
-   actually visible, not just marked .expanded underneath a still-
-   collapsed parent. */
+   REVISED: "my admin panel has to be a deep link" — the hash carries more
+   than just which item is open (setDeepLinkHash's own comment explains
+   why: reload-preserving state and a shareable link are the same
+   problem), so this splits on "&" and restores each piece in turn. Only
+   the Admin (custom fields) disclosure's own token survives here —
+   Categories moved out to its own global /admin page (below), which
+   needs no per-item hash to reach. */
 const hashTokens = location.hash.startsWith("#item-") ? location.hash.slice(1).split("&") : [];
 if (hashTokens.length) {
   const sku = decodeURIComponent(hashTokens[0].slice("item-".length));
@@ -4122,25 +3607,114 @@ if (hashTokens.length) {
       const admin = linked.querySelector(".item-add-field");
       if (admin) admin.open = true;
     }
-    if (hashTokens.includes("categories")) {
-      linked.querySelector(".categories-accordion")?.classList.add("expanded");
-    }
-    const nodesToken = hashTokens.find((t) => t.startsWith("nodes="));
-    if (nodesToken) {
-      const ids = nodesToken.slice("nodes=".length).split(",").map(decodeURIComponent).filter(Boolean);
-      for (const id of ids) {
-        const nameInput = linked.querySelector('.category-node-name[data-category-id="' + CSS.escape(id) + '"]');
-        let node = nameInput?.closest(".category-node") ?? null;
-        while (node) {
-          node.classList.add("expanded");
-          node = node.closest(".category-children")?.closest(".category-node") ?? null;
-        }
-      }
-    }
   }
 }
 </script>`,
     ITEMS_CSS,
+  );
+}
+
+/*
+ * /admin — Categories and Vendors, administered from ONE place, reached
+ * from the shell's own hamburger menu (shellPage, above) rather than
+ * duplicated inside every product tile. The owner's own words: "move the
+ * admin section into that hamburger menu so that I can administer
+ * everything from that one location instead of under each product."
+ *
+ * Deliberately the simplest possible page: plain <form>s, no client-side
+ * JS at all. The Items tab's own tile needed dirty-tracking and a single
+ * batched "Save all" because MANY unrelated fields shared that one small
+ * space and one save button beat one per field; here there is exactly
+ * one thing being edited at a time; an ordinary form submit (refusalPage
+ * on error, a 303 back to /admin on success — the same shape /tickets/new
+ * already uses) is simplest and needs nothing clever to get right.
+ */
+const ADMIN_CSS = `
+${OPS_DARK_CSS}
+.item-empty { color: var(--muted); font-style: italic; }
+.admin-section { margin: 0 0 20px; }
+.admin-section h2 { font-size: 13px; color: var(--muted); margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.04em; }
+.admin-category-node { display: flex; flex-direction: column; }
+.admin-category-row { display: flex; align-items: center; gap: 6px; padding: 3px 4px 3px 0; }
+.admin-category-rename-form, .admin-category-number-form, .admin-category-remove-form { display: contents; }
+.admin-category-name {
+  flex: 1 1 auto; min-width: 0; font: inherit; font-size: 13px; padding: 4px 6px;
+  border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
+}
+.admin-category-numeric-id {
+  flex: 0 0 2ch; width: 2ch; box-sizing: content-box; font: inherit; font-size: 13px; padding: 4px 6px; text-align: center;
+  border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
+}
+.admin-save-btn, .admin-remove-btn, .admin-add-btn {
+  flex: 0 0 auto; width: 22px; height: 22px; padding: 0; font-size: 14px; line-height: 1;
+  border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--muted); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.admin-remove-btn:disabled { cursor: not-allowed; opacity: 0.4; }
+.admin-category-add-form { display: flex; align-items: center; gap: 6px; padding: 3px 4px 3px 0; margin-top: 4px; }
+.admin-category-add-form input[type="text"], .admin-category-add-form input:not([type]) {
+  flex: 1 1 auto; min-width: 0; font: inherit; font-size: 13px; padding: 4px 6px;
+  border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
+}
+.admin-category-add-form input[maxlength="2"] {
+  flex: 0 0 2ch; width: 2ch; box-sizing: content-box; font: inherit; font-size: 13px; padding: 4px 6px; text-align: center;
+  border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
+}
+.admin-vendor-row { display: flex; align-items: center; gap: 6px; padding: 4px 0; }
+.admin-vendor-row-name { flex: 1 1 auto; min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
+.admin-vendor-commission-form { display: contents; }
+.admin-vendor-commission-input {
+  flex: 0 0 4em; width: 4em; box-sizing: content-box; font: inherit; font-size: 13px; padding: 4px 6px; text-align: center;
+  border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
+}
+.admin-vendor-add-form { display: flex; align-items: center; gap: 6px; padding: 4px 0; margin-top: 4px; }
+.admin-vendor-add-form input[type="text"] {
+  flex: 1 1 auto; min-width: 0; font: inherit; font-size: 13px; padding: 4px 6px;
+  border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
+}
+`;
+
+export function adminPage(allCategories = [], allVendors = []) {
+  return page(
+    "Admin — Vemians ops",
+    `<main class="ops">
+  <section class="admin-section">
+    <h2>Categories</h2>
+    ${allCategories.length ? renderAdminCategoryNodes(allCategories, null) : `<p class="item-empty">No categories yet.</p>`}
+    <form method="post" action="/admin/categories/create" class="admin-category-add-form">
+      <input type="hidden" name="parent_id" value="">
+      <input type="text" name="name" placeholder="Category name" maxlength="60">
+      <input name="numeric_id" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — optional, can be set later">
+      <button type="submit" class="admin-add-btn" aria-label="Add a top-level category" title="Add a category">+</button>
+    </form>
+  </section>
+  <section class="admin-section">
+    <h2>Vendors</h2>
+    ${
+      allVendors.length
+        ? allVendors
+            .map(
+              (v) =>
+                `<div class="admin-vendor-row">
+                   <span class="admin-vendor-row-name">${esc(v.name)}</span>
+                   <form method="post" action="/admin/vendors/commission" class="admin-vendor-commission-form">
+                     <input type="hidden" name="vendor_id" value="${esc(v.id)}">
+                     <input class="admin-vendor-commission-input" name="commission" value="${v.commission_pct != null ? esc(String(v.commission_pct)) : ""}" placeholder="COM%" title="Commission % (0-100)">
+                     <button type="submit" class="admin-save-btn" aria-label="Set ${esc(v.name)}'s own commission" title="Set ${esc(v.name)}'s own commission">${SAVE_ICON}</button>
+                   </form>
+                 </div>`,
+            )
+            .join("")
+        : `<p class="item-empty">No vendors yet.</p>`
+    }
+    <form method="post" action="/admin/vendors/create" class="admin-vendor-add-form">
+      <input type="text" name="name" placeholder="Vendor name" maxlength="120">
+      <input class="admin-vendor-commission-input" name="commission" placeholder="COM%" title="Commission % (0-100) — required for a brand-new vendor">
+      <button type="submit" class="admin-add-btn" aria-label="Add a vendor" title="Add a vendor">+</button>
+    </form>
+  </section>
+</main>`,
+    ADMIN_CSS,
   );
 }
 

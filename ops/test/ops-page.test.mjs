@@ -142,6 +142,43 @@ check("test_PRD_P0_71_items_tab__the_shell_requires_no_role_the_same_as_before_t
   assert.equal(res.status, 200);
 });
 
+/* The hamburger menu (top right of the shell header) — "I want to see a
+   hamburger menu on the top right... move the admin section into that
+   hamburger menu so that I can administer everything from that one
+   location instead of under each product." Admin is manager-only, so the
+   menu itself is manager-only too — a staff/unmapped identity gets no
+   menu at all rather than one that only ever opens to a refusal. */
+check("test_PRD_P0_71_items_tab__the_hamburger_menu_offers_admin_for_a_manager_or_owner", async () => {
+  const { body } = await shell(OWNER);
+  assert.match(body, /<button type="button" class="shell-menu-btn"/, "a manager/owner must see the hamburger button");
+  assert.match(body, /data-src="\/admin" data-href="\/\?tab=admin"[^>]*>Admin</, "the menu's own item must open Admin");
+});
+
+check("test_PRD_P0_71_items_tab__the_hamburger_menu_is_absent_for_staff", async () => {
+  const { body } = await shell(STAFF);
+  assert.doesNotMatch(
+    body,
+    /<button type="button" class="shell-menu-btn"/,
+    "staff has nothing to administer, so no dead-end menu is offered at all",
+  );
+});
+
+check("test_PRD_P0_71_items_tab__the_hamburger_menu_is_absent_for_an_unmapped_identity", async () => {
+  const res = await worker.fetch(
+    new Request("http://localhost/", {
+      headers: { "Cf-Access-Jwt-Assertion": assertion({ email: "stranger@example.test", policy_id: "unmapped-policy" }) },
+    }),
+    ENV,
+  );
+  const body = await res.text();
+  assert.doesNotMatch(body, /<button type="button" class="shell-menu-btn"/);
+});
+
+check("test_PRD_P0_71_items_tab__tab_equals_admin_starts_the_iframe_on_admin_instead", async () => {
+  const { body } = await shell(OWNER, "/?tab=admin");
+  assert.match(body, /id="ops-frame" src="\/admin"/);
+});
+
 check("test_PRD_P0_71_items_tab__chat_no_longer_draws_its_own_copy_of_the_tab_bar_or_banner", async () => {
   /* The shell is the ONLY place the tab bar (and, now, the "employees only"
      strip) renders — a page that also drew its own would show either one

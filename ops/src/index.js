@@ -42,6 +42,7 @@ import { verifyWebhook, normaliseWebhook } from "../../shared/commerce/square/we
 import { backfillMedia } from "./media-backfill.js";
 import { intakeContactTickets } from "./contact-intake.js";
 import {
+  adminPage,
   approvalPage,
   approvalResultPage,
   assetListPage,
@@ -305,7 +306,7 @@ async function ops(request, env, path) {
    * load to begin with (and none of the routes below actually accept one).
    */
   if (request.method === "GET" && request.headers.get("sec-fetch-dest") === "document") {
-    const tab = SHELL_TABS.find((t) => t.src === path);
+    const tab = SHELL_TABS.find((t) => t.src === path) || (path === "/admin" ? { href: "/?tab=admin" } : null);
     if (tab) return Response.redirect(new URL(tab.href, request.url), 302);
   }
 
@@ -585,12 +586,6 @@ async function ops(request, env, path) {
       path.endsWith("/custom-fields") ||
       path.endsWith("/square-attributes") ||
       path.endsWith("/category") ||
-      path.endsWith("/categories/create") ||
-      path.endsWith("/categories/number") ||
-      path.endsWith("/categories/rename") ||
-      path.endsWith("/categories/remove") ||
-      path.endsWith("/vendors/create") ||
-      path.endsWith("/vendors/commission") ||
       path.endsWith("/variations") ||
       path.endsWith("/details") ||
       path.endsWith("/inventory"))
@@ -622,25 +617,13 @@ async function ops(request, env, path) {
           ? "/custom-fields"
           : path.endsWith("/square-attributes")
             ? "/square-attributes"
-            : path.endsWith("/categories/create")
-              ? "/categories/create"
-              : path.endsWith("/categories/number")
-                ? "/categories/number"
-                : path.endsWith("/categories/rename")
-                  ? "/categories/rename"
-                  : path.endsWith("/categories/remove")
-                    ? "/categories/remove"
-                    : path.endsWith("/vendors/create")
-                      ? "/vendors/create"
-                      : path.endsWith("/vendors/commission")
-                        ? "/vendors/commission"
-                        : path.endsWith("/category")
-                          ? "/category"
-                          : path.endsWith("/details")
-                            ? "/details"
-                            : path.endsWith("/inventory")
-                              ? "/inventory"
-                              : "/variations";
+            : path.endsWith("/category")
+              ? "/category"
+              : path.endsWith("/details")
+                ? "/details"
+                : path.endsWith("/inventory")
+                  ? "/inventory"
+                  : "/variations";
     const handle = path.slice("/items/".length, path.length - suffix.length);
 
     let form;
@@ -760,90 +743,6 @@ async function ops(request, env, path) {
       toolName = "inventory.adjust";
       args = { variant_id: variantId, delta };
       summaryNoun = "stock";
-    } else if (suffix === "/categories/create") {
-      /* The new nested category/subcategory tree (P0-138), rendered above
-         Variants — "an add category button... that will create a
-         subcategory in the expanded view." A blank parent_id means a new
-         TOP-LEVEL category; a real one nests under it, at whatever depth.
-         Applies immediately, no /approvals/<id> hop, the same reasoning
-         every other field on this tile already follows. */
-      const name = String(form.get("name") ?? "").trim();
-      const parentId = String(form.get("parent_id") ?? "").trim();
-      const numericId = String(form.get("numeric_id") ?? "").trim();
-      if (!name) return json({ error: "give a category name" }, 400);
-      toolName = "catalog.create_category";
-      args = {
-        name,
-        reason: `created from the Items tab while categorizing '${handle}'`,
-        ...(parentId ? { parent_id: parentId } : {}),
-        ...(numericId ? { numeric_id: numericId } : {}),
-      };
-      summaryNoun = "category";
-    } else if (suffix === "/categories/number") {
-      /* OURS, not Square's — a category/subcategory's own 2-digit style_id
-         code. A blank input clears it (catalog.set_category_number's own
-         clear: true — the generic schema validator refuses an empty
-         STRING outright, so a real "" cannot mean clear on its own). */
-      const categoryId = String(form.get("category_id") ?? "").trim();
-      const numericId = String(form.get("numeric_id") ?? "").trim();
-      if (!categoryId) return json({ error: "give a category" }, 400);
-      toolName = "catalog.set_category_number";
-      args = numericId ? { category_id: categoryId, numeric_id: numericId } : { category_id: categoryId, clear: true };
-      summaryNoun = "category number";
-    } else if (suffix === "/categories/rename") {
-      /* Renaming a category/subcategory in place — "all of these categories
-         and subcategories need to be editable fields... I should be able to
-         rename the categories." A real Square write (catalog.
-         rename_category), same apply-immediately shape as every other field
-         on this tile. */
-      const categoryId = String(form.get("category_id") ?? "").trim();
-      const name = String(form.get("name") ?? "").trim();
-      if (!categoryId) return json({ error: "give a category" }, 400);
-      if (!name) return json({ error: "give a category name" }, 400);
-      toolName = "catalog.rename_category";
-      args = { category_id: categoryId, name };
-      summaryNoun = "category name";
-    } else if (suffix === "/categories/remove") {
-      /* "I need a delete button right next to the plus button... I should
-         not be able to delete a category until it has no more
-         subcategories." The button itself is disabled server-side (views.js)
-         whenever a node has children, so reaching this refusal at all means
-         a race — a subcategory was added from another tab between page load
-         and this click. */
-      const categoryId = String(form.get("category_id") ?? "").trim();
-      if (!categoryId) return json({ error: "give a category" }, 400);
-      toolName = "catalog.remove_category";
-      args = { category_id: categoryId };
-      summaryNoun = "category";
-    } else if (suffix === "/vendors/create") {
-      /* "The same kind of drop down schema that we have for categories" —
-         the owner's own words. commission is REQUIRED here, unlike a
-         category's own optional numeric_id: a brand-new vendor has
-         nothing on file yet for catalog.create_product/catalog.
-         set_square_attributes to auto-apply later, so this is the one
-         moment it MUST be given. */
-      const name = String(form.get("name") ?? "").trim();
-      const commissionRaw = String(form.get("commission") ?? "").trim();
-      if (!name) return json({ error: "give a vendor name" }, 400);
-      if (!/^\d+$/.test(commissionRaw)) return json({ error: "give a commission (0-100)" }, 400);
-      toolName = "catalog.create_vendor";
-      args = {
-        name,
-        commission: Number(commissionRaw),
-        reason: `created from the Items tab while naming a vendor for '${handle}'`,
-      };
-      summaryNoun = "vendor";
-    } else if (suffix === "/vendors/commission") {
-      /* OURS, not Square's — a vendor's own central rate, changed
-         directly, the same shape /categories/number already is for a
-         category's own numeric_id. */
-      const vendorId = String(form.get("vendor_id") ?? "").trim();
-      const commissionRaw = String(form.get("commission") ?? "").trim();
-      if (!vendorId) return json({ error: "give a vendor" }, 400);
-      if (!/^\d+$/.test(commissionRaw)) return json({ error: "give a commission (0-100)" }, 400);
-      toolName = "catalog.set_vendor_commission";
-      args = { vendor_id: vendorId, commission: Number(commissionRaw) };
-      summaryNoun = "vendor commission";
     } else if (suffix === "/category") {
       /* "There should be a category dropdown... browse and select a
          category, expand and select a subcategory... it should all
@@ -946,19 +845,140 @@ async function ops(request, env, path) {
     if (suffix === "/inventory") {
       return json({ on_hand: result.data.on_hand });
     }
-    /* All four categories routes answer with JSON, not a redirect — the
-       page script below fetches them directly (not through a <form>, the
-       same reason the stock stepper does not use one either) and decides
-       for itself what to update. */
-    if (
-      suffix === "/categories/create" ||
-      suffix === "/categories/number" ||
-      suffix === "/categories/rename" ||
-      suffix === "/categories/remove"
-    ) {
-      return json(result.data);
-    }
     return new Response(null, { status: 303, headers: { Location: "/items" } });
+  }
+
+  /*
+   * /admin — the owner's own words: "move the admin section into that
+   * hamburger menu so that I can administer everything from that one
+   * location instead of under each product." Categories and Vendors used
+   * to be managed from a disclosure inside EVERY product tile (P0-138,
+   * P0-136) — the exact same global closed set, rendered and editable
+   * identically on every single tile, for no reason beyond "there was
+   * nowhere else to put it yet." This is that one place instead: reached
+   * from the shell's own hamburger menu (views.js, shellPage), never
+   * duplicated per product. Plain HTML forms, no client-side JS at all —
+   * unlike the Items tab's own busy tile (many unrelated fields sharing
+   * one "Save all" button was the reason THAT page needed dirty-tracking
+   * and batching), this page has exactly one thing happening at a time,
+   * so an ordinary form submit + a redirect back here is simplest. */
+  if (path === "/admin" || path.startsWith("/admin/")) {
+    const role = await roleFor(identity, env);
+    if (!role) {
+      return html(refusalPage(403, "Your Access identity is in no group this application maps to a role."), 403);
+    }
+    if (!roleAtLeast(role, "manager")) {
+      return html(refusalPage(403, "Admin needs the manager role. Ask a manager for this change."), 403);
+    }
+    if (!env.CATALOG_MIRROR) {
+      return html(refusalPage(503, "The catalog mirror is not configured on this deployment yet."), 503);
+    }
+
+    if (path === "/admin") {
+      if (request.method !== "GET") {
+        return html(refusalPage(405, "Reach Admin from its own hamburger menu, not this URL directly."), 405);
+      }
+      const allCategories = await listCategories(env.CATALOG_MIRROR);
+      const allVendors = await listMirrorVendors(env.CATALOG_MIRROR);
+      return html(adminPage(allCategories, allVendors));
+    }
+
+    if (request.method !== "POST") {
+      return html(refusalPage(405, "Reach Admin from its own hamburger menu, not this URL directly."), 405);
+    }
+    const email = identity.claims?.email;
+    if (typeof email !== "string" || !email.includes("@")) {
+      return html(refusalPage(403, "This page requires signing in as a person, not a service token."), 403);
+    }
+    let form;
+    try {
+      form = await request.formData();
+    } catch (err) {
+      return html(refusalPage(400, `Unreadable submission — ${err.message}`), 400);
+    }
+
+    const suffix = path.slice("/admin".length);
+    let toolName, args, summaryNoun;
+    if (suffix === "/categories/create") {
+      /* A blank parent_id means a new TOP-LEVEL category; a real one
+         nests under it, at whatever depth. */
+      const name = String(form.get("name") ?? "").trim();
+      const parentId = String(form.get("parent_id") ?? "").trim();
+      const numericId = String(form.get("numeric_id") ?? "").trim();
+      if (!name) return html(refusalPage(400, "Give a category name."), 400);
+      toolName = "catalog.create_category";
+      args = {
+        name,
+        reason: "created from the Admin panel",
+        ...(parentId ? { parent_id: parentId } : {}),
+        ...(numericId ? { numeric_id: numericId } : {}),
+      };
+      summaryNoun = "category";
+    } else if (suffix === "/categories/number") {
+      /* OURS, not Square's — a category/subcategory's own 2-digit style_id
+         code. A blank input clears it (catalog.set_category_number's own
+         clear: true — the generic schema validator refuses an empty
+         STRING outright, so a real "" cannot mean clear on its own). */
+      const categoryId = String(form.get("category_id") ?? "").trim();
+      const numericId = String(form.get("numeric_id") ?? "").trim();
+      if (!categoryId) return html(refusalPage(400, "Give a category."), 400);
+      toolName = "catalog.set_category_number";
+      args = numericId ? { category_id: categoryId, numeric_id: numericId } : { category_id: categoryId, clear: true };
+      summaryNoun = "category number";
+    } else if (suffix === "/categories/rename") {
+      const categoryId = String(form.get("category_id") ?? "").trim();
+      const name = String(form.get("name") ?? "").trim();
+      if (!categoryId) return html(refusalPage(400, "Give a category."), 400);
+      if (!name) return html(refusalPage(400, "Give a category name."), 400);
+      toolName = "catalog.rename_category";
+      args = { category_id: categoryId, name };
+      summaryNoun = "category name";
+    } else if (suffix === "/categories/remove") {
+      /* "I should not be able to delete a category until it has no more
+         subcategories." The button itself is disabled server-side
+         (views.js) whenever a node has children, so reaching this refusal
+         at all means a race — a subcategory was added from another tab
+         between page load and this click. */
+      const categoryId = String(form.get("category_id") ?? "").trim();
+      if (!categoryId) return html(refusalPage(400, "Give a category."), 400);
+      toolName = "catalog.remove_category";
+      args = { category_id: categoryId };
+      summaryNoun = "category";
+    } else if (suffix === "/vendors/create") {
+      /* commission is REQUIRED here, unlike a category's own optional
+         numeric_id: a brand-new vendor has nothing on file yet for
+         catalog.create_product/catalog.set_square_attributes to
+         auto-apply later, so this is the one moment it MUST be given. */
+      const name = String(form.get("name") ?? "").trim();
+      const commissionRaw = String(form.get("commission") ?? "").trim();
+      if (!name) return html(refusalPage(400, "Give a vendor name."), 400);
+      if (!/^\d+$/.test(commissionRaw)) return html(refusalPage(400, "Give a commission (0-100)."), 400);
+      toolName = "catalog.create_vendor";
+      args = { name, commission: Number(commissionRaw), reason: "created from the Admin panel" };
+      summaryNoun = "vendor";
+    } else if (suffix === "/vendors/commission") {
+      /* OURS, not Square's — a vendor's own central rate, changed
+         directly. */
+      const vendorId = String(form.get("vendor_id") ?? "").trim();
+      const commissionRaw = String(form.get("commission") ?? "").trim();
+      if (!vendorId) return html(refusalPage(400, "Give a vendor."), 400);
+      if (!/^\d+$/.test(commissionRaw)) return html(refusalPage(400, "Give a commission (0-100)."), 400);
+      toolName = "catalog.set_vendor_commission";
+      args = { vendor_id: vendorId, commission: Number(commissionRaw) };
+      summaryNoun = "vendor commission";
+    } else {
+      return html(refusalPage(404, "Unknown admin action."), 404);
+    }
+
+    const gate = await runTool(toolName, args, { actor: email, role, env });
+    if (!gate?.needsApproval) {
+      return html(refusalPage(400, gate?.error || `That ${summaryNoun} change could not be proposed.`), 400);
+    }
+    const result = await runTool(toolName, args, { actor: email, role, env, approvalToken: gate.data.approval.token });
+    if (result?.error || result?.denied) {
+      return html(refusalPage(400, result.error || result.denied || `That ${summaryNoun} change was refused.`), 400);
+    }
+    return new Response(null, { status: 303, headers: { Location: "/admin" } });
   }
 
   /*
@@ -1655,8 +1675,13 @@ async function ops(request, env, path) {
        plainly that they have no role, the same as before this page split
        into a shell and a tab's own content. */
     const requestedTab = new URL(request.url).searchParams.get("tab");
-    const tab = ["items", "dashboard", "website"].includes(requestedTab) ? requestedTab : "agent";
-    return html(shellPage(tab));
+    const tab = ["items", "dashboard", "website", "admin"].includes(requestedTab) ? requestedTab : "agent";
+    /* The hamburger menu (top right of the shell header) only ever offers
+       Admin — a manager-only surface — so a staff or unmapped identity
+       gets no menu at all rather than one that opens to a refusal. */
+    const role = await roleFor(identity, env);
+    const canEditAdmin = role === "manager" || role === "owner";
+    return html(shellPage(tab, canEditAdmin));
   }
 
   if (path === "/chat") {
