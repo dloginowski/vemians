@@ -3777,6 +3777,24 @@ that does not trace to one of these is a process failure (see §12).
     little so it's clearer it's underneath the accordion it belongs to" — `.variations-body` picked
     up its own left padding; the variation name itself stays free to run the full remaining width.
 
+    **A real bug, caught the same way the chevron-rotation bug above was — the owner's own words:
+    "when I edit the description, it doesn't get marked to save."** `refreshDirtyState`'s form-level
+    scan (`ops/src/views.js`) computed whether a FORM counted as dirty by
+    `form.querySelectorAll("input")`, which never matches a `<textarea>` at all — and the product
+    description is the one field on this whole tile that is a textarea, not an input. Editing it
+    correctly toggled the FIELD's own `field-dirty` class (`isFieldDirty` works on any element,
+    textarea included), so the description itself looked normal, but the form it belongs to never
+    picked up `data-dirty`, so the tile's one Save button never enabled and `saveTile`'s own
+    `form[data-dirty='1']` scan would not have submitted it either way — a description edit that
+    LOOKED fine and silently went nowhere. Fixed to `form.querySelectorAll("input, textarea")`. A
+    second, smaller instance of the identical gap sat in the CSS: `.item-tile input.field-dirty,
+    .item-tile select.field-dirty` never styled `textarea.field-dirty`, so even once the Save button
+    itself is fixed, the textarea would still have been missing the same orange highlight every
+    other changed field gets — added alongside the JS fix. Verified live in a real headless browser
+    (this feature's own established discipline, first used for the chevron-rotation bug): editing
+    the description now enables Save immediately and gives the textarea the same accent-colored
+    border every other dirty field gets.
+
 71. **`Test-PRD-P0-136-square_custom_attributes`** — The owner's own words, having weighed "ours,
     not Square's" (P0-71's own `channel`/`custom_fields`) against not reinventing something Square
     already offers: "why do we need to have our own custom fields then? It doesn't make sense... we

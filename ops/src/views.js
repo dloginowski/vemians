@@ -2013,7 +2013,7 @@ ${INPUT_BAR_CSS}
    beat every input-styling rule above regardless of source order — a
    checkbox has no visible border to recolour, so it gets an outline
    instead of the same border-color change every text/select field gets. */
-.item-tile input.field-dirty, .item-tile select.field-dirty { border-color: var(--accent); }
+.item-tile input.field-dirty, .item-tile select.field-dirty, .item-tile textarea.field-dirty { border-color: var(--accent); }
 .item-tile input.field-dirty[type="checkbox"] { outline: 1.5px solid var(--accent); outline-offset: 1px; }
 /* A check() refusal (a malformed style_id, a vendor with no commission, a
    unit cost with no vendor) shows up right here, next to the form that was
@@ -3124,7 +3124,15 @@ function refreshDirtyState(field) {
 
   const form = field.closest(".item-badges form, .item-edit form, .variations-header form, .variations-body form");
   if (!form) return;
-  const formDirty = [...form.querySelectorAll("input")].some(isFieldDirty);
+  /* input AND textarea — the description field is a textarea element, and
+     querySelectorAll("input") alone silently never sees it: a description-
+     only edit toggled the field's OWN "field-dirty" class fine (isFieldDirty
+     works on any element) but the form itself never picked up data-dirty,
+     so the tile's one Save button stayed disabled and saveTile's own
+     form[data-dirty='1'] scan (below) would not have submitted it either
+     way — the owner's own words: "when I edit the description, it doesn't
+     get marked to save." */
+  const formDirty = [...form.querySelectorAll("input, textarea")].some(isFieldDirty);
   if (formDirty) {
     form.dataset.dirty = "1";
   } else {
