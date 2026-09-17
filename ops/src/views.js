@@ -1834,11 +1834,19 @@ ${INPUT_BAR_CSS}
    shape as .variations-accordion above: a plain bar that toggles its own
    body, collapsed by default, right above it. */
 .categories-accordion { border-top: 1px solid var(--rule); margin-top: 2px; padding-top: 6px; }
+/* "Only highlight dirty elements with orange! That expanding categories
+   header border should not be orange unless it has modified children!"
+   Orange is reserved for a real, meaningful state elsewhere on this tile
+   — agentic input, or a field's own .field-dirty (unsaved change) marker
+   — never a plain hover cue. This header's own cursor: pointer already
+   signals it opens/closes; nothing inside the Categories accordion is
+   ever left "dirty, not yet saved" in the first place (every field here
+   applies immediately, no batching), so there is no orange state for it
+   to earn at all right now. */
 .categories-header {
   display: flex; align-items: center; gap: 6px; cursor: pointer;
   background: var(--image-ground); border: 1px solid var(--rule); border-radius: 6px; padding: 5px 8px;
 }
-.categories-header:hover { border-color: var(--accent); }
 .categories-toggle {
   flex: 0 0 auto; width: 18px; height: 18px; padding: 0; display: inline-flex; align-items: center;
   justify-content: center; border: none; background: transparent; color: var(--muted); cursor: pointer;
@@ -1908,9 +1916,18 @@ ${INPUT_BAR_CSS}
    digits actually need. 2ch (the width of the font's own "0" glyph,
    times two) fits the field to exactly the two characters it accepts,
    still a fixed value, never fluid. Shared with .category-new-numeric-id
-   below — the add-form's own ID field, same size for the same reason. */
+   below — the add-form's own ID field, same size for the same reason.
+   REVISED AGAIN: "now you made ID entry fields too small... make them
+   fit 2 numbers, min size" — shared/design/theme.css sets box-sizing:
+   border-box globally on every element, so that "2ch" was being read as the
+   field's own TOTAL width, with its own padding (10px) and border (2px)
+   eaten OUT OF those two characters' worth of room, leaving almost none
+   for the digits themselves. box-sizing: content-box here makes "2ch"
+   mean the CONTENT alone, exactly two digits, with the padding/border
+   added on top the normal way — actually "fit to content, minimum
+   size" now, not fit-minus-its-own-chrome. */
 .item-edit .category-numeric-id, .item-edit .category-new-numeric-id {
-  flex: 0 0 2ch; width: 2ch; font: inherit; font-size: 12px; padding: 3px 5px; text-align: center;
+  flex: 0 0 2ch; width: 2ch; box-sizing: content-box; font: inherit; font-size: 12px; padding: 3px 5px; text-align: center;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
 }
 .category-add-toggle, .category-remove-toggle, .category-create {

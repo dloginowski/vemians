@@ -1451,7 +1451,15 @@ check("test_PRD_P0_138_nested_categories__the_name_scales_and_the_id_stays_a_fix
      specificity, not cascade order, decides that, so the 2ch rule above
      was never actually winning no matter how it read in the stylesheet.
      Every category input selector is now qualified with .item-edit
-     itself (0,2,0), which beats it outright. */
+     itself (0,2,0), which beats it outright.
+     REVISED YET AGAIN -- "now you made ID entry fields too small... make
+     them fit 2 numbers, min size": shared/design/theme.css sets a global
+     `* { box-sizing: border-box }`, so "width: 2ch" was being read as the
+     field's own TOTAL width, with its own 10px padding and 2px border
+     eaten OUT of those two characters' worth of room -- box-sizing:
+     content-box makes "2ch" mean the CONTENT alone, so the field is
+     finally sized to fit two actual digits, not two digits minus its own
+     chrome. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const body = await (await get("/items", MANAGER, env(mirror))).text();
@@ -1462,8 +1470,8 @@ check("test_PRD_P0_138_nested_categories__the_name_scales_and_the_id_stays_a_fix
   );
   assert.match(
     body,
-    /\.item-edit \.category-numeric-id, \.item-edit \.category-new-numeric-id \{\s*\n\s*flex: 0 0 2ch; width: 2ch;/,
-    "the ID field must never grow or shrink -- a fixed width, fitted to exactly two characters -- and must actually WIN the cascade against .item-edit input's own width: 10em",
+    /\.item-edit \.category-numeric-id, \.item-edit \.category-new-numeric-id \{\s*\n\s*flex: 0 0 2ch; width: 2ch; box-sizing: content-box;/,
+    "the ID field must never grow or shrink -- a fixed CONTENT width (not counting its own padding/border) fitted to exactly two characters -- and must actually WIN the cascade against .item-edit input's own width: 10em",
   );
   assert.match(
     body,
@@ -1580,6 +1588,25 @@ check("test_PRD_P0_138_nested_categories__the_accordion_is_absent_for_staff", as
   const res = await get("/items", STAFF, env(mirror));
   const body = await res.text();
   assert.doesNotMatch(body, /<div class="categories-accordion">/);
+});
+
+check("test_PRD_P0_138_nested_categories__the_categories_header_never_turns_orange_on_a_plain_hover", async () => {
+  /* The owner's own words: "Only highlight dirty elements with orange!
+     That expanding categories header border should not be orange unless
+     it has modified children!" Orange is reserved for a real, meaningful
+     state elsewhere on this tile (agentic input, or a field's own real
+     .field-dirty marker) -- never a plain hover cue. Nothing inside the
+     Categories accordion is ever left dirty-but-unsaved in the first
+     place (every field here applies immediately), so there is no state
+     for this header to earn orange from at all right now. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.doesNotMatch(
+    body,
+    /\.categories-header:hover \{ border-color: var\(--accent\); \}/,
+    "the header must not turn orange on mere hover -- it has no dirty-children concept to represent",
+  );
 });
 
 check("test_PRD_P0_138_nested_categories__the_top_level_add_button_lives_in_the_header_with_no_label_text", async () => {
