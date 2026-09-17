@@ -2923,6 +2923,104 @@ check("test_PRD_P0_136_square_custom_attributes__a_vendors_own_on_file_commissio
   assert.equal(vendorRow.commission_pct, 15, "the central rate itself is unaffected by reading it for a second product");
 });
 
+check("test_PRD_P0_136_square_custom_attributes__catalog_vendors_lists_every_vendor_with_its_own_commission", async () => {
+  /* "The same kind of drop down schema that we have for categories" -- the
+     owner's own words. catalog.vendors is the read side, mirroring
+     catalog.categories exactly. */
+  const f = await fixture();
+  const empty = await runTool("catalog.vendors", {}, f.ctx);
+  assert.equal(empty.ok, true, empty.error);
+  assert.deepEqual(empty.data.vendors, []);
+
+  await approvedCall(f, "catalog.create_vendor", { name: "Acme Mills", commission: 20, reason: "test" });
+  const res = await runTool("catalog.vendors", {}, f.ctx);
+  assert.equal(res.ok, true, res.error);
+  assert.equal(res.data.count, 1);
+  assert.equal(res.data.vendors[0].name, "Acme Mills");
+  assert.equal(res.data.vendors[0].commission_pct, 20);
+});
+
+check("test_PRD_P0_136_square_custom_attributes__create_vendor_makes_a_real_square_vendor_with_a_commission_on_file_immediately", async () => {
+  const f = await fixture();
+  const res = await approvedCall(f, "catalog.create_vendor", { name: "Acme Mills", commission: 20, reason: "test" });
+  assert.equal(res.ok, true, res.error);
+  assert.equal(res.data.created, true);
+  assert.equal(res.data.commission, 20);
+
+  const vendorCalls = f.calls().filter((c) => c.path === "/v2/vendors/create");
+  assert.equal(vendorCalls.length, 1, "a real Square Vendor must actually be created, not just a mirror row");
+
+  const row = f.mirror("SELECT name, commission_pct FROM mirror_vendor WHERE name = 'Acme Mills'")[0];
+  assert.equal(row.commission_pct, 20, "the commission is on file the moment the vendor exists -- a later product naming it needs nothing restated");
+
+  /* Now provable end to end: a product naming this vendor with no
+     commission of its own goes through clean. */
+  const category = f.categories()[0];
+  const product = await approvedCall(f, "catalog.create_product", {
+    title: "A Product",
+    category_id: category.id,
+    variations: [{ title: "One size", price_minor: 1000, currency: "USD" }],
+    vendor: "Acme Mills",
+  });
+  assert.equal(product.ok, true, product.error);
+  assert.equal(product.data.product.commission_pct, 20);
+});
+
+check("test_PRD_P0_136_square_custom_attributes__create_vendor_refuses_a_name_that_already_exists", async () => {
+  const f = await fixture();
+  await approvedCall(f, "catalog.create_vendor", { name: "Acme Mills", commission: 20, reason: "test" });
+  const res = await runTool("catalog.create_vendor", { name: "Acme Mills", commission: 15, reason: "test" }, f.ctx);
+  assert.equal(res.ok, false);
+  assert.match(res.error, /"Acme Mills" already exists, with a commission of 20% already on file/);
+});
+
+check("test_PRD_P0_136_square_custom_attributes__set_vendor_commission_changes_the_central_rate_going_forward_only", async () => {
+  /* REVISED: forward-only, deliberately -- "we store it in essential
+     locations per vendor so that their commission is recorded in a
+     central location and automatically applied" describes NEW items
+     picking it up, not a retroactive rewrite of a vendor's own past
+     products. */
+  const f = await fixture();
+  await approvedCall(f, "catalog.create_vendor", { name: "Acme Mills", commission: 20, reason: "test" });
+  const category = f.categories()[0];
+  const older = await approvedCall(f, "catalog.create_product", {
+    title: "Older Product",
+    category_id: category.id,
+    variations: [{ title: "One size", price_minor: 1000, currency: "USD" }],
+    vendor: "Acme Mills",
+  });
+  assert.equal(older.data.product.commission_pct, 20);
+
+  const vendorId = f.mirror("SELECT id FROM mirror_vendor WHERE name = 'Acme Mills'")[0].id;
+  const res = await approvedCall(f, "catalog.set_vendor_commission", { vendor_id: vendorId, commission: 25 });
+  assert.equal(res.ok, true, res.error);
+  assert.equal(res.data.commission, 25);
+  assert.equal(res.data.previous_commission, 20);
+
+  /* The older product's own already-set commission is untouched. */
+  const olderRow = f.mirror(`SELECT commission_pct FROM mirror_product WHERE title = 'Older Product'`)[0];
+  assert.equal(olderRow.commission_pct, 20, "an existing product's own commission is not retroactively rewritten");
+
+  /* A NEW product naming the same vendor, with none of its own, picks up
+     the NEW rate. */
+  const newer = await approvedCall(f, "catalog.create_product", {
+    title: "Newer Product",
+    category_id: category.id,
+    variations: [{ title: "One size", price_minor: 1000, currency: "USD" }],
+    vendor: "Acme Mills",
+  });
+  assert.equal(newer.data.product.commission_pct, 25);
+});
+
+check("test_PRD_P0_136_square_custom_attributes__set_vendor_commission_is_ours_never_calls_square", async () => {
+  const f = await fixture();
+  await approvedCall(f, "catalog.create_vendor", { name: "Acme Mills", commission: 20, reason: "test" });
+  const vendorId = f.mirror("SELECT id FROM mirror_vendor WHERE name = 'Acme Mills'")[0].id;
+  const before = f.calls().length;
+  await approvedCall(f, "catalog.set_vendor_commission", { vendor_id: vendorId, commission: 25 });
+  assert.equal(f.calls().length, before, "a pure mirror write must never reach Square");
+});
+
 check("test_PRD_P0_136_square_custom_attributes__commission_must_be_a_whole_number_0_to_100", async () => {
   const f = await fixture();
   await approvedCall(f, "catalog.set_square_attributes", { handle: COAT_HANDLE, vendor: "Acme Mills", commission: 20 });

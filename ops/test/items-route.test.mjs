@@ -916,12 +916,27 @@ check("test_PRD_P0_136_square_custom_attributes__the_edit_form_posts_to_square_a
   assert.match(body, /<input name="style_id" value="01-04-001" placeholder="NN-NN-NNN" pattern="\\d\{2\}-\\d\{2\}-\\d\{3\}"/);
   assert.doesNotMatch(body, /<input name="unit_cost"/, "unit_cost is no longer a real form field anywhere");
   assert.match(body, /<input class="variations-unit-cost" placeholder="Cost/);
-  assert.match(body, /<input name="vendor" value="Acme Mills" placeholder="Vendor">/);
+  /* "The same kind of drop down schema that we have for categories... we
+     don't have to fill out any of these stuff per product." vendor is now
+     a picker (a hidden text input the picker's own JS drives, plus a
+     button showing the current name), not a free-text field — the same
+     "form as a transparent wrapper" shape .category-form already uses. */
+  assert.match(body, /<input type="text" name="vendor" value="Acme Mills" hidden>/);
+  assert.match(body, /<span class="vendor-picker-btn-label">Acme Mills<\/span>/);
   /* "Hint for vendor SKU should be just vendor SKU, not 'own SKU'... as
-     short as possible... commission just say COMM" — short placeholders,
-     with the fuller wording moved to a title tooltip instead of dropped. */
+     short as possible" — short placeholders, with the fuller wording
+     moved to a title tooltip instead of dropped. */
   assert.match(body, /<input name="vendor_code" value="ACME-4471" placeholder="Vendor SKU" title="The vendor's own SKU\/code">/);
-  assert.match(body, /<input name="commission" value="20" placeholder="COM%" title="Commission % \(0-100\)">/);
+  /* Commission is no longer typed per product — it lives on the vendor
+     itself (Admin -> Vendors) and only ever shows here, read-only. The
+     Vendors admin accordion (further down the same tile) DOES have its
+     own real commission inputs, so this checks only the per-product
+     vendor form itself, not the whole page. */
+  const vendorFormIdx = body.indexOf('<input type="text" name="vendor" value="Acme Mills" hidden>');
+  const vendorFormEndIdx = body.indexOf("</form>", vendorFormIdx);
+  const vendorFormBody = body.slice(vendorFormIdx, vendorFormEndIdx);
+  assert.doesNotMatch(vendorFormBody, /name="commission"/, "commission is no longer a per-product input");
+  assert.match(vendorFormBody, /<span class="vendor-commission-badge" title="Set centrally, in Admin → Vendors">20%<\/span>/);
   /* "Center the vendor SKU content too" — the owner's own words, extending
      the centering cost/MSRP/style_id already have to this field as well. */
   assert.match(body, /\.item-edit input\[name="vendor_code"\]\s*\{\s*text-align: center;\s*\}/);
