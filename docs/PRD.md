@@ -4704,6 +4704,28 @@ that does not trace to one of these is a process failure (see §12).
     approach fails the same way in the test suite that it failed in production, rather than passing
     silently against a fake that never knew the real rule existed.
 
+    **REVISED YET AGAIN — the `2ch` ID field turned out too SMALL this time: "now you made ID entry
+    fields too small!! Make them fit 2 numbers! Min size!!!"** `shared/design/theme.css` sets `* {
+    box-sizing: border-box }` globally, so `width: 2ch` on `.category-numeric-id`/`.category-new-
+    numeric-id` was being read as the field's own TOTAL width — its own 10px of padding and 2px of
+    border came OUT of those two characters' worth of room, leaving almost nothing for the digits
+    themselves. Fixed with an explicit `box-sizing: content-box` on just these two selectors, so `2ch`
+    means the CONTENT alone — the field is now sized to fit exactly two digits, with its padding and
+    border added on top the normal way, rather than squeezed inside a fixed total. "Fit to content,
+    minimum size" now actually means that.
+
+    **"Only highlight dirty elements with orange! That expanding categories header border should not
+    be orange unless it has modified children!"** `.categories-header:hover { border-color: var(
+    --accent); }` turned the whole Categories bar's border orange on a plain mouse-over — orange is
+    reserved elsewhere on this tile for a real, meaningful state (agentic input, or a field's own
+    `.field-dirty` unsaved-change marker), never a generic hover cue. Removed outright rather than
+    replaced with a real "has an unsaved change" check: every field inside the Categories accordion
+    applies immediately (no batching, no Save gate), so nothing in it is ever actually "dirty, not yet
+    saved" for the border to represent in the first place — the header's own `cursor: pointer` already
+    signals it opens and closes. (`.variations-header`'s own identical hover-border was left untouched
+    — its own fields DO carry a real `.field-dirty` state through the tile's batched Save, so whether
+    it should key off that instead is a separate, more involved question nobody has asked yet.)
+
 74. **`Test-PRD-P0-139-honest_write_failures`** — A Square write refused with a plain `Square POST
     /v2/catalog/object failed with 400` and nothing else — the owner's own words, pasting exactly that
     line after an edit silently went nowhere: "just make sure all of the fields work... with this post
