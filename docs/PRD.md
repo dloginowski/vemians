@@ -4510,6 +4510,47 @@ that does not trace to one of these is a process failure (see §12).
     400 and a realistic `errors` array, asserting the specific category/code/field it names reaches
     `runTool`'s own returned `error` string, not just that a failure occurred.
 
+    **REVISED: the detail this fix surfaces reads as a paragraph, not a label, and the owner's own
+    words asked for a different presentation entirely — "in smaller font... have a little error message
+    pop up somewhere in a more elegant way, like above the field, not modifying heights and shit...
+    I should be able to just click on it and it copies into my clipboard."** `.item-edit-error`
+    (`ops/src/views.js`) used to be a plain `<p>` in normal document flow, appended right after the
+    refused form — a real Square rejection's own detail is long enough that its own height visibly
+    pushed every row below it down the page while it existed. It is now a small `position: fixed`
+    popover (`showFormError`/`positionErrorPopover`), placed from the refused field's own live
+    `getBoundingClientRect()` rather than an absolutely-positioned ancestor — the four different
+    anchors an error can attach to (a form, a stock row, an add-category form, a category row) share no
+    single positioned parent to anchor an ordinary `absolute` child against. Floats ABOVE the field by
+    default, flipping to below only when there is not enough room above, so a refusal on the very top
+    row of a scrolled tile is never clipped off-screen. The whole popover is the click target — no
+    separate copy button, since the message already exists only to be read and copied — and copying
+    swaps its own text for "Copied to clipboard" for a second rather than a separate toast, the same
+    "the thing itself is the feedback" convention the stock stepper's in-place count update already
+    uses. Dismissed by a click anywhere outside it, the same convention `closeAllCategoryPickers`
+    already established for the category picker's own menu. Verified live in a real headless browser:
+    the tile's own height is provably unchanged while the popover is showing, and a click both copies
+    the exact message to the clipboard and dismisses on the next outside click.
+
+75. **`Test-PRD-P0-140-idempotency_key_covers_the_whole_edit`** — The very first real failure the
+    P0-139 fix above ever surfaced, the owner's own words, pasted verbatim: `Square POST
+    /v2/catalog/object failed with 400 — INVALID_REQUEST_ERROR/IDEMPOTENCY_KEY_REUSED (field:
+    idempotency_key): The idempotency key can only be retried with the same request data.`
+    `catalog.update_product`'s own `idempotency_key` (`ops/src/tools/catalog-writer.js`) hashed only
+    `external_ref`/`source_version`/`style_id`/vendor/commission — NEVER title, description, category
+    or variations, the exact fields a plain title-or-description-or-category edit is actually about.
+    `source_version` stays the SAME across every attempt Square has not yet applied — a failed call, or
+    simply a second edit made before the first one's own `syncAfterWrite` landed — so two edits with
+    genuinely DIFFERENT content, made in that window, hashed to the IDENTICAL key while sending
+    DIFFERENT bodies: exactly the case Square's own idempotency contract refuses outright, rather than
+    silently accepting the second as a no-op retry. Fixed by folding every field that can actually vary
+    this upsert's own content — title, description, the resolved category ref, and the full resolved
+    variations array — into the same key material the style/vendor/commission fields already
+    contributed; two calls now only ever collide when they would send the identical body anyway, which
+    is the correct idempotent-retry case Square's own contract describes. Proven by forcing
+    `source_version` back down between two calls (simulating the exact window the real bug lived in —
+    a second edit arriving before the first's own resync ran) and asserting two different descriptions
+    still produce two different keys.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

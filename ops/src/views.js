@@ -2018,8 +2018,21 @@ ${INPUT_BAR_CSS}
 /* A check() refusal (a malformed style_id, a vendor with no commission, a
    unit cost with no vendor) shows up right here, next to the form that was
    refused — not on a separate page. The owner's own words: "I don't want
-   these errors to send me to a new page." */
-.item-edit-error { margin: 4px 0 0; font-size: 11px; color: var(--accent); }
+   these errors to send me to a new page." REVISED: a Square rejection can
+   now carry its own full category/code/field/detail (P0-139), which reads
+   as a paragraph, not a label — the owner's own words: "in smaller font...
+   have a little error message pop up somewhere in a more elegant way, like
+   above the field, not modifying heights and shit... I should be able to
+   just click on it and it copies into my clipboard." position: fixed,
+   placed by positionErrorPopover (below) from the refused field's own
+   bounding rect, so it floats OVER the layout rather than a plain paragraph
+   in normal flow pushing every row below it down while it exists. */
+.item-edit-error {
+  position: fixed; z-index: 60; max-width: 320px; padding: 6px 8px; border-radius: 4px;
+  background: var(--ink); color: var(--ground); font-size: 10px; line-height: 1.4;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35); cursor: pointer; word-break: break-word;
+}
+.item-edit-error:hover { opacity: 0.92; }
 `;
 
 /* ONE label, for ONE state worth tagging. The owner's own words, a
@@ -3220,12 +3233,56 @@ async function submitEditForm(form) {
     return false;
   }
 }
+/* Floats the popover ABOVE the field it refused (the owner's own words:
+   "like above the field"), flipping below only when there is not enough
+   room above — a refusal on the very top row of a scrolled tile must still
+   be readable rather than clipped off-screen. position: fixed is computed
+   from the anchor's own live rect rather than an absolutely-positioned
+   ancestor, since the anchor here is a form, a stock row, an add-category
+   form or a category row — four different containers with no single
+   positioned parent in common to anchor an absolutely-positioned child
+   against. */
+function positionErrorPopover(p, anchor) {
+  const rect = anchor.getBoundingClientRect();
+  const above = rect.top - p.offsetHeight - 6;
+  p.style.left = Math.max(4, rect.left) + "px";
+  p.style.top = (above > 4 ? above : rect.bottom + 6) + "px";
+}
+/* "I should be able to just click on it and it automatically copies into
+   my clipboard" — the whole popover is the click target, not a separate
+   button, since it is already small and already exists only to be read
+   and copied. Briefly swaps its own text for confirmation rather than a
+   separate toast, the same "the thing itself is the feedback" the stock
+   stepper's in-place count update already uses. */
+function copyErrorText(p, message) {
+  if (!navigator.clipboard?.writeText) return;
+  navigator.clipboard
+    .writeText(message)
+    .then(() => {
+      const original = p.textContent;
+      p.textContent = "Copied to clipboard";
+      setTimeout(() => {
+        if (p.isConnected) p.textContent = original;
+      }, 1000);
+    })
+    .catch(() => {});
+}
 function showFormError(form, message) {
   const p = document.createElement("p");
   p.className = "item-edit-error";
   p.textContent = message;
+  p.title = "Click to copy";
   form.insertAdjacentElement("afterend", p);
+  positionErrorPopover(p, form);
+  p.addEventListener("click", () => copyErrorText(p, message));
 }
+/* Outside-click dismiss, the same convention closeAllCategoryPickers
+   already uses — a popover with no layout height of its own has no other
+   natural way to leave once its own message has been read or copied. */
+document.addEventListener("click", (e) => {
+  if (e.target.closest(".item-edit-error")) return;
+  document.querySelectorAll(".item-edit-error").forEach((p) => p.remove());
+});
 
 /* The tile's own ONE Save: every form marked dirty (see refreshDirtyState
    above) submits in turn, and the page only reloads once, at the end, if every
