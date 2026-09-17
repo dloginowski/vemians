@@ -1609,23 +1609,24 @@ check("test_PRD_P0_136_square_custom_attributes__syncing_a_vendor_lets_a_variant
   assert.equal(vendorRows[0].name, "Acme Mills Inc.", "Square is authoritative for the vendor's own name too");
 });
 
-check("test_PRD_P0_136_square_custom_attributes__list_vendors_sends_a_non_empty_filter_square_now_requires", async () => {
-  /* A real bug, caught live from the owner's own copied error: "Square
-     POST /v2/vendors/search failed with 400 —
-     INVALID_REQUEST_ERROR/VALUE_EMPTY (field: filter): Value for filter
-     should not be empty." listVendors used to send a bare {} body for
-     "everything" — Square's own current API reference (confirmed against
-     a real documented example, since developer.squareup.com itself is
-     unreachable from this environment) now requires query.filter to be
-     present and non-empty. This fake asserts the EXACT shape Square's own
-     docs show, not just that a body was sent — the same discipline
-     idempotency_key/category material get elsewhere in this suite. */
-  const seenBodies = [];
-  const fetchImpl = async (url, init = {}) => {
+/* A fake that mirrors what the REAL account actually enforces (confirmed
+   live, twice, over two different wrong guesses): filter must be present
+   and non-empty, AND flat at the top level -- a query wrapper around it is
+   itself refused as an unrecognised field, not merely ignored. Shared by
+   both tests below so this account's exact rules are asserted in one
+   place. */
+function vendorSearchFake(onBody) {
+  return async (url, init = {}) => {
     if (!url.includes("/v2/vendors/search")) return new Response(JSON.stringify({ errors: [{ code: "NOT_FOUND" }] }), { status: 404 });
     const body = init.body ? JSON.parse(init.body) : {};
-    seenBodies.push(body);
-    if (!body?.query?.filter || Object.keys(body.query.filter).length === 0) {
+    onBody?.(body);
+    if (body.query !== undefined) {
+      return new Response(
+        JSON.stringify({ errors: [{ category: "INVALID_REQUEST_ERROR", code: "BAD_REQUEST", field: "query", detail: 'The field named "query" is unrecognized.' }] }),
+        { status: 400 },
+      );
+    }
+    if (!body?.filter || Object.keys(body.filter).length === 0) {
       return new Response(
         JSON.stringify({ errors: [{ category: "INVALID_REQUEST_ERROR", code: "VALUE_EMPTY", field: "filter" }] }),
         { status: 400 },
@@ -1633,12 +1634,30 @@ check("test_PRD_P0_136_square_custom_attributes__list_vendors_sends_a_non_empty_
     }
     return new Response(JSON.stringify({ vendors: [{ id: "SQ_VENDOR_1", name: "Acme Mills", status: "ACTIVE" }] }));
   };
+}
+
+check("test_PRD_P0_136_square_custom_attributes__list_vendors_sends_a_flat_non_empty_filter_this_account_actually_accepts", async () => {
+  /* A real bug, caught live from the owner's own copied errors -- TWICE.
+     First: "Square POST /v2/vendors/search failed with 400 —
+     INVALID_REQUEST_ERROR/VALUE_EMPTY (field: filter): Value for filter
+     should not be empty." listVendors used to send a bare {} body for
+     "everything". Fixed by wrapping filter in a query object, going by a
+     documented example this environment could not verify directly
+     (developer.squareup.com is unreachable here) — WRONG, and the real
+     account said so immediately: "INVALID_REQUEST_ERROR/BAD_REQUEST
+     (field: query): The field named "query" is unrecognized." Both real
+     errors actually named `filter` itself, never `query` — this account's
+     real API takes filter FLAT. A live 400 is ground truth a search
+     result is not. */
+  const seenBodies = [];
+  const fetchImpl = vendorSearchFake((body) => seenBodies.push(body));
   const client = createSquareClient(squareEnv(), { fetchImpl });
 
   const vendors = await listVendors(client);
   assert.equal(vendors.length, 1);
+  assert.equal(seenBodies[0]?.query, undefined, "no query wrapper -- this account refuses it as an unrecognised field");
   assert.deepEqual(
-    seenBodies[0]?.query?.filter?.status?.slice().sort(),
+    seenBodies[0]?.filter?.status?.slice().sort(),
     ["ACTIVE", "INACTIVE"],
     "both statuses, matching this function's own \"the full list\" contract — an inactive vendor must not be excluded by the fix",
   );
@@ -1651,19 +1670,10 @@ check("test_PRD_P0_136_square_custom_attributes__a_full_catalog_pull_does_not_di
      manual, threw before ever reaching a single catalog object. Proven
      here the same way P0-37's own pagination test proves the whole
      adapter, not just the pure normaliser: a fake server that enforces
-     Square's own real current validation on /v2/vendors/search, and a
-     full sweep that must still complete against it. */
+     this account's own real current validation on /v2/vendors/search, and
+     a full sweep that must still complete against it. */
   const fetchImpl = async (url, init = {}) => {
-    if (url.includes("/v2/vendors/search")) {
-      const body = init.body ? JSON.parse(init.body) : {};
-      if (!body?.query?.filter || Object.keys(body.query.filter).length === 0) {
-        return new Response(
-          JSON.stringify({ errors: [{ category: "INVALID_REQUEST_ERROR", code: "VALUE_EMPTY", field: "filter" }] }),
-          { status: 400 },
-        );
-      }
-      return new Response(JSON.stringify({ vendors: [] }));
-    }
+    if (url.includes("/v2/vendors/search")) return vendorSearchFake()(url, init);
     if (url.includes("/v2/catalog/list")) return new Response(JSON.stringify({ objects: [] }));
     return new Response(JSON.stringify({ errors: [{ code: "NOT_FOUND" }] }), { status: 404 });
   };
