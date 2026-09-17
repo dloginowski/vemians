@@ -520,7 +520,27 @@ async function ops(request, env, path) {
     if (!role) {
       return json({ error: "Your Access identity is in no group this application maps to a role." }, 403);
     }
-    const result = await runTool("catalog.resync_from_square", {}, { actor: email, role, env });
+    /*
+     * A real bug, caught live from the owner's own copied error: this used
+     * to make ONE runTool call and treat anything other than `ok: true` as
+     * a failure. resync_from_square is T2, and a T2 call with no
+     * approvalToken NEVER returns `ok: true` OR an `.error` — it returns
+     * `needsApproval: true` (tools/index.js's own gate). So this route
+     * fell straight through to the generic "could not resync from Square"
+     * fallback on EVERY single click, regardless of whether Square or the
+     * sync itself was actually healthy — the manual escape hatch this
+     * whole feature exists to provide had never once actually run. Fixed
+     * to the same two-call, apply-immediately dance every other Items tab
+     * route already uses (P0-135): the first call only ever ISSUES the
+     * approval a verified manager's own click already IS the decision for;
+     * the second call spends it, under the same identity, in the same
+     * request.
+     */
+    const gate = await runTool("catalog.resync_from_square", {}, { actor: email, role, env });
+    if (!gate?.needsApproval) {
+      return json({ error: gate?.error || "could not resync from Square" }, 403);
+    }
+    const result = await runTool("catalog.resync_from_square", {}, { actor: email, role, env, approvalToken: gate.data.approval.token });
     if (!result.ok) return json({ error: result.error || "could not resync from Square" }, 403);
     return json(result.data);
   }
