@@ -1526,15 +1526,19 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_category_control_is_on
      the same height, the same style, has a chevron in it... an
      extension of the same UI [as] the field for the name" — the label
      is its own span (so the JS that updates it on a pick never wipes
-     out the chevron icon sitting beside it), and a CARET_ICON <svg>
-     renders right after it, rotated to point down like a <select>'s
-     own arrow. */
+     out the chevron icon sitting beside it). REVISED YET AGAIN: "it has
+     a chevron on the left... has to be pointing to the right... when
+     you press it, it will expand, aiming down" — the chevron sits
+     BEFORE the label, and it is not a static down-arrow: it is the same
+     right-pointing-until-expanded CARET_ICON convention every other
+     caret on this tile uses, rotating only once its own .category-picker
+     wrapper carries .expanded. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
   assert.match(body, /<input type="text" name="category_id" value="cat1" hidden>/);
-  assert.match(body, /<button type="button" class="category-picker-btn"[^>]*>[\s\S]{0,40}<span class="category-picker-btn-label">Outerwear<\/span><svg/);
+  assert.match(body, /<button type="button" class="category-picker-btn"[^>]*>[\s\S]{0,40}<svg[\s\S]{0,300}<\/svg><span class="category-picker-btn-label">Outerwear<\/span>/);
   assert.match(body, /<button type="button" class="category-picker-option selected" data-category-id="cat1" data-category-path="Outerwear">Outerwear<\/button>/);
 });
 
@@ -1547,6 +1551,28 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_picker_shows_the_full_
   const body = await res.text();
   assert.match(body, /<span class="category-picker-btn-label">Outerwear \/ Coats<\/span>/);
   assert.match(body, /data-category-id="cat2" data-category-path="Outerwear \/ Coats"/);
+});
+
+check("test_PRD_P0_135_item_edit_applies_immediately__the_chevron_only_rotates_once_its_own_picker_is_expanded", async () => {
+  /* "It has a chevron on the left... has to be pointing to the right...
+     when you press it, it will expand, aiming down." Not a static
+     down-arrow (a prior revision's own mistake) — the rotation is keyed
+     off .category-picker.expanded, the same convention every other
+     caret on this tile already uses. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.match(
+    body,
+    /\.category-picker-btn svg \{ flex: 0 0 auto; color: var\(--muted\); transition: transform 0\.15s; \}/,
+    "the bare rule (no ancestor .expanded) must carry no rotation at all",
+  );
+  assert.match(
+    body,
+    /\.category-picker\.expanded > \.category-picker-btn svg\s*\{\s*transform:\s*rotate\(90deg\);\s*\}/,
+    "rotation is scoped to .category-picker.expanded",
+  );
 });
 
 check("test_PRD_P0_135_item_edit_applies_immediately__an_uncategorized_product_shows_the_placeholder_and_no_selection", async () => {
