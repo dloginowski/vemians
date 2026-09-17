@@ -886,14 +886,16 @@ check("test_PRD_P0_136_square_custom_attributes__neither_row_renders_when_unset"
 
 check("test_PRD_P0_136_square_custom_attributes__the_edit_form_posts_to_square_attributes_prefilled_with_current_values", async () => {
   /* Two separate forms now, both still square-attributes — style_id moved
-     into the variations accordion's own header (P0-135's own revision),
-     vendor/vendor_code/commission stayed where they were. unit_cost moved
-     out of any form at all, once it stopped being one value for the whole
-     product ("all the variants can have a different unit cost too") — it
-     is now a per-variation field reached through /variations, and the
-     header's own "Cost" input is a pure client-side broadcaster like MSRP,
-     prefilled from nothing (see the P0-135 accordion test below for its
-     own per-variation value). */
+     into .category-title-row, to the left of the category dropdown
+     (REVISED: "I want to get rid of the style ID label and I want to take
+     the style ID input field and put it to the left of the category
+     dropdown in the category row"), vendor/vendor_code/commission stayed
+     where they were. unit_cost moved out of any form at all, once it
+     stopped being one value for the whole product ("all the variants can
+     have a different unit cost too") — it is now a per-variation field
+     reached through /variations, and the header's own "Cost" input is a
+     pure client-side broadcaster like MSRP, prefilled from nothing (see
+     the P0-135 accordion test below for its own per-variation value). */
   const mirror = mirrorDb();
   seedProduct(mirror, {
     style_id: "01-04-001",
@@ -906,7 +908,11 @@ check("test_PRD_P0_136_square_custom_attributes__the_edit_form_posts_to_square_a
   const body = await res.text();
   const squareAttrForms = [...body.matchAll(/<form method="post" action="\/items\/wool-coat\/square-attributes"[^>]*>/g)];
   assert.equal(squareAttrForms.length, 2, "style_id and vendor/vendor_code/commission are two separate forms now");
-  assert.match(body, /<span class="variations-header-label">Style ID<\/span>/, "a real label now, not just the placeholder");
+  assert.doesNotMatch(body, /variations-header-label/, "no more Style ID label anywhere -- the placeholder is the only hint now");
+  const titleRowIdx = body.indexOf('<div class="category-title-row">');
+  const categoryFormIdx = body.indexOf('<form method="post" action="/items/wool-coat/category"', titleRowIdx);
+  const styleIdIdx = body.indexOf('<input name="style_id"', titleRowIdx);
+  assert.ok(styleIdIdx > titleRowIdx && styleIdIdx < categoryFormIdx, "style_id must render before the category dropdown, inside the category row");
   assert.match(body, /<input name="style_id" value="01-04-001" placeholder="NN-NN-NNN" pattern="\\d\{2\}-\\d\{2\}-\\d\{3\}"/);
   assert.doesNotMatch(body, /<input name="unit_cost"/, "unit_cost is no longer a real form field anywhere");
   assert.match(body, /<input class="variations-unit-cost" placeholder="Cost/);
@@ -1015,11 +1021,12 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_variations_accordion_h
   assert.match(body, /<input type="hidden" name="currency_0" value="USD">/);
   assert.match(body, /<input class="variation-title" name="title_0" value="One size" placeholder="Variation name">/);
   assert.match(body, /<input class="variation-price" name="price_0" value="450\.00" placeholder="Price">/);
-  /* style_id lives in the accordion's own header; unit cost is now this
-     ONE variation's own field, since "all the variants can have a
-     different unit cost too." */
-  assert.match(body, /<span class="variations-header-label">Style ID<\/span>/);
-  assert.match(body, /<input name="style_id" value="01-04-001" placeholder="NN-NN-NNN"/, "just the format hint, no parentheses, now that there's a real label");
+  /* REVISED: style_id no longer lives in the accordion's own header at
+     all -- it moved to .category-title-row, no label, just the format
+     hint placeholder. unit cost is now this ONE variation's own field,
+     since "all the variants can have a different unit cost too." */
+  assert.doesNotMatch(body, /variations-header-label/);
+  assert.match(body, /<input name="style_id" value="01-04-001" placeholder="NN-NN-NNN"/, "just the format hint, no label at all");
   assert.match(body, /<input class="variation-unit-cost" name="unit_cost_0" value="42\.50" placeholder="Cost">/);
   /* "For the cost field, again, just cost, nothing else... you should not
      have hints overflowing" — the header's own broadcasters carry only
@@ -1100,35 +1107,21 @@ check("test_PRD_P0_135_item_edit_applies_immediately__header_and_row_fields_are_
     body,
     /\.variations-header input, \.variations-body input\[name\^="price_"\], \.variations-body input\[name\^="unit_cost_"\]\s*\{\s*text-align: center;/,
   );
-  /* REVISED: "make the style ID box vertically aligned with the inventory
-     plus/minus box... shift the style ID label over... you may increase
-     the style ID font size to fill that box so it's the same width as
-     the inventory fields below it" — width matches the stock stepper's
-     own width, with a larger font-size, and the spacer moved to BEFORE
-     style_id (between it and "Variations") so style_id/Cost/MSRP read as
-     one packed group at the header's own right end, the same way
-     stepper/Cost/price already are in each row. REVISED AGAIN: "make the
-     inventory menu a tiny bit wider if you are at limit with style id" —
-     both widened from 5.5em to 6em together. REVISED AGAIN: "remove some
-     side padding, it's wider than it has to be" — the wider box no
-     longer needs the shared 5px side padding, so it dropped to 3px.
-     REVISED AGAIN: "balance it out against inventory to get them
-     matching 100%" — .variation-stock-stepper itself has zero side
-     padding (its buttons sit flush against its own border), so zero,
-     not any smaller nonzero value, is the actual match. */
-  assert.match(body, /\.variations-header input\[name="style_id"\]\s*\{[^}]*width: 6em[^}]*font-size: 13px[^}]*padding: 1px 0/, "zero side padding matches the stepper beside it, whose own buttons sit flush against its border");
+  /* REVISED: style_id no longer lives in the Variations header at all --
+     "I want to get rid of the style ID label and I want to take the
+     style ID input field and put it to the left of the category dropdown
+     in the category row." It kept its own width (6em, unchanged) and
+     centered text, now scoped to .item-edit since that is where it
+     actually renders. */
+  assert.match(body, /\.item-edit input\[name="style_id"\]\s*\{[^}]*width: 6em[^}]*text-align: center/);
   assert.match(body, /<span class="variations-header-spacer"><\/span>/, "an invisible spacer absorbs the header's own leftover width, the same way each row's own title does");
   assert.match(body, /\.variations-header-spacer\s*\{\s*flex: 1 1 auto;\s*\}/);
   assert.match(body, /\.variations-body \.row\s*\{[^}]*padding: 3px 8px 3px 0/, "an 8px right inset matches the header's own 8px right padding");
-  const accordionMarkup2 = body.indexOf('<div class="variations-accordion">');
   const spacerMarkup = body.indexOf('<span class="variations-header-spacer">');
-  /* Two forms share this same action now (the vendor form, moved above
-     the accordion in an earlier revision, and style_id's own, inside it)
-     — search from the accordion onward for style_id's own occurrence. */
-  const styleIdFormMarkup = body.indexOf('action="/items/wool-coat/square-attributes"', accordionMarkup2);
+  const unitCostMarkup = body.indexOf('<input class="variations-unit-cost"');
   assert.ok(
-    body.indexOf('<span class="variations-label">Variations</span>') < spacerMarkup && spacerMarkup < styleIdFormMarkup,
-    "the spacer now sits between the Variations label and the style_id form",
+    body.indexOf('<span class="variations-label">Variations</span>') < spacerMarkup && spacerMarkup < unitCostMarkup,
+    "the spacer now sits between the Variations label and Cost/MSRP, style_id having moved out of the header entirely",
   );
 });
 
@@ -1625,6 +1618,43 @@ check("test_PRD_P0_138_nested_categories__the_name_input_never_turns_orange_on_a
     /\.category-node-row:has\(\.category-node-toggle\):hover \.category-node-name \{ color: var\(--accent\); \}/,
     "hovering (which merely focusing the field to edit it also does) must never recolor the name orange",
   );
+});
+
+check("test_PRD_P0_135_item_edit_applies_immediately__no_hover_state_anywhere_in_the_details_panel_turns_anything_orange", async () => {
+  /* The owner's own words: "As a general rule, in the details panel,
+     there should not be any orange highlights on anything unless it is
+     dirty. So the checkbox to save the page, that's orange when
+     something is dirty. If anything or its children is dirty, then it
+     becomes orange. That's it. Me clicking on a chevron to open up a
+     panel should not make that chevron orange, okay?" A full sweep: every
+     caret/chevron, the category picker button, the +/remove buttons, the
+     Admin summary, and the stock stepper all used to recolor orange on
+     plain hover. None of them do any more. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  const goneRules = [
+    /\.category-picker-btn:hover \{ border-color: var\(--accent\); color: var\(--accent\); \}/,
+    /\.category-picker-toggle:hover \{ color: var\(--accent\); \}/,
+    /\.variations-toggle:hover \{ color: var\(--accent\); \}/,
+    /\.categories-toggle:hover \{ color: var\(--accent\); \}/,
+    /\.category-node-toggle:hover \{ color: var\(--accent\); \}/,
+    /\.category-remove-toggle:hover:not\(:disabled\) \{ color: var\(--accent\); border-color: var\(--accent\); \}/,
+    /\.category-add-toggle:hover, \.category-create:hover \{ color: var\(--accent\); border-color: var\(--accent\); \}/,
+    /\.item-add-field summary:hover \{ color: var\(--accent\); \}/,
+  ];
+  for (const rule of goneRules) {
+    assert.doesNotMatch(body, rule, `must be gone: ${rule}`);
+  }
+  /* The stock stepper's own hover keeps its neutral background shift
+     (not orange) -- only the orange text color was removed from it. */
+  assert.doesNotMatch(body, /\.variation-stock-step:hover \{ color: var\(--accent\)/, "no orange text on stock-step hover");
+  assert.match(body, /\.variation-stock-step:hover \{ background: var\(--image-ground\); \}/, "a neutral hover background is fine, since it is not orange");
+  /* Orange survives in exactly the two places it is supposed to: a real
+     dirty field, and the Variants header's own real dirty-children check. */
+  assert.match(body, /\.item-tile input\.field-dirty, \.item-tile select\.field-dirty, \.item-tile textarea\.field-dirty \{ border-color: var\(--accent\); \}/);
+  assert.match(body, /\.variations-accordion:has\(\.field-dirty\) \.variations-header \{ border-color: var\(--accent\); \}/);
 });
 
 check("test_PRD_P0_138_nested_categories__the_top_level_add_button_lives_in_the_header_with_no_label_text", async () => {
@@ -2176,12 +2206,16 @@ check("test_PRD_P0_131_item_status_filter__the_collapsed_tile_shows_title_price_
   const body = await res.text();
   assert.match(body, /<div class="item-top"><h3>Wool Coat<\/h3>\s*<div class="item-top-right">\s*<span class="item-price">\$ 450<\/span>/);
   /* "I don't want to see the in-store tag... what's the in-store for?" —
-     direct_link (the default, seeded here) gets no channel tag at all
-     now, only the category. */
+     direct_link (the default, seeded here) gets no channel tag at all.
+     REVISED: "remove the category pill from the bottom right of the
+     image" — the category earns no tag here at all any more either, so
+     an active, direct_link product with no vendor renders no tags at
+     all. */
   assert.match(
     body,
-    /<div class="item-bottom"><span class="item-style-id">01-04-001<\/span><div class="item-tags"><span class="item-tag">Outerwear<\/span><\/div><\/div>/,
+    /<div class="item-bottom"><span class="item-style-id">01-04-001<\/span><div class="item-tags"><\/div><\/div>/,
   );
+  assert.doesNotMatch(body, /<span class="item-tag">Outerwear<\/span>/, "the category no longer earns a tag on the thumbnail at all");
 });
 
 check("test_PRD_P0_130_item_tile_photo__everything_else_moves_into_the_expanded_only_detail_section", async () => {
@@ -2216,15 +2250,18 @@ check("test_PRD_P0_130_item_tile_photo__no_dedicated_expand_button_a_click_anywh
 check("test_PRD_P0_130_item_tile_photo__only_a_website_item_gets_a_channel_tag", async () => {
   /* "Web is a much shorter, cleaner tag... what's the in-store for?" —
      direct_link (the assumed, unremarkable default) gets no tag at all;
-     only being ALSO on the website is worth calling out. */
+     only being ALSO on the website is worth calling out. REVISED: "remove
+     the category pill from the bottom right of the image" — the category
+     no longer earns a tag here either, website or not. */
   const mirror = mirrorDb();
   seedProduct(mirror, { channel: "website" });
   const res = await get("/items", STAFF, env(mirror));
   const body = await res.text();
   assert.match(
     body,
-    /<div class="item-bottom"><span class="item-style-id"><\/span><div class="item-tags"><span class="item-tag channel-website">Web<\/span><span class="item-tag">Outerwear<\/span><\/div><\/div>/,
+    /<div class="item-bottom"><span class="item-style-id"><\/span><div class="item-tags"><span class="item-tag channel-website">Web<\/span><\/div><\/div>/,
   );
+  assert.doesNotMatch(body, /<span class="item-tag">Outerwear<\/span>/, "the category no longer earns a tag on the thumbnail at all");
   assert.doesNotMatch(body, />In store</, "In store is never rendered as a tag any more");
 });
 

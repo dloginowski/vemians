@@ -3489,6 +3489,15 @@ that does not trace to one of these is a process failure (see §12).
     own words, seeing it live: "make those bars more opaque, so like 75%, because they're still too
     transparent to be visible in the item thumbnail view."
 
+    **REVISED YET AGAIN — the category no longer earns a tag on the thumbnail at all: "remove the
+    category pill from the bottom right of the image."** `tags` used to add `<span class="item-tag">
+    ${category_name}</span>` whenever a product had one, alongside the channel/inactive tags in the
+    same `.item-bottom .item-tags` spot; that pill is gone outright now — only the channel (`Web`)
+    and `Inactive` still earn a tag here, exactly as this feature's own earlier revisions already
+    established for those two. `data-category` stays on the `<article>` itself, unaffected — the
+    category filter menu still filters correctly; only the always-visible pill on the photo itself
+    is gone.
+
 67. **`Test-PRD-P0-132-item_deep_link`** — The owner's own words: "I need to have a button
     somewhere, maybe top right, when I expand the product. I want to get a deep link into that
     expanded view so I can send it to somebody."
@@ -3904,6 +3913,41 @@ that does not trace to one of these is a process failure (see §12).
     is ever left dirty-but-unsaved in the first place (every field there applies immediately, no
     batching, unlike Variations), so it stays plain gray — there is no dirty state for `:has()` to
     ever find there today.
+
+    **REVISED YET AGAIN — the general rule, stated once and for all: "there should not be any
+    orange highlights on anything unless it is dirty... the checkbox to save the page, that's
+    orange when something is dirty. If anything or its children is dirty, then it becomes orange.
+    That's it. Me clicking on a chevron to open up a panel should not make that chevron orange."**
+    A full sweep found EIGHT more places still recoloring orange on plain hover, none tied to any
+    dirty state: `.category-picker-btn`, `.category-picker-toggle` (a chevron inside the category
+    picker's own dropdown tree), `.variations-toggle`, `.categories-toggle`, `.category-node-toggle`
+    (the outer Variations/Categories accordion carets and a category node's own, respectively),
+    `.category-remove-toggle`, `.category-add-toggle`/`.category-create`, and `.item-add-field
+    summary` (the Admin disclosure's own label). All eight removed outright — no replacement hover
+    color, the same choice already made for `.categories-header` two revisions back. `.variation-
+    stock-step`'s own hover kept its neutral `background: var(--image-ground)` shift (not orange)
+    and only lost the `color: var(--accent)` half. Orange now means exactly two things anywhere in
+    this panel, and nothing else: a field's own `.field-dirty` marker, or `.variations-accordion:
+    has(.field-dirty)` on the Variants header — both real, both already established, neither a
+    hover cue.
+
+    **REVISED YET AGAIN — style_id relocated out of the Variations header entirely: "I want to get
+    rid of the style ID label and I want to take the style ID input field and put it to the left of
+    the category dropdown in the category row."** Its own `<form>` (still posting to `/items/
+    <handle>/square-attributes`, unchanged) moves to be the FIRST child of `.category-title-row`,
+    ahead of the category picker — `.item-edit .category-title-row form { display: contents; }`
+    (already in place for the picker/title forms sharing that row) applies to it automatically, no
+    new CSS needed for that part. The `<span class="variations-header-label">Style ID</span>` label
+    is gone outright, along with `.variations-header-label`'s own now-unused rule — the placeholder
+    (`NN-NN-NNN`) is the only hint, the same convention vendor/commission already use with no
+    persistent label of their own. Its own width (`6em`) and centered text survive, re-scoped from
+    `.variations-header input[name="style_id"]` to `.item-edit input[name="style_id"]` since that is
+    where it actually renders now; the extra vertical-alignment padding tuned specifically to match
+    the OLD position next to the stock stepper no longer applies in its new spot, so it was dropped
+    along with the paragraphs of history explaining an alignment goal that no longer exists.
+    `.variations-header form { display: contents; }` and its own entry in the generic dirty-tracking
+    form selector are both gone too, since no `<form>` lives inside `.variations-header` any more at
+    all — `.item-edit form` in that same selector already covers style_id's new location.
 
 71. **`Test-PRD-P0-136-square_custom_attributes`** — The owner's own words, having weighed "ours,
     not Square's" (P0-71's own `channel`/`custom_fields`) against not reinventing something Square
