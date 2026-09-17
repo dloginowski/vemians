@@ -4056,21 +4056,30 @@ that does not trace to one of these is a process failure (see §12).
     caught live from the owner's own copied error — `Square POST /v2/vendors/search failed with 400 —
     INVALID_REQUEST_ERROR/VALUE_EMPTY (field: filter): Value for filter should not be empty.`**
     `listVendors` (`shared/commerce/square/vendors.js`) sent a bare `{}` body for "everything," which
-    Square's `SearchVendors` API used to accept. Square's own current API reference (its real documented
-    example, since `developer.squareup.com` itself is unreachable from this environment) now requires
-    `query.filter` to be present and non-empty. `pullCatalog` (`shared/commerce/square/index.js`) calls
-    `listVendors` FIRST, unconditionally, with no `try`/`catch` around it, on EVERY call — full sweep or
-    incremental, cron-scheduled or the manual "Resync from Square" button alike. So this single 400 was
-    silently aborting every catalog sync this entire codebase has, before it ever reached a single
-    catalog object: not a webhook configuration problem, not a cron scheduling problem, not the resync
-    button's own approval-gate bug (a real, separate bug also found and fixed this session) — every one
-    of those was a real issue in its own right, but this is why fixing them still left the mirror stuck.
-    Fixed by sending `query.filter.status: ["ACTIVE", "INACTIVE"]` — both statuses, since this
-    function's own contract is "the full list" and status is what tells an active vendor from an
-    inactive one one line below, not a criterion to exclude by. Proven two ways: `listVendors` against a
-    fake server that returns Square's own real error shape for an empty filter, asserting the exact
-    `query.filter.status` sent; and a full `pullCatalog` against that same strict fake, asserting the
-    whole sweep completes rather than throwing on the very first thing it does.
+    Square's `SearchVendors` API used to accept, but this account's own now requires a non-empty
+    `filter`. `pullCatalog` (`shared/commerce/square/index.js`) calls `listVendors` FIRST,
+    unconditionally, with no `try`/`catch` around it, on EVERY call — full sweep or incremental,
+    cron-scheduled or the manual "Resync from Square" button alike. So this single 400 was silently
+    aborting every catalog sync this entire codebase has, before it ever reached a single catalog
+    object: not a webhook configuration problem, not a cron scheduling problem, not the resync button's
+    own approval-gate bug (a real, separate bug also found and fixed this session) — every one of those
+    was a real issue in its own right, but this is why fixing them still left the mirror stuck.
+
+    **REVISED AGAIN: the first fix guessed wrong about the shape, and the live account said so
+    immediately — the very next real error, pasted verbatim: `Square POST /v2/vendors/search failed
+    with 400 — INVALID_REQUEST_ERROR/BAD_REQUEST (field: query): The field named "query" is
+    unrecognized.`** The first attempt wrapped `filter` in a `query` object, going by a documented
+    example this environment could not verify directly (`developer.squareup.com` is unreachable here).
+    Wrong — and both real errors, read carefully, actually named `filter` itself as the field, never
+    `query`: this account's real API takes `filter` FLAT, at the top level, no wrapper at all. A live
+    400 from the real account is ground truth an indexed search result is not, and the second one is
+    fixed to match it exactly: `{ filter: { status: ["ACTIVE", "INACTIVE"] } }` — both statuses, since
+    this function's own contract is "the full list" and status is what tells an active vendor from an
+    inactive one one line below, not a criterion to exclude by. Proven two ways, against a fake that
+    enforces both of this account's real rules at once (filter present and non-empty, AND no `query`
+    wrapper accepted): `listVendors` asserting the exact flat `filter.status` sent, and a full
+    `pullCatalog` against that same fake asserting the whole sweep completes rather than throwing on the
+    very first thing it does.
 
 72. **`Test-PRD-P0-137-item_active_toggle`** — The owner's own words, in the same request that moved
     Web and the newly-added Active checkbox beside the item's own name: "move the web and the active

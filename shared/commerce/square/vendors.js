@@ -23,19 +23,25 @@ import { idempotencyKey } from "./ids.js";
 export async function listVendors(client) {
   const vendors = [];
   for await (const page of client.paginate("POST", "/v2/vendors/search", {
-    /* A real bug, caught live from the owner's own copied error:
-       "Square POST /v2/vendors/search failed with 400 —
+    /* A real bug, caught live from the owner's own copied errors — TWICE.
+       First: "Square POST /v2/vendors/search failed with 400 —
        INVALID_REQUEST_ERROR/VALUE_EMPTY (field: filter): Value for filter
-       should not be empty." SearchVendors used to accept an unfiltered
-       {} body for "everything"; Square's own current API reference
-       (confirmed against a real documented example, since
-       developer.squareup.com is unreachable from this environment) now
-       requires query.filter to be present and non-empty. Filtering on
-       BOTH statuses is still "the full list" this function's own doc
-       comment promises — status is mapped to "inactive"/"active" right
-       below, so an inactive vendor still needs to come back, not be
-       excluded by the fix. */
-    body: { query: { filter: { status: ["ACTIVE", "INACTIVE"] } } },
+       should not be empty." SearchVendors used to accept an unfiltered {}
+       body for "everything"; misread as needing a `query.filter` wrapper
+       (a documented example this environment could not verify directly,
+       since developer.squareup.com is unreachable here) — WRONG, and the
+       live account said so immediately: "Square POST /v2/vendors/search
+       failed with 400 — INVALID_REQUEST_ERROR/BAD_REQUEST (field: query):
+       The field named "query" is unrecognized." Both real errors actually
+       named `filter` itself as the field, never `query` — this account's
+       real API takes `filter` FLAT, at the top level, no wrapper at all.
+       A live 400 from the real account is ground truth a search result
+       is not; trust it over anything this environment cannot verify
+       directly. Filtering on BOTH statuses is still "the full list" this
+       function's own doc comment promises — status is mapped to
+       "inactive"/"active" right below, so an inactive vendor still needs
+       to come back, not be excluded by the fix. */
+    body: { filter: { status: ["ACTIVE", "INACTIVE"] } },
     cursorIn: "body",
   })) {
     for (const v of page.vendors ?? []) {
