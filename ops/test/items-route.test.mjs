@@ -1343,9 +1343,10 @@ check("test_PRD_P0_138_nested_categories__a_node_with_children_gets_its_own_expa
      to be an expandable row" — a node with subcategories of its own gets
      the same caret convention the outer accordions already use,
      collapsed by default; a leaf gets an equal-width spacer instead, so
-     the name column still lines up either way. Order within a row: the
-     caret, the name, the + (add a subcategory), then the numeric ID
-     LAST. */
+     the name column still lines up either way. REVISED — the owner's own
+     words: "a plus button on the far right side, and then an ID field."
+     Order within a row: the caret, the name, the numeric ID, then the +
+     (add a subcategory) LAST — the true rightmost element. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   seedCategoryTree(mirror);
@@ -1358,14 +1359,31 @@ check("test_PRD_P0_138_nested_categories__a_node_with_children_gets_its_own_expa
   const outerwearRow = body.slice(outerwearNameIdx - 400, outerwearNameIdx + 500);
   assert.match(outerwearRow, /class="category-node-toggle"/, "Outerwear has a subcategory (Coats), so it gets a real caret");
   const nameIdx = outerwearRow.indexOf("category-node-name");
-  const addIdx = outerwearRow.indexOf("category-add-toggle");
   const idIdx = outerwearRow.indexOf("category-numeric-id");
-  assert.ok(nameIdx < addIdx && addIdx < idIdx, "name, then +, then the numeric ID last");
+  const addIdx = outerwearRow.indexOf("category-add-toggle");
+  assert.ok(nameIdx < idIdx && idIdx < addIdx, "name, then the numeric ID, then + last — the true rightmost element");
 
   const casualNameIdx = body.indexOf('<span class="category-node-name">Casual</span>');
   const casualRow = body.slice(casualNameIdx - 150, casualNameIdx + 200);
   assert.match(casualRow, /class="category-node-toggle-spacer"/, "Casual has no children yet, so a spacer, not a caret");
   assert.doesNotMatch(casualRow, /class="category-node-toggle"/);
+});
+
+check("test_PRD_P0_138_nested_categories__clicking_anywhere_on_a_category_row_expands_it_not_just_the_caret", async () => {
+  /* The owner's own words, still not satisfied on an earlier pass: "you
+     click the whole header and it expands the section" — the SAME
+     construction the outer Categories accordion header already uses
+     (categoriesHeader, above, toggled by a click anywhere on it except an
+     input or button), now applied identically to every category and
+     subcategory row at any depth, not just its own tiny caret button. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.match(
+    body,
+    /const nodeRow = e\.target\.closest\("\.category-node-row"\);\s*\n\s*if \(nodeRow && !e\.target\.closest\("input, button"\)\) \{\s*\n\s*nodeRow\.closest\("\.category-node"\)\?\.classList\.toggle\("expanded"\);/,
+    "clicking anywhere on a category's own row must expand it, excluding only its own + button and ID input",
+  );
 });
 
 check("test_PRD_P0_138_nested_categories__top_level_categories_use_their_own_wrapper_class_not_category_children", async () => {

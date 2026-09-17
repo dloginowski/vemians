@@ -4542,6 +4542,28 @@ that does not trace to one of these is a process failure (see §12).
     `reporting_category` still wins when it is live and accurate -- this only changes behavior for the
     orphaned case, which previously had no fallback at all.
 
+    **REVISED YET AGAIN: still not what was asked for — the owner's own words, after this whole
+    accordion had already shipped and been revised twice: "you still haven't done this... you click
+    the whole header and it expands the section... a plus button on the far right side, and then an ID
+    field."** Two real gaps, both fixed together. First, only the tiny caret button
+    (`.category-node-toggle`) ever toggled a node — clicking the row's own name, or anywhere else on
+    it, did nothing, unlike `.categories-header` one level up, which already toggled on a click
+    anywhere except an input or button. `onItemsGridChange` now gives every `.category-node-row` that
+    exact same handling: a click anywhere on it, excluding its own `+` button and ID input, expands or
+    collapses it — the caret keeps its own dedicated handler too, since a visible control should stay
+    clickable on its own, but it is no longer the ONLY way in. Second, the row's own previous order
+    (caret, name, `+`, then the numeric ID last) put the ID input to the RIGHT of the `+` button — the
+    opposite of "a plus button on the far right side, and then an ID field," which asks for the `+` to
+    be the true rightmost element with the ID just to its left. Reordered to caret, name, ID, `+` —
+    every category and subcategory at any depth reads the same way now, left to right, through the
+    same recursive `renderCategoryNodes` construction this feature has used since it first nested at
+    all. `.category-numeric-id`'s own `maxlength` stays at 2, matching the 2-digit segments a real
+    `style_id` (`NN-NN-NNN`) already uses — the owner considered 3 mid-request and returned to 2 for
+    exactly that reason. Verified live in a real headless browser: clicking a node's own name expands
+    and collapses it repeatedly, clicking its `+` button or its ID input changes neither the expand
+    state nor accidentally submits anything, and the rendered row order places the `+` button visibly
+    to the right of the ID input, not the other way around.
+
 74. **`Test-PRD-P0-139-honest_write_failures`** — A Square write refused with a plain `Square POST
     /v2/catalog/object failed with 400` and nothing else — the owner's own words, pasting exactly that
     line after an edit silently went nowhere: "just make sure all of the fields work... with this post

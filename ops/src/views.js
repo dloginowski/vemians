@@ -1836,6 +1836,11 @@ ${INPUT_BAR_CSS}
    leaf gets an equal-width spacer instead, so the name column still
    lines up whether or not that particular row happens to have one. */
 .category-node-row { display: flex; align-items: center; gap: 6px; padding: 3px 8px 3px 0; }
+/* A leaf category renders a spacer, not a real .category-node-toggle
+   button, in its own place — a pointer cursor on a row with nothing
+   underneath it to reveal would be a real (if small) affordance lie. */
+.category-node-row:has(.category-node-toggle) { cursor: pointer; }
+.category-node-row:has(.category-node-toggle):hover .category-node-name { color: var(--accent); }
 .category-node-toggle {
   flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; padding: 0;
   display: inline-flex; align-items: center; justify-content: center; border: none; background: transparent;
@@ -2079,8 +2084,12 @@ function renderCategoryNodes(categories, parentId) {
          convention the outer Categories/Variations accordions already
          use; a leaf gets a same-width spacer instead, so every row's own
          name still lines up in one column regardless of depth or which
-         siblings happen to have children. Order: caret, name, + (add a
-         subcategory), then the numeric ID last in the row. */
+         siblings happen to have children. REVISED — the owner's own
+         words: "a plus button on the far right side, and then an ID
+         field." Order is now caret, name, the numeric ID, THEN + last —
+         + is the true rightmost element in the row, not the ID input, so
+         every category and subcategory at any depth reads the same way
+         left to right. */
       const hasChildren = categories.some((g) => g.parent_id === c.id);
       const toggle = hasChildren
         ? `<button type="button" class="category-node-toggle" aria-label="Show subcategories of ${esc(c.name)}" title="Show subcategories">${CARET_ICON}</button>`
@@ -2101,8 +2110,8 @@ function renderCategoryNodes(categories, parentId) {
         <div class="category-node-row">
           ${toggle}
           <span class="category-node-name">${esc(c.name)}</span>
-          <button type="button" class="category-add-toggle" data-parent-id="${esc(c.id)}" aria-label="Add a subcategory under ${esc(c.name)}" title="Add a subcategory">+</button>
           <input class="category-numeric-id" data-category-id="${esc(c.id)}" data-category-name="${esc(c.name)}" value="${esc(c.numeric_id ?? "")}" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — leave blank to remove it">
+          <button type="button" class="category-add-toggle" data-parent-id="${esc(c.id)}" aria-label="Add a subcategory under ${esc(c.name)}" title="Add a subcategory">+</button>
         </div>
         <div class="category-add-form" hidden>
           <input type="text" class="category-new-name" placeholder="Subcategory name" maxlength="60">
@@ -3043,6 +3052,19 @@ document.getElementById("items-grid").addEventListener("click", async (e) => {
   const nodeToggle = e.target.closest(".category-node-toggle");
   if (nodeToggle) {
     nodeToggle.closest(".category-node")?.classList.toggle("expanded");
+    return;
+  }
+  /* REVISED — the owner's own words: "you click the whole header and it
+     expands the section," the SAME construction every category and
+     subcategory at any depth already shares with the top-level
+     .categories-header handler above. The caret above still has its own
+     dedicated handler (a decorative-looking element must stay clickable
+     on its own), but the rest of the row — the name, its own padding —
+     now toggles the identical way, excluding the "+" button and the ID
+     input so neither one accidentally collapses the row it belongs to. */
+  const nodeRow = e.target.closest(".category-node-row");
+  if (nodeRow && !e.target.closest("input, button")) {
+    nodeRow.closest(".category-node")?.classList.toggle("expanded");
     return;
   }
   /* "An add category button... that will create a subcategory in the
