@@ -2,7 +2,7 @@
  * catalog.* authoring — a staff member describes a garment to their own AI
  * client, and it lands in Square, priced and categorised.
  *
- * Inherits agent-tool-contract, then catalog-skills. Fourteen tools:
+ * Inherits agent-tool-contract, then catalog-skills. Fifteen tools:
  *
  *   catalog.categories       T0  the closed set of categories that EXIST
  *   catalog.product          T0  read one mirrored product, variants and all
@@ -12,6 +12,7 @@
  *   catalog.update_product   T2  the same path for an edit
  *   catalog.create_category  T2  separate, deliberate, and rarely right — now nestable
  *   catalog.rename_category  T2  the deliberate rename create_category's own describe text points at
+ *   catalog.remove_category  T2  archives it in Square, never a real delete — refused while it has children
  *   catalog.set_category_number T2 a category/subcategory's own 2-digit style_id code — OURS, not Square's
  *   catalog.set_channel      T2  which audience sees a product — OURS, not Square's
  *   catalog.set_active       T2  archive or restore a product — Square's own presence, not ours
@@ -1117,6 +1118,62 @@ export const catalogWriteTools = {
       return {
         renamed: true,
         category: out.category,
+        mirror_sync: out.sync,
+        authority: "square",
+      };
+    },
+  },
+
+  /*
+   * "Delete" a category/subcategory — never a real DELETE (ADR-008: every
+   * mirror_* table archives, never deletes). Refuses outright while the
+   * category still has subcategories of its own — the owner's own words:
+   * "I should not be able to delete a category until it has no more
+   * subcategories" — so the UI disables the button instead of ever
+   * reaching this refusal in normal use, the same disabled-not-hidden
+   * treatment a control gets when its own precondition is not yet met.
+   */
+  "catalog.remove_category": {
+    tier: "T2",
+    domain: "catalog",
+    stores: ["catalog_mirror"],
+    resources: ["square"],
+    minRole: "manager",
+    describe:
+      "Remove a category or subcategory from the working set — archives it in Square (present_at_all_" +
+      "locations: false), the same lifecycle catalog.set_active already uses for a product; the mirror " +
+      "row is archived, not deleted, and the object still exists in Square for anyone who needs to " +
+      "restore it there directly (no restore tool exists on this side yet). Refuses outright while the " +
+      "category still has any subcategory of its own — remove those first, or this would silently strand " +
+      "them with a parent no longer in the working set.",
+    undo: "restore it directly in Square's own app — there is no restore tool here yet",
+    schema: {
+      category_id: { type: "string", required: true, format: "id" },
+    },
+    async check(args, t) {
+      const categories = await listCategories(t.db.catalog_mirror);
+      const category = categories.find((c) => c.id === args.category_id);
+      if (!category) return { denied: `no category '${args.category_id}'` };
+
+      const children = categories.filter((c) => c.parent_id === category.id);
+      if (children.length > 0) {
+        return {
+          denied:
+            `"${category.name}" still has ${children.length} subcategor${children.length === 1 ? "y" : "ies"} ` +
+            `of its own (${children.map((c) => c.name).join(", ")}) — remove those first.`,
+        };
+      }
+
+      return {
+        ok: true,
+        summary: `remove "${category.name}" from the working set`,
+        preflight: { categoryId: category.id },
+      };
+    },
+    async run(args, t) {
+      const out = await t.square.removeCategory({ categoryId: t.preflight.categoryId });
+      return {
+        removed: true,
         mirror_sync: out.sync,
         authority: "square",
       };

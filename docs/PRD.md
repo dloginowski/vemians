@@ -4593,6 +4593,43 @@ that does not trace to one of these is a process failure (see §12).
     reloads on success rather than trying to patch every other place this same closed set of names is
     baked into rendered HTML (every other tile's own category picker).
 
+    **REVISED YET AGAIN: the "+"/remove buttons must always land in the same column, at any depth —
+    the owner's own words: "add buttons are supposed to always align... the plus buttons always
+    vertically align from top to bottom. The name scales, right? Scales to fit the content row. And
+    then we have a fixed width for the ID entry."** A real bug, not a request for new behavior: once
+    `.category-node-name` became an `<input>` (the revision above), it silently stopped shrinking on a
+    deeply nested row. A flex item's default `min-width` is its own intrinsic content size, not `0` —
+    true for any real form control, never for the plain `<span>` this used to be — so at a nesting
+    depth where the row's own available width shrank below that intrinsic floor, the name refused to
+    shrink further and the row overflowed past its own right edge, taking the ID input and every
+    button after it with it: shallow rows' buttons landed in one column, deeper rows' in another.
+    Fixed with an explicit `min-width: 0` on `.category-node-name`, and `.category-numeric-id` pinned
+    to `flex: 0 0 3em` (was `flex: 0 0 auto; width: 3em` — equivalent today, but explicit about never
+    growing OR shrinking either, now that a neighboring flex item's own overflow behavior is the exact
+    thing this bug came from). Every row's own ID/remove/add buttons now land at the same physical
+    column regardless of depth, exactly as long as the name's own text is.
+
+    **A delete/remove button, disabled while a category still has subcategories of its own — the
+    owner's own words: "I need a delete button right next to the plus button, an X button, or like a
+    trash icon button, because I also want to be able to delete a subcategory. Notice that I should
+    not be able to delete a category until it has no more subcategories, so they should be disabled
+    for them."** `catalog.remove_category` (T2, manager, `resources: ["square"]`) — never a real
+    DELETE (ADR-008 applies here exactly as it does to a product's own `catalog.set_active`): it
+    archives the category in Square (`present_at_all_locations: false`, `present_at_location_ids: []`,
+    the same GET-then-POST-whole-object-back pattern `rename_category` above already established),
+    and the mirror picks up `archived_at` on the next sync the same way it already does for a withdrawn
+    product or a withdrawn category found by a full sweep. `check()` refuses outright while the
+    category has ANY subcategory of its own, naming them, so silently stranding a child under a
+    parent no longer in the working set is never possible even through a direct tool call — the UI's
+    own `disabled` attribute (server-rendered from the SAME `hasChildren` the row's own caret already
+    computes) is a courtesy on top of that real refusal, not a substitute for it. A trash-can icon
+    (`TRASH_ICON`, matching every other icon on this tile's plain stroke-only style) sits immediately
+    before the "+" button, so "+" keeps its own established true-rightmost position — "right next to
+    the plus button" without displacing it. Wired as `POST /items/<handle>/categories/remove`, the
+    same manager-gated, apply-immediately, JSON-not-redirect, reload-on-success shape `create_category`
+    and `rename_category` already use, for the identical reason: a removed category also has to
+    disappear from every other tile's own category picker, not just this one's own tree.
+
 74. **`Test-PRD-P0-139-honest_write_failures`** — A Square write refused with a plain `Square POST
     /v2/catalog/object failed with 400` and nothing else — the owner's own words, pasting exactly that
     line after an edit silently went nowhere: "just make sure all of the fields work... with this post

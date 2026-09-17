@@ -1356,12 +1356,16 @@ check("test_PRD_P0_138_nested_categories__a_node_with_children_gets_its_own_expa
   assert.match(body, /\.category-children\s*\{\s*display:\s*none;\s*\}/, "collapsed by default");
 
   const outerwearNameIdx = body.indexOf('data-category-id="cat1" value="Outerwear"');
-  const outerwearRow = body.slice(outerwearNameIdx - 400, outerwearNameIdx + 500);
+  const outerwearRow = body.slice(outerwearNameIdx - 400, outerwearNameIdx + 1500);
   assert.match(outerwearRow, /class="category-node-toggle"/, "Outerwear has a subcategory (Coats), so it gets a real caret");
   const nameIdx = outerwearRow.indexOf("category-node-name");
   const idIdx = outerwearRow.indexOf("category-numeric-id");
+  const removeIdx = outerwearRow.indexOf("category-remove-toggle");
   const addIdx = outerwearRow.indexOf("category-add-toggle");
-  assert.ok(nameIdx < idIdx && idIdx < addIdx, "name, then the numeric ID, then + last — the true rightmost element");
+  assert.ok(
+    nameIdx < idIdx && idIdx < removeIdx && removeIdx < addIdx,
+    "name, then the numeric ID, then remove, then + last — the true rightmost element",
+  );
 
   const casualNameIdx = body.indexOf('data-category-id="cat3" value="Casual"');
   const casualRow = body.slice(casualNameIdx - 150, casualNameIdx + 200);
@@ -1425,6 +1429,81 @@ check("test_PRD_P0_138_nested_categories__staff_cannot_reach_the_rename_route", 
   const rename = await postForm("/items/wool-coat/categories/rename", STAFF, env(mirror), { category_id: "cat1", name: "Coats" });
   assert.equal(rename.status, 403);
   assert.match(await rename.text(), /manager/i);
+});
+
+check("test_PRD_P0_138_nested_categories__the_name_scales_and_the_id_stays_a_fixed_width_so_add_buttons_align", async () => {
+  /* The owner's own words: "the name scales, right? Scales to fit the
+     content row. And then we have a fixed width for the ID entry." A
+     real <input> (unlike the plain <span> this used to be) needs an
+     explicit min-width: 0 to actually shrink in a flex row — its default
+     flex min-width is its own intrinsic content size, wide enough that a
+     deeply nested row could not shrink to fit, silently overflowing and
+     knocking every button after it out of alignment with shallower rows. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.match(
+    body,
+    /\.category-node-name \{\s*\n\s*flex: 1 1 auto; min-width: 0;/,
+    "the name must be allowed to shrink below its own intrinsic content width",
+  );
+  assert.match(
+    body,
+    /\.category-numeric-id \{\s*\n\s*flex: 0 0 3em; width: 3em;/,
+    "the ID field must never grow or shrink -- a fixed width so every row's own ID/remove/add lands in the same column",
+  );
+});
+
+check("test_PRD_P0_138_nested_categories__a_category_with_subcategories_cannot_be_removed_from_the_ui", async () => {
+  /* The owner's own words: "I should not be able to delete a category
+     until it has no more subcategories, so they should be disabled for
+     them." Outerwear has a subcategory (Coats); Casual, seeded with no
+     children, does not. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+
+  const outerwearIdx = body.indexOf('data-category-id="cat1" value="Outerwear"');
+  const outerwearRow = body.slice(outerwearIdx, outerwearIdx + 900);
+  assert.match(
+    outerwearRow,
+    /<button type="button" class="category-remove-toggle" data-category-id="cat1" aria-label="Remove Outerwear" disabled title="Remove Outerwear — it still has subcategories/,
+    "a category with subcategories renders its own remove button disabled",
+  );
+
+  const casualIdx = body.indexOf('data-category-id="cat3" value="Casual"');
+  const casualRow = body.slice(casualIdx, casualIdx + 900);
+  assert.match(
+    casualRow,
+    /<button type="button" class="category-remove-toggle" data-category-id="cat3" aria-label="Remove Casual" title="Remove Casual">/,
+    "a leaf category's own remove button is enabled, with no disabled attribute between aria-label and title",
+  );
+});
+
+check("test_PRD_P0_138_nested_categories__removing_posts_to_its_own_route_and_reloads_on_success", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.match(
+    body,
+    /const removeToggle = e\.target\.closest\("\.category-remove-toggle"\);\s*\n\s*if \(removeToggle\) \{\s*\n\s*await removeCategory\(removeToggle\);/,
+    "clicking the remove button must call removeCategory",
+  );
+  assert.match(body, /fetch\("\/items\/" \+ handle \+ "\/categories\/remove", \{ method: "POST", body \}\)/);
+  assert.match(
+    body,
+    /async function removeCategory\(button\) \{[\s\S]{0,900}location\.reload\(\);/,
+    "a successful remove must reload -- the removed category also disappears from other tiles' own pickers",
+  );
+});
+
+check("test_PRD_P0_138_nested_categories__staff_cannot_reach_the_remove_route", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const remove = await postForm("/items/wool-coat/categories/remove", STAFF, env(mirror), { category_id: "cat1" });
+  assert.equal(remove.status, 403);
+  assert.match(await remove.text(), /manager/i);
 });
 
 check("test_PRD_P0_138_nested_categories__top_level_categories_use_their_own_wrapper_class_not_category_children", async () => {

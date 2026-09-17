@@ -583,6 +583,7 @@ async function ops(request, env, path) {
       path.endsWith("/categories/create") ||
       path.endsWith("/categories/number") ||
       path.endsWith("/categories/rename") ||
+      path.endsWith("/categories/remove") ||
       path.endsWith("/variations") ||
       path.endsWith("/details") ||
       path.endsWith("/inventory"))
@@ -620,13 +621,15 @@ async function ops(request, env, path) {
                 ? "/categories/number"
                 : path.endsWith("/categories/rename")
                   ? "/categories/rename"
-                  : path.endsWith("/category")
-                    ? "/category"
-                    : path.endsWith("/details")
-                      ? "/details"
-                      : path.endsWith("/inventory")
-                        ? "/inventory"
-                        : "/variations";
+                  : path.endsWith("/categories/remove")
+                    ? "/categories/remove"
+                    : path.endsWith("/category")
+                      ? "/category"
+                      : path.endsWith("/details")
+                        ? "/details"
+                        : path.endsWith("/inventory")
+                          ? "/inventory"
+                          : "/variations";
     const handle = path.slice("/items/".length, path.length - suffix.length);
 
     let form;
@@ -787,6 +790,18 @@ async function ops(request, env, path) {
       toolName = "catalog.rename_category";
       args = { category_id: categoryId, name };
       summaryNoun = "category name";
+    } else if (suffix === "/categories/remove") {
+      /* "I need a delete button right next to the plus button... I should
+         not be able to delete a category until it has no more
+         subcategories." The button itself is disabled server-side (views.js)
+         whenever a node has children, so reaching this refusal at all means
+         a race — a subcategory was added from another tab between page load
+         and this click. */
+      const categoryId = String(form.get("category_id") ?? "").trim();
+      if (!categoryId) return json({ error: "give a category" }, 400);
+      toolName = "catalog.remove_category";
+      args = { category_id: categoryId };
+      summaryNoun = "category";
     } else if (suffix === "/category") {
       /* "There should be a category dropdown... browse and select a
          category, expand and select a subcategory... it should all
@@ -889,11 +904,16 @@ async function ops(request, env, path) {
     if (suffix === "/inventory") {
       return json({ on_hand: result.data.on_hand });
     }
-    /* All three categories routes answer with JSON, not a redirect — the
+    /* All four categories routes answer with JSON, not a redirect — the
        page script below fetches them directly (not through a <form>, the
        same reason the stock stepper does not use one either) and decides
        for itself what to update. */
-    if (suffix === "/categories/create" || suffix === "/categories/number" || suffix === "/categories/rename") {
+    if (
+      suffix === "/categories/create" ||
+      suffix === "/categories/number" ||
+      suffix === "/categories/rename" ||
+      suffix === "/categories/remove"
+    ) {
       return json(result.data);
     }
     return new Response(null, { status: 303, headers: { Location: "/items" } });

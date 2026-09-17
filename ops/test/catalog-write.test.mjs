@@ -1628,6 +1628,45 @@ check("test_PRD_P0_138_nested_categories__renaming_to_the_current_name_is_refuse
   assert.match(res.error, /already named that/);
 });
 
+check("test_PRD_P0_138_nested_categories__remove_category_archives_it_in_square_never_a_real_delete", async () => {
+  const tool = TOOLS["catalog.remove_category"];
+  assert.equal(tool.tier, "T2");
+  assert.equal(tool.minRole, "manager");
+
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const casual = await approvedCall(f, "catalog.create_category", { name: "Casual", parent_id: outerwear.id, reason: "test" });
+  assert.equal(casual.ok, true, casual.error);
+
+  const denied = await runTool("catalog.remove_category", { category_id: casual.data.category.id }, { ...f.ctx, ...staff });
+  assert.equal(denied.ok, false);
+  assert.match(denied.error, /requires the manager role/);
+  assert.ok(!describeTools("staff").some((d) => d.name === "catalog.remove_category"));
+
+  const removed = await approvedCall(f, "catalog.remove_category", { category_id: casual.data.category.id });
+  assert.equal(removed.ok, true, removed.error);
+
+  /* Archived, never a real DELETE (ADR-008) -- the same lifecycle
+     catalog.set_active already uses for a product. */
+  const removeUpsert = f.calls().filter((c) => c.path === "/v2/catalog/object" && c.upsert === "CATEGORY").pop();
+  assert.equal(removeUpsert.body.object.present_at_all_locations, false);
+  assert.deepEqual(removeUpsert.body.object.present_at_location_ids, []);
+
+  assert.ok(!f.categories().some((c) => c.id === casual.data.category.id), "the working set no longer lists it");
+});
+
+check("test_PRD_P0_138_nested_categories__a_category_with_subcategories_cannot_be_removed", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const coats = await approvedCall(f, "catalog.create_category", { name: "Coats", parent_id: outerwear.id, reason: "test" });
+  assert.equal(coats.ok, true, coats.error);
+
+  const res = await runTool("catalog.remove_category", { category_id: outerwear.id }, f.ctx);
+  assert.equal(res.ok, false);
+  assert.match(res.error, /still has 1 subcategory of its own \(Coats\) — remove those first/);
+  assert.ok(f.categories().some((c) => c.name === "Outerwear"), "refused, so Outerwear must still be there");
+});
+
 /* ─────────────────────────────────────────────────────────────────────────
  * P0-139 (continued) — two different edits must never collide on one
  * idempotency key, and a VERSION_MISMATCH must read as Square's own
