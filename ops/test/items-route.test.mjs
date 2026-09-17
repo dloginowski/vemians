@@ -1621,10 +1621,28 @@ check("test_PRD_P0_135_item_edit_applies_immediately__resetting_a_field_to_its_o
   assert.match(body, /field\.classList\.toggle\("field-dirty", isFieldDirty\(field\)\)/);
   assert.match(
     body,
-    /const formDirty = \[\.\.\.form\.querySelectorAll\("input"\)\]\.some\(isFieldDirty\);\s*\n\s*if \(formDirty\) \{\s*\n\s*form\.dataset\.dirty = "1";\s*\n\s*\} else \{\s*\n\s*delete form\.dataset\.dirty;/,
+    /const formDirty = \[\.\.\.form\.querySelectorAll\("input, textarea"\)\]\.some\(isFieldDirty\);\s*\n\s*if \(formDirty\) \{\s*\n\s*form\.dataset\.dirty = "1";\s*\n\s*\} else \{\s*\n\s*delete form\.dataset\.dirty;/,
     "a form with nothing left different from its original value must stop being marked dirty",
   );
   assert.match(body, /saveBtn\.disabled = !tileDirty;/, "the Save button must re-disable once nothing in the tile is dirty any more");
+});
+
+check("test_PRD_P0_135_item_edit_applies_immediately__editing_only_the_description_textarea_still_marks_the_form_dirty", async () => {
+  /* A real bug: description is a <textarea>, and the form-level dirty scan
+     used to query only "input" — isFieldDirty ran fine on the textarea
+     itself (any element supports .value !== .defaultValue), so the field
+     got its own "field-dirty" highlight, but the FORM never picked up
+     data-dirty and saveTile's own `form[data-dirty='1']` scan would not
+     have submitted it either way. The owner's own words: "when I edit the
+     description, it doesn't get marked to save." */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.match(
+    body,
+    /form\.querySelectorAll\("input, textarea"\)/,
+    "the form-level dirty scan must include textarea, not just input",
+  );
 });
 
 check("test_PRD_P0_135_item_edit_applies_immediately__the_page_script_propagates_msrp_to_every_variation_price", async () => {
@@ -1656,7 +1674,11 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_dirty_highlight_css_co
   const mirror = mirrorDb();
   seedProduct(mirror);
   const body = await (await get("/items", MANAGER, env(mirror))).text();
-  assert.match(body, /\.item-tile input\.field-dirty, \.item-tile select\.field-dirty \{ border-color: var\(--accent\); \}/);
+  assert.match(
+    body,
+    /\.item-tile input\.field-dirty, \.item-tile select\.field-dirty, \.item-tile textarea\.field-dirty \{ border-color: var\(--accent\); \}/,
+    "the description textarea must get the same dirty highlight as every other field type",
+  );
   assert.match(body, /\.item-tile input\.field-dirty\[type="checkbox"\] \{ outline: [^}]*var\(--accent\)/);
   assert.match(body, /\.item-save-all:not\(:disabled\) \{ color: var\(--accent\); \}/);
 });
