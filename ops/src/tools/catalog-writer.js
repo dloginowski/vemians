@@ -57,6 +57,20 @@ export async function listCategories(db) {
   return (res.results ?? []).map((r) => ({ id: r.id, name: r.name, parent_id: r.parent_id, numeric_id: r.numeric_id }));
 }
 
+/* Every vendor, for the picker/admin panel — "the same kind of drop down
+   schema that we have for categories" the owner's own words asked for.
+   Named distinctly from shared/commerce/square/vendors.js's own
+   listVendors (that one calls Square live, for a real full sweep; this
+   one reads OUR mirror, the same read-the-mirror-not-the-provider
+   reasoning every other list in this file already follows). */
+export async function listMirrorVendors(db) {
+  const res = await db
+    .prepare("SELECT id, name, commission_pct FROM mirror_vendor_index ORDER BY name COLLATE NOCASE")
+    .bind()
+    .all();
+  return (res.results ?? []).map((r) => ({ id: r.id, name: r.name, commission_pct: r.commission_pct }));
+}
+
 /* NN-NN-NNN -> the category this style_id sorts to, or null if neither
    segment matches anything yet. The second (subcategory) segment is
    authoritative when it matches — subcategory numeric_ids are globally
@@ -640,6 +654,20 @@ export function createSquareCatalogWriter(env, opts = {}) {
        of the ITEM-upsert helpers below, so it needs this same incremental
        resync afterward without duplicating it. */
     syncAfterWrite,
+
+    /* Exposed for catalog.create_vendor — a real Square Vendor, standalone,
+       with no product attached at all (the picker/admin panel's own "add a
+       vendor" flow, as opposed to vendorRef's own resolve-or-create that
+       only ever runs as a side effect of writing a PRODUCT's own vendor
+       field). Reuses the exact same raw CreateVendor call vendorRef
+       already makes internally, then syncs so the new mirror_vendor row
+       exists before the tool layer's own commission_pct write (OURS, not
+       Square's) can reach it. */
+    async createVendorEntity(name) {
+      const created = await createVendor(client, name);
+      const sync = await syncAfterWrite();
+      return { vendor: created, sync };
+    },
 
     /**
      * Retroactive re-sort (the owner's own explicit choice, over "only

@@ -4334,6 +4334,38 @@ that does not trace to one of these is a process failure (see §12).
     call already does; only its own comments, describing the OLD "reusing an existing vendor needs
     nothing" rule this replaces, needed correcting.
 
+    **REVISED: a Vendors admin section plus a per-product picker, mirroring Categories exactly.**
+    The owner's own words: "vendors are not supported without plugins, maybe we can have the same
+    kind of drop down schema that we have for categories... add vendors and add their commissions...
+    and then when we are actually adding them, they'll just appear in a dropbox and we don't have to
+    fill out any of these stuff per product" — followed by choosing the fuller of two offered scopes,
+    "Picker + a Vendors admin section," over a picker-only option. Three new T0/T2 tools
+    (`catalog-write.js`): `catalog.vendors` (T0, lists every vendor with its own on-file rate, `null`
+    meaning nothing recorded yet), `catalog.create_vendor` (T2, a real standalone Square Vendor —
+    `createVendor`, `shared/commerce/square/vendors.js` — created with no product attached at all,
+    commission REQUIRED since a brand-new vendor has nothing on file for `create_product`/
+    `set_square_attributes` to auto-apply later), and `catalog.set_vendor_commission` (T2, OURS only,
+    no Square call — changes the central rate going forward, never retroactively, the same "a new
+    agreement going forward, not a correction to back-apply" reasoning that keeps this different from
+    a category's own retroactive resort-by-numeric_id). `listMirrorVendors` (`catalog-writer.js`)
+    mirrors `listCategories`'s exact shape for the UI to read from.
+
+    In the Items tab (`views.js`), the per-product `vendor`/`commission` free-text inputs are gone: a
+    `.vendor-picker` (flat, no tree — a vendor has no subcategory-style hierarchy) replaces `vendor`,
+    selecting only from the closed set (creation happens ONLY in the Vendors admin accordion below,
+    never inline from the picker — the same division of labor `.category-picker`/the Categories
+    accordion already established); `commission` is gone from that row entirely and shown read-only
+    instead (`.vendor-commission-badge`), since it is now a fact about the VENDOR, not the product.
+    `vendor_code` is unchanged — still genuinely per-item. A new `.vendors-accordion`, alongside
+    Categories inside the same "Admin" disclosure, lists every vendor with its own commission input
+    (`.vendor-commission-form`, folded into the tile's one big Save exactly like a category's own
+    numeric_id — no separate Add/apply button) plus an add-new-vendor row at the bottom
+    (`.vendor-add-form`, commission required). New routes `/items/<handle>/vendors/create` and
+    `/items/<handle>/vendors/commission` (`index.js`) reach the two new T2 tools the same
+    auto-approve-on-submit way every other Items-tab form already does; the existing
+    `/items/<handle>/square-attributes` route needed no change at all for the picker itself, since it
+    already accepted a plain `vendor` name — only the markup driving that same hidden input changed.
+
 72. **`Test-PRD-P0-137-item_active_toggle`** — The owner's own words, in the same request that moved
     Web and the newly-added Active checkbox beside the item's own name: "move the web and the active
     buttons... make them the same style as the rest of the fields... have the same style like

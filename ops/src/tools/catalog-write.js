@@ -99,6 +99,7 @@ import { CAPS } from "./caps.js";
 import {
   deriveCategoryIdForStyleId,
   listCategories,
+  listMirrorVendors,
   mergeVariations,
   priceBand,
   productByHandle,
@@ -1874,6 +1875,166 @@ export const catalogWriteTools = {
         previous_commission: t.preflight.existing.commission_pct,
         mirror_sync: out.sync,
         authority: "square",
+      };
+    },
+  },
+
+  /*
+   * "The same kind of drop down schema that we have for categories" — the
+   * owner's own words. The closed set catalog.create_vendor/catalog.
+   * set_vendor_commission and the ops UI's own vendor picker all read from,
+   * the exact mirror of catalog.categories above for vendors instead.
+   */
+  "catalog.vendors": {
+    tier: "T0",
+    domain: "catalog",
+    stores: ["catalog_mirror"],
+    minRole: "staff",
+    describe:
+      "List every vendor that already exists, with its own central commission rate (null if none is " +
+      "on file yet). catalog.create_product/catalog.set_square_attributes both read from this same " +
+      "central rate automatically — call this before naming a vendor to see whether one already exists " +
+      "under a slightly different spelling, and what it already charges.",
+    undo: null,
+    schema: {},
+    async run(_args, t) {
+      const vendors = await listMirrorVendors(t.db.catalog_mirror);
+      return {
+        vendors,
+        count: vendors.length,
+        note: "A vendor with commission_pct: null has nothing on file yet — catalog.create_product/catalog.set_square_attributes will refuse naming it until catalog.set_vendor_commission (or a fresh catalog.create_vendor) gives it one.",
+      };
+    },
+  },
+
+  /*
+   * REVISED: "let's not force vendor's commission to be stated out loud [on
+   * every item]... we store it in essential locations per vendor so that
+   * their commission is recorded in a central location and automatically
+   * applied" — the owner's own words. Standalone, no product needs to
+   * exist or be touched at all — the picker/admin panel's own "add a
+   * vendor" flow, distinct from vendorRef's own resolve-or-create that
+   * only ever runs as a side effect of a product write.
+   */
+  "catalog.create_vendor": {
+    tier: "T2",
+    domain: "catalog",
+    stores: ["catalog_mirror"],
+    resources: ["square"],
+    minRole: "manager",
+    describe:
+      "Create a new Vendor in Square, standalone — no product needs to reference it yet. commission " +
+      "is REQUIRED here (0-100), unlike a vendor resolved as a side effect of catalog.create_product/ " +
+      "catalog.set_square_attributes reusing one that already has a rate: this IS the moment a brand-" +
+      "new vendor's own central rate (mirror_vendor.commission_pct, OURS, not Square's — Square has no " +
+      "concept of a resale commission at all) gets set, and every future item naming this vendor picks " +
+      "it up automatically, nothing restated. Refused if a vendor with this name already exists " +
+      "(case-insensitive, whether or not it has a commission on file) — catalog.set_vendor_commission " +
+      "changes an existing one's own rate; this never makes a second vendor beside it.",
+    undo:
+      "no undo: a Vendor cannot be withdrawn or deleted through Square's own API once created — " +
+      "correcting a mistaken rate is catalog.set_vendor_commission; there is currently no rename",
+    schema: {
+      name: { type: "string", required: true, maxLength: 120 },
+      commission: { type: "integer", required: true },
+      reason: { type: "string", required: true, maxLength: CAPS.MAX_TEXT },
+    },
+    async check(args, t) {
+      const name = args.name.trim();
+      if (!name) return { denied: "a vendor needs a name" };
+      if (!Number.isInteger(args.commission) || args.commission < 0 || args.commission > 100) {
+        return { denied: `commission '${args.commission}' must be a whole number 0-100` };
+      }
+      const vendors = await listMirrorVendors(t.db.catalog_mirror);
+      const exact = vendors.find((v) => v.name.toLowerCase() === name.toLowerCase());
+      if (exact) {
+        return {
+          denied:
+            `"${exact.name}" already exists` +
+            (exact.commission_pct !== null ? `, with a commission of ${exact.commission_pct}% already on file` : ", with nothing on file yet") +
+            " — use catalog.set_vendor_commission to change its own rate, not a second vendor beside it",
+          detail: { reason: "vendor_already_exists" },
+        };
+      }
+      return {
+        ok: true,
+        summary: `create the vendor "${name}" with a ${args.commission}% commission — ${args.reason}`,
+        preflight: { name },
+      };
+    },
+    async run(args, t) {
+      const out = await t.square.createVendorEntity(t.preflight.name);
+      await t.db.catalog_mirror
+        .prepare("UPDATE mirror_vendor SET commission_pct = ? WHERE name = ? COLLATE NOCASE")
+        .bind(args.commission, t.preflight.name)
+        .run();
+      return {
+        created: true,
+        name: t.preflight.name,
+        commission: args.commission,
+        mirror_sync: out.sync,
+        authority: "square",
+      };
+    },
+  },
+
+  /*
+   * The reverse direction of the same rule: an EXPLICIT commission given
+   * alongside a vendor in catalog.create_product/catalog.
+   * set_square_attributes already becomes that vendor's own new central
+   * rate automatically (both tools' own run()); this is for correcting one
+   * directly, with no product in the same call at all — the vendor picker's
+   * own admin panel. OURS, not Square's: a direct mirror write, the same
+   * shape catalog.set_category_number's own numeric_id write already is,
+   * minus the retroactive resort (a vendor's own rate change is forward-
+   * only, deliberately — see this tool's own describe text).
+   */
+  "catalog.set_vendor_commission": {
+    tier: "T2",
+    domain: "catalog",
+    stores: ["catalog_mirror"],
+    minRole: "manager",
+    describe:
+      "Change an EXISTING vendor's own central commission rate (0-100). OURS, not Square's — Square " +
+      "has no concept of a resale commission at all, so this never calls Square and never triggers a " +
+      "mirror sync. Forward-only, deliberately: every product naming this vendor from now on, with no " +
+      "commission of its own given, picks up this new rate automatically, but an existing product's " +
+      "own already-set commission_pct is left exactly as it is — this is not a retroactive rewrite of " +
+      "every product this vendor has ever supplied, the same way changing a real commission agreement " +
+      "does not reach back and re-bill past sales. vendor_id comes from catalog.vendors.",
+    undo: "another catalog.set_vendor_commission call, back to the previous rate",
+    schema: {
+      vendor_id: { type: "string", required: true, format: "id" },
+      commission: { type: "integer", required: true },
+    },
+    async check(args, t) {
+      if (!Number.isInteger(args.commission) || args.commission < 0 || args.commission > 100) {
+        return { denied: `commission '${args.commission}' must be a whole number 0-100` };
+      }
+      const vendors = await listMirrorVendors(t.db.catalog_mirror);
+      const vendor = vendors.find((v) => v.id === args.vendor_id);
+      if (!vendor) return { denied: `no vendor '${args.vendor_id}' in the mirror` };
+      if (vendor.commission_pct === args.commission) {
+        return { denied: `"${vendor.name}" already has a commission of ${args.commission}% — nothing would change` };
+      }
+      return {
+        ok: true,
+        summary: `set "${vendor.name}"'s own commission to ${args.commission}%`,
+        preflight: { vendor },
+      };
+    },
+    async run(args, t) {
+      await t.db.catalog_mirror
+        .prepare("UPDATE mirror_vendor SET commission_pct = ? WHERE id = ?")
+        .bind(args.commission, args.vendor_id)
+        .run();
+      return {
+        updated: true,
+        vendor_id: args.vendor_id,
+        name: t.preflight.vendor.name,
+        commission: args.commission,
+        previous_commission: t.preflight.vendor.commission_pct,
+        authority: "ours",
       };
     },
   },

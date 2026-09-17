@@ -1794,6 +1794,40 @@ ${INPUT_BAR_CSS}
 .category-picker-option.selected { color: var(--accent); font-weight: 600; }
 .category-picker-children { display: none; }
 .category-picker-node.expanded > .category-picker-children { display: block; }
+/* "The same kind of drop down schema that we have for categories... so
+   we don't have to fill out any of these stuff per product." The exact
+   same picker convention as .category-picker above, just FLAT — a
+   vendor has no subcategory-style hierarchy, so there is no per-row
+   toggle/indent to size, only a plain list of options. Vendor CREATION
+   only ever happens through the Vendors accordion (below), never from
+   this picker itself — the same division of labor .category-picker's
+   own picker/accordion split already established: this only ever
+   SELECTS from the closed set that already exists. */
+.vendor-picker { position: relative; flex: 0 0 auto; }
+.vendor-picker-btn {
+  display: inline-flex; align-items: center; gap: 4px; box-sizing: border-box;
+  flex: 0 0 auto; font: inherit; font-size: 11px; padding: 3px 5px; white-space: nowrap;
+  border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink); cursor: pointer;
+}
+.vendor-picker-btn svg { flex: 0 0 auto; color: var(--muted); transition: transform 0.15s; }
+.vendor-picker.expanded > .vendor-picker-btn svg { transform: rotate(90deg); }
+.vendor-picker-menu {
+  position: absolute; top: 100%; left: 0; z-index: 15; margin-top: 4px; min-width: 14em; max-height: 16em;
+  overflow-y: auto; padding: 4px 0; border: 1px solid var(--muted); border-radius: 8px; background: var(--ground);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+.vendor-picker-option {
+  display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 8px;
+  text-align: left; font: inherit; font-size: 12px; padding: 4px 8px; border: none;
+  background: transparent; color: var(--ink); cursor: pointer;
+}
+.vendor-picker-option:hover { background: rgba(255, 255, 255, 0.08); }
+.vendor-picker-option.selected { color: var(--accent); font-weight: 600; }
+.vendor-picker-option-commission { flex: 0 0 auto; color: var(--muted); font-size: 11px; }
+/* Commission is no longer typed per product at all — it lives on the
+   vendor itself (Admin → Vendors, above) and is only ever shown here,
+   read-only, so nobody mistakes it for an editable field on this row. */
+.vendor-commission-badge { flex: 0 0 auto; font-size: 11px; color: var(--muted); padding: 3px 2px; white-space: nowrap; }
 .category-title-row .item-title-input { flex: 1 1 auto; min-width: 0; }
 .category-title-row textarea { flex: 1 1 100%; }
 .item-variants, .item-fields { display: flex; flex-direction: column; gap: 2px; }
@@ -1871,12 +1905,13 @@ ${INPUT_BAR_CSS}
    — agentic input, or a field's own .field-dirty (unsaved change) marker
    — never a plain hover cue. REVISED: the border itself was never meant
    to go away — "I just told you it has to be gray unless it's dirty" —
-   it stays, always, gray (var(--rule)) by default. It just never has
-   reason to actually turn orange right now: nothing inside the
-   Categories accordion is ever left "dirty, not yet saved" in the first
-   place (every field here applies immediately, no batching, unlike
-   Variations below), so there is no .field-dirty for a :has() rule to
-   ever match here — this stays plain gray until that changes.
+   it stays, always, gray (var(--rule)) by default.
+   REVISED AGAIN: "nothing inside the Categories accordion is ever left
+   dirty... every field here applies immediately, no batching" stopped
+   being true the moment creating a category and setting its own
+   numeric_id folded into the tile's one big Save (above) — this header
+   now gets the exact same :has(.field-dirty) rule the Variants header
+   already had, for the same reason.
    REVISED: "reduce the horizontal padding of the chevron in the
    categories drop down box by half so it's tighter... use the overall
    same chevron padding... apply it to all of the other chevrons... the
@@ -1891,6 +1926,7 @@ ${INPUT_BAR_CSS}
   display: flex; align-items: center; gap: 6px; cursor: pointer;
   background: var(--image-ground); border: 1px solid var(--rule); border-radius: 6px; padding: 5px 4px;
 }
+.categories-accordion:has(.field-dirty) .categories-header { border-color: var(--accent); }
 .categories-toggle {
   flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; padding: 0; display: inline-flex; align-items: center;
   justify-content: center; border: none; background: transparent; color: var(--muted); cursor: pointer;
@@ -1901,6 +1937,46 @@ ${INPUT_BAR_CSS}
 .categories-header-spacer { flex: 1 1 auto; }
 .categories-body { display: none; flex-direction: column; margin-top: 6px; padding-left: 10px; gap: 4px; }
 .categories-accordion.expanded .categories-body { display: flex; }
+/* The Vendors accordion — "the same kind of drop down schema that we
+   have for categories... so we don't have to fill out any of these
+   stuff per product." Same shape as .categories-accordion above (a
+   header bar toggling its own body, collapsed by default, the top-level
+   + living in the header itself), flat rather than nested: a vendor has
+   no subcategory-style hierarchy, so there is no tree here, just a
+   plain list of rows. */
+.vendors-accordion { margin-top: 2px; padding-top: 6px; }
+.vendors-header {
+  display: flex; align-items: center; gap: 6px; cursor: pointer;
+  background: var(--image-ground); border: 1px solid var(--rule); border-radius: 6px; padding: 5px 4px;
+}
+.vendors-accordion:has(.field-dirty) .vendors-header { border-color: var(--accent); }
+.vendors-toggle {
+  flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; padding: 0; display: inline-flex; align-items: center;
+  justify-content: center; border: none; background: transparent; color: var(--muted); cursor: pointer;
+  transition: transform 0.15s;
+}
+.vendors-accordion.expanded .vendors-toggle { transform: rotate(90deg); }
+.vendors-label { flex: 0 0 auto; font-size: 11px; color: var(--muted); }
+.vendors-header-spacer { flex: 1 1 auto; }
+.vendors-body { display: none; flex-direction: column; margin-top: 6px; padding-left: 10px; gap: 4px; }
+.vendors-accordion.expanded .vendors-body { display: flex; }
+.vendor-row { display: flex; align-items: center; gap: 6px; padding: 3px 4px 3px 0; }
+.vendor-row-name { flex: 1 1 auto; min-width: 0; font-size: 12px; overflow-wrap: anywhere; }
+.item-edit .vendor-commission-input, .item-edit .vendor-new-commission {
+  flex: 0 0 3em; width: 3em; box-sizing: content-box; font: inherit; font-size: 12px; padding: 3px 5px; text-align: center;
+  border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
+}
+.item-edit .vendor-new-name {
+  flex: 1 1 auto; min-width: 0; font: inherit; font-size: 12px; padding: 3px 5px;
+  border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
+}
+/* Same "form as a transparent wrapper" trick .category-title-row form
+   and .category-number-form already use, and for the identical reason:
+   .item-edit form's own blanket display:flex/flex-direction:column
+   would otherwise beat .vendor-row's own row layout, since a class plus
+   a tag beats a single class regardless of source order. */
+.item-edit .vendor-commission-form { display: contents; }
+.item-edit .vendor-add-form { display: flex; gap: 6px; align-items: center; padding: 3px 4px 3px 0; margin-top: 0; }
 /* One node: its own name/id/add-toggle row, its own (initially hidden)
    add-subcategory form right below it, then its own children — indented
    per level via the inline padding-left renderCategoryNodes sets, so the
@@ -2389,7 +2465,27 @@ function renderCategoryPickerNodes(categories, parentId, selectedId, expandedIds
     .join("");
 }
 
-function itemTile(product, canEdit, allCategories = []) {
+/* The vendor picker's own flat list — same convention as
+   renderCategoryPickerNodes above, minus the tree: a vendor has no
+   subcategory-style hierarchy, so every row is a sibling of every other,
+   sorted the same way listMirrorVendors' own query already does. Each
+   option shows its own on-file commission alongside its name, so picking
+   one already tells you what rate comes with it — no separate lookup, the
+   same "show me before I choose" reasoning the category path's own title
+   attribute already follows. */
+function renderVendorPickerOptions(vendors, selectedName) {
+  return vendors
+    .map(
+      (v) =>
+        `<button type="button" class="vendor-picker-option${v.name === selectedName ? " selected" : ""}" data-vendor-name="${esc(v.name)}">` +
+        `<span>${esc(v.name)}</span>` +
+        `<span class="vendor-picker-option-commission">${v.commission_pct != null ? `${esc(String(v.commission_pct))}%` : ""}</span>` +
+        `</button>`,
+    )
+    .join("");
+}
+
+function itemTile(product, canEdit, allCategories = [], allVendors = []) {
   const fieldEntries = Object.entries(product.custom_fields ?? {});
   const searchText = [
     product.title,
@@ -2630,6 +2726,50 @@ function itemTile(product, canEdit, allCategories = []) {
          </div>
        </div>`
     : "";
+  /* The Vendors accordion — "the same kind of drop down schema that we
+     have for categories... add vendors and add their commissions... and
+     then when we are actually adding them, they'll just appear in a
+     dropbox and we don't have to fill out any of these stuff per
+     product." A vendor's own commission is a real <form> here (folded
+     into the tile's one big Save, no separate Add/apply button — the
+     exact same fold-into-Save-all convention this whole session already
+     established for categories), and the add-new-vendor row at the
+     bottom is one too — commission is REQUIRED there since a brand-new
+     vendor has nothing on file yet. Vendor creation only ever happens
+     here, never from the per-product picker (titleVendorForms below) —
+     the same division of labor the Categories accordion/picker split
+     already established. */
+  const vendorsAccordion = canEdit
+    ? `<div class="vendors-accordion">
+         <div class="vendors-header">
+           <button type="button" class="vendors-toggle" aria-label="Show vendors" title="Show vendors">${CARET_ICON}</button>
+           <span class="vendors-label">Vendors</span>
+           <span class="vendors-header-spacer"></span>
+         </div>
+         <div class="vendors-body">
+           ${
+             allVendors.length
+               ? allVendors
+                   .map(
+                     (v) =>
+                       `<div class="vendor-row">
+                          <span class="vendor-row-name">${esc(v.name)}</span>
+                          <form method="post" action="/items/${esc(product.handle)}/vendors/commission" class="vendor-commission-form">
+                            <input type="hidden" name="vendor_id" value="${esc(v.id)}">
+                            <input class="vendor-commission-input" name="commission" value="${v.commission_pct != null ? esc(String(v.commission_pct)) : ""}" placeholder="COM%" title="Commission % (0-100)">
+                          </form>
+                        </div>`,
+                   )
+                   .join("")
+               : `<p class="item-empty">No vendors yet.</p>`
+           }
+           <form method="post" action="/items/${esc(product.handle)}/vendors/create" class="vendor-add-form">
+             <input type="text" class="vendor-new-name" name="name" placeholder="Vendor name" maxlength="120">
+             <input class="vendor-new-commission" name="commission" placeholder="COM%" title="Commission % (0-100) — required for a brand-new vendor">
+           </form>
+         </div>
+       </div>`
+    : "";
   const variationsAccordion = canEdit
     ? `<div class="variations-accordion">
          <div class="variations-header">
@@ -2779,9 +2919,25 @@ function itemTile(product, canEdit, allCategories = []) {
          </div>
          <form method="post" action="/items/${esc(product.handle)}/square-attributes">
            <div class="row">
-             <input name="vendor" value="${esc(product.vendor ?? "")}" placeholder="Vendor">
+             <input type="text" name="vendor" value="${esc(product.vendor ?? "")}" hidden>
+             <div class="vendor-picker">
+               <button type="button" class="vendor-picker-btn" aria-label="Choose a vendor" title="Choose a vendor">
+                 ${CARET_ICON}<span class="vendor-picker-btn-label">${esc(product.vendor || "Vendor")}</span>
+               </button>
+               <div class="vendor-picker-menu" hidden>
+                 ${
+                   allVendors.length
+                     ? renderVendorPickerOptions(allVendors, product.vendor ?? null)
+                     : `<p class="item-empty">No vendors yet.</p>`
+                 }
+               </div>
+             </div>
              <input name="vendor_code" value="${esc(product.vendor_code ?? "")}" placeholder="Vendor SKU" title="The vendor's own SKU/code">
-             <input name="commission" value="${esc(product.commission_pct != null ? String(product.commission_pct) : "")}" placeholder="COM%" title="Commission % (0-100)">
+             ${
+               product.commission_pct != null
+                 ? `<span class="vendor-commission-badge" title="Set centrally, in Admin → Vendors">${esc(String(product.commission_pct))}%</span>`
+                 : ""
+             }
            </div>
          </form>
        </div>`
@@ -2825,6 +2981,7 @@ function itemTile(product, canEdit, allCategories = []) {
                : ""
            }
            ${categoriesAccordion}
+           ${vendorsAccordion}
          </details>
        </div>`
     : "";
@@ -2858,10 +3015,10 @@ function itemTile(product, canEdit, allCategories = []) {
   </article>`;
 }
 
-export function itemsPage({ role }, products, allCategories = []) {
+export function itemsPage({ role }, products, allCategories = [], allVendors = []) {
   const canEdit = role === "manager" || role === "owner";
   const tiles = products.length
-    ? products.map((p) => itemTile(p, canEdit, allCategories)).join("\n")
+    ? products.map((p) => itemTile(p, canEdit, allCategories, allVendors)).join("\n")
     : `<p class="hint">No products in the mirror yet.</p>`;
 
 
@@ -3255,6 +3412,35 @@ document.getElementById("items-grid").addEventListener("click", async (e) => {
     hiddenInput.dispatchEvent(new Event("change", { bubbles: true }));
     return;
   }
+  /* The vendor picker — "the same kind of drop down schema that we have
+     for categories... they'll just appear in a dropbox and we don't have
+     to fill out any of these stuff per product." Same open/close and
+     pick mechanics as .category-picker-btn/.category-picker-option
+     above, just flat — no per-option toggle/path, only a name. */
+  const vendorPickerBtn = e.target.closest(".vendor-picker-btn");
+  if (vendorPickerBtn) {
+    const picker = vendorPickerBtn.closest(".vendor-picker");
+    const menu = vendorPickerBtn.nextElementSibling;
+    const wasHidden = menu.hidden;
+    closeAllCategoryPickers();
+    menu.hidden = !wasHidden;
+    picker.classList.toggle("expanded", wasHidden);
+    return;
+  }
+  const vendorPickerOption = e.target.closest(".vendor-picker-option");
+  if (vendorPickerOption) {
+    const form = vendorPickerOption.closest("form");
+    const hiddenInput = form.querySelector('input[name="vendor"]');
+    const pickerBtnEl = form.querySelector(".vendor-picker-btn");
+    const label = pickerBtnEl.querySelector(".vendor-picker-btn-label");
+    hiddenInput.value = vendorPickerOption.dataset.vendorName;
+    label.textContent = vendorPickerOption.dataset.vendorName;
+    form.querySelectorAll(".vendor-picker-option.selected").forEach((el) => el.classList.remove("selected"));
+    vendorPickerOption.classList.add("selected");
+    closeAllCategoryPickers();
+    hiddenInput.dispatchEvent(new Event("change", { bubbles: true }));
+    return;
+  }
   const shareBtn = e.target.closest(".item-share");
   if (shareBtn) {
     shareLink(shareBtn);
@@ -3284,6 +3470,18 @@ document.getElementById("items-grid").addEventListener("click", async (e) => {
   const categoriesHeader = e.target.closest(".categories-header");
   if (categoriesHeader && !e.target.closest("input, button")) {
     categoriesHeader.closest(".categories-accordion")?.classList.toggle("expanded");
+    syncDeepLinkFromEvent(e);
+    return;
+  }
+  const vendorsCaret = e.target.closest(".vendors-toggle");
+  if (vendorsCaret) {
+    vendorsCaret.closest(".vendors-accordion")?.classList.toggle("expanded");
+    syncDeepLinkFromEvent(e);
+    return;
+  }
+  const vendorsHeader = e.target.closest(".vendors-header");
+  if (vendorsHeader && !e.target.closest("input, button")) {
+    vendorsHeader.closest(".vendors-accordion")?.classList.toggle("expanded");
     syncDeepLinkFromEvent(e);
     return;
   }
@@ -3368,19 +3566,23 @@ document.getElementById("items-grid").addEventListener("click", async (e) => {
   setDeepLinkHash(tile);
 });
 
-/* Closes every open category picker — its own menu AND its own chevron's
-   .expanded state, kept together so the arrow never stays rotated down
-   with nothing actually open below it. */
+/* Closes every open category AND vendor picker — its own menu AND its own
+   chevron's .expanded state, kept together so the arrow never stays
+   rotated down with nothing actually open below it. Both pickers share
+   this one function (never two near-identical copies) since they are
+   always closed at exactly the same moments — opening either one, an
+   outside click, or Escape. */
 function closeAllCategoryPickers() {
-  document.querySelectorAll(".category-picker-menu").forEach((m) => (m.hidden = true));
-  document.querySelectorAll(".category-picker.expanded").forEach((p) => p.classList.remove("expanded"));
+  document.querySelectorAll(".category-picker-menu, .vendor-picker-menu").forEach((m) => (m.hidden = true));
+  document.querySelectorAll(".category-picker.expanded, .vendor-picker.expanded").forEach((p) => p.classList.remove("expanded"));
 }
-/* Closes any open category picker menu on an outside click — the same
-   "outside click closes it" convention dropdownMenuScript's own single
-   global menu already follows, generalized here since there is one
-   .category-picker-menu per tile rather than one shared id to bind to. */
+/* Closes any open category/vendor picker menu on an outside click — the
+   same "outside click closes it" convention dropdownMenuScript's own
+   single global menu already follows, generalized here since there is
+   one .category-picker/.vendor-picker per tile rather than one shared id
+   to bind to. */
 document.addEventListener("click", (e) => {
-  if (e.target.closest(".category-picker")) return;
+  if (e.target.closest(".category-picker, .vendor-picker")) return;
   closeAllCategoryPickers();
 });
 document.addEventListener("keydown", (e) => {

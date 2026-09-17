@@ -35,7 +35,7 @@ import { contentTypeFor, mediaKey, mintUploadTicket, verifyUploadTicket, STORABL
 import { mediaStoreFor, assetFileStoreFor, receiptFileStoreFor, runTool } from "./tools/index.js";
 import { contentTypeForAsset, extractText } from "./tools/assets.js";
 import { scanReceipt } from "./tools/receipt-ocr.js";
-import { listAllProducts, listCategories } from "./tools/catalog-writer.js";
+import { listAllProducts, listCategories, listMirrorVendors } from "./tools/catalog-writer.js";
 import { applyFormEdits } from "./approval-forms.js";
 import { syncFromSquare, SYNC_CRON, FREQUENT_CRON } from "./sync.js";
 import { verifyWebhook, normaliseWebhook } from "../../shared/commerce/square/webhooks.js";
@@ -473,6 +473,11 @@ async function ops(request, env, path) {
        own catalog.create_product picker already can. */
     const allCategories = await listCategories(env.CATALOG_MIRROR);
 
+    /* The FULL closed set of vendors (catalog.vendors' own list), same
+       reasoning as allCategories above — the vendor picker on each tile
+       needs to offer a vendor no product has been assigned to yet. */
+    const allVendors = await listMirrorVendors(env.CATALOG_MIRROR);
+
     /* Stock, batched the same way vendor names and images already are —
        one read of the whole (small) inventory_level view rather than one
        query per variation. A deployment with no COMMERCE binding, or a
@@ -493,7 +498,7 @@ async function ops(request, env, path) {
       variations: p.variations.map((v) => ({ ...v, on_hand: v.sku ? (stockBySku.get(v.sku) ?? 0) : null })),
     }));
 
-    return html(itemsPage({ role }, products, allCategories));
+    return html(itemsPage({ role }, products, allCategories, allVendors));
   }
 
   /*
@@ -584,6 +589,8 @@ async function ops(request, env, path) {
       path.endsWith("/categories/number") ||
       path.endsWith("/categories/rename") ||
       path.endsWith("/categories/remove") ||
+      path.endsWith("/vendors/create") ||
+      path.endsWith("/vendors/commission") ||
       path.endsWith("/variations") ||
       path.endsWith("/details") ||
       path.endsWith("/inventory"))
@@ -623,13 +630,17 @@ async function ops(request, env, path) {
                   ? "/categories/rename"
                   : path.endsWith("/categories/remove")
                     ? "/categories/remove"
-                    : path.endsWith("/category")
-                      ? "/category"
-                      : path.endsWith("/details")
-                        ? "/details"
-                        : path.endsWith("/inventory")
-                          ? "/inventory"
-                          : "/variations";
+                    : path.endsWith("/vendors/create")
+                      ? "/vendors/create"
+                      : path.endsWith("/vendors/commission")
+                        ? "/vendors/commission"
+                        : path.endsWith("/category")
+                          ? "/category"
+                          : path.endsWith("/details")
+                            ? "/details"
+                            : path.endsWith("/inventory")
+                              ? "/inventory"
+                              : "/variations";
     const handle = path.slice("/items/".length, path.length - suffix.length);
 
     let form;
@@ -804,6 +815,35 @@ async function ops(request, env, path) {
       toolName = "catalog.remove_category";
       args = { category_id: categoryId };
       summaryNoun = "category";
+    } else if (suffix === "/vendors/create") {
+      /* "The same kind of drop down schema that we have for categories" —
+         the owner's own words. commission is REQUIRED here, unlike a
+         category's own optional numeric_id: a brand-new vendor has
+         nothing on file yet for catalog.create_product/catalog.
+         set_square_attributes to auto-apply later, so this is the one
+         moment it MUST be given. */
+      const name = String(form.get("name") ?? "").trim();
+      const commissionRaw = String(form.get("commission") ?? "").trim();
+      if (!name) return json({ error: "give a vendor name" }, 400);
+      if (!/^\d+$/.test(commissionRaw)) return json({ error: "give a commission (0-100)" }, 400);
+      toolName = "catalog.create_vendor";
+      args = {
+        name,
+        commission: Number(commissionRaw),
+        reason: `created from the Items tab while naming a vendor for '${handle}'`,
+      };
+      summaryNoun = "vendor";
+    } else if (suffix === "/vendors/commission") {
+      /* OURS, not Square's — a vendor's own central rate, changed
+         directly, the same shape /categories/number already is for a
+         category's own numeric_id. */
+      const vendorId = String(form.get("vendor_id") ?? "").trim();
+      const commissionRaw = String(form.get("commission") ?? "").trim();
+      if (!vendorId) return json({ error: "give a vendor" }, 400);
+      if (!/^\d+$/.test(commissionRaw)) return json({ error: "give a commission (0-100)" }, 400);
+      toolName = "catalog.set_vendor_commission";
+      args = { vendor_id: vendorId, commission: Number(commissionRaw) };
+      summaryNoun = "vendor commission";
     } else if (suffix === "/category") {
       /* "There should be a category dropdown... browse and select a
          category, expand and select a subcategory... it should all
