@@ -1524,10 +1524,12 @@ check("test_PRD_P0_138_nested_categories__an_edit_that_does_not_touch_category_n
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
- * P0-140 — two different edits must never collide on one idempotency key
+ * P0-139 (continued) — two different edits must never collide on one
+ * idempotency key, and a VERSION_MISMATCH must read as Square's own
+ * concurrency control doing its job, not a bug
  * ───────────────────────────────────────────────────────────────────────── */
 
-check("test_PRD_P0_140_idempotency_key_covers_the_whole_edit__two_different_descriptions_never_share_a_key", async () => {
+check("test_PRD_P0_139_honest_write_failures__two_different_descriptions_never_share_an_idempotency_key", async () => {
   /* A real bug, caught live from the owner's own pasted error:
      "IDEMPOTENCY_KEY_REUSED... can only be retried with the same request
      data." The key used to hash only external_ref/source_version/style_id/
@@ -1562,12 +1564,7 @@ check("test_PRD_P0_140_idempotency_key_covers_the_whole_edit__two_different_desc
   assert.notEqual(keys[0], keys[1], "two different descriptions must never hash to the same idempotency key");
 });
 
-/* ─────────────────────────────────────────────────────────────────────────
- * P0-141 — a VERSION_MISMATCH is Square's own concurrency control doing its
- * job, not a bug, and must read as one to a manager
- * ───────────────────────────────────────────────────────────────────────── */
-
-check("test_PRD_P0_141_friendly_version_mismatch__a_concurrent_square_edit_gets_a_plain_english_hint_not_just_the_raw_dump", async () => {
+check("test_PRD_P0_139_honest_write_failures__a_concurrent_square_edit_gets_a_plain_english_hint_not_just_the_raw_dump", async () => {
   /* The owner's own next real error, right after the idempotency fix:
      Square correctly refusing to overwrite a description someone (or
      something) changed directly in Square since the mirror's own

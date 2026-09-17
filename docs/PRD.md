@@ -4531,47 +4531,46 @@ that does not trace to one of these is a process failure (see §12).
     the tile's own height is provably unchanged while the popover is showing, and a click both copies
     the exact message to the clipboard and dismisses on the next outside click.
 
-75. **`Test-PRD-P0-140-idempotency_key_covers_the_whole_edit`** — The very first real failure the
-    P0-139 fix above ever surfaced, the owner's own words, pasted verbatim: `Square POST
-    /v2/catalog/object failed with 400 — INVALID_REQUEST_ERROR/IDEMPOTENCY_KEY_REUSED (field:
-    idempotency_key): The idempotency key can only be retried with the same request data.`
-    `catalog.update_product`'s own `idempotency_key` (`ops/src/tools/catalog-writer.js`) hashed only
-    `external_ref`/`source_version`/`style_id`/vendor/commission — NEVER title, description, category
-    or variations, the exact fields a plain title-or-description-or-category edit is actually about.
-    `source_version` stays the SAME across every attempt Square has not yet applied — a failed call, or
-    simply a second edit made before the first one's own `syncAfterWrite` landed — so two edits with
-    genuinely DIFFERENT content, made in that window, hashed to the IDENTICAL key while sending
-    DIFFERENT bodies: exactly the case Square's own idempotency contract refuses outright, rather than
-    silently accepting the second as a no-op retry. Fixed by folding every field that can actually vary
-    this upsert's own content — title, description, the resolved category ref, and the full resolved
-    variations array — into the same key material the style/vendor/commission fields already
-    contributed; two calls now only ever collide when they would send the identical body anyway, which
-    is the correct idempotent-retry case Square's own contract describes. Proven by forcing
-    `source_version` back down between two calls (simulating the exact window the real bug lived in —
-    a second edit arriving before the first's own resync ran) and asserting two different descriptions
-    still produce two different keys.
+    **REVISED AGAIN: the very first real failure this fix ever surfaced**, the owner's own words,
+    pasted verbatim: `Square POST /v2/catalog/object failed with 400 —
+    INVALID_REQUEST_ERROR/IDEMPOTENCY_KEY_REUSED (field: idempotency_key): The idempotency key can only
+    be retried with the same request data.` `catalog.update_product`'s own `idempotency_key`
+    (`ops/src/tools/catalog-writer.js`) hashed only `external_ref`/`source_version`/`style_id`/
+    vendor/commission — NEVER title, description, category or variations, the exact fields a plain
+    title-or-description-or-category edit is actually about. `source_version` stays the SAME across
+    every attempt Square has not yet applied — a failed call, or simply a second edit made before the
+    first one's own `syncAfterWrite` landed — so two edits with genuinely DIFFERENT content, made in
+    that window, hashed to the IDENTICAL key while sending DIFFERENT bodies: exactly the case Square's
+    own idempotency contract refuses outright, rather than silently accepting the second as a no-op
+    retry. Fixed by folding every field that can actually vary this upsert's own content — title,
+    description, the resolved category ref, and the full resolved variations array — into the same key
+    material the style/vendor/commission fields already contributed; two calls now only ever collide
+    when they would send the identical body anyway, which is the correct idempotent-retry case Square's
+    own contract describes. Proven by forcing `source_version` back down between two calls (simulating
+    the exact window the real bug lived in — a second edit arriving before the first's own resync ran)
+    and asserting two different descriptions still produce two different keys.
 
-76. **`Test-PRD-P0-141-friendly_version_mismatch`** — The owner's very next real error, pasted verbatim
-    right after the idempotency fix above: `Square POST /v2/catalog/object failed with 400 —
+    **REVISED A THIRD TIME: the very next real error, pasted verbatim right after the idempotency fix
+    above:** `Square POST /v2/catalog/object failed with 400 —
     INVALID_REQUEST_ERROR/VERSION_MISMATCH (field: description): VERSION_MISMATCH: Object version does
     not match latest database version. Field description was modified concurrently. [object_id=...
     request_version=... latest_version=... stale_value=<empty> request_value=Gyyyyy
     latest_value=Test gggg]`. Not a bug: Square's own optimistic concurrency doing exactly its job —
     the item's description had genuinely changed in Square (directly, or by another edit) since this
     mirror row's own `source_version` was last synced, and Square correctly refuses to blindly overwrite
-    it rather than silently discard whichever edit lost the race. But the P0-139 fix that finally
-    surfaced this detail also surfaced it RAW — `VERSION_MISMATCH`, a request/latest version pair, an
-    `object_id` — to a manager with no reason to know any of Square's own field names, exactly the kind
-    of message that reads as broken even though nothing is. `catalog-writer.js`'s `updateProduct` now
-    catches a thrown error carrying `VERSION_MISMATCH` in its own `.errors` and rethrows a plain-English
-    sentence — "this item was changed directly in Square since this page last loaded — reload the Items
-    tab to see the current version, then try your edit again" — IN FRONT of, never in place of, the same
-    technical detail P0-139 already made reachable: the rethrown error still carries the original
-    `.errors` array, so `runTool`'s own `errorDetail` (`ops/src/tools/index.js`) appends the raw
+    it rather than silently discard whichever edit lost the race. But this same fix's own honesty also
+    surfaced it RAW — `VERSION_MISMATCH`, a request/latest version pair, an `object_id` — to a manager
+    with no reason to know any of Square's own field names, exactly the kind of message that reads as
+    broken even though nothing is. `catalog-writer.js`'s `updateProduct` now catches a thrown error
+    carrying `VERSION_MISMATCH` in its own `.errors` and rethrows a plain-English sentence — "this item
+    was changed directly in Square since this page last loaded — reload the Items tab to see the
+    current version, then try your edit again" — IN FRONT of, never in place of, the same technical
+    detail this feature already made reachable: the rethrown error still carries the original `.errors`
+    array, so `runTool`'s own `errorDetail` (`ops/src/tools/index.js`) appends the raw
     category/code/field/detail right after the friendly sentence, in case a reload does not actually
     resolve it. The interpretation lives in `catalog-writer.js`, not in `tools/index.js`'s own generic,
-    provider-agnostic catch (P0-139's own boundary) — `catalog-writer.js` already knows it is talking to
-    Square, and a VERSION_MISMATCH means something specific and interpretable only there.
+    provider-agnostic catch — `catalog-writer.js` already knows it is talking to Square, and a
+    VERSION_MISMATCH means something specific and interpretable only there.
 
 ## 4. P1 features
 
