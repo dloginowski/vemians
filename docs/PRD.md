@@ -4664,6 +4664,26 @@ that does not trace to one of these is a process failure (see §12).
     — no resort is needed here, since a numeric_id that did not exist a moment ago cannot already match
     any existing product's own style_id.
 
+    **REVISED YET AGAIN — the ID field was STILL too wide after the `2ch` fix, because that fix never
+    actually took effect: "I told you 50 times already... the category IDs... they're too wide...
+    check your CSS."** The real bug: the Categories accordion lives inside `.item-edit` (moved there by
+    an earlier revision, the "Admin" disclosure), and `.item-edit input, .item-edit select, ...` — one
+    class plus one type selector, specificity `(0,1,1)` — was silently beating a bare
+    `.category-numeric-id` (one class, `(0,1,0)`) on every one of these fields (the ID, the name, and
+    the add-form's own copies of both). CSS specificity is decided by the selectors alone, never by
+    which rule comes later in the file, so no amount of reordering or re-writing the LOSING rule's own
+    `width` value (the `3em` → `2ch` change, two revisions back) could ever have worked — the `10em`
+    from `.item-edit input` was always the one actually rendering, which is exactly why the owner kept
+    seeing it "too wide" after a change that, read in isolation, looked correct. A source-text test
+    that only checks a rule's own declaration EXISTS (every test this feature had up to this point)
+    structurally cannot catch a specificity loss like this — the text is right and still loses. Fixed
+    by qualifying every one of these selectors with `.item-edit` itself (`.item-edit .category-node-
+    name`, `.item-edit .category-numeric-id`, `.item-edit .category-new-numeric-id`, `.item-edit
+    .category-new-name`) — two classes, `(0,2,0)`, which beats `(0,1,1)` outright, a fixed mathematical
+    fact independent of source order. The test for this now also pins down the shape of the COMPETING
+    rule itself (exactly one class plus one type selector) — if a future edit ever gives `.item-edit
+    input` a second class, this fix would need re-examining, and the test says so.
+
 74. **`Test-PRD-P0-139-honest_write_failures`** — A Square write refused with a plain `Square POST
     /v2/catalog/object failed with 400` and nothing else — the owner's own words, pasting exactly that
     line after an edit silently went nowhere: "just make sure all of the fields work... with this post
