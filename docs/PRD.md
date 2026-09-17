@@ -5013,6 +5013,46 @@ that does not trace to one of these is a process failure (see §12).
     still sorts correctly) and moving the real DOM nodes into ascending order via `parent.append(...)`,
     a blank/unassigned id sorting last since it has no real position yet to claim.
 
+    **REVISED YET AGAIN — `catalog.create_product` now derives its own category from `style_id`, and
+    creating a category retroactively claims products that arrived before it existed.** The owner's
+    own words, describing a fully automated bulk ingestion process: "each item needs to have a style
+    ID... all of the items need to be assigned to their respective categories... if categories do not
+    exist, then they will not get assigned to a category, they'll stay unassigned. However, if that
+    category is then later created with the matching ID... these assets should be auto assigned to
+    that category." Two real gaps, both closed:
+
+    **`category_id` is no longer `required` on `catalog.create_product`.** It always wins outright
+    when a caller actually gives one (the closed-set check still applies to it, unchanged), but when
+    it is left out, `run()` now derives it from `style_id` via `deriveCategoryIdForStyleId` — the exact
+    same lookup `catalog.set_square_attributes` already uses for an edit — landing on the deepest
+    matching subcategory, falling back to the top-level category, or `null` (created UNASSIGNED, never
+    refused) if neither exists yet. Previously `category_id` was hard-required and validated against
+    the closed set unconditionally, so a bulk import would have had to derive this itself, by hand, or
+    fail outright for every not-yet-categorized row — exactly backwards from "if categories do not
+    exist... they'll stay unassigned," which requires creating the product to always succeed regardless.
+
+    **`catalog.create_category`, when given a `numeric_id` at creation, now also calls
+    `resortProductsByStyleId()` — it never did.** The existing comment defending that omission read "a
+    brand-new numeric_id cannot already match any existing product's style_id, since nothing could have
+    referenced it before it existed" — true of a product's own CURRENT `category_id` (nothing could
+    point at a category before it existed), but false of a product's own `style_id`, whose digits are
+    independent of whether any category with that numeric_id exists yet at all. A product ingested
+    ahead of its own category — precisely the case the owner's own rule describes — would sit
+    unassigned forever unless someone happened to run `catalog.set_category_number` afterward on a
+    numeric_id that was already correct and needed no changing. Creating the category is the FIRST
+    moment such a product ever becomes assignable, so it is also the first moment this resort needs to
+    run, exactly like `catalog.set_category_number`'s own already-correct behavior.
+
+    **`catalog.create_product`'s own `describe` text now spells out the full ingestion contract** for a
+    batch/spreadsheet submission — every row needs `style_id`, `title`, quantity (set afterward via
+    `inventory.adjust`, since `VARIATION` carries no stock field of its own) and MSRP
+    (`variations[].price_minor`); without a vendor, `unit_cost_minor` is also required; with a vendor,
+    `commission` is required instead (unless that vendor already exists, in which case its own
+    commission is already on file, `catalog.set_square_attributes`'s own established exemption) — so an
+    agent constructing each row's own call has the validation matrix in front of it on every turn (tool
+    descriptions are always sent; an on-demand skill doc is not) rather than needing to infer an
+    unstated procedure.
+
 74. **`Test-PRD-P0-139-honest_write_failures`** — A Square write refused with a plain `Square POST
     /v2/catalog/object failed with 400` and nothing else — the owner's own words, pasting exactly that
     line after an edit silently went nowhere: "just make sure all of the fields work... with this post

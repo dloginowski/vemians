@@ -704,29 +704,43 @@ export const catalogWriteTools = {
     describe:
       "Create a product in SQUARE — the ITEM and its ITEM_VARIATIONs — attach the uploaded originals " +
       "as images, and then sync our mirror from Square. Square is authoritative (ADR-009); this tool " +
-      "never writes a product row directly. `category_id` MUST come from catalog.categories; anything " +
-      "else is refused. Prices are integer MINOR units, currency \"USD\" — this shop trades in nothing " +
-      "else, so pass it without asking. A product with no real size/color options still needs one " +
-      "variation, conventionally titled \"One size\". This is a T2 write: it executes only after a " +
-      "human approves it. `custom_fields` is OURS, not Square's: any field name -> string value we " +
-      "track that Square has no concept of at all (unit cost, a spreadsheet column with no home " +
-      "elsewhere). It never reaches Square — it is written to our own mirror right after the item " +
-      "is created — and survives every future sync untouched. Edit it later with " +
-      "catalog.set_custom_fields. `style_id`, `vendor`, `vendor_code`, `unit_cost_minor` and " +
-      "`commission` MAY be set here at creation time, since this call already reaches Square for the " +
-      "item itself — style_id/commission ARE Square's own Custom Attributes; vendor is a real Square " +
-      "Vendor entity (Retail Plus/Premium), reused by name or created; vendor_code/unit_cost_minor " +
-      "live on that same vendor association (see catalog.set_square_attributes for the full " +
-      "description of each). vendor_code/unit_cost_minor/commission all only make sense alongside a " +
-      "vendor and are refused without one; a vendor NAME with no existing Square Vendor is refused " +
+      "never writes a product row directly. `category_id`, when given, MUST come from " +
+      "catalog.categories; anything else is refused. It is OPTIONAL, though: give a `style_id` instead " +
+      "(or as well) and its own digits are looked up against every category/subcategory's own " +
+      "numeric_id — the deepest, most specific match wins — to derive the category automatically, the " +
+      "same lookup catalog.set_square_attributes already uses for an edit. No match yet (the category " +
+      "or subcategory this style_id names has not been created, or numbered, yet) is not a refusal — " +
+      "the product is created UNASSIGNED, and picked up automatically the moment a matching " +
+      "category/subcategory is created or numbered (catalog.create_category, " +
+      "catalog.set_category_number). Prices are integer MINOR units, currency \"USD\" — this shop " +
+      "trades in nothing else, so pass it without asking. A product with no real size/color options " +
+      "still needs one variation, conventionally titled \"One size\"; VARIATION carries no quantity of " +
+      "its own — set initial stock with inventory.adjust, by variant_id, once this call returns one. " +
+      "This is a T2 write: it executes only after a human approves it. `custom_fields` is OURS, not " +
+      "Square's: any field name -> string value we track that Square has no concept of at all (unit " +
+      "cost, a spreadsheet column with no home elsewhere). It never reaches Square — it is written to " +
+      "our own mirror right after the item is created — and survives every future sync untouched. Edit " +
+      "it later with catalog.set_custom_fields. `style_id`, `vendor`, `vendor_code`, `unit_cost_minor` " +
+      "and `commission` MAY be set here at creation time, since this call already reaches Square for " +
+      "the item itself — style_id/commission ARE Square's own Custom Attributes; vendor is a real " +
+      "Square Vendor entity (Retail Plus/Premium), reused by name or created; vendor_code/" +
+      "unit_cost_minor live on that same vendor association (see catalog.set_square_attributes for the " +
+      "full description of each). vendor_code/unit_cost_minor/commission all only make sense alongside " +
+      "a vendor and are refused without one; a vendor NAME with no existing Square Vendor is refused " +
       "without a commission given in the SAME call (creating a new vendor needs one; reusing an " +
       "existing vendor by name does not); style_id follows this shop's own NN-NN-NNN nomenclature " +
-      "and is refused if another product already has it.",
+      "and is refused if another product already has it. INGESTING A BATCH (e.g. from a spreadsheet): " +
+      "every row needs style_id, title, quantity (set afterward via inventory.adjust) and MSRP " +
+      "(variations[].price_minor); WITHOUT a vendor, unit_cost_minor is also required (this shop's own " +
+      "cost of goods); WITH a vendor, commission is required instead (unless that vendor already " +
+      "exists, in which case its own commission is already on file) — a row missing what its own " +
+      "vendor/no-vendor case requires should be refused before this tool is ever called, not sent " +
+      "in and left for Square's own refusal to explain.",
     undo: "withdraw the item in Square; nothing is deleted, and the originals in R2 are untouched",
     schema: {
       title: { type: "string", required: true, maxLength: CAPS.CATALOG_TITLE_MAX },
       description: { type: "string", maxLength: CAPS.CATALOG_DESCRIPTION_MAX },
-      category_id: { type: "string", required: true, format: "id" },
+      category_id: { type: "string", format: "id" },
       variations: { type: "array", required: true, maxItems: CAPS.CATALOG_MAX_VARIATIONS, of: VARIATION },
       images: IMAGES,
       style_id: { type: "string", maxLength: 20 },
@@ -808,27 +822,41 @@ export const catalogWriteTools = {
         }
       }
 
-      /* The closed set, read from the mirror. Not a prompt instruction. */
-      const categories = await listCategories(t.db.catalog_mirror);
-      const chosen = categories.find((c) => c.id === args.category_id);
-      if (!chosen) {
-        return {
-          denied:
-            `category '${args.category_id}' is not one of the ${categories.length} categories that exist ` +
-            `(${categories.map((c) => c.name).join(", ") || "none yet"}). ` +
-            "Choose one from catalog.categories. Creating a category is catalog.create_category, a separate " +
-            "manager decision — it is not something this tool does on the way past.",
-          detail: { reason: "category_outside_closed_set", closed_set_size: categories.length },
-        };
+      /* REVISED: category_id is now optional — "if categories do not exist,
+         then they will not get assigned to a category, they'll stay
+         unassigned" — the owner's own words. The closed-set check only
+         applies when a caller actually names one; leaving it out entirely
+         is not an error, it defers to style_id's own derivation in run()
+         (or leaves the product unassigned, if that matches nothing yet
+         either). Read from the mirror, not a prompt instruction. */
+      let chosen = null;
+      if (args.category_id !== undefined) {
+        const categories = await listCategories(t.db.catalog_mirror);
+        chosen = categories.find((c) => c.id === args.category_id);
+        if (!chosen) {
+          return {
+            denied:
+              `category '${args.category_id}' is not one of the ${categories.length} categories that exist ` +
+              `(${categories.map((c) => c.name).join(", ") || "none yet"}). ` +
+              "Choose one from catalog.categories. Creating a category is catalog.create_category, a separate " +
+              "manager decision — it is not something this tool does on the way past.",
+            detail: { reason: "category_outside_closed_set", closed_set_size: categories.length },
+          };
+        }
       }
 
       const media = await checkImages(args.images, t.media);
       if (media.denied) return { denied: media.denied, detail: { reason: "unknown_media_key" } };
 
       const total = args.variations.map((v) => `${v.title} ${v.price_minor} ${v.currency}`).join(", ");
+      const categoryNote = chosen
+        ? `in ${chosen.name}`
+        : args.style_id !== undefined
+          ? "in whichever category/subcategory's own numeric_id matches its style_id, or unassigned if none does yet"
+          : "with no category";
       return {
         ok: true,
-        summary: `create "${args.title}" in ${chosen.name} — ${args.variations.length} variation(s): ${total}`,
+        summary: `create "${args.title}" ${categoryNote} — ${args.variations.length} variation(s): ${total}`,
         preflight: { category: chosen, images: media.found },
       };
     },
@@ -843,10 +871,25 @@ export const catalogWriteTools = {
         images.push({ ...original, caption: args.title });
       }
 
+      /* "If categories do not exist, then they will not get assigned to a
+         category, they'll stay unassigned. However, if that category is
+         then later created with the matching ID... these assets should
+         be auto assigned to that category" — the owner's own words. A
+         category_id actually given always wins outright; otherwise a
+         style_id is looked up the exact same way catalog.
+         set_square_attributes already does for an edit, landing on the
+         deepest matching subcategory/category or null (unassigned) if
+         neither exists yet — never a refusal either way. */
+      const categoryId =
+        args.category_id !== undefined
+          ? args.category_id
+          : args.style_id !== undefined
+            ? await deriveCategoryIdForStyleId(t.db.catalog_mirror, args.style_id)
+            : null;
       const out = await t.square.createProduct({
         title: args.title,
         description: args.description ?? "",
-        categoryId: args.category_id,
+        categoryId,
         variations: args.variations,
         images,
         styleId: args.style_id,
@@ -1007,8 +1050,12 @@ export const catalogWriteTools = {
       "parent, since what's unique is the numeric_id, not the name — and everything it does not refuse " +
       "still needs a manager to approve it. numeric_id is optional here (catalog.set_category_number " +
       "can still assign or change it later) but, when given, is validated against the same two pools " +
-      "that tool enforces. Use it when the shop genuinely starts selling something it has never sold " +
-      "before, or is organizing its own tree further.",
+      "that tool enforces — and, exactly like catalog.set_category_number, RETROACTIVELY re-assigns " +
+      "any product already sitting unassigned (or under a looser fallback match) whose own style_id " +
+      "digits match this brand-new numeric_id: an item ingested before its category existed yet is not " +
+      "stuck unassigned forever, it is picked up the moment a matching category or subcategory finally " +
+      "is created. Use it when the shop genuinely starts selling something it has never sold before, " +
+      "or is organizing its own tree further.",
     undo: "withdraw the category in Square; the mirror archives it and keeps the row",
     schema: {
       name: { type: "string", required: true, maxLength: 60 },
@@ -1091,21 +1138,36 @@ export const catalogWriteTools = {
       const out = await t.square.createCategory({ name: t.preflight.name, parentId: t.preflight.parentId });
       /* numeric_id is OURS, not Square's — the same direct mirror write
          catalog.set_category_number's own run() makes, applied here to the
-         row this call itself just created. No resort is needed: a
-         brand-new numeric_id cannot already match any existing product's
-         style_id, since nothing could have referenced it before it existed. */
+         row this call itself just created.
+         REVISED: "if that category is then later created with the
+         matching ID, then... these assets should be auto assigned to
+         that category" — the owner's own words. A brand-new numeric_id
+         cannot already match any existing product's own CURRENT category
+         (nothing could have pointed AT this category before it existed),
+         but a product ingested earlier with a style_id whose digits
+         happen to match this exact numeric_id may already be sitting
+         unassigned (or filed under a looser fallback match) — exactly
+         the case resortProductsByStyleId exists to fix. Skipping it here
+         was the actual bug: this call is the FIRST moment such a product
+         could ever become assignable, so it is also the first moment
+         this resort needs to run. */
+      let resorted = 0;
+      let resortErrors = [];
       if (t.preflight.numericId && out.category) {
         await t.db.catalog_mirror
           .prepare("UPDATE mirror_category SET numeric_id = ? WHERE id = ?")
           .bind(t.preflight.numericId, out.category.id)
           .run();
         out.category.numeric_id = t.preflight.numericId;
+        ({ resorted, errors: resortErrors } = await t.square.resortProductsByStyleId());
       }
       return {
         created: true,
         category: out.category,
         existing_before: t.preflight.existing,
         mirror_sync: out.sync,
+        products_resorted: resorted,
+        resort_errors: resortErrors,
         authority: "square",
       };
     },

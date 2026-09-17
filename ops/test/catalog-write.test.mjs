@@ -1543,6 +1543,60 @@ check("test_PRD_P0_138_nested_categories__setting_a_style_id_auto_derives_the_pr
   assert.equal(itemUpsert.body.object.item_data.reporting_category.id, casualExternalRef);
 });
 
+check("test_PRD_P0_138_nested_categories__creating_a_product_with_a_style_id_but_no_category_id_derives_one", async () => {
+  /* The owner's own words, describing the ingestion process: "each item
+     needs to have a style ID... all of the items need to be assigned to
+     their respective categories." category_id is no longer required at
+     all on catalog.create_product -- style_id's own digits, looked up
+     the exact same way catalog.set_square_attributes already does for
+     an edit, are enough. */
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  await approvedCall(f, "catalog.set_category_number", { category_id: outerwear.id, numeric_id: "01" });
+
+  const res = await approvedCall(f, "catalog.create_product", { ...COAT, style_id: "01-99-001" });
+  assert.equal(res.ok, true, res.error);
+  const product = f.mirror(`SELECT category_id FROM mirror_product WHERE handle = '${res.data.product.handle}'`)[0];
+  assert.equal(product.category_id, outerwear.id, "the top-level '01' segment matched with no subcategory numbered yet");
+});
+
+check("test_PRD_P0_138_nested_categories__creating_a_product_whose_style_id_matches_nothing_yet_leaves_it_unassigned_not_refused", async () => {
+  /* "If categories do not exist, then they will not get assigned to a
+     category, they'll stay unassigned" -- the owner's own words. No
+     category exists with numeric_id '77' anywhere in this fixture. */
+  const f = await fixture();
+  const res = await approvedCall(f, "catalog.create_product", { ...COAT, style_id: "77-88-001" });
+  assert.equal(res.ok, true, res.error);
+  const product = f.mirror(`SELECT category_id FROM mirror_product WHERE handle = '${res.data.product.handle}'`)[0];
+  assert.equal(product.category_id, null);
+});
+
+check("test_PRD_P0_138_nested_categories__creating_a_category_with_a_numeric_id_retroactively_assigns_products_left_unassigned", async () => {
+  /* "If that category is then later created with the matching ID, then...
+     these assets should be auto assigned to that category" -- the
+     owner's own words. A product ingested before its own category ever
+     existed must not be stuck unassigned forever: the moment a category
+     is CREATED with a matching numeric_id (not just re-numbered later),
+     the same retroactive resort catalog.set_category_number already
+     triggers must run here too. */
+  const f = await fixture();
+  const orphan = await approvedCall(f, "catalog.create_product", { ...COAT, style_id: "42-01-001" });
+  assert.equal(orphan.ok, true, orphan.error);
+  let product = f.mirror(`SELECT category_id FROM mirror_product WHERE handle = '${orphan.data.product.handle}'`)[0];
+  assert.equal(product.category_id, null, "nothing has numeric_id '42' yet");
+
+  const created = await approvedCall(f, "catalog.create_category", {
+    name: "Loungewear",
+    numeric_id: "42",
+    reason: "test",
+  });
+  assert.equal(created.ok, true, created.error);
+  assert.equal(created.data.products_resorted, 1, "the orphaned product must be picked up in the same call that creates its category");
+
+  product = f.mirror(`SELECT category_id FROM mirror_product WHERE handle = '${orphan.data.product.handle}'`)[0];
+  assert.equal(product.category_id, created.data.category.id);
+});
+
 check("test_PRD_P0_138_nested_categories__resync_from_square_is_manager_only", async () => {
   const f = await fixture();
   const denied = await runTool("catalog.resync_from_square", {}, { ...f.ctx, ...staff });
