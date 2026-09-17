@@ -3831,6 +3831,21 @@ that does not trace to one of these is a process failure (see §12).
     keeping their existing `margin-top`/`padding-top` so sections still read as distinct without a
     drawn line between every one of them.
 
+    **REVISED YET AGAIN — three bars still visible, including the one the previous pass had
+    deliberately kept: "There is one above variants and one above categories, and then one at the
+    very top. Those, that's three that I want to remove."** The first two were never `border-top`
+    at all — `.variations-header` and `.categories-header` (the clickable pill each accordion opens
+    from) each carry a FULL `border: 1px solid var(--rule)` on all four sides, and that box's own top
+    edge reads as "a bar above Variants"/"a bar above Categories" just as plainly as a bare
+    `border-top` does, which is why the previous pass's `border-top`-only search missed both. Fixed
+    by dropping the `border` declaration from each header entirely, keeping its shaded
+    `background`/`border-radius`/`padding` so it still reads as its own header bar, just without a
+    drawn line around it. The third was `.item-edit-admin`'s own `border-top` — the one bar the
+    previous pass was explicitly asked to keep — now removed outright along with its now-pointless
+    class (both the CSS rule and the template's own `item-edit-admin` attribute are gone; the div
+    reverts to plain `.item-edit`). Nothing in the expanded item detail view draws a dividing line
+    anywhere, at any depth, any more.
+
 71. **`Test-PRD-P0-136-square_custom_attributes`** — The owner's own words, having weighed "ours,
     not Square's" (P0-71's own `channel`/`custom_fields`) against not reinventing something Square
     already offers: "why do we need to have our own custom fields then? It doesn't make sense... we

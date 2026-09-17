@@ -2002,34 +2002,40 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_edit_area_is_a_plain_d
   assert.doesNotMatch(body, /<summary>Edit<\/summary>/, "no more generic Edit toggle to click before anything is visible");
 });
 
-check("test_PRD_P0_135_item_edit_applies_immediately__only_one_horizontal_bar_remains_right_above_admin", async () => {
-  /* The owner's own words: "Remove all horizontal bars from the details
-     panel, except the one that's right above the admin dropdown."
-     .item-edit is shared by the title/vendor block AND the custom-fields/
-     Admin block (same class, two separate divs) -- only the SECOND one
-     (marked with the extra .item-edit-admin class) may still draw a top
-     border; the base class, and every OTHER accordion in this panel,
-     must not. */
+check("test_PRD_P0_135_item_edit_applies_immediately__no_horizontal_bar_remains_anywhere_in_the_details_panel", async () => {
+  /* REVISED: the owner's first pass asked to keep exactly one bar, right
+     above the Admin dropdown ("except the one that's right above the
+     admin dropdown"). The very next message named three MORE still
+     visible and asked for all of them gone too: "There is one above
+     variants and one above categories, and then one at the very top.
+     Those, that's three that I want to remove." The first two were the
+     .variations-header/.categories-header pills' own full border (all
+     four sides — the top edge of a box reads as "a bar" just as much as
+     a bare border-top does); the third was the one bar the earlier pass
+     had deliberately kept. All three are gone now — nothing in this
+     panel draws a dividing line at all, anywhere, at any depth. */
   const mirror = mirrorDb();
   seedProduct(mirror, { style_id: "01-04-001", vendor: "Acme Mills", commission_pct: 20 });
   seedCategoryTree(mirror);
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
 
-  assert.match(body, /<div class="item-edit item-edit-admin">/, "the custom-fields/Admin wrapper carries the one class allowed to keep its bar");
-  assert.doesNotMatch(
-    body.slice(0, body.indexOf('<div class="item-edit item-edit-admin">')),
-    /<div class="item-edit item-edit-admin">/,
-  );
+  assert.doesNotMatch(body, /class="item-edit item-edit-admin"/, "the now-pointless second class must be gone from the template too");
+  assert.doesNotMatch(body, /\.item-edit\.item-edit-admin/, "and its own CSS rule must be gone");
+  assert.match(body, /\.item-edit \{ margin-top: 2px; padding-top: 6px; cursor: default; \}/, "the base class itself must never draw a border");
 
-  assert.match(body, /\.item-edit \{ margin-top: 2px; padding-top: 6px; cursor: default; \}/, "the base class must no longer draw a top border");
   assert.match(
     body,
-    /\.item-edit\.item-edit-admin \{ border-top: 1px solid var\(--rule\); \}/,
-    "only .item-edit-admin may still draw one, and only a border-top -- no other property duplicated",
+    /\.variations-header \{\s*\n\s*display: flex; align-items: center; gap: 6px; cursor: pointer;\s*\n\s*background: var\(--image-ground\); border-radius: 6px; padding: 5px 8px;\s*\n\}/,
+    "the Variants header must keep its shaded background/rounded corners but lose its own full border",
   );
-  assert.match(body, /\.variations-accordion \{ margin-top: 2px; padding-top: 6px; \}/, "the Variations accordion must not have its own top border");
-  assert.match(body, /\.categories-accordion \{ margin-top: 2px; padding-top: 6px; \}/, "the Categories accordion (nested inside Admin) must not have its own top border either");
+  assert.match(
+    body,
+    /\.categories-header \{\s*\n\s*display: flex; align-items: center; gap: 6px; cursor: pointer;\s*\n\s*background: var\(--image-ground\); border-radius: 6px; padding: 5px 8px;\s*\n\}/,
+    "the Categories header must keep its shaded background/rounded corners but lose its own full border",
+  );
+  assert.match(body, /\.variations-accordion \{ margin-top: 2px; padding-top: 6px; \}/, "the Variations accordion's own top border stays removed");
+  assert.match(body, /\.categories-accordion \{ margin-top: 2px; padding-top: 6px; \}/, "the Categories accordion's own top border stays removed");
 });
 
 check("test_PRD_P0_135_item_edit_applies_immediately__existing_custom_fields_are_always_visible_only_a_new_blank_row_is_collapsed", async () => {
