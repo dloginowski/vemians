@@ -3780,18 +3780,28 @@ async function shareLink(btn) {
    needs to restore is exactly what a pasted link needs to restore too. */
 function setDeepLinkHash(tile) {
   const sku = tile?.dataset.sku;
-  if (!sku) {
-    history.replaceState(null, "", location.pathname);
-    return;
+  let hash = "";
+  if (sku) {
+    const parts = ["item-" + encodeURIComponent(sku)];
+    if (tile.querySelector(".item-add-field")?.open) parts.push("admin");
+    if (tile.querySelector(".categories-accordion")?.classList.contains("expanded")) parts.push("categories");
+    const expandedIds = [...tile.querySelectorAll(".category-node.expanded")]
+      .map((n) => n.querySelector(":scope > .category-node-row .category-node-name")?.dataset.categoryId)
+      .filter(Boolean);
+    if (expandedIds.length) parts.push("nodes=" + expandedIds.map(encodeURIComponent).join(","));
+    hash = "#" + parts.join("&");
   }
-  const parts = ["item-" + encodeURIComponent(sku)];
-  if (tile.querySelector(".item-add-field")?.open) parts.push("admin");
-  if (tile.querySelector(".categories-accordion")?.classList.contains("expanded")) parts.push("categories");
-  const expandedIds = [...tile.querySelectorAll(".category-node.expanded")]
-    .map((n) => n.querySelector(":scope > .category-node-row .category-node-name")?.dataset.categoryId)
-    .filter(Boolean);
-  if (expandedIds.length) parts.push("nodes=" + expandedIds.map(encodeURIComponent).join(","));
-  history.replaceState(null, "", location.pathname + "#" + parts.join("&"));
+  history.replaceState(null, "", location.pathname + hash);
+  /* This page only ever runs embedded as the shell's own <iframe> (a
+     direct top-level visit gets redirected away in index.js) -- so the
+     history.replaceState above changes an address bar nobody sees. Same-
+     origin with the shell means this can reach straight into it: mirror
+     the same hash onto window.parent's own location too, so the visible,
+     copy-pasteable, reload-surviving URL is the one the owner actually
+     looks at, not this frame's own invisible one. */
+  if (window.parent !== window) {
+    parent.history.replaceState(null, "", parent.location.pathname + parent.location.search + hash);
+  }
 }
 /* Same tile-scoped re-derivation as above, called after any Admin/
    Categories/node toggle so the hash never lags behind what is actually

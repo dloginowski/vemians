@@ -2551,11 +2551,35 @@ check("test_PRD_P0_132_item_deep_link__expanding_or_closing_a_tile_keeps_the_has
   seedProduct(mirror);
   const res = await get("/items", STAFF, env(mirror));
   const body = await res.text();
-  assert.match(body, /function setDeepLinkHash\(tile\) \{\s*\n\s*const sku = tile\?\.dataset\.sku;\s*\n\s*if \(!sku\) \{/);
+  assert.match(body, /function setDeepLinkHash\(tile\) \{\s*\n\s*const sku = tile\?\.dataset\.sku;/);
   const closeHandler = body.slice(body.indexOf('const closeBtn = e.target.closest(".item-close");'), body.indexOf('const closeBtn = e.target.closest(".item-close");') + 700);
   assert.match(closeHandler, /tile\.classList\.remove\("full"\);\s*\n\s*setDeepLinkHash\(null\);/);
   const expandHandler = body.slice(body.indexOf('tile.classList.contains("full")) return;'), body.indexOf('tile.classList.contains("full")) return;') + 200);
   assert.match(expandHandler, /tile\.classList\.add\("full"\);\s*\n\s*setDeepLinkHash\(tile\);/);
+});
+
+check("test_PRD_P0_132_item_deep_link__the_hash_is_also_mirrored_onto_the_shell_frames_own_address_bar", async () => {
+  /* "Deep links are not working... when I open up an item, it should be
+     items/<sku>, so it opens up that item and then any tabs. I'm not
+     seeing any of this." Root cause: this page only ever runs embedded
+     as the shell's own <iframe> (a direct top-level visit is redirected
+     away, index.js), so a plain history.replaceState() here only ever
+     touched THIS frame's own invisible location -- the owner only ever
+     looks at the shell's own address bar, which never moved. Same-origin
+     with the shell means this can reach straight into window.parent and
+     mirror the identical hash onto ITS location instead, which is the
+     one that is actually visible, copy-pasteable, and reload-surviving. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  const fnBody = body.slice(body.indexOf("function setDeepLinkHash(tile) {"), body.indexOf("function syncDeepLinkFromEvent"));
+  assert.match(fnBody, /history\.replaceState\(null, "", location\.pathname \+ hash\);/, "this frame's own location is still kept in step too");
+  assert.match(
+    fnBody,
+    /if \(window\.parent !== window\) \{\s*\n\s*parent\.history\.replaceState\(null, "", parent\.location\.pathname \+ parent\.location\.search \+ hash\);\s*\n\s*\}/,
+    "the shell's own address bar (window.parent) gets the identical hash mirrored onto it, preserving its own path/query (?tab=items)",
+  );
 });
 
 check("test_PRD_P0_132_item_deep_link__the_hash_also_folds_in_admin_categories_and_expanded_node_state", async () => {

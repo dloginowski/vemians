@@ -3591,6 +3591,28 @@ that does not trace to one of these is a process failure (see §12).
     children when THAT node itself is visible, which requires every parent above it to already be
     expanded too.
 
+    **REVISED YET AGAIN — every one of the above only ever updated an address bar nobody was
+    looking at.** The owner's own words, after living with it: "deep links are not working... when
+    I open up an item, it should be items/[sku]... it opens up that item and then any tabs. I'm not
+    seeing any of this." Root cause: this page (`itemsPage()`) only ever runs embedded as the
+    shell's own `<iframe>` (`shellPage()`, above) — a direct top-level visit to `/items` is
+    redirected away to the shell before it ever renders (`index.js`'s own `Sec-Fetch-Dest: document`
+    check) — so every `setDeepLinkHash(tile)` call above was always calling `history.replaceState`
+    on THIS frame's own `location`, which has no address bar the owner ever sees; the shell's own
+    visible URL only ever changes on an explicit tab click (`SHELL_TABS`' own `href`, e.g.
+    `/?tab=items`), never in response to anything happening inside the Items tab itself. Fixed by
+    reaching straight into `window.parent`: same-origin with the shell (both `ops.vemians.com`)
+    needs no `postMessage` handshake at all, so `setDeepLinkHash(tile)` now mirrors the identical
+    hash it always computed onto `parent.location.pathname + parent.location.search` too, whenever
+    `window.parent !== window` (this frame is actually embedded — a bare fallback for the
+    Sec-Fetch-Dest edge case in `index.js`'s own comment, where an old or header-stripping client
+    could still land here directly). The shell's own initial-load forwarding (`shellPage()`'s own
+    `if (location.hash.startsWith("#item-") ...)` block, unchanged) already carried a hash INTO the
+    iframe correctly on first load; what was missing this whole time was carrying state back OUT as
+    it changed, which is the direction that actually makes the visible URL "always match what is
+    open" — reload, copy, and paste-to-a-coworker all read the shell's own address bar, never this
+    iframe's.
+
 68. **`Test-PRD-P0-133-item_close_button`** — The owner's own words, after P0-132 shipped
     click-anywhere-to-expand and lived with it: "it's too easy to click somewhere wrong and it will
     close, and that's not a good experience... maybe it just needs a proper close button." (Floated
