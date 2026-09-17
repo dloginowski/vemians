@@ -4908,6 +4908,32 @@ that does not trace to one of these is a process failure (see §12).
     single keystroke. Removed outright, the same as the header border above: orange means dirty,
     nowhere else on this tile, and hovering is not a change.
 
+    **REVISED YET AGAIN — every chevron and its own bar's horizontal padding, tightened and unified.**
+    The owner's own words: "reduce the horizontal padding of the chevron in the categories drop down
+    box by half so it's tighter... use the overall same chevron padding and overall input field
+    padding... apply it to all of the other chevrons that are on the details page... the categories
+    and the variations, they should all have the same sized... input field and the padding on the
+    chevrons... tighten all of the paddings on all of the chevrons and the indentation so that it's
+    not so horizontally heavy." `.categories-header`'s own horizontal padding — the "categories drop
+    down box," the accordion the owner has always called a dropdown the same way the Admin `<details>`
+    already is one — is the one actually halved, from 8px to 4px; every other chevron-bearing bar/row
+    on the tile (`.variations-header`, `.category-picker-row`, `.category-node-row` and
+    `.variations-body .row`'s own matching trailing inset, `.category-add-form`) now carries that
+    exact same 4px, rather than four separate 8px declarations that happened to agree by coincidence.
+    `CATEGORY_NODE_TOGGLE_PX`, the constant already shared by a category tree node's own toggle/spacer
+    and the per-depth indent step (so a subcategory's own toggle always lands directly under its
+    parent's), comes down from 18 to 14 — still comfortably wider than `CARET_ICON`'s own 12px so the
+    glyph is never clipped, but a visibly tighter step per nesting level, directly answering "tighten
+    the indentation." `.variations-toggle`/`.categories-toggle` — previously their own separate
+    hardcoded `18px`, agreeing with the category tree's own toggle width only by chance — now size off
+    this exact same constant too, so every chevron on the tile (a category tree node's own, the
+    category picker menu's own, and both accordion headers') stays the same size by construction, not
+    by four numbers nobody was actually keeping in sync. Left deliberately untouched: `.category-
+    picker-btn`'s own padding, which stays exactly equal to `.item-edit input`'s own (3px 5px) so the
+    item-level category picker keeps the exact height match with the title field beside it an earlier,
+    already-shipped fix established — that invariant is a different concern from the accordion
+    chevrons this pass tightens, and unifying it in here too would have quietly undone it.
+
 74. **`Test-PRD-P0-139-honest_write_failures`** — A Square write refused with a plain `Square POST
     /v2/catalog/object failed with 400` and nothing else — the owner's own words, pasting exactly that
     line after an edit silently went nowhere: "just make sure all of the fields work... with this post

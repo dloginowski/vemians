@@ -930,8 +930,16 @@ const TRASH_ICON = `<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden=
 /* .category-node-toggle/.category-node-toggle-spacer's own rendered width
    (see the shared CSS below) — the category tree's own per-depth indent
    must equal this exactly so a subcategory's own toggle column lands
-   directly under its parent's, not just close to it. */
-const CATEGORY_NODE_TOGGLE_PX = 18;
+   directly under its parent's, not just close to it.
+   REVISED: "tighten all of the paddings on all of the chevrons and the
+   indentation so that it's not so horizontally heavy" — down from 18,
+   still comfortably wider than CARET_ICON's own 12px so the glyph isn't
+   clipped, but noticeably tighter per nesting level; .variations-toggle/
+   .categories-toggle (below) now size off this same constant instead of
+   their own separate hardcoded 18px, so every chevron on this tile,
+   category tree or accordion header alike, stays the same size by
+   construction, not by four numbers happening to agree today. */
+const CATEGORY_NODE_TOGGLE_PX = 14;
 
 /* The one Save for a whole expanded item tile — the owner's own words:
    "one save button for the whole page... disabled and becomes enabled
@@ -1770,7 +1778,7 @@ ${INPUT_BAR_CSS}
   overflow-y: auto; padding: 4px 0; border: 1px solid var(--muted); border-radius: 8px; background: var(--ground);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
-.category-picker-row { display: flex; align-items: center; gap: 6px; padding: 3px 8px; }
+.category-picker-row { display: flex; align-items: center; gap: 6px; padding: 3px 4px; }
 .category-picker-toggle {
   flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; padding: 0;
   display: inline-flex; align-items: center; justify-content: center; border: none; background: transparent;
@@ -1821,11 +1829,11 @@ ${INPUT_BAR_CSS}
    field on this tile. Never a plain hover cue. */
 .variations-header {
   display: flex; align-items: center; gap: 6px; cursor: pointer;
-  background: var(--image-ground); border: 1px solid var(--rule); border-radius: 6px; padding: 5px 8px;
+  background: var(--image-ground); border: 1px solid var(--rule); border-radius: 6px; padding: 5px 4px;
 }
 .variations-accordion:has(.field-dirty) .variations-header { border-color: var(--accent); }
 .variations-toggle {
-  flex: 0 0 auto; width: 18px; height: 18px; padding: 0; display: inline-flex; align-items: center;
+  flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; padding: 0; display: inline-flex; align-items: center;
   justify-content: center; border: none; background: transparent; color: var(--muted); cursor: pointer;
   transition: transform 0.15s;
 }
@@ -1845,10 +1853,13 @@ ${INPUT_BAR_CSS}
    (.item-edit input's own 3px 5px), so this comes down to 3px vertical,
    matching that. "Give the children rows a slight inset on the right
    side... so they all fall in line" with the header above — the header's
-   own 8px comes from its own padding: 5px 8px; the row had no right
-   padding of its own at all, so its own rightmost field (price) sat 8px
-   further right than the header's own rightmost field (MSRP). */
-.variations-body .row { display: flex; gap: 6px; align-items: center; padding: 3px 8px 3px 0; }
+   own right inset comes from its own padding (below); the row had no
+   right padding of its own at all, so its own rightmost field (price)
+   sat further right than the header's own rightmost field (MSRP).
+   REVISED: "tighten all of the paddings on all of the chevrons and the
+   indentation" — this and the header's own horizontal padding came down
+   together, still matched to each other for the same reason. */
+.variations-body .row { display: flex; gap: 6px; align-items: center; padding: 3px 4px 3px 0; }
 /* The categories accordion (P0-138) — "take the current variants
    workflow... adapt it to handle categories and subcategories." Same
    shape as .variations-accordion above: a plain bar that toggles its own
@@ -1865,13 +1876,23 @@ ${INPUT_BAR_CSS}
    Categories accordion is ever left "dirty, not yet saved" in the first
    place (every field here applies immediately, no batching, unlike
    Variations below), so there is no .field-dirty for a :has() rule to
-   ever match here — this stays plain gray until that changes. */
+   ever match here — this stays plain gray until that changes.
+   REVISED: "reduce the horizontal padding of the chevron in the
+   categories drop down box by half so it's tighter... use the overall
+   same chevron padding... apply it to all of the other chevrons... the
+   categories and the variations, they should all have the same sized...
+   padding on the chevrons." Own horizontal padding down from 8px to 4px,
+   the reference value every other chevron-bearing bar/row on this tile
+   (.variations-header, .category-picker-row, .category-node-row and
+   .variations-body .row's own trailing inset, .category-add-form) now
+   matches exactly, rather than four separate 8px declarations that
+   happened to agree. */
 .categories-header {
   display: flex; align-items: center; gap: 6px; cursor: pointer;
-  background: var(--image-ground); border: 1px solid var(--rule); border-radius: 6px; padding: 5px 8px;
+  background: var(--image-ground); border: 1px solid var(--rule); border-radius: 6px; padding: 5px 4px;
 }
 .categories-toggle {
-  flex: 0 0 auto; width: 18px; height: 18px; padding: 0; display: inline-flex; align-items: center;
+  flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; padding: 0; display: inline-flex; align-items: center;
   justify-content: center; border: none; background: transparent; color: var(--muted); cursor: pointer;
   transition: transform 0.15s;
 }
@@ -1889,7 +1910,7 @@ ${INPUT_BAR_CSS}
    Categories/Variations accordions already use, collapsed by default; a
    leaf gets an equal-width spacer instead, so the name column still
    lines up whether or not that particular row happens to have one. */
-.category-node-row { display: flex; align-items: center; gap: 6px; padding: 3px 8px 3px 0; }
+.category-node-row { display: flex; align-items: center; gap: 6px; padding: 3px 4px 3px 0; }
 /* A leaf category renders a spacer, not a real .category-node-toggle
    button, in its own place — a pointer cursor on a row with nothing
    underneath it to reveal would be a real (if small) affordance lie. */
@@ -1981,7 +2002,7 @@ ${INPUT_BAR_CSS}
    display:none, since a class selector outranks an attribute selector —
    caught live, every add-form showing open by default instead of only
    the one just clicked. */
-.category-add-form { display: flex; gap: 6px; align-items: center; padding: 3px 8px 3px 0; }
+.category-add-form { display: flex; gap: 6px; align-items: center; padding: 3px 4px 3px 0; }
 .category-add-form[hidden] { display: none; }
 .item-edit .category-new-name {
   flex: 1 1 auto; min-width: 0; font: inherit; font-size: 12px; padding: 3px 5px;
