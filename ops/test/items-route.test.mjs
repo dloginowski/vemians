@@ -1144,7 +1144,7 @@ check("test_PRD_P0_135_item_edit_applies_immediately__header_and_row_fields_are_
   assert.match(body, /\.item-edit input\[name="style_id"\]\s*\{[^}]*width: 6em[^}]*text-align: center/);
   assert.match(body, /<span class="variations-header-spacer"><\/span>/, "an invisible spacer absorbs the header's own leftover width, the same way each row's own title does");
   assert.match(body, /\.variations-header-spacer\s*\{\s*flex: 1 1 auto;\s*\}/);
-  assert.match(body, /\.variations-body \.row\s*\{[^}]*padding: 3px 8px 3px 0/, "an 8px right inset matches the header's own 8px right padding");
+  assert.match(body, /\.variations-body \.row\s*\{[^}]*padding: 3px 4px 3px 0/, "a right inset matches the header's own right padding");
   const spacerMarkup = body.indexOf('<span class="variations-header-spacer">');
   const unitCostMarkup = body.indexOf('<input class="variations-unit-cost"');
   assert.ok(
@@ -1318,14 +1318,15 @@ check("test_PRD_P0_138_nested_categories__the_tree_nests_and_indents_by_depth", 
   /* Outerwear (depth 0) -> Coats (depth 1) -> Casual (depth 2). */
   assert.match(body, /<input type="text" class="category-node-name" data-category-id="cat1" value="Outerwear"/);
   /* Each .category-node nests physically inside its own parent's box, so
-     a flat one-step indent (18px, the toggle/spacer's own rendered width)
-     on every non-top-level node compounds through ordinary box-model
-     nesting into the full depth*18px visual offset — Casual (two levels
-     down) still only carries its OWN 18px in the markup; the other 18px
-     comes from its parent Coats' own box already being shifted. */
+     a flat one-step indent (CATEGORY_NODE_TOGGLE_PX, the toggle/spacer's
+     own rendered width) on every non-top-level node compounds through
+     ordinary box-model nesting into the full depth*step visual offset —
+     Casual (two levels down) still only carries its OWN one step in the
+     markup; the other step comes from its parent Coats' own box already
+     being shifted. */
   assert.match(body, /padding-left: 0px"[\s\S]{0,220}Outerwear/);
-  assert.match(body, /padding-left: 18px"[\s\S]{0,220}Coats/);
-  assert.match(body, /padding-left: 18px"[\s\S]{0,220}Casual/);
+  assert.match(body, /padding-left: 14px"[\s\S]{0,220}Coats/);
+  assert.match(body, /padding-left: 14px"[\s\S]{0,220}Casual/);
   /* Each node's own numeric_id shows what it has (or a blank box for
      Casual, which has none yet), and carries its own category id for the
      change handler to post back. */
@@ -1721,7 +1722,7 @@ check("test_PRD_P0_138_nested_categories__the_add_form_previews_at_the_indent_th
   const body = await (await get("/items", MANAGER, env(mirror))).text();
   assert.match(
     body,
-    /<div class="category-add-form" hidden style="padding-left: 18px">\s*\n\s*<input type="text" class="category-new-name"/,
+    /<div class="category-add-form" hidden style="padding-left: 14px">\s*\n\s*<input type="text" class="category-new-name"/,
     "a per-node add-form previews one toggle-width deeper than its own parent row",
   );
   assert.match(
@@ -1790,6 +1791,45 @@ check("test_PRD_P0_138_nested_categories__resync_route_is_manager_only_and_post_
 
   const wrongMethod = await get("/items/resync", MANAGER, env(mirror));
   assert.equal(wrongMethod.status, 405);
+});
+
+check("test_PRD_P0_138_nested_categories__every_chevron_and_its_bars_own_horizontal_padding_now_match_across_categories_and_variations", async () => {
+  /* The owner's own words: "reduce the horizontal padding of the chevron
+     in the categories drop down box by half so it's tighter... use the
+     overall same chevron padding... apply it to all of the other
+     chevrons that are on the details page... the categories and the
+     variations, they should all have the same sized [chevron] and the
+     padding on the chevrons... tighten all of the paddings on all of the
+     chevrons and the indentation so that it's not so horizontally
+     heavy." The Categories accordion header's own horizontal padding
+     (8px) is the one halved to 4px directly; every other chevron-bearing
+     bar/row on the tile now shares that exact value, and all four
+     chevron buttons (Categories/Variations headers, a category tree
+     node, the category picker menu) share one sizing constant rather
+     than four numbers that merely happened to agree. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.match(body, /\.categories-header\s*\{[^}]*padding: 5px 4px;/);
+  assert.match(body, /\.variations-header\s*\{[^}]*padding: 5px 4px;/);
+  assert.match(body, /\.category-picker-row\s*\{[^}]*padding: 3px 4px;/);
+  assert.match(body, /\.category-node-row\s*\{[^}]*padding: 3px 4px 3px 0;/);
+  assert.match(body, /\.variations-body \.row\s*\{[^}]*padding: 3px 4px 3px 0;/);
+  assert.match(body, /\.category-add-form\s*\{[^}]*padding: 3px 4px 3px 0;/);
+  const toggleWidth = /\.category-node-toggle\s*\{[^}]*width:\s*(\d+)px/.exec(body)?.[1];
+  assert.ok(toggleWidth, "the toggle's own width must be found in the rendered CSS");
+  for (const selector of [".category-picker-toggle", ".variations-toggle", ".categories-toggle"]) {
+    const width = new RegExp(`\\${selector}\\s*\\{[^}]*width:\\s*(\\d+)px`).exec(body)?.[1];
+    assert.equal(width, toggleWidth, `${selector} must render at the exact same width as .category-node-toggle`);
+  }
+  /* The item-level category picker button is a different concern -- its
+     own padding is deliberately kept EXACTLY equal to .item-edit input's
+     own (3px 5px) so it stays the same height as the title field beside
+     it, an earlier, already-shipped fix this tightening pass must not
+     quietly undo. */
+  assert.match(body, /\.category-picker-btn\s*\{[^}]*padding: 3px 5px;/);
 });
 
 check("test_PRD_P0_139_honest_write_failures__a_failed_resync_shows_the_same_click_to_copy_popover_not_a_native_alert", async () => {
@@ -2104,12 +2144,12 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_two_outer_bars_stay_re
 
   assert.match(
     body,
-    /\.variations-header \{\s*\n\s*display: flex; align-items: center; gap: 6px; cursor: pointer;\s*\n\s*background: var\(--image-ground\); border: 1px solid var\(--rule\); border-radius: 6px; padding: 5px 8px;\s*\n\}/,
+    /\.variations-header \{\s*\n\s*display: flex; align-items: center; gap: 6px; cursor: pointer;\s*\n\s*background: var\(--image-ground\); border: 1px solid var\(--rule\); border-radius: 6px; padding: 5px 4px;\s*\n\}/,
     "the Variants header must keep its own full border, gray by default",
   );
   assert.match(
     body,
-    /\.categories-header \{\s*\n\s*display: flex; align-items: center; gap: 6px; cursor: pointer;\s*\n\s*background: var\(--image-ground\); border: 1px solid var\(--rule\); border-radius: 6px; padding: 5px 8px;\s*\n\}/,
+    /\.categories-header \{\s*\n\s*display: flex; align-items: center; gap: 6px; cursor: pointer;\s*\n\s*background: var\(--image-ground\); border: 1px solid var\(--rule\); border-radius: 6px; padding: 5px 4px;\s*\n\}/,
     "the Categories header must keep its own full border too, gray by default",
   );
   assert.match(body, /\.variations-accordion \{ margin-top: 2px; padding-top: 6px; \}/, "the Variations ACCORDION's own separate top border stays removed");
