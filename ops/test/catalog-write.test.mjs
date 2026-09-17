@@ -1563,6 +1563,42 @@ check("test_PRD_P0_140_idempotency_key_covers_the_whole_edit__two_different_desc
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
+ * P0-141 — a VERSION_MISMATCH is Square's own concurrency control doing its
+ * job, not a bug, and must read as one to a manager
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_141_friendly_version_mismatch__a_concurrent_square_edit_gets_a_plain_english_hint_not_just_the_raw_dump", async () => {
+  /* The owner's own next real error, right after the idempotency fix:
+     Square correctly refusing to overwrite a description someone (or
+     something) changed directly in Square since the mirror's own
+     source_version was last synced. VERSION_MISMATCH is Square's
+     optimistic concurrency working exactly as designed -- the fix here is
+     not to bypass it, it is to explain it, since "VERSION_MISMATCH...
+     request_version=... latest_version=..." means nothing to a manager
+     with no reason to know Square's own field names. */
+  const f = await fixture({
+    failUpsert: [
+      {
+        category: "INVALID_REQUEST_ERROR",
+        code: "VERSION_MISMATCH",
+        detail:
+          "VERSION_MISMATCH: Object version does not match latest database version. Field `description` was modified concurrently.",
+        field: "description",
+      },
+    ],
+  });
+  const res = await approvedCall(f, "catalog.update_product", { handle: COAT_HANDLE, description: "Gyyyyy" });
+  assert.equal(res.ok, false);
+  assert.match(
+    res.error,
+    /^This item was changed directly in Square since this page last loaded/,
+    "a plain-English explanation must lead, not Square's own field names",
+  );
+  assert.match(res.error, /VERSION_MISMATCH/, "the raw technical detail must still follow, in case reloading does not resolve it");
+  assert.match(res.error, /field: description/);
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
  * P0-139 — a Square rejection's own reason must reach the caller, not just
  * "failed with 400"
  * ───────────────────────────────────────────────────────────────────────── */

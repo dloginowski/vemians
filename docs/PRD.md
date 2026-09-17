@@ -4551,6 +4551,28 @@ that does not trace to one of these is a process failure (see §12).
     a second edit arriving before the first's own resync ran) and asserting two different descriptions
     still produce two different keys.
 
+76. **`Test-PRD-P0-141-friendly_version_mismatch`** — The owner's very next real error, pasted verbatim
+    right after the idempotency fix above: `Square POST /v2/catalog/object failed with 400 —
+    INVALID_REQUEST_ERROR/VERSION_MISMATCH (field: description): VERSION_MISMATCH: Object version does
+    not match latest database version. Field description was modified concurrently. [object_id=...
+    request_version=... latest_version=... stale_value=<empty> request_value=Gyyyyy
+    latest_value=Test gggg]`. Not a bug: Square's own optimistic concurrency doing exactly its job —
+    the item's description had genuinely changed in Square (directly, or by another edit) since this
+    mirror row's own `source_version` was last synced, and Square correctly refuses to blindly overwrite
+    it rather than silently discard whichever edit lost the race. But the P0-139 fix that finally
+    surfaced this detail also surfaced it RAW — `VERSION_MISMATCH`, a request/latest version pair, an
+    `object_id` — to a manager with no reason to know any of Square's own field names, exactly the kind
+    of message that reads as broken even though nothing is. `catalog-writer.js`'s `updateProduct` now
+    catches a thrown error carrying `VERSION_MISMATCH` in its own `.errors` and rethrows a plain-English
+    sentence — "this item was changed directly in Square since this page last loaded — reload the Items
+    tab to see the current version, then try your edit again" — IN FRONT of, never in place of, the same
+    technical detail P0-139 already made reachable: the rethrown error still carries the original
+    `.errors` array, so `runTool`'s own `errorDetail` (`ops/src/tools/index.js`) appends the raw
+    category/code/field/detail right after the friendly sentence, in case a reload does not actually
+    resolve it. The interpretation lives in `catalog-writer.js`, not in `tools/index.js`'s own generic,
+    provider-agnostic catch (P0-139's own boundary) — `catalog-writer.js` already knows it is talking to
+    Square, and a VERSION_MISMATCH means something specific and interpretable only there.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
