@@ -2288,7 +2288,23 @@ function renderAdminCategoryNodes(
           </form>
           ${optionsControl}
           ${removeBtn}
-          ${isTopLevel ? `<button type="button" class="admin-category-add-toggle" data-parent-id="${esc(c.id)}" aria-label="Add a subcategory under ${esc(c.name)}" title="Add a subcategory">+</button>` : ""}
+          ${
+            isTopLevel
+              ? `<button type="button" class="admin-category-add-toggle" data-parent-id="${esc(c.id)}" aria-label="Add a subcategory under ${esc(c.name)}" title="Add a subcategory">+</button>`
+              : /* "Make sure all add and delete buttons in the categories
+                   are vertically aligned... in one line, in a straight
+                   line" — the owner's own words. A subcategory never gets
+                   a real "+" of its own, but omitting it entirely left
+                   every subcategory row with one FEWER fixed-width
+                   trailing element than a top-level row — since
+                   .admin-category-name is the only flex: 1 1 auto piece
+                   in the row, it silently absorbed that missing width,
+                   shifting Sets/remove sideways relative to every
+                   top-level row above it. The exact same width, held by
+                   an inert spacer instead of a working button, cancels
+                   that out. */
+                `<span class="admin-category-toggle-spacer"></span>`
+          }
         </div>
         <div class="admin-category-children">${renderAdminCategoryNodes(categories, c.id, categoryProductCountsById, itemOptions, categoryItemOptionIdsById)}</div>
         ${
@@ -2305,9 +2321,13 @@ function renderAdminCategoryNodes(
                  (only when one could ever show, same as a real row) and a
                  disabled remove button reserve the exact same space real
                  ones would, rather than an abstract spacer of a guessed
-                 width — no "+" placeholder needed, since a subcategory
-                 never gets one of its own (P0-138's own entry, above) and
-                 this row IS one. */
+                 width.
+                 REVISED: a real "+"-width spacer closes it out too now —
+                 a subcategory never gets a real "+" of its own, but
+                 leaving that width out entirely was its own, subtler
+                 version of the same problem: it is what "vertically
+                 aligned... in one line, in a straight line" caught,
+                 below. */
               `<form method="post" action="/admin/categories/create" class="admin-category-add-form" hidden style="padding-left: ${CATEGORY_NODE_TOGGLE_PX}px">
           <input type="hidden" name="parent_id" value="${esc(c.id)}">
           <span class="admin-category-toggle-spacer"></span>
@@ -2315,6 +2335,7 @@ function renderAdminCategoryNodes(
           <input class="admin-category-new-numeric-id" name="numeric_id" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — optional, can be set later">
           ${itemOptions.length ? `<button type="button" class="admin-category-options-toggle" disabled title="Save the new subcategory first">Sets</button>` : ""}
           <button type="button" class="admin-remove-btn" disabled aria-label="Remove" title="Save the new subcategory first">${TRASH_ICON}</button>
+          <span class="admin-category-toggle-spacer"></span>
         </form>`
             : ""
         }
@@ -3839,11 +3860,24 @@ export function adminPage(
     </div>
     <div class="admin-section-body">
       ${allCategories.length ? renderAdminCategoryNodes(allCategories, null, categoryProductCountsById, allItemOptions, categoryItemOptionIdsById) : `<p class="item-empty">No categories yet.</p>`}
+      <!-- "Make sure that the main category add button also generates all
+           of the proper fields so that it's perfectly aligned as well,
+           just like you did with the subcategories — we need the Sets
+           and then we have the disabled delete button" — the owner's own
+           words. This row is TOP-LEVEL (no left padding, same as every
+           real top-level row) and a real top-level category always keeps
+           its own "+", so all three placeholders join it here: Sets (when
+           one could ever show), remove, and "+" — the identical trailing
+           shape a saved top-level row has, disabled rather than guessed
+           at with an abstract spacer. -->
       <form method="post" action="/admin/categories/create" class="admin-category-add-form" hidden>
         <input type="hidden" name="parent_id" value="">
         <span class="admin-category-toggle-spacer"></span>
         <input type="text" class="admin-category-new-name" name="name" placeholder="Category name" maxlength="60">
         <input class="admin-category-new-numeric-id" name="numeric_id" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — optional, can be set later">
+        ${allItemOptions.length ? `<button type="button" class="admin-category-options-toggle" disabled title="Save the new category first">Sets</button>` : ""}
+        <button type="button" class="admin-remove-btn" disabled aria-label="Remove" title="Save the new category first">${TRASH_ICON}</button>
+        <button type="button" class="admin-category-add-toggle" disabled aria-label="Add a subcategory" title="Save the new category first">+</button>
       </form>
     </div>
   </section>

@@ -5577,6 +5577,31 @@ that does not trace to one of these is a process failure (see §12).
     abstract spacer of a guessed size. No "+" placeholder needed — a subcategory never gets one of its
     own (the REVISED entry six up), and this row IS one.
 
+    **REVISED: every subcategory row (real or being-added), and the top-level add-form, now reserve a
+    "+"-width slot too — Sets/remove buttons land in the same column at every depth, not just within
+    one.** The owner's own words: "make sure all add and delete buttons in the categories are
+    vertically aligned. I want them all perfectly aligned vertically... horizontally, so they're all in
+    one line, in a straight line." Leaving the "+" slot out of a subcategory row entirely (rather than
+    reserving its width) was its own, subtler version of the exact problem the REVISED entry right
+    above this one already fixed for Sets/remove: `.admin-category-name` is the only `flex: 1 1 auto`
+    piece in the row, so one FEWER fixed-width trailing element let it silently absorb that width,
+    shifting Sets/remove sideways relative to a top-level row's own. A plain `.admin-category-toggle-
+    spacer` (already used for the row's own LEADING toggle-or-spacer slot) now closes a subcategory row
+    out at the end too — real ones and the add-subcategory form's own placeholder row alike — with no
+    working "+" of its own either way, only the width. The math works out exactly: each nesting level's
+    own `padding-left` (`CATEGORY_NODE_TOGGLE_PX`) shrinks the row's own available width by the same
+    amount a real top-level row spends on its own trailing "+", so matching every row's OWN total
+    fixed-content width, regardless of depth, is what makes Sets/remove line up in one straight column
+    down the whole tree.
+
+    The owner's own follow-up, same request: "make sure that the main category add button also
+    generates all of the proper fields so that it's perfectly aligned as well, just like you did with
+    the subcategories — we need the Sets and then we have the disabled delete button." The TOP-LEVEL
+    "add a category" form (`admin-section-header`'s own, a separate form from the per-category
+    add-SUBcategory one above) gets the identical disabled-Sets/disabled-remove treatment now too —
+    and, since this row IS top-level and a saved top-level category always keeps a real "+" of its own,
+    a disabled "+" placeholder as well, the one placeholder the subcategory add-form correctly omits.
+
 74. **`Test-PRD-P0-139-honest_write_failures`** — A Square write refused with a plain `Square POST
     /v2/catalog/object failed with 400` and nothing else — the owner's own words, pasting exactly that
     line after an edit silently went nowhere: "just make sure all of the fields work... with this post

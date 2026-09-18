@@ -2577,8 +2577,13 @@ check("test_PRD_P0_138_nested_categories__admin_add_subcategory_form_reserves_th
      real saved subcategory row would have left the name input free to
      stretch wider than every row beneath it -- a disabled Sets button
      (when any option set exists at all) and a disabled remove button now
-     reserve that same trailing space. No "+" placeholder: a subcategory
-     never gets one of its own, and this form IS one. */
+     reserve that same trailing space.
+     REVISED: "make sure all add and delete buttons in the categories are
+     vertically aligned... in one line, in a straight line." A working "+"
+     button is still never given to a subcategory add-form -- one is
+     never given to a REAL subcategory row either -- but a plain spacer
+     of the identical width now closes the row out regardless, the same
+     spacer a real subcategory row's own trailing slot gets below. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   seedCategoryTree(mirror);
@@ -2589,7 +2594,12 @@ check("test_PRD_P0_138_nested_categories__admin_add_subcategory_form_reserves_th
   const addForm = body.slice(addFormStart, body.indexOf("</form>", addFormStart));
   assert.match(addForm, /<button type="button" class="admin-category-options-toggle" disabled title="Save the new subcategory first">Sets<\/button>/);
   assert.match(addForm, /<button type="button" class="admin-remove-btn" disabled aria-label="Remove" title="Save the new subcategory first">/);
-  assert.doesNotMatch(addForm, /admin-category-add-toggle/, "a subcategory add-form never reserves space for its own + toggle");
+  assert.doesNotMatch(addForm, /admin-category-add-toggle/, "a subcategory add-form never reserves space for a working + toggle");
+  assert.match(
+    addForm,
+    /<button type="button" class="admin-remove-btn" disabled aria-label="Remove" title="Save the new subcategory first">.*?<\/button>\s*\n\s*<span class="admin-category-toggle-spacer"><\/span>/s,
+    "a plain spacer of the same width closes the row out, matching a real subcategory row's own trailing slot",
+  );
 });
 
 check("test_PRD_P0_138_nested_categories__admin_add_subcategory_form_skips_the_sets_placeholder_when_no_option_set_exists", async () => {
@@ -2601,6 +2611,50 @@ check("test_PRD_P0_138_nested_categories__admin_add_subcategory_form_skips_the_s
   const addForm = body.slice(addFormStart, body.indexOf("</form>", addFormStart));
   assert.doesNotMatch(addForm, /admin-category-options-toggle/, "nothing to pick means no Sets placeholder either, matching a real row");
   assert.match(addForm, /admin-remove-btn/, "the remove placeholder still reserves its own space regardless");
+});
+
+check("test_PRD_P0_138_nested_categories__admin_a_real_subcategory_row_gets_a_plus_width_spacer_not_nothing", async () => {
+  /* "Make sure all add and delete buttons in the categories are
+     vertically aligned... in one line, in a straight line." A
+     subcategory row never gets a working "+" -- but leaving that width
+     out entirely (rather than a spacer of the same width) left its own
+     Sets/remove buttons landing at a different horizontal position than
+     a top-level row's own, since .admin-category-name is the only
+     flex-growing piece in the row and silently absorbed the missing
+     width. Coats (cat2) is a real subcategory, not a placeholder form. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  const cat3Idx = body.indexOf("Casual");
+  const cat3Row = body.slice(cat3Idx, body.indexOf("admin-category-children", cat3Idx));
+  assert.doesNotMatch(cat3Row, /admin-category-add-toggle/, "still never a working + on a subcategory");
+  assert.match(
+    cat3Row,
+    /<\/button>\s*\n\s*<span class="admin-category-toggle-spacer"><\/span>\s*\n\s*<\/div>/,
+    "a plain spacer of the same width must close the row out instead, right after the real remove button",
+  );
+});
+
+check("test_PRD_P0_138_nested_categories__admin_top_level_add_form_also_reserves_sets_remove_and_plus", async () => {
+  /* "Make sure that the main category add button also generates all of
+     the proper fields so that it's perfectly aligned as well, just like
+     you did with the subcategories -- we need the Sets and then we have
+     the disabled delete button." This row is top-level (no left
+     indent), and a real top-level row keeps a working "+" of its own, so
+     all three placeholders join it: Sets, remove, AND a disabled "+" --
+     the one placeholder the subcategory add-form correctly omits, since
+     only a TOP-LEVEL category ever gets a real one. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedItemOption(mirror, { id: "opt1", externalRef: "sqopt1", name: "Size" });
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  const addFormStart = body.indexOf('<form method="post" action="/admin/categories/create" class="admin-category-add-form" hidden>');
+  assert.ok(addFormStart > -1, "the top-level add-form must exist");
+  const addForm = body.slice(addFormStart, body.indexOf("</form>", addFormStart));
+  assert.match(addForm, /<button type="button" class="admin-category-options-toggle" disabled title="Save the new category first">Sets<\/button>/);
+  assert.match(addForm, /<button type="button" class="admin-remove-btn" disabled aria-label="Remove" title="Save the new category first">/);
+  assert.match(addForm, /<button type="button" class="admin-category-add-toggle" disabled aria-label="Add a subcategory" title="Save the new category first">\+<\/button>/);
 });
 
 check("test_PRD_P0_138_nested_categories__admin_no_per_row_save_button_one_global_save_all_instead", async () => {
