@@ -4104,6 +4104,18 @@ that does not trace to one of these is a process failure (see §12).
     `.vendor-picker-btn-label`'s own now-unneeded ellipsis/truncation rule is gone with it — nothing
     stretches this button any more, so nothing needs to be clipped inside it either).
 
+    **REVISED: the Save button now matches the Admin panel's own, and moves off the photo.** The
+    owner's own words: "use the same style for the save button as the one in my admin control panel...
+    move that save button out of the image top header and move it into the same row where the Web and
+    the Web checkboxes [are]." `.item-save-all` drops its bare-circular-icon-on-a-photo treatment (the
+    same white-icon convention Share/Close still keep, since those two are staying put) for the exact
+    `.admin-save-all` shape — a solid accent-colored pill, `${SAVE_ICON} Save` (icon plus the word,
+    not the icon alone), muted-outline-and-transparent when disabled. It moves out of `.item-top-right`
+    (beside Share/Close, on the photo) into `.item-badges`, the same row Web/Active already live in,
+    right after them. No `display: none`/`.item-tile.full` visibility gate is needed for it any more
+    either — `.item-badges` sits inside `.item-detail`, already hidden until the tile is expanded, so
+    the button was never reachable collapsed regardless of its own display rule.
+
 71. **`Test-PRD-P0-136-square_custom_attributes`** — The owner's own words, having weighed "ours,
     not Square's" (P0-71's own `channel`/`custom_fields`) against not reinventing something Square
     already offers: "why do we need to have our own custom fields then? It doesn't make sense... we

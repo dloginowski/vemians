@@ -1663,6 +1663,27 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_save_button_starts_dis
   assert.doesNotMatch(staffBody, /<button[^>]*class="item-save-all"/, "a role that cannot edit gets no Save button at all");
 });
 
+check("test_PRD_P0_135_item_edit_applies_immediately__the_save_button_reads_icon_plus_the_word_save_and_lives_beside_web_active", async () => {
+  /* "Use the same style for the save button as the one in my admin
+     control panel... move that save button out of the image top header
+     and into the same row as the Web/Active checkboxes." No longer beside
+     Share/Close on the photo; a solid pill with the word "Save" next to
+     the icon, the same `.admin-save-all` shape, inside `.item-badges`. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  const badgesIdx = body.indexOf('<div class="item-badges">');
+  const badgesEndIdx = body.indexOf("</div>", badgesIdx);
+  const badgesBody = body.slice(badgesIdx, badgesEndIdx);
+  assert.match(badgesBody, /class="item-checkbox-toggle">\s*<input type="checkbox" name="on_website"/, "Web checkbox is in this row");
+  assert.match(badgesBody, /class="item-checkbox-toggle">\s*<input type="checkbox" name="active"/, "Active checkbox is in this row");
+  assert.match(badgesBody, /<button type="button" class="item-save-all"[^>]*disabled>.*? Save<\/button>/s, "the Save button is in the SAME row, reading icon plus the word Save");
+
+  const topRightIdx = body.indexOf('<div class="item-top-right">');
+  const topRightEndIdx = body.indexOf("</div>", topRightIdx);
+  assert.doesNotMatch(body.slice(topRightIdx, topRightEndIdx), /item-save-all/, "no longer beside Share/Close on the photo");
+});
+
 check("test_PRD_P0_135_item_edit_applies_immediately__the_page_script_tracks_dirty_state_and_saves_only_changed_forms", async () => {
   const mirror = mirrorDb();
   seedProduct(mirror);
@@ -1736,7 +1757,16 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_dirty_highlight_css_co
     "the description textarea must get the same dirty highlight as every other field type",
   );
   assert.match(body, /\.item-tile input\.field-dirty\[type="checkbox"\] \{ outline: [^}]*var\(--accent\)/);
-  assert.match(body, /\.item-save-all:not\(:disabled\) \{ color: var\(--accent\); \}/);
+  /* REVISED: "use the same style for the save button as the one in my
+     admin control panel" — a solid accent-colored pill when enabled
+     (there is something dirty to save), not a separate not(:disabled)
+     color override; disabled falls back to a plain muted outline. */
+  assert.match(
+    body,
+    /\.item-save-all \{[^}]*background: var\(--accent\); color: var\(--ground\);/s,
+    "enabled reads as a solid accent-colored pill, the same as .admin-save-all",
+  );
+  assert.match(body, /\.item-save-all:disabled \{ border-color: var\(--muted\); background: transparent; color: var\(--muted\); cursor: not-allowed; \}/);
 });
 
 check("test_PRD_P0_135_item_edit_applies_immediately__the_edit_area_is_a_plain_div_not_a_details_disclosure", async () => {
