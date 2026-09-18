@@ -1371,6 +1371,27 @@ check("test_PRD_P0_135_item_edit_applies_immediately__title_and_description_are_
   );
 });
 
+check("test_PRD_P0_135_item_edit_applies_immediately__description_grows_to_fit_content_equal_top_and_bottom_padding", async () => {
+  /* REVISED: "the description field should have the same amount of
+     padding on the bottom as it has on the top and it should fit the
+     content — if there is no content, it should fit to one line
+     height, but if I type in more, it should auto scale to fit." A
+     fixed min-height (three-ish lines) left a large empty gap below one
+     short line, reading as unequal padding even though the CSS itself
+     already declared 5px on both. field-sizing: content now grows the
+     box to match its own wrapped content, with min-height: 1lh for
+     nothing typed yet -- and no more resize: vertical, since a box that
+     already fits its own content has nothing left to manually resize. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.match(
+    body,
+    /\.item-edit textarea \{\s*\n\s*font: inherit; font-size: 11px; padding: 5px 6px; field-sizing: content; min-height: 1lh;/,
+  );
+  assert.doesNotMatch(body, /\.item-edit textarea \{[^}]*resize:/s, "a box that always fits its own content has nothing left to resize");
+});
+
 check("test_PRD_P0_135_item_edit_applies_immediately__title_and_description_are_not_editable_by_staff", async () => {
   const mirror = mirrorDb();
   seedProduct(mirror, { description: "A warm winter coat." });
