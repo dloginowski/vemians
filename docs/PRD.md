@@ -5737,6 +5737,19 @@ that does not trace to one of these is a process failure (see §12).
     a dropdown on the Items tab. `catalog.item_options` and this tool are what that future UI would read
     from.
 
+    **REVISED: the "Sets" toggle now matches its own row's height, and reads in capitals.** The owner's
+    own words: "make the Sets button the same height as the rest of the UI elements. It needs to be the
+    same height. Everything needs to flow. And use all capitals for Sets." Its own fixed
+    `height: 14px`/`font-size: 11px` (matching the small square icon buttons beside it) made it
+    noticeably shorter than the row's own `.admin-category-name`/`.admin-category-numeric-id` inputs,
+    which carry no explicit height at all and are sized purely off a 13px font plus 4px vertical
+    padding — the toggle now shares that exact font-size and padding instead, with no height of its own,
+    so the row's height comes from one consistent metric rather than the tallest of several different
+    ones. Capitalized via `text-transform: uppercase` (the same convention this page's own
+    `.admin-section-label` — "CATEGORIES", "VENDORS", "CUSTOM FIELDS" — already uses) rather than
+    hand-typing "SETS" in the markup, so the text node and the `aria-label`/checkbox-toggle logic keyed
+    off it stay untouched.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

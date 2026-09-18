@@ -2852,6 +2852,27 @@ check("test_PRD_P0_142_category_item_options__admin_renders_a_sets_toggle_with_a
   assert.match(cat1Row, /<input type="checkbox" name="item_option_ids" value="opt2"> Color/);
 });
 
+check("test_PRD_P0_142_category_item_options__admin_sets_toggle_matches_the_row_height_and_reads_all_caps", async () => {
+  /* REVISED: "make the Sets button the same height as the rest of the UI
+     elements... everything needs to flow... use all capitals for Sets."
+     No explicit height any more -- same font-size/padding as the
+     rename/numeric_id inputs beside it, so its own natural height
+     matches theirs, and text-transform: uppercase over hand-typed caps
+     in the markup (the text node itself stays "Sets (1)", matching the
+     button's own aria-label and the checkbox-list toggle logic keyed off
+     it). */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedItemOption(mirror, { id: "opt1", externalRef: "sqopt1", name: "Size" });
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  assert.match(
+    body,
+    /\.admin-category-options-toggle \{\s*\n\s*flex: 0 0 auto; padding: 4px 8px; font: inherit; font-size: 13px; text-transform: uppercase; letter-spacing: 0\.04em;/,
+    "must share the exact font-size and vertical padding the row's own inputs already use, with no fixed height of its own",
+  );
+  assert.doesNotMatch(body, /\.admin-category-options-toggle \{[^}]*height:/, "no explicit height -- the shared padding/font-size alone must set it");
+});
+
 check("test_PRD_P0_142_category_item_options__admin_shows_no_sets_toggle_when_no_option_set_exists_anywhere", async () => {
   const mirror = mirrorDb();
   seedProduct(mirror);

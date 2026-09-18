@@ -3724,9 +3724,19 @@ ${OPS_DARK_CSS}
 /* "Associate a category with option sets" — a text toggle rather than an
    icon, since there is no established glyph for this yet; orange once
    anything is actually assigned, the same "reflects real state, not just
-   hover" rule every other control on this page already follows. */
+   hover" rule every other control on this page already follows.
+   REVISED: "make the Sets button the same height as the rest of the UI
+   elements... everything needs to flow." The fixed height/font-size below
+   made it noticeably SHORTER than its own row's rename/numeric_id inputs
+   (admin-category-name/admin-category-numeric-id, both sized off a 13px
+   font and 4px vertical padding, no explicit height at all) — this now
+   matches those two exactly instead, so the row's own height comes from
+   one consistent metric, not the tallest of several different ones.
+   "Use all capitals for Sets" — the same text-transform this page's own
+   section labels (admin-section-label, above) already use, over
+   hand-typing "SETS" in the markup. */
 .admin-category-options-toggle {
-  flex: 0 0 auto; height: ${CATEGORY_NODE_TOGGLE_PX}px; padding: 0 8px; font: inherit; font-size: 11px;
+  flex: 0 0 auto; padding: 4px 8px; font: inherit; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--muted); cursor: pointer;
 }
 .admin-category-options-toggle-active { border-color: var(--accent); color: var(--ink); }
