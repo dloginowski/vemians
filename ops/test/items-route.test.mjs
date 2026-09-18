@@ -912,7 +912,7 @@ check("test_PRD_P0_136_square_custom_attributes__the_edit_form_posts_to_square_a
   const styleIdIdx = body.indexOf('<input name="style_id"', titleRowIdx);
   assert.ok(styleIdIdx > titleRowIdx && styleIdIdx < categoryFormIdx, "style_id must render before the category dropdown, inside the category row");
   assert.match(body, /<input name="style_id" value="01-04-001" placeholder="NN-NN-NNN" pattern="\\d\{2\}-\\d\{2\}-\\d\{3\}"/);
-  assert.doesNotMatch(body, /<input name="unit_cost"/, "unit_cost is no longer a real form field anywhere");
+  assert.match(body, /<input class="item-unit-cost" name="unit_cost" value="42\.50" placeholder="Cost"/, "unit_cost lives on the vendor form, back on the row itself");
   /* "The same kind of drop down schema that we have for categories... we
      don't have to fill out any of these stuff per product." vendor is now
      a picker (a hidden text input the picker's own JS drives, plus a
@@ -936,25 +936,27 @@ check("test_PRD_P0_136_square_custom_attributes__the_edit_form_posts_to_square_a
   assert.match(vendorFormBody, /<span class="vendor-commission-badge" title="Set centrally, in Admin → Vendors">20%<\/span>/);
   /* "Center the vendor SKU content too" — the owner's own words, extending
      the centering style_id already has to this field as well. */
-  assert.match(body, /\.item-edit input\[name="vendor_code"\]\s*\{\s*text-align: center;\s*\}/);
-  /* "Get rid of the whole variants setup... we'll do variations from
-     Square" — Cost/MSRP, briefly moved to the end of this vendor <form>,
-     are gone from it entirely now; nothing about a variation's own cost
-     or price is editable from the ops UI any more. */
-  assert.doesNotMatch(vendorFormBody, /variations-unit-cost|variations-msrp/);
+  assert.match(body, /\.item-edit input\[name="vendor_code"\] \{ field-sizing: content; min-width: 3em; text-align: center; \}/);
+  /* Cost lives inside THIS vendor form (applied uniformly to every
+     variation); MSRP has no product-wide concept in Square at all, so it
+     is a wholly separate form/route (/items/<handle>/price) and must
+     NOT appear inside this one. */
+  assert.match(vendorFormBody, /class="item-unit-cost" name="unit_cost"/);
+  assert.doesNotMatch(vendorFormBody, /item-msrp/);
 });
 
-check("test_PRD_P0_136_square_custom_attributes__the_vendor_picker_grows_to_fill_the_row_the_other_fields_stay_fixed", async () => {
-  /* "Spread them out a little, make the vendor dropdown box just eat up
-     all the available space... so it kind of spreads out and fills up
-     the entire row, because the other fields can stay the same." */
+check("test_PRD_P0_136_square_custom_attributes__the_vendor_picker_fits_its_own_content_instead_of_filling_the_row", async () => {
+  /* REVISED: "vendor should not be collapsed, it should fit to content."
+     A prior revision made it grow to fill the row ("spread them out...
+     make the vendor dropdown box eat up all the available space"), but
+     that squeezed the vendor name thin once Cost/MSRP/vendor SKU started
+     growing for their own typed content — back to the same content-width
+     sizing .category-picker/.category-picker-btn already use. */
   const mirror = mirrorDb();
   const body = await (await get("/items", MANAGER, env(mirror))).text();
-  assert.match(body, /\.vendor-picker \{ position: relative; flex: 1 1 auto; min-width: 0; \}/);
-  assert.match(body, /\.vendor-picker-btn \{[^}]*flex: 1 1 auto; width: 100%; min-width: 0;/s);
-  /* vendor_code and the commission badge are untouched — still their own
-     fixed widths, never told to grow. */
-  assert.doesNotMatch(body, /\.item-edit input\[name="vendor_code"\]\s*\{[^}]*flex: 1/s);
+  assert.match(body, /\.vendor-picker \{ position: relative; flex: 0 0 auto; \}/);
+  assert.match(body, /\.vendor-picker-btn \{[^}]*flex: 0 0 auto; font: inherit; font-size: 11px; padding: 3px 5px; white-space: nowrap;/s);
+  assert.doesNotMatch(body, /\.vendor-picker-btn\s*\{[^}]*width: 100%/s);
 });
 
 check("test_PRD_P0_136_square_custom_attributes__cost_and_msrp_always_render_on_the_vendor_row_even_with_no_vendor_yet", async () => {
@@ -983,14 +985,25 @@ check("test_PRD_P0_136_square_custom_attributes__cost_prefills_from_the_vendors_
   assert.match(body, /<input class="item-unit-cost" name="unit_cost" value="42\.50" placeholder="Cost"/);
 });
 
-check("test_PRD_P0_136_square_custom_attributes__cost_and_msrp_are_narrow_four_digits_no_cents", async () => {
-  /* "Why did you make cost and MSRP so wide? We probably don't even need
-     cents in there. It's going to be like maximum four digits. So just
-     don't make them so wide." — narrowed from the earlier 5em (sized for
-     a full "$10,000.00") down to 3.5em. */
+check("test_PRD_P0_136_square_custom_attributes__cost_and_msrp_have_a_four_digit_minimum_width_and_expand_past_it", async () => {
+  /* REVISED: "make minimum width four digits — if they need to expand,
+     they'll expand." A fixed 3.5em would clip a longer typed value;
+     field-sizing: content grows the box past its own min-width instead,
+     so the 3.5em floor is a MINIMUM now, not a cap. */
   const mirror = mirrorDb();
   const body = await (await get("/items", MANAGER, env(mirror))).text();
-  assert.match(body, /\.item-unit-cost, \.item-msrp \{ flex: 0 0 auto; width: 3\.5em; text-align: center; \}/);
+  assert.match(body, /\.item-unit-cost, \.item-msrp \{ flex: 0 0 auto; field-sizing: content; min-width: 3\.5em; text-align: center; \}/);
+});
+
+check("test_PRD_P0_136_square_custom_attributes__vendor_sku_fits_its_own_content_and_stays_small_when_empty", async () => {
+  /* "Vendor SKU also should fit to content. It should be really short
+     because usually it's going to be empty anyway." Split off the shared
+     width: 8em rule it used to share with a registered custom field's own
+     name column — that one is unaffected. */
+  const mirror = mirrorDb();
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.match(body, /\.item-edit input\[name="vendor_code"\] \{ field-sizing: content; min-width: 3em; text-align: center; \}/);
+  assert.match(body, /\.item-edit input\[name\^="field_name_"\] \{ width: 8em; \}/);
 });
 
 check("test_PRD_P0_136_square_custom_attributes__cost_and_msrp_are_two_separate_forms_merged_into_one_visual_row", async () => {

@@ -4089,6 +4089,21 @@ that does not trace to one of these is a process failure (see §12).
     cost`/`.item-msrp` come down from `5em` (sized for a full `"$10,000.00"`) to `3.5em`, comfortably
     fitting four digits with no cents, still centered.
 
+    **REVISED AGAIN: a floor, not a cap — and the vendor picker stops growing to make room for it.**
+    The owner's own words: "make minimum width four digits — if they need to expand, they'll expand."
+    `3.5em` becomes `min-width`, not `width`, paired with `field-sizing: content` so a longer typed
+    value grows the box instead of clipping against a hard cap. The same treatment goes onto
+    `vendor_code` — "vendor SKU also should fit to content, it should be really short because usually
+    it's going to be empty anyway" — split off the fixed `8em` width it used to share with a
+    registered custom field's own name column (unaffected), down to `field-sizing: content` with a
+    `3em` floor. With Cost/MSRP/vendor SKU all now free to grow for their own typed content, the
+    vendor picker's own PR #217 growth ("make the vendor dropdown box eat up all the available
+    space") started squeezing the vendor name thin instead — "vendor should not be collapsed, it
+    should fit to content." `.vendor-picker`/`.vendor-picker-btn` go back to `flex: 0 0 auto`, the
+    exact same content-width sizing `.category-picker`/`.category-picker-btn` already use (and
+    `.vendor-picker-btn-label`'s own now-unneeded ellipsis/truncation rule is gone with it — nothing
+    stretches this button any more, so nothing needs to be clipped inside it either).
+
 71. **`Test-PRD-P0-136-square_custom_attributes`** — The owner's own words, having weighed "ours,
     not Square's" (P0-71's own `channel`/`custom_fields`) against not reinventing something Square
     already offers: "why do we need to have our own custom fields then? It doesn't make sense... we
