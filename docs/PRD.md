@@ -4128,6 +4128,21 @@ that does not trace to one of these is a process failure (see §12).
     product priced with cents before this rule existed still shows them accurately; this is a rule for
     what gets typed into these two fields going forward, not a rewrite of how money renders everywhere.
 
+    **REVISED: Web/Active match the Save button's own pill style, and Save moves to the far right of
+    the row.** The owner's own words: "use the same style for Web and Active checkboxes that you're
+    using for my save checkbox" — `.item-checkbox-toggle` (the label wrapping each) drops its earlier
+    plain-unstyled-checkbox look (itself a REVISION of an even earlier colored-pill-with-embedded-
+    checkbox design) for the exact box model `.item-save-all` uses — border, radius, padding, font-
+    weight — colored the same way: accent-filled when checked, the save button's own muted-outline-
+    and-transparent look when unchecked (`:has(input:checked)`, the same `:has()` this app's own
+    dirty-highlight rules already rely on elsewhere). The checkbox itself stays real and visible inside
+    the pill; only the surrounding label's own look changed. Then: "make the save checkbox right
+    justified, so it's all the way to the right, and leave the Web and Active checkboxes on the left,
+    so in the middle is just a blank space" — `margin-left: auto` on `.item-save-all` alone pushes only
+    itself to the far end of `.item-badges`, leaving Web/Active exactly where they already sat and
+    everything between the two groups genuinely empty, rather than a `justify-content: space-between`
+    on the row that would have spread all three apart evenly instead.
+
 71. **`Test-PRD-P0-136-square_custom_attributes`** — The owner's own words, having weighed "ours,
     not Square's" (P0-71's own `channel`/`custom_fields`) against not reinventing something Square
     already offers: "why do we need to have our own custom fields then? It doesn't make sense... we

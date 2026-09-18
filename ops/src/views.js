@@ -1711,11 +1711,18 @@ ${INPUT_BAR_CSS}
    treatment made sense and this would not. No display: none/.full gate
    needed any more either — .item-badges (its own parent) is already
    hidden until the tile is expanded (.item-detail's own base rule), so
-   this was never visible collapsed regardless. */
+   this was never visible collapsed regardless.
+   REVISED AGAIN: "make the save checkbox right justified, so it's all
+   the way to the right, and leave the Web and Active checkboxes on the
+   left, so in the middle is just a blank space." margin-left: auto on a
+   flex child pushes only itself to the far end of the row, leaving
+   Web/Active exactly where they already sit and everything between the
+   two groups genuinely empty, rather than justify-content: space-between
+   spreading all three apart evenly. */
 .item-save-all {
   display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 13px; font-weight: 600;
   padding: 6px 14px; border: 1px solid var(--accent); border-radius: 6px; background: var(--accent); color: var(--ground);
-  cursor: pointer;
+  cursor: pointer; margin-left: auto;
 }
 .item-save-all:disabled { border-color: var(--muted); background: transparent; color: var(--muted); cursor: not-allowed; }
 /* style_id took the SKU's old spot — the owner's own words: "these are
@@ -1759,18 +1766,24 @@ ${INPUT_BAR_CSS}
 }
 .item-badges .channel-website { border-color: var(--accent); color: var(--accent); }
 .web-toggle-form, .active-toggle-form { display: contents; }
-/* REVISED: "the two buttons for active and web have the same style like
-   checkboxes so that I can toggle either one of them." This REVERSES the
-   earlier pill-with-embedded-checkbox design ("the web tag itself should
-   be clickable to toggle it... a little checkbox inside the tag"): a
-   plain labeled checkbox now, matching every other field's own unstyled
-   convention, not a colored pill. Still renders even when OFF — there has
-   to be something to click to turn it back on. Both stay in .item-badges,
-   beside the category control — an earlier pass moved them into the
-   title's own row instead, which broke the title/description layout, and
-   was reverted. */
-.item-checkbox-toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--ink); cursor: pointer; white-space: nowrap; }
+/* REVISED YET AGAIN: "use the same style for Web and Active checkboxes
+   that you're using for my save checkbox" — the exact same pill box
+   model .item-save-all already uses (border, radius, padding, weight),
+   colored the same way: accent-filled when ON, the save button's own
+   muted-outline-and-transparent look when OFF. The checkbox itself stays
+   real and visible inside the pill (still renders even when OFF — there
+   has to be something to click to turn it back on), just no longer a
+   plain unstyled label the way an earlier revision made it. Both stay in
+   .item-badges, beside the category control — an earlier pass moved them
+   into the title's own row instead, which broke the title/description
+   layout, and was reverted. */
+.item-checkbox-toggle {
+  display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 13px; font-weight: 600;
+  padding: 6px 14px; border: 1px solid var(--muted); border-radius: 6px; background: transparent; color: var(--muted);
+  cursor: pointer; white-space: nowrap;
+}
 .item-checkbox-toggle input { width: 12px; height: 12px; margin: 0; accent-color: var(--accent); }
+.item-checkbox-toggle:has(input:checked) { border-color: var(--accent); background: var(--accent); color: var(--ground); }
 /* ONE category picker, right next to the item title — the owner's own
    correction over the two-select revision: "I want one menu, one
    dropdown, just one. And in it is a path... dresses / cocktail...
