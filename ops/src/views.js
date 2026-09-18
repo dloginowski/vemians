@@ -2302,6 +2302,18 @@ function renderAdminCategoryNodes(
                     `<label class="admin-category-options-item"><input type="checkbox" name="item_option_ids" value="${esc(o.id)}"${assignedIds.has(o.id) ? " checked" : ""}> ${esc(o.name)}</label>`,
                 )
                 .join("")}
+              <!-- "You have to apply these options manually per item...
+                   I want you to mass apply the options to all of the
+                   items that are part of the category" — the owner's own
+                   words. A real, immediate Square write to every product
+                   already filed here, matching the category's own
+                   CURRENTLY SAVED set (whatever the checkboxes above show
+                   after their own last Save, not whatever is merely
+                   ticked right now) -- so this button lives outside the
+                   Save-all/dirty-tracking flow the checkboxes above use,
+                   the same immediate-action treatment .admin-remove-btn
+                   already gets elsewhere on this page. -->
+              <button type="button" class="admin-category-apply-btn" data-category-id="${esc(c.id)}">Apply to items</button>
             </form>
           </div>`
         : "";
@@ -3840,6 +3852,17 @@ ${OPS_DARK_CSS}
 }
 .admin-category-options-item { display: flex; align-items: center; gap: 6px; font-size: 12px; padding: 3px 2px; cursor: pointer; }
 .admin-category-options-item input.field-dirty[type="checkbox"] { outline: 1.5px solid var(--accent); outline-offset: 1px; }
+/* "Mass apply the options to all of the items that are part of the
+   category" — a real, immediate action (not a form field bound to
+   Save-all), set apart from the checkbox list above it with its own
+   top border and a full-width look, matching the weight of an action
+   a manager is about to fire across every product in the category. */
+.admin-category-apply-btn {
+  margin-top: 4px; padding-top: 6px; border: none; border-top: 1px solid var(--rule);
+  background: transparent; color: var(--accent); font: inherit; font-size: 12px; font-weight: 600;
+  text-align: left; cursor: pointer;
+}
+.admin-category-apply-btn:disabled { color: var(--muted); cursor: not-allowed; }
 .admin-vendor-row { display: flex; align-items: center; gap: 6px; padding: 4px 0; }
 .admin-vendor-row-name { flex: 1 1 auto; min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
 .admin-vendor-commission-form { display: contents; }
@@ -4225,6 +4248,32 @@ document.body.addEventListener("click", async (e) => {
     showFormError(removeBtn, "Could not reach the server — try again.");
   } finally {
     removeBtn.disabled = false;
+  }
+});
+
+/* "I want you to mass apply the options to all of the items that are
+   part of the category" — the owner's own words. Also an immediate,
+   non-batched click, matching the remove button just above: a real
+   Square write to every product in the category, never a field to
+   mark dirty and fold into the next Save-all. */
+document.body.addEventListener("click", async (e) => {
+  const applyBtn = e.target.closest(".admin-category-apply-btn");
+  if (!applyBtn) return;
+  const body = new FormData();
+  body.set("category_id", applyBtn.dataset.categoryId);
+  applyBtn.disabled = true;
+  try {
+    const res = await fetch("/admin/categories/apply-item-options", { method: "POST", body });
+    if (res.ok) {
+      location.reload();
+      return;
+    }
+    const data = await res.json().catch(() => ({}));
+    showFormError(applyBtn, data.error || "That could not be applied.");
+  } catch {
+    showFormError(applyBtn, "Could not reach the server — try again.");
+  } finally {
+    applyBtn.disabled = false;
   }
 });
 

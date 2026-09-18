@@ -335,6 +335,27 @@ SELECT id, external_ref, handle, title, source_description, status, channel,
        custom_fields, style_id, commission_pct, category_id, source_version, synced_at
 FROM mirror_product WHERE archived_at IS NULL;
 
+-- Which Option Sets an ITEM itself declares (Square's own item_data.
+-- item_options, an array of {item_option_id} pairs) — a real Square fact,
+-- mirrored the same way variations/media are: replaced wholesale on every
+-- full sync of this product, never invented by us. Separate from
+-- mirror_variant.options (a VARIATION's own resolved name->value display
+-- blob) and from mirror_category_item_option (which option sets a
+-- CATEGORY offers, ours alone, with its own inherit-vs-explicit rule) —
+-- this table is what "which option sets does this ITEM currently support"
+-- actually means on Square's side, one row per item/option-set pair.
+CREATE TABLE mirror_product_item_option (
+  product_id      TEXT NOT NULL REFERENCES mirror_product(id),
+  item_option_id  TEXT NOT NULL REFERENCES mirror_item_option(id),
+  archived_at     TEXT,
+  synced_at       TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (product_id, item_option_id)
+);
+
+CREATE VIEW mirror_product_item_option_index AS
+SELECT product_id, item_option_id, synced_at
+FROM mirror_product_item_option WHERE archived_at IS NULL;
+
 -- A style_id, once given to ANY product, is never handed to a different one
 -- — the owner's own words: "we want that style number to be held, so that
 -- you don't overwrite that style number and reuse it for something else."
@@ -555,6 +576,9 @@ CREATE TRIGGER mirror_item_option_no_delete BEFORE DELETE ON mirror_item_option
 BEGIN SELECT RAISE(ABORT, 'catalog mirror is archive-only; set archived_at'); END;
 
 CREATE TRIGGER mirror_item_option_value_no_delete BEFORE DELETE ON mirror_item_option_value
+BEGIN SELECT RAISE(ABORT, 'catalog mirror is archive-only; set archived_at'); END;
+
+CREATE TRIGGER mirror_product_item_option_no_delete BEFORE DELETE ON mirror_product_item_option
 BEGIN SELECT RAISE(ABORT, 'catalog mirror is archive-only; set archived_at'); END;
 
 -- The ingest receipt is append-only for the same reason inventory_adjustment

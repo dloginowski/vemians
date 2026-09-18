@@ -380,6 +380,13 @@ export function normaliseCatalog(objects, { locationId = null, related = [] } = 
       ].filter((id, i, arr) => id && arr.indexOf(id) === i),
       styleId: customAttr(data, "style_id"),
       commissionPct: customAttrInt(data, "commission"),
+      /* Which Option Sets this ITEM itself declares (item_data.item_options,
+         an array of {item_option_id} pairs) — separate from optionsFor()'s
+         own per-VARIATION name resolution above, and from mirror_category_
+         item_option (which option sets a CATEGORY offers, ours alone).
+         This one is a real Square fact, mirrored like variations/media are:
+         replaced wholesale on every full sync, never invented by us. */
+      itemOptionExternalRefs: (data.item_options ?? []).map((o2) => o2?.item_option_id).filter(Boolean),
       sourceVersion: Number(o.version ?? 0),
       withdrawn,
       variants,

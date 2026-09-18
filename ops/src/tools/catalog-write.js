@@ -100,6 +100,7 @@ import {
   categoryItemOptionIds,
   categoryItemOptionsSetAt,
   deriveCategoryIdForStyleId,
+  effectiveCategoryItemOptionIds,
   listCategories,
   listCustomFieldNames,
   listItemOptions,
@@ -2120,6 +2121,74 @@ export const catalogWriteTools = {
         .bind(category.id)
         .run();
       return { category_id: category.id, item_option_ids: ids, authority: "ours" };
+    },
+  },
+
+  /*
+   * "When I apply the groups to a category, it means that you're going to
+   * apply these option sets to every product that is part of the
+   * category... right now, you have to apply these options manually per
+   * item" — the owner's own words, and explicit go-ahead for this as a
+   * SEPARATE, deliberate action rather than an automatic cascade fired on
+   * every catalog.set_category_item_options save (a category's own edit
+   * stays purely ours, no Square call at all — this is the one tool that
+   * actually reaches every product in it). Applies the category's own
+   * CURRENT EFFECTIVE set (inherited or explicit, catalog.set_category_
+   * item_options' own REVISED entry has the full reasoning) — never a
+   * caller-supplied list — so this always means exactly "make every
+   * product in this category match what Sets already shows for it."
+   * Item-level only (item_data.item_options): no variation is created,
+   * changed, or removed here — "variants will be defined and configured
+   * in Square" stays true; this only tells Square which option sets an
+   * item may build variations FROM.
+   */
+  "catalog.apply_category_item_options_to_products": {
+    tier: "T2",
+    domain: "catalog",
+    stores: ["catalog_mirror"],
+    resources: ["square"],
+    minRole: "manager",
+    describe:
+      "Push a category's own CURRENT option sets (inherited or explicit — whatever catalog.categories/" +
+      "the Sets menu already shows for it) onto every product currently filed in that category, as a " +
+      "real Square write to each one's own item_data.item_options. Does not touch a single variation — " +
+      "no combination is created, changed, or removed; a product that already has variations keeps " +
+      "them exactly as they are. Call this after changing a category's own option sets to actually " +
+      "reach the products already in it — saving the category's own list on its own touches nothing " +
+      "in Square.",
+    undo: "no undo yet: reverting means re-running this after changing the category's own option sets back",
+    schema: {
+      category_id: { type: "string", required: true, format: "id" },
+      reason: { type: "string", required: true, maxLength: CAPS.MAX_TEXT },
+    },
+    async check(args, t) {
+      const categories = await listCategories(t.db.catalog_mirror);
+      const category = categories.find((c) => c.id === args.category_id);
+      if (!category) return { denied: `no category '${args.category_id}'` };
+
+      const productCount = await t.db.catalog_mirror
+        .prepare("SELECT COUNT(*) AS n FROM mirror_product_index WHERE category_id = ?")
+        .bind(category.id)
+        .first("n");
+      if (!productCount) return { denied: `"${category.name}" has no products to apply anything to` };
+
+      const effective = await effectiveCategoryItemOptionIds(t.db.catalog_mirror);
+      const ids = [...(effective.get(category.id) ?? [])];
+      const itemOptions = await listItemOptions(t.db.catalog_mirror);
+      const names = ids.map((id) => itemOptions.find((o) => o.id === id)?.name ?? id);
+
+      return {
+        ok: true,
+        summary: names.length
+          ? `apply option sets (${names.join(", ")}) to all ${productCount} product${productCount === 1 ? "" : "s"} in "${category.name}" — ${args.reason}`
+          : `clear every option set from all ${productCount} product${productCount === 1 ? "" : "s"} in "${category.name}" — ${args.reason}`,
+        preflight: { category, ids },
+      };
+    },
+    async run(_args, t) {
+      const { category, ids } = t.preflight;
+      const { applied, errors } = await t.square.applyItemOptionsToProductsInCategory(category.id, ids);
+      return { category_id: category.id, item_option_ids: ids, products_applied: applied, errors, authority: "square" };
     },
   },
 
