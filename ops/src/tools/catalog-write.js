@@ -722,6 +722,8 @@ export const catalogWriteTools = {
       "trades in nothing else, so pass it without asking. A product with no real size/color options " +
       "still needs one variation, conventionally titled \"One size\"; VARIATION carries no quantity of " +
       "its own — set initial stock with inventory.adjust, by variant_id, once this call returns one. " +
+      "Quantity is not required at all: when nothing is known, assume 1 and adjust it later, rather " +
+      "than asking a person to state the obvious or blocking the item's creation on it. " +
       "This is a T2 write: it executes only after a human approves it. `custom_fields` is OURS, not " +
       "Square's: any field name -> string value we track that Square has no concept of at all (unit " +
       "cost, a spreadsheet column with no home elsewhere). It never reaches Square — it is written to " +
@@ -741,8 +743,10 @@ export const catalogWriteTools = {
       "that vendor's own new central rate, applied to every future item from it the same way. " +
       "style_id follows this shop's own NN-NN-NNN nomenclature and is refused if another product " +
       "already has it. INGESTING A BATCH (e.g. from a spreadsheet): every row needs style_id, title, " +
-      "quantity (set afterward via inventory.adjust) and MSRP (variations[].price_minor); WITHOUT a " +
-      "vendor, unit_cost_minor is also required (this shop's own cost of goods); WITH a vendor, give " +
+      "and MSRP (variations[].price_minor); quantity, when a row does not give one, defaults to 1 " +
+      "rather than blocking the row — adjust it afterward via inventory.adjust if the real count " +
+      "differs. WITHOUT a vendor, unit_cost_minor is also required (this shop's own cost of goods); " +
+      "WITH a vendor, give " +
       "commission only for that vendor's OWN FIRST row (or omit it entirely and let this tool refuse, " +
       "naming exactly which vendor still needs one) — do not ask a person to repeat a vendor's own " +
       "commission on every row, it is privileged information and this tool already carries it forward " +
