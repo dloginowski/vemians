@@ -2198,7 +2198,13 @@ function sortByNumericId(a, b) {
   const bn = b.numeric_id ? Number(b.numeric_id) : Infinity;
   return an !== bn ? an - bn : a.name.localeCompare(b.name);
 }
-function renderAdminCategoryNodes(categories, parentId, categoryProductCountsById = new Map()) {
+function renderAdminCategoryNodes(
+  categories,
+  parentId,
+  categoryProductCountsById = new Map(),
+  itemOptions = [],
+  categoryItemOptionIdsById = new Map(),
+) {
   /* "We were never going to go deep into more than one level of
      subcategories, so I should not have a plus button next to any of my
      subcategories because we'll never be adding any [under them]." Every
@@ -2232,6 +2238,17 @@ function renderAdminCategoryNodes(categories, parentId, categoryProductCountsByI
         hasChildren || hasProducts
           ? ""
           : `<button type="button" class="admin-remove-btn" data-category-id="${esc(c.id)}" aria-label="Remove ${esc(c.name)}" title="Remove ${esc(c.name)}">${TRASH_ICON}</button>`;
+      /* "I want to be able to associate a category with option sets... I
+         don't want to be adding the same option sets to every single
+         category" — a checkbox per known option set, folded into the same
+         hidden-until-toggled disclosure every other per-category control
+         here already uses. Nothing to show (no option set exists anywhere
+         yet) means no toggle at all, the same "not reachable, don't show
+         it" rule the remove button already follows. */
+      const assignedIds = categoryItemOptionIdsById.get(c.id) ?? new Set();
+      const optionsToggle = itemOptions.length
+        ? `<button type="button" class="admin-category-options-toggle${assignedIds.size ? " admin-category-options-toggle-active" : ""}" data-category-id="${esc(c.id)}" aria-label="Option sets for ${esc(c.name)}" title="Option sets">Sets${assignedIds.size ? ` (${assignedIds.size})` : ""}</button>`
+        : "";
       return `<div class="admin-category-node" style="padding-left: ${parentId === null ? 0 : CATEGORY_NODE_TOGGLE_PX}px">
         <div class="admin-category-row">
           ${toggle}
@@ -2243,10 +2260,24 @@ function renderAdminCategoryNodes(categories, parentId, categoryProductCountsByI
             <input type="hidden" name="category_id" value="${esc(c.id)}">
             <input class="admin-category-numeric-id" name="numeric_id" value="${esc(c.numeric_id ?? "")}" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — leave blank to remove it">
           </form>
+          ${optionsToggle}
           ${removeBtn}
           ${isTopLevel ? `<button type="button" class="admin-category-add-toggle" data-parent-id="${esc(c.id)}" aria-label="Add a subcategory under ${esc(c.name)}" title="Add a subcategory">+</button>` : ""}
         </div>
-        <div class="admin-category-children">${renderAdminCategoryNodes(categories, c.id, categoryProductCountsById)}</div>
+        ${
+          itemOptions.length
+            ? `<form method="post" action="/admin/categories/item-options" class="admin-category-options-form" hidden style="padding-left: ${CATEGORY_NODE_TOGGLE_PX}px">
+          <input type="hidden" name="category_id" value="${esc(c.id)}">
+          ${itemOptions
+            .map(
+              (o) =>
+                `<label class="admin-category-options-item"><input type="checkbox" name="item_option_ids" value="${esc(o.id)}"${assignedIds.has(o.id) ? " checked" : ""}> ${esc(o.name)}</label>`,
+            )
+            .join("")}
+        </form>`
+            : ""
+        }
+        <div class="admin-category-children">${renderAdminCategoryNodes(categories, c.id, categoryProductCountsById, itemOptions, categoryItemOptionIdsById)}</div>
         ${
           isTopLevel
             ? `<form method="post" action="/admin/categories/create" class="admin-category-add-form" hidden style="padding-left: ${CATEGORY_NODE_TOGGLE_PX}px">
@@ -3672,6 +3703,22 @@ ${OPS_DARK_CSS}
 }
 .admin-category-new-name { flex: 1 1 auto; min-width: 0; }
 .admin-category-new-numeric-id { flex: 0 0 2ch; width: 2ch; box-sizing: content-box; text-align: center; }
+/* "Associate a category with option sets" — a text toggle rather than an
+   icon, since there is no established glyph for this yet; orange once
+   anything is actually assigned, the same "reflects real state, not just
+   hover" rule every other control on this page already follows. */
+.admin-category-options-toggle {
+  flex: 0 0 auto; height: ${CATEGORY_NODE_TOGGLE_PX}px; padding: 0 8px; font: inherit; font-size: 11px;
+  border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--muted); cursor: pointer;
+}
+.admin-category-options-toggle-active { border-color: var(--accent); color: var(--ink); }
+.admin-category-options-form[hidden] { display: none; }
+.admin-category-options-form {
+  display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 6px 4px 6px ${CATEGORY_NODE_TOGGLE_PX}px; margin-top: 4px;
+  border: 1px solid var(--rule); border-radius: 6px; background: var(--image-ground);
+}
+.admin-category-options-item { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; cursor: pointer; }
+.admin-category-options-item input.field-dirty[type="checkbox"] { outline: 1.5px solid var(--accent); outline-offset: 1px; }
 .admin-vendor-row { display: flex; align-items: center; gap: 6px; padding: 4px 0; }
 .admin-vendor-row-name { flex: 1 1 auto; min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
 .admin-vendor-commission-form { display: contents; }
@@ -3707,7 +3754,14 @@ input.field-dirty, select.field-dirty, textarea.field-dirty { border-color: var(
 .item-edit-error:hover { opacity: 0.92; }
 `;
 
-export function adminPage(allCategories = [], allVendors = [], customFieldNames = [], categoryProductCountsById = new Map()) {
+export function adminPage(
+  allCategories = [],
+  allVendors = [],
+  customFieldNames = [],
+  categoryProductCountsById = new Map(),
+  allItemOptions = [],
+  categoryItemOptionIdsById = new Map(),
+) {
   return page(
     "Admin — Vemians ops",
     `<main class="ops">
@@ -3723,7 +3777,7 @@ export function adminPage(allCategories = [], allVendors = [], customFieldNames 
       <button type="button" class="admin-category-add-toggle" data-parent-id="" aria-label="Add a top-level category" title="Add a category">+</button>
     </div>
     <div class="admin-section-body">
-      ${allCategories.length ? renderAdminCategoryNodes(allCategories, null, categoryProductCountsById) : `<p class="item-empty">No categories yet.</p>`}
+      ${allCategories.length ? renderAdminCategoryNodes(allCategories, null, categoryProductCountsById, allItemOptions, categoryItemOptionIdsById) : `<p class="item-empty">No categories yet.</p>`}
       <form method="post" action="/admin/categories/create" class="admin-category-add-form" hidden>
         <input type="hidden" name="parent_id" value="">
         <span class="admin-category-toggle-spacer"></span>
@@ -3790,7 +3844,7 @@ export function adminPage(allCategories = [], allVendors = [], customFieldNames 
    section-level toggle in beside it, the same shape every accordion
    header on this whole app already uses. */
 function isFieldDirty(el) {
-  return el.value !== el.defaultValue;
+  return el.type === "checkbox" ? el.checked !== el.defaultChecked : el.value !== el.defaultValue;
 }
 const saveAllBtn = document.querySelector(".admin-save-all");
 function refreshDirtyState(field) {
@@ -3967,6 +4021,12 @@ document.body.addEventListener("click", (e) => {
         form.querySelector(".admin-category-new-name")?.focus();
       }
     }
+    return;
+  }
+  const optionsToggle = e.target.closest(".admin-category-options-toggle");
+  if (optionsToggle) {
+    const panel = optionsToggle.closest(".admin-category-node")?.querySelector(":scope > .admin-category-options-form");
+    if (panel) panel.hidden = !panel.hidden;
   }
 });
 </script>`,

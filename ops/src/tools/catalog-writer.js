@@ -95,6 +95,21 @@ export async function listItemOptions(db) {
   return (optionsRes.results ?? []).map((o) => ({ id: o.id, name: o.name, values: valuesByOption.get(o.id) ?? [] }));
 }
 
+/* Which option sets are already assigned to which category — the Admin
+   panel's own checkbox list needs this to pre-check the ones a category
+   already has, the same advance-knowledge role categoryProductCounts plays
+   for the remove button above. A Map, category_id -> Set<item_option_id>,
+   with no entry at all for a category with nothing assigned. */
+export async function categoryItemOptionIds(db) {
+  const res = await db.prepare("SELECT category_id, item_option_id FROM mirror_category_item_option_index").bind().all();
+  const byCategory = new Map();
+  for (const r of res.results ?? []) {
+    if (!byCategory.has(r.category_id)) byCategory.set(r.category_id, new Set());
+    byCategory.get(r.category_id).add(r.item_option_id);
+  }
+  return byCategory;
+}
+
 /* Every vendor, for the picker/admin panel — "the same kind of drop down
    schema that we have for categories" the owner's own words asked for.
    Named distinctly from shared/commerce/square/vendors.js's own

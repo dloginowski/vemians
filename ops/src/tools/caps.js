@@ -50,6 +50,9 @@ export const CAPS = Object.freeze({
   CATALOG_MAX_VARIATIONS: 24,
   /* Images attached to one product in one call. */
   CATALOG_MAX_IMAGES: 8,
+  /* Option sets assigned to one category in one call — a category offering
+     more than this was almost certainly meant to be several categories. */
+  CATALOG_MAX_ITEM_OPTIONS_PER_CATEGORY: 12,
 
   /*
    * custom_fields (mirror_product) — whatever a spreadsheet import or an

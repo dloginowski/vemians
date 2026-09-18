@@ -144,6 +144,30 @@ CREATE VIEW mirror_item_option_value_index AS
 SELECT id, external_ref, item_option_id, name, ordinal, synced_at
 FROM mirror_item_option_value WHERE archived_at IS NULL;
 
+-- Which option sets a category offers, so a product filed under it will one
+-- day know which variation dropdowns to show ("I don't want to be adding
+-- the same option sets to every single category, because certain categories
+-- might not have the same option sets" — the owner's own words). Purely
+-- OURS, like mirror_custom_field_name above: Square has no category-level
+-- default/inheritance mechanism for item options at all, so this link exists
+-- nowhere but here. Unassigning is an UPDATE setting archived_at, never a
+-- literal DELETE — this codebase's own tool layer refuses to contain that
+-- statement AT ALL (Test-PRD-P0-25-write_approval_gate), not only against
+-- Square-sourced tables, so a plain many-to-many join still follows the
+-- same archive-only shape every mirror_* table uses, even though nothing
+-- here is a mirror of anything Square holds.
+CREATE TABLE mirror_category_item_option (
+  category_id     TEXT NOT NULL REFERENCES mirror_category(id),
+  item_option_id  TEXT NOT NULL REFERENCES mirror_item_option(id),
+  archived_at     TEXT,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (category_id, item_option_id)
+);
+
+CREATE VIEW mirror_category_item_option_index AS
+SELECT category_id, item_option_id, created_at
+FROM mirror_category_item_option WHERE archived_at IS NULL;
+
 -- ── vendors  (Square's own Vendor object, Vendors API — NOT the Catalog API) ─
 --
 -- Retail Plus/Premium territory (Test-PRD-P0-136-square_custom_attributes,

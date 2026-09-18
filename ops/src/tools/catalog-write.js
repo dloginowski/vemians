@@ -97,6 +97,7 @@
  */
 import { CAPS } from "./caps.js";
 import {
+  categoryItemOptionIds,
   deriveCategoryIdForStyleId,
   listCategories,
   listCustomFieldNames,
@@ -1987,6 +1988,110 @@ export const catalogWriteTools = {
     async run(_args, t) {
       const itemOptions = await listItemOptions(t.db.catalog_mirror);
       return { item_options: itemOptions, count: itemOptions.length };
+    },
+  },
+
+  /*
+   * "I want to be able to associate a category with option sets... so that
+   * these option sets will show up instead of variants, for the items that
+   * belong to the category" — the owner's own request, immediately
+   * clarified: "I don't want to be adding the same option sets to every
+   * single category, because certain categories might not have the same
+   * option sets." Square itself has no category-level default/inheritance
+   * mechanism for item options at all (confirmed against its own developer
+   * docs) — this link is ours alone, a full-REPLACE of one category's own
+   * set (the same "resend the whole list" convention catalog.update_product
+   * already uses for a product's own variations), never an incremental
+   * add/remove. This is only the ASSOCIATION: nothing here yet builds a
+   * product's own variation from a chosen value, or shows a dropdown on the
+   * Items tab — catalog.item_options (above) and this tool are what a
+   * future variation-building UI would read from.
+   */
+  "catalog.set_category_item_options": {
+    tier: "T2",
+    domain: "catalog",
+    stores: ["catalog_mirror"],
+    minRole: "manager",
+    describe:
+      "Set the FULL list of Option Sets a category offers — replaces whatever was assigned before, " +
+      "same as sending an empty list to unassign all of them. Purely ours: no Square object is read, " +
+      "written, or affected. Call catalog.item_options first to see what option sets already exist by " +
+      "id.",
+    undo: "another catalog.set_category_item_options call, with the previous item_option_ids",
+    schema: {
+      category_id: { type: "string", required: true, format: "id" },
+      item_option_ids: {
+        type: "array",
+        required: true,
+        maxItems: CAPS.CATALOG_MAX_ITEM_OPTIONS_PER_CATEGORY,
+        of: { type: "string", format: "id" },
+      },
+      reason: { type: "string", required: true, maxLength: CAPS.MAX_TEXT },
+    },
+    async check(args, t) {
+      const categories = await listCategories(t.db.catalog_mirror);
+      const category = categories.find((c) => c.id === args.category_id);
+      if (!category) return { denied: `no category '${args.category_id}'` };
+
+      const ids = [...new Set(args.item_option_ids)];
+      const itemOptions = await listItemOptions(t.db.catalog_mirror);
+      const byId = new Map(itemOptions.map((o) => [o.id, o]));
+      const unknown = ids.filter((id) => !byId.has(id));
+      if (unknown.length) return { denied: `no item option '${unknown[0]}'` };
+
+      const before = await categoryItemOptionIds(t.db.catalog_mirror);
+      const beforeIds = [...(before.get(category.id) ?? [])].sort();
+      if (JSON.stringify([...ids].sort()) === JSON.stringify(beforeIds)) {
+        return { denied: `"${category.name}" already offers exactly this set of option sets — nothing to change` };
+      }
+
+      const names = ids.map((id) => byId.get(id).name);
+      return {
+        ok: true,
+        summary: names.length
+          ? `set "${category.name}"'s own option sets to: ${names.join(", ")} — ${args.reason}`
+          : `clear every option set from "${category.name}" — ${args.reason}`,
+        preflight: { category, ids },
+      };
+    },
+    async run(_args, t) {
+      /* A full REPLACE, but never a literal DELETE — this tool layer refuses
+         to contain that statement at all (Test-PRD-P0-25-write_approval_gate),
+         so "not wanted any more" is archived_at, exactly like every
+         Square-sourced mirror table, even though nothing here mirrors
+         Square. A row already on file (active or previously unassigned) is
+         reused rather than re-inserted, so created_at survives a
+         reassign. */
+      const { category, ids } = t.preflight;
+      const wanted = new Set(ids);
+      const existing = await t.db.catalog_mirror
+        .prepare("SELECT item_option_id, archived_at FROM mirror_category_item_option WHERE category_id = ?")
+        .bind(category.id)
+        .all();
+      const known = new Map((existing.results ?? []).map((r) => [r.item_option_id, r.archived_at]));
+
+      for (const itemOptionId of ids) {
+        if (!known.has(itemOptionId)) {
+          await t.db.catalog_mirror
+            .prepare("INSERT INTO mirror_category_item_option (category_id, item_option_id) VALUES (?, ?)")
+            .bind(category.id, itemOptionId)
+            .run();
+        } else if (known.get(itemOptionId) !== null) {
+          await t.db.catalog_mirror
+            .prepare("UPDATE mirror_category_item_option SET archived_at = NULL WHERE category_id = ? AND item_option_id = ?")
+            .bind(category.id, itemOptionId)
+            .run();
+        }
+      }
+      for (const [itemOptionId, archivedAt] of known) {
+        if (!wanted.has(itemOptionId) && archivedAt === null) {
+          await t.db.catalog_mirror
+            .prepare("UPDATE mirror_category_item_option SET archived_at = datetime('now') WHERE category_id = ? AND item_option_id = ?")
+            .bind(category.id, itemOptionId)
+            .run();
+        }
+      }
+      return { category_id: category.id, item_option_ids: ids, authority: "ours" };
     },
   },
 
