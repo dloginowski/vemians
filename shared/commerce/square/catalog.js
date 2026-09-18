@@ -26,8 +26,14 @@
 import { moneyFromSquare } from "./money.js";
 import { handleFrom } from "./ids.js";
 
-/** The object types this adapter mirrors. Ordered as Square documents them. */
-export const CATALOG_TYPES = Object.freeze(["ITEM", "ITEM_VARIATION", "IMAGE", "CATEGORY"]);
+/** The object types this adapter mirrors. Ordered as Square documents them.
+    ITEM_OPTION ("Option Sets") joined this list once the owner asked
+    whether their own option sets were visible at all — they were not: an
+    ITEM_OPTION only ever arrived as a related object riding along with a
+    variation that already used it, so one created in Square but not yet
+    assigned to anything was invisible to this mirror entirely. Requesting
+    it directly means the full list exists here regardless. */
+export const CATALOG_TYPES = Object.freeze(["ITEM", "ITEM_VARIATION", "IMAGE", "CATEGORY", "ITEM_OPTION"]);
 
 /* ── reads ─────────────────────────────────────────────────────────────── */
 
@@ -250,6 +256,36 @@ export function normaliseCatalog(objects, { locationId = null, related = [] } = 
     });
   }
 
+  /* ITEM_OPTION ("Option Sets" in the dashboard, "variant sets" in the
+     owner's own words) — each one's own values already arrive fully
+     embedded in item_option_data.values (real CatalogObjects, not bare
+     ids), unlike a variation's own item_option_values pairs, which are
+     ids resolved above via optionNames/optionValueNames. Mirrored as its
+     own first-class entity now, independent of whether any item actually
+     uses it yet — the earlier optionNames/optionValueNames maps exist
+     only to label a VARIATION's own already-chosen values, and say
+     nothing about the option set's own full, ordered list of possible
+     ones, which is what a category-level default needs to build a
+     dropdown from. */
+  const itemOptions = [];
+  for (const o of all) {
+    if (o?.type !== "ITEM_OPTION") continue;
+    const data = o.item_option_data ?? {};
+    itemOptions.push({
+      externalRef: o.id,
+      name: data.name ?? "",
+      withdrawn: isWithdrawn(o, locationId),
+      values: (data.values ?? [])
+        .filter((v) => v?.id)
+        .map((v, i) => ({
+          externalRef: v.id,
+          name: v.item_option_value_data?.name ?? "",
+          ordinal: Number.isInteger(v.item_option_value_data?.ordinal) ? v.item_option_value_data.ordinal : i,
+          withdrawn: isWithdrawn(v, locationId),
+        })),
+    });
+  }
+
   /* Variations arrive as their own top-level objects on an incremental search
      and nested under the item on a full list. Collect both, keyed by item. */
   const variationsByItem = new Map();
@@ -351,5 +387,5 @@ export function normaliseCatalog(objects, { locationId = null, related = [] } = 
     });
   }
 
-  return { products, categories };
+  return { products, categories, itemOptions };
 }

@@ -68,6 +68,7 @@ import {
   verifyUploadTicket,
 } from "../src/tools/media.js";
 import { nearestCategory, suggestCategory, validateProposal } from "../src/tools/catalog-write.js";
+import { normaliseCatalog } from "../../shared/commerce/square/catalog.js";
 
 /* index.js (imported further down for the real-Worker checks) reaches
    agent.js, which reaches skills.js, which reads SKILL.md files — so the
@@ -3053,6 +3054,49 @@ check("test_PRD_P0_136_square_custom_attributes__catalog_vendors_lists_every_ven
   assert.equal(res.data.count, 1);
   assert.equal(res.data.vendors[0].name, "Acme Mills");
   assert.equal(res.data.vendors[0].commission_pct, 20);
+});
+
+check("test_PRD_P0_141_item_option_sets_mirrored__catalog_item_options_lists_every_option_set_with_its_own_values", async () => {
+  const f = await fixture();
+  const empty = await runTool("catalog.item_options", {}, f.ctx);
+  assert.equal(empty.ok, true, empty.error);
+  assert.deepEqual(empty.data.item_options, [], "the seed catalog defines no option set yet");
+
+  /* An option set created directly in Square and not yet used by any item --
+     the owner's own question ("do you have access to these option sets?")
+     is exactly this case, and it must still show up here. */
+  const normalised = normaliseCatalog([
+    {
+      type: "ITEM_OPTION",
+      id: "OPT_SIZE",
+      is_deleted: false,
+      item_option_data: {
+        name: "Size",
+        values: [
+          { type: "ITEM_OPTION_VAL", id: "OPTVAL_S", item_option_value_data: { name: "S" } },
+          { type: "ITEM_OPTION_VAL", id: "OPTVAL_M", item_option_value_data: { name: "M" } },
+        ],
+      },
+    },
+  ]);
+  await f.writer.adapter.mirror.syncCatalog(normalised, { full: false });
+
+  const res = await runTool("catalog.item_options", {}, f.ctx);
+  assert.equal(res.ok, true, res.error);
+  assert.equal(res.data.count, 1);
+  assert.equal(res.data.item_options[0].name, "Size");
+  assert.deepEqual(
+    res.data.item_options[0].values.map((v) => v.name),
+    ["S", "M"],
+    "in Square's own ordinal order, not alphabetical",
+  );
+});
+
+check("test_PRD_P0_141_item_option_sets_mirrored__catalog_item_options_is_t0_and_read_only", () => {
+  assert.equal(TOOLS["catalog.item_options"].tier, "T0");
+  assert.equal(TOOLS["catalog.item_options"].undo, null);
+  assert.deepEqual(TOOLS["catalog.item_options"].resources ?? [], []);
+  assert.ok(describeTools("staff").map((d) => d.name).includes("catalog.item_options"));
 });
 
 check("test_PRD_P0_136_square_custom_attributes__create_vendor_makes_a_real_square_vendor_with_a_commission_on_file_immediately", async () => {

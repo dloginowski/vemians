@@ -5617,6 +5617,30 @@ that does not trace to one of these is a process failure (see §12).
     shared link still lands on the exact item it named instead of silently losing its target the moment
     it started going through the shell.
 
+76. **`Test-PRD-P0-141-item_option_sets_mirrored`** — The owner's own words, asking about the two
+    "option sets" created directly in Square: "Do you have access to these option sets?... I want to be
+    able to assign, associate a category with option sets." Square's `ITEM_OPTION`/`ITEM_OPTION_VAL`
+    Catalog objects (the "Size", "Color" attributes a variation is built from — informally "variant
+    sets" in the owner's own follow-up, confirmed to be the same object, not a separate Square feature)
+    were already read by this codebase, but only to resolve a name for a value already sitting on a
+    synced variation: an option set created in Square and not yet used by any item was invisible to the
+    mirror entirely, which is what the owner's question exposed. `catalog.js`'s own `CATALOG_TYPES` now
+    requests `ITEM_OPTION` directly, the same way it already requests `CATEGORY`, and `normaliseCatalog`
+    extracts every option set and its values (each with Square's own `ordinal`, not alphabetical order)
+    into a new `itemOptions` field alongside `products` and `categories`.
+
+    `mirror_item_option` and `mirror_item_option_value` (new tables, `0007_item_options.sql`) mirror
+    them as their own first-class entity, independent of whether any item currently uses them — matching
+    every other `mirror_*` table's own archive-only discipline (`BEFORE DELETE` refuses outright,
+    `archived_at` marks a withdrawn option or value instead). A new read-only `catalog.item_options` T0
+    tool (`catalog-write.js`, matching `catalog.categories` and `catalog.vendors`'s own shape exactly)
+    surfaces the synced list. This is deliberately the narrow first step the owner explicitly
+    greenlit ("So can this be done? Yes or no? If it is, then do it.") and nothing more: category-level
+    association, a dropdown in the Admin panel, and actually writing chosen values onto a Square
+    variation are none of them touched here — Square itself has no category-level default/inheritance
+    mechanism for item options (confirmed against Square's own developer documentation), so that
+    association, if built, will be ours alone to define.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -5906,6 +5930,7 @@ Where each feature is enforced today:
 | P0-136 | `shared/commerce/square/test/square.test.mjs`, `ops/test/catalog-write.test.mjs`, `ops/test/items-route.test.mjs` |
 | P0-137 | `shared/commerce/square/test/square.test.mjs`, `ops/test/catalog-write.test.mjs`, `ops/test/items-route.test.mjs` |
 | P0-138 | `shared/commerce/square/test/square.test.mjs`, `ops/test/catalog-write.test.mjs`, `ops/test/items-route.test.mjs` |
+| P0-141 | `shared/commerce/square/test/square.test.mjs`, `ops/test/catalog-write.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
