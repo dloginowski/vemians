@@ -5184,16 +5184,44 @@ that does not trace to one of these is a process failure (see §12).
     the same P0-140 "no bookmark reaches a bare iframe page directly" rule every other tab's own `src`
     already gets) both work with no special-casing beyond that one extra branch.
 
-    **REVISED: the hamburger icon's own vertical position now matches the tab labels' baseline.** The
-    owner's own words: "match the bottom padding of the hamburger menu with the rest of the tabs['] text
-    so that it all flows in a horizontal line." The original `.shell-menu-btn` was a fixed, centered
-    28x28 box sitting inside a wrapper with its OWN separate 7px `padding-bottom` — `.shell-header`'s
-    `align-items: flex-end` lines up every tab's own bottom EDGE on one shared line, but centering the
-    icon inside a box that tall put its visual center roughly 12px above that line, while a tab's own
-    text (a plain 7px `padding-bottom`, no extra box) sits within a couple of px of it — two different
-    offsets from the same shared line read as two different rows, not one. `.shell-menu-btn` now uses
-    the SAME `7px` vertical padding `.shell-nav button` already does, directly on the button itself
-    rather than a fixed height box plus a second padding layered on top of it.
+    **REVISED, twice, on the hamburger icon's own vertical position.** First pass: matching the tab
+    labels' own `7px` vertical padding directly on `.shell-menu-btn`, replacing a fixed, centered
+    28x28 box with its own separate `padding-bottom` layered on top. **That still was not enough — the
+    owner's own words: "align them all so it's just one line... it's not the same height, so you don't
+    want to use the base of the text."** Matching one padding NUMBER to another still left two
+    different-height boxes merely sharing a bottom EDGE (`.shell-header`'s own `align-items: flex-end`,
+    which the tabs still need, to merge the active one into the panel below), not a text baseline and
+    an icon actually reading as one row — a small icon and a line of text do not share a "bottom" that
+    means the same thing to the eye. `align-self: center` on `.shell-menu` alone (overriding
+    `flex-end` for that one flex item) centers the icon in the exact vertical space the tab row
+    occupies instead — since the tabs' own padding is symmetric (`7px` top and bottom around the
+    text), their own visual center already sits at the header's true middle, so centering the icon
+    there the same way lines both up by construction, not by chasing one more number.
+
+    **REVISED: no dropdown at all.** The owner's own words: "I don't want my hamburger menu to open up
+    a menu. When I press the hamburger button, it opens up a panel, just like any other panel... just
+    like a chat or an AI agent panel... it's not going to have its own tab, but it will be opening the
+    same way." `.shell-menu-dropdown`/`.shell-menu-item` and their own click-to-open/click-outside-to-
+    close JS are gone outright; `.shell-menu-btn` itself now carries the same `data-src`/`data-href`
+    attributes a tab button does and joins that SAME delegated click handler — one click swaps the
+    shell's own `<iframe src>` straight to `/admin`, no intermediate step.
+
+    **REVISED: the Categories tree on `/admin` was wrongly flattened — it needed to be the exact same
+    expandable tree the old per-tile accordion always was, unchanged, just relocated.** The owner's
+    own words: "you kind of made them all a flat list... you have to bring all that back. They need to
+    be expandable... everything that I've had in there should all look exactly the same like it used
+    to." `renderAdminCategoryNodes` (`views.js`) now renders a caret on any node with children
+    (`.admin-category-toggle`, a same-width `.admin-category-toggle-spacer` on a leaf), its own
+    children collapsed by default (`.admin-category-children`, shown only once its parent node carries
+    `.expanded`) — restoring the exact CSS shape `renderCategoryNodes` always had. A subcategory's own
+    add-form is hidden behind its own `+` again too (`.admin-category-add-toggle`), including the
+    TOP-LEVEL one, which now lives in a new `.admin-section-header` row opposite the "Categories"
+    label, the same right-anchored position the old accordion's own header `+` held. Since `/admin` is
+    a plain-form, no-JS page (this entry's own earlier paragraph, above), the toggle/reveal behavior
+    needed a SMALL client-side script back — not the write itself, which still POSTs and reloads the
+    same as every other field on this page; only expand/collapse and reveal/hide are purely local,
+    delegated off `document.body` (there is no `#items-grid` here to delegate off, unlike the tile's
+    own original click handler this mirrors almost verbatim).
 
     **Category and Vendor administration was always the exact same closed set on every tile — moving
     it does not change WHAT can be done, only WHERE.** A category created, renamed, numbered, or

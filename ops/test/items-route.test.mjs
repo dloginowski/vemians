@@ -2263,7 +2263,7 @@ function seedVendor(mirror, { commission } = {}) {
   );
 }
 
-check("test_PRD_P0_138_nested_categories__admin_lists_the_whole_tree_expanded_with_no_toggle_needed", async () => {
+check("test_PRD_P0_138_nested_categories__admin_lists_the_whole_tree", async () => {
   const mirror = mirrorDb();
   seedProduct(mirror);
   seedCategoryTree(mirror);
@@ -2274,9 +2274,65 @@ check("test_PRD_P0_138_nested_categories__admin_lists_the_whole_tree_expanded_wi
   assert.match(body, /Coats/);
   assert.match(body, /Casual/);
   assert.match(body, /Knitwear/);
-  /* No caret/toggle anywhere -- the whole tree always renders, unlike the
-     old per-tile accordion's own collapsed-by-default tree. */
-  assert.doesNotMatch(body, /admin-category-toggle/);
+});
+
+check("test_PRD_P0_138_nested_categories__admin_a_node_with_children_gets_its_own_expandable_caret", async () => {
+  /* "They need to be expandable... everything should look exactly the
+     same like it used to" -- the exact same caret/collapsed-children
+     shape the old per-tile tree used, just rendered on /admin now. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  /* Each row's own hidden category_id input pins down a unique point
+     inside it; walking backward to the enclosing node's own opening tag
+     captures the WHOLE row, toggle included -- searching forward from
+     the category's own NAME text would land inside the toggle's own
+     aria-label instead ("Show subcategories of Outerwear" mentions the
+     name before the toggle's own class attribute ever closes). */
+  function rowFor(body, categoryId) {
+    const fieldIdx = body.indexOf(`value="${categoryId}"`);
+    const nodeStart = body.lastIndexOf('<div class="admin-category-node"', fieldIdx);
+    return body.slice(nodeStart, body.indexOf("admin-category-children", fieldIdx));
+  }
+  const cat1Row = rowFor(body, "cat1"); // Outerwear -- has a child (Coats)
+  assert.match(cat1Row, /class="admin-category-toggle"/, "Outerwear has a child (Coats) and must get a real caret");
+  const cat4Row = rowFor(body, "cat4"); // Knitwear -- a leaf
+  assert.match(cat4Row, /class="admin-category-toggle-spacer"/, "a leaf gets a same-width spacer, not a caret");
+  assert.match(body, /\.admin-category-children \{ display: none; \}/, "children are collapsed by default");
+  assert.match(body, /\.admin-category-node\.expanded > \.admin-category-children \{ display: block; \}/);
+});
+
+check("test_PRD_P0_138_nested_categories__admin_clicking_the_caret_or_the_row_toggles_expansion", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  assert.match(
+    body,
+    /const toggle = e\.target\.closest\("\.admin-category-toggle"\);\s*\n\s*if \(toggle\) \{\s*\n\s*toggle\.closest\("\.admin-category-node"\)\?\.classList\.toggle\("expanded"\);/,
+  );
+  assert.match(
+    body,
+    /const row = e\.target\.closest\("\.admin-category-row"\);\s*\n\s*if \(row && !e\.target\.closest\("input, button"\)\) \{\s*\n\s*row\.closest\("\.admin-category-node"\)\?\.classList\.toggle\("expanded"\);/,
+    "clicking anywhere on the row (not just the caret) must also toggle it",
+  );
+});
+
+check("test_PRD_P0_138_nested_categories__admin_add_forms_are_hidden_behind_their_own_plus", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  /* The top-level add-form lives in the section header, opposite the
+     "Categories" label -- and both it and every subcategory's own
+     add-form start hidden, revealed only by clicking their own +. */
+  assert.match(body, /<button type="button" class="admin-category-add-toggle" data-parent-id="" [^>]*>\+<\/button>/);
+  const addForms = [...body.matchAll(/<form method="post" action="\/admin\/categories\/create" class="admin-category-add-form"( hidden)?/g)];
+  assert.ok(addForms.length >= 2, "at least the top-level and one subcategory add-form must be present");
+  assert.ok(
+    addForms.every((m) => m[1] === " hidden"),
+    "every add-form must start hidden",
+  );
 });
 
 check("test_PRD_P0_138_nested_categories__admin_tree_indents_children_by_the_same_shared_toggle_width", async () => {
