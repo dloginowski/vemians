@@ -1289,7 +1289,8 @@ export const catalogWriteTools = {
       "deleted, the same as every mirror_* table (ADR-008) — it picks up archived_at on the next sync " +
       "once Square reports the object is_deleted. Refuses outright while the category still has any " +
       "subcategory of its own — remove those first, or this would silently strand them with a parent no " +
-      "longer in the working set.",
+      "longer in the working set — and refuses outright while any product is still assigned to it, " +
+      "since removing it out from under them would leave those products uncategorized with no warning.",
     undo: "recreate it in Square directly — there is no restore tool here yet",
     schema: {
       category_id: { type: "string", required: true, format: "id" },
@@ -1305,6 +1306,24 @@ export const catalogWriteTools = {
           denied:
             `"${category.name}" still has ${children.length} subcategor${children.length === 1 ? "y" : "ies"} ` +
             `of its own (${children.map((c) => c.name).join(", ")}) — remove those first.`,
+        };
+      }
+
+      /* "We probably should not enable the deletion of subcategories if
+         they have items assigned to them" — the owner's own words,
+         applied to any category (top-level or subcategory alike) with a
+         product still sitting in it, the same reasoning the subcategory
+         check just above already follows: removing the category out from
+         under a product would leave it silently uncategorized. */
+      const assigned = await t.db.catalog_mirror
+        .prepare("SELECT COUNT(*) AS n FROM mirror_product_index WHERE category_id = ?")
+        .bind(category.id)
+        .first("n");
+      if (assigned > 0) {
+        return {
+          denied:
+            `"${category.name}" still has ${assigned} product${assigned === 1 ? "" : "s"} assigned to it — ` +
+            "move them to a different category first.",
         };
       }
 

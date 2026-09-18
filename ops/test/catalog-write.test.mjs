@@ -1860,6 +1860,28 @@ check("test_PRD_P0_138_nested_categories__a_category_with_subcategories_cannot_b
   assert.ok(f.categories().some((c) => c.name === "Outerwear"), "refused, so Outerwear must still be there");
 });
 
+check("test_PRD_P0_138_nested_categories__a_category_with_products_assigned_cannot_be_removed", async () => {
+  /* "We probably should not enable the deletion of subcategories if they
+     have items assigned to them" — the owner's own words, applied to any
+     category (top-level or subcategory alike) still holding a real
+     product, the same reasoning the "still has subcategories" refusal
+     just above already follows for a category with children instead. */
+  const f = await fixture();
+  const category = await approvedCall(f, "catalog.create_category", { name: "Loungewear", reason: "test" });
+  assert.equal(category.ok, true, category.error);
+  const created = await approvedCall(f, "catalog.create_product", {
+    title: "Robe",
+    category_id: category.data.category.id,
+    variations: [{ title: "One size", price_minor: 5000, currency: "USD" }],
+  });
+  assert.equal(created.ok, true, created.error);
+
+  const res = await runTool("catalog.remove_category", { category_id: category.data.category.id }, f.ctx);
+  assert.equal(res.ok, false);
+  assert.match(res.error, /still has 1 product assigned to it — move them to a different category first/);
+  assert.ok(f.categories().some((c) => c.name === "Loungewear"), "refused, so Loungewear must still be there");
+});
+
 /* ─────────────────────────────────────────────────────────────────────────
  * P0-139 (continued) — two different edits must never collide on one
  * idempotency key, and a VERSION_MISMATCH must read as Square's own

@@ -2704,6 +2704,24 @@ check("test_PRD_P0_138_nested_categories__admin_a_category_with_subcategories_ca
   assert.doesNotMatch(cat4Row, /disabled/, "and it is never disabled");
 });
 
+check("test_PRD_P0_138_nested_categories__admin_a_category_with_products_assigned_cannot_be_removed", async () => {
+  /* "We probably should not enable the deletion of subcategories if they
+     have items assigned to them" — the same invisible-not-disabled
+     treatment, extended to a LEAF category (no children of its own) that
+     still holds a real product. Move the seeded product off cat1
+     (Outerwear, which already has a child, Coats, so its own remove
+     button is already hidden for that reason alone) onto cat4 (Knitwear,
+     a leaf) to isolate this rule from the "still has subcategories" one. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  mirror.db.exec("UPDATE mirror_product SET category_id = 'cat4' WHERE id = 'p1'");
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  const cat4Idx = body.indexOf("Knitwear");
+  const cat4Row = body.slice(cat4Idx, body.indexOf("admin-category-children", cat4Idx));
+  assert.doesNotMatch(cat4Row, /admin-remove-btn/, "a leaf category with a product assigned still gets no remove button");
+});
+
 check("test_PRD_P0_138_nested_categories__admin_staff_cannot_reach_the_page_at_all", async () => {
   const mirror = mirrorDb();
   const res = await get("/admin", STAFF, env(mirror));
