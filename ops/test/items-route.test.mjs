@@ -2550,16 +2550,23 @@ check("test_PRD_P0_138_nested_categories__admin_add_forms_are_hidden_behind_thei
   seedProduct(mirror);
   seedCategoryTree(mirror);
   const body = await (await get("/admin", MANAGER, env(mirror))).text();
-  /* The top-level add-form lives in the section header, opposite the
-     "Categories" label -- and both it and every subcategory's own
-     add-form start hidden, revealed only by clicking their own +. */
+  /* REVISED: "we were never going to go deep into more than one level of
+     subcategories, so I should not have a plus button next to any of my
+     subcategories, because we'll never be adding any [under them]." Only
+     a TOP-LEVEL category (Outerwear, Knitwear) gets its own "+"/add-form
+     any more; a category that is already a subcategory (Coats, one level
+     down) does not, even though seedCategoryTree's own Casual node (a
+     second level down, under Coats) proves an already-existing deeper
+     node still renders fine -- this only stops a NEW one being added. */
   assert.match(body, /<button type="button" class="admin-category-add-toggle" data-parent-id="" [^>]*>\+<\/button>/);
   const addForms = [...body.matchAll(/<form method="post" action="\/admin\/categories\/create" class="admin-category-add-form"( hidden)?/g)];
-  assert.ok(addForms.length >= 2, "at least the top-level and one subcategory add-form must be present");
+  assert.equal(addForms.length, 3, "the section's own top-level add-form, plus one per TOP-LEVEL category (Outerwear, Knitwear) -- none for any subcategory");
   assert.ok(
     addForms.every((m) => m[1] === " hidden"),
     "every add-form must start hidden",
   );
+  assert.doesNotMatch(body, /data-parent-id="cat2"/, "Coats (a subcategory) gets no add-toggle of its own");
+  assert.match(body, /Casual/, "a pre-existing second-level node (Casual, under Coats) still renders");
 });
 
 check("test_PRD_P0_138_nested_categories__admin_no_per_row_save_button_one_global_save_all_instead", async () => {

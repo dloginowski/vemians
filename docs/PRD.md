@@ -5467,6 +5467,19 @@ that does not trace to one of these is a process failure (see §12).
     token in the same change — there is no disclosure left to open or close, so a tile's hash now
     carries only which item is open.
 
+    **REVISED: no "+" on a subcategory of its own any more — this tree only ever goes one level
+    deep in practice.** The owner's own words: "we were never going to go deep into more than one
+    level of subcategories, so I should not have a plus button next to any of my subcategories,
+    because we'll never be adding any." `renderAdminCategoryNodes` (`views.js`) already recurses once
+    per nesting depth, sharing one `parentId` argument across every sibling it renders at that call —
+    `isTopLevel = parentId === null` is true for exactly the top-level categories (Outerwear,
+    Knitwear), false for anything already a subcategory (Coats, one level down), so only a TOP-LEVEL
+    node keeps its own "+"/hidden add-form; a subcategory gets neither any more. This is a UI change
+    only, not a new rule at the tool layer — `catalog.create_category`'s own schema/`describe` still
+    document unlimited depth for an agent/API caller that genuinely needs it, and an already-existing
+    deeper node (the fixture tree's own Casual, a real second-level subcategory under Coats) still
+    renders exactly as it always did — this only stops a NEW one being added through this one panel.
+
 74. **`Test-PRD-P0-139-honest_write_failures`** — A Square write refused with a plain `Square POST
     /v2/catalog/object failed with 400` and nothing else — the owner's own words, pasting exactly that
     line after an edit silently went nowhere: "just make sure all of the fields work... with this post
