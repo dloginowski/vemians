@@ -1715,6 +1715,38 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_save_button_reads_icon
   assert.doesNotMatch(body.slice(topRightIdx, topRightEndIdx), /item-save-all/, "no longer beside Share/Close on the photo");
 });
 
+check("test_PRD_P0_135_item_edit_applies_immediately__web_and_active_match_the_save_buttons_own_pill_style", async () => {
+  /* "Use the same style for Web and Active checkboxes that you're using
+     for my save checkbox." The exact same box model .item-save-all uses
+     (border, radius, padding, font-weight), colored the same way: accent-
+     filled when ON, the save button's own muted-outline-and-transparent
+     look when OFF -- not the earlier plain, unstyled labeled checkbox. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.match(
+    body,
+    /\.item-checkbox-toggle \{\s*\n\s*display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 13px; font-weight: 600;\s*\n\s*padding: 6px 14px; border: 1px solid var\(--muted\); border-radius: 6px; background: transparent; color: var\(--muted\);\s*\n\s*cursor: pointer; white-space: nowrap;\s*\n\s*\}/,
+  );
+  assert.match(
+    body,
+    /\.item-checkbox-toggle:has\(input:checked\) \{ border-color: var\(--accent\); background: var\(--accent\); color: var\(--ground\); \}/,
+  );
+});
+
+check("test_PRD_P0_135_item_edit_applies_immediately__the_save_button_is_pushed_all_the_way_right_web_active_stay_left", async () => {
+  /* "Make the save checkbox right justified, so it's all the way to the
+     right, and leave the Web and Active checkboxes on the left, so in
+     the middle is just a blank space." margin-left: auto on the Save
+     button alone, not justify-content: space-between on the row (which
+     would spread Web/Active apart too). */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.match(body, /\.item-save-all \{[^}]*margin-left: auto;/s);
+  assert.doesNotMatch(body, /\.item-badges \{[^}]*justify-content/s, "the row itself must not spread every child apart");
+});
+
 check("test_PRD_P0_135_item_edit_applies_immediately__the_page_script_tracks_dirty_state_and_saves_only_changed_forms", async () => {
   const mirror = mirrorDb();
   seedProduct(mirror);
