@@ -65,6 +65,12 @@ export const CAPS = Object.freeze({
   CATALOG_CUSTOM_FIELDS_MAX_KEYS: 20,
   CATALOG_CUSTOM_FIELD_KEY_MAX: 60,
   CATALOG_CUSTOM_FIELD_VALUE_MAX: 500,
+  /* Size/Color (or any other Option Set) values named directly on a
+     variation at creation time — a garment offering more distinct option
+     names than this in one call was not typed by a person either. */
+  CATALOG_MAX_OPTION_VALUES_PER_VARIATION: 6,
+  CATALOG_OPTION_NAME_MAX: 40,
+  CATALOG_OPTION_VALUE_MAX: 80,
   /* The employee-only /items grid (ops/src/index.js) — a shop this size
      fits comfortably under this in one page; past it, the honest answer is
      pagination, not a page that silently gets slower to render. */

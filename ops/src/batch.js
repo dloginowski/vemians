@@ -117,13 +117,41 @@ const COMMISSION_KEYS = ["commission", "commission %", "commission pct", "commis
    the "no vendor needs a unit cost" rule immediately below. */
 const UNIT_COST_KEYS = ["unit cost", "cost", "cogs", "cost of goods", "wholesale cost"];
 
+/* "If we are adding a set of items and we specify its size or color, and
+   this size or color is not already defined in our option, add this size
+   or color to the option list and update it so that this item can still
+   be added as a SKU" — the owner's own words. A CSV column name here maps
+   straight to catalog.create_product's own variations[].option_values —
+   an Option Set NAME ("Size") -> the value this row's own variation is
+   ("XL") — never guessed at beyond these two, the two the owner actually
+   named; a real third option (Material, say) still falls through to
+   custom_fields via extraFields exactly as any other unrecognized column
+   already does, rather than this file inventing a new Option Set nobody
+   asked for. */
+const OPTION_KEYS = {
+  Size: ["size", "size name"],
+  Color: ["color", "colour", "color name", "colour name"],
+};
+
 /* Every column name draftProductBatch/previewBatch already knows what to do
    with. Anything else in the sheet is CUSTOM — ours, not Square's, and not
    dropped just because neither of us has a named field for it yet. */
 const PRODUCT_KNOWN_KEYS = [
   ...TITLE_KEYS, ...DESCRIPTION_KEYS, ...CATEGORY_KEYS, ...PRICE_KEYS, ...CURRENCY_KEYS, ...SKU_KEYS,
-  ...STYLE_ID_KEYS, ...VENDOR_KEYS, ...VENDOR_CODE_KEYS, ...COMMISSION_KEYS,
+  ...STYLE_ID_KEYS, ...VENDOR_KEYS, ...VENDOR_CODE_KEYS, ...COMMISSION_KEYS, ...Object.values(OPTION_KEYS).flat(),
 ];
+
+/* {Size: "XL", Color: "Red"} from whichever of OPTION_KEYS' own columns this
+   row actually filled in — empty ones (no column, or the cell was blank)
+   are left out entirely rather than sent as "". */
+function optionValues(record) {
+  const values = {};
+  for (const [optionName, keys] of Object.entries(OPTION_KEYS)) {
+    const value = pick(record, keys);
+    if (value) values[optionName] = value;
+  }
+  return values;
+}
 
 /*
  * "I want to preserve all fields when ingesting spreadsheets. Even if they
@@ -331,6 +359,7 @@ export async function draftProductBatch(env, { text, actor, role }) {
        still preserves it verbatim, unchanged from before this feature. */
     const knownKeys = vendor ? [...PRODUCT_KNOWN_KEYS, ...UNIT_COST_KEYS] : PRODUCT_KNOWN_KEYS;
     const customFields = extraFields(record, knownKeys);
+    const optValues = optionValues(record);
     rows.push({
       rowNumber,
       title,
@@ -349,6 +378,7 @@ export async function draftProductBatch(env, { text, actor, role }) {
             price_minor: priceMinor,
             currency,
             ...(pick(record, SKU_KEYS) ? { sku: pick(record, SKU_KEYS) } : {}),
+            ...(Object.keys(optValues).length ? { option_values: optValues } : {}),
           },
         ],
         ...(Object.keys(customFields).length ? { custom_fields: customFields } : {}),
@@ -460,6 +490,7 @@ function mapProductRow(record) {
     vendor: pick(record, VENDOR_KEYS) || null,
     vendor_code: pick(record, VENDOR_CODE_KEYS) || null,
     commission: pick(record, COMMISSION_KEYS) || null,
+    ...Object.fromEntries(Object.keys(OPTION_KEYS).map((name) => [name.toLowerCase(), optionValues(record)[name] ?? null])),
     ...extraFields(record, PRODUCT_KNOWN_KEYS),
   };
 }

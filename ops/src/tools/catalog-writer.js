@@ -555,6 +555,99 @@ export function createSquareCatalogWriter(env, opts = {}) {
     return (res.results ?? []).map((r) => r.external_ref);
   }
 
+  /*
+   * "If we are adding a set of items and we specify its size or color, and
+   * this size or color is not already defined in our option, add this size
+   * or color to the option list and update it so that this item can still
+   * be added as a SKU" — the owner's own words. Resolves an Option Set's
+   * own NAME (e.g. "Size") and one of its VALUE names (e.g. "XL") to
+   * Square's own external refs for both, minting whichever half is
+   * missing: a known option with a new value gets that value APPENDED
+   * (UpsertCatalogObject is a full replace, so the option's own current
+   * values are resent whole, the same rule as every other field in this
+   * file — see the module header); an option this shop has never used at
+   * all yet is created outright, with this value as its own first entry.
+   * Matching is case-insensitive on both halves, the same tolerance
+   * matchCategory already gives a spreadsheet that was not typed to a
+   * spec. Nothing to resolve, and no Square write at all, for a value
+   * already on file.
+   */
+  async function ensureItemOptionValue(optionName, valueName) {
+    const option = await mirrorDb
+      .prepare("SELECT id, external_ref FROM mirror_item_option_index WHERE name = ? COLLATE NOCASE")
+      .bind(optionName)
+      .first();
+
+    if (option) {
+      const value = await mirrorDb
+        .prepare("SELECT external_ref FROM mirror_item_option_value_index WHERE item_option_id = ? AND name = ? COLLATE NOCASE")
+        .bind(option.id, valueName)
+        .first();
+      if (value) return { itemOptionRef: option.external_ref, itemOptionValueRef: value.external_ref };
+
+      const res = await client.get(`/v2/catalog/object/${encodeURIComponent(option.external_ref)}`);
+      if (!res?.object) {
+        throw new Error(`Square has no catalog object '${option.external_ref}' for item option '${optionName}'`);
+      }
+      const valueTemp = tempId("optval", 0);
+      const upserted = await client.post("/v2/catalog/object", {
+        idempotency_key: idempotencyKey(`catalog.add_option_value:${option.external_ref}:${res.object.version}:${valueName}`),
+        object: {
+          ...res.object,
+          item_option_data: {
+            ...res.object.item_option_data,
+            values: [
+              ...(res.object.item_option_data?.values ?? []),
+              {
+                type: "ITEM_OPTION_VAL",
+                id: valueTemp,
+                item_option_value_data: { item_option_id: option.external_ref, name: valueName },
+              },
+            ],
+          },
+        },
+      });
+      const createdValueRef = realId(upserted, valueTemp);
+      if (!createdValueRef) {
+        console.error("ERROR catalog-writer: Square accepted the new option value but returned no id");
+        throw new Error("Square returned no catalog object id for the new item option value");
+      }
+      await syncAfterWrite();
+      return { itemOptionRef: option.external_ref, itemOptionValueRef: createdValueRef };
+    }
+
+    /* No such Option Set at all yet — createCategory's own "#temp id, real
+       ones come back in id_mappings" pattern, one level deeper: the
+       ITEM_OPTION itself and its one value are both brand new. */
+    const optionTemp = tempId("opt", 0);
+    const valueTemp = tempId("optval", 0);
+    const created = await client.post("/v2/catalog/object", {
+      idempotency_key: idempotencyKey(`catalog.create_option:${optionName}:${valueName}`),
+      object: {
+        type: "ITEM_OPTION",
+        id: optionTemp,
+        item_option_data: {
+          name: optionName,
+          values: [
+            {
+              type: "ITEM_OPTION_VAL",
+              id: valueTemp,
+              item_option_value_data: { item_option_id: optionTemp, name: valueName },
+            },
+          ],
+        },
+      },
+    });
+    const createdOptionRef = created?.catalog_object?.id ?? realId(created, optionTemp);
+    const createdValueRef = realId(created, valueTemp);
+    if (!createdOptionRef || !createdValueRef) {
+      console.error("ERROR catalog-writer: Square accepted the new item option but returned no id");
+      throw new Error("Square returned no catalog object id for the new item option");
+    }
+    await syncAfterWrite();
+    return { itemOptionRef: createdOptionRef, itemOptionValueRef: createdValueRef };
+  }
+
   async function productRow(handle) {
     const row = await mirrorDb
       .prepare(
@@ -661,7 +754,7 @@ export function createSquareCatalogWriter(env, opts = {}) {
     return Object.keys(out).length ? out : undefined;
   }
 
-  function itemData({ title, description, catRef, variations, itemRef, imageIds, customAttributeValues: attrs, vendorInfos, itemOptionRefs }) {
+  function itemData({ title, description, catRef, variations, itemRef, imageIds, customAttributeValues: attrs, vendorInfos, itemOptionRefs, variationOptionValueRefs }) {
     return {
       name: title,
       /* Photographs already in Square are LINKED here at creation rather than
@@ -716,6 +809,12 @@ export function createSquareCatalogWriter(env, opts = {}) {
              differ from its siblings' — vendorInfos is built index-aligned
              with `variations` by every caller below. */
           ...(vendorInfos?.[i] ? { vendor_information: [vendorInfos[i]] } : {}),
+          /* Which of the item's own Option Set values THIS variation is —
+             "so that this item can still be added as a SKU," the owner's
+             own words. Index-aligned with `variations`, the same
+             convention vendorInfos above already uses; resolved by the
+             caller (ensureItemOptionValue), never guessed at here. */
+          ...(variationOptionValueRefs?.[i]?.length ? { item_option_values: variationOptionValueRefs[i] } : {}),
         },
       })),
     };
@@ -924,6 +1023,23 @@ export function createSquareCatalogWriter(env, opts = {}) {
         unitCostMinor,
         unitCostCurrency,
       });
+      /* A variation naming a Size/Color (etc.) it wants is resolved to
+         Square's own refs here, minting whichever half (the option
+         itself, or just a new value on an option that already exists) is
+         missing — see ensureItemOptionValue's own comment. One at a time,
+         never in parallel: two rows in the same batch both minting the
+         SAME brand-new value would otherwise race to create it twice. */
+      const variationOptionValueRefs = [];
+      const itemOptionRefSet = new Set();
+      for (const v of variations) {
+        const pairs = [];
+        for (const [optionName, valueName] of Object.entries(v.option_values ?? {})) {
+          const { itemOptionRef, itemOptionValueRef } = await ensureItemOptionValue(optionName, valueName);
+          itemOptionRefSet.add(itemOptionRef);
+          pairs.push({ item_option_id: itemOptionRef, item_option_value_id: itemOptionValueRef });
+        }
+        variationOptionValueRefs.push(pairs);
+      }
       const body = {
         idempotency_key: idempotencyKey(`catalog.create:${title}:${JSON.stringify(variations)}`),
         object: {
@@ -942,6 +1058,14 @@ export function createSquareCatalogWriter(env, opts = {}) {
                variation starts with the SAME vendor/cost, the one given at
                creation time; they only diverge later, through updateProduct. */
             vendorInfos: variations.map(() => vendorInfo),
+            /* The item itself must declare every Option Set any of its own
+               variations actually uses (Square's own requirement — a
+               variation's item_option_values means nothing without it),
+               derived here rather than asked for separately: a caller
+               that names Size/Color per variation should never also have
+               to repeat which Option Sets those are. */
+            itemOptionRefs: [...itemOptionRefSet],
+            variationOptionValueRefs,
           }),
         },
       };
