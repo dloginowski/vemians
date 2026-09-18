@@ -5184,6 +5184,17 @@ that does not trace to one of these is a process failure (see §12).
     the same P0-140 "no bookmark reaches a bare iframe page directly" rule every other tab's own `src`
     already gets) both work with no special-casing beyond that one extra branch.
 
+    **REVISED: the hamburger icon's own vertical position now matches the tab labels' baseline.** The
+    owner's own words: "match the bottom padding of the hamburger menu with the rest of the tabs['] text
+    so that it all flows in a horizontal line." The original `.shell-menu-btn` was a fixed, centered
+    28x28 box sitting inside a wrapper with its OWN separate 7px `padding-bottom` — `.shell-header`'s
+    `align-items: flex-end` lines up every tab's own bottom EDGE on one shared line, but centering the
+    icon inside a box that tall put its visual center roughly 12px above that line, while a tab's own
+    text (a plain 7px `padding-bottom`, no extra box) sits within a couple of px of it — two different
+    offsets from the same shared line read as two different rows, not one. `.shell-menu-btn` now uses
+    the SAME `7px` vertical padding `.shell-nav button` already does, directly on the button itself
+    rather than a fixed height box plus a second padding layered on top of it.
+
     **Category and Vendor administration was always the exact same closed set on every tile — moving
     it does not change WHAT can be done, only WHERE.** A category created, renamed, numbered, or
     removed from `/admin` shows up identically in every product's own `.category-picker`/vendor's own
