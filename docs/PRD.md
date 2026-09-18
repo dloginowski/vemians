@@ -5260,6 +5260,20 @@ that does not trace to one of these is a process failure (see §12).
     A vendor's own commission input lost its per-row save button the same way a category's rename/
     numeric-id did, folding into the same global Save-all.
 
+    **REVISED: the tree sorts by numeric_id now, not alphabetically — and adding a category auto-fills
+    the next one.** The owner's own words: "make sure that you're sorting these by their ID... one is
+    on top, two is on the bottom... when I add one you just automatically increment it by one the
+    category, and I just type in its name and then save." `renderAdminCategoryNodes`'s own `.sort()`
+    (`sortByNumericId`, `views.js`) now orders every level of the tree by `numeric_id` ascending — a
+    blank/unassigned id sorts last (the same rule `reorderSiblingsByNumericId`'s own instant
+    client-side resort, below, already used while typing; only the initial SERVER-rendered order was
+    still alphabetical until now), falling back to the name for a tie. Revealing an add-form (a
+    subcategory's own +, or the top-level one in the section header) now also pre-fills its own ID
+    field with one more than the highest `numeric_id` already used among the siblings it is about to
+    join (`nextNumericId`, starting at `"01"` when none has one yet) — only when that field is still
+    blank, so reopening one already typed into is never clobbered — leaving typing the name the only
+    thing left to do before Save.
+
     **REVISED, `Test-PRD-P0-71-items_tab`: custom field NAMES move to the Admin panel, off every
     product.** The owner's own words: "remove add fields from items. I don't want to be adding fields
     per item. If I'm adding custom fields, I'm adding them to all items. And this is done inside of
