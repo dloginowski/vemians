@@ -1873,23 +1873,22 @@ ${INPUT_BAR_CSS}
    this picker itself — the same division of labor .category-picker's
    own picker/accordion split already established: this only ever
    SELECTS from the closed set that already exists. */
-/* "Spread them out a little, make the vendor dropdown box just eat up
-   all the available space... so it kind of spreads out and fills up the
-   entire row, because the other fields can stay the same" — the one
-   field on this row with no natural fixed width of its own (vendor_code/
-   the commission badge/Cost/MSRP are all still flex: 0 0 auto, unchanged)
-   now grows to absorb whatever the others do not use. */
-.vendor-picker { position: relative; flex: 1 1 auto; min-width: 0; }
+/* REVISED: "vendor should not be collapsed, it should fit to content" —
+   growing to fill the row (the previous revision) squeezed the vendor
+   name thin once Cost/MSRP started expanding for their own typed
+   content (below); back to the SAME "auto scales to fit the content"
+   sizing .category-picker/.category-picker-btn already use, content-
+   width with no grow. */
+.vendor-picker { position: relative; flex: 0 0 auto; }
 .vendor-picker-btn {
   display: inline-flex; align-items: center; gap: 4px; box-sizing: border-box;
-  flex: 1 1 auto; width: 100%; min-width: 0; font: inherit; font-size: 11px; padding: 3px 5px;
+  flex: 0 0 auto; font: inherit; font-size: 11px; padding: 3px 5px; white-space: nowrap;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink); cursor: pointer;
 }
 .vendor-picker-btn svg { flex: 0 0 auto; color: var(--muted); transition: transform 0.15s; }
 .vendor-picker.expanded > .vendor-picker-btn svg { transform: rotate(90deg); }
-.vendor-picker-btn-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .vendor-picker-menu {
-  position: absolute; top: 100%; left: 0; z-index: 15; margin-top: 4px; width: 100%; min-width: 14em; max-height: 16em;
+  position: absolute; top: 100%; left: 0; z-index: 15; margin-top: 4px; min-width: 14em; max-height: 16em;
   overflow-y: auto; padding: 4px 0; border: 1px solid var(--muted); border-radius: 8px; background: var(--ground);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
@@ -2007,16 +2006,24 @@ ${INPUT_BAR_CSS}
   flex: 1 1 auto; width: auto;
 }
 .item-edit input[name="commission"] { width: 4em; }
-.item-edit input[name="vendor_code"], .item-edit input[name^="field_name_"] { width: 8em; }
-/* "Center the vendor SKU content too" — the owner's own words, extending
-   the same centering already given to style_id to this field. */
-.item-edit input[name="vendor_code"] { text-align: center; }
-/* "Why did you make cost and MSRP so wide? We probably don't even need
-   cents in there. It's going to be like maximum four digits." — 3.5em
-   fits four digits comfortably with no cents, narrower than the earlier
-   5em (sized for a full "$10,000.00"), still centered like every other
-   short field on this row. */
-.item-unit-cost, .item-msrp { flex: 0 0 auto; width: 3.5em; text-align: center; }
+.item-edit input[name^="field_name_"] { width: 8em; }
+/* REVISED: "vendor SKU also should fit to content, it should be really
+   short because usually it's going to be empty anyway" — field-sizing:
+   content sizes the box to whatever is actually typed (never the fixed
+   8em every other short field on this row keeps), with a small min-width
+   floor so an empty field still reads as a real, clickable box rather
+   than collapsing to nothing. "Center the vendor SKU content too" — the
+   owner's own words, extending the same centering already given to
+   style_id to this field. */
+.item-edit input[name="vendor_code"] { field-sizing: content; min-width: 3em; text-align: center; }
+/* REVISED: "make minimum width four digits — if they need to expand,
+   they'll expand" — field-sizing: content grows the box past its own
+   min-width for a longer typed value, rather than a hard 3.5em cap that
+   would clip it; the min-width alone is what fits four digits with no
+   cents, narrower than the earlier fixed 5em (sized for a full
+   "$10,000.00"), still centered like every other short field on this
+   row. */
+.item-unit-cost, .item-msrp { flex: 0 0 auto; field-sizing: content; min-width: 3.5em; text-align: center; }
 /* Title and description — the owner's own words: "where's the item label
    and where is the description fields? Shouldn't we be able to change
    that?" A plain-weight input rather than a second, competing heading
