@@ -5564,6 +5564,19 @@ that does not trace to one of these is a process failure (see §12).
     this page's own submit listener routes to `saveAll()` too, bypassing the button's own disabled
     state entirely, so the guard is not only on the button.
 
+    **REVISED: the hidden "add a subcategory" form now reserves the same trailing space a real
+    subcategory row has, instead of overflowing wider.** The owner's own words: "when I'm adding a new
+    subcategory, make sure that you include all of the buttons that you normally would add — except
+    they're blanked out... they should be available because I want the adding of a subcategory to be
+    perfectly aligned with the existing categories. Right now it's overflowing a little too much." The
+    form's own name input (`.admin-category-new-name`, `flex: 1 1 auto`, same as a real row's own name
+    input) had no Sets/remove button of its own after it to share the row with, so it stretched wider
+    than every saved subcategory row beneath it. A disabled Sets button (rendered only when at least
+    one option set exists at all, the identical condition a real row's own toggle already uses) and a
+    disabled remove button now sit after it, reserving the exact width real ones would rather than an
+    abstract spacer of a guessed size. No "+" placeholder needed — a subcategory never gets one of its
+    own (the REVISED entry six up), and this row IS one.
+
 74. **`Test-PRD-P0-139-honest_write_failures`** — A Square write refused with a plain `Square POST
     /v2/catalog/object failed with 400` and nothing else — the owner's own words, pasting exactly that
     line after an edit silently went nowhere: "just make sure all of the fields work... with this post

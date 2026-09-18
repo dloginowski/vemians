@@ -2569,6 +2569,40 @@ check("test_PRD_P0_138_nested_categories__admin_add_forms_are_hidden_behind_thei
   assert.match(body, /Casual/, "a pre-existing second-level node (Casual, under Coats) still renders");
 });
 
+check("test_PRD_P0_138_nested_categories__admin_add_subcategory_form_reserves_the_same_trailing_space_a_real_row_has", async () => {
+  /* "Include all of the buttons that you normally would add... they
+     should be available because I want the adding of a subcategory to
+     be perfectly aligned with the existing categories. Right now it's
+     overflowing a little too much." Missing the Sets/remove buttons a
+     real saved subcategory row would have left the name input free to
+     stretch wider than every row beneath it -- a disabled Sets button
+     (when any option set exists at all) and a disabled remove button now
+     reserve that same trailing space. No "+" placeholder: a subcategory
+     never gets one of its own, and this form IS one. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  seedItemOption(mirror, { id: "opt1", externalRef: "sqopt1", name: "Size" });
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  const addFormStart = body.indexOf('action="/admin/categories/create" class="admin-category-add-form" hidden style="padding-left: 14px">');
+  assert.ok(addFormStart > -1, "the subcategory add-form must exist");
+  const addForm = body.slice(addFormStart, body.indexOf("</form>", addFormStart));
+  assert.match(addForm, /<button type="button" class="admin-category-options-toggle" disabled title="Save the new subcategory first">Sets<\/button>/);
+  assert.match(addForm, /<button type="button" class="admin-remove-btn" disabled aria-label="Remove" title="Save the new subcategory first">/);
+  assert.doesNotMatch(addForm, /admin-category-add-toggle/, "a subcategory add-form never reserves space for its own + toggle");
+});
+
+check("test_PRD_P0_138_nested_categories__admin_add_subcategory_form_skips_the_sets_placeholder_when_no_option_set_exists", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  const addFormStart = body.indexOf('action="/admin/categories/create" class="admin-category-add-form" hidden style="padding-left: 14px">');
+  const addForm = body.slice(addFormStart, body.indexOf("</form>", addFormStart));
+  assert.doesNotMatch(addForm, /admin-category-options-toggle/, "nothing to pick means no Sets placeholder either, matching a real row");
+  assert.match(addForm, /admin-remove-btn/, "the remove placeholder still reserves its own space regardless");
+});
+
 check("test_PRD_P0_138_nested_categories__admin_no_per_row_save_button_one_global_save_all_instead", async () => {
   /* "I want the same bulk save mechanism where things get marked dirty
      and then I hit the save button to save them all. I don't want to see
