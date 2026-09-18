@@ -59,7 +59,7 @@ import { runTool, TOOLS, STORE_BINDINGS, RESOURCES, describeTools } from "../src
 import { createApprovalStore } from "../src/tools/approval.js";
 import { createRateLimiter } from "../src/tools/rate.js";
 import { CAPS } from "../src/tools/caps.js";
-import { createSquareCatalogWriter } from "../src/tools/catalog-writer.js";
+import { createSquareCatalogWriter, effectiveCategoryItemOptionIds } from "../src/tools/catalog-writer.js";
 import {
   createMediaStore,
   createSquareMediaStore,
@@ -2229,6 +2229,13 @@ check("test_PRD_P0_37_mirror_is_ours__no_authoring_tool_writes_a_square_fact_to_
    * which this codebase always spells as an UPDATE setting archived_at,
    * never a literal DELETE (Test-PRD-P0-25-write_approval_gate refuses
    * that statement outright, everywhere in this directory but erasure.js).
+   *
+   * A SEVENTH, the same catalog.set_category_item_options, back on
+   * mirror_category itself this time: `UPDATE mirror_category SET
+   * item_options_set_at = datetime('now')`, checked below alongside
+   * numeric_id's own entry. Also OURS-only, same reasoning as numeric_id
+   * — Square has no concept of "this subcategory stopped inheriting its
+   * parent's option sets" at all.
    */
   const offenders = [];
   for (const file of fs.readdirSync(TOOLS_DIR).filter((n) => n.endsWith(".js"))) {
@@ -2260,18 +2267,24 @@ check("test_PRD_P0_37_mirror_is_ours__no_authoring_tool_writes_a_square_fact_to_
     );
   }
 
-  /* Same guard, for mirror_category's own OURS-only exception: numeric_id,
-     and only numeric_id — now written directly from TWO places
-     (catalog.set_category_number, and catalog.create_category's own
-     "set it at creation time" convenience), so this checks every match,
-     not just the first, the same way the mirror_product loop above does. */
+  /* Same guard, for mirror_category's own OURS-only exceptions: numeric_id
+     (written directly from TWO places, catalog.set_category_number and
+     catalog.create_category's own "set it at creation time" convenience)
+     and item_options_set_at (catalog.set_category_item_options' own
+     inherit-vs-explicit marker, schema.sql's own comment on the column
+     has the full reasoning) — checks every match, not just the first,
+     the same way the mirror_product loop above does. */
   const categoryStmts = [...writer.matchAll(/UPDATE mirror_category SET ([\s\S]*?) WHERE/g)];
   assert.ok(
-    categoryStmts.length >= 2,
-    "catalog.set_category_number's and catalog.create_category's own numeric_id UPDATEs have moved or been removed",
+    categoryStmts.length >= 3,
+    "catalog.set_category_number's, catalog.create_category's and catalog.set_category_item_options' own UPDATEs have moved or been removed",
   );
+  const ALLOWED_CATEGORY_COLUMNS = ["numeric_id = ?", "item_options_set_at = datetime('now')"];
   for (const [, captured] of categoryStmts) {
-    assert.equal(captured.trim(), "numeric_id = ?", "an UPDATE mirror_category in catalog-write.js touches an unexpected column");
+    assert.ok(
+      ALLOWED_CATEGORY_COLUMNS.includes(captured.trim()),
+      `an UPDATE mirror_category in catalog-write.js touches an unexpected column: ${captured}`,
+    );
   }
 
   /* Same guard again, for mirror_vendor's own OURS-only exception:
@@ -3247,6 +3260,78 @@ check("test_PRD_P0_142_category_item_options__staff_cannot_call_it_and_it_touche
     { ...f.ctx, role: "staff" },
   );
   assert.equal(res.ok, false);
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-142 (REVISED) — inheritance: "when I set sets for a category, all
+ * subcategories inherit the sets unless I specify different selections
+ * for the subcategories" — the owner's own words.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_142_category_item_options__a_subcategory_with_no_explicit_set_inherits_its_parents", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const casual = (await approvedCall(f, "catalog.create_category", { name: "Casual", parent_id: outerwear.id, reason: "test" })).data
+    .category;
+  const size = seedItemOption(f);
+
+  await approvedCall(f, "catalog.set_category_item_options", { category_id: outerwear.id, item_option_ids: [size.id], reason: "test" });
+  const effective = await effectiveCategoryItemOptionIds(f.mirrorDb);
+  assert.deepEqual([...(effective.get(casual.id) ?? [])], [size.id], "Casual never set its own -- it inherits Outerwear's");
+  assert.deepEqual([...(effective.get(outerwear.id) ?? [])], [size.id]);
+});
+
+check("test_PRD_P0_142_category_item_options__specifying_a_selection_for_the_subcategory_stops_it_inheriting", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const casual = (await approvedCall(f, "catalog.create_category", { name: "Casual", parent_id: outerwear.id, reason: "test" })).data
+    .category;
+  const size = seedItemOption(f, { id: "opt1", externalRef: "sqopt1", name: "Size" });
+  const color = seedItemOption(f, { id: "opt2", externalRef: "sqopt2", name: "Color" });
+  await approvedCall(f, "catalog.set_category_item_options", { category_id: outerwear.id, item_option_ids: [size.id], reason: "test" });
+
+  /* "Unless I specify different selections" -- Casual names its own,
+     independent of whatever Outerwear has on file. */
+  await approvedCall(f, "catalog.set_category_item_options", { category_id: casual.id, item_option_ids: [color.id], reason: "test" });
+  let effective = await effectiveCategoryItemOptionIds(f.mirrorDb);
+  assert.deepEqual([...(effective.get(casual.id) ?? [])], [color.id]);
+
+  /* A later edit to the PARENT must never reach back down into a
+     subcategory that has already specified its own. */
+  await approvedCall(f, "catalog.set_category_item_options", { category_id: outerwear.id, item_option_ids: [color.id], reason: "test" });
+  effective = await effectiveCategoryItemOptionIds(f.mirrorDb);
+  assert.deepEqual([...(effective.get(casual.id) ?? [])], [color.id], "still Casual's own choice, untouched by the parent's later edit");
+});
+
+check("test_PRD_P0_142_category_item_options__an_explicit_empty_set_is_a_real_override_not_a_no_op", async () => {
+  /* "Unless I specify different selections" covers naming NONE too -- a
+     subcategory can explicitly opt out of everything its parent offers,
+     and that must not be refused as "nothing to change" just because the
+     resulting row set (zero rows) looks identical to "never touched." */
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const casual = (await approvedCall(f, "catalog.create_category", { name: "Casual", parent_id: outerwear.id, reason: "test" })).data
+    .category;
+  const size = seedItemOption(f);
+  await approvedCall(f, "catalog.set_category_item_options", { category_id: outerwear.id, item_option_ids: [size.id], reason: "test" });
+
+  const res = await approvedCall(f, "catalog.set_category_item_options", { category_id: casual.id, item_option_ids: [], reason: "test" });
+  assert.equal(res.ok, true, res.error);
+  const effective = await effectiveCategoryItemOptionIds(f.mirrorDb);
+  assert.deepEqual([...(effective.get(casual.id) ?? [])], [], "Casual now explicitly offers none, not Outerwear's inherited set");
+
+  /* And it is now explicit -- a second identical save really is a no-op. */
+  const again = await runTool("catalog.set_category_item_options", { category_id: casual.id, item_option_ids: [], reason: "test" }, f.ctx);
+  assert.equal(again.ok, false);
+  assert.match(again.error, /already offers exactly this set/);
+});
+
+check("test_PRD_P0_142_category_item_options__a_top_level_category_with_nothing_set_has_no_parent_to_inherit_from", async () => {
+  const f = await fixture();
+  const knitwear = f.categories().find((c) => c.name === "Knitwear");
+  seedItemOption(f);
+  const effective = await effectiveCategoryItemOptionIds(f.mirrorDb);
+  assert.deepEqual([...(effective.get(knitwear.id) ?? [])], []);
 });
 
 check("test_PRD_P0_136_square_custom_attributes__create_vendor_makes_a_real_square_vendor_with_a_commission_on_file_immediately", async () => {

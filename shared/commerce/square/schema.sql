@@ -76,13 +76,23 @@
 -- disambiguates two same-named subcategories is their own parent chain
 -- (path_to_root), not the name; the UI shows only a node's own leaf name.
 CREATE TABLE mirror_category (
-  id           TEXT PRIMARY KEY,              -- ours
-  external_ref TEXT NOT NULL UNIQUE,          -- Square CATEGORY id
-  name         TEXT NOT NULL,
-  parent_id    TEXT REFERENCES mirror_category(id), -- NULL = top-level
-  numeric_id   TEXT,                          -- ours; "00".."99", NULL until assigned
-  archived_at  TEXT,                          -- rolled off the working set, never deleted
-  synced_at    TEXT NOT NULL DEFAULT (datetime('now'))
+  id                   TEXT PRIMARY KEY,              -- ours
+  external_ref         TEXT NOT NULL UNIQUE,          -- Square CATEGORY id
+  name                 TEXT NOT NULL,
+  parent_id            TEXT REFERENCES mirror_category(id), -- NULL = top-level
+  numeric_id           TEXT,                          -- ours; "00".."99", NULL until assigned
+  -- ours; when a subcategory INHERITS its parent's own option sets rather
+  -- than naming its own (Test-PRD-P0-142-category_item_options' own REVISED
+  -- entry: "all subcategories inherit the sets unless I specify different
+  -- selections"). NULL means "never explicitly set here, keep inheriting";
+  -- set the moment catalog.set_category_item_options is ever called for
+  -- this category, EVEN to an empty list — an empty EXPLICIT set (opting
+  -- out of everything the parent offers) is not the same fact as "never
+  -- touched, still inheriting," and mirror_category_item_option's own rows
+  -- alone cannot tell the two apart (both look like zero active rows).
+  item_options_set_at  TEXT,
+  archived_at          TEXT,                          -- rolled off the working set, never deleted
+  synced_at            TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 -- Two SEPARATE pools, not one: a top-level category's own numeric_id must
@@ -98,7 +108,7 @@ CREATE UNIQUE INDEX idx_mirror_category_sub_numeric_id
   WHERE parent_id IS NOT NULL AND numeric_id IS NOT NULL AND archived_at IS NULL;
 
 CREATE VIEW mirror_category_index AS
-SELECT id, external_ref, name, parent_id, numeric_id, synced_at
+SELECT id, external_ref, name, parent_id, numeric_id, item_options_set_at, synced_at
 FROM mirror_category WHERE archived_at IS NULL;
 
 -- ── item options  ("Option Sets" in the dashboard, "variant sets" in the ──
