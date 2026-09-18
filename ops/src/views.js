@@ -2242,16 +2242,38 @@ function renderAdminCategoryNodes(
         : hasProducts
           ? `<button type="button" class="admin-remove-btn" disabled aria-label="Remove ${esc(c.name)}" title="Move its products to a different category first">${TRASH_ICON}</button>`
           : `<button type="button" class="admin-remove-btn" data-category-id="${esc(c.id)}" aria-label="Remove ${esc(c.name)}" title="Remove ${esc(c.name)}">${TRASH_ICON}</button>`;
-      /* "I want to be able to associate a category with option sets... I
-         don't want to be adding the same option sets to every single
-         category" — a checkbox per known option set, folded into the same
-         hidden-until-toggled disclosure every other per-category control
-         here already uses. Nothing to show (no option set exists anywhere
-         yet) means no toggle at all, the same "not reachable, don't show
-         it" rule the remove button already follows. */
+      /* REVISED: "when clicking Sets, I want you to open a menu with
+         checkboxes, not a whole row that's not aligned to anything... I
+         want to select multiple checkboxes, toggle them" — the owner's
+         own words, once the previous hidden-block disclosure (the same
+         shape the add-subcategory form already used) pushed every row
+         beneath it down and left instead of floating over them. Now the
+         exact same floating-dropdown shape .vendor-picker/.category-picker
+         already establish on the Items tab (own script, not shared with
+         this page, but the same position: relative wrapper +
+         position: absolute menu convention) — the toggle and its menu
+         share one wrapper, so the menu floats below the button rather
+         than widening or relayouting the row underneath it. Multiple
+         checkboxes stay tickable in one sitting: nothing in the open/close
+         logic below closes the menu on a checkbox click, only on an
+         outside click, Escape, or the toggle button itself. Nothing to
+         show (no option set exists anywhere yet) means no control at all,
+         the same "not reachable, don't show it" rule the remove button
+         already follows. */
       const assignedIds = categoryItemOptionIdsById.get(c.id) ?? new Set();
-      const optionsToggle = itemOptions.length
-        ? `<button type="button" class="admin-category-options-toggle${assignedIds.size ? " admin-category-options-toggle-active" : ""}" data-category-id="${esc(c.id)}" aria-label="Option sets for ${esc(c.name)}" title="Option sets">Sets${assignedIds.size ? ` (${assignedIds.size})` : ""}</button>`
+      const optionsControl = itemOptions.length
+        ? `<div class="admin-category-options">
+            <button type="button" class="admin-category-options-toggle${assignedIds.size ? " admin-category-options-toggle-active" : ""}" aria-label="Option sets for ${esc(c.name)}" title="Option sets">Sets${assignedIds.size ? ` (${assignedIds.size})` : ""}</button>
+            <form method="post" action="/admin/categories/item-options" class="admin-category-options-menu" hidden>
+              <input type="hidden" name="category_id" value="${esc(c.id)}">
+              ${itemOptions
+                .map(
+                  (o) =>
+                    `<label class="admin-category-options-item"><input type="checkbox" name="item_option_ids" value="${esc(o.id)}"${assignedIds.has(o.id) ? " checked" : ""}> ${esc(o.name)}</label>`,
+                )
+                .join("")}
+            </form>
+          </div>`
         : "";
       return `<div class="admin-category-node" style="padding-left: ${parentId === null ? 0 : CATEGORY_NODE_TOGGLE_PX}px">
         <div class="admin-category-row">
@@ -2264,23 +2286,10 @@ function renderAdminCategoryNodes(
             <input type="hidden" name="category_id" value="${esc(c.id)}">
             <input class="admin-category-numeric-id" name="numeric_id" value="${esc(c.numeric_id ?? "")}" placeholder="ID" maxlength="2" pattern="\\d{2}" required title="A 2-digit code, 00-99 — must be unique among its own siblings">
           </form>
-          ${optionsToggle}
+          ${optionsControl}
           ${removeBtn}
           ${isTopLevel ? `<button type="button" class="admin-category-add-toggle" data-parent-id="${esc(c.id)}" aria-label="Add a subcategory under ${esc(c.name)}" title="Add a subcategory">+</button>` : ""}
         </div>
-        ${
-          itemOptions.length
-            ? `<form method="post" action="/admin/categories/item-options" class="admin-category-options-form" hidden style="padding-left: ${CATEGORY_NODE_TOGGLE_PX}px">
-          <input type="hidden" name="category_id" value="${esc(c.id)}">
-          ${itemOptions
-            .map(
-              (o) =>
-                `<label class="admin-category-options-item"><input type="checkbox" name="item_option_ids" value="${esc(o.id)}"${assignedIds.has(o.id) ? " checked" : ""}> ${esc(o.name)}</label>`,
-            )
-            .join("")}
-        </form>`
-            : ""
-        }
         <div class="admin-category-children">${renderAdminCategoryNodes(categories, c.id, categoryProductCountsById, itemOptions, categoryItemOptionIdsById)}</div>
         ${
           isTopLevel
@@ -3752,17 +3761,24 @@ ${OPS_DARK_CSS}
    "Use all capitals for Sets" — the same text-transform this page's own
    section labels (admin-section-label, above) already use, over
    hand-typing "SETS" in the markup. */
+/* REVISED: a floating dropdown menu, not a block that pushes the row
+   below it down and out of alignment — the same position: relative
+   wrapper + position: absolute menu shape .vendor-picker/.vendor-picker-
+   menu already establish (Items tab, a separate script, but the
+   identical convention). */
+.admin-category-options { position: relative; flex: 0 0 auto; }
 .admin-category-options-toggle {
   flex: 0 0 auto; padding: 4px 8px; font: inherit; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--muted); cursor: pointer;
 }
 .admin-category-options-toggle-active { border-color: var(--accent); color: var(--ink); }
-.admin-category-options-form[hidden] { display: none; }
-.admin-category-options-form {
-  display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 6px 4px 6px ${CATEGORY_NODE_TOGGLE_PX}px; margin-top: 4px;
-  border: 1px solid var(--rule); border-radius: 6px; background: var(--image-ground);
+.admin-category-options-menu[hidden] { display: none; }
+.admin-category-options-menu {
+  position: absolute; top: 100%; left: 0; z-index: 15; margin-top: 4px; min-width: 12em; max-height: 16em;
+  overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding: 6px 10px;
+  border: 1px solid var(--muted); border-radius: 8px; background: var(--ground); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
-.admin-category-options-item { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; cursor: pointer; }
+.admin-category-options-item { display: flex; align-items: center; gap: 6px; font-size: 12px; padding: 3px 2px; cursor: pointer; }
 .admin-category-options-item input.field-dirty[type="checkbox"] { outline: 1.5px solid var(--accent); outline-offset: 1px; }
 .admin-vendor-row { display: flex; align-items: center; gap: 6px; padding: 4px 0; }
 .admin-vendor-row-name { flex: 1 1 auto; min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
@@ -4182,9 +4198,32 @@ document.body.addEventListener("click", (e) => {
   }
   const optionsToggle = e.target.closest(".admin-category-options-toggle");
   if (optionsToggle) {
-    const panel = optionsToggle.closest(".admin-category-node")?.querySelector(":scope > .admin-category-options-form");
-    if (panel) panel.hidden = !panel.hidden;
+    const menu = optionsToggle.closest(".admin-category-options")?.querySelector(":scope > .admin-category-options-menu");
+    if (!menu) return;
+    const wasHidden = menu.hidden;
+    closeAllOptionsMenus();
+    menu.hidden = !wasHidden;
   }
+});
+/* "A menu with checkboxes... I want to select multiple checkboxes,
+   toggle them" — a checkbox click inside the menu never reaches here
+   (e.target.closest(".admin-category-options") matches it, same as it
+   matches the toggle button itself), so any number of them stay
+   tickable in one sitting; only an outside click, Escape, or the toggle
+   button closes it. Same outside-click/Escape convention
+   closeAllCategoryPickers already establishes on the Items tab's own
+   script, reimplemented here rather than shared since the two pages
+   share no script module of their own. */
+function closeAllOptionsMenus() {
+  document.querySelectorAll(".admin-category-options-menu").forEach((m) => (m.hidden = true));
+}
+document.addEventListener("click", (e) => {
+  if (e.target.closest(".admin-category-options")) return;
+  closeAllOptionsMenus();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  closeAllOptionsMenus();
 });
 </script>`,
     ADMIN_CSS,
