@@ -5489,6 +5489,20 @@ that does not trace to one of these is a process failure (see §12).
     follow; a leaf category is unaffected, its own remove button still fully enabled. The now-dead
     `.admin-remove-btn:disabled` CSS rule is removed along with it.
 
+    **REVISED AGAIN: a category with any product still assigned to it cannot be removed either,
+    the same invisible-not-disabled way.** The owner's own words: "we probably should not enable the
+    deletion of subcategories if they have items assigned to them" — applied to any category, top-
+    level or subcategory alike, not only a subcategory, the same reasoning the "still has
+    subcategories" refusal already follows. `catalog.remove_category`'s own `check()` now also
+    counts products in `mirror_product_index WHERE category_id = ?` and refuses with "still has N
+    product(s) assigned to it — move them to a different category first" when that count is nonzero,
+    right alongside its existing "still has subcategories" refusal. The Admin panel knows this same
+    fact in advance: a new `categoryProductCounts` (`catalog-writer.js`, `id -> count` for every
+    category currently holding at least one product) is fetched once for the whole `/admin` page and
+    threaded through `adminPage`/`renderAdminCategoryNodes`, so a category with a product assigned
+    renders no remove button at all, exactly like one with subcategories — never a disabled one a
+    manager could click only to be refused.
+
 74. **`Test-PRD-P0-139-honest_write_failures`** — A Square write refused with a plain `Square POST
     /v2/catalog/object failed with 400` and nothing else — the owner's own words, pasting exactly that
     line after an edit silently went nowhere: "just make sure all of the fields work... with this post

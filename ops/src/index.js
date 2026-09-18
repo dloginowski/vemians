@@ -35,7 +35,7 @@ import { contentTypeFor, mediaKey, mintUploadTicket, verifyUploadTicket, STORABL
 import { mediaStoreFor, assetFileStoreFor, receiptFileStoreFor, runTool } from "./tools/index.js";
 import { contentTypeForAsset, extractText } from "./tools/assets.js";
 import { scanReceipt } from "./tools/receipt-ocr.js";
-import { listAllProducts, listCategories, listCustomFieldNames, listMirrorVendors, productByHandle, variantsOf } from "./tools/catalog-writer.js";
+import { listAllProducts, listCategories, listCustomFieldNames, listMirrorVendors, productByHandle, variantsOf, categoryProductCounts } from "./tools/catalog-writer.js";
 import { applyFormEdits } from "./approval-forms.js";
 import { syncFromSquare, SYNC_CRON, FREQUENT_CRON } from "./sync.js";
 import { verifyWebhook, normaliseWebhook } from "../../shared/commerce/square/webhooks.js";
@@ -924,7 +924,8 @@ async function ops(request, env, path) {
       const allCategories = await listCategories(env.CATALOG_MIRROR);
       const allVendors = await listMirrorVendors(env.CATALOG_MIRROR);
       const customFieldNames = await listCustomFieldNames(env.CATALOG_MIRROR);
-      return html(adminPage(allCategories, allVendors, customFieldNames));
+      const categoryProductCountsById = await categoryProductCounts(env.CATALOG_MIRROR);
+      return html(adminPage(allCategories, allVendors, customFieldNames, categoryProductCountsById));
     }
 
     if (request.method !== "POST") {

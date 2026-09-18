@@ -57,6 +57,22 @@ export async function listCategories(db) {
   return (res.results ?? []).map((r) => ({ id: r.id, name: r.name, parent_id: r.parent_id, numeric_id: r.numeric_id }));
 }
 
+/* How many products currently sit in each category — the Admin panel's own
+   remove button needs this to hide itself the same "not reachable, don't
+   show it" way it already does for a category that still has subcategories
+   of its own (catalog.remove_category's own check() refuses either way; this
+   is purely the UI's own advance knowledge of that same fact, so the button
+   for a category with products assigned never renders as clickable-but-
+   refused in the first place). A Map, id -> count, with no entry at all for
+   a category that currently has none. */
+export async function categoryProductCounts(db) {
+  const res = await db
+    .prepare("SELECT category_id, COUNT(*) AS n FROM mirror_product_index WHERE category_id IS NOT NULL GROUP BY category_id")
+    .bind()
+    .all();
+  return new Map((res.results ?? []).map((r) => [r.category_id, Number(r.n)]));
+}
+
 /* Every vendor, for the picker/admin panel — "the same kind of drop down
    schema that we have for categories" the owner's own words asked for.
    Named distinctly from shared/commerce/square/vendors.js's own

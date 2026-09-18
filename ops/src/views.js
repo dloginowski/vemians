@@ -2198,7 +2198,7 @@ function sortByNumericId(a, b) {
   const bn = b.numeric_id ? Number(b.numeric_id) : Infinity;
   return an !== bn ? an - bn : a.name.localeCompare(b.name);
 }
-function renderAdminCategoryNodes(categories, parentId) {
+function renderAdminCategoryNodes(categories, parentId, categoryProductCountsById = new Map()) {
   /* "We were never going to go deep into more than one level of
      subcategories, so I should not have a plus button next to any of my
      subcategories because we'll never be adding any [under them]." Every
@@ -2222,10 +2222,16 @@ function renderAdminCategoryNodes(categories, parentId) {
          rather than a disabled one explaining why — the same "not
          reachable, don't show it" treatment the "+" toggle just got for a
          subcategory (above), instead of the earlier "visible but refused"
-         convention this control used to follow. */
-      const removeBtn = hasChildren
-        ? ""
-        : `<button type="button" class="admin-remove-btn" data-category-id="${esc(c.id)}" aria-label="Remove ${esc(c.name)}" title="Remove ${esc(c.name)}">${TRASH_ICON}</button>`;
+         convention this control used to follow.
+         REVISED AGAIN: "we probably should not enable the deletion of
+         subcategories if they have items assigned to them" — the same
+         invisible-not-disabled treatment, extended to a category with no
+         subcategories of its own but still holding a real product. */
+      const hasProducts = (categoryProductCountsById.get(c.id) ?? 0) > 0;
+      const removeBtn =
+        hasChildren || hasProducts
+          ? ""
+          : `<button type="button" class="admin-remove-btn" data-category-id="${esc(c.id)}" aria-label="Remove ${esc(c.name)}" title="Remove ${esc(c.name)}">${TRASH_ICON}</button>`;
       return `<div class="admin-category-node" style="padding-left: ${parentId === null ? 0 : CATEGORY_NODE_TOGGLE_PX}px">
         <div class="admin-category-row">
           ${toggle}
@@ -2240,7 +2246,7 @@ function renderAdminCategoryNodes(categories, parentId) {
           ${removeBtn}
           ${isTopLevel ? `<button type="button" class="admin-category-add-toggle" data-parent-id="${esc(c.id)}" aria-label="Add a subcategory under ${esc(c.name)}" title="Add a subcategory">+</button>` : ""}
         </div>
-        <div class="admin-category-children">${renderAdminCategoryNodes(categories, c.id)}</div>
+        <div class="admin-category-children">${renderAdminCategoryNodes(categories, c.id, categoryProductCountsById)}</div>
         ${
           isTopLevel
             ? `<form method="post" action="/admin/categories/create" class="admin-category-add-form" hidden style="padding-left: ${CATEGORY_NODE_TOGGLE_PX}px">
@@ -3701,7 +3707,7 @@ input.field-dirty, select.field-dirty, textarea.field-dirty { border-color: var(
 .item-edit-error:hover { opacity: 0.92; }
 `;
 
-export function adminPage(allCategories = [], allVendors = [], customFieldNames = []) {
+export function adminPage(allCategories = [], allVendors = [], customFieldNames = [], categoryProductCountsById = new Map()) {
   return page(
     "Admin — Vemians ops",
     `<main class="ops">
@@ -3717,7 +3723,7 @@ export function adminPage(allCategories = [], allVendors = [], customFieldNames 
       <button type="button" class="admin-category-add-toggle" data-parent-id="" aria-label="Add a top-level category" title="Add a category">+</button>
     </div>
     <div class="admin-section-body">
-      ${allCategories.length ? renderAdminCategoryNodes(allCategories, null) : `<p class="item-empty">No categories yet.</p>`}
+      ${allCategories.length ? renderAdminCategoryNodes(allCategories, null, categoryProductCountsById) : `<p class="item-empty">No categories yet.</p>`}
       <form method="post" action="/admin/categories/create" class="admin-category-add-form" hidden>
         <input type="hidden" name="parent_id" value="">
         <span class="admin-category-toggle-spacer"></span>
