@@ -2407,6 +2407,42 @@ check("test_PRD_P0_71_items_tab__admin_staff_cannot_create_a_custom_field_name",
   assert.equal(res.status, 403);
 });
 
+check("test_PRD_P0_138_nested_categories__admin_the_tree_sorts_by_numeric_id_not_alphabetically", async () => {
+  /* "Make sure that you're sorting these by their ID... one is on top,
+     two is on the bottom." seedCategoryTree's own top-level pair proves
+     this cleanly: alphabetically Knitwear < Outerwear, but Outerwear (01)
+     must render FIRST since it has an ID and Knitwear does not (a blank
+     numeric_id sorts last, same rule the client-side instant resort
+     already uses). */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  const outerwearIdx = body.indexOf("Outerwear");
+  const knitwearIdx = body.indexOf("Knitwear");
+  assert.ok(outerwearIdx > -1 && knitwearIdx > -1);
+  assert.ok(outerwearIdx < knitwearIdx, "Outerwear (numeric_id 01) must render before Knitwear (no numeric_id yet)");
+});
+
+check("test_PRD_P0_138_nested_categories__admin_opening_the_add_form_auto_fills_the_next_numeric_id", async () => {
+  /* "When I add one you just automatically increment it by one the
+     category, and I just type in its name and then save." */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  assert.match(
+    body,
+    /function nextNumericId\(siblingNodes\) \{\s*\n\s*const used = \[\.\.\.siblingNodes\]/,
+    "a helper must compute one more than the highest numeric_id already used among the new node's own siblings",
+  );
+  assert.match(
+    body,
+    /if \(idInput && !idInput\.value\) \{\s*\n\s*const siblings = addToggle\.dataset\.parentId/,
+    "revealing the add form must pre-fill its own ID field, only when it is still blank",
+  );
+});
+
 check("test_PRD_P0_138_nested_categories__admin_tree_indents_children_by_the_same_shared_toggle_width", async () => {
   const mirror = mirrorDb();
   seedProduct(mirror);

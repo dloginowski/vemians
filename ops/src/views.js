@@ -2170,10 +2170,22 @@ const MEDIA_BASE_URL = "https://media.vemians.com";
    tile already established for these same two fields. Remove stays its
    own immediate, non-batched click (a destructive one-shot action, never
    a field to mark dirty and save later). */
+/* "Make sure that you're sorting these... by their ID... whenever I
+   update the ID value or enter an ID value, it always gets sorted so
+   that one is on top, two is on the bottom" — sorted by numeric_id
+   ascending on the SERVER-rendered order too now, not just the instant
+   client-side resort while typing (reorderSiblingsByNumericId, below).
+   A blank/unassigned numeric_id sorts last, the same "no real position
+   to claim yet" rule the client-side resort already uses; a tie (both
+   blank, or the rare duplicate) falls back to alphabetical by name for a
+   deterministic order. */
+function sortByNumericId(a, b) {
+  const an = a.numeric_id ? Number(a.numeric_id) : Infinity;
+  const bn = b.numeric_id ? Number(b.numeric_id) : Infinity;
+  return an !== bn ? an - bn : a.name.localeCompare(b.name);
+}
 function renderAdminCategoryNodes(categories, parentId) {
-  const children = categories
-    .filter((c) => (c.parent_id ?? null) === parentId)
-    .sort((a, b) => a.name.localeCompare(b.name));
+  const children = categories.filter((c) => (c.parent_id ?? null) === parentId).sort(sortByNumericId);
   return children
     .map((c) => {
       const hasChildren = categories.some((g) => g.parent_id === c.id);
@@ -3816,6 +3828,18 @@ document.body.addEventListener("input", (e) => {
   parent.append(...[...siblings].sort((a, b) => key(a) - key(b)));
 });
 
+/* "When I add one you just automatically increment it by one the
+   category, and I just type in its name and then save" — one more than
+   the highest numeric_id already used among the siblings the new one is
+   about to join, so typing a name is the only thing left to do. Starts
+   at 1 (rendered "01") when there are no siblings with an ID yet. */
+function nextNumericId(siblingNodes) {
+  const used = [...siblingNodes]
+    .map((el) => Number(el.querySelector(":scope > .admin-category-row .admin-category-numeric-id")?.value.trim()))
+    .filter((n) => Number.isInteger(n));
+  return String(used.length ? Math.max(...used) + 1 : 1).padStart(2, "0");
+}
+
 function positionErrorPopover(p, anchor) {
   const rect = anchor.getBoundingClientRect();
   const above = rect.top - p.offsetHeight - 6;
@@ -3936,7 +3960,16 @@ document.body.addEventListener("click", (e) => {
       : addToggle.closest(".admin-section")?.querySelector(":scope > .admin-section-body > .admin-category-add-form");
     if (form) {
       form.hidden = !form.hidden;
-      if (!form.hidden) form.querySelector(".admin-category-new-name")?.focus();
+      if (!form.hidden) {
+        const idInput = form.querySelector(".admin-category-new-numeric-id");
+        if (idInput && !idInput.value) {
+          const siblings = addToggle.dataset.parentId
+            ? addToggle.closest(".admin-category-node")?.querySelectorAll(":scope > .admin-category-children > .admin-category-node") ?? []
+            : addToggle.closest(".admin-section")?.querySelectorAll(":scope > .admin-section-body > .admin-category-node") ?? [];
+          idInput.value = nextNumericId(siblings);
+        }
+        form.querySelector(".admin-category-new-name")?.focus();
+      }
     }
   }
 });
