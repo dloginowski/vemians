@@ -4011,6 +4011,53 @@ that does not trace to one of these is a process failure (see §12).
     new width too (`width: 100%`, alongside its existing `min-width` floor), rather than staying
     narrower than the control that opens it.
 
+    **REVISED: the vendor picker toggles a selection off instead of offering a separate "None"
+    entry, and per-variation title/cost/price editing is gone from the ops dashboard entirely.** The
+    owner's first instinct — "also add a none value to the vendor field so I can deselect a vendor" —
+    was replaced by their own very next message: "I don't like adding none to vendors. Let's just
+    make the vendor selected vendor toggle so that if I selected a vendor and then I selected the
+    same vendor again, it just clears that selection." `renderVendorPickerOptions` renders exactly the
+    options it always did, no extra entry; the picker's own click handler (`views.js`) now checks
+    whether the clicked `.vendor-picker-option` already carries `.selected` — if so, it clears the
+    hidden `vendor` input and the button's own label back to "Vendor" instead of setting them, the
+    same one motion either way. A cleared vendor still has to reach the server as an explicit fact,
+    not a blank left alone (the generic schema validator refuses an empty `"string"`-typed argument
+    outright, and a plain blank has always meant "this field wasn't touched" on this route) — so
+    `catalog.set_square_attributes` gained `clear_vendor: { type: "boolean" }`, the same "clearing
+    needs its own flag" shape `catalog.set_category_number`'s own `clear: true` already established
+    for `numeric_id`. Giving both `vendor` and `clear_vendor: true` in the same call is refused
+    outright; `clear_vendor: true` resolves the SAME "no vendor" state the tool already refuses
+    `vendor_code`/`unit_cost_minor`/`commission` against, clears them right along with the vendor
+    itself when none of those is also given, and a `clear_vendor: true` against a product with no
+    vendor at all is refused as the same "already has those values" no-op every other no-change call
+    already is. `catalog-writer.js`'s own `updateProduct` reads `vendor: ""` (the internal signal
+    `run()` sends for `clear_vendor: true`) as "resolve no vendor at all," never a real
+    `vendorRef`/`CreateVendor` lookup for an empty name — the same `vendor ? ... : null` guard
+    `createProduct` already used, extended to the edit path. On the ops UI's own submit path
+    (`submitEditForm`), the vendor's own hidden input only carries `clear_vendor=1` alongside a blank
+    value when THAT field is what actually went dirty (`.field-dirty`, the same per-field marker
+    every other changed field already gets) — a blank vendor that was never touched, because some
+    OTHER field on the same form is what changed, still means "leave it as it is," exactly as before.
+
+    Then, following up once it was clear the per-variation stock stepper is a separate, ops-owned
+    inventory ledger (P0-31) with no connection to a Square-side variant fact: "Get rid of the
+    variations row entirely. I don't want to handle variations from inside of our ops menu. We'll do
+    variations from Square." Asked whether that should include the stock stepper too, the owner's own
+    answer — "our store should reflect internal inventory count, remove variants from our ops
+    dashboard" — kept the stepper (the storefront does not actually read the inventory ledger at all
+    today; `store/wrangler.toml` binds no `COMMERCE`, and `store/test/storefront.test.mjs`'s own P0-24
+    test asserts it reads only the mirror's `_index` views — making the store actually reflect stock
+    is a distinct, unbuilt feature, not something this change touches) while removing title/cost/price
+    editing. Each variation row (`views.js`) is now just its own read-only name
+    (`.variation-title-label`) beside the unchanged stock stepper — no `<input>`, no hidden
+    `variant_id`/`currency`, and no enclosing `<form>` at all, since nothing left in it is ever resent
+    anywhere; the stepper's own immediate `/inventory` POST (`stepStock`) is untouched. The Cost/MSRP
+    broadcaster inputs the previous revision moved onto the end of the vendor row are gone too, since
+    there is no longer a per-variation cost/price field anywhere for them to broadcast into.
+    `/items/<handle>/variations` (`index.js`) — the route that used to accept the resent title/price/
+    cost rows — is removed outright, not just unreachable: a request there now falls all the way
+    through to the app's own generic 404, the same as any other unrecognized path.
+
 71. **`Test-PRD-P0-136-square_custom_attributes`** — The owner's own words, having weighed "ours,
     not Square's" (P0-71's own `channel`/`custom_fields`) against not reinventing something Square
     already offers: "why do we need to have our own custom fields then? It doesn't make sense... we

@@ -2776,6 +2776,92 @@ check("test_PRD_P0_136_square_custom_attributes__vendor_code_and_unit_cost_along
   assert.equal(variant.unit_cost_currency, "USD");
 });
 
+check("test_PRD_P0_136_square_custom_attributes__clear_vendor_removes_the_vendor_and_everything_that_depends_on_it", async () => {
+  /* "I don't like adding none to vendors. Let's just make the vendor
+     selected vendor toggle so that if I selected a vendor and then I
+     selected the same vendor again, it just clears that selection." —
+     clear_vendor: true is the tool-layer half of that: the generic
+     schema validator refuses an empty "vendor" string outright, so
+     clearing needs its own boolean flag, the same shape catalog.
+     set_category_number's own clear: true already established. Clearing
+     removes vendor_code/unit_cost/commission right along with it, since
+     none of those apply without a vendor. */
+  const f = await fixture();
+  await approvedCall(f, "catalog.set_square_attributes", {
+    handle: COAT_HANDLE,
+    vendor: "Acme Mills",
+    vendor_code: "ACME-4471",
+    unit_cost_minor: 4250,
+    commission: 20,
+  });
+
+  const callsBeforeClear = f.calls().length;
+  const res = await approvedCall(f, "catalog.set_square_attributes", { handle: COAT_HANDLE, clear_vendor: true });
+  assert.equal(res.ok, true, res.error);
+  assert.equal(res.data.vendor, null);
+  assert.equal(res.data.vendor_code, null);
+  assert.equal(res.data.unit_cost_minor, null);
+  assert.equal(res.data.commission, null);
+
+  /* Square's own UpsertCatalogObject is full-replacement — clearing must
+     never call vendorRef/CreateVendor for an empty name, and must send
+     no vendor_information at all for the variation (undefined, the same
+     "genuinely absent, not present-and-empty" shape a brand-new product
+     with no vendor yet already gets). Only calls made BY THE CLEAR itself
+     count here — the earlier call above legitimately created "Acme Mills"
+     the first time it was ever named. */
+  const callsDuringClear = f.calls().slice(callsBeforeClear);
+  const upsert = callsDuringClear.find((c) => c.path === "/v2/catalog/object" && c.upsert === "ITEM");
+  const variation = upsert.body.object.item_data.variations[0];
+  assert.equal(variation.item_variation_data.vendor_information, undefined);
+  assert.ok(
+    !callsDuringClear.some((c) => c.path === "/v2/vendors/create"),
+    "clearing must never create a Square Vendor for an empty name",
+  );
+
+  const product = f.mirror(`SELECT id FROM mirror_product WHERE handle = '${COAT_HANDLE}'`)[0];
+  const variant = f.mirror(`SELECT vendor_id, vendor_code FROM mirror_variant WHERE product_id = '${product.id}'`)[0];
+  assert.equal(variant.vendor_id, null);
+  assert.equal(variant.vendor_code, null);
+});
+
+check("test_PRD_P0_136_square_custom_attributes__clear_vendor_and_vendor_together_is_refused", async () => {
+  const f = await fixture();
+  const res = await runTool(
+    "catalog.set_square_attributes",
+    { handle: COAT_HANDLE, vendor: "Acme Mills", clear_vendor: true },
+    f.ctx,
+  );
+  assert.equal(res.ok, false);
+  assert.match(res.error, /give either vendor or clear_vendor: true, not both/);
+  assert.deepEqual(f.calls(), []);
+});
+
+check("test_PRD_P0_136_square_custom_attributes__clear_vendor_alongside_vendor_code_or_commission_is_refused_the_same_as_having_no_vendor", async () => {
+  /* clear_vendor resolves the SAME resultingVendor (null/falsy) the
+     "no vendor at all" case already refuses vendor_code/unit_cost/
+     commission against -- clearing and setting one of those facts in the
+     same call makes no more sense than setting them with no vendor ever
+     assigned. */
+  const f = await fixture();
+  await approvedCall(f, "catalog.set_square_attributes", { handle: COAT_HANDLE, vendor: "Acme Mills", commission: 20 });
+  const res = await runTool(
+    "catalog.set_square_attributes",
+    { handle: COAT_HANDLE, clear_vendor: true, commission: 20 },
+    f.ctx,
+  );
+  assert.equal(res.ok, false);
+  assert.match(res.error, /no vendor/);
+});
+
+check("test_PRD_P0_136_square_custom_attributes__clear_vendor_on_a_product_with_no_vendor_is_refused_as_a_no_op", async () => {
+  const f = await fixture();
+  const res = await runTool("catalog.set_square_attributes", { handle: COAT_HANDLE, clear_vendor: true }, f.ctx);
+  assert.equal(res.ok, false);
+  assert.match(res.error, /already has those values/);
+  assert.deepEqual(f.calls(), [], "a no-op clear must never reach Square");
+});
+
 check("test_PRD_P0_136_square_custom_attributes__update_product_refuses_a_per_variation_unit_cost_with_no_vendor", async () => {
   /* Revised again — "all the variants can have a different unit cost too"
      — catalog.update_product's own variations array can now carry

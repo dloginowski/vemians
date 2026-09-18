@@ -592,7 +592,6 @@ async function ops(request, env, path) {
       path.endsWith("/custom-fields") ||
       path.endsWith("/square-attributes") ||
       path.endsWith("/category") ||
-      path.endsWith("/variations") ||
       path.endsWith("/details") ||
       path.endsWith("/inventory"))
   ) {
@@ -627,9 +626,7 @@ async function ops(request, env, path) {
               ? "/category"
               : path.endsWith("/details")
                 ? "/details"
-                : path.endsWith("/inventory")
-                  ? "/inventory"
-                  : "/variations";
+                : "/inventory";
     const handle = path.slice("/items/".length, path.length - suffix.length);
 
     let form;
@@ -676,15 +673,19 @@ async function ops(request, env, path) {
          field the person actually typed something into is sent at all, so
          catalog.set_square_attributes' own undefined-means-unchanged
          handling applies the same way it would to a call that only ever
-         meant to touch one of the five. commission is parsed as a plain
-         integer here; unit_cost is a dollar string ("$45.00") parsed the
-         same way a spreadsheet's own price column is (batch.js's
-         parsePriceToMinor) — the agent-tool schema layer always takes a
-         plain integer minor-units argument, dollar-string parsing happens
-         only at this human-facing form boundary. A malformed or
-         out-of-range value (commission, or a unit_cost that fails to
-         parse) is left for the tool's own check() to refuse with a clear
-         reason, rather than silently dropped.
+         meant to touch one of the five. vendor is the one exception — its
+         own picker toggles a selection off rather than typing it away, so
+         a blank vendor arrives with an explicit clear_vendor marker (see
+         above) precisely when that toggle is what fired, translated into
+         catalog.set_square_attributes' own clear_vendor: true. commission
+         is parsed as a plain integer here; unit_cost is a dollar string
+         ("$45.00") parsed the same way a spreadsheet's own price column is
+         (batch.js's parsePriceToMinor) — the agent-tool schema layer
+         always takes a plain integer minor-units argument, dollar-string
+         parsing happens only at this human-facing form boundary. A
+         malformed or out-of-range value (commission, or a unit_cost that
+         fails to parse) is left for the tool's own check() to refuse with
+         a clear reason, rather than silently dropped.
 
          The ops UI's own style_id <form> (views.js) posts here alone now
          — unit_cost moved to the /variations route below once it stopped
@@ -694,6 +695,11 @@ async function ops(request, env, path) {
          want to set unit_cost uniformly in one call. */
       const styleId = String(form.get("style_id") ?? "").trim();
       const vendor = String(form.get("vendor") ?? "").trim();
+      /* The vendor picker's own toggle-to-clear (views.js submitEditForm)
+         sends clear_vendor=1 alongside a blank vendor when the picker
+         itself is what went blank — a blank vendor with no such marker
+         still means "this form wasn't about the vendor," same as always. */
+      const clearVendor = String(form.get("clear_vendor") ?? "").trim() === "1";
       const vendorCode = String(form.get("vendor_code") ?? "").trim();
       const unitCostRaw = String(form.get("unit_cost") ?? "").trim();
       const unitCostMinor = unitCostRaw === "" ? undefined : parsePriceToMinor(unitCostRaw);
@@ -703,7 +709,7 @@ async function ops(request, env, path) {
       args = {
         handle,
         ...(styleId ? { style_id: styleId } : {}),
-        ...(vendor ? { vendor } : {}),
+        ...(clearVendor ? { clear_vendor: true } : vendor ? { vendor } : {}),
         ...(vendorCode ? { vendor_code: vendorCode } : {}),
         /* parsePriceToMinor returning null (unparsable) still gets sent
            through as null rather than silently dropped, so the tool's own
@@ -765,42 +771,13 @@ async function ops(request, env, path) {
       toolName = "catalog.update_product";
       args = { handle, category_id: categoryId };
       summaryNoun = "category";
-    } else {
-      /* Variation NAME, price, and now its own unit cost — never sku:
-         "these are generated automatically by Square and we should not be
-         editing them... we don't need to see them in our ops dashboard."
-         Every existing variation is always resent (its own variant_id,
-         its current-or-edited title/price/cost, its unchanged currency) —
-         mergeVariations (catalog-writer.js) keeps anything not mentioned,
-         so this is never destructive even though the whole set is sent
-         every time, matching how the header's own bulk-price/bulk-cost
-         controls (the client's own job, not this route) already touched
-         every row before Save was ever clicked. */
-      const variations = [];
-      for (let i = 0; form.has(`variant_id_${i}`); i += 1) {
-        /* unit_cost_N is blank whenever the row rendered without a cost
-           column at all (no vendor yet — views.js's own `hasVendor` gate)
-           or the person simply left it as it was; either way, undefined
-           means "leave this one's own cost alone," the same convention
-           title/price already use one line up. Revised — "all the
-           variants can have a different unit cost too" — so this is no
-           longer one value for the whole product. */
-        const unitCostRaw = String(form.get(`unit_cost_${i}`) ?? "").trim();
-        variations.push({
-          variant_id: String(form.get(`variant_id_${i}`) ?? "").trim(),
-          title: String(form.get(`title_${i}`) ?? "").trim(),
-          price_minor: parsePriceToMinor(String(form.get(`price_${i}`) ?? "").trim()),
-          currency: String(form.get(`currency_${i}`) ?? "USD").trim(),
-          ...(unitCostRaw !== "" ? { unit_cost_minor: parsePriceToMinor(unitCostRaw) } : {}),
-        });
-      }
-      if (!variations.length) {
-        return json({ error: "no variations to save" }, 400);
-      }
-      toolName = "catalog.update_product";
-      args = { handle, variations };
-      summaryNoun = "variations";
     }
+    /* "Get rid of the variations row entirely. I don't want to handle
+       variations from inside of our ops menu. We'll do variations from
+       Square." — /inventory's own stock count (above) is the only ops-
+       side surface left for a variation; title/price/unit cost editing
+       has no route left to reach at all, so every suffix this block
+       accepts is now handled by one of the branches above. */
 
     /* Applies immediately — no second, separate "Yes, do this" confirmation
        page. The owner's own words: "I'm still seeing confirmation dialogs

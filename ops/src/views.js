@@ -1906,9 +1906,10 @@ ${INPUT_BAR_CSS}
 /* The variations accordion — the owner's own words: "an expandable
    accordion header for the variations." Collapsed by default
    (.variations-body hidden until .variations-accordion carries
-   .expanded) — the header alone (style_id, unit cost, MSRP) is the thing
-   worth seeing without an extra tap; the per-variation list is the detail
-   an accordion exists to defer. */
+   .expanded) — nothing inside it is editable any more ("get rid of the
+   whole variants setup... we'll do variations from Square"), only each
+   variation's own read-only name and its stock stepper, so the header
+   itself carries no fields at all, just the toggle and a label. */
 /* "Remove all horizontal bars from the details panel, except the one
    right above the admin dropdown" — the top border is gone; the spacing
    above it (margin-top/padding-top) stays, so sections still read as
@@ -1918,22 +1919,14 @@ ${INPUT_BAR_CSS}
    a different color header... not just a chevron" — a plain bar (same
    --image-ground/--rule "second surface" pattern .ticket-tile already
    uses) that visibly INVITES a click, since the whole thing now toggles
-   the body below, not just the caret. */
-/* REVISED: removing the header's own border entirely was wrong — the
-   owner's own words: "I just told you it has to be gray unless it's
-   dirty. If it's dirty or any of its children are dirty, then it's
-   orange." The border stays, always — gray (var(--rule)) by default,
-   the same as before any of this started — and turns orange only when
-   .variations-accordion actually has a genuinely dirty field somewhere
-   inside it (its own header inputs — style_id/unit cost/MSRP — or any
-   per-variation row in .variations-body below), using the SAME
-   .field-dirty marker refreshDirtyState already applies to any changed
-   field on this tile. Never a plain hover cue. */
+   the body below, not just the caret. Always this same gray border —
+   nothing inside this accordion is ever tracked as dirty any more (the
+   stock stepper posts immediately, never through the tile's own Save),
+   so there is nothing left for it to turn orange over. */
 .variations-header {
   display: flex; align-items: center; gap: 6px; cursor: pointer;
   background: var(--image-ground); border: 1px solid var(--rule); border-radius: 6px; padding: 5px 4px;
 }
-.variations-accordion:has(.field-dirty) .variations-header { border-color: var(--accent); }
 .variations-toggle {
   flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; padding: 0; display: inline-flex; align-items: center;
   justify-content: center; border: none; background: transparent; color: var(--muted); cursor: pointer;
@@ -1955,13 +1948,16 @@ ${INPUT_BAR_CSS}
    (.item-edit input's own 3px 5px), so this comes down to 3px vertical,
    matching that. "Give the children rows a slight inset on the right
    side... so they all fall in line" with the header above — the header's
-   own right inset comes from its own padding (below); the row had no
-   right padding of its own at all, so its own rightmost field (price)
-   sat further right than the header's own rightmost field (MSRP).
+   own right inset comes from its own padding (below).
    REVISED: "tighten all of the paddings on all of the chevrons and the
    indentation" — this and the header's own horizontal padding came down
    together, still matched to each other for the same reason. */
 .variations-body .row { display: flex; gap: 6px; align-items: center; padding: 3px 4px 3px 0; }
+/* The one thing left in a variation row besides its stock stepper — a
+   plain, read-only name, styled like the muted labels in .item-variants/
+   .item-fields rather than an input, since there is nothing left here to
+   type into. */
+.variation-title-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--muted); }
 /* REVISED AGAIN: "I didn't tell you to remove that one" — the bar right
    above the custom-fields/Admin block was never meant to go. .item-edit
    is shared by BOTH the title/vendor div above and the custom-fields/
@@ -1971,7 +1967,7 @@ ${INPUT_BAR_CSS}
 .item-edit { margin-top: 2px; padding-top: 6px; cursor: default; }
 .item-edit.item-edit-admin { border-top: 1px solid var(--rule); }
 .item-edit form { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
-.item-edit .row, .variations-header .row { display: flex; gap: 6px; align-items: center; }
+.item-edit .row { display: flex; gap: 6px; align-items: center; }
 /* A custom field's own NAME, registered once globally from /admin — no
    longer typed here at all, so it needs an always-visible label rather
    than a placeholder (which vanishes the moment the value beside it is
@@ -1985,26 +1981,26 @@ ${INPUT_BAR_CSS}
    a 0-100 commission or a style_id ended up as wide as a vendor name.
    Reasonably sized by DEFAULT now — a fixed width, no grow — and only the
    handful of fields whose content genuinely varies without a bound
-   (a vendor's own name, a custom field's own value, a variation's own
-   name) opt back into flexible/grow sizing below; everything short and
-   format-bounded (commission, a vendor code, a custom field's own name,
-   style_id/unit cost/MSRP) stays a fixed, content-sized width instead. */
-.item-edit input, .item-edit select, .variations-header input, .variations-body input {
+   (a vendor's own name, a custom field's own value) opt back into
+   flexible/grow sizing below; everything short and format-bounded
+   (commission, a vendor code, a custom field's own name, style_id) stays
+   a fixed, content-sized width instead. */
+.item-edit input, .item-edit select, .variations-body input {
   flex: 0 1 auto; min-width: 0; width: 10em; font: inherit; font-size: 11px; padding: 3px 5px;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
 }
 /* "Hint text smaller so it's legible and readable" — a placeholder like
    "Style ID (NN-NN-NNN)" no longer fights the box it sits in for room. */
-.item-edit input::placeholder, .variations-header input::placeholder, .variations-body input::placeholder {
+.item-edit input::placeholder {
   font-size: 10px;
 }
-.item-edit input[name="vendor"], .item-edit input[name^="field_value_"], .variations-body input[name^="title_"], .item-title-input {
+.item-edit input[name="vendor"], .item-edit input[name^="field_value_"], .item-title-input {
   flex: 1 1 auto; width: auto;
 }
 .item-edit input[name="commission"] { width: 4em; }
 .item-edit input[name="vendor_code"], .item-edit input[name^="field_name_"] { width: 8em; }
 /* "Center the vendor SKU content too" — the owner's own words, extending
-   the same centering already given to cost/MSRP/style_id to this field. */
+   the same centering already given to style_id to this field. */
 .item-edit input[name="vendor_code"] { text-align: center; }
 /* Title and description — the owner's own words: "where's the item label
    and where is the description fields? Shouldn't we be able to change
@@ -2017,13 +2013,6 @@ ${INPUT_BAR_CSS}
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
 }
 .item-edit textarea::placeholder { font-size: 10px; }
-/* REVISED: "make them all center aligned... like the cost and the MSRP
-   field, so that it's all centered" — was right-justified; every header
-   input, and the matching column in each variation row below, is now
-   centered instead, so the two stay visually aligned either way. */
-.variations-header input, .variations-body input[name^="price_"], .variations-body input[name^="unit_cost_"] {
-  text-align: center;
-}
 /* REVISED: style_id no longer lives in the Variations header at all — the
    owner's own words: "I want to get rid of the style ID label and I want
    to take the style ID input field and put it to the left of the category
@@ -2049,23 +2038,12 @@ ${INPUT_BAR_CSS}
 .item-edit input[name="style_id"]:invalid { border-color: var(--invalid); }
 /* Absorbs the header's own leftover width so the toggle/label sit flush
    left, matching every other accordion header's own spacer on this
-   page. REVISED: Cost/MSRP (and, earlier still, style_id) both used to
-   anchor to the right of this spacer — both have since moved out of this
-   header entirely (style_id to .category-title-row, Cost/MSRP to the
-   end of the vendor row — "I want to get rid of the whole variants
-   setup... I think it's easier to do it through the Square UI"), so
-   nothing sits after it any more; kept anyway, harmless, matching the
-   other accordion headers' own shape. */
+   page — nothing ever sits after it (style_id, Cost and MSRP have all
+   since moved out of this header entirely, the last of them for good:
+   "get rid of the whole variants setup... we'll do variations from
+   Square"), kept anyway, matching the other accordion headers' own
+   shape. */
 .variations-header-spacer { flex: 1 1 auto; }
-/* "Unit cost and MSRP boxes are way too big... ten thousand dollars is
-   the maximum we'll charge for a piece of clothing" — $10,000.00 is 8
-   characters; narrower than the old 6.5em, not the 10em default. */
-.item-edit input.variations-msrp,
-.item-edit input.variations-unit-cost,
-.variations-body input[name^="price_"],
-.variations-body input[name^="unit_cost_"] {
-  flex: 0 0 auto; width: 5em;
-}
 /* Stock — "a row of 3 small components [-][##][+], then [COST][MSRP]" —
    the stepper sits right after the variation's own name, ahead of its
    cost/price, since it is a command, not a fact about the variation the
@@ -2393,17 +2371,20 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
     ? fieldEntries.map(([k, v]) => `<div><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join("")
     : "";
 
-  /* For someone who CAN edit, style_id and unit cost moved into the
-     variations accordion's own header below — shown and edited there
-     instead, so they are not repeated here. Someone who cannot (staff)
-     never sees that accordion at all (canEdit-gated, like every edit
-     surface on this tile), so they stay here, read-only, exactly as
-     before — otherwise a staff member would lose visibility of them
-     entirely. vendor/vendor_code/commission are unaffected either way:
-     still their own Square Vendor entity (Retail Plus/Premium, P0-136
-     revised), shown in their own rows, blank rather than an empty-state
-     paragraph when none is set yet (an empty text field already says
-     that, the same way the edit form below will). */
+  /* For someone who CAN edit, style_id has its own edit form below
+     (titleVendorForms' own style-id-form), so it is not repeated here;
+     unit cost has no ops-side edit surface at all any more ("get rid of
+     the whole variants setup... we'll do variations from Square"), only
+     ever set here through an API/agent catalog.set_square_attributes
+     call. Someone who cannot edit (staff) never sees those edit surfaces
+     either way (canEdit-gated, like everything else on this tile), so
+     both stay here, read-only, exactly as before — otherwise a staff
+     member would lose visibility of them entirely. vendor/vendor_code/
+     commission are unaffected either way: still their own Square Vendor
+     entity (Retail Plus/Premium, P0-136 revised), shown in their own
+     rows, blank rather than an empty-state paragraph when none is set
+     yet (an empty text field already says that, the same way the edit
+     form below will). */
   const attrRows =
     (!canEdit && product.style_id ? `<div><span>Style ID</span><span>${esc(product.style_id)}</span></div>` : "") +
     (product.vendor ? `<div><span>Vendor</span><span>${esc(product.vendor)}</span></div>` : "") +
@@ -2433,86 +2414,34 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
     )
     .join("");
 
-  /* The variations accordion — the owner's own words: "an expandable
-     accordion header for the variations... I want to see in the header
-     the unit cost and the MSRP, editable in the header. So if I change it
-     in the header, it gets applied to all of its variations at the same
-     time. And individual variations I can also edit individually... on
-     the left side I want to see the style number, editable as well." No
-     SKU anywhere in it — variation NAME (title) and price only, matching
-     the same "generated by Square, not ours to edit or show" reasoning
-     style_id's own move already established.
-
-     Revised again once unit cost stopped being one value applied
-     uniformly: "all the variants can have a different unit cost too" — so
-     unit_cost moved OUT of the style_id form below (catalog.set_square_
-     attributes, unchanged for style_id alone) and now works exactly like
-     MSRP already did: a header input with no form of its own, purely the
-     client's own "type once here, and every variation's own cost input
-     updates to match" convenience, wired in the page script below —
-     typing directly into one variation's own cost afterward still
-     overrides just that one. Both header inputs broadcast into the SAME
-     .variations-body <form>, which reaches catalog.update_product through
-     the /variations route — a variant always carries its OWN mirror id
-     (variant_id_N) so mergeVariations (catalog-writer.js) edits that one
-     row and leaves every other variation exactly as it was, never
-     destructively. */
-  /* Revised again — "all the variants can have a different unit cost too,
-     so we need to have the double rows": unit cost is no longer a single
-     value applied uniformly to every variation (catalog-writer.js's own
-     "one vendor per product" comment is now ONLY about the vendor itself,
-     never the cost) — each row below carries its own. REVISED YET AGAIN:
-     "need a COST field to the left of MSRP" — the field itself now always
-     renders, the same as style_id/MSRP always do, rather than disappearing
-     entirely for a product with no vendor yet; typing into it with no
-     vendor set is still refused server-side (unit_cost is, and stays, a
-     fact about a VENDOR's product), the refusal just now surfaces from an
-     always-visible field instead of the field not existing at all. */
-  /* Stock (P0-31, revised) — "show current count, adjust with +/-," the
-     owner's own choice over a plain "type a target count" box, once it was
-     clear a stock count is never overwritten directly, only adjusted.
-     REVISED again: "a small read-only entry field and two small buttons on
-     the sides, - and +" — not a free-typed delta plus one Adjust button, a
-     stepper: a read-only field showing the current count, flanked by its
-     own minus and plus. Each click posts a delta of exactly &plusmn;1
-     immediately and updates the field in place (no page reload — a
-     stepper implies rapid repeat clicks, e.g. receiving 10 units one at a
-     time). This lives INSIDE the same pricing <form> purely for layout
-     (one visual row per variation); it is deliberately NOT part of that
-     form's own dirty-tracking or the tile's one big Save — a stock
-     movement is an EVENT with its own moment in time, never batched with
-     an unrelated price edit someone happens to also be mid-typing.
-     `readonly`, not `disabled` — a disabled field submits nothing AND
-     cannot be selected/copied; this one only needs to refuse typing. */
+  /* "Get rid of the variations row entirely. I don't want to handle
+     variations from inside of our ops menu. We'll do variations from
+     Square." — title, price and unit cost are gone from here; a
+     variation's own name/price/cost are now edited in Square's own
+     dashboard, never here. The one exception, kept on the owner's own
+     follow-up ("our store should reflect internal inventory count,
+     remove variants from our ops dashboard"): the stock (+/-) stepper
+     stays, since a stock COUNT is ours, not Square's (P0-31) — an
+     inventory ledger this codebase owns, unrelated to the variant's own
+     Square-side facts. Read-only name alongside it, purely so a stock
+     count on a product with more than one variation is still legible
+     (which count belongs to which size/color) — never an editable input,
+     and never part of any <form> or the tile's own big Save; each +/-
+     posts its own immediate /inventory delta (stepStock, below) the
+     moment it's clicked, exactly as it always has. */
   const variationRows = product.variations
     .map(
-      (v, i) =>
+      (v) =>
         `<div class="row">` +
-        `<input type="hidden" name="variant_id_${i}" value="${esc(v.id)}">` +
-        `<input type="hidden" name="currency_${i}" value="${esc(v.currency)}">` +
-        `<input class="variation-title" name="title_${i}" value="${esc(v.title)}" placeholder="Variation name">` +
+        `<span class="variation-title-label">${esc(v.title)}</span>` +
         `<span class="variation-stock-stepper">` +
         `<button type="button" class="variation-stock-step" data-variant-id="${esc(v.id)}" data-delta="-1" aria-label="Remove one from stock" title="Remove one from stock">&minus;</button>` +
         `<input type="text" class="variation-stock-count" value="${esc(String(v.on_hand ?? 0))}" readonly aria-label="Current stock">` +
         `<button type="button" class="variation-stock-step" data-variant-id="${esc(v.id)}" data-delta="1" aria-label="Add one to stock" title="Add one to stock">+</button>` +
         `</span>` +
-        `<input class="variation-unit-cost" name="unit_cost_${i}" value="${v.unit_cost_minor ? esc((v.unit_cost_minor / 100).toFixed(2)) : ""}" placeholder="Cost">` +
-        `<input class="variation-price" name="price_${i}" value="${esc((v.price_minor / 100).toFixed(2))}" placeholder="Price">` +
         `</div>`,
     )
     .join("");
-  /* REVISED: Cost/MSRP moved out of this header entirely, onto the end of
-     the vendor row instead (titleVendorForms, above) — the owner's own
-     words: "I want to get rid of the whole variants setup... I don't
-     want to do this from inside of the [ops] UI, I think it's easier to
-     do it through the Square UI." Per-variation editing (title, stock,
-     individual cost/price below) stays exactly where it was for now —
-     only these two, product-wide broadcaster fields moved, since they
-     are the one part of this section not tied to managing variants
-     themselves. Both still broadcast into the SAME .variations-body
-     <form> exactly as before (onItemsGridChange, below, now looks the
-     input up via the enclosing .item-tile rather than .closest(
-     ".variations-accordion"), since the fields no longer live inside it). */
   const variationsAccordion = canEdit
     ? `<div class="variations-accordion">
          <div class="variations-header">
@@ -2521,11 +2450,7 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
            <span class="variations-header-spacer"></span>
          </div>
          <div class="variations-body">
-           ${
-             product.variations.length
-               ? `<form method="post" action="/items/${esc(product.handle)}/variations">${variationRows}</form>`
-               : `<p class="item-empty">No variations.</p>`
-           }
+           ${product.variations.length ? variationRows : `<p class="item-empty">No variations.</p>`}
          </div>
        </div>`
     : `<div class="item-variants">${variantRows}</div>`;
@@ -2666,11 +2591,8 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
                  ${CARET_ICON}<span class="vendor-picker-btn-label">${esc(product.vendor || "Vendor")}</span>
                </button>
                <div class="vendor-picker-menu" hidden>
-                 ${
-                   allVendors.length
-                     ? renderVendorPickerOptions(allVendors, product.vendor ?? null)
-                     : `<p class="item-empty">No vendors yet.</p>`
-                 }
+                 ${renderVendorPickerOptions(allVendors, product.vendor ?? null)}
+                 ${allVendors.length ? "" : `<p class="item-empty">No vendors yet.</p>`}
                </div>
              </div>
              <input name="vendor_code" value="${esc(product.vendor_code ?? "")}" placeholder="Vendor SKU" title="The vendor's own SKU/code">
@@ -2679,8 +2601,6 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
                  ? `<span class="vendor-commission-badge" title="Set centrally, in Admin → Vendors">${esc(String(product.commission_pct))}%</span>`
                  : ""
              }
-             <input class="variations-unit-cost" placeholder="Cost" title="Set every variation's own cost at once">
-             <input class="variations-msrp" placeholder="MSRP" title="Set every variation's own price at once">
            </div>
          </form>
        </div>`
@@ -3149,10 +3069,14 @@ document.getElementById("items-grid").addEventListener("click", async (e) => {
     const hiddenInput = form.querySelector('input[name="vendor"]');
     const pickerBtnEl = form.querySelector(".vendor-picker-btn");
     const label = pickerBtnEl.querySelector(".vendor-picker-btn-label");
-    hiddenInput.value = vendorPickerOption.dataset.vendorName;
-    label.textContent = vendorPickerOption.dataset.vendorName;
+    /* Picking the vendor that's already selected clears it — a toggle, not
+       a separate "None" entry, so deselecting a vendor takes the same
+       motion as selecting one. */
+    const clearing = vendorPickerOption.classList.contains("selected");
+    hiddenInput.value = clearing ? "" : vendorPickerOption.dataset.vendorName;
+    label.textContent = clearing ? "Vendor" : vendorPickerOption.dataset.vendorName || "Vendor";
     form.querySelectorAll(".vendor-picker-option.selected").forEach((el) => el.classList.remove("selected"));
-    vendorPickerOption.classList.add("selected");
+    if (!clearing) vendorPickerOption.classList.add("selected");
     closeAllCategoryPickers();
     hiddenInput.dispatchEvent(new Event("change", { bubbles: true }));
     return;
@@ -3170,8 +3094,7 @@ document.getElementById("items-grid").addEventListener("click", async (e) => {
   /* "Decorate the header so it's obvious it's an expandable accordion...
      not just a chevron" — the whole header bar looks and now acts like
      one, matching the caret's own toggle, except for a click that lands
-     on an input or the caret itself (handled above; typing into style_id
-     or the MSRP/cost broadcasters must not also collapse the row). */
+     on the caret itself (handled above). */
   const header = e.target.closest(".variations-header");
   if (header && !e.target.closest("input, button")) {
     header.closest(".variations-accordion")?.classList.toggle("expanded");
@@ -3258,7 +3181,7 @@ function isFieldDirty(el) {
 function refreshDirtyState(field) {
   field.classList.toggle("field-dirty", isFieldDirty(field));
 
-  const form = field.closest(".item-badges form, .item-edit form, .variations-body form");
+  const form = field.closest(".item-badges form, .item-edit form");
   if (!form) return;
   /* input AND textarea — the description field is a textarea element, and
      querySelectorAll("input") alone silently never sees it: a description-
@@ -3318,30 +3241,14 @@ function onItemsGridChange(e) {
   if (e.target.matches('input[name="style_id"]')) {
     reformatStyleIdInput(e.target);
   }
-  if (e.target.matches(".variations-msrp")) {
-    const accordion = e.target.closest(".item-tile")?.querySelector(".variations-accordion");
-    accordion?.querySelectorAll(".variation-price").forEach((input) => {
-      input.value = e.target.value;
-      refreshDirtyState(input);
-    });
-    return;
-  }
-  if (e.target.matches(".variations-unit-cost")) {
-    const accordion = e.target.closest(".item-tile")?.querySelector(".variations-accordion");
-    accordion?.querySelectorAll(".variation-unit-cost").forEach((input) => {
-      input.value = e.target.value;
-      refreshDirtyState(input);
-    });
-    return;
-  }
-  /* Stock's own read-only field lives inside the pricing form for layout
+  /* Stock's own read-only field lives beside the +/- stepper for layout
      only — it is never user-editable (so this never actually fires from a
-     real click/keystroke) and must never mark that form or the tile's one
+     real click/keystroke) and must never mark any form or the tile's one
      Save button dirty either way. Its own +/- buttons post immediately
      (below), updating this field's value AND its defaultValue together
      (stepStock, via setAttribute) so isFieldDirty never sees a diff here. */
   if (e.target.matches(".variation-stock-count")) return;
-  const form = e.target.closest(".item-badges form, .item-edit form, .variations-body form");
+  const form = e.target.closest(".item-badges form, .item-edit form");
   if (form) refreshDirtyState(e.target);
 }
 document.getElementById("items-grid").addEventListener("input", onItemsGridChange);
@@ -3371,7 +3278,18 @@ async function submitEditForm(form) {
   const existingError = form.nextElementSibling;
   if (existingError?.classList.contains("item-edit-error")) existingError.remove();
   try {
-    const res = await fetch(form.action, { method: "POST", body: new FormData(form) });
+    const body = new FormData(form);
+    /* A blank vendor field otherwise means "leave it as it is" (some OTHER
+       field in this same form is what made it dirty) — .field-dirty is
+       only set on the vendor input itself when ITS OWN value actually
+       changed since page load, so a blank value alongside it means the
+       picker's own toggle-to-clear just fired, and the route needs the
+       explicit clear_vendor signal to tell the two apart. */
+    const vendorInput = form.querySelector('input[name="vendor"]');
+    if (vendorInput && vendorInput.classList.contains("field-dirty") && vendorInput.value === "") {
+      body.set("clear_vendor", "1");
+    }
+    const res = await fetch(form.action, { method: "POST", body });
     if (res.ok) return true;
     const data = await res.json().catch(() => ({}));
     showFormError(form, data.error || "That change was refused.");

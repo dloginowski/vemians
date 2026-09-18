@@ -1690,15 +1690,23 @@ export const catalogWriteTools = {
       "alongside a vendor becomes that vendor's own new central rate, applied the same way to every " +
       "future item from it — reassigning a product to a DIFFERENT vendor with no fresh commission " +
       "adopts THAT vendor's own on-file rate, never the product's previous vendor's own leftover value. " +
-      "Give any subset to leave the rest untouched. " +
+      "Give any subset to leave the rest untouched. Give vendor to set it, or clear_vendor: true " +
+      "(not both) to remove the existing vendor association entirely — clearing it also clears " +
+      "vendor_code/unit_cost_minor/commission for this product, since none of those apply without one. " +
       "NONE of these is the SKU on a variation: Square assigns that automatically and nothing in " +
       "this codebase ever sets it, reads it for anything but display, or treats it as this shop's " +
       "own nomenclature.",
-    undo: "another catalog.set_square_attributes call, back to the previous value(s)",
+    undo: "another catalog.set_square_attributes call, back to the previous value(s) (or clear_vendor: true)",
     schema: {
       handle: { type: "string", required: true, format: "handle" },
       style_id: { type: "string", maxLength: 20 },
       vendor: { type: "string", maxLength: 120 },
+      /* Not required: the generic schema validator refuses an empty STRING
+         outright ("must not be empty"), so clearing an existing vendor
+         needs its own explicit flag rather than vendor: "" — the same
+         "clear needs its own boolean" precedent catalog.set_category_number
+         already establishes for numeric_id. */
+      clear_vendor: { type: "boolean" },
       vendor_code: { type: "string", maxLength: 80 },
       unit_cost_minor: { type: "integer" },
       commission: { type: "integer" },
@@ -1707,11 +1715,17 @@ export const catalogWriteTools = {
       if (
         args.style_id === undefined &&
         args.vendor === undefined &&
+        args.clear_vendor === undefined &&
         args.vendor_code === undefined &&
         args.unit_cost_minor === undefined &&
         args.commission === undefined
       ) {
-        return { denied: "give a style_id, a vendor, a vendor code, a unit cost, a commission, or any combination — this call would change nothing" };
+        return {
+          denied: "give a style_id, a vendor (or clear_vendor: true), a vendor code, a unit cost, a commission, or any combination — this call would change nothing",
+        };
+      }
+      if (args.vendor !== undefined && args.clear_vendor) {
+        return { denied: "give either vendor or clear_vendor: true, not both" };
       }
       const existing = await productByHandle(t.db.catalog_mirror, args.handle);
       if (!existing) return { denied: `no product with handle '${args.handle}' in the mirror` };
@@ -1745,7 +1759,7 @@ export const catalogWriteTools = {
         }
       }
 
-      const resultingVendor = args.vendor !== undefined ? args.vendor : existing.vendor;
+      const resultingVendor = args.clear_vendor ? null : args.vendor !== undefined ? args.vendor : existing.vendor;
       const needsVendor = ["commission", "vendor_code", "unit_cost_minor"].filter((k) => args[k] !== undefined);
       if (needsVendor.length && !resultingVendor) {
         return {
@@ -1786,9 +1800,17 @@ export const catalogWriteTools = {
           ? args.commission
           : args.vendor !== undefined
             ? await vendorCommission(t.db.catalog_mirror, args.vendor)
-            : existing.commission_pct;
-      const resultingVendorCode = args.vendor_code !== undefined ? args.vendor_code : existing.vendor_code;
-      const resultingUnitCostMinor = args.unit_cost_minor !== undefined ? args.unit_cost_minor : existing.unit_cost_minor;
+            : args.clear_vendor
+              ? null
+              : existing.commission_pct;
+      const resultingVendorCode = args.vendor_code !== undefined ? args.vendor_code : args.clear_vendor ? null : existing.vendor_code;
+      /* 0, not null: mirror_variant.unit_cost_minor is NOT NULL DEFAULT 0 —
+         a variation with no vendor_information at all (mirror.js's own
+         sync, `toStorableMinor(v.unitCost?.amountMinor ?? 0n, ...)`) reads
+         back as 0, never null, so a genuinely vendor-less product's
+         existing.unit_cost_minor is already 0 too; clearing must resolve
+         to that same value or this no-op check below would never match. */
+      const resultingUnitCostMinor = args.unit_cost_minor !== undefined ? args.unit_cost_minor : args.clear_vendor ? 0 : existing.unit_cost_minor;
       if (
         resultingStyleId === existing.style_id &&
         resultingVendor === existing.vendor &&
@@ -1802,6 +1824,7 @@ export const catalogWriteTools = {
       const changes = [
         args.style_id !== undefined ? `style_id -> ${args.style_id}` : null,
         args.vendor !== undefined ? `vendor -> ${args.vendor}` : null,
+        args.clear_vendor ? "vendor -> (none)" : null,
         args.vendor_code !== undefined ? `vendor_code -> ${args.vendor_code}` : null,
         args.unit_cost_minor !== undefined ? `unit_cost_minor -> ${args.unit_cost_minor}` : null,
         args.commission !== undefined ? `commission -> ${args.commission}%` : null,
@@ -1839,11 +1862,18 @@ export const catalogWriteTools = {
           ? args.commission
           : args.vendor !== undefined
             ? await vendorCommission(t.db.catalog_mirror, args.vendor)
-            : undefined;
+            : args.clear_vendor
+              ? null
+              : undefined;
+      /* vendor: "" is updateProduct's own "clear it" signal (catalog-writer.js:
+         `vendor ? await vendorRef(vendor) : null`, reached only when vendor
+         !== undefined) — clear_vendor: true translates to exactly that,
+         never a real vendorRef lookup/create against Square for an empty
+         name. */
       const out = await t.square.updateProduct({
         handle: args.handle,
         styleId: args.style_id,
-        vendor: args.vendor,
+        vendor: args.clear_vendor ? "" : args.vendor,
         vendorCode: args.vendor_code,
         unitCostMinor: args.unit_cost_minor,
         commissionPct,
