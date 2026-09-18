@@ -384,7 +384,7 @@ async function fixture({ actor = "mara@vemians.com", role = "manager", seedMirro
     /* Square calls made SINCE the seed sync — the ones a check is about. */
     calls: () => square.calls.slice(seededCalls),
     audit: (where = "") => auditDb._raw.prepare(`SELECT * FROM audit_log ${where} ORDER BY id`).all(),
-    mirror: (sql) => mirrorDb._raw.prepare(sql).all(),
+    mirror: (sql, ...params) => mirrorDb._raw.prepare(sql).all(...params),
     categories: () =>
       mirrorDb._raw.prepare("SELECT id, name, parent_id, numeric_id FROM mirror_category_index ORDER BY name").all(),
   };
@@ -2221,6 +2221,14 @@ check("test_PRD_P0_37_mirror_is_ours__no_authoring_tool_writes_a_square_fact_to_
    * sync has no row here to ever diverge from in the first place. The
    * assertion below still forbids that same file touching any OTHER
    * mirror column or table.
+   *
+   * A SIXTH exception, the same shape as the fifth: catalog.set_category_
+   * item_options' own INSERT/UPDATE against mirror_category_item_option.
+   * Also purely OURS (see that table's own comment in schema.sql) — but
+   * unlike mirror_custom_field_name, a row here CAN be unassigned again,
+   * which this codebase always spells as an UPDATE setting archived_at,
+   * never a literal DELETE (Test-PRD-P0-25-write_approval_gate refuses
+   * that statement outright, everywhere in this directory but erasure.js).
    */
   const offenders = [];
   for (const file of fs.readdirSync(TOOLS_DIR).filter((n) => n.endsWith(".js"))) {
@@ -2230,6 +2238,8 @@ check("test_PRD_P0_37_mirror_is_ours__no_authoring_tool_writes_a_square_fact_to_
       if (file === "catalog-write.js" && /^UPDATE\s+mirror_category$/i.test(m[0])) continue;
       if (file === "catalog-write.js" && /^UPDATE\s+mirror_vendor$/i.test(m[0])) continue;
       if (file === "catalog-write.js" && /^INSERT\s+INTO\s+mirror_custom_field_name$/i.test(m[0])) continue;
+      if (file === "catalog-write.js" && /^INSERT\s+INTO\s+mirror_category_item_option$/i.test(m[0])) continue;
+      if (file === "catalog-write.js" && /^UPDATE\s+mirror_category_item_option$/i.test(m[0])) continue;
       offenders.push(`${file}: ${m[0]}`);
     }
   }
@@ -2275,6 +2285,20 @@ check("test_PRD_P0_37_mirror_is_ours__no_authoring_tool_writes_a_square_fact_to_
   );
   for (const [, captured] of vendorStmts) {
     assert.equal(captured.trim(), "commission_pct = ?", "an UPDATE mirror_vendor in catalog-write.js touches an unexpected column");
+  }
+
+  /* Same guard, for mirror_category_item_option's own two UPDATE shapes —
+     reactivating a row (archived_at = NULL) and archiving one
+     (archived_at = datetime('now')), and only those, never anything that
+     reads as a disguised DELETE. */
+  const categoryItemOptionStmts = [...writer.matchAll(/UPDATE mirror_category_item_option SET ([\s\S]*?) WHERE/g)];
+  assert.ok(categoryItemOptionStmts.length >= 2, "catalog.set_category_item_options' own archived_at UPDATEs have moved or been removed");
+  const ALLOWED_CATEGORY_ITEM_OPTION_COLUMNS = ["archived_at = NULL", "archived_at = datetime('now')"];
+  for (const [, captured] of categoryItemOptionStmts) {
+    assert.ok(
+      ALLOWED_CATEGORY_ITEM_OPTION_COLUMNS.includes(captured.trim()),
+      `an UPDATE mirror_category_item_option in catalog-write.js touches an unexpected column: ${captured}`,
+    );
   }
 
   /* And the mirror schema itself refuses deletion, whatever anyone writes. */
@@ -3097,6 +3121,132 @@ check("test_PRD_P0_141_item_option_sets_mirrored__catalog_item_options_is_t0_and
   assert.equal(TOOLS["catalog.item_options"].undo, null);
   assert.deepEqual(TOOLS["catalog.item_options"].resources ?? [], []);
   assert.ok(describeTools("staff").map((d) => d.name).includes("catalog.item_options"));
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-142 — a category's own option sets: "I don't want to be adding the
+ * same option sets to every single category" — a per-category association,
+ * ours alone, since Square has no such mechanism.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+function seedItemOption(f, { id = "opt1", externalRef = "SQ_OPT_SIZE", name = "Size" } = {}) {
+  f.mirrorDb._raw
+    .prepare("INSERT INTO mirror_item_option (id, external_ref, name) VALUES (?, ?, ?)")
+    .run(id, externalRef, name);
+  return { id, name };
+}
+
+check("test_PRD_P0_142_category_item_options__set_category_item_options_assigns_and_the_read_side_reflects_it", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const size = seedItemOption(f);
+
+  const res = await approvedCall(f, "catalog.set_category_item_options", {
+    category_id: outerwear.id,
+    item_option_ids: [size.id],
+    reason: "test",
+  });
+  assert.equal(res.ok, true, res.error);
+  assert.deepEqual(res.data.item_option_ids, [size.id]);
+
+  const row = f.mirror("SELECT archived_at FROM mirror_category_item_option WHERE category_id = ? AND item_option_id = ?", outerwear.id, size.id)[0];
+  assert.equal(row.archived_at, null);
+});
+
+check("test_PRD_P0_142_category_item_options__a_resend_fully_replaces_the_set_never_merges", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const size = seedItemOption(f, { id: "opt1", externalRef: "SQ_OPT_SIZE", name: "Size" });
+  const color = seedItemOption(f, { id: "opt2", externalRef: "SQ_OPT_COLOR", name: "Color" });
+
+  await approvedCall(f, "catalog.set_category_item_options", {
+    category_id: outerwear.id,
+    item_option_ids: [size.id],
+    reason: "test",
+  });
+  const replaced = await approvedCall(f, "catalog.set_category_item_options", {
+    category_id: outerwear.id,
+    item_option_ids: [color.id],
+    reason: "test",
+  });
+  assert.equal(replaced.ok, true, replaced.error);
+  assert.deepEqual(replaced.data.item_option_ids, [color.id]);
+
+  const sizeRow = f.mirror("SELECT archived_at FROM mirror_category_item_option WHERE category_id = ? AND item_option_id = ?", outerwear.id, size.id)[0];
+  assert.ok(sizeRow.archived_at, "Size is unassigned -- archived, never deleted");
+  const colorRow = f.mirror("SELECT archived_at FROM mirror_category_item_option WHERE category_id = ? AND item_option_id = ?", outerwear.id, color.id)[0];
+  assert.equal(colorRow.archived_at, null);
+});
+
+check("test_PRD_P0_142_category_item_options__reassigning_a_previously_unassigned_option_reactivates_the_same_row", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const size = seedItemOption(f);
+
+  await approvedCall(f, "catalog.set_category_item_options", { category_id: outerwear.id, item_option_ids: [size.id], reason: "test" });
+  await approvedCall(f, "catalog.set_category_item_options", { category_id: outerwear.id, item_option_ids: [], reason: "test" });
+  await approvedCall(f, "catalog.set_category_item_options", { category_id: outerwear.id, item_option_ids: [size.id], reason: "test" });
+
+  const rows = f.mirror("SELECT archived_at FROM mirror_category_item_option WHERE category_id = ? AND item_option_id = ?", outerwear.id, size.id);
+  assert.equal(rows.length, 1, "the same row is reused, not re-inserted");
+  assert.equal(rows[0].archived_at, null);
+});
+
+check("test_PRD_P0_142_category_item_options__an_empty_list_clears_every_assignment", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const size = seedItemOption(f);
+  await approvedCall(f, "catalog.set_category_item_options", { category_id: outerwear.id, item_option_ids: [size.id], reason: "test" });
+
+  const res = await approvedCall(f, "catalog.set_category_item_options", { category_id: outerwear.id, item_option_ids: [], reason: "test" });
+  assert.equal(res.ok, true, res.error);
+  assert.deepEqual(res.data.item_option_ids, []);
+  const row = f.mirror("SELECT archived_at FROM mirror_category_item_option WHERE category_id = ? AND item_option_id = ?", outerwear.id, size.id)[0];
+  assert.ok(row.archived_at);
+});
+
+check("test_PRD_P0_142_category_item_options__refuses_an_unknown_category_or_item_option", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const size = seedItemOption(f);
+
+  const badCategory = await runTool("catalog.set_category_item_options", { category_id: "no-such-category", item_option_ids: [], reason: "test" }, f.ctx);
+  assert.equal(badCategory.ok, false);
+  assert.match(badCategory.error, /no category/);
+
+  const badOption = await runTool(
+    "catalog.set_category_item_options",
+    { category_id: outerwear.id, item_option_ids: ["no-such-option"], reason: "test" },
+    f.ctx,
+  );
+  assert.equal(badOption.ok, false);
+  assert.match(badOption.error, /no item option/);
+  void size;
+});
+
+check("test_PRD_P0_142_category_item_options__refuses_a_no_op_resend_of_the_exact_same_set", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const size = seedItemOption(f);
+  await approvedCall(f, "catalog.set_category_item_options", { category_id: outerwear.id, item_option_ids: [size.id], reason: "test" });
+
+  const res = await runTool("catalog.set_category_item_options", { category_id: outerwear.id, item_option_ids: [size.id], reason: "test" }, f.ctx);
+  assert.equal(res.ok, false);
+  assert.match(res.error, /already offers exactly this set/);
+});
+
+check("test_PRD_P0_142_category_item_options__staff_cannot_call_it_and_it_touches_no_square_resource", async () => {
+  const f = await fixture();
+  assert.deepEqual(TOOLS["catalog.set_category_item_options"].resources ?? [], []);
+  assert.ok(!describeTools("staff").map((d) => d.name).includes("catalog.set_category_item_options"));
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const size = seedItemOption(f);
+  const res = await runTool(
+    "catalog.set_category_item_options",
+    { category_id: outerwear.id, item_option_ids: [size.id], reason: "test" },
+    { ...f.ctx, role: "staff" },
+  );
+  assert.equal(res.ok, false);
 });
 
 check("test_PRD_P0_136_square_custom_attributes__create_vendor_makes_a_real_square_vendor_with_a_commission_on_file_immediately", async () => {

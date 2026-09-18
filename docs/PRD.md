@@ -5641,6 +5641,41 @@ that does not trace to one of these is a process failure (see §12).
     mechanism for item options (confirmed against Square's own developer documentation), so that
     association, if built, will be ours alone to define.
 
+77. **`Test-PRD-P0-142-category_item_options`** — The owner's own follow-up request: "I want to be able
+    to associate a category with option sets... so that these option sets will show up instead of
+    variants, for the items that belong to the category," immediately narrowed once asked about
+    defaults: "I don't want to be adding the same option sets to every single category, because certain
+    categories might not have the same option sets." Confirmed against Square's own developer docs
+    (P0-141's own entry, above) that Square has no category-level default/inheritance mechanism for
+    item options at all — so `mirror_category_item_option` (new table, `0008_category_item_options.sql`)
+    is a link that exists nowhere but here, purely ours, the same "no Square correlate whatsoever"
+    territory `mirror_custom_field_name` already occupies.
+
+    `catalog.set_category_item_options` (new T2, manager) sets the FULL list a category offers in one
+    call — a resend REPLACES, never merges, the same "send the whole thing back" convention
+    `catalog.update_product`'s own variations array already uses. Unassigning is still never a literal
+    `DELETE` — this tool layer refuses to contain that statement outright, everywhere but the not-yet-
+    built erasure workflow (`Test-PRD-P0-25-write_approval_gate`) — so a row no longer wanted is archived
+    (`archived_at`) and reused (not re-inserted) if the same option set is assigned again later, exactly
+    the archive-only shape every Square-mirrored table already follows, even though nothing here mirrors
+    Square.
+
+    The Admin panel's own category tree (`renderAdminCategoryNodes`, `views.js`) gets one more per-row
+    control, folded into the same hidden-until-toggled disclosure every other per-category control here
+    already uses (the "+" add-subcategory form, the remove button) — a "Sets" toggle, shown only when at
+    least one option set exists anywhere (nothing to show otherwise, the same "not reachable, don't show
+    it" rule the remove button already follows), opening a checkbox per known option set with the
+    category's own current assignment pre-checked. Folded into the page's one existing "Save all"
+    mechanism rather than a submit button of its own — `isFieldDirty` (the admin page's own copy, not the
+    Items tab's) now recognizes a checkbox's `checked`/`defaultChecked` divergence the same way the
+    Items tab's own copy already does, since this is the first checkbox this particular page has ever
+    needed to track as dirty.
+
+    This is only the ASSOCIATION — the owner's own two option sets can now be attached to a category from
+    the Admin panel, but nothing here yet builds a product's own variation from a chosen value, or shows
+    a dropdown on the Items tab. `catalog.item_options` and this tool are what that future UI would read
+    from.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -5931,6 +5966,7 @@ Where each feature is enforced today:
 | P0-137 | `shared/commerce/square/test/square.test.mjs`, `ops/test/catalog-write.test.mjs`, `ops/test/items-route.test.mjs` |
 | P0-138 | `shared/commerce/square/test/square.test.mjs`, `ops/test/catalog-write.test.mjs`, `ops/test/items-route.test.mjs` |
 | P0-141 | `shared/commerce/square/test/square.test.mjs`, `ops/test/catalog-write.test.mjs` |
+| P0-142 | `ops/test/catalog-write.test.mjs`, `ops/test/items-route.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

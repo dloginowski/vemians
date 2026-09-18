@@ -2722,6 +2722,68 @@ check("test_PRD_P0_138_nested_categories__admin_a_category_with_products_assigne
   assert.doesNotMatch(cat4Row, /admin-remove-btn/, "a leaf category with a product assigned still gets no remove button");
 });
 
+function seedItemOption(mirror, { id = "opt1", externalRef = "sqopt1", name = "Size" } = {}) {
+  mirror.db.exec(`INSERT INTO mirror_item_option (id, external_ref, name) VALUES ('${id}', '${externalRef}', '${name}')`);
+}
+
+check("test_PRD_P0_142_category_item_options__admin_renders_a_sets_toggle_with_a_checkbox_per_option_pre_checked", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  seedItemOption(mirror, { id: "opt1", externalRef: "sqopt1", name: "Size" });
+  seedItemOption(mirror, { id: "opt2", externalRef: "sqopt2", name: "Color" });
+  mirror.db.exec("INSERT INTO mirror_category_item_option (category_id, item_option_id) VALUES ('cat1', 'opt1')");
+
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  const cat1Idx = body.indexOf("Outerwear");
+  const cat1Row = body.slice(cat1Idx, body.indexOf("admin-category-children", cat1Idx));
+  assert.match(cat1Row, /<button type="button" class="admin-category-options-toggle admin-category-options-toggle-active"[^>]*>Sets \(1\)<\/button>/);
+  assert.match(cat1Row, /<input type="checkbox" name="item_option_ids" value="opt1" checked> Size/);
+  assert.match(cat1Row, /<input type="checkbox" name="item_option_ids" value="opt2"> Color/);
+});
+
+check("test_PRD_P0_142_category_item_options__admin_shows_no_sets_toggle_when_no_option_set_exists_anywhere", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  assert.doesNotMatch(body, /<button[^>]*class="admin-category-options-toggle/, "nothing to pick means no toggle at all");
+});
+
+check("test_PRD_P0_142_category_item_options__admin_setting_a_categorys_option_sets_reaches_the_tool_layer_no_square_needed", async () => {
+  /* Unlike catalog.create_category/set_category_number/rename/remove,
+     catalog.set_category_item_options declares no square resource at all
+     -- purely ours -- so this is provably testable end to end even with
+     no SQUARE_ACCESS_TOKEN, the same P0-71 custom-field-name reasoning. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedItemOption(mirror, { id: "opt1", externalRef: "sqopt1", name: "Size" });
+  seedItemOption(mirror, { id: "opt2", externalRef: "sqopt2", name: "Color" });
+  const form = new URLSearchParams();
+  form.set("category_id", "cat1");
+  form.append("item_option_ids", "opt1");
+  form.append("item_option_ids", "opt2");
+  const res = await worker.fetch(
+    new Request("http://localhost/admin/categories/item-options", {
+      method: "POST",
+      headers: { "Cf-Access-Jwt-Assertion": assertion(MANAGER), "content-type": "application/x-www-form-urlencoded" },
+      body: form.toString(),
+    }),
+    env(mirror),
+  );
+  assert.equal(res.status, 303);
+  assert.equal(res.headers.get("location"), "/admin");
+  const rows = mirror.db.prepare("SELECT item_option_id FROM mirror_category_item_option_index WHERE category_id = 'cat1' ORDER BY item_option_id").all();
+  assert.deepEqual(rows.map((r) => r.item_option_id), ["opt1", "opt2"]);
+});
+
+check("test_PRD_P0_142_category_item_options__admin_staff_cannot_reach_the_route", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedItemOption(mirror);
+  const res = await postForm("/admin/categories/item-options", STAFF, env(mirror), { category_id: "cat1", item_option_ids: "opt1" });
+  assert.equal(res.status, 403);
+});
+
 check("test_PRD_P0_138_nested_categories__admin_staff_cannot_reach_the_page_at_all", async () => {
   const mirror = mirrorDb();
   const res = await get("/admin", STAFF, env(mirror));

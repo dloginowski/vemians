@@ -35,7 +35,17 @@ import { contentTypeFor, mediaKey, mintUploadTicket, verifyUploadTicket, STORABL
 import { mediaStoreFor, assetFileStoreFor, receiptFileStoreFor, runTool } from "./tools/index.js";
 import { contentTypeForAsset, extractText } from "./tools/assets.js";
 import { scanReceipt } from "./tools/receipt-ocr.js";
-import { listAllProducts, listCategories, listCustomFieldNames, listMirrorVendors, productByHandle, variantsOf, categoryProductCounts } from "./tools/catalog-writer.js";
+import {
+  listAllProducts,
+  listCategories,
+  listCustomFieldNames,
+  listItemOptions,
+  listMirrorVendors,
+  productByHandle,
+  variantsOf,
+  categoryProductCounts,
+  categoryItemOptionIds,
+} from "./tools/catalog-writer.js";
 import { applyFormEdits } from "./approval-forms.js";
 import { syncFromSquare, SYNC_CRON, FREQUENT_CRON } from "./sync.js";
 import { verifyWebhook, normaliseWebhook } from "../../shared/commerce/square/webhooks.js";
@@ -925,7 +935,11 @@ async function ops(request, env, path) {
       const allVendors = await listMirrorVendors(env.CATALOG_MIRROR);
       const customFieldNames = await listCustomFieldNames(env.CATALOG_MIRROR);
       const categoryProductCountsById = await categoryProductCounts(env.CATALOG_MIRROR);
-      return html(adminPage(allCategories, allVendors, customFieldNames, categoryProductCountsById));
+      const allItemOptions = await listItemOptions(env.CATALOG_MIRROR);
+      const categoryItemOptionIdsById = await categoryItemOptionIds(env.CATALOG_MIRROR);
+      return html(
+        adminPage(allCategories, allVendors, customFieldNames, categoryProductCountsById, allItemOptions, categoryItemOptionIdsById),
+      );
     }
 
     if (request.method !== "POST") {
@@ -999,6 +1013,18 @@ async function ops(request, env, path) {
       toolName = "catalog.remove_category";
       args = { category_id: categoryId };
       summaryNoun = "category";
+    } else if (suffix === "/categories/item-options") {
+      /* "I want to be able to associate a category with option sets... I
+         don't want to be adding the same option sets to every single
+         category." A full-REPLACE, same as every other checkbox-list this
+         panel already sends — the checked boxes ARE the new set, an empty
+         submission means "none". */
+      const categoryId = String(form.get("category_id") ?? "").trim();
+      if (!categoryId) return json({ error: "give a category" }, 400);
+      const itemOptionIds = form.getAll("item_option_ids").map((v) => String(v).trim()).filter(Boolean);
+      toolName = "catalog.set_category_item_options";
+      args = { category_id: categoryId, item_option_ids: itemOptionIds, reason: "set from the Admin panel" };
+      summaryNoun = "category's option sets";
     } else if (suffix === "/vendors/create") {
       /* commission is REQUIRED here, unlike a category's own optional
          numeric_id: a brand-new vendor has nothing on file yet for
