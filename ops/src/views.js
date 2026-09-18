@@ -3824,8 +3824,17 @@ ${OPS_DARK_CSS}
 }
 .admin-category-options-toggle-active { border-color: var(--accent); color: var(--ink); }
 .admin-category-options-menu[hidden] { display: none; }
+/* REVISED: "don't open it off screen. Open it to the left because the
+   current position of the button is to the right center. Open it to
+   the left." The toggle sits well over toward the right of its own row
+   (after name/numeric_id, before remove/+), so a menu anchored to its
+   LEFT edge and growing rightward (the .vendor-picker-menu convention
+   this shape was copied from, where the toggle sits at the LEFT of its
+   own row instead) ran past the right edge of the screen. Anchored to
+   the toggle's own RIGHT edge and growing leftward instead keeps it on
+   screen regardless of how close to the right edge the button sits. */
 .admin-category-options-menu {
-  position: absolute; top: 100%; left: 0; z-index: 15; margin-top: 4px; min-width: 12em; max-height: 16em;
+  position: absolute; top: 100%; right: 0; z-index: 15; margin-top: 4px; min-width: 12em; max-height: 16em;
   overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding: 6px 10px;
   border: 1px solid var(--muted); border-radius: 8px; background: var(--ground); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
