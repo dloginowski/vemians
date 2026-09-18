@@ -4084,6 +4084,11 @@ that does not trace to one of these is a process failure (see §12).
     server-side only if actually used with no vendor" rule Cost already had before this whole
     variations rework began.
 
+    **REVISED: narrower still.** The owner's own words: "why did you make cost and MSRP so wide? We
+    probably don't even need cents in there. It's going to be like maximum four digits." `.item-unit-
+    cost`/`.item-msrp` come down from `5em` (sized for a full `"$10,000.00"`) to `3.5em`, comfortably
+    fitting four digits with no cents, still centered.
+
 71. **`Test-PRD-P0-136-square_custom_attributes`** — The owner's own words, having weighed "ours,
     not Square's" (P0-71's own `channel`/`custom_fields`) against not reinventing something Square
     already offers: "why do we need to have our own custom fields then? It doesn't make sense... we
