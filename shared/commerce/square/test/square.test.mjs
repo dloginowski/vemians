@@ -155,8 +155,8 @@ async function seededCatalog(fixtureName = "catalog-list.json") {
   return { ...s, normalised, counts };
 }
 
-const rows = (db, sql) => db._raw.prepare(sql).all();
-const one = (db, sql) => db._raw.prepare(sql).get();
+const rows = (db, sql, ...params) => db._raw.prepare(sql).all(...params);
+const one = (db, sql, ...params) => db._raw.prepare(sql).get(...params);
 
 /* ─────────────────────────────────────────────────────────────────────────
  * P0-15 — money is an integer minor amount plus an explicit currency
@@ -804,7 +804,14 @@ check("test_PRD_P0_36_working_set_index__the_database_refuses_a_delete_outright"
   const { mirrorDb } = await seededCatalog();
   /* Archiving must be a property of the schema, not of the adapter remembering
      to call UPDATE instead of DELETE. */
-  for (const t of ["mirror_product", "mirror_variant", "mirror_image", "mirror_category"]) {
+  for (const t of [
+    "mirror_product",
+    "mirror_variant",
+    "mirror_image",
+    "mirror_category",
+    "mirror_item_option",
+    "mirror_item_option_value",
+  ]) {
     assert.throws(
       () => mirrorDb._raw.exec(`DELETE FROM ${t}`),
       /archive-only/,
@@ -1702,6 +1709,98 @@ check("test_PRD_P0_136_square_custom_attributes__an_unsynced_vendor_id_resolves_
   await s.mirror.syncCatalog(normalised, { full: true });
   const variantRow = rows(s.mirrorDb, "SELECT vendor_id FROM mirror_variant")[0];
   assert.equal(variantRow.vendor_id, null);
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-141 — Option Sets (ITEM_OPTION/ITEM_OPTION_VAL) mirrored as their own
+ * first-class entity, independent of whether any item currently uses them.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_141_item_option_sets_mirrored__normalisecatalog_extracts_option_sets_and_their_values", () => {
+  const { itemOptions } = normaliseCatalog(fixture("catalog-list.json").objects, { locationId: SQUARE_LOCATION });
+  assert.equal(itemOptions.length, 1);
+  const size = itemOptions[0];
+  assert.equal(size.externalRef, "OPT_SIZE");
+  assert.equal(size.name, "Size");
+  assert.equal(size.withdrawn, false);
+  assert.deepEqual(
+    size.values.map((v) => ({ externalRef: v.externalRef, name: v.name, ordinal: v.ordinal })),
+    [
+      { externalRef: "OPTVAL_IT40", name: "IT 40", ordinal: 0 },
+      { externalRef: "OPTVAL_IT42", name: "IT 42", ordinal: 1 },
+    ],
+    "no ordinal on the fixture's own values falls back to array position, not alphabetical order",
+  );
+});
+
+check("test_PRD_P0_141_item_option_sets_mirrored__syncing_the_catalog_upserts_the_option_set_and_its_values", async () => {
+  const { mirrorDb, counts } = await seededCatalog();
+  assert.equal(counts.itemOptionsUpserted, 1);
+  assert.equal(counts.itemOptionValuesUpserted, 2);
+
+  const option = one(mirrorDb, "SELECT * FROM mirror_item_option_index WHERE external_ref = 'OPT_SIZE'");
+  assert.equal(option.name, "Size");
+  const values = rows(mirrorDb, "SELECT * FROM mirror_item_option_value_index WHERE item_option_id = ? ORDER BY ordinal", option.id);
+  assert.deepEqual(
+    values.map((v) => [v.name, v.ordinal]),
+    [
+      ["IT 40", 0],
+      ["IT 42", 1],
+    ],
+  );
+  assert.equal(values[0].item_option_id, option.id, "joined by our uuid, not by Square's id");
+});
+
+check("test_PRD_P0_141_item_option_sets_mirrored__an_option_set_with_no_item_using_it_yet_still_lands_in_the_mirror", async () => {
+  /* This is the exact gap the owner's own question exposed: an option set
+     created in Square but not yet assigned to any item used to be invisible
+     to this mirror entirely, since the old code only ever resolved a
+     value already sitting on a synced variation. */
+  const s = stores();
+  const normalised = normaliseCatalog(
+    [
+      {
+        type: "ITEM_OPTION",
+        id: "OPT_COLOR",
+        is_deleted: false,
+        item_option_data: { name: "Color", values: [{ type: "ITEM_OPTION_VAL", id: "OPTVAL_RED", item_option_value_data: { name: "Red" } }] },
+      },
+    ],
+    { locationId: SQUARE_LOCATION },
+  );
+  assert.equal(normalised.products.length, 0, "no item references it, and none is needed to");
+  await s.mirror.syncCatalog(normalised, { full: true });
+  const option = one(s.mirrorDb, "SELECT * FROM mirror_item_option_index WHERE external_ref = 'OPT_COLOR'");
+  assert.equal(option.name, "Color");
+});
+
+check("test_PRD_P0_141_item_option_sets_mirrored__a_resync_does_not_duplicate_the_option_set_or_its_values", async () => {
+  const { mirrorDb, mirror, normalised } = await seededCatalog();
+  await mirror.syncCatalog(normalised, { full: true });
+  await mirror.syncCatalog(normalised, { full: true });
+  assert.equal(rows(mirrorDb, "SELECT id FROM mirror_item_option").length, 1);
+  assert.equal(rows(mirrorDb, "SELECT id FROM mirror_item_option_value").length, 2);
+});
+
+check("test_PRD_P0_141_item_option_sets_mirrored__withdrawing_an_option_set_in_square_archives_it_here_never_deletes_it", async () => {
+  const s = stores();
+  const objects = () => [
+    {
+      type: "ITEM_OPTION",
+      id: "OPT_SIZE",
+      is_deleted: false,
+      item_option_data: { name: "Size", values: [{ type: "ITEM_OPTION_VAL", id: "OPTVAL_S", item_option_value_data: { name: "S" } }] },
+    },
+  ];
+  await s.mirror.syncCatalog(normaliseCatalog(objects(), { locationId: SQUARE_LOCATION }), { full: true });
+  assert.equal(one(s.mirrorDb, "SELECT archived_at FROM mirror_item_option WHERE external_ref = 'OPT_SIZE'").archived_at, null);
+
+  const withdrawn = objects();
+  withdrawn[0].is_deleted = true;
+  await s.mirror.syncCatalog(normaliseCatalog(withdrawn, { locationId: SQUARE_LOCATION }), { full: true });
+  const row = one(s.mirrorDb, "SELECT archived_at FROM mirror_item_option WHERE external_ref = 'OPT_SIZE'");
+  assert.ok(row.archived_at, "withdrawn is a marker, archived_at is set");
+  assert.throws(() => s.mirrorDb._raw.exec("DELETE FROM mirror_item_option"), /archive-only/);
 });
 
 /* ─────────────────────────────────────────────────────────────────────────

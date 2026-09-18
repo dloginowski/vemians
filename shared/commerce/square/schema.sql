@@ -101,6 +101,49 @@ CREATE VIEW mirror_category_index AS
 SELECT id, external_ref, name, parent_id, numeric_id, synced_at
 FROM mirror_category WHERE archived_at IS NULL;
 
+-- ── item options  ("Option Sets" in the dashboard, "variant sets" in the ──
+--    owner's own words) — Square's own ITEM_OPTION/ITEM_OPTION_VAL Catalog
+--    objects, the attributes (Size, Color, ...) a variation is built from.
+--
+-- Mirrored as a first-class entity in its own right, independent of whether
+-- any item actually uses it — the owner's own question ("do you have access
+-- to these option sets?") exposed that this codebase used to resolve an
+-- option/value pair on an ALREADY-SYNCED VARIATION into a human name, but
+-- never fetched the option SET itself: one created in Square and not yet
+-- assigned to anything was invisible to this mirror entirely. catalog.js's
+-- own CATALOG_TYPES now requests ITEM_OPTION directly, the same way it
+-- already requests CATEGORY, so the full list (and every one of its own
+-- values) lands here regardless.
+CREATE TABLE mirror_item_option (
+  id           TEXT PRIMARY KEY,              -- ours
+  external_ref TEXT NOT NULL UNIQUE,          -- Square ITEM_OPTION id
+  name         TEXT NOT NULL,
+  archived_at  TEXT,                          -- rolled off the working set, never deleted
+  synced_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE VIEW mirror_item_option_index AS
+SELECT id, external_ref, name, synced_at
+FROM mirror_item_option WHERE archived_at IS NULL;
+
+-- A value's own ordinal is Square's own sort order within its option set
+-- (e.g. Small/Medium/Large, not alphabetical) — read straight off
+-- CatalogItemOptionValue.ordinal, OURS to reorder never (there is no write
+-- path for item options at all yet, read-only mirror for now).
+CREATE TABLE mirror_item_option_value (
+  id              TEXT PRIMARY KEY,              -- ours
+  external_ref    TEXT NOT NULL UNIQUE,          -- Square ITEM_OPTION_VAL id
+  item_option_id  TEXT NOT NULL REFERENCES mirror_item_option(id),
+  name            TEXT NOT NULL,
+  ordinal         INTEGER NOT NULL DEFAULT 0,
+  archived_at     TEXT,
+  synced_at       TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE VIEW mirror_item_option_value_index AS
+SELECT id, external_ref, item_option_id, name, ordinal, synced_at
+FROM mirror_item_option_value WHERE archived_at IS NULL;
+
 -- ── vendors  (Square's own Vendor object, Vendors API — NOT the Catalog API) ─
 --
 -- Retail Plus/Premium territory (Test-PRD-P0-136-square_custom_attributes,
@@ -472,6 +515,12 @@ CREATE TRIGGER mirror_category_no_delete BEFORE DELETE ON mirror_category
 BEGIN SELECT RAISE(ABORT, 'catalog mirror is archive-only; set archived_at'); END;
 
 CREATE TRIGGER mirror_vendor_no_delete BEFORE DELETE ON mirror_vendor
+BEGIN SELECT RAISE(ABORT, 'catalog mirror is archive-only; set archived_at'); END;
+
+CREATE TRIGGER mirror_item_option_no_delete BEFORE DELETE ON mirror_item_option
+BEGIN SELECT RAISE(ABORT, 'catalog mirror is archive-only; set archived_at'); END;
+
+CREATE TRIGGER mirror_item_option_value_no_delete BEFORE DELETE ON mirror_item_option_value
 BEGIN SELECT RAISE(ABORT, 'catalog mirror is archive-only; set archived_at'); END;
 
 -- The ingest receipt is append-only for the same reason inventory_adjustment

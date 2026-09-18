@@ -100,6 +100,7 @@ import {
   deriveCategoryIdForStyleId,
   listCategories,
   listCustomFieldNames,
+  listItemOptions,
   listMirrorVendors,
   mergeVariations,
   priceBand,
@@ -1954,6 +1955,38 @@ export const catalogWriteTools = {
         count: vendors.length,
         note: "A vendor with commission_pct: null has nothing on file yet — catalog.create_product/catalog.set_square_attributes will refuse naming it until catalog.set_vendor_commission (or a fresh catalog.create_vendor) gives it one.",
       };
+    },
+  },
+
+  /*
+   * "Do you have access to these option sets?" — the owner's own question,
+   * once it turned out an ITEM_OPTION only ever arrived at all as a
+   * byproduct of an already-synced variation that referenced it, never on
+   * its own. catalog.js's own CATALOG_TYPES now requests ITEM_OPTION
+   * directly (the same way it already requests CATEGORY), so this reads
+   * the full, real list — every option set, and every one of its own
+   * values, in Square's own sort order — regardless of whether any item
+   * currently uses it. Read-only: there is no write path for item options
+   * (creating/editing an Option Set, or building a variation from one) in
+   * this codebase yet — this tool exists to make the existing ones visible
+   * first, before that gets built.
+   */
+  "catalog.item_options": {
+    tier: "T0",
+    domain: "catalog",
+    stores: ["catalog_mirror"],
+    minRole: "staff",
+    describe:
+      "List every Item Option (\"Option Set\" in the Square dashboard) that exists — Size, Color, or " +
+      "whatever this shop has defined — each with its own full, ordered list of values. Read-only: this " +
+      "codebase has no tool yet that creates a new one, edits an existing one, or builds a product's own " +
+      "variations from one. Call this to see what already exists in Square before proposing anything that " +
+      "would need to reference an option set by name.",
+    undo: null,
+    schema: {},
+    async run(_args, t) {
+      const itemOptions = await listItemOptions(t.db.catalog_mirror);
+      return { item_options: itemOptions, count: itemOptions.length };
     },
   },
 

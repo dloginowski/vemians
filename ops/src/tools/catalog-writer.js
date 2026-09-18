@@ -73,6 +73,28 @@ export async function categoryProductCounts(db) {
   return new Map((res.results ?? []).map((r) => [r.category_id, Number(r.n)]));
 }
 
+/* Every item option ("Option Set"), each with its own full, ordered list of
+   values — "do you have access to these option sets?" the owner's own
+   question, answered by actually mirroring them (shared/commerce/square/
+   schema.sql's own comment on mirror_item_option has the full reasoning).
+   One query each, joined in JS rather than a single query with a JSON
+   aggregate — this file's own established style (listAllProducts below
+   does the identical thing for a product's own variants) — since D1/SQLite
+   JSON aggregation is not worth the readability cost at this catalog's own
+   scale. Read-only: there is no write path for item options yet. */
+export async function listItemOptions(db) {
+  const [optionsRes, valuesRes] = await Promise.all([
+    db.prepare("SELECT id, name FROM mirror_item_option_index ORDER BY name COLLATE NOCASE").bind().all(),
+    db.prepare("SELECT id, item_option_id, name, ordinal FROM mirror_item_option_value_index ORDER BY ordinal, name COLLATE NOCASE").bind().all(),
+  ]);
+  const valuesByOption = new Map();
+  for (const v of valuesRes.results ?? []) {
+    if (!valuesByOption.has(v.item_option_id)) valuesByOption.set(v.item_option_id, []);
+    valuesByOption.get(v.item_option_id).push({ id: v.id, name: v.name });
+  }
+  return (optionsRes.results ?? []).map((o) => ({ id: o.id, name: o.name, values: valuesByOption.get(o.id) ?? [] }));
+}
+
 /* Every vendor, for the picker/admin panel — "the same kind of drop down
    schema that we have for categories" the owner's own words asked for.
    Named distinctly from shared/commerce/square/vendors.js's own

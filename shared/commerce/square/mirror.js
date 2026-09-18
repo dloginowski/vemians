@@ -157,11 +157,13 @@ export function createMirror(mirror, { commerce, locationId, audit = null, now =
    *              begin_time search means "unchanged", and archiving on it would
    *              retire the whole shop on the first quiet night.
    */
-  async function syncCatalog({ products = [], categories = [] }, { full = false } = {}) {
+  async function syncCatalog({ products = [], categories = [], itemOptions = [] }, { full = false } = {}) {
     return audited("square.catalog.sync", { products: products.length, full }, async () => {
       const stamp = now();
       const counts = {
         categoriesUpserted: 0,
+        itemOptionsUpserted: 0,
+        itemOptionValuesUpserted: 0,
         productsInserted: 0,
         productsUpdated: 0,
         variantsInserted: 0,
@@ -202,6 +204,43 @@ export function createMirror(mirror, { commerce, locationId, audit = null, now =
               null)
           : null;
         await run("UPDATE mirror_category SET parent_id = ? WHERE external_ref = ?", parentId, cat.externalRef);
+      }
+
+      /* ITEM_OPTION ("Option Sets") — each one's own values arrive already
+         embedded (catalog.js's own normaliseCatalog), so there is no
+         child-before-parent ordering hazard the categories block above
+         needs a second pass for: an option and its whole value list are
+         upserted together, in one pass. numeric_id has no equivalent here
+         — nothing OURS lives on this table yet, only what Square itself
+         reports. */
+      for (const opt of itemOptions) {
+        const id = newId();
+        await run(
+          `INSERT INTO mirror_item_option (id, external_ref, name, archived_at, synced_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(external_ref) DO UPDATE SET
+             name = excluded.name,
+             archived_at = excluded.archived_at,
+             synced_at = excluded.synced_at`,
+          id, opt.externalRef, opt.name ?? "", opt.withdrawn ? stamp : null, stamp,
+        );
+        counts.itemOptionsUpserted += 1;
+        const itemOptionId = (await first("SELECT id FROM mirror_item_option WHERE external_ref = ?", opt.externalRef))?.id;
+        for (const val of opt.values ?? []) {
+          const valId = newId();
+          await run(
+            `INSERT INTO mirror_item_option_value (id, external_ref, item_option_id, name, ordinal, archived_at, synced_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(external_ref) DO UPDATE SET
+               item_option_id = excluded.item_option_id,
+               name = excluded.name,
+               ordinal = excluded.ordinal,
+               archived_at = excluded.archived_at,
+               synced_at = excluded.synced_at`,
+            valId, val.externalRef, itemOptionId, val.name ?? "", val.ordinal ?? 0, val.withdrawn ? stamp : null, stamp,
+          );
+          counts.itemOptionValuesUpserted += 1;
+        }
       }
 
       const seenProducts = new Set();
