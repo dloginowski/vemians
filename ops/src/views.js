@@ -1702,23 +1702,22 @@ ${INPUT_BAR_CSS}
 .item-tile.full .item-close { display: inline-flex; }
 /* ONE Save for the whole tile — the owner's own words: "one save button
    for the whole page... disabled and becomes enabled when any changes are
-   detected." Same circular-icon treatment as Share/Close beside it,
-   hidden until expanded the same way both of those already are; :disabled
-   is what actually reads as "nothing to save yet." */
+   detected." REVISED: "use the same style for the save button as the one
+   in my admin control panel... move that save button out of the image
+   top header and into the same row as the Web/Active checkboxes" — the
+   exact same .admin-save-all shape (a solid pill, not a bare circular
+   icon), now that it lives in .item-badges' own ordinary light-background
+   row instead of on top of the photo, where the old white-icon-on-dark
+   treatment made sense and this would not. No display: none/.full gate
+   needed any more either — .item-badges (its own parent) is already
+   hidden until the tile is expanded (.item-detail's own base rule), so
+   this was never visible collapsed regardless. */
 .item-save-all {
-  display: none; flex: 0 0 auto; width: 20px; height: 20px; padding: 0;
-  align-items: center; justify-content: center; border: none; border-radius: 50%;
-  cursor: pointer; background: transparent; color: #fff;
+  display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 13px; font-weight: 600;
+  padding: 6px 14px; border: 1px solid var(--accent); border-radius: 6px; background: var(--accent); color: var(--ground);
+  cursor: pointer;
 }
-.item-save-all:hover { background: rgba(255, 255, 255, 0.2); }
-.item-tile.full .item-save-all { display: inline-flex; }
-.item-save-all:disabled { opacity: 0.35; cursor: default; }
-.item-save-all:disabled:hover { background: transparent; }
-/* The owner's own words: "any changed fields should be marked with an
-   orange highlight, and so is the save button" — enabled (there is
-   something dirty to save) IS the highlight; no separate class needed
-   since :disabled already carries the opposite state. */
-.item-save-all:not(:disabled) { color: var(--accent); }
+.item-save-all:disabled { border-color: var(--muted); background: transparent; color: var(--muted); cursor: not-allowed; }
 /* style_id took the SKU's old spot — the owner's own words: "these are
    generated automatically by Square and we should not be editing them at
    all... we don't need to see them in our ops dashboard." */
@@ -2567,10 +2566,14 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
      the page script below enables it the moment ANY field inside this
      tile changes, and its own click handler submits every form that
      actually changed (and only those), in turn, reloading once at the
-     end only if all of them succeeded. Lives beside Share/Close so it is
-     reachable without scrolling back up from a long expanded view. */
+     end only if all of them succeeded. REVISED: "use the same style for
+     the save button as the one in my admin control panel... move that
+     save button out of the image top header and into the same row as the
+     Web/Active checkboxes" — same `.admin-save-all` shape (a solid pill,
+     icon plus the word "Save", not a bare circular icon), rendered in
+     `.item-badges` alongside Web/Active instead of beside Share/Close. */
   const saveButton = canEdit
-    ? `<button type="button" class="item-save-all" aria-label="Save changes" title="Save changes" disabled>${SAVE_ICON}</button>`
+    ? `<button type="button" class="item-save-all" aria-label="Save changes" title="Save changes" disabled>${SAVE_ICON} Save</button>`
     : "";
 
   /* "Where's the item label and where is the description fields? Shouldn't
@@ -2656,7 +2659,6 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
         <div class="item-top-right">
           <span class="item-price">${esc(priceText)}</span>
           <button type="button" class="item-share" aria-label="Copy a link to this item" title="Copy a link to this item"${primarySku ? "" : " disabled"}>${LINK_ICON}</button>
-          ${saveButton}
           <button type="button" class="item-close" aria-label="Close" title="Close">${CANCEL_ICON}</button>
         </div>
       </div>
@@ -2667,6 +2669,7 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
         ${webToggle}
         ${activeToggle}
         ${!canEdit ? `<span>${esc(categoryFullPath ?? "Uncategorized")}</span>` : ""}
+        ${saveButton}
       </div>
       ${titleVendorForms}
       ${variationsAccordion}
