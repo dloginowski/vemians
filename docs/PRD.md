@@ -5763,6 +5763,21 @@ that does not trace to one of these is a process failure (see §12).
     hand-typing "SETS" in the markup, so the text node and the `aria-label`/checkbox-toggle logic keyed
     off it stay untouched.
 
+    **REVISED: clicking Sets now opens a floating dropdown menu, not a block that pushed the row
+    beneath it out of alignment.** The owner's own words: "when clicking Sets, I want you to open a
+    menu with checkboxes, not a whole row that's not aligned to anything. A menu with checkboxes. I
+    want to select multiple checkboxes, toggle them." The checkbox list used to be its own hidden
+    `<form>` sitting BETWEEN a category's own row and its `.admin-category-children` — widening and
+    re-laying-out everything beneath it once opened. It is now wrapped together with the toggle button
+    in one `.admin-category-options` (`position: relative`), with the checkbox list itself
+    (`.admin-category-options-menu`) `position: absolute`, floating below the button — the identical
+    convention `.vendor-picker`/`.vendor-picker-menu` already establish on the Items tab (a separate
+    script, not shared with this page, but the same shape). A new `closeAllOptionsMenus()` plus
+    outside-click/`Escape` listeners close it, mirroring the Items tab's own `closeAllCategoryPickers`;
+    a click on a checkbox INSIDE the menu is excluded from the outside-click check the identical way a
+    click on the toggle button itself already is, so any number of them stay tickable in one sitting —
+    the menu only closes on an outside click, `Escape`, or the toggle button.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

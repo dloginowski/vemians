@@ -2881,9 +2881,54 @@ check("test_PRD_P0_142_category_item_options__admin_renders_a_sets_toggle_with_a
   const body = await (await get("/admin", MANAGER, env(mirror))).text();
   const cat1Idx = body.indexOf("Outerwear");
   const cat1Row = body.slice(cat1Idx, body.indexOf("admin-category-children", cat1Idx));
-  assert.match(cat1Row, /<button type="button" class="admin-category-options-toggle admin-category-options-toggle-active"[^>]*>Sets \(1\)<\/button>/);
+  assert.match(cat1Row, /<div class="admin-category-options">\s*\n\s*<button type="button" class="admin-category-options-toggle admin-category-options-toggle-active"[^>]*>Sets \(1\)<\/button>/);
+  assert.match(cat1Row, /<form method="post" action="\/admin\/categories\/item-options" class="admin-category-options-menu" hidden>/, "the checkbox list is a floating menu, not a block row");
   assert.match(cat1Row, /<input type="checkbox" name="item_option_ids" value="opt1" checked> Size/);
   assert.match(cat1Row, /<input type="checkbox" name="item_option_ids" value="opt2"> Color/);
+});
+
+check("test_PRD_P0_142_category_item_options__admin_sets_menu_floats_over_the_tree_rather_than_pushing_it_down", async () => {
+  /* REVISED: "when clicking Sets, I want you to open a menu with
+     checkboxes, not a whole row that's not aligned to anything." A
+     position: relative wrapper around the toggle and its own
+     position: absolute menu -- the same shape .vendor-picker/
+     .vendor-picker-menu already establish on the Items tab -- rather
+     than a block sitting between the row and its own children,
+     widening/relayouting everything beneath it. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedItemOption(mirror, { id: "opt1", externalRef: "sqopt1", name: "Size" });
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  assert.match(body, /\.admin-category-options \{ position: relative; flex: 0 0 auto; \}/);
+  assert.match(
+    body,
+    /\.admin-category-options-menu \{\s*\n\s*position: absolute; top: 100%; left: 0;/,
+    "the checkbox list must float below the toggle, not occupy its own row",
+  );
+});
+
+check("test_PRD_P0_142_category_item_options__admin_sets_menu_stays_open_across_multiple_checkbox_clicks_closes_on_outside_click_or_escape", async () => {
+  /* "I want to select multiple checkboxes, toggle them" -- a checkbox
+     click inside the menu must never close it (the same "closest" guard
+     the outside-click handler already uses for the toggle button
+     itself), only an outside click, Escape, or the toggle button. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedItemOption(mirror, { id: "opt1", externalRef: "sqopt1", name: "Size" });
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  assert.match(
+    body,
+    /function closeAllOptionsMenus\(\) \{\s*\n\s*document\.querySelectorAll\("\.admin-category-options-menu"\)\.forEach\(\(m\) => \(m\.hidden = true\)\);\s*\n\s*\}/,
+  );
+  assert.match(
+    body,
+    /document\.addEventListener\("click", \(e\) => \{\s*\n\s*if \(e\.target\.closest\("\.admin-category-options"\)\) return;\s*\n\s*closeAllOptionsMenus\(\);\s*\n\s*\}\);/,
+    "a click anywhere inside the toggle+menu wrapper (a checkbox included) must be excluded from the outside-click close",
+  );
+  assert.match(
+    body,
+    /document\.addEventListener\("keydown", \(e\) => \{\s*\n\s*if \(e\.key !== "Escape"\) return;\s*\n\s*closeAllOptionsMenus\(\);\s*\n\s*\}\);/,
+  );
 });
 
 check("test_PRD_P0_142_category_item_options__admin_sets_toggle_matches_the_row_height_and_reads_all_caps", async () => {
