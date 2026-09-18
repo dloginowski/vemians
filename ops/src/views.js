@@ -2284,11 +2284,28 @@ function renderAdminCategoryNodes(
         <div class="admin-category-children">${renderAdminCategoryNodes(categories, c.id, categoryProductCountsById, itemOptions, categoryItemOptionIdsById)}</div>
         ${
           isTopLevel
-            ? `<form method="post" action="/admin/categories/create" class="admin-category-add-form" hidden style="padding-left: ${CATEGORY_NODE_TOGGLE_PX}px">
+            ? /* "Include all of the buttons that you normally would add...
+                 except they're blanked out... I want the adding of a
+                 subcategory to be perfectly aligned with the existing
+                 categories. Right now it's overflowing a little too much"
+                 — the owner's own words. Missing the Sets/remove buttons a
+                 real row would have left .admin-category-new-name (flex:
+                 1 1 auto, same as the real row's own name input) with no
+                 trailing width to share the row with, stretching it wider
+                 than every saved row beneath it. A disabled Sets button
+                 (only when one could ever show, same as a real row) and a
+                 disabled remove button reserve the exact same space real
+                 ones would, rather than an abstract spacer of a guessed
+                 width — no "+" placeholder needed, since a subcategory
+                 never gets one of its own (P0-138's own entry, above) and
+                 this row IS one. */
+              `<form method="post" action="/admin/categories/create" class="admin-category-add-form" hidden style="padding-left: ${CATEGORY_NODE_TOGGLE_PX}px">
           <input type="hidden" name="parent_id" value="${esc(c.id)}">
           <span class="admin-category-toggle-spacer"></span>
           <input type="text" class="admin-category-new-name" name="name" placeholder="Subcategory name" maxlength="60">
           <input class="admin-category-new-numeric-id" name="numeric_id" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — optional, can be set later">
+          ${itemOptions.length ? `<button type="button" class="admin-category-options-toggle" disabled title="Save the new subcategory first">Sets</button>` : ""}
+          <button type="button" class="admin-remove-btn" disabled aria-label="Remove" title="Save the new subcategory first">${TRASH_ICON}</button>
         </form>`
             : ""
         }
