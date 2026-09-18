@@ -579,17 +579,28 @@ that does not trace to one of these is a process failure (see §12).
     hold image bytes — added afterward, per product, the same way a one-off product's photo is
     (P0-59).
 
-    A row that cannot even be attempted — a product with no title, a category that is not exactly
-    one of the closed set's names, a price that is not a plain decimal — is reported with the
-    reason and never reaches `runTool`, because the tool layer has no way to say "that is not a
-    number"; a customer row's own refusals (no identifying field, a malformed email) come straight
-    from `customer.create`'s own check(), relayed rather than re-derived. A file over
-    `CAPS.BATCH_MAX_ROWS` is refused whole, before any row is touched, rather than silently
-    truncated. Uploading a spreadsheet mints approvals; it does not consume any of them — each one
-    is still opened and said yes to individually, on the same `/approvals/` page a single record's
-    draft produces, so there is one confirmation screen in this codebase, not two. Both routes are
-    manager+ only, at the route itself: either tool's own `minRole` would otherwise turn a staff
-    upload into the same refusal repeated once per row.
+    A row that cannot even be attempted — a category that is not exactly one of the closed set's
+    names, a price that is not a plain decimal — is reported with the reason and never reaches
+    `runTool`, because the tool layer has no way to say "that is not a number"; a customer row's
+    own refusals (no identifying field, a malformed email) come straight from `customer.create`'s
+    own check(), relayed rather than re-derived. A file over `CAPS.BATCH_MAX_ROWS` is refused
+    whole, before any row is touched, rather than silently truncated. Uploading a spreadsheet mints
+    approvals; it does not consume any of them — each one is still opened and said yes to
+    individually, on the same `/approvals/` page a single record's draft produces, so there is one
+    confirmation screen in this codebase, not two. Both routes are manager+ only, at the route
+    itself: either tool's own `minRole` would otherwise turn a staff upload into the same refusal
+    repeated once per row.
+
+    A product row with no title is not a skip: **`Test-PRD-P0-145-auto_generated_title`** —
+    the owner's own words, "I don't think we need to have [a name] as a requirement... the name
+    should be auto-generated based on its category and its position in the category index."
+    `batch.js`'s own `autoTitler()` names it `"<category name> <n>"`, `n` being one past however
+    many products already sit in that category (`categoryProductCounts`), counting up across the
+    rest of the same batch as more title-less rows land in the same category. Quantity is not a
+    requirement either — `catalog.create_product`'s own `describe` text (the only place it was ever
+    asked for; neither the tool's schema nor `batch.js` ever had a quantity field) now tells the
+    agent to assume 1 rather than insist on one, adjusting it afterward with `inventory.adjust`
+    only if the real count differs.
 
 29c'. **`Test-PRD-P0-70-flexible_spreadsheet_columns`** — A real spreadsheet is not typed to our
     sample file. `pick()` (`ops/src/batch.js`) now normalizes both the uploaded header and the
@@ -600,8 +611,9 @@ that does not trace to one of these is a process failure (see §12).
     others), covering headers a real export is likely to use rather than only the ones this
     codebase's own sample file happens to name. **This still refuses, honestly, past that
     point**: a column this codebase has never heard of (a completely different word, not a
-    formatting variant) is still an unmatched title and a plain "no title column" skip — the
-    fix is broader matching, not a guess at an unfamiliar word. For a spreadsheet shaped
+    formatting variant) still leaves that field unmatched — a missing title is no longer a skip
+    (P0-145, above, auto-generates one), but a missing category or an unparsable price still is —
+    the fix is broader matching, not a guess at an unfamiliar word. For a spreadsheet shaped
     differently enough that no synonym list will ever cover it, the ops assistant chat (any
     role, one click from the front page — P0-69) already has full `catalog.*` tool access and
     can be handed the same rows as plain text to interpret with actual judgement, which no
@@ -6206,6 +6218,7 @@ Where each feature is enforced today:
 | P0-142 | `ops/test/catalog-write.test.mjs`, `ops/test/items-route.test.mjs` |
 | P0-143 | `shared/commerce/square/test/square.test.mjs` |
 | P0-144 | `ops/test/catalog-write.test.mjs`, `ops/test/items-route.test.mjs` |
+| P0-145 | `ops/test/catalog-write.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

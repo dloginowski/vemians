@@ -545,14 +545,14 @@ check("test_PRD_P0_89_batch_preview_confirm__the_batch_review_page_uses_the_same
   const html = batchReviewPage(
     {
       ready: [{ row: 2, title: "Wool Coat", url: "https://ops.vemians.com/approvals/abc", summary: "add Wool Coat, $450.00" }],
-      skipped: [{ row: 3, title: "(no title)", reason: "no title column, or it was empty" }],
+      skipped: [{ row: 3, title: "Outerwear 2", reason: "no style ID column, or it was empty — every product needs a style ID" }],
     },
     "products",
   );
   assert.match(html, /class="table-card"/, "the review page must use the same .table-card wrapper the chat uses");
   assert.match(html, /<th>Row<\/th><th>Title<\/th><th>Status<\/th><th>Detail<\/th>/, "columns must match the chat's own Row/Title/Status/Detail shape");
   assert.match(html, /<a href="https:\/\/ops\.vemians\.com\/approvals\/abc">Wool Coat<\/a>/, "a ready row's title must still link to its own approval");
-  assert.match(html, /no title column, or it was empty/, "a skipped row's own reason must still be shown");
+  assert.match(html, /no style ID column, or it was empty/, "a skipped row's own reason must still be shown");
   assert.doesNotMatch(html, /<ol>/, "the old separate ready-list <ol> must be gone");
   assert.doesNotMatch(html, /<ul>/, "the old separate skipped-list <ul> must be gone");
 });
