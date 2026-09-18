@@ -1812,6 +1812,15 @@ ${INPUT_BAR_CSS}
    flex-column box — caught live: every child rendered stacked in a tall
    column instead of side by side. */
 .item-edit .category-title-row form { display: contents; }
+/* "Cost and MSRP should always be there." MSRP has no product-wide concept
+   in Square (only a variation has a price), so it needs its own <form>,
+   posting to a different route (/items/<handle>/price) than the vendor
+   form beside it (/items/<handle>/square-attributes, which Cost lives on
+   instead, applied uniformly the same way vendor/vendor_code already are)
+   -- the same "two forms, one visual row" shape .category-title-row's own
+   comment just above already established, for the exact same specificity
+   reason. */
+.item-edit .vendor-row form { display: contents; }
 /* "As a general rule, in the details panel, there should not be any
    orange highlights on anything unless it is dirty... the checkbox to
    save the page, that's orange when something is dirty. If anything or
@@ -2002,6 +2011,11 @@ ${INPUT_BAR_CSS}
 /* "Center the vendor SKU content too" — the owner's own words, extending
    the same centering already given to style_id to this field. */
 .item-edit input[name="vendor_code"] { text-align: center; }
+/* "Cost and MSRP should always be there... unit cost and MSRP boxes are
+   way too big — ten thousand dollars is the maximum we'll charge for a
+   piece of clothing" — $10,000.00 is 8 characters, narrower than the
+   10em default, and centered like every other short field on this row. */
+.item-unit-cost, .item-msrp { flex: 0 0 auto; width: 5em; text-align: center; }
 /* Title and description — the owner's own words: "where's the item label
    and where is the description fields? Shouldn't we be able to change
    that?" A plain-weight input rather than a second, competing heading
@@ -2583,8 +2597,8 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
              <textarea name="description" placeholder="Description">${esc(product.description ?? "")}</textarea>
            </form>
          </div>
-         <form method="post" action="/items/${esc(product.handle)}/square-attributes">
-           <div class="row">
+         <div class="row vendor-row">
+           <form method="post" action="/items/${esc(product.handle)}/square-attributes">
              <input type="text" name="vendor" value="${esc(product.vendor ?? "")}" hidden>
              <div class="vendor-picker">
                <button type="button" class="vendor-picker-btn" aria-label="Choose a vendor" title="Choose a vendor">
@@ -2601,8 +2615,12 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
                  ? `<span class="vendor-commission-badge" title="Set centrally, in Admin → Vendors">${esc(String(product.commission_pct))}%</span>`
                  : ""
              }
-           </div>
-         </form>
+             <input class="item-unit-cost" name="unit_cost" value="${product.unit_cost_minor ? esc((product.unit_cost_minor / 100).toFixed(2)) : ""}" placeholder="Cost" title="What this shop paid the vendor -- applied to every variation at once">
+           </form>
+           <form method="post" action="/items/${esc(product.handle)}/price">
+             <input class="item-msrp" name="price" value="${primaryVariant ? esc((primaryVariant.price_minor / 100).toFixed(2)) : ""}" placeholder="MSRP" title="Set every variation's own price at once">
+           </form>
+         </div>
        </div>`
     : "";
   /* REVISED: "remove add fields from items. I don't want to be adding

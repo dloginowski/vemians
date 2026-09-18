@@ -35,7 +35,7 @@ import { contentTypeFor, mediaKey, mintUploadTicket, verifyUploadTicket, STORABL
 import { mediaStoreFor, assetFileStoreFor, receiptFileStoreFor, runTool } from "./tools/index.js";
 import { contentTypeForAsset, extractText } from "./tools/assets.js";
 import { scanReceipt } from "./tools/receipt-ocr.js";
-import { listAllProducts, listCategories, listCustomFieldNames, listMirrorVendors } from "./tools/catalog-writer.js";
+import { listAllProducts, listCategories, listCustomFieldNames, listMirrorVendors, productByHandle, variantsOf } from "./tools/catalog-writer.js";
 import { applyFormEdits } from "./approval-forms.js";
 import { syncFromSquare, SYNC_CRON, FREQUENT_CRON } from "./sync.js";
 import { verifyWebhook, normaliseWebhook } from "../../shared/commerce/square/webhooks.js";
@@ -593,7 +593,8 @@ async function ops(request, env, path) {
       path.endsWith("/square-attributes") ||
       path.endsWith("/category") ||
       path.endsWith("/details") ||
-      path.endsWith("/inventory"))
+      path.endsWith("/inventory") ||
+      path.endsWith("/price"))
   ) {
     const email = identity.claims?.email;
     if (typeof email !== "string" || !email.includes("@")) {
@@ -626,7 +627,9 @@ async function ops(request, env, path) {
               ? "/category"
               : path.endsWith("/details")
                 ? "/details"
-                : "/inventory";
+                : path.endsWith("/inventory")
+                  ? "/inventory"
+                  : "/price";
     const handle = path.slice("/items/".length, path.length - suffix.length);
 
     let form;
@@ -771,13 +774,42 @@ async function ops(request, env, path) {
       toolName = "catalog.update_product";
       args = { handle, category_id: categoryId };
       summaryNoun = "category";
+    } else {
+      /* "Cost and MSRP should always be there" — brought back after "get
+         rid of the variations row entirely" turned out to mean per-
+         variation editing specifically, not these two product-wide bulk
+         fields. Cost (unit_cost_minor) already has a home on the vendor's
+         own square-attributes form above, applied uniformly to every
+         variation by updateProduct's own per-variation fallback. MSRP has
+         no such product-wide concept in Square at all — only a variation
+         has a price — so this route is the one place that still resends
+         EVERY existing variation (title/currency untouched, price_minor
+         alone overridden), the same "resend the whole thing" shape the
+         old, now-removed /variations route always used, just built here
+         from the mirror's own current state instead of hidden per-
+         variation form fields the client no longer renders. */
+      const priceRaw = String(form.get("price") ?? "").trim();
+      if (priceRaw === "") {
+        return json({ error: "give an MSRP" }, 400);
+      }
+      const priceMinor = parsePriceToMinor(priceRaw);
+      const product = await productByHandle(env.CATALOG_MIRROR, handle);
+      if (!product) {
+        return json({ error: `no product with handle '${handle}' in the mirror` }, 400);
+      }
+      const current = await variantsOf(env.CATALOG_MIRROR, product.id);
+      toolName = "catalog.update_product";
+      args = {
+        handle,
+        variations: current.map((v) => ({
+          variant_id: v.id,
+          title: v.title,
+          currency: v.currency,
+          price_minor: priceMinor,
+        })),
+      };
+      summaryNoun = "MSRP";
     }
-    /* "Get rid of the variations row entirely. I don't want to handle
-       variations from inside of our ops menu. We'll do variations from
-       Square." — /inventory's own stock count (above) is the only ops-
-       side surface left for a variation; title/price/unit cost editing
-       has no route left to reach at all, so every suffix this block
-       accepts is now handled by one of the branches above. */
 
     /* Applies immediately — no second, separate "Yes, do this" confirmation
        page. The owner's own words: "I'm still seeing confirmation dialogs

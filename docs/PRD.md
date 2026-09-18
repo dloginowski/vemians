@@ -4058,6 +4058,32 @@ that does not trace to one of these is a process failure (see §12).
     cost rows — is removed outright, not just unreachable: a request there now falls all the way
     through to the app's own generic 404, the same as any other unrecognized path.
 
+    **REVISED: Cost and MSRP are back — removing per-variation editing never meant removing these two
+    product-wide bulk fields.** The owner's own words, after the previous revision dropped both along
+    with the per-variation rows they used to broadcast into: "where's my cost and my MSRP? It needs to
+    be on the right of vendors... those should be there always." Cost (`unit_cost_minor`) is the easy
+    half — it moves back INTO the vendor's own `square-attributes` `<form>` as a real, named
+    `input[name="unit_cost"]` (`.item-unit-cost`), applied uniformly to every variation the same way
+    `updateProduct`'s own per-variation fallback already treats a product-wide unit cost, exactly the
+    route this field always posted through; no route change needed. MSRP has no such product-wide
+    concept in Square at all — only a variation carries its own price — so it needed a genuinely new
+    mechanism, not a revived broadcaster: a new `/items/<handle>/price` route (`index.js`) takes one
+    `price` value, reads the product's OWN current variations straight from the mirror
+    (`productByHandle`/`variantsOf`, both already exported by `catalog-writer.js`), and calls
+    `catalog.update_product` with every existing variation resent — `variant_id`/`title`/`currency`
+    preserved untouched, `price_minor` alone overridden — the same "resend the whole thing" shape the
+    old, removed `/variations` route always used for this exact reason (Square's own
+    `UpsertCatalogObject` is full-replacement), just built from the mirror's own current state
+    server-side now instead of hidden per-variation form fields the client no longer renders at all.
+    Since MSRP reaches a different tool through a different route than Cost/vendor, it cannot live in
+    the same `<form>` — `views.js` wraps both forms in one `.vendor-row` div and gives each
+    `display: contents` (the exact same "two forms, one visual row" shape `.category-title-row`'s own
+    two forms already use, for the identical specificity reason), so they still render as a single row
+    with the vendor picker, `vendor_code`, the commission badge, Cost, and now MSRP, left to right.
+    Both fields always render, with no vendor at all included — the same "visible always, refused
+    server-side only if actually used with no vendor" rule Cost already had before this whole
+    variations rework began.
+
 71. **`Test-PRD-P0-136-square_custom_attributes`** — The owner's own words, having weighed "ours,
     not Square's" (P0-71's own `channel`/`custom_fields`) against not reinventing something Square
     already offers: "why do we need to have our own custom fields then? It doesn't make sense... we
