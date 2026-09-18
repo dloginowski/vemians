@@ -2672,6 +2672,43 @@ check("test_PRD_P0_138_nested_categories__admin_opening_the_add_form_auto_fills_
   );
 });
 
+check("test_PRD_P0_138_nested_categories__admin_backfills_every_blank_numeric_id_on_load_not_just_the_add_form", async () => {
+  /* REVISED: "you should never have any categories without an ID at all
+     assigned to it... if you have one and there is a default, just
+     increase them and iterate them by value, so that way you don't have
+     any uninitialized categories" — the owner's own words, generalizing
+     the add-form's own auto-fill (test above) to every ALREADY-EXISTING
+     blank category too, however it got that way (synced fresh from
+     Square, created by an agent, or legacy data). The server still ships
+     a blank numeric_id exactly as before -- this is a client-side,
+     load-time fill, never a silent server-side write. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  assert.match(
+    body,
+    /function backfillMissingNumericIds\(nodes\) \{\s*\n\s*for \(const node of nodes\)/,
+    "a helper must walk every blank in a pool, assigning nextNumericId's own increment to each in turn",
+  );
+  assert.match(
+    body,
+    /backfillMissingNumericIds\(\[\.\.\.document\.querySelectorAll\("\.admin-section-body > \.admin-category-node"\)\]\);/,
+    "must run for the top-level pool",
+  );
+  assert.match(
+    body,
+    /backfillMissingNumericIds\(\[\.\.\.document\.querySelectorAll\("\.admin-category-children \.admin-category-node"\)\]\);/,
+    "must run for the subcategory pool -- every subcategory anywhere in the tree, the same one pool set_category_number itself enforces",
+  );
+  /* Knitwear (cat4) has no numeric_id in this fixture -- still rendered
+     blank by the server; the fill above happens only once this script
+     actually runs in a browser. */
+  const cat4Idx = body.indexOf("Knitwear");
+  const cat4Row = body.slice(cat4Idx, body.indexOf("admin-category-children", cat4Idx));
+  assert.match(cat4Row, /<input class="admin-category-numeric-id" name="numeric_id" value="" /);
+});
+
 check("test_PRD_P0_138_nested_categories__admin_tree_indents_children_by_the_same_shared_toggle_width", async () => {
   const mirror = mirrorDb();
   seedProduct(mirror);

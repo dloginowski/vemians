@@ -3899,6 +3899,34 @@ function nextNumericId(siblingNodes) {
   return String(used.length ? Math.max(...used) + 1 : 1).padStart(2, "0");
 }
 
+/* "You should never have any categories without an ID at all assigned to
+   it... if you have one and there is a default, just increase them and
+   iterate them by value, so that way you don't have any uninitialized
+   categories" — the owner's own words. A category can arrive with a blank
+   numeric_id from more than the add-form this codebase controls (synced
+   fresh from Square, created by an agent/API caller, or legacy data from
+   before this convention existed), so this runs once on every page load
+   rather than only at the moment of adding one. The same nextNumericId
+   pool-and-increment logic the add-form already uses, applied to every
+   already-existing blank in turn — reading nodes' OWN live values on each
+   call means assigning one blank's number is immediately visible to the
+   next call, so several blanks in the same pool still land on distinct,
+   sequential numbers. Only marks the field dirty (refreshDirtyState) --
+   an assignment is never written on its own; "we can change these by
+   hand" still holds all the way up to the next Save All click. */
+function backfillMissingNumericIds(nodes) {
+  for (const node of nodes) {
+    const input = node.querySelector(":scope > .admin-category-row .admin-category-numeric-id");
+    if (!input || input.value.trim()) continue;
+    const assigned = nextNumericId(nodes);
+    if (Number(assigned) > 99) continue;
+    input.value = assigned;
+    refreshDirtyState(input);
+  }
+}
+backfillMissingNumericIds([...document.querySelectorAll(".admin-section-body > .admin-category-node")]);
+backfillMissingNumericIds([...document.querySelectorAll(".admin-category-children .admin-category-node")]);
+
 function positionErrorPopover(p, anchor) {
   const rect = anchor.getBoundingClientRect();
   const above = rect.top - p.offsetHeight - 6;
