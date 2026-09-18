@@ -5503,6 +5503,20 @@ that does not trace to one of these is a process failure (see §12).
     renders no remove button at all, exactly like one with subcategories — never a disabled one a
     manager could click only to be refused.
 
+    **REVISED: a category with a product assigned keeps a visible, disabled remove button after
+    all — only "still has subcategories" gets the fully-invisible treatment.** The owner's own
+    correction: "I didn't want you to remove the delete button from subcategories that has items
+    associated. I just wanted to disable it so that its alignment stays consistent." The invisible
+    treatment above was only ever explicitly asked for the "still has subcategories" case (the
+    REVISED entry before this one); extending it to "still has a product assigned" too was this
+    codebase's own overreach for consistency, not something asked for, and it cost the row its own
+    alignment against every sibling that does render a button. `renderAdminCategoryNodes`
+    (`views.js`) now branches the two cases separately: `hasChildren` still renders no
+    `.admin-remove-btn` at all; `hasProducts` (with no children of its own) renders one, `disabled`,
+    titled "Move its products to a different category first" — the `.admin-remove-btn:disabled` CSS
+    rule this file's own history says was removed as dead code (two REVISED entries up) is back,
+    scoped to exactly this one case.
+
 74. **`Test-PRD-P0-139-honest_write_failures`** — A Square write refused with a plain `Square POST
     /v2/catalog/object failed with 400` and nothing else — the owner's own words, pasting exactly that
     line after an edit silently went nowhere: "just make sure all of the fields work... with this post
