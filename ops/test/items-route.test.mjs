@@ -1718,19 +1718,45 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_save_button_reads_icon
 check("test_PRD_P0_135_item_edit_applies_immediately__web_and_active_match_the_save_buttons_own_pill_style", async () => {
   /* "Use the same style for Web and Active checkboxes that you're using
      for my save checkbox." The exact same box model .item-save-all uses
-     (border, radius, padding, font-weight), colored the same way: accent-
-     filled when ON, the save button's own muted-outline-and-transparent
-     look when OFF -- not the earlier plain, unstyled labeled checkbox. */
+     (border, radius, padding, font-weight) -- not the earlier plain,
+     unstyled labeled checkbox. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const body = await (await get("/items", MANAGER, env(mirror))).text();
   assert.match(
     body,
-    /\.item-checkbox-toggle \{\s*\n\s*display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 13px; font-weight: 600;\s*\n\s*padding: 6px 14px; border: 1px solid var\(--muted\); border-radius: 6px; background: transparent; color: var\(--muted\);\s*\n\s*cursor: pointer; white-space: nowrap;\s*\n\s*\}/,
+    /\.item-checkbox-toggle \{\s*\n\s*display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 13px; font-weight: 600;\s*\n\s*padding: 6px 14px; border: 1px solid var\(--rule\); border-radius: 6px; background: var\(--image-ground\); color: var\(--muted\);\s*\n\s*cursor: pointer; white-space: nowrap;\s*\n\s*\}/,
+  );
+});
+
+check("test_PRD_P0_135_item_edit_applies_immediately__web_and_active_use_gray_not_orange_orange_stays_reserved_for_dirty", async () => {
+  /* REVISED: "in item view, orange is dirty... when something is
+     active, I want like a brighter version of a gray. When it's not
+     active, I want it dim... orange means that it needs to be saved."
+     Checking Web/Active used to fill the pill --accent (the exact same
+     color .field-dirty's own outline already uses for a genuinely
+     unsaved change), reading as "needs saving" the instant it was
+     checked even with nothing actually dirty. Neither state may use
+     --accent any more -- OFF is a dim --image-ground fill, ON is a
+     brighter --muted fill, and the checkbox's own .field-dirty outline
+     (unchanged, still --accent) is the only orange this control can
+     ever show. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.match(
+    body,
+    /\.item-checkbox-toggle:has\(input:checked\) \{ border-color: var\(--muted\); background: var\(--muted\); color: var\(--ground\); \}/,
+  );
+  assert.doesNotMatch(
+    body,
+    /\.item-checkbox-toggle[^{]*\{[^}]*--accent/s,
+    "neither the on nor the off state of this control may use --accent -- that color is reserved for a genuinely dirty field",
   );
   assert.match(
     body,
-    /\.item-checkbox-toggle:has\(input:checked\) \{ border-color: var\(--accent\); background: var\(--accent\); color: var\(--ground\); \}/,
+    /\.item-tile input\.field-dirty\[type="checkbox"\] \{ outline: 1\.5px solid var\(--accent\); outline-offset: 1px; \}/,
+    "the checkbox's own dirty outline must still exist and still be the only orange left",
   );
 });
 
