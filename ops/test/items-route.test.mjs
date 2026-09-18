@@ -983,6 +983,16 @@ check("test_PRD_P0_136_square_custom_attributes__cost_prefills_from_the_vendors_
   assert.match(body, /<input class="item-unit-cost" name="unit_cost" value="42\.50" placeholder="Cost"/);
 });
 
+check("test_PRD_P0_136_square_custom_attributes__cost_and_msrp_are_narrow_four_digits_no_cents", async () => {
+  /* "Why did you make cost and MSRP so wide? We probably don't even need
+     cents in there. It's going to be like maximum four digits. So just
+     don't make them so wide." — narrowed from the earlier 5em (sized for
+     a full "$10,000.00") down to 3.5em. */
+  const mirror = mirrorDb();
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.match(body, /\.item-unit-cost, \.item-msrp \{ flex: 0 0 auto; width: 3\.5em; text-align: center; \}/);
+});
+
 check("test_PRD_P0_136_square_custom_attributes__cost_and_msrp_are_two_separate_forms_merged_into_one_visual_row", async () => {
   /* MSRP cannot live in the SAME <form> as Cost/vendor -- it reaches a
      different tool (catalog.update_product) through a different route

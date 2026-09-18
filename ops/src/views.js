@@ -2011,11 +2011,12 @@ ${INPUT_BAR_CSS}
 /* "Center the vendor SKU content too" — the owner's own words, extending
    the same centering already given to style_id to this field. */
 .item-edit input[name="vendor_code"] { text-align: center; }
-/* "Cost and MSRP should always be there... unit cost and MSRP boxes are
-   way too big — ten thousand dollars is the maximum we'll charge for a
-   piece of clothing" — $10,000.00 is 8 characters, narrower than the
-   10em default, and centered like every other short field on this row. */
-.item-unit-cost, .item-msrp { flex: 0 0 auto; width: 5em; text-align: center; }
+/* "Why did you make cost and MSRP so wide? We probably don't even need
+   cents in there. It's going to be like maximum four digits." — 3.5em
+   fits four digits comfortably with no cents, narrower than the earlier
+   5em (sized for a full "$10,000.00"), still centered like every other
+   short field on this row. */
+.item-unit-cost, .item-msrp { flex: 0 0 auto; width: 3.5em; text-align: center; }
 /* Title and description — the owner's own words: "where's the item label
    and where is the description fields? Shouldn't we be able to change
    that?" A plain-weight input rather than a second, competing heading
