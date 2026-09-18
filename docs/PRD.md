@@ -5231,6 +5231,71 @@ that does not trace to one of these is a process failure (see §12).
     behavior (P0-138's own earlier entries, above) changed at all, only the one surface that reaches
     it.
 
+    **REVISED: the Categories tree's own bulk-save mechanism is back too — "I want the same bulk save
+    mechanism where things get marked dirty and then I hit the save button to save them all. I don't
+    want to see a checkbox for every single field."** Rename and numeric-id no longer carry their own
+    per-row submit button (a small checkmark icon the owner read as "a checkbox for every single
+    field") — `renderAdminCategoryNodes`'s own `<form>`s have no button of their own at all now, and
+    ONE global `.admin-save-all` button (`adminPage`, top of the page, disabled until something is
+    actually dirty) submits every dirty form in turn and reloads once at the end, the exact same
+    `isFieldDirty`/`refreshDirtyState`/one-Save-button shape the Items tab's own tile already uses,
+    ported to operate over the whole `document` instead of one `.item-tile`. Removing a category stays
+    its OWN immediate, non-batched click — a destructive one-shot action was never a field to mark
+    dirty and save later, on the tile or here. A refusal still surfaces inline, next to the field that
+    was refused (`showFormError`/`positionErrorPopover`, duplicated from the tile's own copy rather
+    than shared, since the two pages hold no CSS module in common to put one copy in) — which meant the
+    `/admin/*` POST routes themselves (`index.js`) needed to start answering field-level refusals with
+    JSON instead of a whole `refusalPage`, the same convention the Items tab's own routes already
+    follow, for the same reason: the fetch-driven Save-all needs `data.error` to show something more
+    useful than a generic "refused."
+
+    **REVISED: Vendors is an expanding header now too, matching Categories exactly — "vendors should
+    be an expanding header just like all the other headers. Keep it consistent."** Both `.admin-section`s
+    (Categories, Vendors, and the new Custom Fields below) share one `.admin-section-header`/
+    `-toggle`/`-body` shape — a caret, a label, collapsed/expanded via `.expanded` — the identical
+    convention `.variations-header`/the old `.categories-header` already established elsewhere on this
+    app, rather than Categories alone getting the bar treatment and Vendors staying a bare `<h2>`. All
+    three start expanded by default on load (there is nothing else on this page competing for space,
+    unlike the busy tile the old accordions collapsed inside), but stay collapsible for a growing list.
+    A vendor's own commission input lost its per-row save button the same way a category's rename/
+    numeric-id did, folding into the same global Save-all.
+
+    **REVISED, `Test-PRD-P0-71-items_tab`: custom field NAMES move to the Admin panel, off every
+    product.** The owner's own words: "remove add fields from items. I don't want to be adding fields
+    per item. If I'm adding custom fields, I'm adding them to all items. And this is done inside of
+    the admin panel, not inside of the item panel." `mirror_product.custom_fields` itself is UNCHANGED
+    — still the same freeform per-product JSON blob, "neither this schema nor the ops UI has to know a
+    field's name in advance to keep it" (P0-71's own original comment on that column). What changes is
+    DISCOVERY: a new table, `mirror_custom_field_name` (`shared/commerce/square/schema.sql`, migration
+    `0006_custom_field_names.sql`) — purely OURS, no Square correlate whatsoever, unlike every other
+    table in this schema — holds the set of NAMES an admin has registered. Two new tools
+    (`catalog-write.js`): `catalog.custom_field_names` (T0, list) and `catalog.create_custom_field_name`
+    (T2, manager, refuses a name already registered case-insensitively) — the latter never calls
+    Square at all (no `resources: ["square"]`, the same shape `catalog.set_vendor_commission` already
+    has), so unlike category/vendor creation it is provably testable end to end even in a test
+    environment with no `SQUARE_ACCESS_TOKEN`. `listCustomFieldNames` (`catalog-writer.js`) mirrors
+    `listCategories`/`listMirrorVendors`'s own exact shape. A new `/admin/fields/create` route
+    (`index.js`) and a third `adminPage()` section, "Custom Fields," reach it, matching Categories'/
+    Vendors' own list-plus-add-form shape (no remove yet — not asked for, and removing a NAME while
+    per-product VALUES for it still exist raises a question — where does that data go? — the owner
+    has not answered).
+
+    **The Items tab itself only ever shows a VALUE row for a name already registered, or already set
+    on this specific product — never a blank row to invent a new name.** `itemTile`'s own
+    `existingFieldInputs`/`blankFieldInputs`/the whole `<details class="item-add-field">` disclosure
+    are gone outright; `orderedFieldNames` is `customFieldNames` (now threaded into `itemsPage`/
+    `itemTile` alongside `allCategories`/`allVendors`) followed by any name THIS product happens to
+    carry that is not in that list (a value already set is never silently hidden from view just
+    because its name was never registered, or is no longer). Each row's own name is a `type="hidden"`
+    input now, not a free-text one — renaming a field is an admin decision, not a per-item one — shown
+    instead as a plain, always-visible `.field-name-label` (a placeholder alone would vanish the
+    moment the value beside it is no longer empty, exactly the moment knowing the name matters most).
+    `catalog.set_custom_fields` itself, and the `/items/<handle>/custom-fields` route, needed no change
+    at all — the `field_name_N`/`field_value_N` pairs it already parses are identical either way; only
+    where a NEW name could ever originate moved. The deep-link hash (P0-132) lost its own `"admin"`
+    token in the same change — there is no disclosure left to open or close, so a tile's hash now
+    carries only which item is open.
+
 74. **`Test-PRD-P0-139-honest_write_failures`** — A Square write refused with a plain `Square POST
     /v2/catalog/object failed with 400` and nothing else — the owner's own words, pasting exactly that
     line after an edit silently went nowhere: "just make sure all of the fields work... with this post

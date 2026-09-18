@@ -2171,7 +2171,7 @@ check("test_PRD_P0_37_mirror_is_ours__no_authoring_tool_writes_a_square_fact_to_
    * only writer of a Square-sourced column is shared/commerce/square/mirror.js,
    * reading back what Square now says.
    *
-   * FOUR DELIBERATE EXCEPTIONS, allowlisted by name below rather than left
+   * FIVE DELIBERATE EXCEPTIONS, allowlisted by name below rather than left
    * to widen this regex's blind spot: catalog.set_channel's own
    * `UPDATE mirror_product SET channel = ...` (Test-PRD-P0-71-product_channel),
    * catalog.set_custom_fields'/catalog.create_product's own
@@ -2190,8 +2190,14 @@ check("test_PRD_P0_37_mirror_is_ours__no_authoring_tool_writes_a_square_fact_to_
    * none has a second writer to diverge from, and mirror.js's own sync
    * deliberately never names any of the four in its UPDATE or INSERT, for
    * exactly this reason (see the comments on all four columns in
-   * shared/commerce/square/schema.sql). The assertion below still forbids
-   * that same file touching any OTHER mirror column.
+   * shared/commerce/square/schema.sql). The FIFTH, catalog.create_custom_
+   * field_name's own `INSERT INTO mirror_custom_field_name`, is not even
+   * the same shape of exception — mirror_custom_field_name has no Square
+   * correlate WHATSOEVER (unlike the other four, each an OURS-only column
+   * bolted onto an otherwise Square-mirrored table), so mirror.js's own
+   * sync has no row here to ever diverge from in the first place. The
+   * assertion below still forbids that same file touching any OTHER
+   * mirror column or table.
    */
   const offenders = [];
   for (const file of fs.readdirSync(TOOLS_DIR).filter((n) => n.endsWith(".js"))) {
@@ -2200,6 +2206,7 @@ check("test_PRD_P0_37_mirror_is_ours__no_authoring_tool_writes_a_square_fact_to_
       if (file === "catalog-write.js" && /^UPDATE\s+mirror_product$/i.test(m[0])) continue;
       if (file === "catalog-write.js" && /^UPDATE\s+mirror_category$/i.test(m[0])) continue;
       if (file === "catalog-write.js" && /^UPDATE\s+mirror_vendor$/i.test(m[0])) continue;
+      if (file === "catalog-write.js" && /^INSERT\s+INTO\s+mirror_custom_field_name$/i.test(m[0])) continue;
       offenders.push(`${file}: ${m[0]}`);
     }
   }
@@ -3019,6 +3026,38 @@ check("test_PRD_P0_136_square_custom_attributes__set_vendor_commission_is_ours_n
   const before = f.calls().length;
   await approvedCall(f, "catalog.set_vendor_commission", { vendor_id: vendorId, commission: 25 });
   assert.equal(f.calls().length, before, "a pure mirror write must never reach Square");
+});
+
+check("test_PRD_P0_71_items_tab__catalog_custom_field_names_lists_every_registered_name", async () => {
+  const f = await fixture();
+  const empty = await runTool("catalog.custom_field_names", {}, f.ctx);
+  assert.equal(empty.ok, true, empty.error);
+  assert.deepEqual(empty.data.names, []);
+
+  await approvedCall(f, "catalog.create_custom_field_name", { name: "Fabric", reason: "test" });
+  const res = await runTool("catalog.custom_field_names", {}, f.ctx);
+  assert.equal(res.ok, true, res.error);
+  assert.equal(res.data.count, 1);
+  assert.deepEqual(res.data.names, ["Fabric"]);
+});
+
+check("test_PRD_P0_71_items_tab__create_custom_field_name_is_ours_never_calls_square", async () => {
+  const f = await fixture();
+  const before = f.calls().length;
+  const res = await approvedCall(f, "catalog.create_custom_field_name", { name: "Fabric", reason: "test" });
+  assert.equal(res.ok, true, res.error);
+  assert.equal(res.data.created, true);
+  assert.equal(f.calls().length, before, "a pure mirror write must never reach Square");
+  const row = f.mirror("SELECT name FROM mirror_custom_field_name WHERE name = 'Fabric'")[0];
+  assert.equal(row.name, "Fabric");
+});
+
+check("test_PRD_P0_71_items_tab__create_custom_field_name_refuses_a_name_that_already_exists", async () => {
+  const f = await fixture();
+  await approvedCall(f, "catalog.create_custom_field_name", { name: "Fabric", reason: "test" });
+  const res = await runTool("catalog.create_custom_field_name", { name: "fabric", reason: "test" }, f.ctx);
+  assert.equal(res.ok, false);
+  assert.match(res.error, /already a registered custom field/);
 });
 
 check("test_PRD_P0_136_square_custom_attributes__commission_must_be_a_whole_number_0_to_100", async () => {

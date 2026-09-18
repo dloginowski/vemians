@@ -99,6 +99,7 @@ import { CAPS } from "./caps.js";
 import {
   deriveCategoryIdForStyleId,
   listCategories,
+  listCustomFieldNames,
   listMirrorVendors,
   mergeVariations,
   priceBand,
@@ -2036,6 +2037,63 @@ export const catalogWriteTools = {
         previous_commission: t.preflight.vendor.commission_pct,
         authority: "ours",
       };
+    },
+  },
+
+  "catalog.custom_field_names": {
+    tier: "T0",
+    domain: "catalog",
+    stores: ["catalog_mirror"],
+    minRole: "staff",
+    describe:
+      "List every globally-known custom field name (mirror_custom_field_name) — the closed set the " +
+      "Items tab offers a value row for on every product, whether or not that particular product has " +
+      "a value for it yet. Call this before naming a new one, to see whether one already exists under " +
+      "a slightly different spelling.",
+    undo: null,
+    schema: {},
+    async run(_args, t) {
+      const names = await listCustomFieldNames(t.db.catalog_mirror);
+      return { names, count: names.length };
+    },
+  },
+
+  /*
+   * REVISED: "remove add fields from items. I don't want to be adding
+   * fields per item. If I'm adding custom fields, I'm adding them to all
+   * items. And this is done inside of the admin panel, not inside of the
+   * item panel" — the owner's own words. A field's NAME is registered
+   * here, once, globally; catalog.set_custom_fields (unchanged) is still
+   * what actually gives ONE product a VALUE for it. Never touches Square
+   * at all — mirror_custom_field_name is purely OURS, with no Square
+   * correlate whatsoever, unlike every other table this tool layer writes.
+   */
+  "catalog.create_custom_field_name": {
+    tier: "T2",
+    domain: "catalog",
+    stores: ["catalog_mirror"],
+    minRole: "manager",
+    describe:
+      "Register a new custom field NAME, globally — it then gets its own value row on every product in " +
+      "the Items tab (blank until a value is actually set there with catalog.set_custom_fields). Refused " +
+      "if this exact name is already registered (case-insensitive) — nothing to do twice.",
+    undo: "no undo yet: a registered field name cannot currently be removed",
+    schema: {
+      name: { type: "string", required: true, maxLength: CAPS.CATALOG_CUSTOM_FIELD_KEY_MAX },
+      reason: { type: "string", required: true, maxLength: CAPS.MAX_TEXT },
+    },
+    async check(args, t) {
+      const name = args.name.trim();
+      if (!name) return { denied: "a custom field needs a name" };
+      const names = await listCustomFieldNames(t.db.catalog_mirror);
+      if (names.some((n) => n.toLowerCase() === name.toLowerCase())) {
+        return { denied: `"${name}" is already a registered custom field — nothing to add` };
+      }
+      return { ok: true, summary: `register the custom field "${name}" — ${args.reason}`, preflight: { name } };
+    },
+    async run(_args, t) {
+      await t.db.catalog_mirror.prepare("INSERT INTO mirror_custom_field_name (name) VALUES (?)").bind(t.preflight.name).run();
+      return { created: true, name: t.preflight.name, authority: "ours" };
     },
   },
 };
