@@ -2199,6 +2199,16 @@ function sortByNumericId(a, b) {
   return an !== bn ? an - bn : a.name.localeCompare(b.name);
 }
 function renderAdminCategoryNodes(categories, parentId) {
+  /* "We were never going to go deep into more than one level of
+     subcategories, so I should not have a plus button next to any of my
+     subcategories because we'll never be adding any [under them]." Every
+     node THIS call renders shares the same parentId — null means these
+     are top-level categories (still get their own "add a subcategory"
+     control), anything else means these are already subcategories one
+     level deep, which never get a "+" of their own. Never hides an
+     already-existing deeper node, if one somehow exists from before this
+     rule — only stops a NEW one from being added through this panel. */
+  const isTopLevel = parentId === null;
   const children = categories.filter((c) => (c.parent_id ?? null) === parentId).sort(sortByNumericId);
   return children
     .map((c) => {
@@ -2225,15 +2235,19 @@ function renderAdminCategoryNodes(categories, parentId) {
             <input class="admin-category-numeric-id" name="numeric_id" value="${esc(c.numeric_id ?? "")}" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — leave blank to remove it">
           </form>
           <button type="button" class="admin-remove-btn" data-category-id="${esc(c.id)}" aria-label="Remove ${esc(c.name)}"${removeDisabled}>${TRASH_ICON}</button>
-          <button type="button" class="admin-category-add-toggle" data-parent-id="${esc(c.id)}" aria-label="Add a subcategory under ${esc(c.name)}" title="Add a subcategory">+</button>
+          ${isTopLevel ? `<button type="button" class="admin-category-add-toggle" data-parent-id="${esc(c.id)}" aria-label="Add a subcategory under ${esc(c.name)}" title="Add a subcategory">+</button>` : ""}
         </div>
         <div class="admin-category-children">${renderAdminCategoryNodes(categories, c.id)}</div>
-        <form method="post" action="/admin/categories/create" class="admin-category-add-form" hidden style="padding-left: ${CATEGORY_NODE_TOGGLE_PX}px">
+        ${
+          isTopLevel
+            ? `<form method="post" action="/admin/categories/create" class="admin-category-add-form" hidden style="padding-left: ${CATEGORY_NODE_TOGGLE_PX}px">
           <input type="hidden" name="parent_id" value="${esc(c.id)}">
           <span class="admin-category-toggle-spacer"></span>
           <input type="text" class="admin-category-new-name" name="name" placeholder="Subcategory name" maxlength="60">
           <input class="admin-category-new-numeric-id" name="numeric_id" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — optional, can be set later">
-        </form>
+        </form>`
+            : ""
+        }
       </div>`;
     })
     .join("");
