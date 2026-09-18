@@ -71,6 +71,16 @@ export async function listMirrorVendors(db) {
   return (res.results ?? []).map((r) => ({ id: r.id, name: r.name, commission_pct: r.commission_pct }));
 }
 
+/* Every globally-known custom field NAME, for the admin panel and the
+   Items tab alike — "if I'm adding custom fields, I'm adding them to all
+   items... this is done inside of the admin panel, not inside of the
+   item panel." No view needed (unlike categories/vendors) — this table
+   has no archived_at column at all, nothing to filter. */
+export async function listCustomFieldNames(db) {
+  const res = await db.prepare("SELECT name FROM mirror_custom_field_name ORDER BY name COLLATE NOCASE").bind().all();
+  return (res.results ?? []).map((r) => r.name);
+}
+
 /* NN-NN-NNN -> the category this style_id sorts to, or null if neither
    segment matches anything yet. The second (subcategory) segment is
    authoritative when it matches — subcategory numeric_ids are globally

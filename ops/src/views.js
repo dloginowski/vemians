@@ -1964,9 +1964,15 @@ ${INPUT_BAR_CSS}
 .item-edit { margin-top: 2px; padding-top: 6px; cursor: default; }
 .item-edit.item-edit-admin { border-top: 1px solid var(--rule); }
 .item-edit form { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
-.item-add-field { margin: 2px 0; }
-.item-add-field summary { cursor: pointer; color: var(--muted); font-size: 11px; }
 .item-edit .row, .variations-header .row { display: flex; gap: 6px; align-items: center; }
+/* A custom field's own NAME, registered once globally from /admin — no
+   longer typed here at all, so it needs an always-visible label rather
+   than a placeholder (which vanishes the moment the value beside it is
+   no longer empty, exactly the moment knowing the name matters most). */
+.field-name-label {
+  flex: 0 0 auto; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12px; color: var(--muted);
+}
 /* "Why are they all so wide?" — every text field used to stretch
    (flex: 1 1 auto) to fill an equal share of whatever row it shared, so
    a 0-100 commission or a style_id ended up as wide as a vendor name.
@@ -2154,7 +2160,16 @@ const MEDIA_BASE_URL = "https://media.vemians.com";
    own caret, collapsed by default; a subcategory's own add-row still
    hides behind its own +, revealed on click — the only thing that moved
    is which page this renders on and which routes its forms post to
-   (`/admin/categories/*` now, not `/items/<handle>/categories/*`). */
+   (`/admin/categories/*` now, not `/items/<handle>/categories/*`).
+   REVISED AGAIN: "I want the same bulk save mechanism where things get
+   marked dirty and then I hit the save button to save them all. I don't
+   want to see a checkbox for every single field." rename/number/create
+   are real <form>s with NO submit button of their own any more — the
+   page's one global Save button (adminPage, below) submits every dirty
+   one, the exact same fold-into-Save-all convention the Items tab's own
+   tile already established for these same two fields. Remove stays its
+   own immediate, non-batched click (a destructive one-shot action, never
+   a field to mark dirty and save later). */
 function renderAdminCategoryNodes(categories, parentId) {
   const children = categories
     .filter((c) => (c.parent_id ?? null) === parentId)
@@ -2178,17 +2193,12 @@ function renderAdminCategoryNodes(categories, parentId) {
           <form method="post" action="/admin/categories/rename" class="admin-category-rename-form">
             <input type="hidden" name="category_id" value="${esc(c.id)}">
             <input type="text" class="admin-category-name" name="name" value="${esc(c.name)}" maxlength="60" title="Rename ${esc(c.name)}">
-            <button type="submit" class="admin-save-btn" aria-label="Rename ${esc(c.name)}" title="Rename ${esc(c.name)}">${SAVE_ICON}</button>
           </form>
           <form method="post" action="/admin/categories/number" class="admin-category-number-form">
             <input type="hidden" name="category_id" value="${esc(c.id)}">
             <input class="admin-category-numeric-id" name="numeric_id" value="${esc(c.numeric_id ?? "")}" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — leave blank to remove it">
-            <button type="submit" class="admin-save-btn" aria-label="Set ${esc(c.name)}'s own ID" title="Set ${esc(c.name)}'s own ID">${SAVE_ICON}</button>
           </form>
-          <form method="post" action="/admin/categories/remove" class="admin-category-remove-form">
-            <input type="hidden" name="category_id" value="${esc(c.id)}">
-            <button type="submit" class="admin-remove-btn" aria-label="Remove ${esc(c.name)}"${removeDisabled}>${TRASH_ICON}</button>
-          </form>
+          <button type="button" class="admin-remove-btn" data-category-id="${esc(c.id)}" aria-label="Remove ${esc(c.name)}"${removeDisabled}>${TRASH_ICON}</button>
           <button type="button" class="admin-category-add-toggle" data-parent-id="${esc(c.id)}" aria-label="Add a subcategory under ${esc(c.name)}" title="Add a subcategory">+</button>
         </div>
         <div class="admin-category-children">${renderAdminCategoryNodes(categories, c.id)}</div>
@@ -2197,7 +2207,6 @@ function renderAdminCategoryNodes(categories, parentId) {
           <span class="admin-category-toggle-spacer"></span>
           <input type="text" class="admin-category-new-name" name="name" placeholder="Subcategory name" maxlength="60">
           <input class="admin-category-new-numeric-id" name="numeric_id" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — optional, can be set later">
-          <button type="submit" class="admin-add-btn" aria-label="Add ${esc(c.name)}'s own new subcategory" title="Add">+</button>
         </form>
       </div>`;
     })
@@ -2295,7 +2304,7 @@ function renderVendorPickerOptions(vendors, selectedName) {
     .join("");
 }
 
-function itemTile(product, canEdit, allCategories = [], allVendors = []) {
+function itemTile(product, canEdit, allCategories = [], allVendors = [], customFieldNames = []) {
   const fieldEntries = Object.entries(product.custom_fields ?? {});
   const searchText = [
     product.title,
@@ -2390,32 +2399,25 @@ function itemTile(product, canEdit, allCategories = [], allVendors = []) {
       : "") +
     (product.commission_pct != null ? `<div><span>Commission</span><span>${esc(String(product.commission_pct))}%</span></div>` : "");
 
-  /* ONE blank row for a brand-new field — "get rid of all except one add
-     custom field" — tucked inside the "Admin" disclosure (below) alongside
-     the category designer, collapsed by default, opened only when
-     actually adding one or managing categories. An EXISTING field's own
-     row (name + value, both still editable) stays outside the
-     disclosure, always visible; only the blank row for a field that
-     doesn't exist yet lives inside it. Both sets post to the same
-     form/endpoint (catalog.set_custom_fields' own merge treats them
-     identically — a key not mentioned is left untouched, so this and
-     the existing rows do not even need to share one <form> to stay
-     correct), so index.js's field_name_N/field_value_N parsing
-     (contiguous from 0) needs no change at all. */
-  const blankRows = Math.max(0, Math.min(1, CAPS.CATALOG_CUSTOM_FIELDS_MAX_KEYS - fieldEntries.length));
-  const existingFieldInputs = fieldEntries
+  /* REVISED: "remove add fields from items... if I'm adding custom
+     fields, I'm adding them to all items... this is done inside of the
+     admin panel, not inside of the item panel." A field's own NAME comes
+     entirely from customFieldNames (registered once, globally, from
+     /admin) now — never typed here. One row per registered name, in that
+     same order, value blank until this product actually has one; any
+     name this product already carries that somehow is not (or is no
+     longer) registered still gets appended, so an existing value is
+     never silently dropped from view. */
+  const fieldValues = new Map(fieldEntries);
+  const orderedFieldNames = [...customFieldNames, ...fieldEntries.map(([k]) => k).filter((k) => !customFieldNames.includes(k))];
+  const fieldValueInputs = orderedFieldNames
     .map(
-      ([k, v], i) =>
-        `<div class="row"><input name="field_name_${i}" value="${esc(k)}" placeholder="Field name">` +
-        `<input name="field_value_${i}" value="${esc(v)}" placeholder="Value (blank removes it)"></div>`,
+      (name, i) =>
+        `<div class="row"><input type="hidden" name="field_name_${i}" value="${esc(name)}">` +
+        `<span class="field-name-label" title="${esc(name)}">${esc(name)}</span>` +
+        `<input name="field_value_${i}" value="${esc(fieldValues.get(name) ?? "")}" placeholder="Value"></div>`,
     )
     .join("");
-  const blankFieldInputs = Array.from(
-    { length: blankRows },
-    (_, i) =>
-      `<div class="row"><input name="field_name_${fieldEntries.length + i}" placeholder="Field name">` +
-      `<input name="field_value_${fieldEntries.length + i}" placeholder="Value"></div>`,
-  ).join("");
 
   /* The variations accordion — the owner's own words: "an expandable
      accordion header for the variations... I want to see in the header
@@ -2657,38 +2659,22 @@ function itemTile(product, canEdit, allCategories = [], allVendors = []) {
          </form>
        </div>`
     : "";
-  /* "Get rid of the no custom fields... it should be just a horizontal
-     separator." The blank new-field row moves into its own <form> INSIDE
-     a disclosure, separate from existingFieldInputs' own — safe to split
-     (catalog.set_custom_fields' own fields argument is a PATCH; a key not
-     mentioned is left untouched, so each half stays correct submitted
-     alone).
-     REVISED: this disclosure used to also hold the Categories/Vendors
-     accordions ("that should be called Admin... move the category
-     designer header... in there because really that should be only
-     modified by an admin") — moved out to a single global /admin page
-     instead (adminPage, below), reached from the shell's own hamburger
-     menu: "move the admin section into that hamburger menu so that I can
-     administer everything from that one location instead of under each
-     product." This disclosure now only ever holds a blank custom-field
-     row, so it goes back to naming what it actually does. */
-  const customFieldsForm = canEdit
-    ? `<div class="item-edit item-edit-admin">
-         ${
-           existingFieldInputs
-             ? `<form method="post" action="/items/${esc(product.handle)}/custom-fields">${existingFieldInputs}</form>`
-             : ""
-         }
-         <details class="item-add-field">
-           <summary>Add field</summary>
-           ${
-             blankFieldInputs
-               ? `<form method="post" action="/items/${esc(product.handle)}/custom-fields">${blankFieldInputs}</form>`
-               : ""
-           }
-         </details>
-       </div>`
-    : "";
+  /* REVISED: "remove add fields from items. I don't want to be adding
+     fields per item. If I'm adding custom fields, I'm adding them to all
+     items. And this is done inside of the admin panel, not inside of the
+     item panel." No disclosure, no blank row to invent a new name here —
+     one row per NAME already registered globally (customFieldNames,
+     catalog.custom_field_names, administered from /admin), value blank
+     until this product actually has one. Any name a product happens to
+     carry that was never registered still gets its own row too, appended
+     after the registered ones — a real value is never silently hidden
+     from view just because it is not (or is no longer) in the list. */
+  const customFieldsForm =
+    canEdit && orderedFieldNames.length
+      ? `<div class="item-edit item-edit-admin">
+           <form method="post" action="/items/${esc(product.handle)}/custom-fields">${fieldValueInputs}</form>
+         </div>`
+      : "";
 
   const photoStyle = product.image_key ? ` style="background-image:url('${MEDIA_BASE_URL}/${esc(product.image_key)}')"` : "";
 
@@ -2719,10 +2705,10 @@ function itemTile(product, canEdit, allCategories = [], allVendors = []) {
   </article>`;
 }
 
-export function itemsPage({ role }, products, allCategories = [], allVendors = []) {
+export function itemsPage({ role }, products, allCategories = [], allVendors = [], customFieldNames = []) {
   const canEdit = role === "manager" || role === "owner";
   const tiles = products.length
-    ? products.map((p) => itemTile(p, canEdit, allCategories, allVendors)).join("\n")
+    ? products.map((p) => itemTile(p, canEdit, allCategories, allVendors, customFieldNames)).join("\n")
     : `<p class="hint">No products in the mirror yet.</p>`;
 
 
@@ -3335,21 +3321,6 @@ function onItemsGridChange(e) {
 document.getElementById("items-grid").addEventListener("input", onItemsGridChange);
 document.getElementById("items-grid").addEventListener("change", onItemsGridChange);
 
-/* The Admin <details> toggles via native browser behavior, never through
-   the delegated click handler above — so its own open/closed state is
-   caught here instead, the other half of "my admin panel has to be a
-   deep link too." The native "toggle" event does not bubble, so this
-   listener has to run in the CAPTURE phase (true, below) to see it at
-   all from an ancestor. */
-document.getElementById("items-grid").addEventListener(
-  "toggle",
-  (e) => {
-    if (!e.target.matches(".item-add-field")) return;
-    syncDeepLinkFromEvent(e);
-  },
-  true,
-);
-
 /* Pressing Enter in a field with no visible submit button any more still
    fires a native submit in most browsers — routed through the exact same
    Save flow as a click, rather than letting it POST just that one form on
@@ -3550,16 +3521,13 @@ async function shareLink(btn) {
    REVISED AGAIN: the "categories"/"nodes=" tokens this used to also carry
    are gone — Categories moved out of the per-product tile entirely, onto
    its own global /admin page (adminPage, below), which needs no deep
-   link into a collapsed tile to reach. Only the Admin (custom fields)
-   disclosure's own open/closed state still lives here. */
+   link into a collapsed tile to reach. REVISED YET AGAIN: the Admin
+   (custom fields) disclosure's own token is gone too — there is no
+   disclosure left to open or close (see customFieldsForm's own comment,
+   above), so a tile's own hash now carries only which item is open. */
 function setDeepLinkHash(tile) {
   const sku = tile?.dataset.sku;
-  let hash = "";
-  if (sku) {
-    const parts = ["item-" + encodeURIComponent(sku)];
-    if (tile.querySelector(".item-add-field")?.open) parts.push("admin");
-    hash = "#" + parts.join("&");
-  }
+  const hash = sku ? "#item-" + encodeURIComponent(sku) : "";
   history.replaceState(null, "", location.pathname + hash);
   /* This page only ever runs embedded as the shell's own <iframe> (a
      direct top-level visit gets redirected away in index.js) -- so the
@@ -3572,42 +3540,22 @@ function setDeepLinkHash(tile) {
     parent.history.replaceState(null, "", parent.location.pathname + parent.location.search + hash);
   }
 }
-/* Same tile-scoped re-derivation as above, called after the Admin
-   disclosure toggles so the hash never lags behind what is actually
-   open — only while that tile is the one currently expanded, since a
-   collapsed tile's own internal state is not what the URL should be
-   describing. */
-function syncDeepLinkFromEvent(e) {
-  const tile = e.target.closest(".item-tile");
-  if (tile?.classList.contains("full")) setDeepLinkHash(tile);
-}
-
 /* The other half of the link above: opening it lands on the grid like any
    other visit, then this jumps straight to the one product and expands it
    — forced visible regardless of today's category or status filter, since
    the whole point of a link someone sent you is that IT decides what you
    see, not whatever was selected when they made it. Matched by SKU, the
    same stable key shareLink() copies.
-   REVISED: "my admin panel has to be a deep link" — the hash carries more
-   than just which item is open (setDeepLinkHash's own comment explains
-   why: reload-preserving state and a shareable link are the same
-   problem), so this splits on "&" and restores each piece in turn. Only
-   the Admin (custom fields) disclosure's own token survives here —
-   Categories moved out to its own global /admin page (below), which
-   needs no per-item hash to reach. */
-const hashTokens = location.hash.startsWith("#item-") ? location.hash.slice(1).split("&") : [];
-if (hashTokens.length) {
-  const sku = decodeURIComponent(hashTokens[0].slice("item-".length));
-  const linked = [...document.querySelectorAll(".item-tile")].find((el) => el.dataset.sku === sku);
+   REVISED: Categories moved out to its own global /admin page (below),
+   and the Admin (custom fields) disclosure is gone outright — the hash
+   carries only which item is open now, nothing else left to restore. */
+const linkedSku = location.hash.startsWith("#item-") ? decodeURIComponent(location.hash.slice("#item-".length)) : null;
+if (linkedSku) {
+  const linked = [...document.querySelectorAll(".item-tile")].find((el) => el.dataset.sku === linkedSku);
   if (linked) {
     linked.hidden = false;
     linked.classList.add("full");
     linked.scrollIntoView({ block: "start" });
-
-    if (hashTokens.includes("admin")) {
-      const admin = linked.querySelector(".item-add-field");
-      if (admin) admin.open = true;
-    }
   }
 }
 </script>`,
@@ -3633,9 +3581,41 @@ if (hashTokens.length) {
 const ADMIN_CSS = `
 ${OPS_DARK_CSS}
 .item-empty { color: var(--muted); font-style: italic; }
+.admin-header { display: flex; align-items: center; justify-content: space-between; margin: 0 0 16px; }
+.admin-header h1 { font-size: var(--heading, 20px); margin: 0; }
+/* The bulk-save button — "I want the same bulk save mechanism where
+   things get marked dirty and then I hit the save button to save them
+   all," the exact same .item-save-all convention the Items tab's own
+   tile already uses, just once for the whole page instead of once per
+   tile. Disabled until something is actually dirty. */
+.admin-save-all {
+  display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 13px; font-weight: 600;
+  padding: 6px 14px; border: 1px solid var(--accent); border-radius: 6px; background: var(--accent); color: var(--ground);
+  cursor: pointer;
+}
+.admin-save-all:disabled { border-color: var(--muted); background: transparent; color: var(--muted); cursor: not-allowed; }
 .admin-section { margin: 0 0 20px; }
-.admin-section h2 { font-size: 13px; color: var(--muted); margin: 0; text-transform: uppercase; letter-spacing: 0.04em; }
-.admin-section-header { display: flex; align-items: center; justify-content: space-between; margin: 0 0 8px; }
+/* An expanding header bar, the SAME shape every other accordion on this
+   app already uses (.variations-header, the old .categories-header) —
+   "vendors should be an expanding header just like all the other
+   headers. Keep it consistent." Orange only when something inside is
+   actually dirty, never on a plain hover — the same rule established
+   for every other accordion header on this app. */
+.admin-section-header {
+  display: flex; align-items: center; gap: 6px; cursor: pointer; margin: 0 0 8px;
+  background: var(--image-ground); border: 1px solid var(--rule); border-radius: 6px; padding: 6px 8px;
+}
+.admin-section:has(.field-dirty) .admin-section-header { border-color: var(--accent); }
+.admin-section-toggle {
+  flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; padding: 0; display: inline-flex;
+  align-items: center; justify-content: center; border: none; background: transparent; color: var(--muted); cursor: pointer;
+  transition: transform 0.15s;
+}
+.admin-section.expanded .admin-section-toggle { transform: rotate(90deg); }
+.admin-section-label { flex: 0 0 auto; font-size: 13px; color: var(--ink); text-transform: uppercase; letter-spacing: 0.04em; }
+.admin-section-header-spacer { flex: 1 1 auto; }
+.admin-section-body { display: none; flex-direction: column; padding-left: 4px; }
+.admin-section.expanded .admin-section-body { display: flex; }
 .admin-category-node { display: flex; flex-direction: column; }
 .admin-category-row { display: flex; align-items: center; gap: 6px; padding: 3px 4px 3px 0; }
 /* "Every row underneath the categories row needs to be an expandable
@@ -3656,7 +3636,7 @@ ${OPS_DARK_CSS}
    exactly as they worked on the old per-tile accordion. */
 .admin-category-children { display: none; }
 .admin-category-node.expanded > .admin-category-children { display: block; }
-.admin-category-rename-form, .admin-category-number-form, .admin-category-remove-form { display: contents; }
+.admin-category-rename-form, .admin-category-number-form { display: contents; }
 .admin-category-name {
   flex: 1 1 auto; min-width: 0; font: inherit; font-size: 13px; padding: 4px 6px;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
@@ -3665,7 +3645,7 @@ ${OPS_DARK_CSS}
   flex: 0 0 2ch; width: 2ch; box-sizing: content-box; font: inherit; font-size: 13px; padding: 4px 6px; text-align: center;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
 }
-.admin-save-btn, .admin-remove-btn, .admin-add-btn, .admin-category-add-toggle {
+.admin-remove-btn, .admin-category-add-toggle {
   flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; padding: 0; font-size: 13px; line-height: 1;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--muted); cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;
@@ -3674,7 +3654,8 @@ ${OPS_DARK_CSS}
 /* Hidden until its own + is clicked (either a subcategory's own row, or
    the top-level one in .admin-section-header) — matching the old
    per-tile add-form exactly, right down to landing at the same indent a
-   real child row's own name field would. */
+   real child row's own name field would. No submit button of its own —
+   folded into the page's one big Save, like everything else here. */
 .admin-category-add-form[hidden] { display: none; }
 .admin-category-add-form { display: flex; align-items: center; gap: 6px; padding: 3px 4px 3px 0; margin-top: 4px; }
 .admin-category-new-name, .admin-category-new-numeric-id {
@@ -3695,50 +3676,99 @@ ${OPS_DARK_CSS}
   flex: 1 1 auto; min-width: 0; font: inherit; font-size: 13px; padding: 4px 6px;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
 }
+.admin-field-row { display: flex; align-items: center; gap: 6px; padding: 4px 0; }
+.admin-field-row-name { flex: 1 1 auto; min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
+.admin-field-add-form { display: flex; align-items: center; gap: 6px; padding: 4px 0; margin-top: 4px; }
+.admin-field-add-form input[type="text"] {
+  flex: 1 1 auto; min-width: 0; font: inherit; font-size: 13px; padding: 4px 6px;
+  border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
+}
+/* A field marked dirty by refreshDirtyState (below) — the same single
+   meaning orange has everywhere else on this app: a real, unsaved
+   change, never a plain hover cue. */
+input.field-dirty, select.field-dirty, textarea.field-dirty { border-color: var(--accent); }
+/* The same click-to-copy refusal popover the Items tab's own tile
+   already uses (positionErrorPopover/showFormError, below) — duplicated
+   here rather than shared, since the two pages otherwise share no CSS
+   module of their own to hold one copy in common. */
+.item-edit-error {
+  position: fixed; z-index: 60; max-width: 320px; padding: 6px 8px; border-radius: 4px;
+  background: var(--ink); color: var(--ground); font-size: 10px; line-height: 1.4;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35); cursor: pointer; word-break: break-word;
+}
+.item-edit-error:hover { opacity: 0.92; }
 `;
 
-export function adminPage(allCategories = [], allVendors = []) {
+export function adminPage(allCategories = [], allVendors = [], customFieldNames = []) {
   return page(
     "Admin — Vemians ops",
     `<main class="ops">
-  <section class="admin-section">
+  <div class="admin-header">
+    <h1>Admin</h1>
+    <button type="button" class="admin-save-all" aria-label="Save changes" title="Save changes" disabled>${SAVE_ICON} Save</button>
+  </div>
+  <section class="admin-section expanded">
     <div class="admin-section-header">
-      <h2>Categories</h2>
+      <button type="button" class="admin-section-toggle" aria-label="Show categories" title="Show categories">${CARET_ICON}</button>
+      <span class="admin-section-label">Categories</span>
+      <span class="admin-section-header-spacer"></span>
       <button type="button" class="admin-category-add-toggle" data-parent-id="" aria-label="Add a top-level category" title="Add a category">+</button>
     </div>
-    ${allCategories.length ? renderAdminCategoryNodes(allCategories, null) : `<p class="item-empty">No categories yet.</p>`}
-    <form method="post" action="/admin/categories/create" class="admin-category-add-form" hidden>
-      <input type="hidden" name="parent_id" value="">
-      <span class="admin-category-toggle-spacer"></span>
-      <input type="text" class="admin-category-new-name" name="name" placeholder="Category name" maxlength="60">
-      <input class="admin-category-new-numeric-id" name="numeric_id" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — optional, can be set later">
-      <button type="submit" class="admin-add-btn" aria-label="Add a top-level category" title="Add">+</button>
-    </form>
+    <div class="admin-section-body">
+      ${allCategories.length ? renderAdminCategoryNodes(allCategories, null) : `<p class="item-empty">No categories yet.</p>`}
+      <form method="post" action="/admin/categories/create" class="admin-category-add-form" hidden>
+        <input type="hidden" name="parent_id" value="">
+        <span class="admin-category-toggle-spacer"></span>
+        <input type="text" class="admin-category-new-name" name="name" placeholder="Category name" maxlength="60">
+        <input class="admin-category-new-numeric-id" name="numeric_id" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — optional, can be set later">
+      </form>
+    </div>
   </section>
-  <section class="admin-section">
-    <h2>Vendors</h2>
-    ${
-      allVendors.length
-        ? allVendors
-            .map(
-              (v) =>
-                `<div class="admin-vendor-row">
-                   <span class="admin-vendor-row-name">${esc(v.name)}</span>
-                   <form method="post" action="/admin/vendors/commission" class="admin-vendor-commission-form">
-                     <input type="hidden" name="vendor_id" value="${esc(v.id)}">
-                     <input class="admin-vendor-commission-input" name="commission" value="${v.commission_pct != null ? esc(String(v.commission_pct)) : ""}" placeholder="COM%" title="Commission % (0-100)">
-                     <button type="submit" class="admin-save-btn" aria-label="Set ${esc(v.name)}'s own commission" title="Set ${esc(v.name)}'s own commission">${SAVE_ICON}</button>
-                   </form>
-                 </div>`,
-            )
-            .join("")
-        : `<p class="item-empty">No vendors yet.</p>`
-    }
-    <form method="post" action="/admin/vendors/create" class="admin-vendor-add-form">
-      <input type="text" name="name" placeholder="Vendor name" maxlength="120">
-      <input class="admin-vendor-commission-input" name="commission" placeholder="COM%" title="Commission % (0-100) — required for a brand-new vendor">
-      <button type="submit" class="admin-add-btn" aria-label="Add a vendor" title="Add a vendor">+</button>
-    </form>
+  <section class="admin-section expanded">
+    <div class="admin-section-header">
+      <button type="button" class="admin-section-toggle" aria-label="Show vendors" title="Show vendors">${CARET_ICON}</button>
+      <span class="admin-section-label">Vendors</span>
+      <span class="admin-section-header-spacer"></span>
+    </div>
+    <div class="admin-section-body">
+      ${
+        allVendors.length
+          ? allVendors
+              .map(
+                (v) =>
+                  `<div class="admin-vendor-row">
+                     <span class="admin-vendor-row-name">${esc(v.name)}</span>
+                     <form method="post" action="/admin/vendors/commission" class="admin-vendor-commission-form">
+                       <input type="hidden" name="vendor_id" value="${esc(v.id)}">
+                       <input class="admin-vendor-commission-input" name="commission" value="${v.commission_pct != null ? esc(String(v.commission_pct)) : ""}" placeholder="COM%" title="Commission % (0-100)">
+                     </form>
+                   </div>`,
+              )
+              .join("")
+          : `<p class="item-empty">No vendors yet.</p>`
+      }
+      <form method="post" action="/admin/vendors/create" class="admin-vendor-add-form">
+        <input type="text" name="name" placeholder="Vendor name" maxlength="120">
+        <input class="admin-vendor-commission-input" name="commission" placeholder="COM%" title="Commission % (0-100) — required for a brand-new vendor">
+      </form>
+    </div>
+  </section>
+  <section class="admin-section expanded">
+    <div class="admin-section-header">
+      <button type="button" class="admin-section-toggle" aria-label="Show custom fields" title="Show custom fields">${CARET_ICON}</button>
+      <span class="admin-section-label">Custom Fields</span>
+      <span class="admin-section-header-spacer"></span>
+    </div>
+    <div class="admin-section-body">
+      ${
+        customFieldNames.length
+          ? customFieldNames.map((name) => `<div class="admin-field-row"><span class="admin-field-row-name">${esc(name)}</span></div>`).join("")
+          : `<p class="item-empty">No custom fields registered yet.</p>`
+      }
+      <form method="post" action="/admin/fields/create" class="admin-field-add-form">
+        <input type="text" name="name" placeholder="Field name" maxlength="60">
+      </form>
+    </div>
   </section>
 </main>
 <script>
@@ -3747,8 +3777,148 @@ export function adminPage(allCategories = [], allVendors = []) {
    form mechanics the old per-tile Categories accordion used
    (renderCategoryNodes' own click-delegation, before it moved here),
    just delegated off document.body instead of a #items-grid that does
-   not exist on this page. */
+   not exist on this page. "Vendors should be an expanding header just
+   like all the other headers. Keep it consistent" folds a second,
+   section-level toggle in beside it, the same shape every accordion
+   header on this whole app already uses. */
+function isFieldDirty(el) {
+  return el.value !== el.defaultValue;
+}
+const saveAllBtn = document.querySelector(".admin-save-all");
+function refreshDirtyState(field) {
+  field.classList.toggle("field-dirty", isFieldDirty(field));
+  const form = field.closest("form");
+  if (form) {
+    const formDirty = [...form.querySelectorAll("input")].some(isFieldDirty);
+    if (formDirty) form.dataset.dirty = "1";
+    else delete form.dataset.dirty;
+  }
+  saveAllBtn.disabled = !document.querySelector("form[data-dirty='1']");
+}
+document.body.addEventListener("input", (e) => {
+  if (e.target.matches("input")) refreshDirtyState(e.target);
+});
+
+/* "As soon as I enter that ID... it should immediately in my browser
+   update its sorting" — the exact same instant client-side resort the
+   Items tab's own tree already does, on every keystroke, well before the
+   actual write is ever sent. */
+document.body.addEventListener("input", (e) => {
+  if (!e.target.matches(".admin-category-numeric-id")) return;
+  const node = e.target.closest(".admin-category-node");
+  const parent = node?.parentElement;
+  if (!parent) return;
+  const siblings = [...parent.querySelectorAll(":scope > .admin-category-node")];
+  const key = (el) => {
+    const raw = el.querySelector(":scope > .admin-category-row .admin-category-numeric-id")?.value.trim();
+    return raw ? Number(raw) : Infinity;
+  };
+  parent.append(...[...siblings].sort((a, b) => key(a) - key(b)));
+});
+
+function positionErrorPopover(p, anchor) {
+  const rect = anchor.getBoundingClientRect();
+  const above = rect.top - p.offsetHeight - 6;
+  p.style.left = Math.max(4, rect.left) + "px";
+  p.style.top = (above > 4 ? above : rect.bottom + 6) + "px";
+}
+function copyErrorText(p, message) {
+  if (!navigator.clipboard?.writeText) return;
+  navigator.clipboard
+    .writeText(message)
+    .then(() => {
+      const original = p.textContent;
+      p.textContent = "Copied to clipboard";
+      setTimeout(() => {
+        if (p.isConnected) p.textContent = original;
+      }, 1000);
+    })
+    .catch(() => {});
+}
+function showFormError(anchor, message) {
+  const existing = anchor.nextElementSibling;
+  if (existing?.classList.contains("item-edit-error")) existing.remove();
+  const p = document.createElement("p");
+  p.className = "item-edit-error";
+  p.textContent = message;
+  p.title = "Click to copy";
+  anchor.insertAdjacentElement("afterend", p);
+  positionErrorPopover(p, anchor);
+  p.addEventListener("click", () => copyErrorText(p, message));
+}
+document.addEventListener("click", (e) => {
+  if (e.target.closest(".item-edit-error")) return;
+  document.querySelectorAll(".item-edit-error").forEach((p) => p.remove());
+});
+
+async function submitEditForm(form) {
+  try {
+    const res = await fetch(form.action, { method: "POST", body: new FormData(form) });
+    if (res.ok) return true;
+    const data = await res.json().catch(() => ({}));
+    showFormError(form, data.error || "That change was refused.");
+    return false;
+  } catch {
+    showFormError(form, "Could not reach the server — try again.");
+    return false;
+  }
+}
+async function saveAll() {
+  const dirtyForms = [...document.querySelectorAll("form[data-dirty='1']")];
+  if (!dirtyForms.length) return;
+  saveAllBtn.disabled = true;
+  let allOk = true;
+  for (const form of dirtyForms) {
+    if (!(await submitEditForm(form))) allOk = false;
+  }
+  if (allOk) location.reload();
+  else saveAllBtn.disabled = false;
+}
+saveAllBtn.addEventListener("click", saveAll);
+/* Pressing Enter in a field with no visible submit button any more still
+   fires a native submit in most browsers — routed through the same
+   Save-all flow a click already uses, rather than letting it POST just
+   that one form alone. */
+document.body.addEventListener("submit", (e) => {
+  e.preventDefault();
+  saveAll();
+});
+
+/* Removing a category stays its own immediate, non-batched click — a
+   destructive one-shot action, never a field to mark dirty and save
+   later, exactly as it always was on the old per-tile tree. */
+document.body.addEventListener("click", async (e) => {
+  const removeBtn = e.target.closest(".admin-remove-btn");
+  if (!removeBtn) return;
+  const body = new FormData();
+  body.set("category_id", removeBtn.dataset.categoryId);
+  removeBtn.disabled = true;
+  try {
+    const res = await fetch("/admin/categories/remove", { method: "POST", body });
+    if (res.ok) {
+      location.reload();
+      return;
+    }
+    const data = await res.json().catch(() => ({}));
+    showFormError(removeBtn, data.error || "That category could not be removed.");
+  } catch {
+    showFormError(removeBtn, "Could not reach the server — try again.");
+  } finally {
+    removeBtn.disabled = false;
+  }
+});
+
 document.body.addEventListener("click", (e) => {
+  const sectionToggle = e.target.closest(".admin-section-toggle");
+  if (sectionToggle) {
+    sectionToggle.closest(".admin-section")?.classList.toggle("expanded");
+    return;
+  }
+  const sectionHeader = e.target.closest(".admin-section-header");
+  if (sectionHeader && !e.target.closest("button")) {
+    sectionHeader.closest(".admin-section")?.classList.toggle("expanded");
+    return;
+  }
   const toggle = e.target.closest(".admin-category-toggle");
   if (toggle) {
     toggle.closest(".admin-category-node")?.classList.toggle("expanded");
@@ -3763,7 +3933,7 @@ document.body.addEventListener("click", (e) => {
   if (addToggle) {
     const form = addToggle.dataset.parentId
       ? addToggle.closest(".admin-category-node")?.querySelector(":scope > .admin-category-add-form")
-      : addToggle.closest(".admin-section")?.querySelector(":scope > .admin-category-add-form");
+      : addToggle.closest(".admin-section")?.querySelector(":scope > .admin-section-body > .admin-category-add-form");
     if (form) {
       form.hidden = !form.hidden;
       if (!form.hidden) form.querySelector(".admin-category-new-name")?.focus();

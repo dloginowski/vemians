@@ -1669,29 +1669,43 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_variants_header_only_t
   );
 });
 
-check("test_PRD_P0_135_item_edit_applies_immediately__existing_custom_fields_are_always_visible_only_a_new_blank_row_is_collapsed", async () => {
-  /* REVISED: "get rid of all except one add custom field... that dropdown
-     where it says add custom fields, that should be called admin." The
-     blank row for a brand-new field moved into its own <form>, still
-     inside the renamed "Admin" disclosure; the existing field's own row
-     stays outside it, in its own separate form, visible without opening
-     anything. */
+check("test_PRD_P0_71_items_tab__custom_field_rows_come_from_the_global_registered_list_no_add_field_disclosure", async () => {
+  /* REVISED: "remove add fields from items. I don't want to be adding
+     fields per item... this is done inside of the admin panel, not
+     inside of the item panel." No disclosure, no blank row to invent a
+     new name here at all any more — a field's own name is fixed (hidden
+     input, a real Square write cannot rename it from here), only its
+     value is still editable. A registered name the product has no value
+     for yet still gets its own row, blank. */
   const mirror = mirrorDb();
   seedProduct(mirror); // seeds a "unit cost" custom field, see seedProduct()
+  mirror.db.exec("INSERT INTO mirror_custom_field_name (name) VALUES ('Fabric')");
+  mirror.db.exec("INSERT INTO mirror_custom_field_name (name) VALUES ('unit cost')");
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
-  const addFieldStart = body.indexOf('<details class="item-add-field">');
-  assert.ok(addFieldStart > -1, "a blank row must still be offered behind its own disclosure");
-  const existingFieldIndex = body.indexOf('<input name="field_name_0" value="unit cost"');
-  assert.ok(existingFieldIndex > -1, "the existing field's row must render with its current name/value");
-  assert.ok(existingFieldIndex < addFieldStart, "the existing field must render before (outside) the Admin disclosure");
+  assert.doesNotMatch(body, /item-add-field|Add field/, "no add-field disclosure anywhere any more");
+  assert.match(
+    body,
+    /<input type="hidden" name="field_name_0" value="Fabric">\s*<span class="field-name-label" title="Fabric">Fabric<\/span>\s*<input name="field_value_0" value="" placeholder="Value">/,
+    "a registered name with no value yet still gets its own row, blank",
+  );
+  assert.match(
+    body,
+    /<input type="hidden" name="field_name_1" value="unit cost">\s*<span class="field-name-label" title="unit cost">unit cost<\/span>\s*<input name="field_value_1" value="210.00" placeholder="Value">/,
+    "an existing value still shows, and the name is no longer a free-text field",
+  );
+});
 
-  /* The blank row for a brand-new field is INSIDE the disclosure, and it
-     is the ONLY blank row offered now — up to 3 were offered before. */
-  const addFieldHtml = body.slice(addFieldStart);
-  assert.match(addFieldHtml, /<summary>Add field<\/summary>/);
-  assert.match(addFieldHtml, /name="field_name_1" placeholder="Field name"/, "a blank row for a new field must be offered");
-  assert.doesNotMatch(addFieldHtml, /name="field_name_2"/, "only one blank row now, not up to three");
+check("test_PRD_P0_71_items_tab__a_products_own_legacy_field_not_in_the_global_list_still_renders", async () => {
+  /* "A real value is never silently hidden from view just because it is
+     not (or is no longer) registered" -- customFieldNames is empty here,
+     so "unit cost" (seeded directly on the product) is the ONLY name
+     with nothing global to fall back on, and it must still show. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.match(body, /<input type="hidden" name="field_name_0" value="unit cost">/);
+  assert.match(body, /<input name="field_value_0" value="210.00" placeholder="Value">/);
 });
 
 check("test_PRD_P0_71_items_tab__approving_an_items_tab_edit_sends_the_approver_back_to_items", () => {
@@ -1988,7 +2002,7 @@ check("test_PRD_P0_134_deep_link_by_sku__the_link_is_keyed_on_sku_not_the_handle
   assert.match(body, /const sku = btn\.closest\("\.item-tile"\)\.dataset\.sku;/, "shareLink must copy the tile's own SKU, not its handle");
   assert.match(
     body,
-    /const sku = decodeURIComponent\(hashTokens\[0\]\.slice\("item-"\.length\)\);\s*\n\s*const linked = \[\.\.\.document\.querySelectorAll\("\.item-tile"\)\]\.find\(\(el\) => el\.dataset\.sku === sku\);/,
+    /const linkedSku = location\.hash\.startsWith\("#item-"\) \? decodeURIComponent\(location\.hash\.slice\("#item-"\.length\)\) : null;\s*\n\s*if \(linkedSku\) \{\s*\n\s*const linked = \[\.\.\.document\.querySelectorAll\("\.item-tile"\)\]\.find\(\(el\) => el\.dataset\.sku === linkedSku\);/,
     "opening a link must match the tile by SKU, not handle",
   );
 });
@@ -2117,34 +2131,25 @@ check("test_PRD_P0_132_item_deep_link__the_hash_is_also_mirrored_onto_the_shell_
   );
 });
 
-check("test_PRD_P0_132_item_deep_link__the_hash_still_folds_in_the_admin_disclosures_own_open_state", async () => {
+check("test_PRD_P0_132_item_deep_link__the_hash_carries_only_which_item_is_open", async () => {
   /* REVISED: this used to also fold in the Categories accordion's own
      expanded state and every individually expanded category node --
      Categories moved out to the global /admin page entirely (see
-     adminPage's own tests), which needs no per-item hash to reach. Only
-     the Admin (custom fields) disclosure's own open/closed state still
-     lives here. */
+     adminPage's own tests), which needs no per-item hash to reach. The
+     Admin (custom fields) disclosure is gone outright too (custom field
+     NAMES are administered from /admin now, never added inline on a
+     product) -- a tile's own hash is just #item-<sku>, nothing else left
+     to restore. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
   assert.match(
     body,
-    /if \(tile\.querySelector\("\.item-add-field"\)\?\.open\) parts\.push\("admin"\);/,
-    "the Admin disclosure's own open state must be folded into the hash",
+    /const hash = sku \? "#item-" \+ encodeURIComponent\(sku\) : "";/,
+    "setDeepLinkHash must carry only the item's own sku now",
   );
-  assert.doesNotMatch(body, /parts\.push\("categories"\)/, "Categories no longer lives in a per-tile hash token");
-});
-
-check("test_PRD_P0_132_item_deep_link__loading_a_link_restores_the_admin_disclosure", async () => {
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  const res = await get("/items", MANAGER, env(mirror));
-  const body = await res.text();
-  assert.match(
-    body,
-    /if \(hashTokens\.includes\("admin"\)\) \{\s*\n\s*const admin = linked\.querySelector\("\.item-add-field"\);\s*\n\s*if \(admin\) admin\.open = true;\s*\n\s*\}/,
-  );
+  assert.doesNotMatch(body, /parts\.push\("categories"\)|parts\.push\("admin"\)/, "no other token survives in the hash");
 });
 
 check("test_PRD_P0_132_item_deep_link__save_tile_still_snapshots_the_hash_before_reloading", async () => {
@@ -2333,6 +2338,73 @@ check("test_PRD_P0_138_nested_categories__admin_add_forms_are_hidden_behind_thei
     addForms.every((m) => m[1] === " hidden"),
     "every add-form must start hidden",
   );
+});
+
+check("test_PRD_P0_138_nested_categories__admin_no_per_row_save_button_one_global_save_all_instead", async () => {
+  /* "I want the same bulk save mechanism where things get marked dirty
+     and then I hit the save button to save them all. I don't want to see
+     a checkbox for every single field." Rename/number/commission forms
+     carry no submit button of their own any more; one global button
+     saves everything that is actually dirty. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  mirror.db.exec("INSERT INTO mirror_vendor (id, external_ref, name, commission_pct) VALUES ('vendor1', 'sqvendor1', 'Acme Mills', 15)");
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  assert.match(body, /<button type="button" class="admin-save-all"[^>]*disabled>/, "one global Save button, disabled until something is dirty");
+  assert.doesNotMatch(body, /admin-save-btn/, "no per-row save/checkmark button anywhere");
+  const renameForm = body.slice(body.indexOf('action="/admin/categories/rename"'), body.indexOf("</form>", body.indexOf('action="/admin/categories/rename"')));
+  assert.doesNotMatch(renameForm, /<button/, "the rename form itself carries no button of its own");
+  const commissionForm = body.slice(body.indexOf('action="/admin/vendors/commission"'), body.indexOf("</form>", body.indexOf('action="/admin/vendors/commission"')));
+  assert.doesNotMatch(commissionForm, /<button/, "the vendor commission form itself carries no button of its own");
+});
+
+check("test_PRD_P0_138_nested_categories__admin_save_all_submits_every_dirty_form_and_reloads_once", async () => {
+  const mirror = mirrorDb();
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  assert.match(body, /const dirtyForms = \[\.\.\.document\.querySelectorAll\("form\[data-dirty='1'\]"\)\];/);
+  assert.match(body, /if \(allOk\) location\.reload\(\);/);
+});
+
+check("test_PRD_P0_136_square_custom_attributes__admin_vendors_section_is_an_expanding_header_matching_categories", async () => {
+  /* "Vendors should be an expanding header just like all the other
+     headers. Keep it consistent." Same .admin-section-header/-toggle/
+     -body shape as Categories. */
+  const mirror = mirrorDb();
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  const sections = [...body.matchAll(/<span class="admin-section-label">([^<]+)<\/span>/g)].map((m) => m[1]);
+  assert.deepEqual(sections, ["Categories", "Vendors", "Custom Fields"]);
+  assert.equal(
+    [...body.matchAll(/class="admin-section-toggle"/g)].length,
+    3,
+    "every section must share the exact same expanding-header caret",
+  );
+});
+
+check("test_PRD_P0_71_items_tab__admin_custom_fields_section_lists_registered_names_and_offers_an_add_form", async () => {
+  const mirror = mirrorDb();
+  mirror.db.exec("INSERT INTO mirror_custom_field_name (name) VALUES ('Fabric')");
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  assert.match(body, /<span class="admin-field-row-name">Fabric<\/span>/);
+  assert.match(body, /<form method="post" action="\/admin\/fields\/create" class="admin-field-add-form">/);
+});
+
+check("test_PRD_P0_71_items_tab__admin_create_custom_field_name_actually_succeeds_no_square_needed", async () => {
+  /* Unlike categories/vendors, catalog.create_custom_field_name declares
+     no square resource at all -- it is purely OURS -- so this is provably
+     testable end to end even in a test env with no SQUARE_ACCESS_TOKEN. */
+  const mirror = mirrorDb();
+  const res = await postForm("/admin/fields/create", MANAGER, env(mirror), { name: "Fabric" });
+  assert.equal(res.status, 303);
+  assert.equal(res.headers.get("location"), "/admin");
+  const row = mirror.db.prepare("SELECT name FROM mirror_custom_field_name WHERE name = 'Fabric'").get();
+  assert.equal(row.name, "Fabric");
+});
+
+check("test_PRD_P0_71_items_tab__admin_staff_cannot_create_a_custom_field_name", async () => {
+  const mirror = mirrorDb();
+  const res = await postForm("/admin/fields/create", STAFF, env(mirror), { name: "Fabric" });
+  assert.equal(res.status, 403);
 });
 
 check("test_PRD_P0_138_nested_categories__admin_tree_indents_children_by_the_same_shared_toggle_width", async () => {

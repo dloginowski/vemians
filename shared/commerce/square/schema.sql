@@ -288,6 +288,26 @@ BEGIN
   SELECT RAISE(ABORT, 'mirror_style_id_ledger is append-only — a style_id is never freed once recorded');
 END;
 
+-- ── custom field names  (P0-71, revised) ────────────────────────────────────
+--
+-- The owner's own words: "remove add fields from items. I don't want to be
+-- adding fields per item. If I'm adding custom fields, I'm adding them to
+-- all items. And this is done inside of the admin panel, not inside of the
+-- item panel." mirror_product.custom_fields (above) stays exactly what it
+-- always was — a flat, freeform JSON blob, no schema of its own, "neither
+-- this schema nor the ops UI has to know a field's name in advance to keep
+-- it." What changes is DISCOVERY: a field's NAME is now administered once,
+-- globally, here — never invented ad hoc while editing one product — and
+-- the Items tab renders one value row per name in this table (plus any
+-- name a product already happens to carry, so nothing already set ever
+-- silently disappears from view just because it was never registered
+-- here). Purely OURS, no Square correlate at all — unlike every other
+-- table in this schema, this one is not a mirror of anything Square holds.
+CREATE TABLE mirror_custom_field_name (
+  name        TEXT PRIMARY KEY,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- ── variants  (Square ITEM_VARIATION) ──────────────────────────────────────
 --
 -- ADR-009: "Square ITEM -> our product, ITEM_VARIATION -> our variant, with

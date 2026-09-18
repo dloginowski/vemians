@@ -35,7 +35,7 @@ import { contentTypeFor, mediaKey, mintUploadTicket, verifyUploadTicket, STORABL
 import { mediaStoreFor, assetFileStoreFor, receiptFileStoreFor, runTool } from "./tools/index.js";
 import { contentTypeForAsset, extractText } from "./tools/assets.js";
 import { scanReceipt } from "./tools/receipt-ocr.js";
-import { listAllProducts, listCategories, listMirrorVendors } from "./tools/catalog-writer.js";
+import { listAllProducts, listCategories, listCustomFieldNames, listMirrorVendors } from "./tools/catalog-writer.js";
 import { applyFormEdits } from "./approval-forms.js";
 import { syncFromSquare, SYNC_CRON, FREQUENT_CRON } from "./sync.js";
 import { verifyWebhook, normaliseWebhook } from "../../shared/commerce/square/webhooks.js";
@@ -479,6 +479,12 @@ async function ops(request, env, path) {
        needs to offer a vendor no product has been assigned to yet. */
     const allVendors = await listMirrorVendors(env.CATALOG_MIRROR);
 
+    /* The FULL closed set of registered custom field names — "if I'm
+       adding custom fields, I'm adding them to all items," so every tile
+       renders a value row for every name here, whether or not THIS
+       product happens to have a value for it yet. */
+    const customFieldNames = await listCustomFieldNames(env.CATALOG_MIRROR);
+
     /* Stock, batched the same way vendor names and images already are —
        one read of the whole (small) inventory_level view rather than one
        query per variation. A deployment with no COMMERCE binding, or a
@@ -499,7 +505,7 @@ async function ops(request, env, path) {
       variations: p.variations.map((v) => ({ ...v, on_hand: v.sku ? (stockBySku.get(v.sku) ?? 0) : null })),
     }));
 
-    return html(itemsPage({ role }, products, allCategories, allVendors));
+    return html(itemsPage({ role }, products, allCategories, allVendors, customFieldNames));
   }
 
   /*
@@ -857,11 +863,18 @@ async function ops(request, env, path) {
    * identically on every single tile, for no reason beyond "there was
    * nowhere else to put it yet." This is that one place instead: reached
    * from the shell's own hamburger menu (views.js, shellPage), never
-   * duplicated per product. Plain HTML forms, no client-side JS at all —
-   * unlike the Items tab's own busy tile (many unrelated fields sharing
-   * one "Save all" button was the reason THAT page needed dirty-tracking
-   * and batching), this page has exactly one thing happening at a time,
-   * so an ordinary form submit + a redirect back here is simplest. */
+   * duplicated per product. Custom field NAMES (P0-71, revised) joined it
+   * too — "if I'm adding custom fields, I'm adding them to all items...
+   * this is done inside of the admin panel, not inside of the item
+   * panel."
+   * REVISED: "I want the same bulk save mechanism where things get marked
+   * dirty and then I hit the save button to save them all. I don't want
+   * to see a checkbox for every single field." Same dirty-tracking/one-
+   * "Save all"-button pattern the Items tab tile already uses (below,
+   * client-side only — every write still POSTs to the same tool layer),
+   * for name/numeric-id/commission/create fields; removing a category
+   * stays its own immediate, non-batched action, the same as it always
+   * was on the tile. */
   if (path === "/admin" || path.startsWith("/admin/")) {
     const role = await roleFor(identity, env);
     if (!role) {
@@ -880,7 +893,8 @@ async function ops(request, env, path) {
       }
       const allCategories = await listCategories(env.CATALOG_MIRROR);
       const allVendors = await listMirrorVendors(env.CATALOG_MIRROR);
-      return html(adminPage(allCategories, allVendors));
+      const customFieldNames = await listCustomFieldNames(env.CATALOG_MIRROR);
+      return html(adminPage(allCategories, allVendors, customFieldNames));
     }
 
     if (request.method !== "POST") {
@@ -897,6 +911,14 @@ async function ops(request, env, path) {
       return html(refusalPage(400, `Unreadable submission — ${err.message}`), 400);
     }
 
+    /* Every field-level refusal below answers with JSON, not a whole
+       refusalPage — the page's own fetch-based Save-all (views.js) shows
+       it inline, next to the field that was refused, the exact same
+       "never a navigation" convention the Items tab's own forms already
+       follow. Only the pre-flight gates above (role, method, an unreadable
+       body) stay a refusalPage: canEdit already hides every one of these
+       forms from anyone those checks would refuse, so reaching them at
+       all means a request that did not come from this page's own UI. */
     const suffix = path.slice("/admin".length);
     let toolName, args, summaryNoun;
     if (suffix === "/categories/create") {
@@ -905,7 +927,7 @@ async function ops(request, env, path) {
       const name = String(form.get("name") ?? "").trim();
       const parentId = String(form.get("parent_id") ?? "").trim();
       const numericId = String(form.get("numeric_id") ?? "").trim();
-      if (!name) return html(refusalPage(400, "Give a category name."), 400);
+      if (!name) return json({ error: "give a category name" }, 400);
       toolName = "catalog.create_category";
       args = {
         name,
@@ -921,15 +943,15 @@ async function ops(request, env, path) {
          STRING outright, so a real "" cannot mean clear on its own). */
       const categoryId = String(form.get("category_id") ?? "").trim();
       const numericId = String(form.get("numeric_id") ?? "").trim();
-      if (!categoryId) return html(refusalPage(400, "Give a category."), 400);
+      if (!categoryId) return json({ error: "give a category" }, 400);
       toolName = "catalog.set_category_number";
       args = numericId ? { category_id: categoryId, numeric_id: numericId } : { category_id: categoryId, clear: true };
       summaryNoun = "category number";
     } else if (suffix === "/categories/rename") {
       const categoryId = String(form.get("category_id") ?? "").trim();
       const name = String(form.get("name") ?? "").trim();
-      if (!categoryId) return html(refusalPage(400, "Give a category."), 400);
-      if (!name) return html(refusalPage(400, "Give a category name."), 400);
+      if (!categoryId) return json({ error: "give a category" }, 400);
+      if (!name) return json({ error: "give a category name" }, 400);
       toolName = "catalog.rename_category";
       args = { category_id: categoryId, name };
       summaryNoun = "category name";
@@ -938,9 +960,11 @@ async function ops(request, env, path) {
          subcategories." The button itself is disabled server-side
          (views.js) whenever a node has children, so reaching this refusal
          at all means a race — a subcategory was added from another tab
-         between page load and this click. */
+         between page load and this click. Immediate, not batched — a
+         destructive one-shot click, never a field to mark dirty and save
+         later. */
       const categoryId = String(form.get("category_id") ?? "").trim();
-      if (!categoryId) return html(refusalPage(400, "Give a category."), 400);
+      if (!categoryId) return json({ error: "give a category" }, 400);
       toolName = "catalog.remove_category";
       args = { category_id: categoryId };
       summaryNoun = "category";
@@ -951,8 +975,8 @@ async function ops(request, env, path) {
          auto-apply later, so this is the one moment it MUST be given. */
       const name = String(form.get("name") ?? "").trim();
       const commissionRaw = String(form.get("commission") ?? "").trim();
-      if (!name) return html(refusalPage(400, "Give a vendor name."), 400);
-      if (!/^\d+$/.test(commissionRaw)) return html(refusalPage(400, "Give a commission (0-100)."), 400);
+      if (!name) return json({ error: "give a vendor name" }, 400);
+      if (!/^\d+$/.test(commissionRaw)) return json({ error: "give a commission (0-100)" }, 400);
       toolName = "catalog.create_vendor";
       args = { name, commission: Number(commissionRaw), reason: "created from the Admin panel" };
       summaryNoun = "vendor";
@@ -961,22 +985,32 @@ async function ops(request, env, path) {
          directly. */
       const vendorId = String(form.get("vendor_id") ?? "").trim();
       const commissionRaw = String(form.get("commission") ?? "").trim();
-      if (!vendorId) return html(refusalPage(400, "Give a vendor."), 400);
-      if (!/^\d+$/.test(commissionRaw)) return html(refusalPage(400, "Give a commission (0-100)."), 400);
+      if (!vendorId) return json({ error: "give a vendor" }, 400);
+      if (!/^\d+$/.test(commissionRaw)) return json({ error: "give a commission (0-100)" }, 400);
       toolName = "catalog.set_vendor_commission";
       args = { vendor_id: vendorId, commission: Number(commissionRaw) };
       summaryNoun = "vendor commission";
+    } else if (suffix === "/fields/create") {
+      /* "If I'm adding custom fields, I'm adding them to all items. And
+         this is done inside of the admin panel." Registers the NAME only
+         — catalog.set_custom_fields (unchanged, per-item) is still what
+         actually gives one product a value for it. */
+      const name = String(form.get("name") ?? "").trim();
+      if (!name) return json({ error: "give a field name" }, 400);
+      toolName = "catalog.create_custom_field_name";
+      args = { name, reason: "created from the Admin panel" };
+      summaryNoun = "custom field";
     } else {
-      return html(refusalPage(404, "Unknown admin action."), 404);
+      return json({ error: "unknown admin action" }, 404);
     }
 
     const gate = await runTool(toolName, args, { actor: email, role, env });
     if (!gate?.needsApproval) {
-      return html(refusalPage(400, gate?.error || `That ${summaryNoun} change could not be proposed.`), 400);
+      return json({ error: gate?.error || `That ${summaryNoun} change could not be proposed.` }, 400);
     }
     const result = await runTool(toolName, args, { actor: email, role, env, approvalToken: gate.data.approval.token });
     if (result?.error || result?.denied) {
-      return html(refusalPage(400, result.error || result.denied || `That ${summaryNoun} change was refused.`), 400);
+      return json({ error: result.error || result.denied || `That ${summaryNoun} change was refused.` }, 400);
     }
     return new Response(null, { status: 303, headers: { Location: "/admin" } });
   }
