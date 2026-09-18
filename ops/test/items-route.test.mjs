@@ -2686,18 +2686,22 @@ check("test_PRD_P0_138_nested_categories__admin_tree_indents_children_by_the_sam
 });
 
 check("test_PRD_P0_138_nested_categories__admin_a_category_with_subcategories_cannot_be_removed", async () => {
+  /* REVISED: "instead of making it disabled, just make it invisible --
+     while it has subcategories, it should not be deletable." cat1
+     (Outerwear) has a child (Coats), so its own remove button renders
+     nowhere at all now, not just disabled; cat4 (Knitwear) is a leaf and
+     keeps its own, fully enabled. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   seedCategoryTree(mirror);
   const body = await (await get("/admin", MANAGER, env(mirror))).text();
-  /* cat1 (Outerwear) has a child (Coats), so its own remove button must be
-     disabled; cat4 (Knitwear) is a leaf and must not be. */
   const cat1Idx = body.indexOf("Outerwear");
   const cat1Row = body.slice(cat1Idx, body.indexOf("admin-category-children", cat1Idx));
-  assert.match(cat1Row, /disabled/);
+  assert.doesNotMatch(cat1Row, /admin-remove-btn/, "a category with subcategories gets no remove button at all");
   const cat4Idx = body.indexOf("Knitwear");
   const cat4Row = body.slice(cat4Idx, body.indexOf("admin-category-children", cat4Idx));
-  assert.doesNotMatch(cat4Row, /disabled/);
+  assert.match(cat4Row, /<button type="button" class="admin-remove-btn"[^>]*>/, "a leaf keeps its own remove button");
+  assert.doesNotMatch(cat4Row, /disabled/, "and it is never disabled");
 });
 
 check("test_PRD_P0_138_nested_categories__admin_staff_cannot_reach_the_page_at_all", async () => {

@@ -2216,13 +2216,16 @@ function renderAdminCategoryNodes(categories, parentId) {
       const toggle = hasChildren
         ? `<button type="button" class="admin-category-toggle" aria-label="Show subcategories of ${esc(c.name)}" title="Show subcategories">${CARET_ICON}</button>`
         : `<span class="admin-category-toggle-spacer"></span>`;
-      /* "I should not be able to delete a category until it has no more
-         subcategories" — disabled, not hidden, so a manager can see the
-         control exists and why it refuses, rather than wondering where
-         it went. */
-      const removeDisabled = hasChildren
-        ? ` disabled title="Remove ${esc(c.name)} — it still has subcategories of its own; remove those first"`
-        : ` title="Remove ${esc(c.name)}"`;
+      /* REVISED: "instead of making it disabled, just make it invisible —
+         while it has subcategories, it should not be deletable." A
+         category with children never renders a remove button at all now,
+         rather than a disabled one explaining why — the same "not
+         reachable, don't show it" treatment the "+" toggle just got for a
+         subcategory (above), instead of the earlier "visible but refused"
+         convention this control used to follow. */
+      const removeBtn = hasChildren
+        ? ""
+        : `<button type="button" class="admin-remove-btn" data-category-id="${esc(c.id)}" aria-label="Remove ${esc(c.name)}" title="Remove ${esc(c.name)}">${TRASH_ICON}</button>`;
       return `<div class="admin-category-node" style="padding-left: ${parentId === null ? 0 : CATEGORY_NODE_TOGGLE_PX}px">
         <div class="admin-category-row">
           ${toggle}
@@ -2234,7 +2237,7 @@ function renderAdminCategoryNodes(categories, parentId) {
             <input type="hidden" name="category_id" value="${esc(c.id)}">
             <input class="admin-category-numeric-id" name="numeric_id" value="${esc(c.numeric_id ?? "")}" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — leave blank to remove it">
           </form>
-          <button type="button" class="admin-remove-btn" data-category-id="${esc(c.id)}" aria-label="Remove ${esc(c.name)}"${removeDisabled}>${TRASH_ICON}</button>
+          ${removeBtn}
           ${isTopLevel ? `<button type="button" class="admin-category-add-toggle" data-parent-id="${esc(c.id)}" aria-label="Add a subcategory under ${esc(c.name)}" title="Add a subcategory">+</button>` : ""}
         </div>
         <div class="admin-category-children">${renderAdminCategoryNodes(categories, c.id)}</div>
@@ -3650,7 +3653,6 @@ ${OPS_DARK_CSS}
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--muted); cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;
 }
-.admin-remove-btn:disabled { cursor: not-allowed; opacity: 0.4; }
 /* Hidden until its own + is clicked (either a subcategory's own row, or
    the top-level one in .admin-section-header) — matching the old
    per-tile add-form exactly, right down to landing at the same indent a

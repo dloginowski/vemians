@@ -5480,6 +5480,15 @@ that does not trace to one of these is a process failure (see §12).
     deeper node (the fixture tree's own Casual, a real second-level subcategory under Coats) still
     renders exactly as it always did — this only stops a NEW one being added through this one panel.
 
+    **REVISED: a category with subcategories gets no remove button at all any more, rather than a
+    disabled one.** The owner's own words: "instead of making it disabled, just make it invisible,
+    because while it has subcategories, it should not be deletable." `renderAdminCategoryNodes`
+    (`views.js`) now skips rendering `.admin-remove-btn` outright when `hasChildren` is true — the
+    same "not reachable, don't show it" treatment the per-node "+" toggle just got one revision
+    earlier — instead of the disabled-with-an-explanatory-title convention this control used to
+    follow; a leaf category is unaffected, its own remove button still fully enabled. The now-dead
+    `.admin-remove-btn:disabled` CSS rule is removed along with it.
+
 74. **`Test-PRD-P0-139-honest_write_failures`** — A Square write refused with a plain `Square POST
     /v2/catalog/object failed with 400` and nothing else — the owner's own words, pasting exactly that
     line after an edit silently went nowhere: "just make sure all of the fields work... with this post
