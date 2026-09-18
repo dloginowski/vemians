@@ -20,7 +20,7 @@
  * through /media/new, same as a one-off product.
  */
 import { runTool } from "./tools/index.js";
-import { listCategories } from "./tools/catalog-writer.js";
+import { listCategories, categoryProductCounts } from "./tools/catalog-writer.js";
 import { parkForApproval } from "./approvals.js";
 import { csvRecords, parseCsv } from "./tools/csv.js";
 import { CAPS } from "./tools/caps.js";
@@ -190,6 +190,26 @@ function matchCategory(name, categories) {
   return categories.find((c) => c.name.trim().toLowerCase() === key) ?? null;
 }
 
+/*
+ * "I don't think we need to have [a name] as a requirement. I think that the
+ * name should be auto-generated based on its category and its position in
+ * the category index" — the owner's own words. A row with no title is no
+ * longer a skip; it becomes "<category name> <n>", n being this item's own
+ * position within that category — one past however many products already
+ * sit there, counting up across the rest of this same batch as more
+ * title-less rows for the same category are minted. Returns a fresh
+ * closure per draftProductBatch call, so two unrelated batches never share
+ * a counter.
+ */
+function autoTitler(existingCounts) {
+  const next = new Map();
+  return (category) => {
+    const n = next.has(category.id) ? next.get(category.id) : (existingCounts.get(category.id) ?? 0) + 1;
+    next.set(category.id, n + 1);
+    return `${category.name} ${n}`;
+  };
+}
+
 /**
  * Parse a CSV, mint one catalog.create_product approval per row that
  * resolves cleanly, and report the rest with a plain reason.
@@ -204,33 +224,34 @@ export async function draftProductBatch(env, { text, actor, role }) {
     return { ready: [], skipped: [], tooMany: records.length };
   }
   const categories = await listCategories(env.CATALOG_MIRROR);
+  const nextAutoTitle = autoTitler(await categoryProductCounts(env.CATALOG_MIRROR));
 
   const rows = [];
   const skipped = [];
 
   records.forEach((record, i) => {
     const rowNumber = i + 2; /* +1 for the header, +1 for 1-based rows */
-    const title = pick(record, TITLE_KEYS).slice(0, 200);
+    const rawTitle = pick(record, TITLE_KEYS).slice(0, 200);
     const categoryName = pick(record, CATEGORY_KEYS);
     const priceRaw = pick(record, PRICE_KEYS);
     const currency = (pick(record, CURRENCY_KEYS) || "USD").toUpperCase();
 
-    if (!title) {
-      skipped.push({ row: rowNumber, title: "(no title)", reason: "no title column, or it was empty" });
-      return;
-    }
+    /* Category is resolved before the title, now — an auto-generated title
+       is spelled from the category's own name, so there is no title left
+       to fall back to until the category itself is known. */
     const category = categoryName ? matchCategory(categoryName, categories) : null;
     if (!category) {
       const known = categories.map((c) => c.name).join(", ") || "none yet";
       skipped.push({
         row: rowNumber,
-        title,
+        title: rawTitle || "(no title)",
         reason: categoryName
           ? `category "${categoryName}" does not exist — it must be exactly one of: ${known}`
           : `no category column, or it was empty — it must be exactly one of: ${known}`,
       });
       return;
     }
+    const title = rawTitle || nextAutoTitle(category);
     const priceMinor = parsePriceToMinor(priceRaw);
     if (priceMinor === null) {
       skipped.push({ row: rowNumber, title, reason: `price "${priceRaw}" is not a plain number like 45.00` });

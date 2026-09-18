@@ -543,12 +543,33 @@ check("test_PRD_P0_60_spreadsheet_products__a_bad_row_is_reported_with_why_not_s
   const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
   assert.equal(result.ready.length, 0);
   assert.equal(result.skipped.length, 3);
-  assert.match(result.skipped[0].reason, /no title/);
+  /* A blank title is no longer the reason this row is skipped — it now
+     gets an auto-generated one and fails on the next real gap instead
+     (no style ID column at all in this sheet). */
+  assert.match(result.skipped[0].reason, /no style id/i);
   assert.match(result.skipped[1].reason, /"Millinery" does not exist/);
   assert.match(result.skipped[2].reason, /"free" is not a plain number/);
   /* Rows are 1-based and counted past the header, so a person can find row 2
      in the spreadsheet they actually uploaded. */
   assert.deepEqual(result.skipped.map((s) => s.row), [2, 3, 4]);
+});
+
+check("test_PRD_P0_145_auto_generated_title__a_blank_title_is_auto_generated_from_category_and_position", async () => {
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const csv =
+    "title,category,price,style id,cost\n" +
+    `,${outerwear.name},45.00,01-04-001,20.00\n` +
+    `,${outerwear.name},55.00,01-04-002,25.00\n`;
+
+  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.ready.length, 2);
+  /* The seeded catalog already has one product in Outerwear (fixtures'
+     own "Shearling-trimmed wool-blend coat"), so these two title-less
+     rows pick up where it left off rather than starting back at 1. */
+  assert.equal(result.ready[0].title, "Outerwear 2");
+  assert.equal(result.ready[1].title, "Outerwear 3");
 });
 
 check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_vendor_with_no_commission_is_parked_when_the_vendor_already_has_one_on_file", async () => {
@@ -4152,6 +4173,16 @@ check("test_PRD_P0_84_efficient_drafting__the_tool_descriptions_say_not_to_ask_a
   }
 });
 
+check("test_PRD_P0_84_efficient_drafting__the_tool_description_says_not_to_ask_about_quantity", () => {
+  /* "I don't think that has to be a hard requirement. If you do not specify
+     a quantity, let's make the assumption that we have one" — the owner's
+     own words. Quantity was never a real schema field or a code-level
+     gate anywhere in this codebase (VARIATION carries none; batch.js never
+     touched it) — only this description's own insistence made an agent
+     treat it as one, so this is the one place the fix belongs. */
+  assert.match(TOOLS["catalog.create_product"].describe, /default(s)? to 1/i, "must say quantity defaults to 1 rather than being asked for");
+});
+
 check("test_PRD_P0_84_efficient_drafting__draft_product_says_to_write_the_description_itself", () => {
   /* description is a required argument to draft_product — the model has to
      supply SOMETHING regardless — but "required" must not read as "go ask
@@ -4445,7 +4476,7 @@ check("test_PRD_P0_88_spreadsheet_via_chat__a_real_csv_drafts_through_the_same_p
   assert.match(outcome.block.content, /1 products ready, 1 skipped/);
   assert.match(outcome.block.content, /Wool Coat/);
   assert.match(outcome.block.content, /https?:\/\/\S+\/approvals\//, "a real approval link, not a placeholder");
-  assert.match(outcome.block.content, /no title column/i, "the skipped row's own reason must be relayed");
+  assert.match(outcome.block.content, /no style id column/i, "the skipped row's own reason must be relayed");
 });
 
 check("test_PRD_P0_88_spreadsheet_via_chat__too_many_rows_reports_the_cap_not_a_partial_draft", async () => {
@@ -4608,7 +4639,7 @@ check("test_PRD_P0_89_batch_preview_confirm__the_draft_tools_carry_a_structured_
   const ready = outcome.table.rows.find((r) => r[2] === "ready");
   assert.equal(ready[1], "Wool Coat");
   const skipped = outcome.table.rows.find((r) => r[2] === "skipped");
-  assert.match(skipped[3], /no title column/i);
+  assert.match(skipped[3], /no style id column/i);
 });
 
 check("test_PRD_P0_89_batch_preview_confirm__too_many_rows_carries_no_table_only_the_cap_message", async () => {

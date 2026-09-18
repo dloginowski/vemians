@@ -742,11 +742,14 @@ export const catalogWriteTools = {
       "that this shop never gave a rate). An EXPLICIT `commission` given alongside a vendor becomes " +
       "that vendor's own new central rate, applied to every future item from it the same way. " +
       "style_id follows this shop's own NN-NN-NNN nomenclature and is refused if another product " +
-      "already has it. INGESTING A BATCH (e.g. from a spreadsheet): every row needs style_id, title, " +
-      "and MSRP (variations[].price_minor); quantity, when a row does not give one, defaults to 1 " +
-      "rather than blocking the row — adjust it afterward via inventory.adjust if the real count " +
-      "differs. WITHOUT a vendor, unit_cost_minor is also required (this shop's own cost of goods); " +
-      "WITH a vendor, give " +
+      "already has it. This call itself still requires `title` — INGESTING A BATCH (e.g. from a " +
+      "spreadsheet): every row needs style_id and MSRP (variations[].price_minor); quantity, when a " +
+      "row does not give one, defaults to 1 rather than blocking the row — adjust it afterward via " +
+      "inventory.adjust if the real count differs. A row with no title is not blocked either: name it " +
+      "\"<category name> <n>\", n being 1 past however many products already sit in that category, " +
+      "counting up across the rest of the same batch as more title-less rows land in it — never ask a " +
+      "person to invent a name for a row that plainly has none. WITHOUT a vendor, unit_cost_minor is " +
+      "also required (this shop's own cost of goods); WITH a vendor, give " +
       "commission only for that vendor's OWN FIRST row (or omit it entirely and let this tool refuse, " +
       "naming exactly which vendor still needs one) — do not ask a person to repeat a vendor's own " +
       "commission on every row, it is privileged information and this tool already carries it forward " +
