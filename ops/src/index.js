@@ -196,6 +196,24 @@ function bytesToBase64(bytes) {
 }
 
 /*
+ * "Don't add decimals to our costs and to our prices — it's just going to
+ * be whole numbers." The Items tab's own Cost (/square-attributes' own
+ * unit_cost) and MSRP (/price) fields are the only two places a person
+ * types a dollar amount directly for this shop's own goods — both parse
+ * through here, refusing a decimal point outright rather than rounding it
+ * away (a rounded price and a mistyped one would look identical on
+ * reload). Everything else that takes a dollar string (batch.js's own
+ * parsePriceToMinor, still used for CSV import and the expense scanner)
+ * is unaffected — this is scoped to these two fields alone, not a change
+ * to how prices work anywhere else in this codebase.
+ */
+function parseWholeDollarsToMinor(raw) {
+  const cleaned = String(raw ?? "").trim().replace(/^\$/, "").replace(/,/g, "");
+  if (!/^\d+$/.test(cleaned)) return null;
+  return Number(cleaned) * 100;
+}
+
+/*
  * "A row of icons under chat; let the agent figure out what to do with
  * them" — the owner's own words. This is where a file dropped into the chat
  * actually lands, BEFORE the agent ever sees it: a photo goes to the same
@@ -681,21 +699,17 @@ async function ops(request, env, path) {
          a blank vendor arrives with an explicit clear_vendor marker (see
          above) precisely when that toggle is what fired, translated into
          catalog.set_square_attributes' own clear_vendor: true. commission
-         is parsed as a plain integer here; unit_cost is a dollar string
-         ("$45.00") parsed the same way a spreadsheet's own price column is
-         (batch.js's parsePriceToMinor) — the agent-tool schema layer
-         always takes a plain integer minor-units argument, dollar-string
-         parsing happens only at this human-facing form boundary. A
-         malformed or out-of-range value (commission, or a unit_cost that
-         fails to parse) is left for the tool's own check() to refuse with
-         a clear reason, rather than silently dropped.
-
-         The ops UI's own style_id <form> (views.js) posts here alone now
-         — unit_cost moved to the /variations route below once it stopped
-         being one value for the whole product ("all the variants can have
-         a different unit cost too"). This route and catalog.set_square_
-         attributes itself are unchanged for API/agent callers that still
-         want to set unit_cost uniformly in one call. */
+         is parsed as a plain integer here; unit_cost is a whole-dollar
+         string ("$45", never "$45.00" — "don't add decimals to our costs
+         and to our prices, it's just going to be whole numbers")
+         parsed by parseWholeDollarsToMinor below, this form's own boundary
+         refusing a decimal outright with a clear reason rather than
+         letting it fall through to the tool's own generic "must be an
+         integer" (true, but about the MINOR-unit value, not about cents
+         being disallowed at all) — the agent-tool schema layer itself
+         still just takes a plain integer minor-units argument either way.
+         A malformed or out-of-range commission is still left for the
+         tool's own check() to refuse, rather than silently dropped. */
       const styleId = String(form.get("style_id") ?? "").trim();
       const vendor = String(form.get("vendor") ?? "").trim();
       /* The vendor picker's own toggle-to-clear (views.js submitEditForm)
@@ -705,7 +719,10 @@ async function ops(request, env, path) {
       const clearVendor = String(form.get("clear_vendor") ?? "").trim() === "1";
       const vendorCode = String(form.get("vendor_code") ?? "").trim();
       const unitCostRaw = String(form.get("unit_cost") ?? "").trim();
-      const unitCostMinor = unitCostRaw === "" ? undefined : parsePriceToMinor(unitCostRaw);
+      if (unitCostRaw !== "" && parseWholeDollarsToMinor(unitCostRaw) === null) {
+        return json({ error: "Cost must be a whole dollar amount — no cents" }, 400);
+      }
+      const unitCostMinor = unitCostRaw === "" ? undefined : parseWholeDollarsToMinor(unitCostRaw);
       const commissionRaw = String(form.get("commission") ?? "").trim();
       const commission = commissionRaw === "" ? undefined : Number(commissionRaw);
       toolName = "catalog.set_square_attributes";
@@ -714,10 +731,6 @@ async function ops(request, env, path) {
         ...(styleId ? { style_id: styleId } : {}),
         ...(clearVendor ? { clear_vendor: true } : vendor ? { vendor } : {}),
         ...(vendorCode ? { vendor_code: vendorCode } : {}),
-        /* parsePriceToMinor returning null (unparsable) still gets sent
-           through as null rather than silently dropped, so the tool's own
-           schema validation refuses it with a clear reason instead of the
-           form quietly ignoring what was typed. */
         ...(unitCostMinor !== undefined ? { unit_cost_minor: unitCostMinor } : {}),
         ...(commission !== undefined ? { commission } : {}),
       };
@@ -792,7 +805,15 @@ async function ops(request, env, path) {
       if (priceRaw === "") {
         return json({ error: "give an MSRP" }, 400);
       }
-      const priceMinor = parsePriceToMinor(priceRaw);
+      /* "Don't add decimals to our costs and to our prices, it's just
+         going to be whole numbers" — same whole-dollar-only parsing Cost
+         uses above, refused here with its own clear reason rather than
+         rounded away or left to a downstream "must be an integer" that
+         never actually says cents are the problem. */
+      const priceMinor = parseWholeDollarsToMinor(priceRaw);
+      if (priceMinor === null) {
+        return json({ error: "MSRP must be a whole dollar amount — no cents" }, 400);
+      }
       const product = await productByHandle(env.CATALOG_MIRROR, handle);
       if (!product) {
         return json({ error: `no product with handle '${handle}' in the mirror` }, 400);

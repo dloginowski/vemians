@@ -899,7 +899,7 @@ check("test_PRD_P0_136_square_custom_attributes__the_edit_form_posts_to_square_a
     style_id: "01-04-001",
     vendor: "Acme Mills",
     vendor_code: "ACME-4471",
-    unit_cost_minor: 4250,
+    unit_cost_minor: 4200,
     commission_pct: 20,
   });
   const res = await get("/items", MANAGER, env(mirror));
@@ -912,7 +912,7 @@ check("test_PRD_P0_136_square_custom_attributes__the_edit_form_posts_to_square_a
   const styleIdIdx = body.indexOf('<input name="style_id"', titleRowIdx);
   assert.ok(styleIdIdx > titleRowIdx && styleIdIdx < categoryFormIdx, "style_id must render before the category dropdown, inside the category row");
   assert.match(body, /<input name="style_id" value="01-04-001" placeholder="NN-NN-NNN" pattern="\\d\{2\}-\\d\{2\}-\\d\{3\}"/);
-  assert.match(body, /<input class="item-unit-cost" name="unit_cost" value="42\.50" placeholder="Cost"/, "unit_cost lives on the vendor form, back on the row itself");
+  assert.match(body, /<input class="item-unit-cost" name="unit_cost" value="42" placeholder="Cost"/, "unit_cost lives on the vendor form, back on the row itself, as a whole dollar amount");
   /* "The same kind of drop down schema that we have for categories... we
      don't have to fill out any of these stuff per product." vendor is now
      a picker (a hidden text input the picker's own JS drives, plus a
@@ -975,14 +975,17 @@ check("test_PRD_P0_136_square_custom_attributes__cost_and_msrp_always_render_on_
   const body = await (await get("/items", MANAGER, env(mirror))).text();
   assert.match(body, /<input class="item-unit-cost" name="unit_cost" value="" placeholder="Cost"/);
   assert.match(body, /<form method="post" action="\/items\/wool-coat\/price">/);
-  assert.match(body, /<input class="item-msrp" name="price" value="450\.00" placeholder="MSRP"/);
+  assert.match(body, /<input class="item-msrp" name="price" value="450" placeholder="MSRP"/);
 });
 
 check("test_PRD_P0_136_square_custom_attributes__cost_prefills_from_the_vendors_own_unit_cost_msrp_from_the_first_variations_own_price", async () => {
+  /* "Don't add decimals to our costs and to our prices, it's just going
+     to be whole numbers" — the prefilled value is a plain whole dollar
+     amount, rounded, never a decimal string. */
   const mirror = mirrorDb();
-  seedProduct(mirror, { vendor: "Acme Mills", unit_cost_minor: 4250 });
+  seedProduct(mirror, { vendor: "Acme Mills", unit_cost_minor: 4200 });
   const body = await (await get("/items", MANAGER, env(mirror))).text();
-  assert.match(body, /<input class="item-unit-cost" name="unit_cost" value="42\.50" placeholder="Cost"/);
+  assert.match(body, /<input class="item-unit-cost" name="unit_cost" value="42" placeholder="Cost"/);
 });
 
 check("test_PRD_P0_136_square_custom_attributes__cost_and_msrp_have_a_four_digit_minimum_width_and_expand_past_it", async () => {
@@ -1031,10 +1034,23 @@ check("test_PRD_P0_136_square_custom_attributes__price_route_refuses_a_blank_msr
   assert.match(body.error, /give an MSRP/);
 });
 
+check("test_PRD_P0_136_square_custom_attributes__price_route_refuses_cents_before_touching_square", async () => {
+  /* "Don't add decimals to our costs and to our prices, it's just going
+     to be whole numbers." A decimal MSRP is refused with its own clear
+     reason, not rounded away and not left to a downstream "must be an
+     integer" that never actually names cents as the problem. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await postForm("/items/wool-coat/price", MANAGER, env(mirror), { price: "45.50" });
+  assert.equal(res.status, 400);
+  const body = await res.json();
+  assert.match(body.error, /MSRP must be a whole dollar amount — no cents/);
+});
+
 check("test_PRD_P0_136_square_custom_attributes__price_route_staff_cannot_reach_it", async () => {
   const mirror = mirrorDb();
   seedProduct(mirror);
-  const res = await postForm("/items/wool-coat/price", STAFF, env(mirror), { price: "45.00" });
+  const res = await postForm("/items/wool-coat/price", STAFF, env(mirror), { price: "45" });
   assert.equal(res.status, 403);
   assert.match(await res.text(), /manager/i);
 });
@@ -1047,7 +1063,7 @@ check("test_PRD_P0_136_square_custom_attributes__price_route_resends_every_curre
      alone overridden -- before ever touching Square. */
   const mirror = mirrorDb();
   seedProduct(mirror);
-  const res = await postForm("/items/wool-coat/price", MANAGER, env(mirror), { price: "45.00" });
+  const res = await postForm("/items/wool-coat/price", MANAGER, env(mirror), { price: "45" });
   assert.equal(res.status, 400);
   assert.match(await res.text(), /SQUARE_ACCESS_TOKEN is unset/);
 });
@@ -1149,6 +1165,21 @@ check("test_PRD_P0_136_square_custom_attributes__style_id_auto_formats_with_dash
     gridChangeIdx > -1 && reformatCallIdx > gridChangeIdx && reformatCallIdx < stockCountBranchIdx,
     "the style_id reformat must run first, on every input/change event the grid already listens for",
   );
+});
+
+check("test_PRD_P0_136_square_custom_attributes__cost_refuses_cents_before_touching_square", async () => {
+  /* "Don't add decimals to our costs and to our prices, it's just going
+     to be whole numbers." A decimal Cost is refused with its own clear
+     reason, before ever reaching runTool -- never rounded away and never
+     left to a downstream "must be an integer" that never actually names
+     cents as the problem. A blank Cost (untouched) still means "leave it
+     as it is", unaffected. */
+  const mirror = mirrorDb();
+  seedProduct(mirror, { vendor: "Acme Mills" });
+  const res = await postForm("/items/wool-coat/square-attributes", MANAGER, env(mirror), { unit_cost: "42.50" });
+  assert.equal(res.status, 400);
+  const body = await res.json();
+  assert.match(body.error, /Cost must be a whole dollar amount — no cents/);
 });
 
 check("test_PRD_P0_136_square_custom_attributes__staff_cannot_reach_the_route_before_square_is_ever_touched", async () => {

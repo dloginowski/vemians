@@ -4116,6 +4116,18 @@ that does not trace to one of these is a process failure (see §12).
     either — `.item-badges` sits inside `.item-detail`, already hidden until the tile is expanded, so
     the button was never reachable collapsed regardless of its own display rule.
 
+    **REVISED: Cost and MSRP are whole dollars only, no cents.** The owner's own words: "don't add
+    decimals to our costs and to our prices, it's just going to be whole numbers." A new
+    `parseWholeDollarsToMinor` (`index.js`, scoped to these two fields alone — `batch.js`'s own
+    `parsePriceToMinor`, still used for CSV import and the expense scanner, is unaffected) refuses a
+    decimal point outright with its own clear reason ("Cost/MSRP must be a whole dollar amount — no
+    cents") rather than rounding it away or falling through to the tool's own generic "must be an
+    integer" (true, but about the minor-unit value, never about cents being disallowed at all). Both
+    fields' own prefilled value is a plain rounded whole number now too (`"42"`, never `"42.50"`).
+    Read-only historical displays elsewhere (`money()`, staff's own Unit cost row) are unchanged — a
+    product priced with cents before this rule existed still shows them accurately; this is a rule for
+    what gets typed into these two fields going forward, not a rewrite of how money renders everywhere.
+
 71. **`Test-PRD-P0-136-square_custom_attributes`** — The owner's own words, having weighed "ours,
     not Square's" (P0-71's own `channel`/`custom_fields`) against not reinventing something Square
     already offers: "why do we need to have our own custom fields then? It doesn't make sense... we

@@ -2626,10 +2626,10 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
                  ? `<span class="vendor-commission-badge" title="Set centrally, in Admin → Vendors">${esc(String(product.commission_pct))}%</span>`
                  : ""
              }
-             <input class="item-unit-cost" name="unit_cost" value="${product.unit_cost_minor ? esc((product.unit_cost_minor / 100).toFixed(2)) : ""}" placeholder="Cost" title="What this shop paid the vendor -- applied to every variation at once">
+             <input class="item-unit-cost" name="unit_cost" value="${product.unit_cost_minor ? esc(String(Math.round(product.unit_cost_minor / 100))) : ""}" placeholder="Cost" title="What this shop paid the vendor -- applied to every variation at once. Whole dollars, no cents.">
            </form>
            <form method="post" action="/items/${esc(product.handle)}/price">
-             <input class="item-msrp" name="price" value="${primaryVariant ? esc((primaryVariant.price_minor / 100).toFixed(2)) : ""}" placeholder="MSRP" title="Set every variation's own price at once">
+             <input class="item-msrp" name="price" value="${primaryVariant ? esc(String(Math.round(primaryVariant.price_minor / 100))) : ""}" placeholder="MSRP" title="Set every variation's own price at once. Whole dollars, no cents.">
            </form>
          </div>
        </div>`
