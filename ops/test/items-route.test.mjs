@@ -957,6 +957,78 @@ check("test_PRD_P0_136_square_custom_attributes__the_vendor_picker_grows_to_fill
   assert.doesNotMatch(body, /\.item-edit input\[name="vendor_code"\]\s*\{[^}]*flex: 1/s);
 });
 
+check("test_PRD_P0_136_square_custom_attributes__cost_and_msrp_always_render_on_the_vendor_row_even_with_no_vendor_yet", async () => {
+  /* "Where's my cost and my MSRP? It needs to be on the right of vendors,
+     right? Those should be there always." — restored after "get rid of
+     the variations row entirely" turned out to mean per-variation
+     editing specifically, never these two product-wide bulk fields.
+     Cost lives on the SAME square-attributes form as vendor (applied
+     uniformly to every variation, same as vendor/vendor_code); MSRP has
+     no such product-wide concept in Square, so it gets its own form,
+     posting to the new /items/<handle>/price route. Both always render,
+     even with no vendor at all — same "always visible, refused server-
+     side only if actually used with no vendor" rule Cost always had. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.match(body, /<input class="item-unit-cost" name="unit_cost" value="" placeholder="Cost"/);
+  assert.match(body, /<form method="post" action="\/items\/wool-coat\/price">/);
+  assert.match(body, /<input class="item-msrp" name="price" value="450\.00" placeholder="MSRP"/);
+});
+
+check("test_PRD_P0_136_square_custom_attributes__cost_prefills_from_the_vendors_own_unit_cost_msrp_from_the_first_variations_own_price", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror, { vendor: "Acme Mills", unit_cost_minor: 4250 });
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.match(body, /<input class="item-unit-cost" name="unit_cost" value="42\.50" placeholder="Cost"/);
+});
+
+check("test_PRD_P0_136_square_custom_attributes__cost_and_msrp_are_two_separate_forms_merged_into_one_visual_row", async () => {
+  /* MSRP cannot live in the SAME <form> as Cost/vendor -- it reaches a
+     different tool (catalog.update_product) through a different route
+     -- so the two forms are visually merged into one row the same
+     "display: contents" way .category-title-row's own two forms already
+     are, rather than each becoming its own stacked block. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.match(body, /\.item-edit \.vendor-row form \{ display: contents; \}/);
+  const rowIdx = body.indexOf('<div class="row vendor-row">');
+  const vendorFormIdx = body.indexOf('action="/items/wool-coat/square-attributes"', rowIdx);
+  const priceFormIdx = body.indexOf('action="/items/wool-coat/price"', rowIdx);
+  assert.ok(rowIdx > -1 && vendorFormIdx > rowIdx && priceFormIdx > vendorFormIdx, "both forms live inside the same .vendor-row, vendor form first");
+});
+
+check("test_PRD_P0_136_square_custom_attributes__price_route_refuses_a_blank_msrp_before_touching_square", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await postForm("/items/wool-coat/price", MANAGER, env(mirror), { price: "" });
+  assert.equal(res.status, 400);
+  const body = await res.json();
+  assert.match(body.error, /give an MSRP/);
+});
+
+check("test_PRD_P0_136_square_custom_attributes__price_route_staff_cannot_reach_it", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await postForm("/items/wool-coat/price", STAFF, env(mirror), { price: "45.00" });
+  assert.equal(res.status, 403);
+  assert.match(await res.text(), /manager/i);
+});
+
+check("test_PRD_P0_136_square_custom_attributes__price_route_resends_every_current_variation_reaching_the_tool_layer", async () => {
+  /* Matching the P0-138 admin tests' own convention: reaching
+     "SQUARE_ACCESS_TOKEN is unset" (catalog.update_product's own run(),
+     not check()) proves the route built a valid variations array --
+     every existing variation, title/currency untouched, price_minor
+     alone overridden -- before ever touching Square. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await postForm("/items/wool-coat/price", MANAGER, env(mirror), { price: "45.00" });
+  assert.equal(res.status, 400);
+  assert.match(await res.text(), /SQUARE_ACCESS_TOKEN is unset/);
+});
+
 check("test_PRD_P0_136_square_custom_attributes__the_vendor_picker_toggles_off_when_the_same_vendor_is_clicked_again", async () => {
   /* "I don't like adding none to vendors. Let's just make the vendor
      selected vendor toggle so that if I selected a vendor and then I
