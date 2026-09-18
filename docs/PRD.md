@@ -3986,6 +3986,18 @@ that does not trace to one of these is a process failure (see §12).
     staff view (no picker, just a plain `<span>` since there is nothing to click) is untouched and
     still shows the full path — there is no hover on a `<span>` to hand it off to.
 
+    **REVISED: Cost and MSRP moved off the Variations header, onto the end of the vendor row.** The
+    owner's own words: "move cost and MSRP in item view, move it to the end of the vendor row. Because
+    I want to get rid of the whole variants setup. I don't want to do this from inside of the [ops]
+    UI, I think it's easier to do it through the Square UI." Per-variation editing itself (each
+    row's own title, stock stepper, and individual cost/price) is UNCHANGED for now — only these two
+    product-wide broadcaster fields moved, since they are the one part of this section not actually
+    about managing individual variants. Both still broadcast into the exact same `.variations-body`
+    `<form>` exactly as before (`onItemsGridChange`); the only code change needed was locating that
+    form's own enclosing accordion via `e.target.closest(".item-tile")?.querySelector(".variations-
+    accordion")` instead of `e.target.closest(".variations-accordion")`, since the two fields no
+    longer live inside it.
+
 71. **`Test-PRD-P0-136-square_custom_attributes`** — The owner's own words, having weighed "ours,
     not Square's" (P0-71's own `channel`/`custom_fields`) against not reinventing something Square
     already offers: "why do we need to have our own custom fields then? It doesn't make sense... we

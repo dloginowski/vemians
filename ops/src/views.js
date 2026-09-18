@@ -2040,26 +2040,21 @@ ${INPUT_BAR_CSS}
    (0,2,1) outright, so an incomplete-but-changed value reads red, never
    orange, until it is actually a complete, savable style_id. */
 .item-edit input[name="style_id"]:invalid { border-color: var(--invalid); }
-/* "Ensure the header's cost/MSRP align exactly with the children rows'
-   own cost/price" — the row's own title absorbs all its row's leftover
-   width (flex: 1 1 auto), pushing its fixed-width stepper/cost/price
-   flush to the row's own right edge; nothing in the header did the same,
-   so cost/MSRP floated wherever style_id's own width happened to end
-   instead. This spacer is the header's equivalent of that leftover-space
-   absorber — invisible, no content, just flex: 1 1 auto — so cost/MSRP
-   land at the SAME right-edge-anchored position the rows' own fields do.
-   REVISED: now sits BEFORE style_id (between it and "Variations") rather
-   than between style_id and Cost, once the owner also wanted style_id
-   itself pushed toward that same right-anchored group, roughly where the
-   stock stepper sits in each row — style_id/Cost/MSRP are one fixed-width
-   packed group at the row's end now, same as stepper/Cost/price already
-   are below. */
+/* Absorbs the header's own leftover width so the toggle/label sit flush
+   left, matching every other accordion header's own spacer on this
+   page. REVISED: Cost/MSRP (and, earlier still, style_id) both used to
+   anchor to the right of this spacer — both have since moved out of this
+   header entirely (style_id to .category-title-row, Cost/MSRP to the
+   end of the vendor row — "I want to get rid of the whole variants
+   setup... I think it's easier to do it through the Square UI"), so
+   nothing sits after it any more; kept anyway, harmless, matching the
+   other accordion headers' own shape. */
 .variations-header-spacer { flex: 1 1 auto; }
 /* "Unit cost and MSRP boxes are way too big... ten thousand dollars is
    the maximum we'll charge for a piece of clothing" — $10,000.00 is 8
    characters; narrower than the old 6.5em, not the 10em default. */
-.variations-header input.variations-msrp,
-.variations-header input.variations-unit-cost,
+.item-edit input.variations-msrp,
+.item-edit input.variations-unit-cost,
 .variations-body input[name^="price_"],
 .variations-body input[name^="unit_cost_"] {
   flex: 0 0 auto; width: 5em;
@@ -2499,14 +2494,24 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
         `</div>`,
     )
     .join("");
+  /* REVISED: Cost/MSRP moved out of this header entirely, onto the end of
+     the vendor row instead (titleVendorForms, above) — the owner's own
+     words: "I want to get rid of the whole variants setup... I don't
+     want to do this from inside of the [ops] UI, I think it's easier to
+     do it through the Square UI." Per-variation editing (title, stock,
+     individual cost/price below) stays exactly where it was for now —
+     only these two, product-wide broadcaster fields moved, since they
+     are the one part of this section not tied to managing variants
+     themselves. Both still broadcast into the SAME .variations-body
+     <form> exactly as before (onItemsGridChange, below, now looks the
+     input up via the enclosing .item-tile rather than .closest(
+     ".variations-accordion"), since the fields no longer live inside it). */
   const variationsAccordion = canEdit
     ? `<div class="variations-accordion">
          <div class="variations-header">
            <button type="button" class="variations-toggle" aria-label="Show every variation" title="Show every variation">${CARET_ICON}</button>
            <span class="variations-label">Variations</span>
            <span class="variations-header-spacer"></span>
-           <input class="variations-unit-cost" placeholder="Cost">
-           <input class="variations-msrp" placeholder="MSRP">
          </div>
          <div class="variations-body">
            ${
@@ -2667,6 +2672,8 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
                  ? `<span class="vendor-commission-badge" title="Set centrally, in Admin → Vendors">${esc(String(product.commission_pct))}%</span>`
                  : ""
              }
+             <input class="variations-unit-cost" placeholder="Cost" title="Set every variation's own cost at once">
+             <input class="variations-msrp" placeholder="MSRP" title="Set every variation's own price at once">
            </div>
          </form>
        </div>`
@@ -3305,7 +3312,7 @@ function onItemsGridChange(e) {
     reformatStyleIdInput(e.target);
   }
   if (e.target.matches(".variations-msrp")) {
-    const accordion = e.target.closest(".variations-accordion");
+    const accordion = e.target.closest(".item-tile")?.querySelector(".variations-accordion");
     accordion?.querySelectorAll(".variation-price").forEach((input) => {
       input.value = e.target.value;
       refreshDirtyState(input);
@@ -3313,7 +3320,7 @@ function onItemsGridChange(e) {
     return;
   }
   if (e.target.matches(".variations-unit-cost")) {
-    const accordion = e.target.closest(".variations-accordion");
+    const accordion = e.target.closest(".item-tile")?.querySelector(".variations-accordion");
     accordion?.querySelectorAll(".variation-unit-cost").forEach((input) => {
       input.value = e.target.value;
       refreshDirtyState(input);

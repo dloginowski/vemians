@@ -940,6 +940,30 @@ check("test_PRD_P0_136_square_custom_attributes__the_edit_form_posts_to_square_a
   /* "Center the vendor SKU content too" — the owner's own words, extending
      the centering cost/MSRP/style_id already have to this field as well. */
   assert.match(body, /\.item-edit input\[name="vendor_code"\]\s*\{\s*text-align: center;\s*\}/);
+  /* REVISED: "move cost and MSRP in item view... to the end of the
+     vendor row. Because I want to get rid of the whole variants
+     setup... I think it's easier to do it through the Square UI." Both
+     broadcasters now render at the END of this same vendor <form>. */
+  assert.match(vendorFormBody, /<input class="variations-unit-cost" placeholder="Cost"[^>]*>\s*<input class="variations-msrp" placeholder="MSRP"[^>]*>/);
+});
+
+check("test_PRD_P0_136_square_custom_attributes__cost_and_msrp_broadcast_still_reaches_the_variations_accordion_from_its_new_home", async () => {
+  /* The broadcaster inputs no longer live inside .variations-accordion,
+     so the page script must locate it via the enclosing .item-tile
+     instead of e.target.closest(".variations-accordion") -- otherwise
+     typing into either field from its new spot would silently reach no
+     variation rows at all. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.match(
+    body,
+    /const accordion = e\.target\.closest\("\.item-tile"\)\?\.querySelector\("\.variations-accordion"\);\s*\n\s*accordion\?\.querySelectorAll\("\.variation-price"\)/,
+  );
+  assert.match(
+    body,
+    /const accordion = e\.target\.closest\("\.item-tile"\)\?\.querySelector\("\.variations-accordion"\);\s*\n\s*accordion\?\.querySelectorAll\("\.variation-unit-cost"\)/,
+  );
 });
 
 check("test_PRD_P0_136_square_custom_attributes__style_id_auto_formats_with_dashes_and_reads_red_until_a_full_match", async () => {
@@ -1071,14 +1095,17 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_variations_accordion_h
   assert.doesNotMatch(body, /variations-header-label/);
   assert.match(body, /<input name="style_id" value="01-04-001" placeholder="NN-NN-NNN"/, "just the format hint, no label at all");
   assert.match(body, /<input class="variation-unit-cost" name="unit_cost_0" value="42\.50" placeholder="Cost">/);
-  /* "For the cost field, again, just cost, nothing else... you should not
-     have hints overflowing" — the header's own broadcasters carry only
-     the bare word now, not the longer "— every variation's ..." tails. */
-  assert.match(body, /<input class="variations-unit-cost" placeholder="Cost">/);
-  assert.match(body, /<input class="variations-msrp" placeholder="MSRP">/);
+  /* REVISED: "I want to get rid of the whole variants setup... I think
+     it's easier to do it through the Square UI" — the two broadcasters
+     moved off this header entirely, onto the end of the vendor row
+     (titleVendorForms), so what is checked here is only that every
+     variation's own row still carries its own bare "Cost"/"Price"
+     placeholders, unchanged. */
+  assert.match(body, /<input class="variations-unit-cost" placeholder="Cost" title="Set every variation's own cost at once">/);
+  assert.match(body, /<input class="variations-msrp" placeholder="MSRP" title="Set every variation's own price at once">/);
   /* "On the right side... the unit cost and then the MSRP... so that they
      align with the children who also have their own unit cost and their
-     own MSRP" — cost before price, in both the header and every row. */
+     own MSRP" — cost before price, in both the broadcasters and every row. */
   assert.ok(
     body.indexOf('class="variations-unit-cost"') < body.indexOf('class="variations-msrp"'),
     "header: unit cost before MSRP",
@@ -1160,11 +1187,21 @@ check("test_PRD_P0_135_item_edit_applies_immediately__header_and_row_fields_are_
   assert.match(body, /<span class="variations-header-spacer"><\/span>/, "an invisible spacer absorbs the header's own leftover width, the same way each row's own title does");
   assert.match(body, /\.variations-header-spacer\s*\{\s*flex: 1 1 auto;\s*\}/);
   assert.match(body, /\.variations-body \.row\s*\{[^}]*padding: 3px 4px 3px 0/, "a right inset matches the header's own right padding");
+  /* REVISED: "I want to get rid of the whole variants setup... I think
+     it's easier to do it through the Square UI" — Cost/MSRP moved off
+     this header entirely, onto the end of the vendor row, so nothing
+     follows the spacer here any more; it now sits as the LAST thing in
+     the header, right after the label. */
   const spacerMarkup = body.indexOf('<span class="variations-header-spacer">');
-  const unitCostMarkup = body.indexOf('<input class="variations-unit-cost"');
+  const headerEnd = body.indexOf("</div>", spacerMarkup);
   assert.ok(
-    body.indexOf('<span class="variations-label">Variations</span>') < spacerMarkup && spacerMarkup < unitCostMarkup,
-    "the spacer now sits between the Variations label and Cost/MSRP, style_id having moved out of the header entirely",
+    body.indexOf('<span class="variations-label">Variations</span>') < spacerMarkup,
+    "the spacer must still follow the Variations label",
+  );
+  assert.doesNotMatch(
+    body.slice(spacerMarkup, headerEnd),
+    /variations-unit-cost|variations-msrp/,
+    "Cost/MSRP no longer live inside this header at all",
   );
 });
 
