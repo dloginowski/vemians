@@ -2229,14 +2229,18 @@ function renderAdminCategoryNodes(
          reachable, don't show it" treatment the "+" toggle just got for a
          subcategory (above), instead of the earlier "visible but refused"
          convention this control used to follow.
-         REVISED AGAIN: "we probably should not enable the deletion of
-         subcategories if they have items assigned to them" — the same
-         invisible-not-disabled treatment, extended to a category with no
-         subcategories of its own but still holding a real product. */
+         "I didn't want you to remove the delete button from subcategories
+         that has items associated. I just wanted to disable it so that its
+         alignment stays consistent" — a category still holding a real
+         product keeps its own remove button, visible but disabled, rather
+         than getting the same invisible treatment as one with children:
+         that treatment was only ever asked for the "has subcategories"
+         case above. */
       const hasProducts = (categoryProductCountsById.get(c.id) ?? 0) > 0;
-      const removeBtn =
-        hasChildren || hasProducts
-          ? ""
+      const removeBtn = hasChildren
+        ? ""
+        : hasProducts
+          ? `<button type="button" class="admin-remove-btn" disabled aria-label="Remove ${esc(c.name)}" title="Move its products to a different category first">${TRASH_ICON}</button>`
           : `<button type="button" class="admin-remove-btn" data-category-id="${esc(c.id)}" aria-label="Remove ${esc(c.name)}" title="Remove ${esc(c.name)}">${TRASH_ICON}</button>`;
       /* "I want to be able to associate a category with option sets... I
          don't want to be adding the same option sets to every single
@@ -3690,6 +3694,11 @@ ${OPS_DARK_CSS}
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--muted); cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;
 }
+/* A category still holding a real product — visible so the row's own
+   layout stays consistent with every sibling, disabled so it cannot
+   actually be clicked ("I just wanted to disable it so that its
+   alignment stays consistent" — the owner's own words). */
+.admin-remove-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 /* Hidden until its own + is clicked (either a subcategory's own row, or
    the top-level one in .admin-section-header) — matching the old
    per-tile add-form exactly, right down to landing at the same indent a
