@@ -5831,6 +5831,16 @@ that does not trace to one of these is a process failure (see §12).
     click on the toggle button itself already is, so any number of them stay tickable in one sitting —
     the menu only closes on an outside click, `Escape`, or the toggle button.
 
+    **REVISED: the menu opens leftward from the toggle's own right edge, not rightward off the edge of
+    the screen.** The owner's own words: "don't open it off screen. Open it to the left because the
+    current position of the button is to the right center. Open it to the left." `.vendor-picker-menu`,
+    the convention this shape was copied from, anchors `left: 0` because ITS OWN toggle sits at the
+    LEFT of its row — the Sets toggle sits well over toward the RIGHT of its own row instead (after
+    name/numeric_id, before remove/"+"), so the identical `left: 0` anchor ran the menu's own `min-width`
+    past the right edge of the screen for exactly the rows where it mattered most. `right: 0` anchors it
+    to the toggle's own right edge and grows it leftward instead, keeping it on screen regardless of how
+    close to the right edge the button itself sits.
+
     **REVISED: a subcategory with no explicit option sets of its own now inherits its parent's, all the
     way up the tree.** The owner's own words: "when I set sets for a category, all subcategories
     inherit the sets unless I specify different selections for the subcategories." A new OURS-only

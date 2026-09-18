@@ -3004,8 +3004,8 @@ check("test_PRD_P0_142_category_item_options__admin_sets_menu_floats_over_the_tr
   assert.match(body, /\.admin-category-options \{ position: relative; flex: 0 0 auto; \}/);
   assert.match(
     body,
-    /\.admin-category-options-menu \{\s*\n\s*position: absolute; top: 100%; left: 0;/,
-    "the checkbox list must float below the toggle, not occupy its own row",
+    /\.admin-category-options-menu \{\s*\n\s*position: absolute; top: 100%; right: 0;/,
+    "the checkbox list must float below the toggle, anchored to its right edge so it opens leftward and stays on screen, not occupy its own row",
   );
 });
 
