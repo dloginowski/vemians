@@ -1864,16 +1864,23 @@ ${INPUT_BAR_CSS}
    this picker itself — the same division of labor .category-picker's
    own picker/accordion split already established: this only ever
    SELECTS from the closed set that already exists. */
-.vendor-picker { position: relative; flex: 0 0 auto; }
+/* "Spread them out a little, make the vendor dropdown box just eat up
+   all the available space... so it kind of spreads out and fills up the
+   entire row, because the other fields can stay the same" — the one
+   field on this row with no natural fixed width of its own (vendor_code/
+   the commission badge/Cost/MSRP are all still flex: 0 0 auto, unchanged)
+   now grows to absorb whatever the others do not use. */
+.vendor-picker { position: relative; flex: 1 1 auto; min-width: 0; }
 .vendor-picker-btn {
   display: inline-flex; align-items: center; gap: 4px; box-sizing: border-box;
-  flex: 0 0 auto; font: inherit; font-size: 11px; padding: 3px 5px; white-space: nowrap;
+  flex: 1 1 auto; width: 100%; min-width: 0; font: inherit; font-size: 11px; padding: 3px 5px;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink); cursor: pointer;
 }
 .vendor-picker-btn svg { flex: 0 0 auto; color: var(--muted); transition: transform 0.15s; }
 .vendor-picker.expanded > .vendor-picker-btn svg { transform: rotate(90deg); }
+.vendor-picker-btn-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .vendor-picker-menu {
-  position: absolute; top: 100%; left: 0; z-index: 15; margin-top: 4px; min-width: 14em; max-height: 16em;
+  position: absolute; top: 100%; left: 0; z-index: 15; margin-top: 4px; width: 100%; min-width: 14em; max-height: 16em;
   overflow-y: auto; padding: 4px 0; border: 1px solid var(--muted); border-radius: 8px; background: var(--ground);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }

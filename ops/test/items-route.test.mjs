@@ -966,6 +966,20 @@ check("test_PRD_P0_136_square_custom_attributes__cost_and_msrp_broadcast_still_r
   );
 });
 
+check("test_PRD_P0_136_square_custom_attributes__the_vendor_picker_grows_to_fill_the_row_the_other_fields_stay_fixed", async () => {
+  /* "Spread them out a little, make the vendor dropdown box just eat up
+     all the available space... so it kind of spreads out and fills up
+     the entire row, because the other fields can stay the same." */
+  const mirror = mirrorDb();
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.match(body, /\.vendor-picker \{ position: relative; flex: 1 1 auto; min-width: 0; \}/);
+  assert.match(body, /\.vendor-picker-btn \{[^}]*flex: 1 1 auto; width: 100%; min-width: 0;/s);
+  /* vendor_code, the commission badge, and Cost/MSRP are all untouched —
+     still their own fixed widths, never told to grow. */
+  assert.doesNotMatch(body, /\.item-edit input\[name="vendor_code"\]\s*\{[^}]*flex: 1/s);
+  assert.match(body, /\.item-edit input\.variations-msrp,\s*\n\.item-edit input\.variations-unit-cost,[^}]*width: 5em/s);
+});
+
 check("test_PRD_P0_136_square_custom_attributes__style_id_auto_formats_with_dashes_and_reads_red_until_a_full_match", async () => {
   /* "When I'm entering a style ID... I should just type it in, like type
      in digits, say 010101, it should automatically insert dashes between

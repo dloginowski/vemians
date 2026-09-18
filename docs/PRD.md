@@ -3998,6 +3998,19 @@ that does not trace to one of these is a process failure (see §12).
     accordion")` instead of `e.target.closest(".variations-accordion")`, since the two fields no
     longer live inside it.
 
+    **REVISED: the vendor row's own picker now grows to fill the row; every other field on it stays
+    fixed.** The owner's own words: "spread them out a little, make the vendor dropdown box just eat
+    up all the available space... so it kind of spreads out and fills up the entire row, because the
+    other fields can stay the same." `.vendor-picker`/`.vendor-picker-btn` move from `flex: 0 0 auto`
+    (sized to their own content, matching the category picker's own "auto scales to fit the content"
+    design, which is deliberately staying that way) to `flex: 1 1 auto` with `min-width: 0`, absorbing
+    whatever width `vendor_code`/the commission badge/Cost/MSRP do not use — none of those four
+    changed at all, still their own fixed widths. A long vendor name now truncates with an ellipsis
+    (`.vendor-picker-btn-label`) rather than ever overflowing, since the button's own width is no
+    longer sized to its content; the dropdown menu itself (`.vendor-picker-menu`) matches the button's
+    new width too (`width: 100%`, alongside its existing `min-width` floor), rather than staying
+    narrower than the control that opens it.
+
 71. **`Test-PRD-P0-136-square_custom_attributes`** — The owner's own words, having weighed "ours,
     not Square's" (P0-71's own `channel`/`custom_fields`) against not reinventing something Square
     already offers: "why do we need to have our own custom fields then? It doesn't make sense... we
