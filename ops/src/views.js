@@ -1777,13 +1777,26 @@ ${INPUT_BAR_CSS}
    .item-badges, beside the category control — an earlier pass moved them
    into the title's own row instead, which broke the title/description
    layout, and was reverted. */
+/* REVISED: "in item view, orange is dirty... when something is active,
+   I want like a brighter version of a gray. When it's not active, I
+   want it dim... orange means that it needs to be saved" — the owner's
+   own words. Web/Active used to fill orange when checked, the exact
+   same color .field-dirty's own outline (below) already uses for a
+   genuinely unsaved change — checking Web/Active read as "needs saving"
+   even the instant after a page load with nothing dirty at all. Neither
+   state uses --accent any more: OFF is a dim, dark --image-ground fill
+   (this app's own established "recessed panel" gray, used nowhere near
+   as an "attention" color); ON is a bright --muted fill instead — a
+   real, visible brightness jump for "this is active," never orange.
+   .field-dirty's own outline on the checkbox itself (below) is
+   untouched and is now the ONLY orange this control can ever show. */
 .item-checkbox-toggle {
   display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 13px; font-weight: 600;
-  padding: 6px 14px; border: 1px solid var(--muted); border-radius: 6px; background: transparent; color: var(--muted);
+  padding: 6px 14px; border: 1px solid var(--rule); border-radius: 6px; background: var(--image-ground); color: var(--muted);
   cursor: pointer; white-space: nowrap;
 }
-.item-checkbox-toggle input { width: 12px; height: 12px; margin: 0; accent-color: var(--accent); }
-.item-checkbox-toggle:has(input:checked) { border-color: var(--accent); background: var(--accent); color: var(--ground); }
+.item-checkbox-toggle input { width: 12px; height: 12px; margin: 0; accent-color: var(--muted); }
+.item-checkbox-toggle:has(input:checked) { border-color: var(--muted); background: var(--muted); color: var(--ground); }
 /* ONE category picker, right next to the item title — the owner's own
    correction over the two-select revision: "I want one menu, one
    dropdown, just one. And in it is a path... dresses / cocktail...

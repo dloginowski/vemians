@@ -4143,6 +4143,19 @@ that does not trace to one of these is a process failure (see §12).
     everything between the two groups genuinely empty, rather than a `justify-content: space-between`
     on the row that would have spread all three apart evenly instead.
 
+    **REVISED: Web/Active drop the accent fill entirely — orange is reserved for a genuinely dirty
+    field, never a steady "this is on" color.** The owner's own words: "in item view, orange is dirty...
+    when something is active, I want like a brighter version of a gray. When it's not active, I want it
+    dim... do not mark orange, because orange means that it needs to be saved." Checking Web/Active used
+    to fill `.item-checkbox-toggle` `--accent` — the exact same color the checkbox's own `.field-dirty`
+    outline (`Test-PRD-P0-135`'s own dirty-tracking entry) already uses for a genuinely unsaved change —
+    so the pill read as "needs saving" the instant it was checked, with nothing actually dirty at all.
+    Neither state uses `--accent` any more: unchecked is a dim `--image-ground` fill (this app's own
+    established "recessed panel" gray, never used elsewhere as an attention color), checked is a
+    brighter `--muted` fill — a real, visible jump in brightness for "this is active," never orange. The
+    checkbox's own `.field-dirty` outline is untouched and is now the only orange this control can ever
+    show.
+
 71. **`Test-PRD-P0-136-square_custom_attributes`** — The owner's own words, having weighed "ours,
     not Square's" (P0-71's own `channel`/`custom_fields`) against not reinventing something Square
     already offers: "why do we need to have our own custom fields then? It doesn't make sense... we
