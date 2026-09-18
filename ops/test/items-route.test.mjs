@@ -890,12 +890,10 @@ check("test_PRD_P0_136_square_custom_attributes__the_edit_form_posts_to_square_a
      (REVISED: "I want to get rid of the style ID label and I want to take
      the style ID input field and put it to the left of the category
      dropdown in the category row"), vendor/vendor_code/commission stayed
-     where they were. unit_cost moved out of any form at all, once it
-     stopped being one value for the whole product ("all the variants can
-     have a different unit cost too") — it is now a per-variation field
-     reached through /variations, and the header's own "Cost" input is a
-     pure client-side broadcaster like MSRP, prefilled from nothing (see
-     the P0-135 accordion test below for its own per-variation value). */
+     where they were. unit_cost has no ops-side form field anywhere any
+     more ("get rid of the whole variants setup... we'll do variations
+     from Square") — only ever reachable through an API/agent
+     catalog.set_square_attributes call now. */
   const mirror = mirrorDb();
   seedProduct(mirror, {
     style_id: "01-04-001",
@@ -915,7 +913,6 @@ check("test_PRD_P0_136_square_custom_attributes__the_edit_form_posts_to_square_a
   assert.ok(styleIdIdx > titleRowIdx && styleIdIdx < categoryFormIdx, "style_id must render before the category dropdown, inside the category row");
   assert.match(body, /<input name="style_id" value="01-04-001" placeholder="NN-NN-NNN" pattern="\\d\{2\}-\\d\{2\}-\\d\{3\}"/);
   assert.doesNotMatch(body, /<input name="unit_cost"/, "unit_cost is no longer a real form field anywhere");
-  assert.match(body, /<input class="variations-unit-cost" placeholder="Cost/);
   /* "The same kind of drop down schema that we have for categories... we
      don't have to fill out any of these stuff per product." vendor is now
      a picker (a hidden text input the picker's own JS drives, plus a
@@ -938,32 +935,13 @@ check("test_PRD_P0_136_square_custom_attributes__the_edit_form_posts_to_square_a
   assert.doesNotMatch(vendorFormBody, /name="commission"/, "commission is no longer a per-product input");
   assert.match(vendorFormBody, /<span class="vendor-commission-badge" title="Set centrally, in Admin → Vendors">20%<\/span>/);
   /* "Center the vendor SKU content too" — the owner's own words, extending
-     the centering cost/MSRP/style_id already have to this field as well. */
+     the centering style_id already has to this field as well. */
   assert.match(body, /\.item-edit input\[name="vendor_code"\]\s*\{\s*text-align: center;\s*\}/);
-  /* REVISED: "move cost and MSRP in item view... to the end of the
-     vendor row. Because I want to get rid of the whole variants
-     setup... I think it's easier to do it through the Square UI." Both
-     broadcasters now render at the END of this same vendor <form>. */
-  assert.match(vendorFormBody, /<input class="variations-unit-cost" placeholder="Cost"[^>]*>\s*<input class="variations-msrp" placeholder="MSRP"[^>]*>/);
-});
-
-check("test_PRD_P0_136_square_custom_attributes__cost_and_msrp_broadcast_still_reaches_the_variations_accordion_from_its_new_home", async () => {
-  /* The broadcaster inputs no longer live inside .variations-accordion,
-     so the page script must locate it via the enclosing .item-tile
-     instead of e.target.closest(".variations-accordion") -- otherwise
-     typing into either field from its new spot would silently reach no
-     variation rows at all. */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  const body = await (await get("/items", MANAGER, env(mirror))).text();
-  assert.match(
-    body,
-    /const accordion = e\.target\.closest\("\.item-tile"\)\?\.querySelector\("\.variations-accordion"\);\s*\n\s*accordion\?\.querySelectorAll\("\.variation-price"\)/,
-  );
-  assert.match(
-    body,
-    /const accordion = e\.target\.closest\("\.item-tile"\)\?\.querySelector\("\.variations-accordion"\);\s*\n\s*accordion\?\.querySelectorAll\("\.variation-unit-cost"\)/,
-  );
+  /* "Get rid of the whole variants setup... we'll do variations from
+     Square" — Cost/MSRP, briefly moved to the end of this vendor <form>,
+     are gone from it entirely now; nothing about a variation's own cost
+     or price is editable from the ops UI any more. */
+  assert.doesNotMatch(vendorFormBody, /variations-unit-cost|variations-msrp/);
 });
 
 check("test_PRD_P0_136_square_custom_attributes__the_vendor_picker_grows_to_fill_the_row_the_other_fields_stay_fixed", async () => {
@@ -974,10 +952,80 @@ check("test_PRD_P0_136_square_custom_attributes__the_vendor_picker_grows_to_fill
   const body = await (await get("/items", MANAGER, env(mirror))).text();
   assert.match(body, /\.vendor-picker \{ position: relative; flex: 1 1 auto; min-width: 0; \}/);
   assert.match(body, /\.vendor-picker-btn \{[^}]*flex: 1 1 auto; width: 100%; min-width: 0;/s);
-  /* vendor_code, the commission badge, and Cost/MSRP are all untouched —
-     still their own fixed widths, never told to grow. */
+  /* vendor_code and the commission badge are untouched — still their own
+     fixed widths, never told to grow. */
   assert.doesNotMatch(body, /\.item-edit input\[name="vendor_code"\]\s*\{[^}]*flex: 1/s);
-  assert.match(body, /\.item-edit input\.variations-msrp,\s*\n\.item-edit input\.variations-unit-cost,[^}]*width: 5em/s);
+});
+
+check("test_PRD_P0_136_square_custom_attributes__the_vendor_picker_toggles_off_when_the_same_vendor_is_clicked_again", async () => {
+  /* "I don't like adding none to vendors. Let's just make the vendor
+     selected vendor toggle so that if I selected a vendor and then I
+     selected the same vendor again, it just clears that selection." — no
+     "None" entry in the menu; picking the ALREADY-selected option clears
+     it instead. */
+  const mirror = mirrorDb();
+  seedProduct(mirror, { vendor: "Acme Mills" });
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.doesNotMatch(body, /data-vendor-name=""/, "no separate None option in the vendor picker menu");
+  assert.match(body, /const clearing = vendorPickerOption\.classList\.contains\("selected"\);/);
+  assert.match(body, /hiddenInput\.value = clearing \? "" : vendorPickerOption\.dataset\.vendorName;/);
+  assert.match(body, /label\.textContent = clearing \? "Vendor" : vendorPickerOption\.dataset\.vendorName \|\| "Vendor";/);
+  assert.match(body, /if \(!clearing\) vendorPickerOption\.classList\.add\("selected"\);/);
+});
+
+check("test_PRD_P0_136_square_custom_attributes__clearing_the_vendor_picker_sends_an_explicit_clear_vendor_marker", async () => {
+  /* A blank vendor otherwise means "this form wasn't about the vendor" —
+     the picker's own toggle-to-clear needs its own explicit signal so the
+     route can tell a genuine clear apart from an untouched field, exactly
+     the same shape catalog.set_category_number's own clear: true already
+     established for numeric_id. .field-dirty is only set on the vendor
+     input itself when ITS OWN value changed, so a blank value alongside
+     it means the toggle is what fired. */
+  const mirror = mirrorDb();
+  seedProduct(mirror, { vendor: "Acme Mills" });
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.match(
+    body,
+    /const vendorInput = form\.querySelector\('input\[name="vendor"\]'\);\s*\n\s*if \(vendorInput && vendorInput\.classList\.contains\("field-dirty"\) && vendorInput\.value === ""\) \{\s*\n\s*body\.set\("clear_vendor", "1"\);/,
+  );
+});
+
+check("test_PRD_P0_136_square_custom_attributes__the_route_translates_a_blank_vendor_with_the_clear_marker_into_clear_vendor_reaching_the_tool_layer", async () => {
+  /* The whole point of the marker: a blank vendor with clear_vendor=1
+     must reach catalog.set_square_attributes as clear_vendor: true, not
+     get refused for sending an empty string (the generic schema
+     validator refuses any empty "string"-typed field outright) and not
+     get silently dropped as "field untouched" either. Matching the
+     P0-138 admin tests' own convention, reaching "SQUARE_ACCESS_TOKEN is
+     unset" (run()'s own Square call, not check()'s) proves check()
+     accepted clear_vendor: true and the route never touched Square. */
+  const mirror = mirrorDb();
+  seedProduct(mirror, { vendor: "Acme Mills" });
+  const res = await postForm("/items/wool-coat/square-attributes", MANAGER, env(mirror), { vendor: "", clear_vendor: "1" });
+  assert.equal(res.status, 400);
+  assert.match(await res.text(), /SQUARE_ACCESS_TOKEN is unset/);
+});
+
+check("test_PRD_P0_136_square_custom_attributes__a_blank_vendor_with_no_clear_marker_reaches_the_tool_layer_untouched", async () => {
+  /* Without the clear_vendor marker, a blank vendor field must still mean
+     "this form wasn't about the vendor" -- the pre-existing behavior for
+     every OTHER blank field on this same route (style_id, vendor_code,
+     unit_cost, commission) -- rather than being silently treated as an
+     implicit clear. Giving vendor_code alongside it is what makes this
+     call reach the tool layer at all (a wholly blank form is refused
+     before ever calling runTool, by the tool's own generic "would change
+     nothing" rule, which -- like every check()-level message for this
+     resources:["square"] tool -- this file's own Square-token-less env()
+     can never observe directly; see the P0-138 admin comment above for
+     why "SQUARE_ACCESS_TOKEN is unset" is as deep as this file reaches).
+     What IS provable here: an untouched vendor never gets treated as a
+     clear -- the exact semantics catalog-write.test.mjs's own
+     clear_vendor tests verify with a real fake Square client. */
+  const mirror = mirrorDb();
+  seedProduct(mirror, { vendor: "Acme Mills", vendor_code: "OLD-CODE" });
+  const res = await postForm("/items/wool-coat/square-attributes", MANAGER, env(mirror), { vendor: "", vendor_code: "NEW-CODE" });
+  assert.equal(res.status, 400);
+  assert.match(await res.text(), /SQUARE_ACCESS_TOKEN is unset/, "an untouched vendor must not itself block reaching the tool layer");
 });
 
 check("test_PRD_P0_136_square_custom_attributes__style_id_auto_formats_with_dashes_and_reads_red_until_a_full_match", async () => {
@@ -1001,9 +1049,9 @@ check("test_PRD_P0_136_square_custom_attributes__style_id_auto_formats_with_dash
   assert.match(body, /function reformatStyleIdInput\(input\)\s*\{/);
   const gridChangeIdx = body.indexOf("function onItemsGridChange(e) {");
   const reformatCallIdx = body.indexOf('reformatStyleIdInput(e.target);', gridChangeIdx);
-  const msrpBranchIdx = body.indexOf('e.target.matches(".variations-msrp")', gridChangeIdx);
+  const stockCountBranchIdx = body.indexOf('e.target.matches(".variation-stock-count")', gridChangeIdx);
   assert.ok(
-    gridChangeIdx > -1 && reformatCallIdx > gridChangeIdx && reformatCallIdx < msrpBranchIdx,
+    gridChangeIdx > -1 && reformatCallIdx > gridChangeIdx && reformatCallIdx < stockCountBranchIdx,
     "the style_id reformat must run first, on every input/change event the grid already listens for",
   );
 });
@@ -1021,16 +1069,17 @@ check("test_PRD_P0_136_square_custom_attributes__staff_cannot_reach_the_route_be
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
- * "Category dropdown, or type in a new one" (/items/<handle>/category) and
- * the variations accordion (/items/<handle>/variations) — new routes, the
+ * "Category dropdown, or type in a new one" (/items/<handle>/category) — the
  * owner's own words: "uncategorized should be a drop down... select an
  * existing category, or just type in... it will create one if there isn't
- * one," and "an expandable accordion header for the variations... variation
- * names editable... no SKU anywhere." Both reach catalog.update_product,
- * which needs a working Square client this file deliberately never fakes
- * (see the P0-136 section's own top comment) — so what is tested here is
- * everything BEFORE that point: the manager-only gate, and every refusal
- * the route itself can give with no Square client at all.
+ * one." Reaches catalog.update_product, which needs a working Square client
+ * this file deliberately never fakes (see the P0-136 section's own top
+ * comment) — so what is tested here is everything BEFORE that point: the
+ * manager-only gate, and every refusal the route itself can give with no
+ * Square client at all. /items/<handle>/variations, the accordion's own old
+ * route, is gone entirely now (see the P0-135 test just below the category
+ * ones) — "get rid of the variations row entirely... we'll do variations
+ * from Square."
  * ───────────────────────────────────────────────────────────────────────── */
 
 check("test_PRD_P0_135_item_edit_applies_immediately__category_route_refuses_a_blank_id_before_square_is_touched", async () => {
@@ -1070,97 +1119,53 @@ check("test_PRD_P0_135_item_edit_applies_immediately__details_route_staff_cannot
   assert.match(await res.text(), /manager/i);
 });
 
-check("test_PRD_P0_135_item_edit_applies_immediately__variations_route_refuses_with_no_rows_before_square_is_touched", async () => {
+check("test_PRD_P0_135_item_edit_applies_immediately__variations_route_is_gone_entirely", async () => {
+  /* "Get rid of the variations row entirely. I don't want to handle
+     variations from inside of our ops menu. We'll do variations from
+     Square." — /items/<handle>/variations is no longer one of the
+     suffixes this block even recognizes, so a post here falls all the
+     way through to the app's own generic 404, not a route-level refusal. */
   const mirror = mirrorDb();
   seedProduct(mirror);
-  const res = await postForm("/items/wool-coat/variations", MANAGER, env(mirror), {});
-  assert.equal(res.status, 400);
-  const body = await res.json();
-  assert.match(body.error, /no variations to save/);
-});
-
-check("test_PRD_P0_135_item_edit_applies_immediately__variations_route_staff_cannot_reach_it", async () => {
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  const res = await postForm("/items/wool-coat/variations", STAFF, env(mirror), {
+  const res = await postForm("/items/wool-coat/variations", MANAGER, env(mirror), {
     variant_id_0: "v1",
     title_0: "One size",
     price_0: "45.00",
     currency_0: "USD",
   });
-  assert.equal(res.status, 403);
-  assert.match(await res.text(), /manager/i);
+  assert.equal(res.status, 404);
 });
 
-check("test_PRD_P0_135_item_edit_applies_immediately__the_variations_accordion_has_no_sku_anywhere_only_a_hidden_variant_id", async () => {
+check("test_PRD_P0_135_item_edit_applies_immediately__the_variations_accordion_has_no_sku_and_no_editable_fields_left_only_a_name_and_the_stock_stepper", async () => {
+  /* "Get rid of the variations row entirely. I don't want to handle
+     variations from inside of our ops menu. We'll do variations from
+     Square." Follow-up, once it was clear the stock stepper is a
+     separate, ops-owned inventory ledger, not a Square-side variant
+     fact: "our store should reflect internal inventory count, remove
+     variants from our ops dashboard" — kept the stock stepper, removed
+     title/price/cost editing entirely. No <form>, no variant_id/currency
+     hidden inputs any more either: nothing here posts anywhere but the
+     stock stepper's own immediate /inventory call. */
   const mirror = mirrorDb();
   seedProduct(mirror, { style_id: "01-04-001", unit_cost_minor: 4250, vendor: "Acme Mills" });
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
   assert.doesNotMatch(body, />VEM-100</, "no SKU text anywhere in a manager's own expanded view");
-  assert.match(body, /<input type="hidden" name="variant_id_0" value="v1">/);
-  assert.match(body, /<input type="hidden" name="currency_0" value="USD">/);
-  assert.match(body, /<input class="variation-title" name="title_0" value="One size" placeholder="Variation name">/);
-  assert.match(body, /<input class="variation-price" name="price_0" value="450\.00" placeholder="Price">/);
+  assert.doesNotMatch(body, /name="variant_id_0"/, "no per-variation form field survives -- nothing here is ever resent through a <form>");
+  assert.doesNotMatch(body, /class="variation-title"|class="variation-unit-cost"|class="variation-price"/, "title/cost/price editing is gone");
+  assert.doesNotMatch(body, /action="\/items\/wool-coat\/variations"/, "the variations accordion body posts nowhere any more");
+  assert.match(body, /<span class="variation-title-label">One size<\/span>/, "the variation's own name is still shown, read-only");
+  assert.match(body, /<input type="text" class="variation-stock-count" value="0" readonly aria-label="Current stock">/, "the stock stepper survives untouched");
   /* REVISED: style_id no longer lives in the accordion's own header at
      all -- it moved to .category-title-row, no label, just the format
-     hint placeholder. unit cost is now this ONE variation's own field,
-     since "all the variants can have a different unit cost too." */
+     hint placeholder. */
   assert.doesNotMatch(body, /variations-header-label/);
   assert.match(body, /<input name="style_id" value="01-04-001" placeholder="NN-NN-NNN"/, "just the format hint, no label at all");
-  assert.match(body, /<input class="variation-unit-cost" name="unit_cost_0" value="42\.50" placeholder="Cost">/);
-  /* REVISED: "I want to get rid of the whole variants setup... I think
-     it's easier to do it through the Square UI" — the two broadcasters
-     moved off this header entirely, onto the end of the vendor row
-     (titleVendorForms), so what is checked here is only that every
-     variation's own row still carries its own bare "Cost"/"Price"
-     placeholders, unchanged. */
-  assert.match(body, /<input class="variations-unit-cost" placeholder="Cost" title="Set every variation's own cost at once">/);
-  assert.match(body, /<input class="variations-msrp" placeholder="MSRP" title="Set every variation's own price at once">/);
-  /* "On the right side... the unit cost and then the MSRP... so that they
-     align with the children who also have their own unit cost and their
-     own MSRP" — cost before price, in both the broadcasters and every row. */
-  assert.ok(
-    body.indexOf('class="variations-unit-cost"') < body.indexOf('class="variations-msrp"'),
-    "header: unit cost before MSRP",
-  );
-  assert.ok(
-    body.indexOf('name="unit_cost_0"') < body.indexOf('name="price_0"'),
-    "each variation row: unit cost before price, aligned with the header above it",
-  );
-  /* "A row of 3 small components [-][##][+], then [COST][MSRP]" — the
-     stepper is a command, not a fact about the variation, so it comes
-     right after the variation's own name and ahead of its cost/price. */
-  assert.ok(
-    body.indexOf('name="title_0"') < body.indexOf('class="variation-stock-count"'),
-    "the stock stepper follows the variation's own name",
-  );
-  assert.ok(
-    body.indexOf('class="variation-stock-count"') < body.indexOf('name="unit_cost_0"'),
-    "the stock stepper comes before cost/price, not after",
-  );
   /* The direct-link deep link is the one place a SKU still matters — the
      owner's own words: "if you do a direct link, that makes sense...
      otherwise it's completely not our problem" — so data-sku must still
      be there for shareLink() to read, even though nothing displays it. */
   assert.match(body, /data-sku="VEM-100"/);
-});
-
-check("test_PRD_P0_135_item_edit_applies_immediately__cost_field_shows_even_with_no_vendor_yet", async () => {
-  /* "Need a COST field to the left of MSRP" — the field itself always
-     renders now, the same as style_id/MSRP always do, even for a product
-     with no vendor yet. Unit cost is still a fact about a VENDOR's
-     product — typing into it without one is refused server-side, same as
-     always — but the field is no longer hidden entirely. */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  const res = await get("/items", MANAGER, env(mirror));
-  const body = await res.text();
-  assert.match(body, /<input class="variation-unit-cost" name="unit_cost_0"/, "the per-variation cost field shows without a vendor too");
-  assert.match(body, /<input class="variations-unit-cost" placeholder="Cost/, "the header cost broadcaster shows without a vendor too");
-  /* Still ordered before price/MSRP, in both the header and each row. */
-  assert.ok(body.indexOf('class="variations-unit-cost"') < body.indexOf('class="variations-msrp"'));
-  assert.ok(body.indexOf('name="unit_cost_0"') < body.indexOf('name="price_0"'));
 });
 
 check("test_PRD_P0_135_item_edit_applies_immediately__the_accordion_header_is_decorated_and_the_body_is_indented", async () => {
@@ -1176,21 +1181,13 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_accordion_header_is_de
   assert.match(body, /<span class="variations-label">Variations<\/span>/, "the header names the section it belongs to, next to the chevron");
 });
 
-check("test_PRD_P0_135_item_edit_applies_immediately__header_and_row_fields_are_centered_and_aligned", async () => {
-  /* "Make them all center aligned, like the cost and the MSRP field" —
-     was right-justified. "Scale that [style_id] input field to only fit
-     that exact amount of characters" — 9 for NN-NN-NNN. "Ensure the two
-     header fields, the cost and the MSRP, are aligned exactly with the
-     cost and MSRP fields in the children rows. Give the children rows a
-     slight inset... on the right side." */
+check("test_PRD_P0_135_item_edit_applies_immediately__style_id_stays_centered_and_the_header_spacer_is_the_last_thing_in_it", async () => {
+  /* "Scale that [style_id] input field to only fit that exact amount of
+     characters" — 9 for NN-NN-NNN, still centered. */
   const mirror = mirrorDb();
   seedProduct(mirror, { vendor: "Acme Mills" });
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
-  assert.match(
-    body,
-    /\.variations-header input, \.variations-body input\[name\^="price_"\], \.variations-body input\[name\^="unit_cost_"\]\s*\{\s*text-align: center;/,
-  );
   /* REVISED: style_id no longer lives in the Variations header at all --
      "I want to get rid of the style ID label and I want to take the
      style ID input field and put it to the left of the category dropdown
@@ -1201,11 +1198,10 @@ check("test_PRD_P0_135_item_edit_applies_immediately__header_and_row_fields_are_
   assert.match(body, /<span class="variations-header-spacer"><\/span>/, "an invisible spacer absorbs the header's own leftover width, the same way each row's own title does");
   assert.match(body, /\.variations-header-spacer\s*\{\s*flex: 1 1 auto;\s*\}/);
   assert.match(body, /\.variations-body \.row\s*\{[^}]*padding: 3px 4px 3px 0/, "a right inset matches the header's own right padding");
-  /* REVISED: "I want to get rid of the whole variants setup... I think
-     it's easier to do it through the Square UI" — Cost/MSRP moved off
-     this header entirely, onto the end of the vendor row, so nothing
-     follows the spacer here any more; it now sits as the LAST thing in
-     the header, right after the label. */
+  /* "Get rid of the whole variants setup... we'll do variations from
+     Square" — Cost/MSRP, briefly at the end of the vendor row, are gone
+     from the page entirely now; nothing follows the header's own spacer
+     any more, and no per-variation cost/price field exists anywhere. */
   const spacerMarkup = body.indexOf('<span class="variations-header-spacer">');
   const headerEnd = body.indexOf("</div>", spacerMarkup);
   assert.ok(
@@ -1217,6 +1213,7 @@ check("test_PRD_P0_135_item_edit_applies_immediately__header_and_row_fields_are_
     /variations-unit-cost|variations-msrp/,
     "Cost/MSRP no longer live inside this header at all",
   );
+  assert.doesNotMatch(body, /variations-unit-cost|variations-msrp|variation-unit-cost|variation-price/, "no cost/price field survives anywhere on the page");
 });
 
 check("test_PRD_P0_135_item_edit_applies_immediately__title_and_description_are_editable_by_a_manager", async () => {
@@ -1620,29 +1617,18 @@ check("test_PRD_P0_135_item_edit_applies_immediately__editing_only_the_descripti
   );
 });
 
-check("test_PRD_P0_135_item_edit_applies_immediately__the_page_script_propagates_msrp_to_every_variation_price", async () => {
+check("test_PRD_P0_135_item_edit_applies_immediately__no_msrp_or_unit_cost_broadcaster_survives_in_the_page_script", async () => {
+  /* "Get rid of the whole variants setup... we'll do variations from
+     Square" — the MSRP/unit-cost header broadcasters, and the propagation
+     branches that copied a typed value into every variation's own price/
+     cost input, are gone from the page script entirely: there is no
+     .variation-price/.variation-unit-cost input left anywhere for either
+     one to have propagated into. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const body = await (await get("/items", MANAGER, env(mirror))).text();
-  assert.match(body, /e\.target\.matches\("\.variations-msrp"\)/);
-  assert.match(body, /accordion\?\.querySelectorAll\("\.variation-price"\)\.forEach\(\(input\) => \{\s*\n\s*input\.value = e\.target\.value;/);
-});
-
-check("test_PRD_P0_135_item_edit_applies_immediately__a_changed_field_and_a_msrp_propagated_field_both_get_the_dirty_highlight", async () => {
-  /* The owner's own words: "any changed fields should be marked with an
-     orange highlight, and so is the save button." refreshDirtyState is
-     called on the field the change event actually fired on, and ALSO on
-     every .variation-price input the MSRP field's own propagation
-     touches — not just whichever one the person actually typed into. */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  const body = await (await get("/items", MANAGER, env(mirror))).text();
-  assert.match(body, /const form = e\.target\.closest\([^)]*\);\s*\n\s*if \(form\) refreshDirtyState\(e\.target\);/);
-  assert.match(
-    body,
-    /input\.value = e\.target\.value;\s*\n\s*refreshDirtyState\(input\);\s*\n\s*\}\);/,
-    "every propagated variation price gets the highlight refreshed too, not just the MSRP field itself",
-  );
+  assert.doesNotMatch(body, /e\.target\.matches\("\.variations-msrp"\)|e\.target\.matches\("\.variations-unit-cost"\)/);
+  assert.match(body, /const form = e\.target\.closest\([^)]*\);\s*\n\s*if \(form\) refreshDirtyState\(e\.target\);/, "the direct dirty-refresh path is still there for every remaining field");
 });
 
 check("test_PRD_P0_135_item_edit_applies_immediately__the_dirty_highlight_css_covers_text_fields_selects_and_checkboxes", async () => {
@@ -1702,22 +1688,19 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_two_outer_bars_stay_re
   assert.match(body, /\.variations-accordion \{ margin-top: 2px; padding-top: 6px; \}/, "the Variations ACCORDION's own separate top border stays removed");
 });
 
-check("test_PRD_P0_135_item_edit_applies_immediately__the_variants_header_only_turns_orange_when_something_inside_it_is_actually_dirty", async () => {
-  /* The owner's own words: "I just told you it has to be gray unless
-     it's dirty. If it's dirty or any of its children are dirty, then
-     it's orange." A real dirty-state check (.field-dirty, the same
-     marker every other changed field on this tile already gets), never
-     a plain hover cue -- :has() reaches into .variations-body below the
-     header too, so a changed PER-VARIATION field counts as "a child" is
-     dirty, not just the header's own style_id/unit cost/MSRP fields. */
+check("test_PRD_P0_135_item_edit_applies_immediately__the_variants_header_never_turns_orange_any_more_nothing_left_inside_it_can_go_dirty", async () => {
+  /* "Get rid of the whole variants setup... we'll do variations from
+     Square" -- the dirty-highlight rule this header once had
+     (.variations-accordion:has(.field-dirty)) is gone along with the
+     last editable field it was ever watching for: a variation's own
+     name is read-only now, and the stock stepper is deliberately never
+     marked dirty (it posts immediately, its own event, never batched
+     into the tile's one big Save). Always the same plain gray border. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const body = await (await get("/items", MANAGER, env(mirror))).text();
-  assert.match(
-    body,
-    /\.variations-accordion:has\(\.field-dirty\) \.variations-header \{ border-color: var\(--accent\); \}/,
-    "the header's own border must turn orange exactly when the accordion has a genuinely dirty field anywhere inside it, header or body",
-  );
+  assert.doesNotMatch(body, /\.variations-accordion:has\(\.field-dirty\)/);
+  assert.match(body, /\.variations-header \{\s*\n\s*display: flex; align-items: center; gap: 6px; cursor: pointer;\s*\n\s*background: var\(--image-ground\); border: 1px solid var\(--rule\); border-radius: 6px; padding: 5px 4px;\s*\n\s*\}/);
 });
 
 check("test_PRD_P0_71_items_tab__custom_field_rows_come_from_the_global_registered_list_no_add_field_disclosure", async () => {

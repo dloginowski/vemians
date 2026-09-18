@@ -853,7 +853,14 @@ export function createSquareCatalogWriter(env, opts = {}) {
          each variation below falls back to its OWN current cost, not the
          product's ordinal-0 one. */
       const current = await currentVendorInfo(row.id);
-      const vref = vendor !== undefined ? await vendorRef(vendor) : null;
+      /* vendor === "" (an explicit clear, from catalog.set_square_attributes'
+         own clear_vendor flag) resolves no vendorRef at all — never a real
+         lookup/create against Square for an empty name — and lands on
+         external_ref: null below, same as vendor === undefined's "no
+         vendorRef to give" case, but reaching resolvedVendorExternalRef via
+         the `vendor !== undefined` branch so the CURRENT ref is NOT carried
+         forward. */
+      const vref = vendor ? await vendorRef(vendor) : null;
       const resolvedVendorExternalRef = vendor !== undefined ? vref?.external_ref ?? null : current.vendor_external_ref;
       const resolvedVendorCode = vendorCode !== undefined ? vendorCode : current.vendor_code;
       const vendorInfos = keep.map((v) => {
