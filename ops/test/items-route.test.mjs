@@ -2709,6 +2709,77 @@ check("test_PRD_P0_138_nested_categories__admin_backfills_every_blank_numeric_id
   assert.match(cat4Row, /<input class="admin-category-numeric-id" name="numeric_id" value="" /);
 });
 
+check("test_PRD_P0_138_nested_categories__admin_numeric_id_is_required_and_shows_red_when_invalid", async () => {
+  /* "Deleting a category ID or subcategory ID or setting an ID that's
+     already used should result in a red invalid box." required (native
+     browser validation, no JS) covers a blank or malformed value; the
+     existing 2-digit pattern is unchanged. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  assert.match(
+    body,
+    /<input class="admin-category-numeric-id" name="numeric_id" value="[^"]*" placeholder="ID" maxlength="2" pattern="\\d\{2\}" required title=/,
+  );
+  assert.match(body, /\.admin-category-numeric-id:invalid \{ border-color: var\(--invalid\); \}/);
+});
+
+check("test_PRD_P0_138_nested_categories__admin_a_duplicate_numeric_id_is_flagged_via_custom_validity", async () => {
+  /* "You can have two categories set to the same ID temporarily so you
+     can change their order, but you cannot save that." Duplicate
+     detection needs JS (setCustomValidity) since a single field's own
+     pattern cannot see a sibling's value -- this only proves the
+     mechanism is wired up; revalidateNumericIdPool's own JS runs in a
+     browser only, not this test's plain HTTP fetch. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  assert.match(
+    body,
+    /function revalidateNumericIdPool\(pool\) \{\s*\n\s*const byValue = new Map\(\);/,
+    "duplicates within the same pool must be detected and flagged with setCustomValidity",
+  );
+  assert.match(body, /input\.setCustomValidity\(dupes\.length > 1 \? "Already assigned to another category" : ""\);/);
+  assert.match(
+    body,
+    /revalidateNumericIdPool\(\[\.\.\.document\.querySelectorAll\("\.admin-section-body > \.admin-category-node"\)\]\);/,
+    "must also run once up front, to catch a pre-existing duplicate from legacy data",
+  );
+});
+
+check("test_PRD_P0_138_nested_categories__admin_changing_an_id_to_a_taken_value_swaps_the_other_category_to_the_vacated_one", async () => {
+  /* "If I take number two and change it to one, it should automatically
+     change the other one to two and reshuffle them." */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  assert.match(
+    body,
+    /const conflict = pool\.find\(\(n\) => n !== node && numericIdInputOf\(n\)\?\.value\.trim\(\) === newValue\);/,
+    "the one other node already holding the just-typed value must be found within the same pool",
+  );
+  assert.match(
+    body,
+    /conflictInput\.value = prevValue;/,
+    "the conflicting node must be swapped to the value just vacated, not merely flagged",
+  );
+});
+
+check("test_PRD_P0_138_nested_categories__admin_save_all_is_blocked_while_any_numeric_id_is_invalid", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  assert.match(
+    body,
+    /saveAllBtn\.disabled = !document\.querySelector\("form\[data-dirty='1'\]"\) \|\| !!document\.querySelector\("\.admin-category-numeric-id:invalid"\);/,
+  );
+  assert.match(
+    body,
+    /async function saveAll\(\) \{\s*\n(?:[^\n]*\n)*?\s*if \(document\.querySelector\("\.admin-category-numeric-id:invalid"\)\) return;/,
+    "Enter-key submission must be guarded too, not only the button's own disabled state",
+  );
+});
+
 check("test_PRD_P0_138_nested_categories__admin_tree_indents_children_by_the_same_shared_toggle_width", async () => {
   const mirror = mirrorDb();
   seedProduct(mirror);

@@ -2262,7 +2262,7 @@ function renderAdminCategoryNodes(
           </form>
           <form method="post" action="/admin/categories/number" class="admin-category-number-form">
             <input type="hidden" name="category_id" value="${esc(c.id)}">
-            <input class="admin-category-numeric-id" name="numeric_id" value="${esc(c.numeric_id ?? "")}" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — leave blank to remove it">
+            <input class="admin-category-numeric-id" name="numeric_id" value="${esc(c.numeric_id ?? "")}" placeholder="ID" maxlength="2" pattern="\\d{2}" required title="A 2-digit code, 00-99 — must be unique among its own siblings">
           </form>
           ${optionsToggle}
           ${removeBtn}
@@ -3689,6 +3689,15 @@ ${OPS_DARK_CSS}
   flex: 0 0 2ch; width: 2ch; box-sizing: content-box; font: inherit; font-size: 13px; padding: 4px 6px; text-align: center;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
 }
+/* "Deleting a category ID... or setting an ID that's already used should
+   result in a red invalid box" — the browser's own native :invalid,
+   driven by required/pattern for a blank or malformed value and by
+   setCustomValidity (revalidateNumericIdPool, below) for a value shared
+   with another category — the same native-:invalid convention the Items
+   tab's own style_id field already established, over a JS-toggled class.
+   Specificity (0,2,0) beats .field-dirty's own (0,1,1), so a dirty AND
+   invalid field reads red, never orange. */
+.admin-category-numeric-id:invalid { border-color: var(--invalid); }
 .admin-remove-btn, .admin-category-add-toggle {
   flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; padding: 0; font-size: 13px; line-height: 1;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--muted); cursor: pointer;
@@ -3864,7 +3873,13 @@ function refreshDirtyState(field) {
     if (formDirty) form.dataset.dirty = "1";
     else delete form.dataset.dirty;
   }
-  saveAllBtn.disabled = !document.querySelector("form[data-dirty='1']");
+  /* "You can have two categories set to the same ID temporarily so you
+     can change their order, but you cannot save that" — the owner's own
+     words. Blocked globally, not just on the one row involved: a
+     duplicate or blank numeric_id (:invalid, native pattern/required plus
+     the custom validity revalidateNumericIdPool sets below) refuses
+     Save-all outright until it is resolved. */
+  saveAllBtn.disabled = !document.querySelector("form[data-dirty='1']") || !!document.querySelector(".admin-category-numeric-id:invalid");
 }
 document.body.addEventListener("input", (e) => {
   if (e.target.matches("input")) refreshDirtyState(e.target);
@@ -3885,6 +3900,72 @@ document.body.addEventListener("input", (e) => {
     return raw ? Number(raw) : Infinity;
   };
   parent.append(...[...siblings].sort((a, b) => key(a) - key(b)));
+});
+
+/* "Deleting a category ID or subcategory ID or setting an ID that's
+   already used should result in a red invalid box... you can still
+   shuffle categories around, like you can have two categories set to the
+   same ID temporarily so you can change their order, but you cannot save
+   that" — the owner's own words. required (the input's own markup,
+   above) plus its existing 2-digit pattern already make the browser mark
+   a blank or malformed field invalid on their own — the same native-
+   invalid convention the Items tab's own style_id field already
+   established, no JS needed for either case. setCustomValidity is the
+   one piece only JS can supply: TWO categories in the SAME pool sharing
+   one value is not something a single field's own pattern can see.
+   "If I take number two and change it to one, it should automatically
+   change the other one to two and reshuffle them" — rather than leaving
+   that conflict on screen for the owner to resolve by hand, the one
+   other category already holding the just-typed value is swapped
+   straight to the value just vacated, so an ordinary "swap these two
+   around" edit never lingers in the invalid state its own edit would
+   otherwise create for an instant. */
+function numericIdPoolFor(node) {
+  return node.closest(".admin-category-children")
+    ? [...document.querySelectorAll(".admin-category-children .admin-category-node")]
+    : [...document.querySelectorAll(".admin-section-body > .admin-category-node")];
+}
+function numericIdInputOf(node) {
+  return node.querySelector(":scope > .admin-category-row .admin-category-numeric-id");
+}
+function revalidateNumericIdPool(pool) {
+  const byValue = new Map();
+  for (const node of pool) {
+    const input = numericIdInputOf(node);
+    const v = input?.value.trim();
+    if (!v || !/^\d{2}$/.test(v)) continue;
+    if (!byValue.has(v)) byValue.set(v, []);
+    byValue.get(v).push(input);
+  }
+  for (const node of pool) {
+    const input = numericIdInputOf(node);
+    if (!input) continue;
+    const dupes = byValue.get(input.value.trim()) ?? [];
+    input.setCustomValidity(dupes.length > 1 ? "Already assigned to another category" : "");
+  }
+}
+document.body.addEventListener("focusin", (e) => {
+  if (e.target.matches(".admin-category-numeric-id")) e.target.dataset.prevValue = e.target.value.trim();
+});
+document.body.addEventListener("input", (e) => {
+  if (!e.target.matches(".admin-category-numeric-id")) return;
+  const input = e.target;
+  const node = input.closest(".admin-category-node");
+  if (!node) return;
+  const pool = numericIdPoolFor(node);
+  const newValue = input.value.trim();
+  const prevValue = input.dataset.prevValue ?? "";
+  if (/^\d{2}$/.test(newValue) && newValue !== prevValue) {
+    const conflict = pool.find((n) => n !== node && numericIdInputOf(n)?.value.trim() === newValue);
+    if (conflict) {
+      const conflictInput = numericIdInputOf(conflict);
+      conflictInput.value = prevValue;
+      refreshDirtyState(conflictInput);
+    }
+  }
+  input.dataset.prevValue = newValue;
+  revalidateNumericIdPool(pool);
+  refreshDirtyState(input);
 });
 
 /* "When I add one you just automatically increment it by one the
@@ -3926,6 +4007,13 @@ function backfillMissingNumericIds(nodes) {
 }
 backfillMissingNumericIds([...document.querySelectorAll(".admin-section-body > .admin-category-node")]);
 backfillMissingNumericIds([...document.querySelectorAll(".admin-category-children .admin-category-node")]);
+/* Legacy data can already hold a genuine duplicate from before this
+   invariant existed — checked once up front too, not only from here on
+   as the owner types, so it shows red on load rather than waiting for a
+   touch that never comes. */
+revalidateNumericIdPool([...document.querySelectorAll(".admin-section-body > .admin-category-node")]);
+revalidateNumericIdPool([...document.querySelectorAll(".admin-category-children .admin-category-node")]);
+saveAllBtn.disabled = !document.querySelector("form[data-dirty='1']") || !!document.querySelector(".admin-category-numeric-id:invalid");
 
 function positionErrorPopover(p, anchor) {
   const rect = anchor.getBoundingClientRect();
@@ -3975,6 +4063,11 @@ async function submitEditForm(form) {
   }
 }
 async function saveAll() {
+  /* saveAllBtn.disabled already guards a click; Enter inside a form fires
+     a native submit this page's own submit listener routes here too,
+     bypassing the button entirely, so the same "cannot save that" guard
+     is repeated here. */
+  if (document.querySelector(".admin-category-numeric-id:invalid")) return;
   const dirtyForms = [...document.querySelectorAll("form[data-dirty='1']")];
   if (!dirtyForms.length) return;
   saveAllBtn.disabled = true;

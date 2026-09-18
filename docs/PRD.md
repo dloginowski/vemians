@@ -5536,6 +5536,34 @@ that does not trace to one of these is a process failure (see §12).
     written to the mirror until the owner's own next "Save all" click, so "we can change these by
     hand" still holds all the way up to that click.
 
+    **REVISED: a blank or duplicate numeric_id now shows a red invalid box, and cannot be saved — but
+    a same-pool duplicate is auto-resolved into a clean swap before it is ever left on screen.** The
+    owner's own words: "deleting a category ID or subcategory ID, or setting an ID that's already
+    used, should result in a red invalid box... you can still shuffle categories around, like you can
+    have two categories set to the same ID temporarily so you can change their order, but you cannot
+    save that... if I take number two and change it to one, it should automatically change the other
+    one to two and reshuffle them." `required` (new, on `.admin-category-numeric-id`) plus its own
+    already-existing 2-digit `pattern` make the browser mark a blank or malformed value `:invalid` on
+    their own, no JS needed — the same native-`:invalid` convention `.item-edit input[name="style_id"]`
+    already established (P0-136's own entry, above), over a JS-toggled class. A duplicate is the one
+    thing a single field's own pattern cannot see on its own: a new `revalidateNumericIdPool(pool)`
+    (`views.js`) groups every node in the SAME pool (the identical top-level/subcategory split
+    `set_category_number` itself enforces) by its own current value and calls `setCustomValidity` on
+    each, clearing it the moment a value stops being shared — run on every `input` event AND once up
+    front on page load, so a genuine pre-existing duplicate from old data shows red without waiting for
+    a touch that never comes.
+
+    Before that duplicate check even runs, though: the exact "take number two, change it to one" case
+    is caught first and resolved automatically. A `focusin` listener records a field's own value the
+    moment it is focused; if a completed edit exactly matches another node's CURRENT value in the same
+    pool, that OTHER node is swapped straight to the value just vacated — an ordinary "swap these two
+    around" edit this way never lingers in the invalid state its own edit would otherwise create for
+    an instant. `saveAllBtn.disabled` (`refreshDirtyState`'s own line) now also checks
+    `document.querySelector(".admin-category-numeric-id:invalid")` globally, and `saveAll()` repeats
+    the identical check as its own first line — Enter inside one of these forms fires a native submit
+    this page's own submit listener routes to `saveAll()` too, bypassing the button's own disabled
+    state entirely, so the guard is not only on the button.
+
 74. **`Test-PRD-P0-139-honest_write_failures`** — A Square write refused with a plain `Square POST
     /v2/catalog/object failed with 400` and nothing else — the owner's own words, pasting exactly that
     line after an edit silently went nowhere: "just make sure all of the fields work... with this post
