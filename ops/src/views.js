@@ -2055,8 +2055,25 @@ ${INPUT_BAR_CSS}
    style, and a real multi-line box for the description instead of the
    single-line inputs everything else here uses. */
 .item-title-input { font-weight: 600; }
+/* REVISED: "the description field should have the same amount of
+   padding on the bottom as it has on the top and it should fit the
+   content — if there is no content, it should fit to one line height,
+   but if I type in more, it should auto scale to fit" — the owner's own
+   words. padding: 5px 6px already sets top and bottom equally; what
+   actually read as unequal was a fixed min-height (4.5em, roughly three
+   lines) leaving a large empty gap below one short line of text before
+   the bottom padding, while the top padding sat flush against it.
+   field-sizing: content (the same property vendor_code/unit_cost/msrp
+   already use above, for the same "grow to fit, no manual resize
+   needed" reasoning) grows the box height to match its own wrapped
+   content instead, with min-height: 1lh giving it exactly one line's
+   worth of height with nothing typed yet — a Chromium-dependent choice
+   with the same graceful degradation as those other fields (a fixed
+   one-line box in an unsupported browser, never broken). resize:
+   vertical is dropped along with it: a box that always already fits its
+   own content has nothing left to manually resize. */
 .item-edit textarea {
-  font: inherit; font-size: 11px; padding: 5px 6px; min-height: 4.5em; resize: vertical;
+  font: inherit; font-size: 11px; padding: 5px 6px; field-sizing: content; min-height: 1lh;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
 }
 .item-edit textarea::placeholder { font-size: 10px; }

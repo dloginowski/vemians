@@ -4156,6 +4156,21 @@ that does not trace to one of these is a process failure (see §12).
     checkbox's own `.field-dirty` outline is untouched and is now the only orange this control can ever
     show.
 
+    **REVISED: the description textarea grows to fit its own content instead of sitting inside a fixed
+    three-line box.** The owner's own words: "the item description field should have the same amount of
+    padding on the bottom as it has on the top and it should fit the content. So if there is no content
+    in it, it should fit to one line height. But if I type in more and more content, it should auto
+    scale to fit the content." `padding: 5px 6px` already declared equal top/bottom padding — what
+    actually read as unequal was the fixed `min-height: 4.5em` (roughly three lines) leaving a large
+    empty gap below one short line of text, with the top padding sitting flush against it and the
+    bottom padding effectively invisible past all that empty space. `field-sizing: content` (the same
+    property `vendor_code`/`unit_cost`/`msrp` already use, above) grows the box to match its own wrapped
+    content instead, with `min-height: 1lh` giving it exactly one line's worth of height with nothing
+    typed yet — a Chromium-dependent choice with the same graceful degradation those other fields
+    already accept (a fixed one-line box in an unsupported browser, never a broken layout). `resize:
+    vertical` is dropped along with it: a box that always already fits its own content has nothing left
+    to manually resize.
+
 71. **`Test-PRD-P0-136-square_custom_attributes`** — The owner's own words, having weighed "ours,
     not Square's" (P0-71's own `channel`/`custom_fields`) against not reinventing something Square
     already offers: "why do we need to have our own custom fields then? It doesn't make sense... we
