@@ -142,16 +142,26 @@ check("test_PRD_P0_71_items_tab__the_shell_requires_no_role_the_same_as_before_t
   assert.equal(res.status, 200);
 });
 
-/* The hamburger menu (top right of the shell header) — "I want to see a
+/* The hamburger button (top right of the shell header) — "I want to see a
    hamburger menu on the top right... move the admin section into that
    hamburger menu so that I can administer everything from that one
    location instead of under each product." Admin is manager-only, so the
-   menu itself is manager-only too — a staff/unmapped identity gets no
-   menu at all rather than one that only ever opens to a refusal. */
-check("test_PRD_P0_71_items_tab__the_hamburger_menu_offers_admin_for_a_manager_or_owner", async () => {
+   button itself is manager-only too — a staff/unmapped identity gets no
+   button at all rather than one that only ever opens to a refusal.
+   REVISED: "I don't want my hamburger menu to open up a menu... it opens
+   up a panel, just like any other panel... it's not going to have its
+   own tab, but it will be opening the same way." No dropdown, no second
+   click on a menu item — the button itself carries the same
+   data-src/data-href a tab button does, and one click swaps the iframe
+   straight to /admin. */
+check("test_PRD_P0_71_items_tab__the_hamburger_button_opens_admin_directly_for_a_manager_or_owner", async () => {
   const { body } = await shell(OWNER);
-  assert.match(body, /<button type="button" class="shell-menu-btn"/, "a manager/owner must see the hamburger button");
-  assert.match(body, /data-src="\/admin" data-href="\/\?tab=admin"[^>]*>Admin</, "the menu's own item must open Admin");
+  assert.match(
+    body,
+    /<button type="button" class="shell-menu-btn" data-src="\/admin" data-href="\/\?tab=admin"/,
+    "a manager/owner must see the hamburger button, wired to open /admin directly, no dropdown",
+  );
+  assert.doesNotMatch(body, /shell-menu-dropdown|shell-menu-item/, "no intermediate menu -- one click opens the panel");
 });
 
 check("test_PRD_P0_71_items_tab__the_hamburger_menu_is_absent_for_staff", async () => {

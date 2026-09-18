@@ -611,36 +611,34 @@ html, body { height: 100%; margin: 0; }
 }
 .shell-panel { flex: 1 1 auto; border-top: 1px solid var(--accent); }
 .shell-frame { width: 100%; height: 100%; border: 0; display: block; background: var(--ground); }
-/* The hamburger menu — top right of the header, opposite the tabs, the
+/* The hamburger button — top right of the header, opposite the tabs, the
    owner's own words: "I want to see a hamburger menu on the top right."
-   position: relative on the wrapper (not the button) so the dropdown
-   below anchors to a box that never itself rotates or resizes. */
-.shell-menu { position: relative; flex: 0 0 auto; }
-/* "Match the bottom padding of the hamburger menu with the rest of the
-   tabs['] text so that it all flows in a horizontal line." The old fixed
-   28x28 box, centered, plus the wrapper's OWN separate 7px padding-bottom,
-   left the icon sitting well above the shared bottom edge .shell-header's
-   own align-items: flex-end lines every tab up on — a button box that
-   tall, centered, puts its own content roughly 12px above that line,
-   while a tab's own text (7px padding, no extra box) sits within a couple
-   px of it. The same 7px vertical padding .shell-nav button already uses,
-   directly on the button itself rather than a fixed height plus a second
-   padding on top of it, puts the icon at the same visual baseline. */
+   REVISED: no dropdown at all any more — "I don't want my hamburger menu
+   to open up a menu. When I press the hamburger button, it opens up a
+   panel, just like any other panel... just like a chat or an AI agent
+   panel... it's not going to have its own tab, but it will be opening
+   the same way." One click swaps the shell's own iframe straight to
+   /admin, exactly like clicking a tab does — .shell-menu-btn joins the
+   SAME click handler .shell-nav button already uses (below), just never
+   rendered as a permanent row of its own.
+   REVISED AGAIN: "align them all so it's just one line... it's not the
+   same height, so you don't want to use the base of the text" — matching
+   the tab LABEL's own vertical padding by number still left two
+   different-height boxes merely sharing one bottom edge, not a text
+   baseline and an icon actually reading as one row. align-self: center
+   overrides .shell-header's own align-items: flex-end (which the tabs
+   still need, to merge the active one into the panel below) for this ONE
+   item alone, centering the icon in the exact same vertical space the
+   tab labels occupy — the tabs' own 7px-top/7px-bottom padding is already
+   symmetric, so their own visual center already lands on the header's
+   true middle; centering the icon there the same way lines both up by
+   construction, not by chasing one number to match another. */
+.shell-menu { position: relative; flex: 0 0 auto; align-self: center; }
 .shell-menu-btn {
-  display: inline-flex; align-items: center; justify-content: center;
-  padding: 7px 5px; border: none; background: transparent; color: var(--muted); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px;
+  padding: 0; border: none; background: transparent; color: var(--muted); cursor: pointer;
 }
 .shell-menu-btn:hover { color: var(--accent); }
-.shell-menu-dropdown {
-  position: absolute; top: 100%; right: 0; z-index: 20; margin-top: 4px; min-width: 10em;
-  padding: 4px 0; border: 1px solid var(--muted); border-radius: 8px; background: var(--ground);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-}
-.shell-menu-item {
-  display: block; width: 100%; text-align: left; font: inherit; font-size: 12px; padding: 6px 10px;
-  border: none; background: transparent; color: var(--ink); cursor: pointer;
-}
-.shell-menu-item:hover { background: rgba(255, 255, 255, 0.08); }
 `;
 
 export const SHELL_TABS = [
@@ -673,14 +671,11 @@ export function shellPage(active = "agent", canEditAdmin = false) {
     (t) =>
       `<button type="button" data-src="${esc(t.src)}" data-href="${esc(t.href)}"${t.key === initial.key ? ' class="active"' : ""}>${esc(t.label)}</button>`,
   ).join("");
-  /* No menu at all for staff/unmapped — Admin is manager-only, and a menu
-     that only ever opens to a 403 would just be a dead end. */
+  /* No button at all for staff/unmapped — Admin is manager-only, and a
+     button that only ever opens to a 403 would just be a dead end. */
   const menu = canEditAdmin
     ? `<div class="shell-menu">
-         <button type="button" class="shell-menu-btn" id="shell-menu-btn" aria-label="Menu" title="Menu">${HAMBURGER_ICON}</button>
-         <div class="shell-menu-dropdown" id="shell-menu-dropdown" hidden>
-           <button type="button" class="shell-menu-item" data-src="${esc(ADMIN_TAB.src)}" data-href="${esc(ADMIN_TAB.href)}">${esc(ADMIN_TAB.label)}</button>
-         </div>
+         <button type="button" class="shell-menu-btn" data-src="${esc(ADMIN_TAB.src)}" data-href="${esc(ADMIN_TAB.href)}" aria-label="${esc(ADMIN_TAB.label)}" title="${esc(ADMIN_TAB.label)}">${HAMBURGER_ICON}</button>
        </div>`
     : "";
 
@@ -700,7 +695,16 @@ export function shellPage(active = "agent", canEditAdmin = false) {
   </div>
 </div>
 <script>
-document.querySelectorAll(".shell-nav button").forEach((btn) => {
+/* The hamburger button (.shell-menu-btn) joins this same delegated set —
+   "it opens up a panel, just like any other panel... it's not going to
+   have its own tab, but it will be opening the same way" — one click
+   swaps the iframe straight to /admin, no intermediate menu, exactly the
+   mechanism every visible tab already uses. Adding "active" to it too
+   has no visible effect (only ".shell-nav button.active" is styled, and
+   .shell-menu-btn lives outside .shell-nav), but clearing every tab's
+   own "active" class still matters — none of them is "on" any more once
+   Admin is showing. */
+document.querySelectorAll(".shell-nav button, .shell-menu-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
     document.querySelectorAll(".shell-nav button").forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
@@ -708,26 +712,6 @@ document.querySelectorAll(".shell-nav button").forEach((btn) => {
     history.replaceState(null, "", btn.dataset.href);
   });
 });
-${
-  canEditAdmin
-    ? `const shellMenuBtn = document.getElementById("shell-menu-btn");
-const shellMenuDropdown = document.getElementById("shell-menu-dropdown");
-shellMenuBtn.addEventListener("click", (e) => {
-  e.stopPropagation();
-  shellMenuDropdown.hidden = !shellMenuDropdown.hidden;
-});
-document.querySelectorAll(".shell-menu-item").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll(".shell-nav button").forEach((b) => b.classList.remove("active"));
-    document.getElementById("ops-frame").src = btn.dataset.src;
-    history.replaceState(null, "", btn.dataset.href);
-    shellMenuDropdown.hidden = true;
-  });
-});
-document.addEventListener("click", () => { shellMenuDropdown.hidden = true; });
-`
-    : ""
-}
 /* "I never should be able to allow to go in there [/items directly]... I
    should always be redirected to the main top domain" — index.js's own
    redirect now sends a direct /items#item-<sku> visit here instead
@@ -2160,16 +2144,17 @@ const MEDIA_BASE_URL = "https://media.vemians.com";
    at any depth, each level nested inside its own parent's own box so a
    level's own indent (CATEGORY_NODE_TOGGLE_PX) compounds naturally with
    its ancestors' — no tree-line ever drawn.
-   REVISED: this used to render once per product tile, collapsed inside
-   an accordion, with its own hidden add-forms and instant client-side
-   resort — "move the admin section into that hamburger menu so that I
-   can administer everything from that one location instead of under
-   each product." One global page needs none of that: the whole tree
-   renders expanded (nothing to toggle), every row is a plain <form> that
-   posts and reloads (no dirty-tracking Save-all needed — there is
-   exactly one thing being edited at a time here, unlike the Items tab's
-   own busy tile), and an add-row is simply always visible rather than
-   revealed by its own +. */
+   REVISED: this moved off every product tile onto its own global page —
+   "move the admin section into that hamburger menu so that I can
+   administer everything from that one location instead of under each
+   product" — but the tree ITSELF is unchanged from the tile's own
+   design: "you kind of made them all [a] flat list... you have to bring
+   all that back. They need to be expandable... everything should look
+   exactly the same like it used to." A node with children still gets its
+   own caret, collapsed by default; a subcategory's own add-row still
+   hides behind its own +, revealed on click — the only thing that moved
+   is which page this renders on and which routes its forms post to
+   (`/admin/categories/*` now, not `/items/<handle>/categories/*`). */
 function renderAdminCategoryNodes(categories, parentId) {
   const children = categories
     .filter((c) => (c.parent_id ?? null) === parentId)
@@ -2177,6 +2162,9 @@ function renderAdminCategoryNodes(categories, parentId) {
   return children
     .map((c) => {
       const hasChildren = categories.some((g) => g.parent_id === c.id);
+      const toggle = hasChildren
+        ? `<button type="button" class="admin-category-toggle" aria-label="Show subcategories of ${esc(c.name)}" title="Show subcategories">${CARET_ICON}</button>`
+        : `<span class="admin-category-toggle-spacer"></span>`;
       /* "I should not be able to delete a category until it has no more
          subcategories" — disabled, not hidden, so a manager can see the
          control exists and why it refuses, rather than wondering where
@@ -2186,6 +2174,7 @@ function renderAdminCategoryNodes(categories, parentId) {
         : ` title="Remove ${esc(c.name)}"`;
       return `<div class="admin-category-node" style="padding-left: ${parentId === null ? 0 : CATEGORY_NODE_TOGGLE_PX}px">
         <div class="admin-category-row">
+          ${toggle}
           <form method="post" action="/admin/categories/rename" class="admin-category-rename-form">
             <input type="hidden" name="category_id" value="${esc(c.id)}">
             <input type="text" class="admin-category-name" name="name" value="${esc(c.name)}" maxlength="60" title="Rename ${esc(c.name)}">
@@ -2200,13 +2189,15 @@ function renderAdminCategoryNodes(categories, parentId) {
             <input type="hidden" name="category_id" value="${esc(c.id)}">
             <button type="submit" class="admin-remove-btn" aria-label="Remove ${esc(c.name)}"${removeDisabled}>${TRASH_ICON}</button>
           </form>
+          <button type="button" class="admin-category-add-toggle" data-parent-id="${esc(c.id)}" aria-label="Add a subcategory under ${esc(c.name)}" title="Add a subcategory">+</button>
         </div>
         <div class="admin-category-children">${renderAdminCategoryNodes(categories, c.id)}</div>
-        <form method="post" action="/admin/categories/create" class="admin-category-add-form" style="padding-left: ${CATEGORY_NODE_TOGGLE_PX}px">
+        <form method="post" action="/admin/categories/create" class="admin-category-add-form" hidden style="padding-left: ${CATEGORY_NODE_TOGGLE_PX}px">
           <input type="hidden" name="parent_id" value="${esc(c.id)}">
-          <input type="text" name="name" placeholder="Subcategory name" maxlength="60">
-          <input name="numeric_id" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — optional, can be set later">
-          <button type="submit" class="admin-add-btn" aria-label="Add a subcategory under ${esc(c.name)}" title="Add a subcategory">+</button>
+          <span class="admin-category-toggle-spacer"></span>
+          <input type="text" class="admin-category-new-name" name="name" placeholder="Subcategory name" maxlength="60">
+          <input class="admin-category-new-numeric-id" name="numeric_id" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — optional, can be set later">
+          <button type="submit" class="admin-add-btn" aria-label="Add ${esc(c.name)}'s own new subcategory" title="Add">+</button>
         </form>
       </div>`;
     })
@@ -3643,9 +3634,28 @@ const ADMIN_CSS = `
 ${OPS_DARK_CSS}
 .item-empty { color: var(--muted); font-style: italic; }
 .admin-section { margin: 0 0 20px; }
-.admin-section h2 { font-size: 13px; color: var(--muted); margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.04em; }
+.admin-section h2 { font-size: 13px; color: var(--muted); margin: 0; text-transform: uppercase; letter-spacing: 0.04em; }
+.admin-section-header { display: flex; align-items: center; justify-content: space-between; margin: 0 0 8px; }
 .admin-category-node { display: flex; flex-direction: column; }
 .admin-category-row { display: flex; align-items: center; gap: 6px; padding: 3px 4px 3px 0; }
+/* "Every row underneath the categories row needs to be an expandable
+   row" — a childless node gets a same-width spacer instead of a caret,
+   so the name column still lines up regardless of depth. A row WITH a
+   caret also expands on a click anywhere else in it (name/id inputs and
+   the buttons excluded), the same "click anywhere on the row" convention
+   the old per-tile tree used. */
+.admin-category-row:has(.admin-category-toggle) { cursor: pointer; }
+.admin-category-toggle {
+  flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center; border: none; background: transparent;
+  color: var(--muted); cursor: pointer; transition: transform 0.15s;
+}
+.admin-category-node.expanded > .admin-category-row > .admin-category-toggle { transform: rotate(90deg); }
+.admin-category-toggle-spacer { flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; }
+/* Collapsed by default — the tree's own "expandable rows," restored
+   exactly as they worked on the old per-tile accordion. */
+.admin-category-children { display: none; }
+.admin-category-node.expanded > .admin-category-children { display: block; }
 .admin-category-rename-form, .admin-category-number-form, .admin-category-remove-form { display: contents; }
 .admin-category-name {
   flex: 1 1 auto; min-width: 0; font: inherit; font-size: 13px; padding: 4px 6px;
@@ -3655,21 +3665,24 @@ ${OPS_DARK_CSS}
   flex: 0 0 2ch; width: 2ch; box-sizing: content-box; font: inherit; font-size: 13px; padding: 4px 6px; text-align: center;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
 }
-.admin-save-btn, .admin-remove-btn, .admin-add-btn {
-  flex: 0 0 auto; width: 22px; height: 22px; padding: 0; font-size: 14px; line-height: 1;
+.admin-save-btn, .admin-remove-btn, .admin-add-btn, .admin-category-add-toggle {
+  flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; padding: 0; font-size: 13px; line-height: 1;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--muted); cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;
 }
 .admin-remove-btn:disabled { cursor: not-allowed; opacity: 0.4; }
+/* Hidden until its own + is clicked (either a subcategory's own row, or
+   the top-level one in .admin-section-header) — matching the old
+   per-tile add-form exactly, right down to landing at the same indent a
+   real child row's own name field would. */
+.admin-category-add-form[hidden] { display: none; }
 .admin-category-add-form { display: flex; align-items: center; gap: 6px; padding: 3px 4px 3px 0; margin-top: 4px; }
-.admin-category-add-form input[type="text"], .admin-category-add-form input:not([type]) {
-  flex: 1 1 auto; min-width: 0; font: inherit; font-size: 13px; padding: 4px 6px;
+.admin-category-new-name, .admin-category-new-numeric-id {
+  font: inherit; font-size: 13px; padding: 4px 6px;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
 }
-.admin-category-add-form input[maxlength="2"] {
-  flex: 0 0 2ch; width: 2ch; box-sizing: content-box; font: inherit; font-size: 13px; padding: 4px 6px; text-align: center;
-  border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
-}
+.admin-category-new-name { flex: 1 1 auto; min-width: 0; }
+.admin-category-new-numeric-id { flex: 0 0 2ch; width: 2ch; box-sizing: content-box; text-align: center; }
 .admin-vendor-row { display: flex; align-items: center; gap: 6px; padding: 4px 0; }
 .admin-vendor-row-name { flex: 1 1 auto; min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
 .admin-vendor-commission-form { display: contents; }
@@ -3689,13 +3702,17 @@ export function adminPage(allCategories = [], allVendors = []) {
     "Admin — Vemians ops",
     `<main class="ops">
   <section class="admin-section">
-    <h2>Categories</h2>
+    <div class="admin-section-header">
+      <h2>Categories</h2>
+      <button type="button" class="admin-category-add-toggle" data-parent-id="" aria-label="Add a top-level category" title="Add a category">+</button>
+    </div>
     ${allCategories.length ? renderAdminCategoryNodes(allCategories, null) : `<p class="item-empty">No categories yet.</p>`}
-    <form method="post" action="/admin/categories/create" class="admin-category-add-form">
+    <form method="post" action="/admin/categories/create" class="admin-category-add-form" hidden>
       <input type="hidden" name="parent_id" value="">
-      <input type="text" name="name" placeholder="Category name" maxlength="60">
-      <input name="numeric_id" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — optional, can be set later">
-      <button type="submit" class="admin-add-btn" aria-label="Add a top-level category" title="Add a category">+</button>
+      <span class="admin-category-toggle-spacer"></span>
+      <input type="text" class="admin-category-new-name" name="name" placeholder="Category name" maxlength="60">
+      <input class="admin-category-new-numeric-id" name="numeric_id" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — optional, can be set later">
+      <button type="submit" class="admin-add-btn" aria-label="Add a top-level category" title="Add">+</button>
     </form>
   </section>
   <section class="admin-section">
@@ -3723,7 +3740,37 @@ export function adminPage(allCategories = [], allVendors = []) {
       <button type="submit" class="admin-add-btn" aria-label="Add a vendor" title="Add a vendor">+</button>
     </form>
   </section>
-</main>`,
+</main>
+<script>
+/* "They need to be expandable... everything should look exactly the same
+   like it used to" — the exact same caret/click-to-expand/reveal-the-add-
+   form mechanics the old per-tile Categories accordion used
+   (renderCategoryNodes' own click-delegation, before it moved here),
+   just delegated off document.body instead of a #items-grid that does
+   not exist on this page. */
+document.body.addEventListener("click", (e) => {
+  const toggle = e.target.closest(".admin-category-toggle");
+  if (toggle) {
+    toggle.closest(".admin-category-node")?.classList.toggle("expanded");
+    return;
+  }
+  const row = e.target.closest(".admin-category-row");
+  if (row && !e.target.closest("input, button")) {
+    row.closest(".admin-category-node")?.classList.toggle("expanded");
+    return;
+  }
+  const addToggle = e.target.closest(".admin-category-add-toggle");
+  if (addToggle) {
+    const form = addToggle.dataset.parentId
+      ? addToggle.closest(".admin-category-node")?.querySelector(":scope > .admin-category-add-form")
+      : addToggle.closest(".admin-section")?.querySelector(":scope > .admin-category-add-form");
+    if (form) {
+      form.hidden = !form.hidden;
+      if (!form.hidden) form.querySelector(".admin-category-new-name")?.focus();
+    }
+  }
+});
+</script>`,
     ADMIN_CSS,
   );
 }
