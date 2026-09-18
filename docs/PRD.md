@@ -5517,6 +5517,25 @@ that does not trace to one of these is a process failure (see §12).
     rule this file's own history says was removed as dead code (two REVISED entries up) is back,
     scoped to exactly this one case.
 
+    **REVISED: no category may sit without a numeric_id for long — a blank one is backfilled the
+    moment the Admin panel is opened, never left "uninitialized."** The owner's own words: "you
+    should never have any categories without an ID at all assigned to it... if you have one and
+    there is a default, just increase them and iterate them by value, so that way you don't have any
+    uninitialized categories." A blank can arrive from more than the add-form this codebase already
+    auto-fills (the REVISED entry three up) — a category synced fresh from Square, one created by an
+    agent/API caller with no `numeric_id` argument (`catalog.create_category`'s own `numeric_id` stays
+    genuinely optional, `Test-PRD-P0-138-nested_categories__create_category_numeric_id_is_optional`),
+    or legacy data from before this convention existed. A new client-side
+    `backfillMissingNumericIds(nodes)` (`views.js`) runs once on every page load, over the two pools
+    `catalog.set_category_number` itself already enforces (all top-level categories share one
+    '00'-'99' pool; all subcategories, any depth, share the other) — reusing `nextNumericId`'s own
+    "one more than the highest already used" logic for each blank in turn, reading nodes' live values
+    on every call so several blanks in the same pool land on distinct, sequential numbers rather than
+    all landing on the same one. This only fills the FIELD and marks it dirty
+    (`refreshDirtyState`) — the server still renders a blank exactly as before, and nothing is
+    written to the mirror until the owner's own next "Save all" click, so "we can change these by
+    hand" still holds all the way up to that click.
+
 74. **`Test-PRD-P0-139-honest_write_failures`** — A Square write refused with a plain `Square POST
     /v2/catalog/object failed with 400` and nothing else — the owner's own words, pasting exactly that
     line after an edit silently went nowhere: "just make sure all of the fields work... with this post
