@@ -98,6 +98,7 @@
 import { CAPS } from "./caps.js";
 import {
   categoryItemOptionIds,
+  categoryItemOptionsSetAt,
   deriveCategoryIdForStyleId,
   listCategories,
   listCustomFieldNames,
@@ -2014,9 +2015,11 @@ export const catalogWriteTools = {
     minRole: "manager",
     describe:
       "Set the FULL list of Option Sets a category offers — replaces whatever was assigned before, " +
-      "same as sending an empty list to unassign all of them. Purely ours: no Square object is read, " +
-      "written, or affected. Call catalog.item_options first to see what option sets already exist by " +
-      "id.",
+      "same as sending an empty list to unassign all of them. A subcategory with no explicit set of " +
+      "its own INHERITS its parent's, all the way up the tree — calling this even once for a " +
+      "subcategory (any list, including empty) makes its own set explicit from then on, no longer " +
+      "following its parent's future edits. Purely ours: no Square object is read, written, or " +
+      "affected. Call catalog.item_options first to see what option sets already exist by id.",
     undo: "another catalog.set_category_item_options call, with the previous item_option_ids",
     schema: {
       category_id: { type: "string", required: true, format: "id" },
@@ -2041,16 +2044,28 @@ export const catalogWriteTools = {
 
       const before = await categoryItemOptionIds(t.db.catalog_mirror);
       const beforeIds = [...(before.get(category.id) ?? [])].sort();
-      if (JSON.stringify([...ids].sort()) === JSON.stringify(beforeIds)) {
+      /* "Unless I specify different selections" — a category that has
+         never been explicitly set (item_options_set_at still NULL, this
+         codebase's own inherit-vs-explicit signal, effectiveCategoryItem
+         OptionIds' own comment has the full reasoning) has no raw rows
+         of its own to compare against, EVEN if it is currently showing
+         its parent's own sets as inherited — saving THAT same list is
+         still a real, meaningful change (it stops inheriting future
+         parent edits), never a no-op. Only an ALREADY-explicit category
+         resending its own unchanged list is refused. */
+      const alreadyExplicit = (await categoryItemOptionsSetAt(t.db.catalog_mirror, category.id)) != null;
+      if (alreadyExplicit && JSON.stringify([...ids].sort()) === JSON.stringify(beforeIds)) {
         return { denied: `"${category.name}" already offers exactly this set of option sets — nothing to change` };
       }
 
       const names = ids.map((id) => byId.get(id).name);
+      const startsOverriding = !alreadyExplicit && category.parent_id != null;
+      const overrideNote = startsOverriding ? " (stops inheriting its parent's own option sets from now on)" : "";
       return {
         ok: true,
         summary: names.length
-          ? `set "${category.name}"'s own option sets to: ${names.join(", ")} — ${args.reason}`
-          : `clear every option set from "${category.name}" — ${args.reason}`,
+          ? `set "${category.name}"'s own option sets to: ${names.join(", ")}${overrideNote} — ${args.reason}`
+          : `clear every option set from "${category.name}"${overrideNote} — ${args.reason}`,
         preflight: { category, ids },
       };
     },
@@ -2091,6 +2106,19 @@ export const catalogWriteTools = {
             .run();
         }
       }
+      /* Marks this category as explicit, EVEN when ids is empty — "I
+         specify different selections" is a real, distinct fact from
+         "never touched, still inheriting," and a category with no rows
+         at all in mirror_category_item_option (an explicit empty set)
+         is otherwise indistinguishable from one that has never been
+         saved here. Unconditional, every successful call: a resave of
+         an already-explicit category's own unchanged timestamp costs
+         nothing and keeps this one statement the single place that ever
+         sets it. */
+      await t.db.catalog_mirror
+        .prepare("UPDATE mirror_category SET item_options_set_at = datetime('now') WHERE id = ?")
+        .bind(category.id)
+        .run();
       return { category_id: category.id, item_option_ids: ids, authority: "ours" };
     },
   },

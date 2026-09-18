@@ -2931,6 +2931,7 @@ check("test_PRD_P0_142_category_item_options__admin_renders_a_sets_toggle_with_a
   seedItemOption(mirror, { id: "opt1", externalRef: "sqopt1", name: "Size" });
   seedItemOption(mirror, { id: "opt2", externalRef: "sqopt2", name: "Color" });
   mirror.db.exec("INSERT INTO mirror_category_item_option (category_id, item_option_id) VALUES ('cat1', 'opt1')");
+  mirror.db.exec("UPDATE mirror_category SET item_options_set_at = datetime('now') WHERE id = 'cat1'");
 
   const body = await (await get("/admin", MANAGER, env(mirror))).text();
   const cat1Idx = body.indexOf("Outerwear");
@@ -2983,6 +2984,28 @@ check("test_PRD_P0_142_category_item_options__admin_sets_menu_stays_open_across_
     body,
     /document\.addEventListener\("keydown", \(e\) => \{\s*\n\s*if \(e\.key !== "Escape"\) return;\s*\n\s*closeAllOptionsMenus\(\);\s*\n\s*\}\);/,
   );
+});
+
+check("test_PRD_P0_142_category_item_options__admin_a_subcategory_with_no_explicit_set_shows_its_parents_as_checked", async () => {
+  /* "When I set sets for a category, all subcategories inherit the sets
+     unless I specify different selections for the subcategories" — the
+     owner's own words. cat2 (Coats, a subcategory of cat1/Outerwear)
+     never gets its own mirror_category_item_option row or its own
+     item_options_set_at here -- only cat1 does -- so its own menu must
+     still show Outerwear's own assignment as checked and its own Sets
+     badge must still read the inherited count. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  seedItemOption(mirror, { id: "opt1", externalRef: "sqopt1", name: "Size" });
+  mirror.db.exec("INSERT INTO mirror_category_item_option (category_id, item_option_id) VALUES ('cat1', 'opt1')");
+  mirror.db.exec("UPDATE mirror_category SET item_options_set_at = datetime('now') WHERE id = 'cat1'");
+
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  const cat2Idx = body.indexOf("Coats");
+  const cat2Row = body.slice(cat2Idx, body.indexOf("admin-category-children", cat2Idx));
+  assert.match(cat2Row, /admin-category-options-toggle admin-category-options-toggle-active"[^>]*>Sets \(1\)<\/button>/, "the inherited count, not zero");
+  assert.match(cat2Row, /<input type="checkbox" name="item_option_ids" value="opt1" checked> Size/, "Outerwear's own assignment, shown as Coats' own current state");
 });
 
 check("test_PRD_P0_142_category_item_options__admin_sets_toggle_matches_the_row_height_and_reads_all_caps", async () => {

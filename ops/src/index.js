@@ -44,7 +44,7 @@ import {
   productByHandle,
   variantsOf,
   categoryProductCounts,
-  categoryItemOptionIds,
+  effectiveCategoryItemOptionIds,
 } from "./tools/catalog-writer.js";
 import { applyFormEdits } from "./approval-forms.js";
 import { syncFromSquare, SYNC_CRON, FREQUENT_CRON } from "./sync.js";
@@ -936,7 +936,12 @@ async function ops(request, env, path) {
       const customFieldNames = await listCustomFieldNames(env.CATALOG_MIRROR);
       const categoryProductCountsById = await categoryProductCounts(env.CATALOG_MIRROR);
       const allItemOptions = await listItemOptions(env.CATALOG_MIRROR);
-      const categoryItemOptionIdsById = await categoryItemOptionIds(env.CATALOG_MIRROR);
+      /* "All subcategories inherit the sets unless I specify different
+         selections" — the Admin panel's own checkbox list shows what is
+         actually IN EFFECT for a category, inherited or explicit alike,
+         never just its own raw rows (categoryItemOptionIds' own job,
+         used only by the tool layer's own read-before-write). */
+      const categoryItemOptionIdsById = await effectiveCategoryItemOptionIds(env.CATALOG_MIRROR);
       return html(
         adminPage(allCategories, allVendors, customFieldNames, categoryProductCountsById, allItemOptions, categoryItemOptionIdsById),
       );

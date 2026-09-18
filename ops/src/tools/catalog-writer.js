@@ -57,6 +57,17 @@ export async function listCategories(db) {
   return (res.results ?? []).map((r) => ({ id: r.id, name: r.name, parent_id: r.parent_id, numeric_id: r.numeric_id }));
 }
 
+/* Whether a category has ever had its own EXPLICIT option-set list saved
+   (mirror_category.item_options_set_at, schema.sql's own comment on it
+   has the full reasoning) — kept separate from listCategories' own
+   shared shape (catalog.categories hands that one straight to a model,
+   and this is not a fact any caller of that tool needs to reason about)
+   rather than widening every consumer's own object shape for one
+   narrow use. */
+export async function categoryItemOptionsSetAt(db, categoryId) {
+  return (await db.prepare("SELECT item_options_set_at FROM mirror_category_index WHERE id = ?").bind(categoryId).first("item_options_set_at")) ?? null;
+}
+
 /* How many products currently sit in each category — the Admin panel's own
    remove button needs this to hide itself the same "not reachable, don't
    show it" way it already does for a category that still has subcategories
@@ -108,6 +119,44 @@ export async function categoryItemOptionIds(db) {
     byCategory.get(r.category_id).add(r.item_option_id);
   }
   return byCategory;
+}
+
+/* "When I set sets for a category, all subcategories inherit the sets
+   unless I specify different selections for the subcategories" — the
+   owner's own words. mirror_category.item_options_set_at (schema.sql's
+   own comment on it has the full reasoning) tells apart "never touched,
+   still inheriting" (NULL) from "explicitly set here, even to nothing"
+   (a real timestamp) — a distinction categoryItemOptionIds' own rows
+   alone cannot make, since both look identical (zero active rows). Walks
+   up the parent chain from every category, stopping at the nearest
+   ancestor (itself included) with its own explicit set, and returns
+   THAT one's own raw ids — never merges an ancestor's and a
+   descendant's. A category with no explicit set anywhere in its own
+   chain (no ancestor has ever called catalog.set_category_item_options)
+   resolves to an empty Set, same as one explicitly cleared. */
+export async function effectiveCategoryItemOptionIds(db) {
+  const [categoriesRes, rawIds] = await Promise.all([
+    db.prepare("SELECT id, parent_id, item_options_set_at FROM mirror_category_index").bind().all(),
+    categoryItemOptionIds(db),
+  ]);
+  const categories = categoriesRes.results ?? [];
+  const byId = new Map(categories.map((c) => [c.id, c]));
+  const effective = new Map();
+  function resolve(categoryId) {
+    if (effective.has(categoryId)) return effective.get(categoryId);
+    const category = byId.get(categoryId);
+    const result = !category
+      ? new Set()
+      : category.item_options_set_at != null
+        ? (rawIds.get(categoryId) ?? new Set())
+        : category.parent_id
+          ? resolve(category.parent_id)
+          : new Set();
+    effective.set(categoryId, result);
+    return result;
+  }
+  for (const category of categories) resolve(category.id);
+  return effective;
 }
 
 /* Every vendor, for the picker/admin panel — "the same kind of drop down

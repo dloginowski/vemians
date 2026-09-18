@@ -5803,6 +5803,29 @@ that does not trace to one of these is a process failure (see §12).
     click on the toggle button itself already is, so any number of them stay tickable in one sitting —
     the menu only closes on an outside click, `Escape`, or the toggle button.
 
+    **REVISED: a subcategory with no explicit option sets of its own now inherits its parent's, all the
+    way up the tree.** The owner's own words: "when I set sets for a category, all subcategories
+    inherit the sets unless I specify different selections for the subcategories." A new OURS-only
+    column, `mirror_category.item_options_set_at` (migration `0009_category_item_options_inherit.sql`
+    — schema.sql's own comment on it has the full reasoning), tells apart "never touched here, still
+    inheriting" (`NULL`) from "explicitly set here, even to nothing" (a real timestamp) — a distinction
+    `mirror_category_item_option`'s own rows alone cannot make, since both a never-touched category and
+    one explicitly cleared show zero active rows. `catalog.set_category_item_options`'s own `run()` now
+    sets this column unconditionally on every successful call, `item_option_ids: []` included; its own
+    `check()` only refuses a resend as a no-op once a category is ALREADY explicit — a category that is
+    still inheriting and resends the identical list it currently shows (inherited) is a real, meaningful
+    change (it stops following the parent's future edits), never a no-op.
+
+    A new `effectiveCategoryItemOptionIds(db)` (`catalog-writer.js`) walks up a category's own parent
+    chain, stopping at the nearest ancestor (itself included) with its own explicit set, and returns
+    THAT one's own raw ids — never merging an ancestor's and a descendant's own. This, not
+    `categoryItemOptionIds`'s own raw per-category rows, is what the Admin panel's own checkbox list and
+    "Sets (N)" badge read from now — the count and the pre-checked boxes both show what is actually IN
+    EFFECT for a category, inherited or explicit alike; `categoryItemOptionIds` stays exactly what it
+    was, the tool layer's own read-before-write over a category's own raw rows only. Viewing an
+    inherited list writes nothing on its own — only an actual Save turns "inherited" into "explicit,"
+    matching every other checkbox on this page.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
