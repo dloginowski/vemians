@@ -3334,6 +3334,90 @@ check("test_PRD_P0_142_category_item_options__a_top_level_category_with_nothing_
   assert.deepEqual([...(effective.get(knitwear.id) ?? [])], []);
 });
 
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-144 — mass-applying a category's own option sets onto every product
+ * already filed in it: "when I apply the groups to a category... you're
+ * going to apply these option sets to every product that is part of the
+ * category... right now, you have to apply these options manually per
+ * item" — the owner's own words. Item-level only (item_data.item_options);
+ * no variation is ever created, changed, or removed by this tool.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_144_apply_category_item_options__pushes_the_categorys_own_effective_set_to_every_product_in_it", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const size = seedItemOption(f, { id: "opt1", externalRef: "SQ_OPT_SIZE", name: "Size" });
+  await approvedCall(f, "catalog.set_category_item_options", { category_id: outerwear.id, item_option_ids: [size.id], reason: "test" });
+
+  const res = await approvedCall(f, "catalog.apply_category_item_options_to_products", { category_id: outerwear.id, reason: "test" });
+  assert.equal(res.ok, true, res.error);
+  assert.equal(res.data.products_applied, 1, "the coat is the only product seeded under Outerwear");
+  assert.deepEqual(res.data.errors, []);
+
+  const itemUpsert = f.calls().filter((c) => c.path === "/v2/catalog/object" && c.upsert === "ITEM").pop();
+  assert.ok(itemUpsert, "must actually write to Square, not just the mirror");
+  assert.deepEqual(itemUpsert.body.object.item_data.item_options, [{ item_option_id: "SQ_OPT_SIZE" }]);
+});
+
+check("test_PRD_P0_144_apply_category_item_options__applies_an_inherited_set_not_only_an_explicit_one", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const casual = (await approvedCall(f, "catalog.create_category", { name: "Casual", parent_id: outerwear.id, reason: "test" })).data
+    .category;
+  const size = seedItemOption(f, { id: "opt1", externalRef: "SQ_OPT_SIZE", name: "Size" });
+  await approvedCall(f, "catalog.set_category_item_options", { category_id: outerwear.id, item_option_ids: [size.id], reason: "test" });
+  await approvedCall(f, "catalog.create_product", {
+    title: "Casual Shirt",
+    category_id: casual.id,
+    variations: [{ title: "One size", price_minor: 5000, currency: "USD" }],
+  });
+
+  /* Casual never named its own option sets -- it inherits Outerwear's. */
+  const res = await approvedCall(f, "catalog.apply_category_item_options_to_products", { category_id: casual.id, reason: "test" });
+  assert.equal(res.ok, true, res.error);
+  assert.equal(res.data.products_applied, 1);
+  assert.deepEqual(res.data.item_option_ids, [size.id]);
+});
+
+check("test_PRD_P0_144_apply_category_item_options__a_later_unrelated_edit_does_not_silently_clear_it", async () => {
+  /* "UpsertCatalogObject replaces item_data wholesale... every caller here
+     is responsible for passing through whatever value should survive" --
+     itemData()'s own established rule, now covering item_options too. A
+     plain title edit, not about option sets at all, must not wipe them. */
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const size = seedItemOption(f, { id: "opt1", externalRef: "SQ_OPT_SIZE", name: "Size" });
+  await approvedCall(f, "catalog.set_category_item_options", { category_id: outerwear.id, item_option_ids: [size.id], reason: "test" });
+  await approvedCall(f, "catalog.apply_category_item_options_to_products", { category_id: outerwear.id, reason: "test" });
+
+  await approvedCall(f, "catalog.update_product", { handle: COAT_HANDLE, title: "Renamed Coat" });
+  const itemUpsert = f.calls().filter((c) => c.path === "/v2/catalog/object" && c.upsert === "ITEM").pop();
+  assert.deepEqual(itemUpsert.body.object.item_data.item_options, [{ item_option_id: "SQ_OPT_SIZE" }], "must still be resent, not dropped");
+});
+
+check("test_PRD_P0_144_apply_category_item_options__refuses_a_category_with_no_products", async () => {
+  const f = await fixture();
+  const casual = (
+    await approvedCall(f, "catalog.create_category", { name: "Casual", reason: "test" })
+  ).data.category;
+  const res = await runTool("catalog.apply_category_item_options_to_products", { category_id: casual.id, reason: "test" }, f.ctx);
+  assert.equal(res.ok, false);
+  assert.match(res.error, /no products/);
+});
+
+check("test_PRD_P0_144_apply_category_item_options__staff_cannot_call_it", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  assert.deepEqual(TOOLS["catalog.apply_category_item_options_to_products"].resources, ["square"]);
+  assert.ok(!describeTools("staff").map((d) => d.name).includes("catalog.apply_category_item_options_to_products"));
+  const res = await runTool(
+    "catalog.apply_category_item_options_to_products",
+    { category_id: outerwear.id, reason: "test" },
+    { ...f.ctx, role: "staff" },
+  );
+  assert.equal(res.ok, false);
+});
+
 check("test_PRD_P0_136_square_custom_attributes__create_vendor_makes_a_real_square_vendor_with_a_commission_on_file_immediately", async () => {
   const f = await fixture();
   const res = await approvedCall(f, "catalog.create_vendor", { name: "Acme Mills", commission: 20, reason: "test" });

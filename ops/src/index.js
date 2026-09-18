@@ -1030,6 +1030,18 @@ async function ops(request, env, path) {
       toolName = "catalog.set_category_item_options";
       args = { category_id: categoryId, item_option_ids: itemOptionIds, reason: "set from the Admin panel" };
       summaryNoun = "category's option sets";
+    } else if (suffix === "/categories/apply-item-options") {
+      /* "I want you to mass apply the options to all of the items that
+         are part of the category. Because right now, you have to apply
+         these options manually per item." A real Square write to every
+         product currently in the category — an immediate one-shot
+         action (index.js's own script handles this one with its own
+         fetch, not the batched Save-all), same as removing a category. */
+      const categoryId = String(form.get("category_id") ?? "").trim();
+      if (!categoryId) return json({ error: "give a category" }, 400);
+      toolName = "catalog.apply_category_item_options_to_products";
+      args = { category_id: categoryId, reason: "applied from the Admin panel" };
+      summaryNoun = "category's option sets applied to its products";
     } else if (suffix === "/vendors/create") {
       /* commission is REQUIRED here, unlike a category's own optional
          numeric_id: a brand-new vendor has nothing on file yet for

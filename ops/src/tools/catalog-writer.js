@@ -520,6 +520,41 @@ export function createSquareCatalogWriter(env, opts = {}) {
     return row;
   }
 
+  /* Our internal item_option ids -> Square's own external refs, for
+     building itemData()'s own item_options array. An id that does not
+     resolve (typo, or an item_option that has since been archived) is
+     dropped rather than thrown on — resolved to a plain filter().length
+     check by every caller, matching listItemOptions' own "an unresolved
+     vendor_id is left null, never guessed at" tolerance elsewhere in
+     this file. */
+  async function itemOptionExternalRefsOf(itemOptionIds) {
+    const refs = await Promise.all(
+      itemOptionIds.map(async (id) => {
+        const row = await mirrorDb.prepare("SELECT external_ref FROM mirror_item_option_index WHERE id = ?").bind(id).first();
+        return row?.external_ref ?? null;
+      }),
+    );
+    return refs.filter(Boolean);
+  }
+
+  /* The item's own CURRENTLY mirrored item_options, as Square external
+     refs — updateProduct's own "resend the whole thing" fallback for
+     this field, same reasoning currentVendorInfo below exists for a
+     vendor's own fields: itemData()'s own item_options key is a full
+     REPLACE of Square's own item_data.item_options, so a caller not
+     actually about this field must still resend what is already there,
+     never leave it to silently vanish. */
+  async function currentItemOptionExternalRefs(productId) {
+    const res = await mirrorDb
+      .prepare(
+        "SELECT moi.external_ref AS external_ref FROM mirror_product_item_option_index ppo" +
+          " JOIN mirror_item_option_index moi ON moi.id = ppo.item_option_id WHERE ppo.product_id = ?",
+      )
+      .bind(productId)
+      .all();
+    return (res.results ?? []).map((r) => r.external_ref);
+  }
+
   async function productRow(handle) {
     const row = await mirrorDb
       .prepare(
@@ -626,7 +661,7 @@ export function createSquareCatalogWriter(env, opts = {}) {
     return Object.keys(out).length ? out : undefined;
   }
 
-  function itemData({ title, description, catRef, variations, itemRef, imageIds, customAttributeValues: attrs, vendorInfos }) {
+  function itemData({ title, description, catRef, variations, itemRef, imageIds, customAttributeValues: attrs, vendorInfos, itemOptionRefs }) {
     return {
       name: title,
       /* Photographs already in Square are LINKED here at creation rather than
@@ -638,6 +673,13 @@ export function createSquareCatalogWriter(env, opts = {}) {
       ...(catRef
         ? { categories: [{ id: catRef, ordinal: 0 }], reporting_category: { id: catRef } }
         : {}),
+      /* Which Option Sets this ITEM itself declares (P0-143) — "mass apply
+         the options to all of the items that are part of the category,"
+         the owner's own words. Only ever a full REPLACE, the same as
+         every other field here: a caller not actually about this field
+         still resends whatever is already mirrored (updateProduct's own
+         currentItemOptionExternalRefs), never leaves it to vanish. */
+      ...(itemOptionRefs?.length ? { item_options: itemOptionRefs.map((ref) => ({ item_option_id: ref })) } : {}),
       /* Square's own Custom Attributes (P0-136) — style_id and commission,
          addressed by the well-known `key` this codebase's own attribute
          definitions use, never by Square's opaque definition id. Omitted
@@ -817,6 +859,38 @@ export function createSquareCatalogWriter(env, opts = {}) {
       return { resorted, errors };
     },
 
+    /* "When I apply the groups to a category, it means... you're going to
+       apply these option sets to every product that is part of the
+       category... because right now, you have to apply these options
+       manually per item" — the owner's own words, and explicit go-ahead
+       for a SEPARATE, explicit action over an automatic cascade on every
+       category save: catalog.apply_category_item_options_to_products'
+       own check() resolves the category's own EFFECTIVE (inherited or
+       explicit) option sets and hands them here as plain ids; this loops
+       every product currently filed under that category and pushes the
+       same "resend the whole thing, only item_options actually changes"
+       updateProduct call the rest of this file already relies on — one
+       real Square write per product, the same resortProductsByStyleId's
+       own shape just above uses for its own bulk write. Item-level ONLY
+       (item_data.item_options): no variation is created, changed, or
+       removed by this call — "variants will be defined and configured in
+       Square" stays true. */
+    async applyItemOptionsToProductsInCategory(categoryId, itemOptionIds) {
+      const products = await mirrorDb.prepare("SELECT handle FROM mirror_product_index WHERE category_id = ?").bind(categoryId).all();
+      let applied = 0;
+      const errors = [];
+      for (const p of products.results ?? []) {
+        try {
+          await this.updateProduct({ handle: p.handle, itemOptionIds });
+          applied += 1;
+        } catch (err) {
+          console.error(`ERROR catalog-writer: apply item options failed for ${p.handle} — ${err.message}`);
+          errors.push({ handle: p.handle, error: err.message });
+        }
+      }
+      return { applied, errors };
+    },
+
     /**
      * ITEM + ITEM_VARIATIONs in one UpsertCatalogObject, then the image copies,
      * then the mirror sync. In that order, always.
@@ -904,8 +978,17 @@ export function createSquareCatalogWriter(env, opts = {}) {
       unitCostMinor,
       unitCostCurrency,
       commissionPct,
+      itemOptionIds,
     }) {
       const row = await productRow(handle);
+      /* undefined means "this call is not about the item's own option
+         sets," resolved to whatever is already mirrored — the same
+         "resend the whole thing" fallback every other field on this
+         function already follows. A real array (catalog.apply_category_
+         item_options_to_products' own call, empty list included)
+         replaces it outright. */
+      const resolvedItemOptionExternalRefs =
+        itemOptionIds !== undefined ? await itemOptionExternalRefsOf(itemOptionIds) : await currentItemOptionExternalRefs(row.id);
       /* Bug found while wiring up style_id-driven auto-categorization: an
          UNDEFINED categoryId used to resolve straight to null, which
          itemData() below reads as "omit categories/reporting_category
@@ -1001,7 +1084,7 @@ export function createSquareCatalogWriter(env, opts = {}) {
           `catalog.update:${row.external_ref}:${row.source_version}:${resolvedTitle}:` +
             `${resolvedDescription ?? ""}:${cat?.external_ref ?? ""}:${JSON.stringify(keep)}:` +
             `${resolvedStyleId ?? ""}:${resolvedVendorExternalRef ?? ""}:${JSON.stringify(vendorInfos)}:` +
-            `${resolvedCommissionPct ?? ""}`,
+            `${resolvedCommissionPct ?? ""}:${JSON.stringify(resolvedItemOptionExternalRefs)}`,
         ),
         object: {
           type: "ITEM",
@@ -1019,6 +1102,7 @@ export function createSquareCatalogWriter(env, opts = {}) {
               commissionPct: resolvedCommissionPct,
             }),
             vendorInfos,
+            itemOptionRefs: resolvedItemOptionExternalRefs,
           }),
         },
       };

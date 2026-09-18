@@ -3118,6 +3118,38 @@ check("test_PRD_P0_142_category_item_options__admin_staff_cannot_reach_the_route
   assert.equal(res.status, 403);
 });
 
+check("test_PRD_P0_144_apply_category_item_options__admin_applying_reaches_the_tool_layer", async () => {
+  /* "I want you to mass apply the options to all of the items that are
+     part of the category" — unlike catalog.set_category_item_options,
+     this one really does write to Square (item_data.item_options on
+     every product), so it belongs with create/number/rename/remove
+     below: this file's own env() proves the route reaches runTool with
+     the right args, not a full round trip against a real Square. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await postForm("/admin/categories/apply-item-options", MANAGER, env(mirror), { category_id: "cat1" });
+  assert.equal(res.status, 400);
+  assert.match(await res.text(), /SQUARE_ACCESS_TOKEN is unset/);
+});
+
+check("test_PRD_P0_144_apply_category_item_options__admin_staff_cannot_reach_the_route", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await postForm("/admin/categories/apply-item-options", STAFF, env(mirror), { category_id: "cat1" });
+  assert.equal(res.status, 403);
+});
+
+check("test_PRD_P0_144_apply_category_item_options__admin_renders_an_apply_button_inside_the_sets_menu", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedItemOption(mirror, { id: "opt1", externalRef: "sqopt1", name: "Size" });
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  assert.match(
+    body,
+    /<button type="button" class="admin-category-apply-btn" data-category-id="cat1">Apply to items<\/button>/,
+  );
+});
+
 check("test_PRD_P0_138_nested_categories__admin_staff_cannot_reach_the_page_at_all", async () => {
   const mirror = mirrorDb();
   const res = await get("/admin", STAFF, env(mirror));

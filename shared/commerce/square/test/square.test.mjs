@@ -811,6 +811,7 @@ check("test_PRD_P0_36_working_set_index__the_database_refuses_a_delete_outright"
     "mirror_category",
     "mirror_item_option",
     "mirror_item_option_value",
+    "mirror_product_item_option",
   ]) {
     assert.throws(
       () => mirrorDb._raw.exec(`DELETE FROM ${t}`),
@@ -1801,6 +1802,94 @@ check("test_PRD_P0_141_item_option_sets_mirrored__withdrawing_an_option_set_in_s
   const row = one(s.mirrorDb, "SELECT archived_at FROM mirror_item_option WHERE external_ref = 'OPT_SIZE'");
   assert.ok(row.archived_at, "withdrawn is a marker, archived_at is set");
   assert.throws(() => s.mirrorDb._raw.exec("DELETE FROM mirror_item_option"), /archive-only/);
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-143 — which Option Sets an ITEM itself declares (item_data.
+ * item_options), mirrored separately from a category's own P0-142 offer.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_143_product_item_options_mirrored__normalisecatalog_extracts_the_items_own_declared_option_sets", () => {
+  const { products } = normaliseCatalog(fixture("catalog-list.json").objects, { locationId: SQUARE_LOCATION });
+  const coat = products.find((p) => p.externalRef === "ITEM_COAT");
+  assert.deepEqual(coat.itemOptionExternalRefs, ["OPT_SIZE"]);
+});
+
+check("test_PRD_P0_143_product_item_options_mirrored__syncing_the_catalog_links_the_product_to_its_own_item_option", async () => {
+  const { mirrorDb } = await seededCatalog();
+  const coat = one(mirrorDb, "SELECT id FROM mirror_product_index WHERE handle = 'shearling-trimmed-wool-blend-coat'");
+  const option = one(mirrorDb, "SELECT id FROM mirror_item_option_index WHERE external_ref = 'OPT_SIZE'");
+  const row = one(
+    mirrorDb,
+    "SELECT * FROM mirror_product_item_option_index WHERE product_id = ? AND item_option_id = ?",
+    coat.id,
+    option.id,
+  );
+  assert.ok(row, "the coat's own declared option set must be mirrored, joined by our uuids");
+});
+
+check("test_PRD_P0_143_product_item_options_mirrored__a_resync_does_not_duplicate_the_link", async () => {
+  const { mirrorDb, mirror, normalised } = await seededCatalog();
+  await mirror.syncCatalog(normalised, { full: true });
+  await mirror.syncCatalog(normalised, { full: true });
+  assert.equal(rows(mirrorDb, "SELECT * FROM mirror_product_item_option").length, 1);
+});
+
+check("test_PRD_P0_143_product_item_options_mirrored__removal_is_only_caught_by_a_full_sweep_same_latency_as_a_variation", async () => {
+  /* "A variation deleted from an item that itself survives... only a
+     full sweep can tell 'removed' from 'just not in this incremental
+     page'" — mirror.js's own comment on seenVariants; item_options
+     accept the identical latency, on purpose, for the identical reason. */
+  const s = stores();
+  const withOption = [
+    {
+      type: "ITEM_OPTION",
+      id: "OPT_SIZE",
+      is_deleted: false,
+      item_option_data: { name: "Size", values: [{ type: "ITEM_OPTION_VAL", id: "OPTVAL_S", item_option_value_data: { name: "S" } }] },
+    },
+    {
+      type: "ITEM",
+      id: "ITEM_1",
+      is_deleted: false,
+      item_data: {
+        name: "A Product",
+        item_options: [{ item_option_id: "OPT_SIZE" }],
+        variations: [
+          {
+            type: "ITEM_VARIATION",
+            id: "VAR_1",
+            item_variation_data: { name: "S", sku: "SKU-1", pricing_type: "FIXED_PRICING", price_money: { amount: 1000, currency: "USD" } },
+          },
+        ],
+      },
+    },
+  ];
+  await s.mirror.syncCatalog(normaliseCatalog(withOption, { locationId: SQUARE_LOCATION }), { full: true });
+  const product = one(s.mirrorDb, "SELECT id FROM mirror_product_index WHERE external_ref = 'ITEM_1'");
+  const option = one(s.mirrorDb, "SELECT id FROM mirror_item_option_index WHERE external_ref = 'OPT_SIZE'");
+  assert.equal(
+    one(s.mirrorDb, "SELECT archived_at FROM mirror_product_item_option WHERE product_id = ? AND item_option_id = ?", product.id, option.id)
+      .archived_at,
+    null,
+  );
+
+  const withoutOption = JSON.parse(JSON.stringify(withOption));
+  withoutOption[1].item_data.item_options = [];
+  await s.mirror.syncCatalog(normaliseCatalog(withoutOption, { locationId: SQUARE_LOCATION }), { full: false });
+  assert.equal(
+    one(s.mirrorDb, "SELECT archived_at FROM mirror_product_item_option WHERE product_id = ? AND item_option_id = ?", product.id, option.id)
+      .archived_at,
+    null,
+    "an incremental sync alone must not archive it",
+  );
+
+  await s.mirror.syncCatalog(normaliseCatalog(withoutOption, { locationId: SQUARE_LOCATION }), { full: true });
+  assert.ok(
+    one(s.mirrorDb, "SELECT archived_at FROM mirror_product_item_option WHERE product_id = ? AND item_option_id = ?", product.id, option.id)
+      .archived_at,
+    "a full sweep must archive it",
+  );
 });
 
 /* ─────────────────────────────────────────────────────────────────────────

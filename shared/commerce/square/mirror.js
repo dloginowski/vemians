@@ -164,6 +164,7 @@ export function createMirror(mirror, { commerce, locationId, audit = null, now =
         categoriesUpserted: 0,
         itemOptionsUpserted: 0,
         itemOptionValuesUpserted: 0,
+        productItemOptionsUpserted: 0,
         productsInserted: 0,
         productsUpdated: 0,
         variantsInserted: 0,
@@ -243,8 +244,19 @@ export function createMirror(mirror, { commerce, locationId, audit = null, now =
         }
       }
 
+      /* Built once, not per-product: every item_option a product might
+         declare was already upserted by the block just above, in THIS
+         same sync call (item options carry no ordering hazard relative to
+         products the way category parents do), so one query up front
+         beats one query per product per declared option set. */
+      const itemOptionIdByRef = new Map();
+      for (const row of await all("SELECT id, external_ref FROM mirror_item_option_index")) {
+        itemOptionIdByRef.set(row.external_ref, row.id);
+      }
+
       const seenProducts = new Set();
       const seenVariants = new Set();
+      const seenProductItemOptions = new Set();
 
       for (const p of products) {
         seenProducts.add(p.externalRef);
@@ -399,6 +411,33 @@ export function createMirror(mirror, { commerce, locationId, audit = null, now =
           );
           counts.imagesUpserted += 1;
         }
+
+        /* Which Option Sets this ITEM itself declares — a real Square
+           fact (item_data.item_options), so it is mirrored the same way
+           variations/media just above are: whatever Square says NOW is
+           upserted active; an item_option this product no longer
+           declares is caught by the full-sweep archive pass below, the
+           same latency variations already accept on an incremental
+           sync (mirror.js's own comment on seenVariants has the full
+           reasoning). An unresolvable ref (an item_option this shop's
+           own item_option sync has not seen yet) is skipped, not
+           guessed at — the next item_option sync catches it up, same as
+           an unresolved vendor_id above. */
+        for (const ref of p.itemOptionExternalRefs ?? []) {
+          const itemOptionId = itemOptionIdByRef.get(ref);
+          if (!itemOptionId) continue;
+          seenProductItemOptions.add(`${productId}:${itemOptionId}`);
+          const poArchived = p.withdrawn ? stamp : null;
+          await run(
+            `INSERT INTO mirror_product_item_option (product_id, item_option_id, archived_at, synced_at)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT(product_id, item_option_id) DO UPDATE SET
+               archived_at = excluded.archived_at,
+               synced_at = excluded.synced_at`,
+            productId, itemOptionId, poArchived, stamp,
+          );
+          counts.productItemOptionsUpserted += 1;
+        }
       }
 
       /*
@@ -426,6 +465,17 @@ export function createMirror(mirror, { commerce, locationId, audit = null, now =
           await run(
             "UPDATE mirror_variant SET archived_at = ?, synced_at = ? WHERE id = ?",
             stamp, stamp, row.id,
+          );
+        }
+        /* An item_option a product no longer declares: same rule again, one
+           more level down — only a full sweep (which reports every option
+           set an item CURRENTLY declares) can tell "removed" from "just not
+           in this incremental page". */
+        for (const row of await all("SELECT product_id, item_option_id FROM mirror_product_item_option_index")) {
+          if (seenProductItemOptions.has(`${row.product_id}:${row.item_option_id}`)) continue;
+          await run(
+            "UPDATE mirror_product_item_option SET archived_at = ?, synced_at = ? WHERE product_id = ? AND item_option_id = ?",
+            stamp, stamp, row.product_id, row.item_option_id,
           );
         }
       }

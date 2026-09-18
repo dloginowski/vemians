@@ -5864,6 +5864,55 @@ that does not trace to one of these is a process failure (see §12).
     inherited list writes nothing on its own — only an actual Save turns "inherited" into "explicit,"
     matching every other checkbox on this page.
 
+78. **`Test-PRD-P0-143-product_item_options_mirrored`** — Which Option Sets an ITEM ITSELF declares
+    (Square's own `item_data.item_options`, an array of `{item_option_id}` pairs) — a real Square fact,
+    separate from `mirror_variant.options` (a VARIATION's own resolved name→value display blob,
+    `optionsFor()`'s job) and from `mirror_category_item_option` (which option sets a CATEGORY offers,
+    ours alone, P0-142's own entry). `catalog.js`'s own `normaliseCatalog` now extracts a product's own
+    `itemOptionExternalRefs` alongside everything else it already reads off an ITEM.
+    `mirror_product_item_option` (new table, `0010_product_item_options.sql`) mirrors it the same way
+    `mirror_variant`/`mirror_image` already are: replaced wholesale on every sync of that item, one row
+    per item/option-set pair, `archived_at` set (never deleted, the same archive-only trigger every
+    Square-sourced table already carries) the moment an item stops declaring one. Removal is only ever
+    caught by a FULL sweep, never an incremental one — the identical latency `mirror.js`'s own
+    `seenVariants` comment already documents and accepts for a removed variation, extended here for the
+    identical reason: an incremental payload for one item cannot by itself prove an item_option is gone
+    versus simply "not touched in this page."
+
+79. **`Test-PRD-P0-144-apply_category_item_options`** — The owner's own request, immediately following
+    P0-142's own inheritance entry: "when I apply the groups to a category, it means that you're going
+    to apply these option sets to every product that is part of the category... because right now, you
+    have to apply these options manually per item." Clarified in the same breath: "remove variants from
+    item panel — variants will be defined and configured in Square. However, I want you to mass apply
+    the options to all of the items that are part of the category." Deliberately a SEPARATE, explicit
+    action rather than an automatic cascade fired on every `catalog.set_category_item_options` save —
+    saving a category's own option sets stays purely ours, no Square call at all; a brand new T2 tool,
+    `catalog.apply_category_item_options_to_products`, is the one that actually reaches every product.
+    It resolves the category's own CURRENT EFFECTIVE set (`effectiveCategoryItemOptionIds`, inherited or
+    explicit alike — never a caller-supplied list, so this always means exactly "make every product
+    match what Sets already shows"), then loops every product currently filed in that category and
+    calls `catalog-writer.js`'s own `updateProduct` for each — the same "resend the whole thing, only
+    THIS field actually changes" call `catalog.set_category_number`'s own retroactive resort already
+    makes in bulk, one real Square write per product, errors collected per-handle rather than aborting
+    the batch.
+
+    Item-level ONLY (`item_data.item_options`): no variation is ever created, changed, or removed by
+    this tool — "variants will be defined and configured in Square" stays true; this only tells Square
+    which option sets an item MAY build a variation from. `itemData()` (`catalog-writer.js`) gained its
+    own `item_options` field to make this possible at all, following the exact "resend or it vanishes"
+    rule every other field there already follows (`updateProduct`'s own `currentItemOptionExternalRefs`
+    resends what is already mirrored whenever a call is not actually about this field, the identical
+    reasoning `categoryId`/`description`/`vendor` already established) — a real bug class this codebase
+    has hit before, now closed off for a fifth field before it could ever ship broken for a first. The
+    idempotency key gained the same field too, for the identical reason `commissionPct`/`vendorInfos`
+    already had to join it.
+
+    The Admin panel's own Sets menu gets one more control, an "Apply to items" button living inside the
+    same floating menu as the checkbox list — an immediate, one-shot action (`.admin-category-apply-btn`,
+    the same click-and-`fetch`-directly treatment `.admin-remove-btn` already gets elsewhere on this
+    page) rather than a field folded into the batched Save-all, since it fires a real bulk Square write
+    the moment it is clicked, not a mirror-only edit waiting to be reviewed and saved.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -6155,6 +6204,8 @@ Where each feature is enforced today:
 | P0-138 | `shared/commerce/square/test/square.test.mjs`, `ops/test/catalog-write.test.mjs`, `ops/test/items-route.test.mjs` |
 | P0-141 | `shared/commerce/square/test/square.test.mjs`, `ops/test/catalog-write.test.mjs` |
 | P0-142 | `ops/test/catalog-write.test.mjs`, `ops/test/items-route.test.mjs` |
+| P0-143 | `shared/commerce/square/test/square.test.mjs` |
+| P0-144 | `ops/test/catalog-write.test.mjs`, `ops/test/items-route.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
