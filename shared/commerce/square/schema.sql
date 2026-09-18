@@ -138,8 +138,10 @@ FROM mirror_item_option WHERE archived_at IS NULL;
 
 -- A value's own ordinal is Square's own sort order within its option set
 -- (e.g. Small/Medium/Large, not alphabetical) — read straight off
--- CatalogItemOptionValue.ordinal, OURS to reorder never (there is no write
--- path for item options at all yet, read-only mirror for now).
+-- CatalogItemOptionValue.ordinal, OURS to reorder never. catalog-writer.js's
+-- own ensureItemOptionValue() can APPEND a new value (or a whole new option)
+-- when a CSV/agent product names a Size/Color this shop has not used
+-- before; there is still no path here to reorder or rename an existing one.
 CREATE TABLE mirror_item_option_value (
   id              TEXT PRIMARY KEY,              -- ours
   external_ref    TEXT NOT NULL UNIQUE,          -- Square ITEM_OPTION_VAL id

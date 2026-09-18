@@ -5925,6 +5925,36 @@ that does not trace to one of these is a process failure (see §12).
     page) rather than a field folded into the batched Save-all, since it fires a real bulk Square write
     the moment it is clicked, not a mirror-only edit waiting to be reviewed and saved.
 
+80. **`Test-PRD-P0-146-dynamic_option_values`** — The owner's own words: "if we are adding a set of
+    items and we specify its size or color, and this size or color is not already defined in our
+    option, add this size or color to the option list and update it so that this item can still be
+    added as a SKU," restated a second time for the CSV path specifically: "when I use agent input to
+    ingest a CSV of items, if the items specify size or color that is not currently a part of our
+    options, I want it to automatically create the option or size dynamically and set those settings
+    per item." `catalog.create_product`'s own `variations[].option_values` (field name -> value name,
+    e.g. `{"Size": "XL"}`) is resolved by a new `ensureItemOptionValue()` (`catalog-writer.js`) that
+    mints whichever half is missing rather than refusing: an Option Set this shop has never used at all
+    (`"Material"`, say) is created outright, with this value as its own first entry; an Option Set
+    that already exists but lacks this particular value gets that value APPENDED — Square's own
+    `UpsertCatalogObject` is a full replace, so the option's own CURRENT values are read live and
+    resent whole, the same "resend the whole thing" rule every other field in this file already
+    follows, never just the one new value alone. A value already on file needs no Square write at
+    all. Matching is case-insensitive on both the option's own name and the value's, the same
+    tolerance `matchCategory` already gives a spreadsheet that was not typed to a spec. The resolved
+    refs feed two places at once: the ITEM's own `item_data.item_options` (which Option Sets this item
+    declares — Square requires this before a variation's own selection means anything) and that
+    variation's own `item_variation_data.item_option_values` (which value, specifically, this
+    variation IS) — both derived automatically from what the variations actually name, never asked
+    for separately. `ops/src/batch.js` recognizes `Size`/`Color` CSV columns (`OPTION_KEYS`) and folds
+    whichever are filled in into the row's own single variation's `option_values`, reaching Square
+    through the exact same `catalog.create_product` call every other row already does — no second
+    write path. Deliberately narrow: only at product CREATION (`catalog.update_product`'s own
+    variation shape does not accept `option_values` at all — editing an EXISTING product's variations
+    to add a new option value is a materially different, larger change the owner never actually
+    asked for), and only the two Option Sets actually named in the CSV/agent input (`Size`, `Color`) —
+    a real third one still falls through to `custom_fields`, unrecognized, exactly as any other column
+    already does, rather than this codebase inventing further Option Sets nobody asked for.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -6219,6 +6249,7 @@ Where each feature is enforced today:
 | P0-143 | `shared/commerce/square/test/square.test.mjs` |
 | P0-144 | `ops/test/catalog-write.test.mjs`, `ops/test/items-route.test.mjs` |
 | P0-145 | `ops/test/catalog-write.test.mjs` |
+| P0-146 | `ops/test/catalog-write.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |

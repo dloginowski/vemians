@@ -241,10 +241,19 @@ function fakeSquare(seed = SEED, { vendors = [], failSearch = false, failUpsert 
         }
         o.version = Number(o.version ?? 0) + 1;
       };
-      assign(obj, obj.type === "CATEGORY" ? "CAT" : "ITEM");
+      assign(obj, obj.type === "CATEGORY" ? "CAT" : obj.type === "ITEM_OPTION" ? "OPT" : "ITEM");
       for (const v of obj.item_data?.variations ?? []) {
         assign(v, "VAR");
         v.item_variation_data.item_id = obj.id;
+      }
+      /* A brand-new ITEM_OPTION's own values arrive the same way a brand-new
+         ITEM's own variations do — nested, with their own #temp ids that
+         need resolving and their own parent FK (item_option_id) fixed up
+         to the now-real parent id, whether the parent itself was also
+         brand new this call or already existed. */
+      for (const v of obj.item_option_data?.values ?? []) {
+        assign(v, "OPTVAL");
+        v.item_option_value_data.item_option_id = obj.id;
       }
       /* An upsert does not drop images Square already holds for the item. */
       const prev = objects.get(obj.id);
@@ -4539,7 +4548,7 @@ check("test_PRD_P0_89_batch_preview_confirm__previews_the_first_rows_and_heading
      sample row now (PREVIEW_SAMPLE_ROWS, batch.js) — "just... one, two
      rows, one for the headings and one row of data" — even though the
      sheet itself has two. */
-  assert.deepEqual(outcome.table.columns, ["title", "category", "price", "currency", "description", "sku", "style_id", "vendor", "vendor_code", "commission"]);
+  assert.deepEqual(outcome.table.columns, ["title", "category", "price", "currency", "description", "sku", "style_id", "vendor", "vendor_code", "commission", "size", "color"]);
   assert.equal(outcome.table.rows.length, 1, "only the first row is sampled");
   const titleCol = outcome.table.columns.indexOf("title");
   assert.equal(outcome.table.rows[0][titleCol], "Wool Coat");
@@ -4666,4 +4675,146 @@ check("test_PRD_P0_89_batch_preview_confirm__the_no_text_table_note_bans_every_s
   assert.match(NO_TEXT_TABLE_NOTE, /rendered for the person automatically/i, "must say a table is already shown");
   assert.match(NO_TEXT_TABLE_NOTE, /markdown table/i, "must still name a markdown table");
   assert.match(NO_TEXT_TABLE_NOTE, /bulleted or arrow-style field-by-field mapping/i, "must also ban the bulleted/arrow-mapping loophole the model actually used");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-146 — a missing Size/Color is minted, not refused: "if we are adding
+ * a set of items and we specify its size or color, and this size or color
+ * is not already defined in our option, add this size or color to the
+ * option list and update it so that this item can still be added as a
+ * SKU" — the owner's own words, for catalog.create_product's own
+ * `variations[].option_values` directly and for the CSV batch path
+ * (ops/src/batch.js) that builds it from a Size/Color column.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_146_dynamic_option_values__a_brand_new_option_set_is_minted_from_scratch", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+
+  const res = await approvedCall(f, "catalog.create_product", {
+    title: "Cotton Scarf",
+    category_id: outerwear.id,
+    variations: [{ title: "Cotton Scarf", price_minor: 4500, currency: "USD", option_values: { Material: "Cotton" } }],
+  });
+  assert.equal(res.ok, true, res.error);
+
+  const optionObj = [...f.square.objects.values()].find((o) => o.type === "ITEM_OPTION" && o.item_option_data?.name === "Material");
+  assert.ok(optionObj, "a new ITEM_OPTION must actually be created in Square");
+  assert.equal(optionObj.item_option_data.values.length, 1);
+  assert.equal(optionObj.item_option_data.values[0].item_option_value_data.name, "Cotton");
+
+  const itemWrite = f.calls().find((c) => c.upsert === "ITEM" && c.body.object.item_data.name === "Cotton Scarf");
+  assert.deepEqual(itemWrite.body.object.item_data.item_options, [{ item_option_id: optionObj.id }]);
+  assert.deepEqual(itemWrite.body.object.item_data.variations[0].item_variation_data.item_option_values, [
+    { item_option_id: optionObj.id, item_option_value_id: optionObj.item_option_data.values[0].id },
+  ]);
+
+  const optRow = f.mirror("SELECT id FROM mirror_item_option WHERE name = 'Material'")[0];
+  assert.ok(optRow, "the new option must land in the mirror after sync");
+  const valRow = f.mirror("SELECT name FROM mirror_item_option_value WHERE item_option_id = ? AND name = 'Cotton'", optRow.id)[0];
+  assert.ok(valRow, "the new value must land in the mirror after sync");
+});
+
+check("test_PRD_P0_146_dynamic_option_values__a_new_value_is_appended_to_an_existing_option", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  f.square.objects.set("SQ_OPT_SIZE", {
+    id: "SQ_OPT_SIZE",
+    type: "ITEM_OPTION",
+    version: 3,
+    item_option_data: {
+      name: "Size",
+      values: [{ type: "ITEM_OPTION_VAL", id: "SQ_OPTVAL_S", item_option_value_data: { item_option_id: "SQ_OPT_SIZE", name: "S" } }],
+    },
+  });
+  f.mirrorDb._raw.prepare("INSERT INTO mirror_item_option (id, external_ref, name) VALUES ('opt-size','SQ_OPT_SIZE','Size')").run();
+  f.mirrorDb._raw
+    .prepare("INSERT INTO mirror_item_option_value (id, external_ref, item_option_id, name, ordinal) VALUES ('optval-s','SQ_OPTVAL_S','opt-size','S',0)")
+    .run();
+
+  const res = await approvedCall(f, "catalog.create_product", {
+    title: "Wool Sweater",
+    category_id: outerwear.id,
+    variations: [{ title: "Wool Sweater", price_minor: 8000, currency: "USD", option_values: { Size: "XL" } }],
+  });
+  assert.equal(res.ok, true, res.error);
+
+  const optionWrite = f.calls().find((c) => c.upsert === "ITEM_OPTION" && c.body.object.id === "SQ_OPT_SIZE");
+  assert.ok(optionWrite, "the EXISTING option object must be resent whole, with the new value appended");
+  assert.deepEqual(
+    optionWrite.body.object.item_option_data.values.map((v) => v.item_option_value_data.name),
+    ["S", "XL"],
+    "the option's own CURRENT values are resent whole, never replaced by just the new one",
+  );
+
+  const valRow = f.mirror("SELECT name FROM mirror_item_option_value WHERE item_option_id = 'opt-size' AND name = 'XL'")[0];
+  assert.ok(valRow, "the new value must land in the mirror after sync");
+  const sRow = f.mirror("SELECT archived_at FROM mirror_item_option_value WHERE item_option_id = 'opt-size' AND name = 'S'")[0];
+  assert.equal(sRow.archived_at, null, "the EXISTING value must survive the append, never archived by it");
+});
+
+check("test_PRD_P0_146_dynamic_option_values__an_existing_value_is_reused_case_insensitively_with_no_extra_write", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  f.square.objects.set("SQ_OPT_SIZE", {
+    id: "SQ_OPT_SIZE",
+    type: "ITEM_OPTION",
+    version: 3,
+    item_option_data: {
+      name: "Size",
+      values: [{ type: "ITEM_OPTION_VAL", id: "SQ_OPTVAL_S", item_option_value_data: { item_option_id: "SQ_OPT_SIZE", name: "S" } }],
+    },
+  });
+  f.mirrorDb._raw.prepare("INSERT INTO mirror_item_option (id, external_ref, name) VALUES ('opt-size','SQ_OPT_SIZE','Size')").run();
+  f.mirrorDb._raw
+    .prepare("INSERT INTO mirror_item_option_value (id, external_ref, item_option_id, name, ordinal) VALUES ('optval-s','SQ_OPTVAL_S','opt-size','S',0)")
+    .run();
+
+  /* Different case on both halves — "size"/"s" — than what is on file
+     ("Size"/"S"), the same tolerance matchCategory already gives a
+     spreadsheet that was not typed to a spec. */
+  const res = await approvedCall(f, "catalog.create_product", {
+    title: "Wool Sweater",
+    category_id: outerwear.id,
+    variations: [{ title: "Wool Sweater", price_minor: 8000, currency: "USD", option_values: { size: "s" } }],
+  });
+  assert.equal(res.ok, true, res.error);
+
+  const optionWrites = f.calls().filter((c) => c.upsert === "ITEM_OPTION");
+  assert.equal(optionWrites.length, 0, "an already-known value needs no Square write of its own");
+
+  const itemWrite = f.calls().find((c) => c.upsert === "ITEM");
+  assert.deepEqual(itemWrite.body.object.item_data.item_options, [{ item_option_id: "SQ_OPT_SIZE" }]);
+  assert.deepEqual(itemWrite.body.object.item_data.variations[0].item_variation_data.item_option_values, [
+    { item_option_id: "SQ_OPT_SIZE", item_option_value_id: "SQ_OPTVAL_S" },
+  ]);
+});
+
+check("test_PRD_P0_146_dynamic_option_values__a_csv_size_or_color_column_reaches_create_product", async () => {
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const csv =
+    "title,category,price,style id,cost,size,color\n" +
+    `Wool Coat,${outerwear.name},450.00,01-04-001,210.00,XL,Red\n`;
+
+  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.ready.length, 1);
+
+  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let approved;
+  try {
+    approved = await approvePending(f.env, result.ready[0].url.split("/").pop(), approver);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(approved.ok, true, approved.error);
+
+  const optionWrites = f.calls().filter((c) => c.upsert === "ITEM_OPTION");
+  assert.equal(optionWrites.length, 2, "both Size and Color are brand new options this shop has never used");
+  const itemWrite = f.calls().find((c) => c.upsert === "ITEM" && c.body.object.item_data.name === "Wool Coat");
+  assert.equal(itemWrite.body.object.item_data.item_options.length, 2);
+  assert.equal(itemWrite.body.object.item_data.variations[0].item_variation_data.item_option_values.length, 2);
 });

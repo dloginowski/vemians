@@ -422,6 +422,31 @@ const VARIATION_WITH_ID = {
   },
 };
 
+/* Only at creation, for now — "when I use agent input to ingest a CSV of
+   items, if the items specify size or color that is not currently a part
+   of our options, I want it to automatically create the option or size
+   dynamically and set those settings per item," the owner's own words.
+   field name -> value name (e.g. {"Size": "XL", "Color": "Red"}); an
+   Option Set or a value this shop has never used before is minted on the
+   spot rather than refused (catalog-writer.js's own ensureItemOptionValue
+   has the full write). Not on VARIATION_WITH_ID: an edit to an EXISTING
+   product's variations is a materially different, larger change (which
+   variation gets which value when some are kept and some are new) the
+   owner never actually asked for — catalog.update_product still refuses
+   this field outright rather than silently accepting and ignoring it. */
+const VARIATION_WITH_OPTIONS = {
+  type: "object",
+  schema: {
+    ...VARIATION.schema,
+    option_values: {
+      type: "record",
+      maxKeys: CAPS.CATALOG_MAX_OPTION_VALUES_PER_VARIATION,
+      keyMaxLength: CAPS.CATALOG_OPTION_NAME_MAX,
+      valueMaxLength: CAPS.CATALOG_OPTION_VALUE_MAX,
+    },
+  },
+};
+
 const IMAGES = {
   type: "array",
   maxItems: CAPS.CATALOG_MAX_IMAGES,
@@ -753,13 +778,18 @@ export const catalogWriteTools = {
       "commission only for that vendor's OWN FIRST row (or omit it entirely and let this tool refuse, " +
       "naming exactly which vendor still needs one) — do not ask a person to repeat a vendor's own " +
       "commission on every row, it is privileged information and this tool already carries it forward " +
-      "once given.",
+      "once given. `variations[].option_values` names which of this item's own Option Set values a " +
+      "variation IS — field name -> value name, e.g. {\"Size\": \"XL\", \"Color\": \"Red\"}. An Option " +
+      "Set (\"Size\") or a value on one (\"XL\") this shop has never used before is minted on the spot " +
+      "rather than refused — never ask a person whether a new size or color may be added, just add it " +
+      "and use it. Every variation naming the same option (\"Size\") should also give it consistently " +
+      "(do not mix option_values on some variations of one item with none on the rest).",
     undo: "withdraw the item in Square; nothing is deleted, and the originals in R2 are untouched",
     schema: {
       title: { type: "string", required: true, maxLength: CAPS.CATALOG_TITLE_MAX },
       description: { type: "string", maxLength: CAPS.CATALOG_DESCRIPTION_MAX },
       category_id: { type: "string", format: "id" },
-      variations: { type: "array", required: true, maxItems: CAPS.CATALOG_MAX_VARIATIONS, of: VARIATION },
+      variations: { type: "array", required: true, maxItems: CAPS.CATALOG_MAX_VARIATIONS, of: VARIATION_WITH_OPTIONS },
       images: IMAGES,
       style_id: { type: "string", maxLength: 20 },
       vendor: { type: "string", maxLength: 120 },
