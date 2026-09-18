@@ -615,10 +615,20 @@ html, body { height: 100%; margin: 0; }
    owner's own words: "I want to see a hamburger menu on the top right."
    position: relative on the wrapper (not the button) so the dropdown
    below anchors to a box that never itself rotates or resizes. */
-.shell-menu { position: relative; flex: 0 0 auto; padding-bottom: 7px; }
+.shell-menu { position: relative; flex: 0 0 auto; }
+/* "Match the bottom padding of the hamburger menu with the rest of the
+   tabs['] text so that it all flows in a horizontal line." The old fixed
+   28x28 box, centered, plus the wrapper's OWN separate 7px padding-bottom,
+   left the icon sitting well above the shared bottom edge .shell-header's
+   own align-items: flex-end lines every tab up on — a button box that
+   tall, centered, puts its own content roughly 12px above that line,
+   while a tab's own text (7px padding, no extra box) sits within a couple
+   px of it. The same 7px vertical padding .shell-nav button already uses,
+   directly on the button itself rather than a fixed height plus a second
+   padding on top of it, puts the icon at the same visual baseline. */
 .shell-menu-btn {
-  display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px;
-  padding: 0; border: none; background: transparent; color: var(--muted); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 7px 5px; border: none; background: transparent; color: var(--muted); cursor: pointer;
 }
 .shell-menu-btn:hover { color: var(--accent); }
 .shell-menu-dropdown {
