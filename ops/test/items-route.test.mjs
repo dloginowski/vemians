@@ -2587,8 +2587,10 @@ check("test_PRD_P0_138_nested_categories__admin_clicking_the_caret_or_the_row_to
   );
   assert.match(
     body,
-    /const row = e\.target\.closest\("\.admin-category-row"\);\s*\n\s*if \(row && !e\.target\.closest\("input, button"\)\) \{\s*\n\s*row\.closest\("\.admin-category-node"\)\?\.classList\.toggle\("expanded"\);/,
-    "clicking anywhere on the row (not just the caret) must also toggle it",
+    /const row = e\.target\.closest\("\.admin-category-row"\);[\s\S]*?if \(row && !e\.target\.closest\("input, button, \.admin-category-options"\)\) \{\s*\n\s*row\.closest\("\.admin-category-node"\)\?\.classList\.toggle\("expanded"\);/,
+    "clicking anywhere on the row (not just the caret) must also toggle it, but a click inside the Sets " +
+      "control (a checkbox's own <label>, not just the <input> itself) must not -- \"every time I toggle " +
+      "a set on and off, it expands and collapses the header,\" the owner's own words",
   );
 });
 

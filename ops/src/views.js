@@ -4294,7 +4294,15 @@ document.body.addEventListener("click", (e) => {
     return;
   }
   const row = e.target.closest(".admin-category-row");
-  if (row && !e.target.closest("input, button")) {
+  /* "Every time I toggle a set on and off, it expands and collapses the
+     header" — the owner's own words. Each checkbox is wrapped in its own
+     <label> (so clicking the option's NAME toggles it too, not just the
+     tiny box) — a click there lands on the label, not the <input> itself,
+     so "input, button" alone let it fall through and toggle the row.
+     .admin-category-options covers the whole Sets control (button AND
+     its open menu), the same exclusion the outside-click-to-close
+     listener below already uses for the identical reason. */
+  if (row && !e.target.closest("input, button, .admin-category-options")) {
     row.closest(".admin-category-node")?.classList.toggle("expanded");
     return;
   }
