@@ -326,7 +326,7 @@ export async function listAllProducts(db, { limit } = {}) {
 
   const variants = await db
     .prepare(
-      "SELECT id, product_id, sku, title, ordinal, price_minor, currency, vendor_id, vendor_code, unit_cost_minor, unit_cost_currency" +
+      "SELECT id, product_id, sku, title, ordinal, price_minor, currency, options, vendor_id, vendor_code, unit_cost_minor, unit_cost_currency" +
         " FROM mirror_variant_index ORDER BY product_id, ordinal",
     )
     .bind()
@@ -334,7 +334,17 @@ export async function listAllProducts(db, { limit } = {}) {
   const byProduct = new Map();
   for (const v of variants.results ?? []) {
     if (!byProduct.has(v.product_id)) byProduct.set(v.product_id, []);
-    byProduct.get(v.product_id).push(v);
+    /* options is Square's own resolved name -> value blob (P0-143's own
+       comment on mirror_variant.options has the full reasoning) — parsed
+       here, once, rather than left as a JSON string for the Items tab's
+       own Variants grid (views.js) to re-parse per render. */
+    let options = {};
+    try {
+      options = JSON.parse(v.options || "{}");
+    } catch {
+      options = {};
+    }
+    byProduct.get(v.product_id).push({ ...v, options });
   }
 
   /* vendor NAMEs, batched the same way images/categories already are —

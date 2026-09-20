@@ -513,6 +513,13 @@ async function ops(request, env, path) {
        product happens to have a value for it yet. */
     const customFieldNames = await listCustomFieldNames(env.CATALOG_MIRROR);
 
+    /* Every Option Set's own values, in Square's own ordinal order — the
+       Variants grid (views.js's own variantsGrid) uses this to order a
+       product's own Size/Color rows and columns the way Square shows
+       them (S/M/L/XL, not alphabetical), the same ordinal source
+       catalog.item_options already reads (P0-141). */
+    const allItemOptions = await listItemOptions(env.CATALOG_MIRROR);
+
     /* Stock, batched the same way vendor names and images already are —
        one read of the whole (small) inventory_level view rather than one
        query per variation. A deployment with no COMMERCE binding, or a
@@ -533,7 +540,7 @@ async function ops(request, env, path) {
       variations: p.variations.map((v) => ({ ...v, on_hand: v.sku ? (stockBySku.get(v.sku) ?? 0) : null })),
     }));
 
-    return html(itemsPage({ role }, products, allCategories, allVendors, customFieldNames));
+    return html(itemsPage({ role }, products, allCategories, allVendors, customFieldNames, allItemOptions));
   }
 
   /*

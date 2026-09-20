@@ -5955,6 +5955,27 @@ that does not trace to one of these is a process failure (see §12).
     a real third one still falls through to `custom_fields`, unrecognized, exactly as any other column
     already does, rather than this codebase inventing further Option Sets nobody asked for.
 
+81. **`Test-PRD-P0-147-variants_grid`** — The owner's own words: "I want to see those properties also
+    listed in the variants dropdown for each item... a whole grid of available size and color
+    variations so that I can set their quantities directly out of that variants dropdown." An item
+    whose own variations use EXACTLY two Option Set names (Size/Color, or any other pair) now renders
+    the Items tab's own Variations accordion as a real row/column grid (`variantsGridAxes`/
+    `variantsGridHtml`, `views.js`) instead of the flat list; zero, one, or three-or-more dimensions
+    keeps that flat list, which already reads fine on its own in those cases. Rows and columns are
+    ordered the same way `listItemOptions` already orders every other reader of Option Sets
+    (alphabetically by the option's own name, deciding which dimension is rows vs. columns), and each
+    axis's own values are ordered by Square's own ordinal (S/M/L, never alphabetical L/M/S) —
+    `mirror_variant.options`, already mirrored (P0-143) but previously read by nothing in `ops/`, is
+    now read by `listAllProducts`'s own variant query and parsed once. Two decisions asked of the
+    owner directly rather than guessed: EXISTING SKUS ONLY — a Size/Color pairing with no real Square
+    variation is a blank cell (`variants-grid-empty`), never a cell that would create one on the spot
+    (this stays consistent with the earlier "variations are configured in Square, never here"
+    decision); and EVERY EXISTING VARIATION REGARDLESS OF STOCK — a sold-out combination still gets
+    its own row/column so it can be restocked from the grid, rather than disappearing at zero. Each
+    populated cell reuses the exact same stock stepper (`stockStepper`, factored out of the flat
+    list) the Variants panel has always had (P0-31) — no new write path, no new endpoint; only the
+    layout is new.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -6250,6 +6271,7 @@ Where each feature is enforced today:
 | P0-144 | `ops/test/catalog-write.test.mjs`, `ops/test/items-route.test.mjs` |
 | P0-145 | `ops/test/catalog-write.test.mjs` |
 | P0-146 | `ops/test/catalog-write.test.mjs` |
+| P0-147 | `ops/test/items-route.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
