@@ -2135,6 +2135,20 @@ ${INPUT_BAR_CSS}
   flex: 0 0 auto; width: 20px; height: 20px; padding: 0; line-height: 1; font: inherit; font-size: 13px;
   border: none; border-radius: 0; background: var(--ground); color: var(--muted); cursor: pointer;
 }
+/* "A whole grid of available size and color variations so that I can set
+   their quantities directly out of that variants dropdown" — the owner's
+   own words. One row per row-axis value (Size, say), one column per
+   column-axis value (Color) — variantsGridAxes/variantsGridHtml,
+   views.js. A blank cell (variants-grid-empty) is a real combination
+   this item has no Square variation for at all — "existing SKUs only,"
+   the owner's own choice — never a stepper with nothing behind it. */
+.variants-grid { border-collapse: collapse; font-size: 11px; margin-top: 2px; }
+.variants-grid th, .variants-grid td { padding: 2px 4px; }
+.variants-grid thead th { color: var(--muted); font-weight: normal; text-align: center; }
+.variants-grid tbody th { color: var(--muted); font-weight: normal; text-align: left; white-space: nowrap; padding-right: 8px; }
+.variants-grid .row { padding: 0; }
+.variants-grid-empty { color: var(--muted); text-align: center; }
+.variants-grid-empty::before { content: "—"; }
 .variation-stock-step:hover { background: var(--image-ground); }
 .variation-stock-step:disabled { opacity: 0.5; cursor: default; }
 /* "Any changed fields should be marked with an orange highlight" — added
@@ -2477,7 +2491,84 @@ function renderVendorPickerOptions(vendors, selectedName) {
     .join("");
 }
 
-function itemTile(product, canEdit, allCategories = [], allVendors = [], customFieldNames = []) {
+/* A small read-only field and two +/- buttons — one stock stepper, shared
+   between the flat variation list and each populated cell of the
+   Variants grid below. `.row` is the class stepStock() itself walks up
+   to (button.closest(".row")) to find its own count field and sibling
+   buttons — reused here verbatim rather than taught a second selector,
+   so a stepper works identically wherever it is placed. */
+function stockStepper(v) {
+  return (
+    `<span class="variation-stock-stepper">` +
+    `<button type="button" class="variation-stock-step" data-variant-id="${esc(v.id)}" data-delta="-1" aria-label="Remove one from stock" title="Remove one from stock">&minus;</button>` +
+    `<input type="text" class="variation-stock-count" value="${esc(String(v.on_hand ?? 0))}" readonly aria-label="Current stock">` +
+    `<button type="button" class="variation-stock-step" data-variant-id="${esc(v.id)}" data-delta="1" aria-label="Add one to stock" title="Add one to stock">+</button>` +
+    `</span>`
+  );
+}
+
+/*
+ * "I want to see those properties also listed in the variants dropdown
+ * for each item... a whole grid of available size and color variations
+ * so that I can set their quantities directly out of that variants
+ * dropdown" — the owner's own words. A grid means exactly two axes; a
+ * product using zero, one, or three-or-more Option Set names across its
+ * own variations falls back to the flat list below instead, which
+ * already handles those cases fine on its own.
+ *
+ * EXISTING SKUS ONLY (the owner's own choice, asked directly): the row
+ * and column values are only ever the ones this item's own variations
+ * actually use, never every value the shop has ever defined for that
+ * Option Set — a Size/Color pairing with no real Square variation is a
+ * blank cell (variantsGridHtml, below), never one manufactured here.
+ * ALL EXISTING VARIATIONS REGARDLESS OF STOCK (also asked directly): a
+ * sold-out combination still gets its own row/column so it can be
+ * restocked from the grid, never hidden for reading 0.
+ */
+function variantsGridAxes(variations, itemOptions) {
+  const namesUsed = [...new Set(variations.flatMap((v) => Object.keys(v.options ?? {})))];
+  if (namesUsed.length !== 2) return null;
+  /* Ordered the way the shop's own Option Sets are (allItemOptions,
+     catalog.item_options' own alphabetical-by-name order), not however
+     namesUsed happened to collect them — the same pair of dimensions
+     reads in the same row/column order on every item, not in a
+     different order per item depending on which variation happened to
+     sync first. */
+  const known = itemOptions.map((o) => o.name).filter((n) => namesUsed.includes(n));
+  const [rowsName, colsName] = known.length === 2 ? known : namesUsed;
+  const axisValues = (name) => {
+    const used = new Set(variations.map((v) => v.options?.[name]).filter(Boolean));
+    const ordered = (itemOptions.find((o) => o.name === name)?.values ?? [])
+      .map((v) => v.name)
+      .filter((n) => used.has(n));
+    const extra = [...used].filter((n) => !ordered.includes(n));
+    return [...ordered, ...extra];
+  };
+  return { rowsName, colsName, rowValues: axisValues(rowsName), colValues: axisValues(colsName) };
+}
+
+function variantsGridHtml(variations, axes) {
+  const { rowsName, colsName, rowValues, colValues } = axes;
+  const byKey = new Map(variations.filter((v) => v.options?.[rowsName] && v.options?.[colsName]).map((v) => [`${v.options[rowsName]}\u0000${v.options[colsName]}`, v]));
+  return `<table class="variants-grid">
+    <thead><tr><th class="variants-grid-corner"></th>${colValues.map((c) => `<th>${esc(c)}</th>`).join("")}</tr></thead>
+    <tbody>
+      ${rowValues
+        .map((r) => {
+          const cells = colValues
+            .map((c) => {
+              const v = byKey.get(`${r}\u0000${c}`);
+              return v ? `<td><span class="row">${stockStepper(v)}</span></td>` : `<td class="variants-grid-empty"></td>`;
+            })
+            .join("");
+          return `<tr><th>${esc(r)}</th>${cells}</tr>`;
+        })
+        .join("")}
+    </tbody>
+  </table>`;
+}
+
+function itemTile(product, canEdit, allCategories = [], allVendors = [], customFieldNames = [], allItemOptions = []) {
   const fieldEntries = Object.entries(product.custom_fields ?? {});
   const searchText = [
     product.title,
@@ -2611,18 +2702,19 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
      posts its own immediate /inventory delta (stepStock, below) the
      moment it's clicked, exactly as it always has. */
   const variationRows = product.variations
-    .map(
-      (v) =>
-        `<div class="row">` +
-        `<span class="variation-title-label">${esc(v.title)}</span>` +
-        `<span class="variation-stock-stepper">` +
-        `<button type="button" class="variation-stock-step" data-variant-id="${esc(v.id)}" data-delta="-1" aria-label="Remove one from stock" title="Remove one from stock">&minus;</button>` +
-        `<input type="text" class="variation-stock-count" value="${esc(String(v.on_hand ?? 0))}" readonly aria-label="Current stock">` +
-        `<button type="button" class="variation-stock-step" data-variant-id="${esc(v.id)}" data-delta="1" aria-label="Add one to stock" title="Add one to stock">+</button>` +
-        `</span>` +
-        `</div>`,
-    )
+    .map((v) => `<div class="row"><span class="variation-title-label">${esc(v.title)}</span>${stockStepper(v)}</div>`)
     .join("");
+  /* "A whole grid of available size and color variations" — a product
+     whose variations use exactly two Option Set names (Size, Color, or
+     any other pair) gets the real grid; anything else (no options at
+     all, one dimension, or three-plus) keeps the flat list above, which
+     already reads fine on its own in those cases. */
+  const gridAxes = variantsGridAxes(product.variations, allItemOptions);
+  const variationsBody = gridAxes
+    ? variantsGridHtml(product.variations, gridAxes)
+    : product.variations.length
+      ? variationRows
+      : `<p class="item-empty">No variations.</p>`;
   const variationsAccordion = canEdit
     ? `<div class="variations-accordion">
          <div class="variations-header">
@@ -2631,7 +2723,7 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
            <span class="variations-header-spacer"></span>
          </div>
          <div class="variations-body">
-           ${product.variations.length ? variationRows : `<p class="item-empty">No variations.</p>`}
+           ${variationsBody}
          </div>
        </div>`
     : `<div class="item-variants">${variantRows}</div>`;
@@ -2840,10 +2932,10 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
   </article>`;
 }
 
-export function itemsPage({ role }, products, allCategories = [], allVendors = [], customFieldNames = []) {
+export function itemsPage({ role }, products, allCategories = [], allVendors = [], customFieldNames = [], allItemOptions = []) {
   const canEdit = role === "manager" || role === "owner";
   const tiles = products.length
-    ? products.map((p) => itemTile(p, canEdit, allCategories, allVendors, customFieldNames)).join("\n")
+    ? products.map((p) => itemTile(p, canEdit, allCategories, allVendors, customFieldNames, allItemOptions)).join("\n")
     : `<p class="hint">No products in the mirror yet.</p>`;
 
 

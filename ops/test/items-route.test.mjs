@@ -123,6 +123,41 @@ function seedProduct(mirror, overrides = {}) {
     );
 }
 
+/* A product with exactly two Option Set dimensions (Size, Color) — the
+   Variants grid's own real case (Test-PRD-P0-147-variants_grid). Ordinals
+   are deliberately NOT sorted alphabetically (S/M/L, Red/Blue) — a real
+   test that the grid orders rows/columns by Square's own ordinal, not by
+   name. S/Blue, M/Red and L/Blue are deliberately left with no variation
+   at all, to prove those cells render blank rather than manufactured. */
+function seedGridProduct(mirror) {
+  mirror.db.exec("INSERT INTO mirror_category (id, external_ref, name) VALUES ('cat1', 'sqcat1', 'Outerwear')");
+  mirror.db.exec(
+    "INSERT INTO mirror_product (id, external_ref, handle, title, source_description, status, channel, custom_fields, category_id)" +
+      " VALUES ('p1', 'sqitem1', 'wool-sweater', 'Wool Sweater', '', 'active', 'direct_link', '{}', 'cat1')",
+  );
+  mirror.db.exec(
+    "INSERT INTO mirror_item_option (id, external_ref, name) VALUES ('opt-size', 'sqopt-size', 'Size'), ('opt-color', 'sqopt-color', 'Color')",
+  );
+  mirror.db.exec(
+    "INSERT INTO mirror_item_option_value (id, external_ref, item_option_id, name, ordinal) VALUES" +
+      " ('optval-s', 'sqval-s', 'opt-size', 'S', 0), ('optval-m', 'sqval-m', 'opt-size', 'M', 1), ('optval-l', 'sqval-l', 'opt-size', 'L', 2)," +
+      " ('optval-red', 'sqval-red', 'opt-color', 'Red', 0), ('optval-blue', 'sqval-blue', 'opt-color', 'Blue', 1)",
+  );
+  const variations = [
+    ["v1", "sqvar1", "VEM-1", "S / Red", { Size: "S", Color: "Red" }],
+    ["v2", "sqvar2", "VEM-2", "M / Blue", { Size: "M", Color: "Blue" }],
+    ["v3", "sqvar3", "VEM-3", "L / Red", { Size: "L", Color: "Red" }],
+  ];
+  for (const [id, ref, sku, title, options] of variations) {
+    mirror.db
+      .prepare(
+        "INSERT INTO mirror_variant (id, external_ref, product_id, sku, title, price_minor, currency, options)" +
+          " VALUES (?, ?, 'p1', ?, ?, 4500, 'USD', ?)",
+      )
+      .run(id, ref, sku, title, JSON.stringify(options));
+  }
+}
+
 /* Every T2 call appends an INTENT audit row before it will even return
    needsApproval — runTool refuses outright with no AUDIT binding at all,
    same as it would in a real Worker missing one. */
@@ -1582,6 +1617,56 @@ check("test_PRD_P0_31_inventory_ledger__inventory_route_refuses_a_non_integer_de
   assert.equal(res.status, 400);
   const body = await res.json();
   assert.match(body.error, /non-zero whole-number change/);
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-147 — "a whole grid of available size and color variations so that I
+ * can set their quantities directly out of that variants dropdown" — the
+ * owner's own words. Exactly two Option Set dimensions render as a real
+ * row/column grid; anything else keeps the flat variation list.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_147_variants_grid__two_option_dimensions_render_as_a_grid_ordered_by_ordinal", async () => {
+  const mirror = mirrorDb();
+  seedGridProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+
+  assert.match(body, /<table class="variants-grid">/, "exactly two Option Set names must render as a grid, not the flat list");
+  const tableStart = body.indexOf('<table class="variants-grid">');
+  const tableEnd = body.indexOf("</table>", tableStart);
+  const table = body.slice(tableStart, tableEnd);
+
+  /* The two Option Set names are ordered the same way listItemOptions
+     already orders every other reader of them (alphabetically by name)
+     — "Color" sorts before "Size", so Color becomes the row axis and
+     Size the column axis. Columns: S, M, L — Square's own ordinal
+     order, NOT alphabetical (which would read L, M, S). */
+  assert.match(table, /<thead><tr><th class="variants-grid-corner"><\/th><th>S<\/th><th>M<\/th><th>L<\/th><\/tr><\/thead>/);
+
+  /* Rows: Red before Blue — ordinal order (both alphabetical and
+     ordinal agree here, but the row order itself is confirmed by the
+     column assertion above already using the non-alphabetical case). */
+  const rowRedIdx = table.indexOf("<tr><th>Red</th>");
+  const rowBlueIdx = table.indexOf("<tr><th>Blue</th>");
+  assert.ok(rowRedIdx >= 0 && rowBlueIdx > rowRedIdx, "rows must read Red, Blue — Square's own ordinal order");
+
+  /* S/Red has a real variation (v1) and gets a stepper; M/Red has no
+     variation at all and stays a blank cell — "existing SKUs only," the
+     owner's own choice. */
+  const redRow = table.slice(rowRedIdx, table.indexOf("</tr>", rowRedIdx));
+  assert.match(redRow, /variation-stock-step" data-variant-id="v1"/, "S/Red must carry v1's own stepper");
+  assert.match(redRow, /variation-stock-step" data-variant-id="v3"/, "L/Red must carry v3's own stepper");
+  assert.match(redRow, /class="variants-grid-empty"/, "M/Red has no SKU and must render blank");
+});
+
+check("test_PRD_P0_147_variants_grid__a_single_dimension_or_none_keeps_the_flat_list", async () => {
+  /* seedProduct's own single "One size" variation carries no options at
+     all — zero dimensions, so the grid must not even try to render. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.doesNotMatch(body, /<table class="variants-grid">/);
+  assert.match(body, /<span class="variation-title-label">One size<\/span>/);
 });
 
 check("test_PRD_P0_135_item_edit_applies_immediately__the_web_toggle_is_a_plain_checkbox_rendered_either_way", async () => {
