@@ -6090,6 +6090,20 @@ that does not trace to one of these is a process failure (see §12).
     next report, now that a failure like it would surface clearly rather than silently, the same as the
     Black Dress's own did.
 
+    REVISED AGAIN, minutes later, live: `INVALID_REQUEST_ERROR/BAD_REQUEST: Expected ItemVariation to
+    have 2 Item Option Values, got 1` — the moment Dresses had BOTH Size and Color assigned. Square
+    requires a value for EVERY declared dimension on every variation, not merely one of them; a
+    variation's own title never names a color at all ("S", "M", ...), so the first retag pass had
+    nothing there to find for Color. Asked directly a second time, the owner's own choice: fall back to
+    the PRODUCT's own title (e.g. "Black Dress") for whichever dimension the variation's own title could
+    not resolve, when EXACTLY ONE of that dimension's own values appears in it — an ambiguous match
+    (zero, or more than one) is left exactly as it was, the same as an unmatched variation title. **A
+    real bug caught live, testing this exact fix before it ever shipped**: the first version matched
+    with a bare `.includes()`, which matched the single letter "S" buried inside "dres`s`" in "Black
+    Dress" itself, silently mis-tagging Size as "S" from a product title that never said any such thing.
+    Fixed to a whole-word match (`\bS\b`, case-insensitive) — a short value like "S" now only matches
+    its OWN standalone word, never a letter it happens to share with an unrelated one.
+
 83. **`Test-PRD-P0-149-category_options_inherit_toggle`** — The owner's own words, right after P0-148
     shipped: "I think there needs to be a separate option called Inherit for every category. It should
     be set by default to inherit... but I should be able to disable the Inherit button and specify

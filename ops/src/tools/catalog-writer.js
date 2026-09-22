@@ -1014,19 +1014,44 @@ export function createSquareCatalogWriter(env, opts = {}) {
      requiring a manual fix per product or leaving it permanently
      untouched (and permanently unable to ever apply). Only ever ADDS a
      dimension a variation does not already carry — an already-tagged
-     dimension is never overwritten — and only ever from an EXACT title
-     match; a title that matches nothing is left exactly as it was, its
-     own per-product failure now clearly visible rather than silently
-     wrong. */
-  function retagByTitle(existing, options) {
+     dimension is never overwritten.
+
+     REVISED: "Expected ItemVariation to have 2 Item Option Values, got
+     1" — Square's own next real answer, live, once BOTH Size and Color
+     were assigned: every declared dimension needs its own value on every
+     variation, not just one of them. A variation's own title never names
+     a color at all ("S", "M", ...) — there is nothing there for the
+     first pass to find. The owner's own choice, asked directly a second
+     time: fall back to the PRODUCT's own title (e.g. "Black Dress")
+     for any dimension the variation's own title could not resolve, only
+     when EXACTLY ONE of that dimension's values appears in it as a
+     case-insensitive WHOLE-WORD match — an ambiguous match (zero, or
+     more than one) is left exactly as it was, same as an unmatched
+     variation title, its own per-product failure now clearly visible
+     rather than silently wrong or silently guessed at. WHOLE-word,
+     never a bare substring: a naive `.includes()` on a short value like
+     "S" matches the letter buried inside "dres`s`" in "Black Dress"
+     itself — caught live, testing this exact fix, before it ever
+     shipped. */
+  function wholeWordMatch(haystack, needle) {
+    const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`\\b${escaped}\\b`, "i").test(haystack);
+  }
+  function retagByTitle(existing, options, productTitle) {
     const merged = { ...existing.options };
     let changed = false;
     const title = (existing.title ?? "").trim().toLowerCase();
     for (const opt of options) {
       if (merged[opt.name]) continue;
-      const match = opt.values.find((v) => v.toLowerCase() === title);
-      if (match) {
-        merged[opt.name] = match;
+      const exact = opt.values.find((v) => v.toLowerCase() === title);
+      if (exact) {
+        merged[opt.name] = exact;
+        changed = true;
+        continue;
+      }
+      const inProductTitle = opt.values.filter((v) => wholeWordMatch(productTitle ?? "", v));
+      if (inProductTitle.length === 1) {
+        merged[opt.name] = inProductTitle[0];
         changed = true;
       }
     }
@@ -1161,7 +1186,7 @@ export function createSquareCatalogWriter(env, opts = {}) {
 
       const placeholders = subtreeIds.map(() => "?").join(",");
       const products = await mirrorDb
-        .prepare(`SELECT id, handle, category_id FROM mirror_product_index WHERE category_id IN (${placeholders})`)
+        .prepare(`SELECT id, handle, title, category_id FROM mirror_product_index WHERE category_id IN (${placeholders})`)
         .bind(...subtreeIds)
         .all();
       let applied = 0;
@@ -1176,7 +1201,7 @@ export function createSquareCatalogWriter(env, opts = {}) {
           const retagPatches = [];
           const existingSignatures = new Set();
           for (const v of existing) {
-            const retagged = retagByTitle(v, options);
+            const retagged = retagByTitle(v, options, p.title);
             if (retagged) {
               retagPatches.push({ variant_id: v.id, option_values: retagged });
               existingSignatures.add(comboSignature(retagged));
