@@ -20,7 +20,7 @@
  * through /media/new, same as a one-off product.
  */
 import { runTool } from "./tools/index.js";
-import { listCategories, categoryProductCounts } from "./tools/catalog-writer.js";
+import { listCategories, categoryProductCounts, deriveCategoryIdForStyleId } from "./tools/catalog-writer.js";
 import { parkForApproval } from "./approvals.js";
 import { csvRecords, parseCsv } from "./tools/csv.js";
 import { CAPS } from "./tools/caps.js";
@@ -85,12 +85,21 @@ const SKU_KEYS = ["sku", "style number", "item number", "product code"];
 /* style_id, vendor and commission are Square's own Custom Attributes now
    (Test-PRD-P0-136-square_custom_attributes), not a custom_fields example —
    recognized here so a sheet carrying them reaches catalog.create_product as
-   real arguments rather than inert text, and its own check() can flag the
-   owner's own rules before a row is ever parked: "we always need to have a
-   style ID," and — separately — a vendor NAME with no commission on file
-   yet (mirror_vendor.commission_pct — brand new to this shop, or a vendor
-   Square already knew about that was never given a rate) needs one given
-   in the same row. REVISED: "let's not force vendor's commission to be
+   real arguments rather than inert text. style_id itself is no longer
+   required at all, REVISED: "category and subcategory is style id and vice
+   versa" — the owner's own words. A row giving one keeps it verbatim,
+   subject to catalog.create_product's own format/conflict checks (a
+   conflict auto-bumps now, never a refusal); a row giving NONE at all
+   still resolves a category from it when it CAN (a style ID whose digits
+   match a real category/subcategory, the same lookup an edit already
+   uses), and either way create_product's own resolveStyleId builds a
+   style_id automatically from whatever category the row lands on, when
+   that category has a numeric_id of its own — see this file's own
+   draftProductBatch for the actual resolution order. Separately, a vendor
+   NAME with no commission on file yet (mirror_vendor.commission_pct —
+   brand new to this shop, or a vendor Square already knew about that was
+   never given a rate) needs one given in the same row. REVISED: "let's not
+   force vendor's commission to be
    stated out loud [on every row]... we store it in essential locations
    per vendor so their commission is recorded in a central location and
    automatically applied" — a vendor with a rate already on file needs
@@ -123,6 +132,15 @@ const COMMISSION_KEYS = ["commission", "commission %", "commission pct", "commis
    here ONLY so this file can check whether a value was actually GIVEN, for
    the "no vendor needs a unit cost" rule immediately below. */
 const UNIT_COST_KEYS = ["unit cost", "cost", "cogs", "cost of goods", "wholesale cost"];
+/* "When quantity not specified use 1" — the owner's own words. A real
+   catalog.create_product argument now (VARIATION_WITH_OPTIONS' own
+   `quantity`), set as part of the same approved write, never a second
+   inventory.adjust approval — there is no existing count for a freshly
+   created row to protect. Blank is not an error here, the one field on
+   this whole row that defaults rather than blocks or falls through to
+   custom_fields, matching "quantity is not required at all... assume 1
+   and adjust it later." */
+const QUANTITY_KEYS = ["quantity", "qty", "stock", "initial quantity", "initial stock", "on hand", "units"];
 
 /* "If we are adding a set of items and we specify its size or color, and
    this size or color is not already defined in our option, add this size
@@ -145,7 +163,8 @@ const OPTION_KEYS = {
    dropped just because neither of us has a named field for it yet. */
 const PRODUCT_KNOWN_KEYS = [
   ...TITLE_KEYS, ...DESCRIPTION_KEYS, ...CATEGORY_KEYS, ...PRICE_KEYS, ...CURRENCY_KEYS, ...SKU_KEYS,
-  ...STYLE_ID_KEYS, ...VENDOR_KEYS, ...VENDOR_CODE_KEYS, ...COMMISSION_KEYS, ...Object.values(OPTION_KEYS).flat(),
+  ...STYLE_ID_KEYS, ...VENDOR_KEYS, ...VENDOR_CODE_KEYS, ...COMMISSION_KEYS, ...QUANTITY_KEYS,
+  ...Object.values(OPTION_KEYS).flat(),
 ];
 
 /* {Size: "XL", Color: "Red"} from whichever of OPTION_KEYS' own columns this
@@ -219,6 +238,19 @@ function parseCommission(raw) {
   return Number(cleaned);
 }
 
+/*
+ * "5", " 5 " -> 5. Whole numbers only, same reasoning as parseCommission
+ * above. Blank is handled by the CALLER, not here — this only ever runs
+ * against a cell that actually has something in it, so an unparsable
+ * value is always a real typo worth reporting, never the "not specified"
+ * case "use 1" already covers.
+ */
+function parseQuantity(raw) {
+  const cleaned = String(raw ?? "").trim();
+  if (!/^\d+$/.test(cleaned)) return null;
+  return Number(cleaned);
+}
+
 /** Case- and whitespace-insensitive; the closed set's real names, never guessed. */
 function matchCategory(name, categories) {
   const key = name.trim().toLowerCase();
@@ -235,13 +267,22 @@ function matchCategory(name, categories) {
  * title-less rows for the same category are minted. Returns a fresh
  * closure per draftProductBatch call, so two unrelated batches never share
  * a counter.
+ *
+ * REVISED: category is now optional here too (below) — a row naming
+ * neither a category NOR a style ID that resolves to one stays genuinely
+ * unassigned, the same as catalog.create_product already tolerates. `null`
+ * gets its own shared counter under the plain word "Item", so a batch of
+ * fully-unassigned rows still gets distinct, sequential names rather than
+ * colliding on the same one.
  */
 function autoTitler(existingCounts) {
   const next = new Map();
   return (category) => {
-    const n = next.has(category.id) ? next.get(category.id) : (existingCounts.get(category.id) ?? 0) + 1;
-    next.set(category.id, n + 1);
-    return `${category.name} ${n}`;
+    const key = category?.id ?? "__unassigned__";
+    const label = category?.name ?? "Item";
+    const n = next.has(key) ? next.get(key) : (existingCounts.get(key) ?? 0) + 1;
+    next.set(key, n + 1);
+    return `${label} ${n}`;
   };
 }
 
@@ -264,43 +305,73 @@ export async function draftProductBatch(env, { text, actor, role }) {
   const rows = [];
   const skipped = [];
 
-  records.forEach((record, i) => {
+  for (const [i, record] of records.entries()) {
     const rowNumber = i + 2; /* +1 for the header, +1 for 1-based rows */
     const rawTitle = pick(record, TITLE_KEYS).slice(0, 200);
     const categoryName = pick(record, CATEGORY_KEYS);
+    const styleIdRaw = pick(record, STYLE_ID_KEYS);
     const priceRaw = pick(record, PRICE_KEYS);
     const currency = (pick(record, CURRENCY_KEYS) || "USD").toUpperCase();
 
-    /* Category is resolved before the title, now — an auto-generated title
-       is spelled from the category's own name, so there is no title left
-       to fall back to until the category itself is known. */
-    const category = categoryName ? matchCategory(categoryName, categories) : null;
-    if (!category) {
+    /* REVISED: "category and subcategory is style id and vice versa" — the
+       owner's own words, the exact same two-way derivation
+       catalog.create_product's own check()/run() now do (resolveStyleId,
+       deriveCategoryIdForStyleId — catalog-write.js/catalog-writer.js).
+       A named category that matches nothing real is still reported, never
+       silently invented (catalog.create_category is a separate manager
+       decision, same reasoning create_product's own check() already gives
+       for an unknown category_id) — but a row naming NO category at all is
+       no longer an automatic skip: a style ID that resolves to a real
+       category/subcategory fills it in, the same lookup an edit already
+       uses. Neither resolving leaves the row genuinely UNASSIGNED, exactly
+       as catalog.create_product already tolerates on its own — never a
+       reason to refuse the row over. */
+    let category = categoryName ? matchCategory(categoryName, categories) : null;
+    if (categoryName && !category) {
       const known = categories.map((c) => c.name).join(", ") || "none yet";
       skipped.push({
         row: rowNumber,
         title: rawTitle || "(no title)",
-        reason: categoryName
-          ? `category "${categoryName}" does not exist — it must be exactly one of: ${known}`
-          : `no category column, or it was empty — it must be exactly one of: ${known}`,
+        reason: `category "${categoryName}" does not exist — it must be exactly one of: ${known}`,
       });
-      return;
+      continue;
     }
+    if (!category && styleIdRaw) {
+      const derivedId = await deriveCategoryIdForStyleId(env.CATALOG_MIRROR, styleIdRaw);
+      if (derivedId) category = categories.find((c) => c.id === derivedId) ?? null;
+    }
+    /* Title is spelled from whichever category this row actually landed on
+       (its own subcategory name, when that is what matched) — autoTitler's
+       own "Item" fallback only fires for a row that is genuinely
+       unassigned either way. */
     const title = rawTitle || nextAutoTitle(category);
     const priceMinor = parsePriceToMinor(priceRaw);
     if (priceMinor === null) {
       skipped.push({ row: rowNumber, title, reason: `price "${priceRaw}" is not a plain number like 45.00` });
-      return;
+      continue;
     }
 
-    /* "We always need to have a style ID" — the owner's own words, walked
-       through a final time. Presence only: format and cross-catalog
-       uniqueness are catalog.create_product's own check() (STYLE_ID_FORMAT),
-       relayed the same way a bad category or price already is. */
-    const styleId = pick(record, STYLE_ID_KEYS);
-    if (!styleId) {
-      skipped.push({ row: rowNumber, title, reason: "no style ID column, or it was empty — every product needs a style ID" });
-      return;
+    /* Presence is no longer required at all — create_product's own
+       resolveStyleId (catalog-write.js) builds one automatically from
+       `category`'s own NN-NN pair, the moment this row lands on a real
+       subcategory that has one. A style ID actually GIVEN still rides
+       through verbatim; format and cross-catalog conflict (now an
+       auto-bump, never a refusal) are still catalog.create_product's own
+       check() to make, relayed the same way a bad category or price
+       already is. */
+    const styleId = styleIdRaw || undefined;
+
+    /* "When quantity not specified use 1" — the owner's own words. Blank
+       defaults rather than blocks; a value that IS given but does not
+       parse is a real typo, reported the same way a bad price is. */
+    const quantityRaw = pick(record, QUANTITY_KEYS);
+    let quantity = 1;
+    if (quantityRaw) {
+      quantity = parseQuantity(quantityRaw);
+      if (quantity === null) {
+        skipped.push({ row: rowNumber, title, reason: `quantity "${quantityRaw}" is not a plain whole number like 5` });
+        continue;
+      }
     }
 
     const vendor = pick(record, VENDOR_KEYS);
@@ -310,7 +381,7 @@ export async function draftProductBatch(env, { text, actor, role }) {
       commission = parseCommission(commissionRaw);
       if (commission === null) {
         skipped.push({ row: rowNumber, title, reason: `commission "${commissionRaw}" is not a plain whole number like 20` });
-        return;
+        continue;
       }
     }
     const unitCostRaw = pick(record, UNIT_COST_KEYS);
@@ -332,7 +403,7 @@ export async function draftProductBatch(env, { text, actor, role }) {
         title,
         reason: "no vendor and no unit cost — a product needs a vendor or a unit cost",
       });
-      return;
+      continue;
     }
 
     /* WITH a vendor, "unit cost" is Square's own real unit_cost_minor now
@@ -347,7 +418,7 @@ export async function draftProductBatch(env, { text, actor, role }) {
       unitCostMinor = parsePriceToMinor(unitCostRaw);
       if (unitCostMinor === null) {
         skipped.push({ row: rowNumber, title, reason: `unit cost "${unitCostRaw}" is not a plain number like 45.00` });
-        return;
+        continue;
       }
     }
     const vendorCode = pick(record, VENDOR_CODE_KEYS);
@@ -357,7 +428,7 @@ export async function draftProductBatch(env, { text, actor, role }) {
         title,
         reason: `vendor code "${vendorCode}" was given without a vendor — it is the VENDOR's own SKU for this product`,
       });
-      return;
+      continue;
     }
 
     const description = pick(record, DESCRIPTION_KEYS);
@@ -373,8 +444,8 @@ export async function draftProductBatch(env, { text, actor, role }) {
       args: {
         title,
         ...(description ? { description } : {}),
-        category_id: category.id,
-        style_id: styleId,
+        ...(category ? { category_id: category.id } : {}),
+        ...(styleId ? { style_id: styleId } : {}),
         ...(vendor ? { vendor } : {}),
         ...(vendorCode ? { vendor_code: vendorCode } : {}),
         ...(unitCostMinor !== undefined ? { unit_cost_minor: unitCostMinor } : {}),
@@ -384,6 +455,7 @@ export async function draftProductBatch(env, { text, actor, role }) {
             title,
             price_minor: priceMinor,
             currency,
+            quantity,
             ...(pick(record, SKU_KEYS) ? { sku: pick(record, SKU_KEYS) } : {}),
             ...(Object.keys(optValues).length ? { option_values: optValues } : {}),
           },
@@ -391,7 +463,7 @@ export async function draftProductBatch(env, { text, actor, role }) {
         ...(Object.keys(customFields).length ? { custom_fields: customFields } : {}),
       },
     });
-  });
+  }
 
   const { parked, skipped: refused } = await parkRows(env, { actor, role, toolName: "catalog.create_product" }, rows);
   return { ready: parked, skipped: [...skipped, ...refused].sort((a, b) => a.row - b.row) };
@@ -497,6 +569,7 @@ function mapProductRow(record) {
     vendor: pick(record, VENDOR_KEYS) || null,
     vendor_code: pick(record, VENDOR_CODE_KEYS) || null,
     commission: pick(record, COMMISSION_KEYS) || null,
+    quantity: pick(record, QUANTITY_KEYS) || "1 (default)",
     ...Object.fromEntries(Object.keys(OPTION_KEYS).map((name) => [name.toLowerCase(), optionValues(record)[name] ?? null])),
     ...extraFields(record, PRODUCT_KNOWN_KEYS),
   };
