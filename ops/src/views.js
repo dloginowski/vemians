@@ -5517,7 +5517,7 @@ export function batchUploadPage(kind = "products") {
  * /approvals/ page — the same prefilled confirmation screen a single chat
  * draft produces, so there is one approval screen in this codebase, not two.
  */
-export function batchReviewPage({ ready, skipped, tooMany }, kind = "products") {
+export function batchReviewPage({ ready, skipped, categoriesToCreate = [], tooMany }, kind = "products") {
   const k = BATCH_KINDS[kind];
   if (tooMany) {
     return page(
@@ -5544,11 +5544,31 @@ export function batchReviewPage({ ready, skipped, tooMany }, kind = "products") 
     ...skipped.map((s) => ({ row: s.row, title: s.title, status: "skipped", detail: s.reason, url: null })),
   ].sort((a, b) => a.row - b.row);
 
+  /* "Categories/subcategories should be made if missing. And ids assigned
+     auto bumped" — the owner's own words, on "1" (park a separate
+     approval per missing category rather than silently inventing one).
+     Shown FIRST, above the row table: it is a prerequisite, not just
+     another skip reason — several rows below still say "does not exist
+     yet" pointing right back up here. */
+  const categoryRows = categoriesToCreate.filter((c) => c.url);
+  const categoriesSection = categoryRows.length
+    ? `<p class="eyebrow">Categories to create first</p>
+       <div class="table-card"><table>
+          <thead><tr><th>Category</th><th>Detail</th></tr></thead>
+          <tbody>${categoryRows
+            .map((c) => `<tr><td><a href="${esc(c.url)}">${esc(c.name)}</a></td><td>${esc(c.summary)}</td></tr>`)
+            .join("")}</tbody>
+        </table></div>
+       <p class="fine">Approve each one, then upload this same spreadsheet again — the rows waiting on it
+          below will resolve the second time.</p>`
+    : "";
+
   return page(
     "Spreadsheet uploaded",
     `<main class="wrap">
        <p class="eyebrow">Spreadsheet uploaded</p>
        <h1>${ready.length} ready to review, ${skipped.length} not added</h1>
+       ${categoriesSection}
        ${
          ready.length
            ? `<p class="fine">Each ready row is its own approval — nothing is created until you open it and

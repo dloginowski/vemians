@@ -4648,9 +4648,29 @@ that does not trace to one of these is a process failure (see §12).
     `autoTitler`'s own generic-name fallback (`Test-PRD-P0-145-auto_generated_title`) grows its own
     `"Item"` label and counter for exactly this case, so a fully-unassigned row still gets a
     distinct, numbered name rather than colliding with every other one like it in the same batch. A
-    category NAME that IS given but matches nothing real is still reported, never silently invented
-    — auto-CREATING a missing category from a spreadsheet is a separate, larger decision (does it
-    write immediately, or park its own approval first?) the owner also asked for, not yet built.
+    category NAME that IS given but matches nothing real is still reported, never silently invented.
+
+    **REVISED: a missing category now parks its OWN creation approval, rather than being a dead
+    end.** "Categories/subcategories should be made if missing. And ids assigned auto bumped" —
+    the owner's own words, asked directly whether that should write immediately (no separate
+    approval, since uploading the batch is already a manager-level action) or park its own
+    approval first, same as everything else in this file: "1" — park it. A row naming a category
+    that matches nothing real still gets reported (its own reason now points at the request parked
+    below it, "approve it, then re-upload this row"), but `draftProductBatch` also mints ONE
+    `catalog.create_category` approval per DISTINCT missing name (`categoriesToCreate`, deduped —
+    ten rows naming the same missing category get one request, not ten), auto-numbered with the
+    next unused top-level `numeric_id` (`nextTopLevelNumericId`, `batch.js`) so a manager never has
+    to work out a free number by hand. Always top-level: a plain category cell names no parent to
+    nest a brand-new one under, and inventing one would be exactly the kind of silent guess this
+    file's own "never invent" rule exists to prevent — a manager can re-nest it afterward, same as
+    any other category. Still a REAL Square write requiring a REAL approval, the one thing nothing
+    in this file skips regardless of how confidently a number was computed:
+    `catalog.create_category`'s own `check()` still validates it (format, the two-pool conflict
+    check, the near-duplicate-name refusal) exactly as it would a hand-typed request, so a genuine
+    typo of an existing name still gets caught there, not silently created as a look-alike
+    duplicate. `batchReviewPage` (`views.js`) and the chat's own `batchDraftTable`/`formatBatchDraft`
+    (`agent.js`) both surface these requests FIRST, above the row table — a prerequisite, not just
+    another skip reason.
 
 72. **`Test-PRD-P0-137-item_active_toggle`** — The owner's own words, in the same request that moved
     Web and the newly-added Active checkbox beside the item's own name: "move the web and the active

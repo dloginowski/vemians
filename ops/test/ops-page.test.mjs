@@ -557,6 +557,27 @@ check("test_PRD_P0_89_batch_preview_confirm__the_batch_review_page_uses_the_same
   assert.doesNotMatch(html, /<ul>/, "the old separate skipped-list <ul> must be gone");
 });
 
+check("test_PRD_P0_136_square_custom_attributes__the_batch_review_page_lists_categories_to_create_first", async () => {
+  /* "Categories/subcategories should be made if missing. And ids assigned
+     auto bumped" — the owner's own words, on "1" (park a separate
+     approval per missing category). Shown above the row table: it is a
+     prerequisite, not just another skip reason. */
+  const { batchReviewPage } = await import("../src/views.js");
+  const html = batchReviewPage(
+    {
+      ready: [],
+      skipped: [{ row: 2, title: "Sun Hat", reason: 'category "Millinery" does not exist yet — a request to create it has been parked below' }],
+      categoriesToCreate: [
+        { name: "Millinery", url: "https://ops.vemians.com/approvals/cat1", summary: 'create the category "Millinery" beside the 0 that exist there — auto-requested while importing a spreadsheet' },
+      ],
+    },
+    "products",
+  );
+  assert.match(html, /Categories to create first/);
+  assert.match(html, /<a href="https:\/\/ops\.vemians\.com\/approvals\/cat1">Millinery<\/a>/);
+  assert.match(html, /upload this same spreadsheet again/i);
+});
+
 check("test_PRD_P0_89_batch_preview_confirm__the_table_card_style_is_shared_not_duplicated", async () => {
   /* One CSS block (TABLE_CARD_CSS), included by both OPS_CSS (chat) and
      APPROVAL_CSS (this page) — not two copies that could drift apart. */
