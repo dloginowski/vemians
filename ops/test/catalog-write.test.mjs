@@ -2671,7 +2671,11 @@ check("test_PRD_P0_136_square_custom_attributes__style_id_must_match_the_shops_o
   assert.deepEqual(f.calls(), [], "a refused style_id must never reach Square");
 });
 
-check("test_PRD_P0_136_square_custom_attributes__a_duplicate_style_id_is_refused_as_a_conflict", async () => {
+check("test_PRD_P0_136_square_custom_attributes__a_duplicate_style_id_auto_bumps_to_the_next_free_index", async () => {
+  /* REVISED: "No it must be auto generated... Auto bump" — the owner's own
+     words. An explicit style_id that already belongs to another product no
+     longer refuses outright — it bumps to the next unused index under the
+     same NN-NN prefix instead. */
   const f = await fixture();
   await approvedCall(f, "catalog.set_square_attributes", { handle: COAT_HANDLE, style_id: "01-04-001" });
 
@@ -2684,13 +2688,17 @@ check("test_PRD_P0_136_square_custom_attributes__a_duplicate_style_id_is_refused
   assert.equal(created.ok, true, created.error);
   const secondHandle = created.data.product.handle;
 
-  const conflict = await runTool(
+  const gate = await runTool("catalog.set_square_attributes", { handle: secondHandle, style_id: "01-04-001" }, f.ctx);
+  assert.equal(gate.needsApproval, true, "a bump is still a real change and still needs approval");
+  assert.match(gate.data.would, /01-04-001.*already assigned to.*used '01-04-002' instead/);
+
+  const res = await runTool(
     "catalog.set_square_attributes",
     { handle: secondHandle, style_id: "01-04-001" },
-    f.ctx,
+    { ...f.ctx, approvalToken: gate.data.approval.token },
   );
-  assert.equal(conflict.ok, false);
-  assert.match(conflict.error, new RegExp(`already assigned to '${COAT_HANDLE}'`));
+  assert.equal(res.ok, true, res.error);
+  assert.equal(res.data.style_id, "01-04-002", "bumped to the next free index, never refused");
 });
 
 check("test_PRD_P0_136_square_custom_attributes__a_style_id_stays_reserved_even_after_the_product_moves_off_it", async () => {
@@ -2712,14 +2720,16 @@ check("test_PRD_P0_136_square_custom_attributes__a_style_id_stays_reserved_even_
   });
   assert.equal(created.ok, true, created.error);
 
-  const reuse = await runTool(
-    "catalog.set_square_attributes",
-    { handle: created.data.product.handle, style_id: "01-04-001" },
-    f.ctx,
-  );
-  assert.equal(reuse.ok, false);
-  assert.match(reuse.error, /already assigned to/);
-  assert.match(reuse.error, /never reused once given out/);
+  /* REVISED: "Auto bump" — the owner's own words. Reusing the coat's own
+     OLD, still-reserved number no longer refuses outright either — it
+     bumps past BOTH numbers the coat's own ledger history already holds
+     (001 and 002), landing on 003, never on either reserved one. */
+  const reuse = await approvedCall(f, "catalog.set_square_attributes", {
+    handle: created.data.product.handle,
+    style_id: "01-04-001",
+  });
+  assert.equal(reuse.ok, true, reuse.error);
+  assert.equal(reuse.data.style_id, "01-04-003", "bumped past both reserved numbers, never assigned either");
 
   /* And the coat itself is free to move BACK to the number it once held —
      that is a conflict with no product at all, since it is the ledger row
@@ -2728,7 +2738,11 @@ check("test_PRD_P0_136_square_custom_attributes__a_style_id_stays_reserved_even_
   assert.equal(backOnOldOne.ok, true, backOnOldOne.error);
 
   const ledgerRows = f.mirror("SELECT style_id, product_id FROM mirror_style_id_ledger ORDER BY style_id");
-  assert.deepEqual(ledgerRows.map((r) => r.style_id), ["01-04-001", "01-04-002"], "both numbers stay ledgered forever, never freed");
+  assert.deepEqual(
+    ledgerRows.map((r) => r.style_id),
+    ["01-04-001", "01-04-002", "01-04-003"],
+    "every number ever actually assigned stays ledgered forever, never freed",
+  );
 });
 
 check("test_PRD_P0_136_square_custom_attributes__giving_only_one_field_leaves_the_others_untouched", async () => {
@@ -4325,18 +4339,73 @@ check("test_PRD_P0_136_square_custom_attributes__create_product_accepts_a_style_
   assert.equal(res.data.product.style_id, "05-02-010");
 });
 
-check("test_PRD_P0_136_square_custom_attributes__create_product_refuses_a_duplicate_style_id", async () => {
+check("test_PRD_P0_136_square_custom_attributes__create_product_auto_bumps_a_duplicate_style_id", async () => {
   const f = await fixture();
   await approvedCall(f, "catalog.set_square_attributes", { handle: COAT_HANDLE, style_id: "01-04-001" });
 
   const category = f.categories()[0];
-  const conflict = await runTool(
-    "catalog.create_product",
-    { ...COAT, category_id: category.id, style_id: "01-04-001" },
-    f.ctx,
-  );
-  assert.equal(conflict.ok, false);
-  assert.match(conflict.error, new RegExp(`already assigned to '${COAT_HANDLE}'`));
+  const res = await approvedCall(f, "catalog.create_product", { ...COAT, category_id: category.id, style_id: "01-04-001" });
+  assert.equal(res.ok, true, res.error);
+  assert.equal(res.data.product.style_id, "01-04-002", "bumped to the next free index, never refused");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-136 (REVISED) — "the style id should auto update from category and
+ * subcategory id and an index that auto increments" — the owner's own
+ * words. With no style_id given at all, catalog.create_product builds one
+ * from the chosen category's own NN-NN pair plus the next unused index.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_136_square_custom_attributes__create_product_auto_generates_a_style_id_from_the_categorys_own_numbers", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  await approvedCall(f, "catalog.set_category_number", { category_id: outerwear.id, numeric_id: "04" });
+  const casual = (await approvedCall(f, "catalog.create_category", { name: "Casual", parent_id: outerwear.id, reason: "test" })).data
+    .category;
+  await approvedCall(f, "catalog.set_category_number", { category_id: casual.id, numeric_id: "07" });
+
+  const first = await approvedCall(f, "catalog.create_product", {
+    title: "Bomber Jacket",
+    category_id: casual.id,
+    variations: [{ title: "One size", price_minor: 30000, currency: "USD" }],
+  });
+  assert.equal(first.ok, true, first.error);
+  assert.equal(first.data.product.style_id, "04-07-001", "auto-generated from the category's own NN-NN pair, no style_id given");
+
+  const second = await approvedCall(f, "catalog.create_product", {
+    title: "Denim Jacket",
+    category_id: casual.id,
+    variations: [{ title: "One size", price_minor: 32000, currency: "USD" }],
+  });
+  assert.equal(second.ok, true, second.error);
+  assert.equal(second.data.product.style_id, "04-07-002", "the next unused index under the same prefix");
+});
+
+check("test_PRD_P0_136_square_custom_attributes__no_style_id_is_generated_for_a_category_with_no_numeric_id_yet", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const casual = (await approvedCall(f, "catalog.create_category", { name: "Casual", parent_id: outerwear.id, reason: "test" })).data
+    .category;
+  const res = await approvedCall(f, "catalog.create_product", {
+    title: "Bomber Jacket",
+    category_id: casual.id,
+    variations: [{ title: "One size", price_minor: 30000, currency: "USD" }],
+  });
+  assert.equal(res.ok, true, res.error);
+  assert.equal(res.data.product.style_id, null, "no numeric_id on file yet -- never invented, product created with none, same as before");
+});
+
+check("test_PRD_P0_136_square_custom_attributes__no_style_id_is_generated_for_a_bare_top_level_category", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  await approvedCall(f, "catalog.set_category_number", { category_id: outerwear.id, numeric_id: "04" });
+  const res = await approvedCall(f, "catalog.create_product", {
+    title: "Bomber Jacket",
+    category_id: outerwear.id,
+    variations: [{ title: "One size", price_minor: 30000, currency: "USD" }],
+  });
+  assert.equal(res.ok, true, res.error);
+  assert.equal(res.data.product.style_id, null, "a bare top-level category has no subcategory half to build a style_id from");
 });
 
 /* ─────────────────────────────────────────────────────────────────────────

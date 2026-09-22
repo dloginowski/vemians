@@ -106,8 +106,10 @@ import {
   listItemOptions,
   listMirrorVendors,
   mergeVariations,
+  nextStyleIdFor,
   priceBand,
   productByHandle,
+  styleIdCodesFor,
   variantsOf,
   vendorCommission,
 } from "./catalog-writer.js";
@@ -115,10 +117,58 @@ import { contentTypeFor, isOurMediaKey, mediaKey, squareAcceptsType, STORABLE_IM
 
 /* The shop's own nomenclature for style_id (Test-PRD-P0-136-square_custom_
    attributes): 2-digit category, 2-digit subcategory, 3-digit item number,
-   dash-separated — e.g. "01-04-001". Never generated here — the category/
-   subcategory table this would need to auto-increment from does not exist
-   yet — only validated and checked for conflicts. */
+   dash-separated — e.g. "01-04-001". */
 const STYLE_ID_FORMAT = /^\d{2}-\d{2}-\d{3}$/;
+
+/*
+ * REVISED: "the style id should auto update from category and subcategory
+ * id and an index that auto increments. Unless it's provided. Then it
+ * auto selects category and subcategory and takes next available index
+ * if one conflicts" — the owner's own words. One shared resolution for
+ * both catalog.create_product and catalog.set_square_attributes' own
+ * style_id conflict checks, so the two tools cannot disagree about it:
+ *
+ *   - `given` a real style_id that ALREADY belongs to another product
+ *     (mirror_style_id_ledger, reserved forever — see nextStyleIdFor's
+ *     own comment) no longer refuses outright: it bumps to the next free
+ *     index under that SAME NN-NN prefix instead.
+ *   - `given` undefined and a `categoryId` chosen: one is generated from
+ *     that category's own NN-NN pair (styleIdCodesFor) plus the next
+ *     free index — ONLY at creation time (create_product's own call
+ *     site; set_square_attributes never calls this branch, matching
+ *     "never generated" for every other field an edit did not actually
+ *     name). No category, or a category with no numeric_id of its own
+ *     yet (a bare top-level one, or simply un-numbered), generates
+ *     nothing — the product is created with no style_id, exactly as
+ *     today, never a refusal either way.
+ *   - `given` undefined and no `categoryId` at all: nothing to build one
+ *     from; unchanged.
+ *
+ * `excludeProductId` is an existing product's own id, so re-affirming the
+ * style_id it already holds (its own ledger row from the first time it
+ * got one) is never treated as a conflict with itself.
+ */
+async function resolveStyleId(db, { given, excludeProductId = null, categoryId = null }) {
+  if (given !== undefined) {
+    const conflict = await db
+      .prepare(
+        "SELECT mp.handle FROM mirror_style_id_ledger l JOIN mirror_product mp ON mp.id = l.product_id" +
+          " WHERE l.style_id = ?" +
+          (excludeProductId ? " AND l.product_id != ?" : ""),
+      )
+      .bind(...(excludeProductId ? [given, excludeProductId] : [given]))
+      .first();
+    if (!conflict) return { styleId: given, note: null };
+    const [catCode, subCode] = given.split("-");
+    const bumped = await nextStyleIdFor(db, catCode, subCode);
+    return { styleId: bumped, note: `style_id '${given}' is already assigned to '${conflict.handle}' — used '${bumped}' instead` };
+  }
+  if (!categoryId) return { styleId: undefined, note: null };
+  const codes = await styleIdCodesFor(db, categoryId);
+  if (!codes) return { styleId: undefined, note: null };
+  const generated = await nextStyleIdFor(db, codes.catCode, codes.subCode);
+  return { styleId: generated, note: `style_id auto-assigned: ${generated}` };
+}
 
 /* ── category matching: a suggestion, with its reasoning ────────────────── */
 
@@ -743,7 +793,11 @@ export const catalogWriteTools = {
       "or subcategory this style_id names has not been created, or numbered, yet) is not a refusal — " +
       "the product is created UNASSIGNED, and picked up automatically the moment a matching " +
       "category/subcategory is created or numbered (catalog.create_category, " +
-      "catalog.set_category_number). Prices are integer MINOR units, currency \"USD\" — this shop " +
+      "catalog.set_category_number). The other direction works too: give `category_id` (a SUBCATEGORY " +
+      "with its own numeric_id AND its parent's) with no `style_id` at all, and one is built " +
+      "automatically from that category's own NN-NN pair plus the next unused index — never for a " +
+      "bare top-level category or an un-numbered one, which still leaves the product with no style_id, " +
+      "the same as giving neither. Prices are integer MINOR units, currency \"USD\" — this shop " +
       "trades in nothing else, so pass it without asking. A product with no real size/color options " +
       "still needs one variation, conventionally titled \"One size\"; VARIATION carries no quantity of " +
       "its own — set initial stock with inventory.adjust, by variant_id, once this call returns one. " +
@@ -766,8 +820,10 @@ export const catalogWriteTools = {
       "when that vendor genuinely has nothing on file yet (brand new, or one Square already knew about " +
       "that this shop never gave a rate). An EXPLICIT `commission` given alongside a vendor becomes " +
       "that vendor's own new central rate, applied to every future item from it the same way. " +
-      "style_id follows this shop's own NN-NN-NNN nomenclature and is refused if another product " +
-      "already has it. This call itself still requires `title` — INGESTING A BATCH (e.g. from a " +
+      "style_id follows this shop's own NN-NN-NNN nomenclature; one already assigned to another product " +
+      "is never refused outright — it bumps to the next unused index under that same category/" +
+      "subcategory pair instead, and the summary says so before anyone approves it. This call itself " +
+      "still requires `title` — INGESTING A BATCH (e.g. from a " +
       "spreadsheet): every row needs style_id and MSRP (variations[].price_minor); quantity, when a " +
       "row does not give one, defaults to 1 rather than blocking the row — adjust it afterward via " +
       "inventory.adjust if the real count differs. A row with no title is not blocked either: name it " +
@@ -831,28 +887,6 @@ export const catalogWriteTools = {
         };
       }
 
-      if (args.style_id !== undefined) {
-        /* mirror_style_id_ledger, not just mirror_product's own current
-           column — the owner's own words: "we want that style number to be
-           held, so that you don't overwrite that style number and reuse it
-           for something else." A style_id a DIFFERENT product moved away
-           from is still reserved forever (schema.sql's own comment on the
-           ledger table). */
-        const conflict = await t.db.catalog_mirror
-          .prepare(
-            "SELECT mp.handle FROM mirror_style_id_ledger l JOIN mirror_product mp ON mp.id = l.product_id" +
-              " WHERE l.style_id = ?",
-          )
-          .bind(args.style_id)
-          .first();
-        if (conflict) {
-          return {
-            denied: `style_id '${args.style_id}' is already assigned to '${conflict.handle}' — style IDs are unique, one per product, and never reused once given out`,
-            detail: { reason: "style_id_conflict" },
-          };
-        }
-      }
-
       /* REVISED: "let's not force vendor's commission to be stated out
          loud [on every item]... we store it in essential locations per
          vendor so that their commission is recorded in a central
@@ -900,16 +934,28 @@ export const catalogWriteTools = {
       const media = await checkImages(args.images, t.media);
       if (media.denied) return { denied: media.denied, detail: { reason: "unknown_media_key" } };
 
+      /* resolveStyleId's own header comment: bumps an explicit conflict to
+         the next free index under the same NN-NN prefix, or — with none
+         given at all — generates one from `chosen`'s own NN-NN pair when
+         it has one. `chosen` above is only ever set from an EXPLICITLY
+         given category_id, matching "the style id should auto update from
+         category and subcategory id" — never from style_id's own separate
+         derivation path (that would be circular: nothing to generate an
+         id FROM if the category itself came from a style_id in the first
+         place, and that path is unaffected either way). */
+      const resolved = await resolveStyleId(t.db.catalog_mirror, { given: args.style_id, categoryId: chosen?.id ?? null });
+
       const total = args.variations.map((v) => `${v.title} ${v.price_minor} ${v.currency}`).join(", ");
       const categoryNote = chosen
         ? `in ${chosen.name}`
-        : args.style_id !== undefined
+        : resolved.styleId !== undefined
           ? "in whichever category/subcategory's own numeric_id matches its style_id, or unassigned if none does yet"
           : "with no category";
+      const styleIdNote = resolved.note ? ` (${resolved.note})` : "";
       return {
         ok: true,
-        summary: `create "${args.title}" ${categoryNote} — ${args.variations.length} variation(s): ${total}`,
-        preflight: { category: chosen, images: media.found },
+        summary: `create "${args.title}" ${categoryNote} — ${args.variations.length} variation(s): ${total}${styleIdNote}`,
+        preflight: { category: chosen, images: media.found, styleId: resolved.styleId },
       };
     },
     async run(args, t) {
@@ -935,8 +981,8 @@ export const catalogWriteTools = {
       const categoryId =
         args.category_id !== undefined
           ? args.category_id
-          : args.style_id !== undefined
-            ? await deriveCategoryIdForStyleId(t.db.catalog_mirror, args.style_id)
+          : t.preflight.styleId !== undefined
+            ? await deriveCategoryIdForStyleId(t.db.catalog_mirror, t.preflight.styleId)
             : null;
       /* "We store it in essential locations per vendor so that their
          commission is recorded in a central location and automatically
@@ -956,7 +1002,7 @@ export const catalogWriteTools = {
         categoryId,
         variations: args.variations,
         images,
-        styleId: args.style_id,
+        styleId: t.preflight.styleId,
         vendor: args.vendor,
         vendorCode: args.vendor_code,
         unitCostMinor: args.unit_cost_minor,
@@ -1734,8 +1780,10 @@ export const catalogWriteTools = {
       "association — all five call Square, then sync the mirror back, unlike catalog.set_channel or " +
       "catalog.set_custom_fields. style_id follows this shop's own nomenclature — NN-NN-NNN: a " +
       "2-digit category, a 2-digit subcategory, a 3-digit item number, e.g. \"01-04-001\" — and is " +
-      "NEVER generated here: give one, or leave it as it is. Refused if another product already has " +
-      "the same style_id — style IDs are unique, one per product. vendor is a plain name: an " +
+      "NEVER generated here from a category (catalog.create_product's own creation-time auto-fill does " +
+      "not apply to an edit): give one, or leave it as it is. One already assigned to another product " +
+      "is never refused outright, though — it bumps to the next unused index under that same " +
+      "category/subcategory pair instead, and the summary says so before anyone approves it. vendor is a plain name: an " +
       "existing Square Vendor with that name is reused, or a new one is created. vendor_code is the " +
       "VENDOR's own SKU/product code for this item (their invoice/catalog identifier — never Square's " +
       "own `sku`, never this shop's `style_id`). unit_cost_minor is what this shop PAID the vendor, " +
@@ -1790,34 +1838,24 @@ export const catalogWriteTools = {
       const existing = await productByHandle(t.db.catalog_mirror, args.handle);
       if (!existing) return { denied: `no product with handle '${args.handle}' in the mirror` };
 
-      if (args.style_id !== undefined) {
-        if (!STYLE_ID_FORMAT.test(args.style_id)) {
-          return {
-            denied:
-              `style_id '${args.style_id}' does not match this shop's own nomenclature — ` +
-              "NN-NN-NNN (2-digit category, 2-digit subcategory, 3-digit item number), e.g. \"01-04-001\".",
-          };
-        }
-        /* mirror_style_id_ledger, not just mirror_product's own current
-           column — the owner's own words: "we want that style number to be
-           held, so that you don't overwrite that style number and reuse it
-           for something else." Excludes THIS product's own id, not its
-           handle: re-affirming the style_id it already holds (the ledger
-           row it wrote the first time it got one) is not a conflict with
-           itself. */
-        const conflict = await t.db.catalog_mirror
-          .prepare(
-            "SELECT mp.handle FROM mirror_style_id_ledger l JOIN mirror_product mp ON mp.id = l.product_id" +
-              " WHERE l.style_id = ? AND l.product_id != ?",
-          )
-          .bind(args.style_id, existing.id)
-          .first();
-        if (conflict) {
-          return {
-            denied: `style_id '${args.style_id}' is already assigned to '${conflict.handle}' — style IDs are unique, one per product, and never reused once given out`,
-          };
-        }
+      if (args.style_id !== undefined && !STYLE_ID_FORMAT.test(args.style_id)) {
+        return {
+          denied:
+            `style_id '${args.style_id}' does not match this shop's own nomenclature — ` +
+            "NN-NN-NNN (2-digit category, 2-digit subcategory, 3-digit item number), e.g. \"01-04-001\".",
+        };
       }
+      /* resolveStyleId's own header comment — excludeProductId so
+         re-affirming the style_id this product already holds (its own
+         ledger row from the first time it got one) is never treated as a
+         conflict with itself. No categoryId here: an edit never
+         auto-GENERATES one from scratch, only bumps an explicit conflict
+         — "never generated" still holds for every other field this call
+         did not actually name. */
+      const { styleId: resolvedStyleId, note: styleIdNote } = await resolveStyleId(t.db.catalog_mirror, {
+        given: args.style_id,
+        excludeProductId: existing.id,
+      });
 
       const resultingVendor = args.clear_vendor ? null : args.vendor !== undefined ? args.vendor : existing.vendor;
       const needsVendor = ["commission", "vendor_code", "unit_cost_minor"].filter((k) => args[k] !== undefined);
@@ -1849,7 +1887,7 @@ export const catalogWriteTools = {
         }
       }
 
-      const resultingStyleId = args.style_id !== undefined ? args.style_id : existing.style_id;
+      const resultingStyleId = resolvedStyleId !== undefined ? resolvedStyleId : existing.style_id;
       /* A vendor actually CHANGING here (even to a different name) adopts
          THAT vendor's own on-file rate when no fresh commission comes
          along with it — check() above already refused this call if
@@ -1882,7 +1920,7 @@ export const catalogWriteTools = {
       }
 
       const changes = [
-        args.style_id !== undefined ? `style_id -> ${args.style_id}` : null,
+        resolvedStyleId !== undefined ? `style_id -> ${resolvedStyleId}${styleIdNote ? ` (${styleIdNote})` : ""}` : null,
         args.vendor !== undefined ? `vendor -> ${args.vendor}` : null,
         args.clear_vendor ? "vendor -> (none)" : null,
         args.vendor_code !== undefined ? `vendor_code -> ${args.vendor_code}` : null,
@@ -1894,7 +1932,7 @@ export const catalogWriteTools = {
       return {
         ok: true,
         summary: `set "${existing.title}" (${args.handle}): ${changes}`,
-        preflight: { existing },
+        preflight: { existing, styleId: resolvedStyleId },
       };
     },
     async run(args, t) {
@@ -1907,7 +1945,7 @@ export const catalogWriteTools = {
          "resend the whole thing" fallback reads as "keep this product's
          current category," never as "clear it" (P0-138's own bug fix). */
       const derivedCategoryId =
-        args.style_id !== undefined ? await deriveCategoryIdForStyleId(t.db.catalog_mirror, args.style_id) : undefined;
+        t.preflight.styleId !== undefined ? await deriveCategoryIdForStyleId(t.db.catalog_mirror, t.preflight.styleId) : undefined;
       /* "We store it in essential locations per vendor so that their
          commission is recorded in a central location and automatically
          applied" — the owner's own words. An explicit commission always
@@ -1932,7 +1970,7 @@ export const catalogWriteTools = {
          name. */
       const out = await t.square.updateProduct({
         handle: args.handle,
-        styleId: args.style_id,
+        styleId: t.preflight.styleId,
         vendor: args.clear_vendor ? "" : args.vendor,
         vendorCode: args.vendor_code,
         unitCostMinor: args.unit_cost_minor,
