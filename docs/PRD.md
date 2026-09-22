@@ -6030,6 +6030,16 @@ that does not trace to one of these is a process failure (see §12).
     never actually given one of its own to replace it. Restored directly onto `.variant-group-header`,
     so each color header reads with the identical 1px outline it always had.
 
+    REVISED A FIFTH TIME, caught live: "I'm clicking the add product button and nothing is happening.
+    It's not controlling the inventory." The grid redesign (REVISED AGAIN, above) moved each size's own
+    stepper out of a flat `.row` and into its own `.variant-size-cell`, but `stepStock` (`views.js`)
+    still only ever did `button.closest(".row")` to find its own count field and sibling buttons. Inside
+    a grid cell that search came back `null`, so the very next line (`row.nextElementSibling`) threw
+    immediately and the click did nothing at all — never posted the `/inventory` delta, never even
+    showed an error, exactly the silent-nothing the owner described. Fixed by widening the walk-up to
+    `button.closest(".row, .variant-size-cell")`, so a stepper works identically in the flat list and
+    inside a grouped grid cell alike; no other stepper behavior changed.
+
 82. **`Test-PRD-P0-148-auto_generate_variations`** — The owner's own words, on discovering the earlier
     P0-144 behavior was item-level only: "I expect the black dress to have these variations
     auto-assigned because I assigned the sets to its parent category." Asked directly and confirmed:

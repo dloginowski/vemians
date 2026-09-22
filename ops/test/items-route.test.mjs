@@ -1740,6 +1740,23 @@ check("test_PRD_P0_147_variants_grid__opening_one_color_group_closes_every_other
   );
 });
 
+check("test_PRD_P0_147_variants_grid__the_plus_and_minus_steppers_still_work_inside_a_grid_cell", async () => {
+  /* "I'm clicking the add product button and nothing is happening. It's
+     not controlling the inventory." — caught live: the grid redesign
+     (above) moved each size's stepper out of a `.row` and into its own
+     `.variant-size-cell`, but stepStock() still only ever walked up to
+     `.closest(".row")` to find its own count field and sibling buttons.
+     Inside a grid cell that search came back null, so `row.nextElementSibling`
+     threw immediately and the click silently did nothing at all —
+     never posted the inventory delta, never showed an error either. */
+  const body = await (await get("/items", MANAGER, env(mirrorDb()))).text();
+  assert.match(
+    body,
+    /const row = button\.closest\(".row, \.variant-size-cell"\);/,
+    "stepStock must walk up to either a flat .row or a grid .variant-size-cell, never just the first",
+  );
+});
+
 check("test_PRD_P0_147_variants_grid__a_single_dimension_or_none_keeps_the_flat_list", async () => {
   /* seedProduct's own single "One size" variation carries no options at
      all — zero dimensions, so the nested groups must not even try to
