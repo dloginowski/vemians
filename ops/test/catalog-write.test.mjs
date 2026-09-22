@@ -153,6 +153,7 @@ const jsonRes = (body, status = 200) =>
 function fakeSquare(seed = SEED, { vendors = [], failSearch = false, failUpsert = null } = {}) {
   const objects = new Map(seed.map((o) => [o.id, structuredClone(o)]));
   const vendorObjects = new Map(vendors.map((v) => [v.id, structuredClone(v)]));
+  const inventoryCounts = new Map();
   const calls = [];
   let seq = 0;
   const mint = (prefix) => `${prefix}_${(seq += 1)}`;
@@ -298,6 +299,32 @@ function fakeSquare(seed = SEED, { vendors = [], failSearch = false, failUpsert 
       const vendor = { id, name: body.vendor?.name ?? "", status: "ACTIVE", version: 1 };
       vendorObjects.set(id, vendor);
       return jsonRes({ vendor });
+    }
+
+    /* Just enough of the inventory API for catalog.create_product's own
+       initial-quantity push (VARIATION_WITH_OPTIONS' own `quantity`,
+       catalog-write.js) to round-trip — the same two calls
+       inventory.adjust's own run() makes (push, then pull to sync). */
+    if (p === "/v2/inventory/changes/batch-create") {
+      const body = JSON.parse(init.body);
+      record.body = body;
+      for (const c of body.changes ?? []) {
+        if (c.type !== "PHYSICAL_COUNT") continue;
+        inventoryCounts.set(c.physical_count.catalog_object_id, Number(c.physical_count.quantity));
+      }
+      return jsonRes({ counts: [] });
+    }
+    if (p === "/v2/inventory/changes/batch-retrieve") {
+      const body = JSON.parse(init.body);
+      record.body = body;
+      const ids = body.catalog_object_ids ?? [];
+      const changes = ids
+        .filter((id) => inventoryCounts.has(id))
+        .map((id, i) => ({
+          type: "PHYSICAL_COUNT",
+          physical_count: { id: `PC_${i}`, catalog_object_id: id, quantity: String(inventoryCounts.get(id)) },
+        }));
+      return jsonRes({ changes });
     }
 
     return jsonRes({ errors: [{ category: "INVALID_REQUEST_ERROR", code: "NOT_FOUND" }] }, 404);
@@ -554,8 +581,9 @@ check("test_PRD_P0_60_spreadsheet_products__a_bad_row_is_reported_with_why_not_s
   assert.equal(result.skipped.length, 3);
   /* A blank title is no longer the reason this row is skipped — it now
      gets an auto-generated one and fails on the next real gap instead
-     (no style ID column at all in this sheet). */
-  assert.match(result.skipped[0].reason, /no style id/i);
+     (no vendor and no unit cost anywhere in this sheet; style ID is no
+     longer required at all, REVISED — see P0-31's own entry). */
+  assert.match(result.skipped[0].reason, /no vendor and no unit cost/i);
   assert.match(result.skipped[1].reason, /"Millinery" does not exist/);
   assert.match(result.skipped[2].reason, /"free" is not a plain number/);
   /* Rows are 1-based and counted past the header, so a person can find row 2
@@ -579,6 +607,70 @@ check("test_PRD_P0_145_auto_generated_title__a_blank_title_is_auto_generated_fro
      rows pick up where it left off rather than starting back at 1. */
   assert.equal(result.ready[0].title, "Outerwear 2");
   assert.equal(result.ready[1].title, "Outerwear 3");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-31/P0-136 (REVISED) — "Generate a generic name from subcategory
+ * name... when quantity not specified use 1... category and subcategory
+ * is style id and vice versa... categories/subcategories should be made
+ * if missing" — the owner's own words, on ingesting a spreadsheet with
+ * data missing. The last of these (auto-CREATING a missing category) is
+ * a separate, larger decision, still pending; these three are not.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_31_inventory_ledger__a_spreadsheet_row_with_no_quantity_column_defaults_to_1", async () => {
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const csv = "title,category,price,style id,cost\n" + `Wool Coat,${outerwear.name},450.00,01-04-001,210.00\n`;
+
+  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.match(result.ready[0].summary, /Wool Coat: 1 in stock/, "no quantity column at all -- defaults to 1, never left blank");
+});
+
+check("test_PRD_P0_31_inventory_ledger__a_spreadsheet_quantity_column_is_honored_when_given", async () => {
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const csv = "title,category,price,style id,cost,quantity\n" + `Wool Coat,${outerwear.name},450.00,01-04-001,210.00,12\n`;
+
+  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.match(result.ready[0].summary, /Wool Coat: 12 in stock/);
+});
+
+check("test_PRD_P0_31_inventory_ledger__a_spreadsheet_quantity_that_does_not_parse_is_flagged", async () => {
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const csv = "title,category,price,style id,cost,quantity\n" + `Wool Coat,${outerwear.name},450.00,01-04-001,210.00,a dozen\n`;
+
+  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  assert.equal(result.ready.length, 0);
+  assert.match(result.skipped[0].reason, /quantity "a dozen" is not a plain whole number/);
+});
+
+check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_derives_its_category_from_a_given_style_id_alone", async () => {
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  await approvedCall(f, "catalog.set_category_number", { category_id: outerwear.id, numeric_id: "01" });
+  const casual = (await approvedCall(f, "catalog.create_category", { name: "Casual", parent_id: outerwear.id, reason: "test" })).data
+    .category;
+  await approvedCall(f, "catalog.set_category_number", { category_id: casual.id, numeric_id: "04" });
+
+  /* No category column at all -- only a style ID, resolving to Casual the
+     same way an edit's own style_id already does. */
+  const csv = "title,price,style id,cost\n" + "Bomber Jacket,300.00,01-04-001,150.00\n";
+  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.match(result.ready[0].summary, /in Casual/, "the category came from the style ID alone, no category column given");
+});
+
+check("test_PRD_P0_145_auto_generated_title__a_row_with_neither_category_nor_style_id_is_still_created_unassigned", async () => {
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const csv = "title,price,cost\n" + ",300.00,150.00\n";
+  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.ready[0].title, "Item 1", "no category and no derivable style ID -- a generic, still-numbered title");
+  assert.match(result.ready[0].summary, /with no category/);
 });
 
 check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_vendor_with_no_commission_is_parked_when_the_vendor_already_has_one_on_file", async () => {
@@ -714,16 +806,20 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_commission_that_i
   assert.match(result.skipped[0].reason, /commission "twenty" is not a plain whole number/);
 });
 
-check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_no_style_id_is_flagged", async () => {
-  /* "We always need to have a style ID" — the owner's own words, walked
-     through a final time. */
+check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_no_style_id_is_no_longer_flagged", async () => {
+  /* REVISED: "category and subcategory is style id and vice versa" — the
+     owner's own words. A row naming a real category but no style ID at
+     all is no longer a skip — it goes through with no style_id given
+     (create_product's own resolveStyleId leaves it unassigned when the
+     category itself has no numeric_id yet, exactly as it already
+     tolerates on its own). */
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   const csv = "title,category,price,cost\n" + `Wool Coat,${outerwear.name},450.00,210.00\n`;
 
   const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
-  assert.equal(result.ready.length, 0);
-  assert.match(result.skipped[0].reason, /no style ID column, or it was empty/);
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.ready.length, 1);
 });
 
 check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_no_vendor_and_no_unit_cost_is_flagged", async () => {
@@ -3829,6 +3925,72 @@ check("test_PRD_P0_148_auto_generate_variations__an_existing_untouched_variation
   }
 });
 
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-31 (REVISED) — "Generate a generic name from subcategory name... when
+ * quantity not specified use 1" — the owner's own words, on spreadsheet
+ * ingestion, finally building what create_product's own describe() text
+ * had promised all along: `variations[].quantity`, set as part of THIS
+ * SAME approved write, never a second inventory.adjust approval.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_31_inventory_ledger__create_product_sets_initial_stock_when_a_quantity_is_given", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+
+  const created = await approvedCall(f, "catalog.create_product", {
+    title: "Cotton Robe",
+    category_id: outerwear.id,
+    variations: [
+      { title: "S", price_minor: 6000, currency: "USD", quantity: 5 },
+      { title: "M", price_minor: 6000, currency: "USD" },
+    ],
+  });
+  assert.equal(created.ok, true, created.error);
+
+  const variants = f.mirror("SELECT title, external_ref FROM mirror_variant WHERE product_id = ?", created.data.product.id);
+  const s = variants.find((v) => v.title === "S");
+  const m = variants.find((v) => v.title === "M");
+
+  const push = f.calls().find((c) => c.path === "/v2/inventory/changes/batch-create");
+  assert.ok(push, "a variation given a quantity must push a real Square inventory count");
+  const change = push.body.changes.find((c) => c.physical_count.catalog_object_id === s.external_ref);
+  assert.equal(change.physical_count.quantity, "5", "the exact quantity given, as Square's own string-encoded count");
+  assert.ok(
+    !push.body.changes.some((c) => c.physical_count.catalog_object_id === m.external_ref),
+    "a variation given NO quantity must never be pushed at all -- omitted means 'unknown', not zero",
+  );
+});
+
+check("test_PRD_P0_31_inventory_ledger__no_quantity_given_at_all_pushes_no_inventory_call", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const before = f.calls().length;
+
+  const created = await approvedCall(f, "catalog.create_product", {
+    title: "Cotton Robe",
+    category_id: outerwear.id,
+    variations: [{ title: "One size", price_minor: 6000, currency: "USD" }],
+  });
+  assert.equal(created.ok, true, created.error);
+  assert.ok(
+    !f.calls().some((c) => c.path === "/v2/inventory/changes/batch-create"),
+    "no variation named a quantity -- there is nothing to push",
+  );
+  assert.ok(f.calls().length > before, "sanity: the product itself still wrote to Square");
+});
+
+check("test_PRD_P0_31_inventory_ledger__a_negative_or_fractional_quantity_is_refused", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const res = await runTool(
+    "catalog.create_product",
+    { title: "Cotton Robe", category_id: outerwear.id, variations: [{ title: "One size", price_minor: 6000, currency: "USD", quantity: -1 }] },
+    { actor: "mara@vemians.com", role: "manager", env: f.env },
+  );
+  assert.equal(res.ok, false);
+  assert.match(res.error, /quantity '-1' must be a non-negative whole number/);
+});
+
 check("test_PRD_P0_148_auto_generate_variations__catalog_create_product_generates_a_sku_when_none_is_given_and_keeps_an_explicit_one_verbatim", async () => {
   const f = await fixture();
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
@@ -5282,7 +5444,7 @@ check("test_PRD_P0_88_spreadsheet_via_chat__a_real_csv_drafts_through_the_same_p
   assert.match(outcome.block.content, /1 products ready, 1 skipped/);
   assert.match(outcome.block.content, /Wool Coat/);
   assert.match(outcome.block.content, /https?:\/\/\S+\/approvals\//, "a real approval link, not a placeholder");
-  assert.match(outcome.block.content, /no style id column/i, "the skipped row's own reason must be relayed");
+  assert.match(outcome.block.content, /no vendor and no unit cost/i, "the skipped row's own reason must be relayed");
 });
 
 check("test_PRD_P0_88_spreadsheet_via_chat__too_many_rows_reports_the_cap_not_a_partial_draft", async () => {
@@ -5345,7 +5507,7 @@ check("test_PRD_P0_89_batch_preview_confirm__previews_the_first_rows_and_heading
      sample row now (PREVIEW_SAMPLE_ROWS, batch.js) — "just... one, two
      rows, one for the headings and one row of data" — even though the
      sheet itself has two. */
-  assert.deepEqual(outcome.table.columns, ["title", "category", "price", "currency", "description", "sku", "style_id", "vendor", "vendor_code", "commission", "size", "color"]);
+  assert.deepEqual(outcome.table.columns, ["title", "category", "price", "currency", "description", "sku", "style_id", "vendor", "vendor_code", "commission", "quantity", "size", "color"]);
   assert.equal(outcome.table.rows.length, 1, "only the first row is sampled");
   const titleCol = outcome.table.columns.indexOf("title");
   assert.equal(outcome.table.rows[0][titleCol], "Wool Coat");
@@ -5445,7 +5607,7 @@ check("test_PRD_P0_89_batch_preview_confirm__the_draft_tools_carry_a_structured_
   const ready = outcome.table.rows.find((r) => r[2] === "ready");
   assert.equal(ready[1], "Wool Coat");
   const skipped = outcome.table.rows.find((r) => r[2] === "skipped");
-  assert.match(skipped[3], /no style id column/i);
+  assert.match(skipped[3], /no vendor and no unit cost/i);
 });
 
 check("test_PRD_P0_89_batch_preview_confirm__too_many_rows_carries_no_table_only_the_cap_message", async () => {

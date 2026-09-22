@@ -417,6 +417,9 @@ export function validateProposal({ title, description, variations }) {
       if (seenSku.has(sku)) problems.push(`${where}: SKU '${sku}' is used twice in this product`);
       seenSku.add(sku);
     }
+    if (v?.quantity !== undefined && (!Number.isInteger(v.quantity) || v.quantity < 0)) {
+      problems.push(`${where}: quantity '${v.quantity}' must be a non-negative whole number`);
+    }
   }
 
   return problems;
@@ -494,6 +497,20 @@ const VARIATION_WITH_OPTIONS = {
       keyMaxLength: CAPS.CATALOG_OPTION_NAME_MAX,
       valueMaxLength: CAPS.CATALOG_OPTION_VALUE_MAX,
     },
+    /* "Quantity is not required at all: when nothing is known, assume 1
+       and adjust it later" — this describe()'s own long-standing words,
+       finally actually built: an initial count, set as part of THIS SAME
+       approved write (a real Square inventory push, run() below) rather
+       than a separate inventory.adjust approval — there is no existing
+       count to protect yet, so there is nothing a second approval would
+       be guarding against. Undefined leaves the variation at Square's own
+       default (0, until someone counts it); only ever set here, at
+       creation — not on VARIATION_WITH_ID, the same "an edit to an
+       EXISTING variation is a materially different, larger decision"
+       reasoning option_values' own comment gives, one field up: restocking
+       an existing variation is inventory.adjust's own job, never a silent
+       side effect of an unrelated edit. */
+    quantity: { type: "integer" },
   },
 };
 
@@ -799,10 +816,13 @@ export const catalogWriteTools = {
       "bare top-level category or an un-numbered one, which still leaves the product with no style_id, " +
       "the same as giving neither. Prices are integer MINOR units, currency \"USD\" — this shop " +
       "trades in nothing else, so pass it without asking. A product with no real size/color options " +
-      "still needs one variation, conventionally titled \"One size\"; VARIATION carries no quantity of " +
-      "its own — set initial stock with inventory.adjust, by variant_id, once this call returns one. " +
-      "Quantity is not required at all: when nothing is known, assume 1 and adjust it later, rather " +
-      "than asking a person to state the obvious or blocking the item's creation on it. " +
+      "still needs one variation, conventionally titled \"One size\". `variations[].quantity`, when " +
+      "given, sets that variation's OWN initial stock as part of this same write — a real Square " +
+      "inventory push, not a separate inventory.adjust approval, since there is no existing count yet " +
+      "for a second approval to protect. It is NOT required at all: when nothing is known, assume 1 " +
+      "rather than asking a person to state the obvious or blocking the item's creation on it — omit " +
+      "it entirely only when you genuinely have no idea, since omitting it leaves the variation at " +
+      "zero until inventory.adjust (by variant_id, once this call returns one) sets a real count later. " +
       "This is a T2 write: it executes only after a human approves it. `custom_fields` is OURS, not " +
       "Square's: any field name -> string value we track that Square has no concept of at all (unit " +
       "cost, a spreadsheet column with no home elsewhere). It never reaches Square — it is written to " +
@@ -824,7 +844,9 @@ export const catalogWriteTools = {
       "is never refused outright — it bumps to the next unused index under that same category/" +
       "subcategory pair instead, and the summary says so before anyone approves it. This call itself " +
       "still requires `title` — INGESTING A BATCH (e.g. from a " +
-      "spreadsheet): every row needs style_id and MSRP (variations[].price_minor); quantity, when a " +
+      "spreadsheet): every row needs MSRP (variations[].price_minor); style_id is no longer required " +
+      "at all — give one, or let it auto-generate from whichever category the row lands on (above), " +
+      "or leave the row unassigned entirely if neither resolves. quantity, when a " +
       "row does not give one, defaults to 1 rather than blocking the row — adjust it afterward via " +
       "inventory.adjust if the real count differs. A row with no title is not blocked either: name it " +
       "\"<category name> <n>\", n being 1 past however many products already sit in that category, " +
@@ -952,9 +974,13 @@ export const catalogWriteTools = {
           ? "in whichever category/subcategory's own numeric_id matches its style_id, or unassigned if none does yet"
           : "with no category";
       const styleIdNote = resolved.note ? ` (${resolved.note})` : "";
+      const withQuantity = args.variations.filter((v) => v.quantity !== undefined);
+      const stockNote = withQuantity.length
+        ? " — " + withQuantity.map((v) => `${v.title}: ${v.quantity} in stock`).join(", ")
+        : "";
       return {
         ok: true,
-        summary: `create "${args.title}" ${categoryNote} — ${args.variations.length} variation(s): ${total}${styleIdNote}`,
+        summary: `create "${args.title}" ${categoryNote} — ${args.variations.length} variation(s): ${total}${styleIdNote}${stockNote}`,
         preflight: { category: chosen, images: media.found, styleId: resolved.styleId },
       };
     },
@@ -1034,6 +1060,37 @@ export const catalogWriteTools = {
           .prepare("UPDATE mirror_vendor SET commission_pct = ? WHERE name = ? COLLATE NOCASE")
           .bind(args.commission, args.vendor)
           .run();
+      }
+
+      /* "Quantity is not required at all: when nothing is known, assume 1
+         and adjust it later" — VARIATION_WITH_OPTIONS' own comment. Set as
+         part of THIS SAME approved write, a real Square inventory push
+         (ADR-009's authority for stock, same as inventory.adjust's own),
+         never a second inventory.adjust approval: there is no existing
+         count here for a second approval to protect against overwriting.
+         Index-aligned with args.variations by ordinal — Square assigns
+         ordinals by array position when none is given explicitly
+         (itemData(), catalog-writer.js), the same order this call sent. */
+      const withQuantity = args.variations
+        .map((v, i) => ({ quantity: v.quantity, ordinal: i }))
+        .filter((v) => v.quantity !== undefined);
+      if (out.product?.id && withQuantity.length) {
+        const variantRows = await t.db.catalog_mirror
+          .prepare("SELECT external_ref, ordinal FROM mirror_variant_index WHERE product_id = ? ORDER BY ordinal")
+          .bind(out.product.id)
+          .all();
+        const byOrdinal = new Map((variantRows.results ?? []).map((v) => [v.ordinal, v.external_ref]));
+        const changes = withQuantity
+          .map((v) => ({ externalRef: byOrdinal.get(v.ordinal), onHand: v.quantity }))
+          .filter((c) => c.externalRef);
+        if (changes.length) {
+          await t.square.adapter.pushInventory(changes);
+          try {
+            await t.square.adapter.pullInventory({ catalogObjectIds: changes.map((c) => c.externalRef) });
+          } catch (err) {
+            console.error(`ERROR catalog.create_product: immediate post-write inventory sync failed, cron will reconcile — ${err.message}`);
+          }
+        }
       }
 
       return {

@@ -855,6 +855,22 @@ that does not trace to one of these is a process failure (see §12).
     **REVISED: `vendor_code` centered too.** "Center the vendor SKU content too" — extending the
     centering cost/MSRP/style_id already got to this field as well.
 
+    **REVISED: `catalog.create_product` can now set a variation's own initial stock directly, as
+    part of the SAME approved write.** The owner's own words, on spreadsheet ingestion: "when
+    quantity not specified use 1." `variations[].quantity` (`VARIATION_WITH_OPTIONS`,
+    `catalog-write.js`) is a real, optional argument now — `run()` pushes it to Square
+    (`t.square.adapter.pushInventory`, index-aligned with `args.variations` by ordinal, the same
+    order Square itself assigns one to when none is given explicitly) and best-effort syncs it back
+    immediately, the identical push-then-pull shape `inventory.adjust`'s own `run()` already uses.
+    Deliberately NOT a second `inventory.adjust` approval: there is no EXISTING count on a
+    brand-new variation for a second approval to protect against overwriting, so folding it into
+    the one approval a manager already reviews is the honest, no-extra-friction shape — the
+    approval summary lists exactly what will be in stock (`"Wool Coat: 1 in stock"`) before anyone
+    says yes. Omitted entirely, a variation is left exactly as before this feature: at zero, until
+    `inventory.adjust` sets a real count later. Only ever at creation (`VARIATION_WITH_ID`, the
+    update-time shape, still refuses this field outright — restocking an EXISTING variation stays
+    `inventory.adjust`'s own job, never a silent side effect of an unrelated edit).
+
 31. **`Test-PRD-P0-32-tickets`** — Company-wide issues live in their own `tickets` store. A ticket
     cannot be deleted, only moved through status, and resolving one requires a timestamp.
     Comments are append-only. Links to orders, customers, products and shifts are id plus a
@@ -4617,6 +4633,24 @@ that does not trace to one of these is a process failure (see §12).
     silent substitution. The resolved value is computed once in `check()` and carried through
     `t.preflight.styleId` into `run()` within that same approved call, rather than recomputed
     independently, so what gets written always matches what the approval preview showed.
+
+    **REVISED, once the owner asked the same thing of a SPREADSHEET row, not just a chat-drafted
+    product:** "category and subcategory is style id and vice versa... even when data is missing."
+    `draftProductBatch` (`batch.js`) no longer hard-requires a style ID column at all (it used to
+    skip a row outright with none) — a row still keeps a GIVEN one verbatim, but one with none at
+    all now tries `deriveCategoryIdForStyleId` in the OTHER direction too: a row naming no category
+    column, but a style ID whose digits match a real category/subcategory, resolves its category
+    from that alone. Either way, `catalog.create_product`'s own `resolveStyleId` (above) then
+    builds a style_id automatically from whichever category the row actually landed on, the moment
+    that category has a `numeric_id` of its own. A row resolving NEITHER a category name NOR a
+    derivable style_id is no longer a skip either — it goes through genuinely unassigned, the exact
+    same tolerance `catalog.create_product` already extends to a chat-drafted product with neither;
+    `autoTitler`'s own generic-name fallback (`Test-PRD-P0-145-auto_generated_title`) grows its own
+    `"Item"` label and counter for exactly this case, so a fully-unassigned row still gets a
+    distinct, numbered name rather than colliding with every other one like it in the same batch. A
+    category NAME that IS given but matches nothing real is still reported, never silently invented
+    — auto-CREATING a missing category from a spreadsheet is a separate, larger decision (does it
+    write immediately, or park its own approval first?) the owner also asked for, not yet built.
 
 72. **`Test-PRD-P0-137-item_active_toggle`** — The owner's own words, in the same request that moved
     Web and the newly-added Active checkbox beside the item's own name: "move the web and the active
