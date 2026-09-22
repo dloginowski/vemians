@@ -5967,23 +5967,31 @@ that does not trace to one of these is a process failure (see §12).
 81. **`Test-PRD-P0-147-variants_grid`** — The owner's own words: "I want to see those properties also
     listed in the variants dropdown for each item... a whole grid of available size and color
     variations so that I can set their quantities directly out of that variants dropdown." An item
-    whose own variations use EXACTLY two Option Set names (Size/Color, or any other pair) now renders
-    the Items tab's own Variations accordion as a real row/column grid (`variantsGridAxes`/
-    `variantsGridHtml`, `views.js`) instead of the flat list; zero, one, or three-or-more dimensions
-    keeps that flat list, which already reads fine on its own in those cases. Rows and columns are
-    ordered the same way `listItemOptions` already orders every other reader of Option Sets
-    (alphabetically by the option's own name, deciding which dimension is rows vs. columns), and each
-    axis's own values are ordered by Square's own ordinal (S/M/L, never alphabetical L/M/S) —
+    whose own variations use EXACTLY two Option Set names (Size/Color, or any other pair) renders the
+    Items tab's own Variations accordion differently from the flat list; zero, one, or three-or-more
+    dimensions keeps that flat list, which already reads fine on its own in those cases. The two
+    dimensions are ordered the same way `listItemOptions` already orders every other reader of Option
+    Sets (alphabetically by the option's own name, deciding which is the OUTER/COLS dimension), and
+    each axis's own values are ordered by Square's own ordinal (S/M/L, never alphabetical L/M/S) —
     `mirror_variant.options`, already mirrored (P0-143) but previously read by nothing in `ops/`, is
     now read by `listAllProducts`'s own variant query and parsed once. Two decisions asked of the
-    owner directly rather than guessed: EXISTING SKUS ONLY — a Size/Color pairing with no real Square
-    variation is a blank cell (`variants-grid-empty`), never a cell that would create one on the spot
-    (this stays consistent with the earlier "variations are configured in Square, never here"
-    decision); and EVERY EXISTING VARIATION REGARDLESS OF STOCK — a sold-out combination still gets
-    its own row/column so it can be restocked from the grid, rather than disappearing at zero. Each
-    populated cell reuses the exact same stock stepper (`stockStepper`, factored out of the flat
-    list) the Variants panel has always had (P0-31) — no new write path, no new endpoint; only the
-    layout is new.
+    owner directly rather than guessed: EXISTING SKUS ONLY — a combination with no real Square
+    variation simply does not appear, never one that would create it on the spot (this stays
+    consistent with the earlier "variations are configured in Square, never here" decision); and EVERY
+    EXISTING VARIATION REGARDLESS OF STOCK — a sold-out combination still appears so it can be
+    restocked, rather than disappearing at zero.
+
+    REVISED, after actually seeing the first version (a flat spreadsheet-style table): "I want to see
+    two headers, expandable, just like you had before, and one for each color. I need to be able to
+    expand them, and I need to see individual sizes for them that I can change quantity."
+    `variantsGridAxes` (`views.js`) still computes the two ordered axes exactly as before; only the
+    RENDERING (`variantsGroupedAccordionHtml`, replacing the original `variantsGridHtml` table) changed
+    — one collapsed, expandable `.variant-group` per OUTER-axis value (Color, typically), each expanding
+    to list its own INNER-axis values (Size) as plain rows, one level nested inside the existing
+    top-level "Variations" accordion, using the identical toggle-chevron/`.expanded` mechanics. Each
+    populated row reuses the exact same stock stepper (`stockStepper`, factored out of the flat list)
+    the Variants panel has always had (P0-31) — no new write path, no new endpoint; only the layout is
+    new, twice now.
 
 82. **`Test-PRD-P0-148-auto_generate_variations`** — The owner's own words, on discovering the earlier
     P0-144 behavior was item-level only: "I expect the black dress to have these variations
