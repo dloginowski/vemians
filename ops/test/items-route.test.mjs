@@ -1699,6 +1699,23 @@ check("test_PRD_P0_147_variants_grid__two_dimensions_skip_the_outer_variations_a
   assert.doesNotMatch(between, /variations-accordion/, "the two-dimension case must never render the outer Variations accordion at all");
 });
 
+check("test_PRD_P0_147_variants_grid__each_color_header_keeps_the_same_one_pixel_outline_the_old_wrapper_had", async () => {
+  /* "Keep the same styling, it needs to be an outline, the container
+     needs a border of one pixel, just like you had it before, why'd
+     you get rid of it?" — caught live: removing the outer Variations
+     wrapper (above) also silently dropped its own `border: 1px solid
+     var(--rule)`, since .variant-group-header was never given one of
+     its own to replace it. */
+  const mirror = mirrorDb();
+  seedGridProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.match(
+    body,
+    /\.variant-group-header \{\s*\n\s*display: flex; align-items: center; gap: 6px; cursor: pointer;\s*\n\s*background: var\(--image-ground\); border: 1px solid var\(--rule\); border-radius: 6px; padding: 4px;\s*\n\s*\}/,
+    "each color header must carry its own 1px outline, the same var(--rule) border every other accordion header in this file already uses",
+  );
+});
+
 check("test_PRD_P0_147_variants_grid__sizes_render_as_a_wrapping_grid_of_cells_not_one_row_each", async () => {
   const mirror = mirrorDb();
   seedGridProduct(mirror);
