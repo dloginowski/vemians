@@ -3528,6 +3528,45 @@ check("test_PRD_P0_144_apply_category_item_options__a_title_that_matches_no_valu
   }
 });
 
+check("test_PRD_P0_144_apply_category_item_options__product_title_matching_requires_a_whole_word_never_a_bare_substring", async () => {
+  /* The real bug, caught live testing this exact fix before it ever
+     shipped: a naive `.includes()` against the PRODUCT's own title
+     matched the single letter "S" buried inside "dres`s`" in "Black
+     Dress" itself, silently mis-tagging an existing variation as Size=S
+     when its own title ("One size") never said any such thing. "Best
+     Seller Vest" carries "s" and "t" scattered all over it but never as
+     its own standalone word "S" -- nothing here for the fallback to
+     find. */
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  seedItemOptionInSquare(f, {
+    externalRef: "SQ_OPT_SIZE",
+    name: "Size",
+    values: [{ externalRef: "SQ_OPTVAL_S", name: "S" }, { externalRef: "SQ_OPTVAL_M", name: "M" }],
+  });
+  await f.writer.adapter.pullCatalog({ full: true });
+  const size = f.mirror("SELECT id FROM mirror_item_option WHERE external_ref = 'SQ_OPT_SIZE'")[0];
+  await approvedCall(f, "catalog.set_category_item_options", { category_id: outerwear.id, item_option_ids: [size.id], reason: "test" });
+
+  const created = await approvedCall(f, "catalog.create_product", {
+    title: "Best Seller Vest",
+    category_id: outerwear.id,
+    variations: [{ title: "One size", price_minor: 5000, currency: "USD" }],
+  });
+  assert.equal(created.ok, true, created.error);
+
+  const res = await approvedCall(f, "catalog.apply_category_item_options_to_products", { category_id: outerwear.id, reason: "test" });
+  assert.equal(res.ok, true, res.error);
+
+  const itemUpsert = f
+    .calls()
+    .filter((c) => c.path === "/v2/catalog/object" && c.upsert === "ITEM" && c.body.object.item_data.name === "Best Seller Vest")
+    .pop();
+  const oneSize = itemUpsert.body.object.item_data.variations.find((v) => v.item_variation_data.name === "One size");
+  assert.ok(oneSize);
+  assert.deepEqual(oneSize.item_variation_data.item_option_values ?? [], [], "S is not a whole word in Best Seller Vest -- must never be guessed at from a bare substring");
+});
+
 check("test_PRD_P0_144_apply_category_item_options__applies_an_inherited_set_not_only_an_explicit_one", async () => {
   const f = await fixture();
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
