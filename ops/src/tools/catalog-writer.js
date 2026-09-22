@@ -69,6 +69,17 @@ export async function categoryItemOptionsSetAt(db, categoryId) {
   return (await db.prepare("SELECT item_options_set_at FROM mirror_category_index WHERE id = ?").bind(categoryId).first("item_options_set_at")) ?? null;
 }
 
+/* Every category with its OWN explicit option-set list (never mind what
+   is IN it — even an explicit empty one counts) — the Admin panel's own
+   "Inherit" checkbox needs this for every row at once, the same
+   advance-knowledge role categoryProductCounts/categoryItemOptionIds
+   already play elsewhere on this same page. A Set, not a Map: this is a
+   plain yes/no per category, nothing more to carry. */
+export async function categoryExplicitIds(db) {
+  const res = await db.prepare("SELECT id FROM mirror_category_index WHERE item_options_set_at IS NOT NULL").bind().all();
+  return new Set((res.results ?? []).map((r) => r.id));
+}
+
 /* How many products currently sit in each category — the Admin panel's own
    remove button needs this to hide itself the same "not reachable, don't
    show it" way it already does for a category that still has subcategories

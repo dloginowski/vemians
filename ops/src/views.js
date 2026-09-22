@@ -2271,6 +2271,7 @@ function renderAdminCategoryNodes(
   categoryProductCountsById = new Map(),
   itemOptions = [],
   categoryItemOptionIdsById = new Map(),
+  categoryExplicitIdsSet = new Set(),
 ) {
   /* "We were never going to go deep into more than one level of
      subcategories, so I should not have a plus button next to any of my
@@ -2328,29 +2329,38 @@ function renderAdminCategoryNodes(
          the same "not reachable, don't show it" rule the remove button
          already follows. */
       const assignedIds = categoryItemOptionIdsById.get(c.id) ?? new Set();
+      /* "There needs to be a separate option called inherit for every
+         item. It should be set by default to inherit. I should be able
+         to disable the inherit button, and then specify specific
+         categories at that point. Once inherit is checked, I don't see
+         any options — they're grayed out and disabled. But if I disable
+         inherit, I can now adjust" — the owner's own words: an explicit
+         control for the SAME inherit-vs-explicit fact this codebase has
+         tracked since P0-142 (mirror_category.item_options_set_at), never
+         surfaced as its own toggle before now — a person had no way to
+         tell "this shows Outerwear's own set because it's inheriting" apart
+         from "this shows it because I explicitly picked the same one," and
+         no way to go BACK to inheriting once anything was ever saved
+         explicitly. Unchecking Inherit enables the checkboxes below for a
+         genuinely new explicit choice (adminSetsScript, below, flips
+         `disabled` live); checking it again — and saving — clears that
+         explicit choice entirely via `inherit: true`
+         (catalog.set_category_item_options' own REVISED entry). */
+      const isExplicit = categoryExplicitIdsSet.has(c.id);
       const optionsControl = itemOptions.length
         ? `<div class="admin-category-options">
             <button type="button" class="admin-category-options-toggle${assignedIds.size ? " admin-category-options-toggle-active" : ""}" aria-label="Option sets for ${esc(c.name)}" title="Option sets">Sets${assignedIds.size ? ` (${assignedIds.size})` : ""}</button>
             <form method="post" action="/admin/categories/item-options" class="admin-category-options-menu" hidden>
               <input type="hidden" name="category_id" value="${esc(c.id)}">
+              <label class="admin-category-options-item admin-category-options-inherit">
+                <input type="checkbox" name="inherit" value="1"${isExplicit ? "" : " checked"}> Inherit
+              </label>
               ${itemOptions
                 .map(
                   (o) =>
-                    `<label class="admin-category-options-item"><input type="checkbox" name="item_option_ids" value="${esc(o.id)}"${assignedIds.has(o.id) ? " checked" : ""}> ${esc(o.name)}</label>`,
+                    `<label class="admin-category-options-item"><input type="checkbox" name="item_option_ids" value="${esc(o.id)}"${assignedIds.has(o.id) ? " checked" : ""}${isExplicit ? "" : " disabled"}> ${esc(o.name)}</label>`,
                 )
                 .join("")}
-              <!-- "You have to apply these options manually per item...
-                   I want you to mass apply the options to all of the
-                   items that are part of the category" — the owner's own
-                   words. A real, immediate Square write to every product
-                   already filed here, matching the category's own
-                   CURRENTLY SAVED set (whatever the checkboxes above show
-                   after their own last Save, not whatever is merely
-                   ticked right now) -- so this button lives outside the
-                   Save-all/dirty-tracking flow the checkboxes above use,
-                   the same immediate-action treatment .admin-remove-btn
-                   already gets elsewhere on this page. -->
-              <button type="button" class="admin-category-apply-btn" data-category-id="${esc(c.id)}" title="Also generates any missing Size/Color variation, stock starting at 0">Apply to items</button>
             </form>
           </div>`
         : "";
@@ -2385,7 +2395,7 @@ function renderAdminCategoryNodes(
                 `<span class="admin-category-toggle-spacer"></span>`
           }
         </div>
-        <div class="admin-category-children">${renderAdminCategoryNodes(categories, c.id, categoryProductCountsById, itemOptions, categoryItemOptionIdsById)}</div>
+        <div class="admin-category-children">${renderAdminCategoryNodes(categories, c.id, categoryProductCountsById, itemOptions, categoryItemOptionIdsById, categoryExplicitIdsSet)}</div>
         ${
           isTopLevel
             ? /* "Include all of the buttons that you normally would add...
@@ -3982,7 +3992,16 @@ ${OPS_DARK_CSS}
   flex: 0 0 auto; padding: 4px 8px; font: inherit; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--muted); cursor: pointer;
 }
-.admin-category-options-toggle-active { border-color: var(--accent); color: var(--ink); }
+/* "When I click Apply to items, it stays orange... orange indicates
+   dirty" — the owner's own words. This border used --accent (the SAME
+   orange .field-dirty's own outline uses for a genuinely unsaved
+   change) just to mean "this category has option sets assigned" — a
+   persistent fact, never a pending-save one, so it read as permanently
+   dirty and never actually cleared. The same fix PR #238 already gave
+   Web/Active: a bright --muted border/text instead, a real but
+   non-alarming "this is active" signal — --accent stays reserved for
+   .field-dirty alone. */
+.admin-category-options-toggle-active { border-color: var(--muted); color: var(--ink); }
 .admin-category-options-menu[hidden] { display: none; }
 /* REVISED: "don't open it off screen. Open it to the left because the
    current position of the button is to the right center. Open it to
@@ -4000,17 +4019,14 @@ ${OPS_DARK_CSS}
 }
 .admin-category-options-item { display: flex; align-items: center; gap: 6px; font-size: 12px; padding: 3px 2px; cursor: pointer; }
 .admin-category-options-item input.field-dirty[type="checkbox"] { outline: 1.5px solid var(--accent); outline-offset: 1px; }
-/* "Mass apply the options to all of the items that are part of the
-   category" — a real, immediate action (not a form field bound to
-   Save-all), set apart from the checkbox list above it with its own
-   top border and a full-width look, matching the weight of an action
-   a manager is about to fire across every product in the category. */
-.admin-category-apply-btn {
-  margin-top: 4px; padding-top: 6px; border: none; border-top: 1px solid var(--rule);
-  background: transparent; color: var(--accent); font: inherit; font-size: 12px; font-weight: 600;
-  text-align: left; cursor: pointer;
-}
-.admin-category-apply-btn:disabled { color: var(--muted); cursor: not-allowed; }
+/* "There needs to be a separate option called Inherit... set by default
+   to inherit... once inherit is checked, I don't see any options —
+   they're grayed out and disabled" — the owner's own words. Its own
+   bottom border sets it apart from the plain option checkboxes below.
+   A disabled sibling checkbox already reads as grayed out on its own
+   (the browser's own default styling); nothing extra needed here for
+   that half. */
+.admin-category-options-inherit { margin-bottom: 4px; padding-bottom: 6px; border-bottom: 1px solid var(--rule); font-style: italic; }
 .admin-vendor-row { display: flex; align-items: center; gap: 6px; padding: 4px 0; }
 .admin-vendor-row-name { flex: 1 1 auto; min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
 .admin-vendor-commission-form { display: contents; }
@@ -4053,6 +4069,7 @@ export function adminPage(
   categoryProductCountsById = new Map(),
   allItemOptions = [],
   categoryItemOptionIdsById = new Map(),
+  categoryExplicitIdsSet = new Set(),
 ) {
   return page(
     "Admin — Vemians ops",
@@ -4069,7 +4086,7 @@ export function adminPage(
       <button type="button" class="admin-category-add-toggle" data-parent-id="" aria-label="Add a top-level category" title="Add a category">+</button>
     </div>
     <div class="admin-section-body">
-      ${allCategories.length ? renderAdminCategoryNodes(allCategories, null, categoryProductCountsById, allItemOptions, categoryItemOptionIdsById) : `<p class="item-empty">No categories yet.</p>`}
+      ${allCategories.length ? renderAdminCategoryNodes(allCategories, null, categoryProductCountsById, allItemOptions, categoryItemOptionIdsById, categoryExplicitIdsSet) : `<p class="item-empty">No categories yet.</p>`}
       <!-- "Make sure that the main category add button also generates all
            of the proper fields so that it's perfectly aligned as well,
            just like you did with the subcategories — we need the Sets
@@ -4170,6 +4187,23 @@ function refreshDirtyState(field) {
 }
 document.body.addEventListener("input", (e) => {
   if (e.target.matches("input")) refreshDirtyState(e.target);
+});
+
+/* "Once the inherit is checked... they're grayed out and disabled. But
+   if I disable inherit, I can now adjust" — the owner's own words. The
+   server already renders the correct initial disabled state from
+   categoryExplicitIdsSet; this just keeps the sibling Option Set
+   checkboxes in sync live as the Inherit checkbox itself is toggled in
+   the browser, with no page reload. A disabled checkbox is excluded from
+   FormData automatically, so this is also what keeps a still-inheriting
+   category from ever submitting stale item_option_ids. */
+document.body.addEventListener("change", (e) => {
+  if (!e.target.matches(".admin-category-options-inherit input")) return;
+  const menu = e.target.closest(".admin-category-options-menu");
+  const willInherit = e.target.checked;
+  menu?.querySelectorAll(".admin-category-options-item:not(.admin-category-options-inherit) input").forEach((cb) => {
+    cb.disabled = willInherit;
+  });
 });
 
 /* "As soon as I enter that ID... it should immediately in my browser
@@ -4396,32 +4430,6 @@ document.body.addEventListener("click", async (e) => {
     showFormError(removeBtn, "Could not reach the server — try again.");
   } finally {
     removeBtn.disabled = false;
-  }
-});
-
-/* "I want you to mass apply the options to all of the items that are
-   part of the category" — the owner's own words. Also an immediate,
-   non-batched click, matching the remove button just above: a real
-   Square write to every product in the category, never a field to
-   mark dirty and fold into the next Save-all. */
-document.body.addEventListener("click", async (e) => {
-  const applyBtn = e.target.closest(".admin-category-apply-btn");
-  if (!applyBtn) return;
-  const body = new FormData();
-  body.set("category_id", applyBtn.dataset.categoryId);
-  applyBtn.disabled = true;
-  try {
-    const res = await fetch("/admin/categories/apply-item-options", { method: "POST", body });
-    if (res.ok) {
-      location.reload();
-      return;
-    }
-    const data = await res.json().catch(() => ({}));
-    showFormError(applyBtn, data.error || "That could not be applied.");
-  } catch {
-    showFormError(applyBtn, "Could not reach the server — try again.");
-  } finally {
-    applyBtn.disabled = false;
   }
 });
 

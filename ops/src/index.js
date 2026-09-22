@@ -45,6 +45,7 @@ import {
   variantsOf,
   categoryProductCounts,
   effectiveCategoryItemOptionIds,
+  categoryExplicitIds,
 } from "./tools/catalog-writer.js";
 import { applyFormEdits } from "./approval-forms.js";
 import { syncFromSquare, SYNC_CRON, FREQUENT_CRON } from "./sync.js";
@@ -949,8 +950,24 @@ async function ops(request, env, path) {
          never just its own raw rows (categoryItemOptionIds' own job,
          used only by the tool layer's own read-before-write). */
       const categoryItemOptionIdsById = await effectiveCategoryItemOptionIds(env.CATALOG_MIRROR);
+      /* "I should be able to disable the inherit button, and then specify
+         specific categories" — the owner's own words. Which categories
+         have their OWN explicit set (never mind what's in it) is a
+         separate fact from what is currently in effect above — the
+         "Inherit" checkbox needs to know one is inheriting even when its
+         effective set happens to be non-empty (following a parent's own
+         real set). */
+      const categoryExplicitIdsSet = await categoryExplicitIds(env.CATALOG_MIRROR);
       return html(
-        adminPage(allCategories, allVendors, customFieldNames, categoryProductCountsById, allItemOptions, categoryItemOptionIdsById),
+        adminPage(
+          allCategories,
+          allVendors,
+          customFieldNames,
+          categoryProductCountsById,
+          allItemOptions,
+          categoryItemOptionIdsById,
+          categoryExplicitIdsSet,
+        ),
       );
     }
 
@@ -978,6 +995,21 @@ async function ops(request, env, path) {
        all means a request that did not come from this page's own UI. */
     const suffix = path.slice("/admin".length);
     let toolName, args, summaryNoun;
+    /* "Why even have a separate apply button? Why not just use the save
+       button? Shouldn't it just make the save button dirty and press the
+       save button and apply all the options? That makes more sense" —
+       the owner's own words. Set only by the /categories/item-options
+       branch below; when set, a successful save of a category's own
+       option sets immediately ALSO pushes that (now possibly inherited)
+       effective set to every product in the category's own subtree —
+       catalog.apply_category_item_options_to_products, the same tool
+       the Admin panel's own "Apply to items" button used to fire by
+       itself. A failure here is logged, never surfaced as a failure of
+       the save itself: the category's own Sets change already
+       succeeded and is the primary, always-meaningful action; pushing
+       it to Square is a best-effort follow-up, same as this button's
+       own former silence about a per-product error already was. */
+    let cascadeApplyForCategoryId = null;
     if (suffix === "/categories/create") {
       /* A blank parent_id means a new TOP-LEVEL category; a real one
          nests under it, at whatever depth. */
@@ -1030,25 +1062,25 @@ async function ops(request, env, path) {
          don't want to be adding the same option sets to every single
          category." A full-REPLACE, same as every other checkbox-list this
          panel already sends — the checked boxes ARE the new set, an empty
-         submission means "none". */
+         submission means "none". The "Inherit" checkbox (unchecked to
+         edit the list below at all — views.js's own disabled-while-
+         inheriting checkboxes) submits `inherit`, present only when
+         checked; checked-and-saved clears this category's own explicit
+         set entirely, the same `inherit: true` catalog.set_category_
+         item_options' own REVISED entry describes. */
       const categoryId = String(form.get("category_id") ?? "").trim();
       if (!categoryId) return json({ error: "give a category" }, 400);
-      const itemOptionIds = form.getAll("item_option_ids").map((v) => String(v).trim()).filter(Boolean);
+      const inherit = form.get("inherit") != null;
       toolName = "catalog.set_category_item_options";
-      args = { category_id: categoryId, item_option_ids: itemOptionIds, reason: "set from the Admin panel" };
+      args = inherit
+        ? { category_id: categoryId, inherit: true, reason: "set from the Admin panel" }
+        : {
+            category_id: categoryId,
+            item_option_ids: form.getAll("item_option_ids").map((v) => String(v).trim()).filter(Boolean),
+            reason: "set from the Admin panel",
+          };
       summaryNoun = "category's option sets";
-    } else if (suffix === "/categories/apply-item-options") {
-      /* "I want you to mass apply the options to all of the items that
-         are part of the category. Because right now, you have to apply
-         these options manually per item." A real Square write to every
-         product currently in the category — an immediate one-shot
-         action (index.js's own script handles this one with its own
-         fetch, not the batched Save-all), same as removing a category. */
-      const categoryId = String(form.get("category_id") ?? "").trim();
-      if (!categoryId) return json({ error: "give a category" }, 400);
-      toolName = "catalog.apply_category_item_options_to_products";
-      args = { category_id: categoryId, reason: "applied from the Admin panel" };
-      summaryNoun = "category's option sets applied to its products";
+      cascadeApplyForCategoryId = categoryId;
     } else if (suffix === "/vendors/create") {
       /* commission is REQUIRED here, unlike a category's own optional
          numeric_id: a brand-new vendor has nothing on file yet for
@@ -1093,6 +1125,32 @@ async function ops(request, env, path) {
     if (result?.error || result?.denied) {
       return json({ error: result.error || result.denied || `That ${summaryNoun} change was refused.` }, 400);
     }
+
+    if (cascadeApplyForCategoryId) {
+      const applyArgs = {
+        category_id: cascadeApplyForCategoryId,
+        reason: "applied automatically after saving this category's option sets",
+      };
+      try {
+        const applyGate = await runTool("catalog.apply_category_item_options_to_products", applyArgs, { actor: email, role, env });
+        if (!applyGate?.needsApproval) {
+          console.error(`ERROR ops/admin: auto-apply after saving option sets could not be proposed for ${cascadeApplyForCategoryId} — ${applyGate?.error}`);
+        } else {
+          const applyResult = await runTool("catalog.apply_category_item_options_to_products", applyArgs, {
+            actor: email,
+            role,
+            env,
+            approvalToken: applyGate.data.approval.token,
+          });
+          if (applyResult?.error || applyResult?.denied) {
+            console.error(`ERROR ops/admin: auto-apply after saving option sets was refused for ${cascadeApplyForCategoryId} — ${applyResult.error || applyResult.denied}`);
+          }
+        }
+      } catch (err) {
+        console.error(`ERROR ops/admin: auto-apply after saving option sets threw for ${cascadeApplyForCategoryId} — ${err.message}`);
+      }
+    }
+
     return new Response(null, { status: 303, headers: { Location: "/admin" } });
   }
 

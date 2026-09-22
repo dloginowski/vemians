@@ -247,6 +247,23 @@ function postForm(path, claims, e, fields) {
   );
 }
 
+/* Capture console output so a check can assert WHAT WAS SAID -- the same
+   helper as sync.test.mjs's own, needed here because the cascade-into-
+   save auto-apply (index.js) only ever surfaces its own failure as a
+   console.error, never as part of the primary save's response. */
+function captureConsole(fn) {
+  const lines = { error: [], warn: [], info: [] };
+  const real = { error: console.error, warn: console.warn, info: console.info };
+  console.error = (...a) => lines.error.push(a.join(" "));
+  console.warn = (...a) => lines.warn.push(a.join(" "));
+  console.info = (...a) => lines.info.push(a.join(" "));
+  const restore = () => Object.assign(console, real);
+  return Promise.resolve()
+    .then(() => fn(lines))
+    .finally(restore)
+    .then(() => lines);
+}
+
 check("test_PRD_P0_71_items_tab__the_items_tab_shows_every_field_including_custom_ones", async () => {
   const mirror = mirrorDb();
   seedProduct(mirror, { vendor: "Acme Mills" });
@@ -3079,6 +3096,11 @@ check("test_PRD_P0_142_category_item_options__admin_renders_a_sets_toggle_with_a
   assert.match(cat1Row, /<form method="post" action="\/admin\/categories\/item-options" class="admin-category-options-menu" hidden>/, "the checkbox list is a floating menu, not a block row");
   assert.match(cat1Row, /<input type="checkbox" name="item_option_ids" value="opt1" checked> Size/);
   assert.match(cat1Row, /<input type="checkbox" name="item_option_ids" value="opt2"> Color/);
+  assert.match(
+    cat1Row,
+    /<input type="checkbox" name="inherit" value="1"> Inherit/,
+    "an explicit set (item_options_set_at already stamped on cat1) shows Inherit unchecked, and its own checkboxes above stay enabled",
+  );
 });
 
 check("test_PRD_P0_142_category_item_options__admin_sets_menu_floats_over_the_tree_rather_than_pushing_it_down", async () => {
@@ -3144,7 +3166,12 @@ check("test_PRD_P0_142_category_item_options__admin_a_subcategory_with_no_explic
   const cat2Idx = body.indexOf("Coats");
   const cat2Row = body.slice(cat2Idx, body.indexOf("admin-category-children", cat2Idx));
   assert.match(cat2Row, /admin-category-options-toggle admin-category-options-toggle-active"[^>]*>Sets \(1\)<\/button>/, "the inherited count, not zero");
-  assert.match(cat2Row, /<input type="checkbox" name="item_option_ids" value="opt1" checked> Size/, "Outerwear's own assignment, shown as Coats' own current state");
+  assert.match(
+    cat2Row,
+    /<input type="checkbox" name="item_option_ids" value="opt1" checked disabled> Size/,
+    "Outerwear's own assignment, shown as Coats' own current state, but disabled -- Coats has never been explicitly set itself",
+  );
+  assert.match(cat2Row, /<input type="checkbox" name="inherit" value="1" checked> Inherit/, "still inheriting -- Coats has no item_options_set_at of its own");
 });
 
 check("test_PRD_P0_142_category_item_options__admin_sets_toggle_matches_the_row_height_and_reads_all_caps", async () => {
@@ -3210,36 +3237,42 @@ check("test_PRD_P0_142_category_item_options__admin_staff_cannot_reach_the_route
   assert.equal(res.status, 403);
 });
 
-check("test_PRD_P0_144_apply_category_item_options__admin_applying_reaches_the_tool_layer", async () => {
-  /* "I want you to mass apply the options to all of the items that are
-     part of the category" — unlike catalog.set_category_item_options,
-     this one really does write to Square (item_data.item_options on
-     every product), so it belongs with create/number/rename/remove
-     below: this file's own env() proves the route reaches runTool with
-     the right args, not a full round trip against a real Square. */
+check("test_PRD_P0_144_apply_category_item_options__saving_a_categorys_option_sets_cascades_into_a_square_apply", async () => {
+  /* "Why is there a separate apply button? Shouldn't it just make the
+     save button dirty and press the save button and apply all the
+     options?" — the owner's own words. There is no more standalone
+     apply route: saving a category's own option sets (below) now also
+     always tries catalog.apply_category_item_options_to_products for
+     that same category, with no extra click. This env() has no
+     SQUARE_ACCESS_TOKEN, so the cascade itself cannot succeed -- but
+     that failure is a logged best-effort follow-up, never a failure of
+     the primary save, so the redirect below still proves the save
+     itself went through. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedItemOption(mirror, { id: "opt1", externalRef: "sqopt1", name: "Size" });
+  const lines = await captureConsole(async () => {
+    const res = await postForm("/admin/categories/item-options", MANAGER, env(mirror), { category_id: "cat1", item_option_ids: "opt1" });
+    assert.equal(res.status, 303);
+    assert.equal(res.headers.get("location"), "/admin");
+  });
+  assert.match(lines.error.join("\n"), /auto-apply after saving option sets/);
+  assert.match(lines.error.join("\n"), /SQUARE_ACCESS_TOKEN is unset/);
+});
+
+check("test_PRD_P0_144_apply_category_item_options__the_old_standalone_apply_route_is_gone", async () => {
   const mirror = mirrorDb();
   seedProduct(mirror);
   const res = await postForm("/admin/categories/apply-item-options", MANAGER, env(mirror), { category_id: "cat1" });
-  assert.equal(res.status, 400);
-  assert.match(await res.text(), /SQUARE_ACCESS_TOKEN is unset/);
+  assert.equal(res.status, 404);
 });
 
-check("test_PRD_P0_144_apply_category_item_options__admin_staff_cannot_reach_the_route", async () => {
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  const res = await postForm("/admin/categories/apply-item-options", STAFF, env(mirror), { category_id: "cat1" });
-  assert.equal(res.status, 403);
-});
-
-check("test_PRD_P0_144_apply_category_item_options__admin_renders_an_apply_button_inside_the_sets_menu", async () => {
+check("test_PRD_P0_144_apply_category_item_options__admin_no_longer_renders_a_separate_apply_button", async () => {
   const mirror = mirrorDb();
   seedProduct(mirror);
   seedItemOption(mirror, { id: "opt1", externalRef: "sqopt1", name: "Size" });
   const body = await (await get("/admin", MANAGER, env(mirror))).text();
-  assert.match(
-    body,
-    /<button type="button" class="admin-category-apply-btn" data-category-id="cat1" title="[^"]*">Apply to items<\/button>/,
-  );
+  assert.doesNotMatch(body, /admin-category-apply-btn/, "the apply button is folded into the ordinary Save flow now");
 });
 
 check("test_PRD_P0_138_nested_categories__admin_staff_cannot_reach_the_page_at_all", async () => {
