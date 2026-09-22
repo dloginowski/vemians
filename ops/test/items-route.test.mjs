@@ -21,7 +21,9 @@ import { register } from "node:module";
 
 register("../../shared/test/text-modules.mjs", import.meta.url);
 
-const worker = (await import("../src/index.js")).default;
+const indexModule = await import("../src/index.js");
+const worker = indexModule.default;
+const { perProductApplyFailure } = indexModule;
 const { approvalResultPage } = await import("../src/views.js");
 
 const usedLabels = new Set();
@@ -3258,6 +3260,79 @@ check("test_PRD_P0_144_apply_category_item_options__saving_a_categorys_option_se
   });
   assert.match(lines.error.join("\n"), /auto-apply after saving option sets/);
   assert.match(lines.error.join("\n"), /SQUARE_ACCESS_TOKEN is unset/);
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-149 (REVISED) — "I tried it. Didn't work" — the owner's own words,
+ * after resaving a category's Sets exactly as instructed. Root cause,
+ * found from the real production audit_log: catalog.apply_category_item_
+ * options_to_products' own run() had genuinely failed per-product (a real
+ * Square write error), but its OWN outcome (`{applied, errors}`) was never
+ * a thrown error or a `denied` -- runTool's own audit row for a T2 call is
+ * written BEFORE run() ever executes, so it can only ever record that
+ * approval was granted, never what run() actually did. The cascade above
+ * only ever checked `applyResult.error`/`.denied`, so a real per-product
+ * failure sailed through as a silent, invisible no-op -- nothing in the
+ * audit log, nothing in a Worker log (this Worker's own logs are not
+ * retained). perProductApplyFailure is the exact decision that closes
+ * this gap, tested directly here with no Square mock or HTTP round trip
+ * needed: the tool's own established "one product's failure does not
+ * fail the batch" shape (catalog-writer.js) means a real failure never
+ * throws, it just fills the errors array run() already returns.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_149_auto_apply_failure_visibility__a_per_product_failure_with_no_top_level_error_is_still_flagged", () => {
+  const applyResult = { ok: true, data: { products_applied: 0, errors: [{ handle: "black-dress", error: "VERSION_MISMATCH" }] } };
+  const failure = perProductApplyFailure(applyResult);
+  assert.ok(failure, "an ok: true, denied-free result with a real per-product error must still be treated as a failure to surface");
+  assert.match(failure.message, /0\/1/);
+  assert.match(failure.message, /black-dress: VERSION_MISMATCH/);
+  assert.deepEqual(failure.detail, { reason: "auto_apply_per_product_failures", errors: applyResult.data.errors });
+});
+
+check("test_PRD_P0_149_auto_apply_failure_visibility__a_partial_failure_is_also_flagged_not_just_a_total_one", () => {
+  const applyResult = {
+    ok: true,
+    data: { products_applied: 2, errors: [{ handle: "red-scarf", error: "CATALOG_MAX_VARIATIONS exceeded" }] },
+  };
+  const failure = perProductApplyFailure(applyResult);
+  assert.ok(failure, "2 of 3 succeeding still leaves one product silently untouched -- still worth surfacing");
+  assert.match(failure.message, /2\/3/);
+});
+
+check("test_PRD_P0_149_auto_apply_failure_visibility__a_clean_result_is_not_flagged", () => {
+  assert.equal(perProductApplyFailure({ ok: true, data: { products_applied: 1, errors: [] } }), null);
+  assert.equal(
+    perProductApplyFailure({ ok: true, data: { products_applied: 0, errors: [] } }),
+    null,
+    "products_applied: 0 with no errors is the legitimate 'nothing to do' case (P0-144's own quiet no-op), never a failure",
+  );
+  assert.equal(perProductApplyFailure(undefined), null);
+});
+
+check("test_PRD_P0_149_auto_apply_failure_visibility__a_per_product_failure_writes_a_real_audit_row", async () => {
+  /* The actual bug, reproduced end to end through the real route: this
+     time env() carries a real AUDIT db (auditDb(), already wired into
+     env() for the ordinary approval-gate audit rows every T2 call
+     writes) so the fix's own write survives the redirect and is
+     queryable afterward, the same way the real production incident was
+     diagnosed. There is still no SQUARE_ACCESS_TOKEN here, so the
+     underlying apply call is refused at the resource-construction step,
+     the same "missing_binding" error runTool itself already always
+     audits (one ordinary row -- not this fix's doing, present with or
+     without it) -- proving the fix's own audit write, tagged with its
+     own `auto_apply_per_product_failures` reason, is never a SECOND,
+     redundant row layered on top of a failure `applyGate.error` already
+     makes visible on its own. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedItemOption(mirror, { id: "opt1", externalRef: "sqopt1", name: "Size" });
+  const e = env(mirror);
+  await postForm("/admin/categories/item-options", MANAGER, e, { category_id: "cat1", item_option_ids: "opt1" });
+  const ownRows = (
+    await e.AUDIT.prepare("SELECT detail FROM audit_log WHERE tool = 'catalog.apply_category_item_options_to_products' AND detail LIKE '%auto_apply_per_product_failures%'").all()
+  ).results;
+  assert.deepEqual(ownRows, [], "no SQUARE_ACCESS_TOKEN means applyGate.error, not applyResult.data.errors -- the fix's own reason tag must not appear");
 });
 
 check("test_PRD_P0_144_apply_category_item_options__the_old_standalone_apply_route_is_gone", async () => {

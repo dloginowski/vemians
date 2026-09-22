@@ -6094,6 +6094,22 @@ that does not trace to one of these is a process failure (see §12).
     is logged (`console.error`) and never fails the Sets save itself, the same "one product's failure
     never fails the batch" philosophy this feature area already follows one level down.
 
+    REVISED (`Test-PRD-P0-149-auto_apply_failure_visibility`): "I tried it. Didn't work" — the owner's
+    own words, live, after resaving Dresses' Sets exactly as instructed. The production `audit_log`
+    itself showed why: `catalog.apply_category_item_options_to_products` really had run and really had
+    failed for the Black Dress — a genuine per-product Square error, never thrown (`catalog-writer.js`'s
+    own "one product's failure does not fail the batch" shape puts it in the returned `errors` array
+    instead) — but the cascade above only ever checked `applyResult.error`/`.denied`, which a call like
+    this never sets: `runTool`'s own audit row for a T2 call is written BEFORE `run()` ever executes, so
+    it can only ever record that approval was granted, never what `run()` actually did. The result was a
+    real failure with nothing durable anywhere to explain it — not the audit log, not a Worker log either
+    (this Worker's own logs are not retained, `mirror-status.yml`'s own comment). `perProductApplyFailure`
+    (`index.js`, exported for direct testing with no Square mock needed) now inspects `applyResult.data.
+    errors` itself — flagging a real failure even inside an otherwise-successful call, and even a PARTIAL
+    one (some products applied, one did not) — and writes a genuine `audit_log` row (`result: "error"`,
+    `reason: "auto_apply_per_product_failures"`, the per-product detail) so a failure like this is
+    queryable afterward, the same way this one was finally diagnosed.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
