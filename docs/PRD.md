@@ -6007,6 +6007,21 @@ that does not trace to one of these is a process failure (see §12).
     the Variants panel has always had (P0-31) — no new write path, no new endpoint; only the layout is
     new, twice now.
 
+    REVISED AGAIN, on seeing the nested-accordion version live: "grid layout, use horizontal space more
+    efficiently, not a vertical expander because you're taking up too much space. And also accordion
+    style, only one open at a time. I want the option in the header, and I should see underneath it
+    like a row of sizes... I don't want to see variations dropdown that's nested." Three changes, all
+    the owner's own words: (1) each color group's own inner rows are now `.variant-size-grid` — a
+    flex-wrapping row of compact `.variant-size-cell`s (label above its own stepper), so several sizes
+    share one screen row instead of each stacking on its own full-width line; (2) `toggleVariantGroupExclusive`
+    (`views.js`) closes every OTHER open color group before opening the clicked one, so at most one
+    color's own row of sizes is ever visible at once, never several stacked open together; (3) the outer
+    top-level "Variations" accordion this used to nest one level inside is GONE for this shape entirely
+    — `.variant-groups` (`itemTile`'s own wrapper) puts the color headers directly on the tile, the first
+    and only level, never a dropdown nested inside a dropdown. A product using zero, one, or three-plus
+    Option Set names is unaffected — it still gets the ordinary "Variations" accordion and flat list,
+    which was never the thing being nested in the first place.
+
 82. **`Test-PRD-P0-148-auto_generate_variations`** — The owner's own words, on discovering the earlier
     P0-144 behavior was item-level only: "I expect the black dress to have these variations
     auto-assigned because I assigned the sets to its parent category." Asked directly and confirmed:
