@@ -6137,6 +6137,32 @@ that does not trace to one of these is a process failure (see §12).
     Fixed to a whole-word match (`\bS\b`, case-insensitive) — a short value like "S" now only matches
     its OWN standalone word, never a letter it happens to share with an unrelated one.
 
+    REVISED A THIRD TIME, live, once the White combinations this section itself generates for the Black
+    Dress were actually clicked on: `inventory.adjust` refused every one of them — "'Black Dress' —
+    'White, M' has no SKU yet, so it has never been mirrored into stock — nothing to adjust." Asked why,
+    the owner's own words: "SKU should be auto generated when adding variants or options — Square does
+    that." Verified live it does not, for a variation created through the Catalog API this file calls:
+    every one of the White/S-M-L-XL combinations this section itself auto-generated for the Black Dress
+    came back from Square with `sku: null`. "Automatically generate SKUs" is a real Square setting, but a
+    Dashboard/POS-side feature — it never fires for an object created through `UpsertCatalogObject`, which
+    is the only path this codebase writes through. Confirmed, the owner's own choice: build one here
+    instead, rather than continue leaving a brand-new variation permanently untrackable until someone
+    opens it in Square by hand. `generateSku` (`catalog-writer.js`) mints a plain 12-digit numeric code —
+    the same shape a UPC-A barcode label already takes, so it prints and scans in Square exactly like a
+    real one would; it is simply never registered outside this shop's own account, same as any other
+    home-grown SKU — deterministically, from a hash (FNV-1a, synchronous, no `crypto.subtle`) of a stable
+    per-write seed (an existing sibling variation's own `external_ref` when the product already has one,
+    or the item's own title for a brand-new product, plus the variation's own title/`option_values`) —
+    never `crypto.randomUUID()`: this same content already feeds Square's own `idempotency_key`
+    (`updateProduct`'s own `IDEMPOTENCY_KEY_REUSED` comment, above), so a genuinely random value would
+    make an identical retry of the same write hash to a different key every time, the exact class of bug
+    that comment already describes. `mergeVariations`'s own `added` branch (a brand-new variation, no
+    `variant_id`) and `createProduct`'s own variation list both mint one when none is given; an
+    already-mirrored variation's own `sku` (`mergeVariations`'s own UPDATE branch, an existing
+    `variant_id`) still rides through completely untouched, exactly as before — this only ever reaches a
+    variation that did not exist a moment ago, never backfills one that predates this whole feature and
+    still carries none.
+
 83. **`Test-PRD-P0-149-category_options_inherit_toggle`** — The owner's own words, right after P0-148
     shipped: "I think there needs to be a separate option called Inherit for every category. It should
     be set by default to inherit... but I should be able to disable the Inherit button and specify

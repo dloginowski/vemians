@@ -3737,6 +3737,110 @@ check("test_PRD_P0_148_auto_generate_variations__applying_a_categorys_option_set
   assert.ok(mRed, "M/Red must be generated");
 });
 
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0_148 (REVISED) — "SKU should be auto generated when adding variants or
+ * options -- Square does that" -- the owner's own words. Verified live it
+ * does NOT, for a variation created through the Catalog API this file
+ * calls: every one of the Black Dress's own auto-generated White/S-M-L-XL
+ * combinations came back from Square with sku: null. "Automatically
+ * generate SKUs" is a real Square setting, but Dashboard/POS-side only.
+ * generateSku() (catalog-writer.js) fills the gap this file's own writes
+ * leave behind instead.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_148_auto_generate_variations__a_brand_new_combination_gets_a_real_sku_when_none_is_given", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  seedItemOptionInSquare(f, {
+    externalRef: "SQ_OPT_SIZE",
+    name: "Size",
+    values: [{ externalRef: "SQ_OPTVAL_S", name: "S" }, { externalRef: "SQ_OPTVAL_M", name: "M" }],
+  });
+  await f.writer.adapter.pullCatalog({ full: true });
+  const size = f.mirror("SELECT id FROM mirror_item_option WHERE external_ref = 'SQ_OPT_SIZE'")[0];
+  await approvedCall(f, "catalog.set_category_item_options", { category_id: outerwear.id, item_option_ids: [size.id], reason: "test" });
+
+  const res = await approvedCall(f, "catalog.apply_category_item_options_to_products", { category_id: outerwear.id, reason: "test" });
+  assert.equal(res.ok, true, res.error);
+  assert.deepEqual(res.data.errors, []);
+
+  const itemUpsert = f.calls().filter((c) => c.path === "/v2/catalog/object" && c.upsert === "ITEM").pop();
+  const variations = itemUpsert.body.object.item_data.variations;
+  const brandNew = variations.filter((v) => v.id !== "VAR_COAT_S" && v.id !== "VAR_COAT_M");
+  assert.equal(brandNew.length, 2, "the coat's own two pre-existing variations stay put; S and M here are genuinely new");
+  for (const v of brandNew) {
+    assert.match(v.item_variation_data.sku, /^\d{12}$/, "a brand-new combination must carry a real, numeric, barcode-shaped sku, never be left blank");
+  }
+  assert.notEqual(
+    brandNew[0].item_variation_data.sku,
+    brandNew[1].item_variation_data.sku,
+    "two different new combinations on the same product must never collide on the same sku",
+  );
+
+  const productId = f.mirror("SELECT product_id FROM mirror_variant WHERE external_ref = 'VAR_COAT_S'")[0].product_id;
+  const mirrored = f.mirror(
+    "SELECT sku FROM mirror_variant WHERE product_id = ? AND sku IS NOT NULL AND title IN ('S', 'M')",
+    productId,
+  );
+  assert.equal(mirrored.length, 2, "the mirror itself must reflect the real sku after the resync, not null");
+});
+
+check("test_PRD_P0_148_auto_generate_variations__an_existing_untouched_variation_never_gets_a_sku_fabricated_for_it", async () => {
+  /* The retag fix (P0-144, above) deliberately leaves a title matching
+     nothing exactly as it was -- "never touching price/sku/anything
+     else." generateSku() must only ever reach a BRAND-NEW variation, never
+     backfill one that predates this whole feature and still carries none. */
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  seedItemOptionInSquare(f, {
+    externalRef: "SQ_OPT_SIZE",
+    name: "Size",
+    values: [{ externalRef: "SQ_OPTVAL_S", name: "S" }, { externalRef: "SQ_OPTVAL_M", name: "M" }],
+  });
+  await f.writer.adapter.pullCatalog({ full: true });
+  const size = f.mirror("SELECT id FROM mirror_item_option WHERE external_ref = 'SQ_OPT_SIZE'")[0];
+  await approvedCall(f, "catalog.set_category_item_options", { category_id: outerwear.id, item_option_ids: [size.id], reason: "test" });
+
+  const before = f.mirror("SELECT external_ref, sku FROM mirror_variant WHERE external_ref IN ('VAR_COAT_S', 'VAR_COAT_M')");
+  assert.ok(before.every((v) => v.sku), "sanity: the coat's own real variations already carry real, pre-existing skus");
+  const beforeById = new Map(before.map((v) => [v.external_ref, v.sku]));
+
+  await approvedCall(f, "catalog.apply_category_item_options_to_products", { category_id: outerwear.id, reason: "test" });
+
+  const itemUpsert = f.calls().filter((c) => c.path === "/v2/catalog/object" && c.upsert === "ITEM").pop();
+  const untouched = itemUpsert.body.object.item_data.variations.filter((v) => v.id === "VAR_COAT_S" || v.id === "VAR_COAT_M");
+  assert.equal(untouched.length, 2);
+  for (const v of untouched) {
+    assert.equal(v.item_variation_data.sku, beforeById.get(v.id), "an EXISTING variation's own sku must ride through completely unchanged, never regenerated");
+  }
+});
+
+check("test_PRD_P0_148_auto_generate_variations__catalog_create_product_generates_a_sku_when_none_is_given_and_keeps_an_explicit_one_verbatim", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+
+  const created = await approvedCall(f, "catalog.create_product", {
+    title: "Cotton Robe",
+    category_id: outerwear.id,
+    variations: [
+      { title: "S", price_minor: 6000, currency: "USD" },
+      { title: "M", price_minor: 6000, currency: "USD", sku: "VEM-ROBE-M" },
+    ],
+  });
+  assert.equal(created.ok, true, created.error);
+
+  const itemUpsert = f
+    .calls()
+    .filter((c) => c.path === "/v2/catalog/object" && c.upsert === "ITEM" && c.body.object.item_data.name === "Cotton Robe")
+    .pop();
+  const variations = itemUpsert.body.object.item_data.variations;
+  const s = variations.find((v) => v.item_variation_data.name === "S");
+  const m = variations.find((v) => v.item_variation_data.name === "M");
+  assert.match(s.item_variation_data.sku, /^\d{12}$/, "a variation given no sku at all must still get a real one on creation");
+  assert.equal(m.item_variation_data.sku, "VEM-ROBE-M", "an explicitly given sku must never be overwritten");
+  assert.notEqual(s.item_variation_data.sku, m.item_variation_data.sku);
+});
+
 check("test_PRD_P0_148_auto_generate_variations__an_existing_combination_is_never_duplicated_or_touched", async () => {
   const f = await fixture();
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
