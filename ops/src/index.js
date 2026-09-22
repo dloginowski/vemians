@@ -33,6 +33,7 @@ import { CAPS } from "./tools/caps.js";
 import { roleAtLeast } from "./tools/roles.js";
 import { contentTypeFor, mediaKey, mintUploadTicket, verifyUploadTicket, STORABLE_IMAGE_TYPES } from "./tools/media.js";
 import { mediaStoreFor, assetFileStoreFor, receiptFileStoreFor, runTool } from "./tools/index.js";
+import { writeAudit } from "./tools/audit.js";
 import { contentTypeForAsset, extractText } from "./tools/assets.js";
 import { scanReceipt } from "./tools/receipt-ocr.js";
 import {
@@ -81,6 +82,26 @@ const html = (body, status = 200) =>
 
 const json = (body, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8" } });
+
+/* Exported so a test can exercise this decision directly, with no Square
+   mock or HTTP round trip needed: a real per-product Square failure (a
+   VERSION_MISMATCH, say) never throws catalog.apply_category_item_
+   options_to_products' own run() -- it collects it in the returned
+   errors array instead, the established "one product's failure does not
+   fail the batch" shape (catalog-writer.js). A successful call with
+   errors is still something to surface; an errors-free result, even
+   products_applied: 0 (nothing to do, or nothing missing), is not. */
+export function perProductApplyFailure(applyResult) {
+  const errors = applyResult?.data?.errors;
+  if (!errors?.length) return null;
+  const applied = applyResult.data.products_applied ?? 0;
+  const total = applied + errors.length;
+  const perProduct = errors.map((e) => `${e.handle}: ${e.error}`).join("; ");
+  return {
+    message: `applied to only ${applied}/${total} product(s) — ${perProduct}`,
+    detail: { reason: "auto_apply_per_product_failures", errors },
+  };
+}
 
 const DEV_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "[::1]"]);
 
@@ -1144,6 +1165,38 @@ async function ops(request, env, path) {
           });
           if (applyResult?.error || applyResult?.denied) {
             console.error(`ERROR ops/admin: auto-apply after saving option sets was refused for ${cascadeApplyForCategoryId} — ${applyResult.error || applyResult.denied}`);
+          } else {
+            /* "It didn't work" -- caught live: catalog.apply_category_item_
+               options_to_products can come back result: "ok" at the audit
+               level (the call itself completed, was not denied) while its
+               OWN per-product errors array is non-empty -- runTool's own
+               audit row is written BEFORE run() ever executes, so it can
+               only ever record that approval was granted, never what run()
+               actually did. Checking only .error/.denied above missed this
+               entirely: a real per-product failure (e.g. Square's own
+               VERSION_MISMATCH) sailed through as a silent no-op, with
+               nothing in the audit log or anywhere else durable to explain
+               it later. Console logs alone are not enough here either --
+               this Worker's own logs are not retained (mirror-status.yml's
+               own comment) -- so this writes a real, queryable audit_log
+               row, the same durable record every other tool call already
+               gets. */
+            const failure = perProductApplyFailure(applyResult);
+            if (failure) {
+              console.error(`ERROR ops/admin: auto-apply after saving option sets for ${cascadeApplyForCategoryId} — ${failure.message}`);
+              try {
+                await writeAudit(env?.AUDIT, {
+                  actor: email,
+                  domain: "catalog",
+                  tool: "catalog.apply_category_item_options_to_products",
+                  arguments: applyArgs,
+                  result: "error",
+                  detail: failure.detail,
+                });
+              } catch (auditErr) {
+                console.error(`ERROR ops/admin: could not even audit the auto-apply failure for ${cascadeApplyForCategoryId} — ${auditErr.message}`);
+              }
+            }
           }
         }
       } catch (err) {
