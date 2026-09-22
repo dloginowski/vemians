@@ -221,6 +221,41 @@ export async function deriveCategoryIdForStyleId(db, styleId) {
   return category?.id ?? null;
 }
 
+/* The reverse of deriveCategoryIdForStyleId, above: a SUBCATEGORY's own
+   NN-NN pair — its own numeric_id as the second half, its PARENT's as the
+   first — or null when either half has no numeric_id yet, since there is
+   nothing real to build a style_id out of. Only ever a subcategory: this
+   shop's own NN-NN-NNN nomenclature needs both halves, and a bare
+   top-level category has no second number of its own to give — a product
+   filed directly there still needs a style_id given by hand. */
+export async function styleIdCodesFor(db, categoryId) {
+  const cat = await db.prepare("SELECT parent_id, numeric_id FROM mirror_category_index WHERE id = ?").bind(categoryId).first();
+  if (!cat?.parent_id || !cat.numeric_id) return null;
+  const parent = await db.prepare("SELECT numeric_id FROM mirror_category_index WHERE id = ?").bind(cat.parent_id).first();
+  if (!parent?.numeric_id) return null;
+  return { catCode: parent.numeric_id, subCode: cat.numeric_id };
+}
+
+/* NN-NN, plus the next unused NNN under it — "an index that auto
+   increments... takes the next available index if one conflicts," the
+   owner's own words. Scans mirror_style_id_ledger, not mirror_product's
+   own current style_id column: a style_id a product has since moved away
+   from is still reserved forever (the ledger's own append-only
+   contract — schema.sql's own comment on it), so it must still count as
+   used here, exactly as the conflict check above already treats it. */
+export async function nextStyleIdFor(db, catCode, subCode) {
+  const prefix = `${catCode}-${subCode}-`;
+  const res = await db
+    .prepare("SELECT style_id FROM mirror_style_id_ledger WHERE style_id LIKE ? || '%'")
+    .bind(prefix)
+    .all();
+  const used = (res.results ?? [])
+    .map((r) => Number(r.style_id.slice(prefix.length)))
+    .filter((n) => Number.isInteger(n));
+  const next = (used.length ? Math.max(...used) : 0) + 1;
+  return `${prefix}${String(next).padStart(3, "0")}`;
+}
+
 
 /*
  * vendor/vendor_code/unit_cost_minor/unit_cost_currency are resolved off the
