@@ -133,3 +133,18 @@ jobs:
               "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$w/secrets" \
               | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps([s.get("name") for s in d["result"]] if d.get("success") else d.get("errors"), indent=2))'
           done
+
+      # SCRATCH DEBUG — throwaway, never merged to main. Live-tails
+      # vemians-storefront so a real contact-form submission's own
+      # console.error("ERROR store/contact: ...") reaches somewhere
+      # readable; this Worker's own logs are otherwise not retained
+      # anywhere. Read-only: tail only subscribes to the existing log
+      # stream, it changes nothing.
+      - name: DEBUG tail vemians-storefront — submit the contact form during this window
+        working-directory: store
+        run: |
+          npm ci
+          echo "Tail starting — submit the contact form on vemians.com now."
+          timeout 100 npx wrangler tail vemians-storefront --format pretty > /tmp/tail.log 2>&1 || true
+          echo "───────── captured output ─────────"
+          cat /tmp/tail.log
