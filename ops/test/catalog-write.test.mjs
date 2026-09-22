@@ -3686,6 +3686,99 @@ check("test_PRD_P0_148_auto_generate_variations__an_assigned_option_with_no_valu
   assert.equal(itemUpsert.body.object.item_data.variations.length, 1, "no new variations at all while Dress Colors has no values");
 });
 
+check("test_PRD_P0_148_auto_generate_variations__applying_a_parent_category_also_reaches_products_in_its_subcategories", async () => {
+  /* "I expect all subcategories to get the same settings applied... they
+     should propagate — why don't they?" — the owner's own words, after
+     clicking Apply on a category whose real products all lived one
+     level down, in a subcategory, and seeing nothing happen for them. */
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const casual = (await approvedCall(f, "catalog.create_category", { name: "Casual", parent_id: outerwear.id, reason: "test" })).data
+    .category;
+  seedItemOptionInSquare(f, {
+    externalRef: "SQ_OPT_SIZE",
+    name: "Size",
+    values: [{ externalRef: "SQ_OPTVAL_S", name: "S" }, { externalRef: "SQ_OPTVAL_M", name: "M" }],
+  });
+  await f.writer.adapter.pullCatalog({ full: true });
+  const size = f.mirror("SELECT id FROM mirror_item_option WHERE external_ref = 'SQ_OPT_SIZE'")[0];
+  /* Sets are configured on OUTERWEAR (the parent) only — Casual never
+     gets its own explicit call, so it inherits. */
+  await approvedCall(f, "catalog.set_category_item_options", { category_id: outerwear.id, item_option_ids: [size.id], reason: "test" });
+
+  /* The real product lives in the SUBCATEGORY, not the parent. */
+  await approvedCall(f, "catalog.create_product", {
+    title: "Casual Shirt",
+    category_id: casual.id,
+    variations: [{ title: "One size", price_minor: 4500, currency: "USD" }],
+  });
+
+  /* Apply is clicked on the PARENT, Outerwear — not Casual. */
+  const res = await approvedCall(f, "catalog.apply_category_item_options_to_products", { category_id: outerwear.id, reason: "test" });
+  assert.equal(res.ok, true, res.error);
+  /* 2, not 1: the fixture's own seeded coat (filed directly in Outerwear)
+     plus the Casual Shirt (filed in the subcategory) — the point being
+     the subcategory's own product is reached too, not just Outerwear's
+     direct ones. */
+  assert.equal(res.data.products_applied, 2, "the subcategory's own product must be reached too, not just Outerwear's direct ones");
+  assert.deepEqual(res.data.errors, []);
+
+  const itemUpsert = f
+    .calls()
+    .filter((c) => c.path === "/v2/catalog/object" && c.upsert === "ITEM" && c.body.object.item_data.name === "Casual Shirt")
+    .pop();
+  assert.ok(itemUpsert, "the Casual Shirt, filed in the subcategory, must actually receive a Square write");
+  assert.deepEqual(itemUpsert.body.object.item_data.item_options, [{ item_option_id: "SQ_OPT_SIZE" }]);
+  assert.equal(itemUpsert.body.object.item_data.variations.length, 3, "One size plus the newly generated S and M — inherited from the parent");
+});
+
+check("test_PRD_P0_148_auto_generate_variations__a_subcategorys_own_explicit_sets_are_never_overridden_by_the_parents_bulk_apply", async () => {
+  /* The other half of "they should propagate" — propagating to a
+     subcategory with NOTHING of its own is correct; overwriting one
+     that has ALREADY made its own explicit choice would not be. */
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const casual = (await approvedCall(f, "catalog.create_category", { name: "Casual", parent_id: outerwear.id, reason: "test" })).data
+    .category;
+  seedItemOptionInSquare(f, {
+    externalRef: "SQ_OPT_SIZE",
+    name: "Size",
+    values: [{ externalRef: "SQ_OPTVAL_S", name: "S" }],
+  });
+  seedItemOptionInSquare(f, {
+    externalRef: "SQ_OPT_COLOR",
+    name: "Color",
+    values: [{ externalRef: "SQ_OPTVAL_RED", name: "Red" }],
+  });
+  await f.writer.adapter.pullCatalog({ full: true });
+  const size = f.mirror("SELECT id FROM mirror_item_option WHERE external_ref = 'SQ_OPT_SIZE'")[0];
+  const color = f.mirror("SELECT id FROM mirror_item_option WHERE external_ref = 'SQ_OPT_COLOR'")[0];
+  await approvedCall(f, "catalog.set_category_item_options", { category_id: outerwear.id, item_option_ids: [size.id], reason: "test" });
+  /* Casual makes its OWN explicit choice — Color, not Size. */
+  await approvedCall(f, "catalog.set_category_item_options", { category_id: casual.id, item_option_ids: [color.id], reason: "test" });
+
+  await approvedCall(f, "catalog.create_product", {
+    title: "Casual Shirt",
+    category_id: casual.id,
+    variations: [{ title: "One size", price_minor: 4500, currency: "USD" }],
+  });
+
+  /* Apply is clicked on the PARENT, Outerwear. */
+  const res = await approvedCall(f, "catalog.apply_category_item_options_to_products", { category_id: outerwear.id, reason: "test" });
+  assert.equal(res.ok, true, res.error);
+
+  const itemUpsert = f
+    .calls()
+    .filter((c) => c.path === "/v2/catalog/object" && c.upsert === "ITEM" && c.body.object.item_data.name === "Casual Shirt")
+    .pop();
+  assert.ok(itemUpsert, "Casual Shirt must still be reached");
+  assert.deepEqual(
+    itemUpsert.body.object.item_data.item_options,
+    [{ item_option_id: "SQ_OPT_COLOR" }],
+    "Casual's own explicit Color must survive — never clobbered by Outerwear's own Size",
+  );
+});
+
 check("test_PRD_P0_136_square_custom_attributes__create_vendor_makes_a_real_square_vendor_with_a_commission_on_file_immediately", async () => {
   const f = await fixture();
   const res = await approvedCall(f, "catalog.create_vendor", { name: "Acme Mills", commission: 20, reason: "test" });
