@@ -1678,6 +1678,51 @@ check("test_PRD_P0_147_variants_grid__two_option_dimensions_render_as_nested_exp
   assert.doesNotMatch(redGroup, /<span class="variation-title-label">M<\/span>/, "M has no SKU under Red and must not appear at all");
 });
 
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-147 (REVISED) — "grid layout, use horizontal space more
+ * efficiently... a row of sizes... accordion style, only one open at a
+ * time... I don't want to see variations dropdown that's nested" — the
+ * owner's own words, on seeing the first nested-accordion version live.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_147_variants_grid__two_dimensions_skip_the_outer_variations_accordion_entirely", async () => {
+  const mirror = mirrorDb();
+  seedGridProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+
+  assert.match(body, /<div class="variant-groups">/, "the color groups are the first and only level -- no separate wrapper needed");
+  const groupsIdx = body.indexOf('<div class="variant-groups">');
+  const groupIdx = body.indexOf('<div class="variant-group">', groupsIdx);
+  assert.ok(groupIdx > groupsIdx && groupIdx < groupsIdx + 50, "a variant-group must be the FIRST thing inside variant-groups, no accordion nested in between");
+
+  const between = body.slice(Math.max(0, groupsIdx - 2000), groupsIdx);
+  assert.doesNotMatch(between, /variations-accordion/, "the two-dimension case must never render the outer Variations accordion at all");
+});
+
+check("test_PRD_P0_147_variants_grid__sizes_render_as_a_wrapping_grid_of_cells_not_one_row_each", async () => {
+  const mirror = mirrorDb();
+  seedGridProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+
+  const redIdx = body.indexOf('<span class="variant-group-label">Red</span>');
+  const redGroupStart = body.lastIndexOf('<div class="variant-group">', redIdx);
+  const nextGroupStart = body.indexOf('<div class="variant-group">', redGroupStart + 1);
+  const redGroup = body.slice(redGroupStart, nextGroupStart > 0 ? nextGroupStart : redGroupStart + 2000);
+
+  assert.match(redGroup, /<div class="variant-size-grid">/, "sizes under an open color must sit inside a wrapping grid, not stacked rows");
+  assert.match(redGroup, /<div class="variant-size-cell"><span class="variation-title-label">S<\/span>/, "each size is its own compact cell, label then stepper");
+  assert.doesNotMatch(redGroup, /class="row"/, "the old one-row-per-size markup must be gone from the grouped view");
+});
+
+check("test_PRD_P0_147_variants_grid__opening_one_color_group_closes_every_other_one", async () => {
+  const body = await (await get("/items", MANAGER, env(mirrorDb()))).text();
+  assert.match(
+    body,
+    /function toggleVariantGroupExclusive\(group\) \{\s*\n\s*if \(!group\) return;\s*\n\s*const wasExpanded = group\.classList\.contains\("expanded"\);\s*\n\s*group\.parentElement\?\.querySelectorAll\(":scope > \.variant-group\.expanded"\)\.forEach\(\(g\) => g\.classList\.remove\("expanded"\)\);\s*\n\s*if \(!wasExpanded\) group\.classList\.add\("expanded"\);\s*\n\s*\}/,
+    "clicking a color header must close every other open group under the same product first -- only one open at a time",
+  );
+});
+
 check("test_PRD_P0_147_variants_grid__a_single_dimension_or_none_keeps_the_flat_list", async () => {
   /* seedProduct's own single "One size" variation carries no options at
      all — zero dimensions, so the nested groups must not even try to

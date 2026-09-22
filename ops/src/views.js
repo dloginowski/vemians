@@ -2145,20 +2145,28 @@ ${INPUT_BAR_CSS}
   flex: 0 0 auto; width: 20px; height: 20px; padding: 0; line-height: 1; font: inherit; font-size: 13px;
   border: none; border-radius: 0; background: var(--ground); color: var(--muted); cursor: pointer;
 }
-/* "Two headers, expandable, just like you had before, and one for each
-   color. I need to be able to expand them, and I need to see individual
-   sizes for them that I can change quantity" — the owner's own words,
-   on seeing the first version of this (a flat table) and asking for a
-   nested accordion instead — one collapsed group per row-axis value
-   (Color, typically), each expanding to list its own column-axis values
-   (Size) with a stepper (variantsGroupedAccordionHtml, views.js). The
-   SAME accordion mechanics as the outer "Variations" header just above,
-   one level in — a lighter background only (no border of its own),
-   since it already reads as nested inside that bordered outer box. A
-   combination with no real variation is simply absent from its own
-   group — "existing SKUs only," the owner's own choice — never a
-   stepper with nothing behind it. */
-.variant-group { margin-top: 4px; }
+/* "Two headers, expandable, one for each color... I need to see
+   individual sizes for them that I can change quantity" — the owner's
+   own words, on seeing the first version of this (a flat table) and
+   asking for an accordion instead — one collapsed group per row-axis
+   value (Color, typically), each expanding to list its own column-axis
+   values (Size) with a stepper (variantsGroupedAccordionHtml,
+   views.js).
+
+   REVISED: "grid layout, use horizontal space more efficiently... a
+   row of sizes... accordion style, only one open at a time... I don't
+   want to see variations dropdown that's nested." Three changes from
+   the first version, all the owner's own words: (1) .variant-groups
+   (itemTile's own wrapper) replaces the outer "Variations" accordion
+   entirely for this shape — a color header is the FIRST and only
+   level now, so its own background/border reads as a normal top-level
+   row, not nested a level deeper inside a bordered outer box; (2)
+   .variant-size-grid tiles its own cells left-to-right and wraps,
+   several sizes sharing one screen row instead of each stacking on its
+   own full-width line; (3) toggleVariantGroupExclusive (the script,
+   below) closes every other group before opening one, so at most one
+   color's own sizes ever show at once. */
+.variant-groups { display: flex; flex-direction: column; gap: 4px; margin-top: 2px; }
 .variant-group-header {
   display: flex; align-items: center; gap: 6px; cursor: pointer;
   background: var(--image-ground); border-radius: 6px; padding: 4px;
@@ -2170,8 +2178,18 @@ ${INPUT_BAR_CSS}
 }
 .variant-group.expanded .variant-group-toggle { transform: rotate(90deg); }
 .variant-group-label { flex: 0 0 auto; font-size: 11px; color: var(--muted); }
-.variant-group-body { display: none; flex-direction: column; margin-top: 4px; padding-left: 10px; }
-.variant-group.expanded .variant-group-body { display: flex; }
+.variant-group-body { display: none; margin-top: 4px; }
+.variant-group.expanded .variant-group-body { display: block; }
+/* A GRID, not a vertical list: every size for the open color shares
+   screen rows with its siblings, wrapping only once the tile's own
+   width runs out, so a five-size color reads as one or two compact
+   rows instead of five tall ones. */
+.variant-size-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+.variant-size-cell {
+  display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 56px;
+  padding: 4px 6px; border-radius: 6px; background: var(--ground);
+}
+.variant-size-cell .variation-title-label { flex: 0 0 auto; white-space: nowrap; }
 .variation-stock-step:hover { background: var(--image-ground); }
 .variation-stock-step:disabled { opacity: 0.5; cursor: default; }
 /* "Any changed fields should be marked with an orange highlight" — added
@@ -2584,18 +2602,26 @@ function variantsGridAxes(variations, itemOptions) {
    before, and one for each color. I need to be able to expand them, and
    I need to see individual sizes for them that I can change quantity"
    — the owner's own words, on actually seeing the first version of this
-   (a flat spreadsheet-style table). A grid was not what "a grid of size
-   and color variations" meant to them after all: rowsName (the OUTER
-   axis — Color, typically, since it sorts alphabetically first among a
-   Size/Color pair the same way variantsGridAxes already orders them)
-   becomes one collapsed, expandable group per value; colsName is what
-   actually LISTS, one row per value, inside each expanded group — the
-   exact same accordion mechanics (a toggle chevron, an .expanded class)
-   the top-level "Variations" accordion already has, one level deeper,
-   and the exact same stock stepper every other variation row in this
-   file already uses. A combination with no real variation is simply
-   left out of its own group (EXISTING SKUS ONLY, variantsGridAxes' own
-   comment), never a manufactured row. */
+   (a flat spreadsheet-style table). rowsName (the OUTER axis — Color,
+   typically, since it sorts alphabetically first among a Size/Color
+   pair the same way variantsGridAxes already orders them) becomes one
+   collapsed, expandable group per value; colsName is what actually
+   LISTS inside each expanded group, the exact same stock stepper every
+   other variation row in this file already uses. A combination with no
+   real variation is simply left out of its own group (EXISTING SKUS
+   ONLY, variantsGridAxes' own comment), never a manufactured row.
+
+   REVISED AGAIN: "grid layout, use horizontal space more efficiently,
+   not a vertical expander... a row of sizes... I don't want to see
+   variations dropdown that's nested" — the owner's own words. Two
+   changes from the first version: (1) colsName's own values now tile
+   left-to-right in a wrapping grid (.variant-size-grid, below) instead
+   of one full-width row per value, several sizes sharing a screen row
+   instead of stacking the tile tall; (2) this no longer nests inside
+   the outer "Variations" accordion at all — itemTile's own caller wraps
+   this directly in .variant-groups with no further header/toggle of its
+   own, so a color header is the FIRST and only level, never a second
+   dropdown inside a first one. */
 function variantsGroupedAccordionHtml(variations, axes) {
   const { rowsName, colsName, rowValues, colValues } = axes;
   const byKey = new Map(
@@ -2603,10 +2629,10 @@ function variantsGroupedAccordionHtml(variations, axes) {
   );
   return rowValues
     .map((r) => {
-      const rows = colValues
+      const cells = colValues
         .map((c) => {
           const v = byKey.get(`${r}\u0000${c}`);
-          return v ? `<div class="row"><span class="variation-title-label">${esc(c)}</span>${stockStepper(v)}</div>` : "";
+          return v ? `<div class="variant-size-cell"><span class="variation-title-label">${esc(c)}</span>${stockStepper(v)}</div>` : "";
         })
         .join("");
       return `<div class="variant-group">
@@ -2614,7 +2640,7 @@ function variantsGroupedAccordionHtml(variations, axes) {
           <button type="button" class="variant-group-toggle" aria-label="Show ${esc(colsName)} for ${esc(r)}" title="Show ${esc(colsName)} for ${esc(r)}">${CARET_ICON}</button>
           <span class="variant-group-label">${esc(r)}</span>
         </div>
-        <div class="variant-group-body">${rows || `<p class="item-empty">No ${esc(colsName)} yet.</p>`}</div>
+        <div class="variant-group-body">${cells ? `<div class="variant-size-grid">${cells}</div>` : `<p class="item-empty">No ${esc(colsName)} yet.</p>`}</div>
       </div>`;
     })
     .join("");
@@ -2756,29 +2782,29 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
   const variationRows = product.variations
     .map((v) => `<div class="row"><span class="variation-title-label">${esc(v.title)}</span>${stockStepper(v)}</div>`)
     .join("");
-  /* "Two headers, expandable, one for each color... I need to see
-     individual sizes for them that I can change quantity" — a product
-     whose variations use exactly two Option Set names (Size, Color, or
-     any other pair) gets nested expandable groups; anything else (no
-     options at all, one dimension, or three-plus) keeps the flat list
-     above, which already reads fine on its own in those cases. */
+  /* "Two headers, expandable, one for each color... I don't want to see
+     variations dropdown that's nested" — the owner's own words. A
+     product whose variations use exactly two Option Set names (Size,
+     Color, or any other pair) skips the outer "Variations" accordion
+     entirely — its own per-color groups (variantsGroupedAccordionHtml)
+     ARE the first and only level, not a second dropdown nested inside a
+     first one; anything else (no options at all, one dimension, or
+     three-plus) keeps the ordinary "Variations" accordion + flat list,
+     which already reads fine on its own in those cases. */
   const groupAxes = variantsGridAxes(product.variations, allItemOptions);
-  const variationsBody = groupAxes
-    ? variantsGroupedAccordionHtml(product.variations, groupAxes)
-    : product.variations.length
-      ? variationRows
-      : `<p class="item-empty">No variations.</p>`;
   const variationsAccordion = canEdit
-    ? `<div class="variations-accordion">
-         <div class="variations-header">
-           <button type="button" class="variations-toggle" aria-label="Show every variation" title="Show every variation">${CARET_ICON}</button>
-           <span class="variations-label">Variations</span>
-           <span class="variations-header-spacer"></span>
-         </div>
-         <div class="variations-body">
-           ${variationsBody}
-         </div>
-       </div>`
+    ? groupAxes
+      ? `<div class="variant-groups">${variantsGroupedAccordionHtml(product.variations, groupAxes)}</div>`
+      : `<div class="variations-accordion">
+           <div class="variations-header">
+             <button type="button" class="variations-toggle" aria-label="Show every variation" title="Show every variation">${CARET_ICON}</button>
+             <span class="variations-label">Variations</span>
+             <span class="variations-header-spacer"></span>
+           </div>
+           <div class="variations-body">
+             ${product.variations.length ? variationRows : `<p class="item-empty">No variations.</p>`}
+           </div>
+         </div>`
     : `<div class="item-variants">${variantRows}</div>`;
 
   /* REVISED: "the two buttons for active and web have the same style like
@@ -3334,6 +3360,17 @@ if (!ItemSpeechRecognitionCtor) {
    .full on the tile itself still grows the SAME element in place
    (TABLE_CARD_CSS's own .table-card.full convention in the chat log)
    instead of opening a second element or tracking separate scroll state. */
+/* "Accordion style, only one open at a time" — the owner's own words.
+   Closes every OTHER expanded sibling group under the same
+   .variant-groups container before (possibly) opening the clicked one,
+   so at most one color's own row of sizes is ever visible per item at
+   once. */
+function toggleVariantGroupExclusive(group) {
+  if (!group) return;
+  const wasExpanded = group.classList.contains("expanded");
+  group.parentElement?.querySelectorAll(":scope > .variant-group.expanded").forEach((g) => g.classList.remove("expanded"));
+  if (!wasExpanded) group.classList.add("expanded");
+}
 document.getElementById("items-grid").addEventListener("click", async (e) => {
   /* The category picker — "the dropdown opens up a set of expandable
      rows and you can expand them and select submenus... and that's how
@@ -3425,17 +3462,21 @@ document.getElementById("items-grid").addEventListener("click", async (e) => {
     caret.closest(".variations-accordion")?.classList.toggle("expanded");
     return;
   }
-  /* One level in — the SAME toggle mechanics as the outer "Variations"
-     accordion just above, for each of its own nested per-color (etc.)
-     groups (variantsGroupedAccordionHtml, views.js). */
+  /* "Accordion style, only one open at a time" — the owner's own words.
+     Unlike the outer "Variations" toggle above, these per-color (etc.)
+     groups (variantsGroupedAccordionHtml, views.js) are siblings under
+     one shared .variant-groups container, so opening one now always
+     closes every other one there first — never more than one group's
+     own row of sizes on screen at once. Clicking an already-open group
+     still closes it (never forced to keep exactly one open). */
   const groupCaret = e.target.closest(".variant-group-toggle");
   if (groupCaret) {
-    groupCaret.closest(".variant-group")?.classList.toggle("expanded");
+    toggleVariantGroupExclusive(groupCaret.closest(".variant-group"));
     return;
   }
   const groupHeader = e.target.closest(".variant-group-header");
   if (groupHeader && !e.target.closest("input, button")) {
-    groupHeader.closest(".variant-group")?.classList.toggle("expanded");
+    toggleVariantGroupExclusive(groupHeader.closest(".variant-group"));
     return;
   }
   /* "Decorate the header so it's obvious it's an expandable accordion...
