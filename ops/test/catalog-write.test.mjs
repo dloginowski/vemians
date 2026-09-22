@@ -759,6 +759,38 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_derives_its_c
   assert.match(result.ready[0].summary, /in Casual/, "the category came from the style ID alone, no category column given");
 });
 
+check("test_PRD_P0_136_square_custom_attributes__a_style_number_column_is_never_read_as_the_products_title", async () => {
+  /* A real sheet used "Style #" for this shop's own style_id, not a title --
+     normalizeKey strips the "#", landing on the exact same bare "style" key
+     TITLE_KEYS used to also claim, so the style number ("001-001") showed up
+     as the product's own name and style_id went unrecognized. "You are
+     mistaking style id with title" -- the owner's own words. */
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const csv = `title,category,price,style #,cost\n,${outerwear.name},450.00,01-04-001,210.00\n`;
+
+  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.ready.length, 1);
+  assert.notEqual(result.ready[0].title, "01-04-001", "the style number must never become the title");
+  assert.equal(result.ready[0].title, "Outerwear 2", "a blank title still falls through to the auto-generated name");
+
+  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
+  const id = new URL(result.ready[0].url).pathname.split("/").pop();
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let approved;
+  try {
+    approved = await approvePending(f.env, id, approver);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(approved.ok, true, approved.error);
+
+  const row = f.mirror("SELECT style_id FROM mirror_product WHERE title = 'Outerwear 2'")[0];
+  assert.equal(row.style_id, "01-04-001", "the style number column must land as style_id, not be dropped");
+});
+
 check("test_PRD_P0_145_auto_generated_title__a_row_with_neither_category_nor_style_id_is_still_created_unassigned", async () => {
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
   const csv = "title,price,cost\n" + ",300.00,150.00\n";

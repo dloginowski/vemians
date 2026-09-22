@@ -215,6 +215,69 @@ check("test_PRD_P0_77_chat_attachments__no_file_at_all_is_a_normal_text_only_tur
   assert.match(data.reply, /how many black coats are in stock/);
 });
 
+/* ── the route: /agent's own `history` parsing (Test-PRD-P0-150) ─────────
+ *
+ * agentTurn's own replay behavior is proven directly, with a fake Anthropic
+ * server capturing the actual request, in agent-history.test.mjs. What
+ * belongs here instead is the route boundary itself: a JSON body's history
+ * is already a real array, a FormData body's is a JSON-string field (same
+ * as any other FormData value), and a malformed one must be a plain 400,
+ * never a 500 — the same body-parsing try/catch this route already had.
+ */
+
+check("test_PRD_P0_150_agent_chat_conversation_memory__a_json_body_carries_history_through_without_error", async () => {
+  const res = await worker.fetch(
+    new Request("http://localhost/agent", {
+      method: "POST",
+      headers: { "Cf-Access-Jwt-Assertion": assertion(STAFF), "content-type": "application/json" },
+      body: JSON.stringify({ q: "1", history: [{ role: "assistant", text: "Hi Ana — 1) Add Merchandise" }] }),
+    }),
+    env(),
+  );
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.mode, "stub", "no ANTHROPIC_API_KEY in this test -- the stub path, on purpose");
+});
+
+check("test_PRD_P0_150_agent_chat_conversation_memory__a_formdata_body_carries_history_as_a_json_string", async () => {
+  const form = new FormData();
+  form.set("q", "1");
+  form.set("file", new File([PNG_BYTES], "coat.png", { type: "image/png" }));
+  form.set("history", JSON.stringify([{ role: "assistant", text: "Hi Ana — 1) Add Merchandise" }]));
+  const res = await worker.fetch(
+    new Request("http://localhost/agent", {
+      method: "POST",
+      headers: { "Cf-Access-Jwt-Assertion": assertion(STAFF) },
+      body: form,
+    }),
+    env({ MEDIA: fakeBucket() }),
+  );
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.mode, "stub");
+});
+
+check("test_PRD_P0_150_agent_chat_conversation_memory__malformed_history_json_is_a_plain_400_not_a_crash", async () => {
+  /* Only the FormData path ever carries `history` as a raw string needing a
+     second JSON.parse (a JSON body's own `history` is already the real
+     value) -- so this is what a stray unparseable field actually looks
+     like on the wire. */
+  const form = new FormData();
+  form.set("q", "1");
+  form.set("history", "not valid json[");
+  const res = await worker.fetch(
+    new Request("http://localhost/agent", {
+      method: "POST",
+      headers: { "Cf-Access-Jwt-Assertion": assertion(STAFF) },
+      body: form,
+    }),
+    env(),
+  );
+  assert.equal(res.status, 400);
+  const data = await res.json();
+  assert.match(data.error, /unreadable/i);
+});
+
 /* ── buildUserContent: what the model would actually be shown ───────────── */
 
 check("test_PRD_P0_77_chat_attachments__no_attachment_sends_a_plain_string_unchanged", () => {
