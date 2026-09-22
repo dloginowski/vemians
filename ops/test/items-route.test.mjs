@@ -1998,7 +1998,11 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_two_outer_bars_stay_re
     /\.item-edit\.item-edit-admin \{ border-top: 1px solid var\(--rule\); \}/,
     "and the bar right above Admin must be back",
   );
-  assert.match(body, /\.item-edit \{ margin-top: 2px; padding-top: 6px; cursor: default; \}/, "the base class itself still never draws one on its own");
+  assert.match(
+    body,
+    /\.item-edit \{ margin-top: 2px; padding-top: 6px; cursor: default; display: flex; flex-direction: column; gap: 6px; \}/,
+    "the base class itself still never draws a border of its own",
+  );
 
   assert.match(
     body,

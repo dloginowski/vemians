@@ -1997,7 +1997,17 @@ ${INPUT_BAR_CSS}
    Admin div below (same class, two separate elements), so the border
    can't just live on the base rule — .item-edit-admin, added only to
    the second div, restores it there alone, exactly as before. */
-.item-edit { margin-top: 2px; padding-top: 6px; cursor: default; }
+/* "Match the padding between the description and the vendor row -- use
+   the same padding you're using for the top row" — the owner's own
+   words. .category-title-row and .row.vendor-row are two separate DIRECT
+   children of .item-edit, stacked with no gap of their own before this,
+   so the description textarea (wrapped onto its own line inside
+   .category-title-row, 6px below the title/category/style row via that
+   row's own gap property) read as running straight into vendor-row
+   beneath it. The same 6px closes that gap here too, so every row in
+   this block — inside category-title-row's own wrap, and between it and
+   vendor-row — reads on the identical rhythm. */
+.item-edit { margin-top: 2px; padding-top: 6px; cursor: default; display: flex; flex-direction: column; gap: 6px; }
 .item-edit.item-edit-admin { border-top: 1px solid var(--rule); }
 .item-edit form { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 .item-edit .row { display: flex; gap: 6px; align-items: center; }
