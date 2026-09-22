@@ -144,7 +144,7 @@ jobs:
         working-directory: store
         run: |
           npm ci
-          echo "Tail starting — submit the contact form on vemians.com now."
-          timeout 100 npx wrangler tail vemians-storefront --format pretty > /tmp/tail.log 2>&1 || true
+          echo "Tail starting — window is 150s, wide margin for timing."
+          timeout 150 npx wrangler tail vemians-storefront --format pretty > /tmp/tail.log 2>&1 || true
           echo "───────── captured output ─────────"
           cat /tmp/tail.log
