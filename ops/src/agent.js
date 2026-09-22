@@ -398,12 +398,6 @@ function formatBatchDraft(kind, result) {
     return `The spreadsheet has ${result.tooMany} rows, past the ${CAPS.BATCH_MAX_ROWS}-row cap for one upload. Split it and try again.`;
   }
   const lines = [`${result.ready.length} ${kind} ready, ${result.skipped.length} skipped.`];
-  /* Categories to create — batch.js's own comment on why this is separate
-     from a plain skip: it is a prerequisite, not a dead end. Listed first,
-     the same as batchReviewPage's own ordering. */
-  for (const c of result.categoriesToCreate ?? []) {
-    lines.push(c.url ? `- Create category "${c.name}" first: ${c.summary} — ${c.url}` : `- Category "${c.name}": ${c.error}`);
-  }
   for (const r of result.ready) lines.push(`- Row ${r.row} "${r.title}": ${r.summary} — ${r.url}`);
   for (const s of result.skipped) lines.push(`- Row ${s.row} "${s.title}": skipped — ${s.reason}`);
   return lines.join("\n");
@@ -412,16 +406,10 @@ function formatBatchDraft(kind, result) {
 function batchDraftTable(kind, result) {
   if (result.tooMany !== undefined) return null;
   const rows = [
-    ...(result.categoriesToCreate ?? []).map((c) => [
-      "—",
-      c.name,
-      "create category",
-      c.url ? `${c.summary} — ${c.url}` : c.error,
-    ]),
     ...result.ready.map((r) => [String(r.row), r.title, "ready", `${r.summary} — ${r.url}`]),
     ...result.skipped.map((s) => [String(s.row), s.title, "skipped", s.reason]),
   ];
-  rows.sort((a, b) => (a[0] === "—" ? -1 : b[0] === "—" ? 1 : Number(a[0]) - Number(b[0])));
+  rows.sort((a, b) => Number(a[0]) - Number(b[0]));
   return {
     title: `${kind[0].toUpperCase()}${kind.slice(1)}: ${result.ready.length} ready, ${result.skipped.length} skipped`,
     columns: ["Row", "Title", "Status", "Detail"],

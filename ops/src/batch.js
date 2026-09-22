@@ -266,10 +266,10 @@ function matchCategory(name, categories) {
    always re-nest it afterward, the same as any other category. The next
    unused code in that SAME pool every top-level category shares
    (catalog.create_category's own check() enforces the identical two-pool
-   split) — `reserved` is whatever this SAME batch has already virtually
+   split) — `reserved` is whatever this SAME batch has already actually
    claimed for an earlier missing name, so two distinct new categories in
    one upload are never offered the same number before either is
-   actually approved. */
+   actually created. */
 function nextTopLevelNumericId(categories, reserved) {
   const used = new Set(categories.filter((c) => !c.parent_id && c.numeric_id).map((c) => c.numeric_id));
   for (let n = 0; n <= 99; n++) {
@@ -277,6 +277,57 @@ function nextTopLevelNumericId(categories, reserved) {
     if (!used.has(code) && !reserved.has(code)) return code;
   }
   return null;
+}
+
+/* "We can make categories with UI can't we? Why not just pre make them and
+   switch to admin tab? If UI works why can't agent?" — the owner's own
+   words, correcting an earlier design that parked a SEPARATE approval for
+   a missing category and made the uploader come back and re-upload the
+   row once someone had clicked it. The Admin panel's own
+   /admin/categories/create handler (index.js) already treats "a manager
+   filled in the form and hit Create" as the deliberate yes: it calls
+   runTool TWICE in the SAME request — once with no token to get the T2
+   gate, immediately again with that gate's own approval token — no
+   separate approval page in between. Uploading a spreadsheet is just as
+   deliberate an action, so a missing category is now created the exact
+   same way, right here, inside this SAME draftProductBatch call — the row
+   that needed it then mints its own product approval immediately after,
+   no re-upload required.
+   `cache` is this one batch run's own memory (dedup by lowercased,
+   trimmed name), so several rows naming the same missing category only
+   create it once; `categories`/`reserved` grow the moment a new one lands
+   so nextTopLevelNumericId's own pool-scan and this file's own
+   matchCategory both see it as real for every row after it. */
+async function resolveOrCreateCategory(env, { actor, role, categories, reserved, cache }, name) {
+  const key = name.trim().toLowerCase();
+  if (cache.has(key)) return cache.get(key);
+
+  const numericId = nextTopLevelNumericId(categories, reserved);
+  if (numericId) reserved.add(numericId);
+  const args = {
+    name: name.trim(),
+    reason: "auto-created while importing a spreadsheet",
+    ...(numericId ? { numeric_id: numericId } : {}),
+  };
+  const gate = await runTool("catalog.create_category", args, { actor, role, env });
+  if (!gate?.needsApproval) {
+    const outcome = { error: gate?.error || "could not be validated" };
+    cache.set(key, outcome);
+    return outcome;
+  }
+  const result = await runTool("catalog.create_category", args, {
+    actor, role, env, approvalToken: gate.data.approval.token,
+  });
+  if (result?.error || result?.denied) {
+    const outcome = { error: result.error || result.denied || "was refused" };
+    cache.set(key, outcome);
+    return outcome;
+  }
+  const category = result.data.category;
+  categories.push(category);
+  const outcome = { category };
+  cache.set(key, outcome);
+  return outcome;
 }
 
 /*
@@ -311,17 +362,18 @@ function autoTitler(existingCounts) {
 /**
  * Parse a CSV, mint one catalog.create_product approval per row that
  * resolves cleanly, and report the rest with a plain reason. A row naming
- * a category that does not exist yet also mints ONE catalog.create_category
- * approval per distinct missing name (categoriesToCreate, below) — auto-
- * numbered, always top-level (nextTopLevelNumericId's own comment) —
- * rather than being an unconditional dead end; that row itself is still
- * skipped, since the category it needs does not exist until that separate
- * approval is actually clicked.
+ * a category that does not exist yet gets it created immediately, inline
+ * — auto-numbered, always top-level (nextTopLevelNumericId's own comment)
+ * — via the same "check, then immediately re-run with the resulting
+ * token" pattern the Admin panel's own /admin/categories/create already
+ * uses (resolveOrCreateCategory, above); the row then proceeds to mint
+ * its own product approval in this SAME call, no separate approval page
+ * and no re-upload ever needed. Several rows naming the same missing
+ * category only create it once.
  *
  * @param env   CATALOG_MIRROR, and whatever runTool's own resources need.
  * @param actor, role  the uploader's own verified Access identity.
- * @returns { ready: [{row, title, url, summary}], skipped: [{row, title, reason}],
- *            categoriesToCreate: [{name, url, summary}|{name, error}], tooMany?: number }
+ * @returns { ready: [{row, title, url, summary}], skipped: [{row, title, reason}], tooMany?: number }
  */
 export async function draftProductBatch(env, { text, actor, role }) {
   const records = csvRecords(parseCsv(text));
@@ -333,10 +385,12 @@ export async function draftProductBatch(env, { text, actor, role }) {
 
   const rows = [];
   const skipped = [];
-  /* Normalized lowercase -> the name as this sheet actually spelled it the
-     FIRST time it was seen — several rows naming the same missing
-     category get exactly ONE creation request between them, not one each. */
-  const missingCategoryNames = new Map();
+  /* resolveOrCreateCategory's own per-batch-run memory (dedup by
+     lowercased, trimmed name) and its own record of numeric_ids this SAME
+     batch has already actually claimed — shared across every row below so
+     several rows naming the same missing category create it only once. */
+  const categoryCache = new Map();
+  const reservedNumericIds = new Set();
 
   for (const [i, record] of records.entries()) {
     const rowNumber = i + 2; /* +1 for the header, +1 for 1-based rows */
@@ -353,9 +407,13 @@ export async function draftProductBatch(env, { text, actor, role }) {
        A named category that matches nothing real is no longer just
        reported and dropped, REVISED: "categories/subcategories should be
        made if missing. And ids assigned auto bumped" — the owner's own
-       words, choosing to park a real creation request (below) rather than
-       silently invent one, since a real Square category write still needs
-       a manager's own approval, the same as anything else in this file.
+       words. REVISED again: "we can make categories with UI can't we? ...
+       if UI works why can't agent?" — created immediately, right here
+       (resolveOrCreateCategory, above), the same "check, then re-run with
+       the token" pattern the Admin panel's own category form already
+       uses, rather than parking a separate approval and making the
+       uploader come back. A real creation failure (a near-duplicate name,
+       say) is relayed as this row's own skip reason directly.
        A row naming NO category at all is a genuinely different case,
        unaffected: no automatic skip either way — a style ID that resolves
        to a real category/subcategory fills it in (below), the same lookup
@@ -364,16 +422,20 @@ export async function draftProductBatch(env, { text, actor, role }) {
        tolerates on its own. */
     let category = categoryName ? matchCategory(categoryName, categories) : null;
     if (categoryName && !category) {
-      const key = categoryName.trim().toLowerCase();
-      if (!missingCategoryNames.has(key)) missingCategoryNames.set(key, categoryName.trim());
-      skipped.push({
-        row: rowNumber,
-        title: rawTitle || "(no title)",
-        reason:
-          `category "${categoryName}" does not exist yet — a request to create it has been parked below ` +
-          '("categories to create"); approve it, then re-upload this row',
-      });
-      continue;
+      const outcome = await resolveOrCreateCategory(
+        env,
+        { actor, role, categories, reserved: reservedNumericIds, cache: categoryCache },
+        categoryName,
+      );
+      if (outcome.error) {
+        skipped.push({
+          row: rowNumber,
+          title: rawTitle || "(no title)",
+          reason: `category "${categoryName}" does not exist yet and could not be created: ${outcome.error}`,
+        });
+        continue;
+      }
+      category = outcome.category;
     }
     if (!category && styleIdRaw) {
       const derivedId = await deriveCategoryIdForStyleId(env.CATALOG_MIRROR, styleIdRaw);
@@ -506,40 +568,7 @@ export async function draftProductBatch(env, { text, actor, role }) {
 
   const { parked, skipped: refused } = await parkRows(env, { actor, role, toolName: "catalog.create_product" }, rows);
 
-  /* One catalog.create_category approval per DISTINCT missing name, each
-     with its own auto-picked, next-free top-level numeric_id
-     (nextTopLevelNumericId, above) — never left for a manager to type in
-     by hand. Parked the exact same way a product row is (runTool, then
-     parkForApproval): a real Square category write still needs a human's
-     own "yes", the one thing this file never skips regardless of how
-     confidently a decision was computed. */
-  const categoriesToCreate = [];
-  const reservedNumericIds = new Set();
-  for (const name of missingCategoryNames.values()) {
-    const numericId = nextTopLevelNumericId(categories, reservedNumericIds);
-    if (numericId) reservedNumericIds.add(numericId);
-    const args = {
-      name,
-      reason: "auto-requested while importing a spreadsheet",
-      ...(numericId ? { numeric_id: numericId } : {}),
-    };
-    const gate = await runTool("catalog.create_category", args, { actor, role, env });
-    if (!gate?.needsApproval) {
-      categoriesToCreate.push({ name, error: gate?.error || "could not be validated" });
-      continue;
-    }
-    const { url } = await parkForApproval(env, {
-      name: "catalog.create_category",
-      args,
-      actor,
-      role,
-      tier: "T2",
-      summary: gate.data.would,
-    });
-    categoriesToCreate.push({ name, url, summary: gate.data.would });
-  }
-
-  return { ready: parked, skipped: [...skipped, ...refused].sort((a, b) => a.row - b.row), categoriesToCreate };
+  return { ready: parked, skipped: [...skipped, ...refused].sort((a, b) => a.row - b.row) };
 }
 
 /* ── customers ────────────────────────────────────────────────────────── */
