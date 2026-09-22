@@ -5725,6 +5725,20 @@ that does not trace to one of these is a process failure (see §12).
     provider-agnostic catch — `catalog-writer.js` already knows it is talking to Square, and a
     VERSION_MISMATCH means something specific and interpretable only there.
 
+    **REVISED A FOURTH TIME: a second place the exact same generic sentence was still being dropped**,
+    found live from `Test-PRD-P0-149-auto_apply_failure_visibility`'s own incident — the production
+    `audit_log` recorded only `Square POST /v2/catalog/object failed with 400` for a real per-product
+    apply failure, with no category/code/detail to explain it, even though `errorDetail` had already
+    fixed exactly this for a direct tool call's own top-level error. The gap: `applyItemOptionsToProducts
+    InCategory`'s own per-product `catch` (`catalog-writer.js`, the established "one product's failure
+    does not fail the batch" shape) used `err.message` alone, never `errorDetail(err)` — a second,
+    separate spot the same detail could be lost, since a per-product failure is caught and collected
+    into an `errors` array rather than thrown up to `runTool`'s own catch at all. `errorDetail` moved out
+    of `tools/index.js` into its own small module (`tools/error-detail.js`) so both call sites — `runTool`
+    and `catalog-writer.js`'s own per-product catch — can import it without a circular dependency
+    (`tools/index.js` already imports FROM `catalog-writer.js`); both now produce the identical, full
+    category/code/field/detail string.
+
 75. **`Test-PRD-P0-140-shell_always_visible`** — The owner's own words, after noticing the tab header
     was simply absent on a direct `/items` visit: "I never should be able to allow to go in there... I
     should always be redirected to the main top domain... no matter what happens." `/chat`, `/items`

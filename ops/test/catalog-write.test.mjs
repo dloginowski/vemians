@@ -3699,6 +3699,40 @@ check("test_PRD_P0_148_auto_generate_variations__a_product_past_the_variation_ca
   assert.equal(overloadedWrites.length, 1);
 });
 
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-139 (REVISED) — "Square POST /v2/catalog/object failed with 400" —
+ * the owner's own words, live, after a real per-product apply failure
+ * (Test-PRD-P0-149-auto_apply_failure_visibility's own incident) turned
+ * out to have been logged with only that generic sentence, never Square's
+ * own category/code/detail. P0-139 already fixed this for a DIRECT tool
+ * call's own top-level error string; applyItemOptionsToProductsInCategory's
+ * own per-product catch ("one product's failure does not fail the batch")
+ * was a second, separate place the exact same detail was being dropped.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_139_honest_write_failures__a_per_product_apply_failure_also_carries_squares_own_rejection_detail", async () => {
+  const f = await fixture({
+    failUpsert: [
+      {
+        category: "INVALID_REQUEST_ERROR",
+        code: "BAD_REQUEST",
+        detail: "Item variation `item_option_values` referenced an unknown item option value.",
+      },
+    ],
+  });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const size = seedItemOption(f, { id: "opt1", externalRef: "SQ_OPT_SIZE", name: "Size" });
+  await approvedCall(f, "catalog.set_category_item_options", { category_id: outerwear.id, item_option_ids: [size.id], reason: "test" });
+
+  const res = await approvedCall(f, "catalog.apply_category_item_options_to_products", { category_id: outerwear.id, reason: "test" });
+  assert.equal(res.ok, true, res.error);
+  assert.equal(res.data.products_applied, 0, "the coat's own Square write failed");
+  assert.equal(res.data.errors.length, 1);
+  assert.match(res.data.errors[0].error, /Square POST \/v2\/catalog\/object failed with 400/, "the generic sentence is still there");
+  assert.match(res.data.errors[0].error, /INVALID_REQUEST_ERROR\/BAD_REQUEST/, "Square's own category/code must survive the per-product catch too");
+  assert.match(res.data.errors[0].error, /unknown item option value/);
+});
+
 check("test_PRD_P0_148_auto_generate_variations__an_assigned_option_with_no_values_yet_is_named_before_approval_not_a_silent_no_op", async () => {
   /* "I only see sizes for the black dress. I don't see any colors" — the
      owner's own words, the first time this shipped. Dress Colors WAS

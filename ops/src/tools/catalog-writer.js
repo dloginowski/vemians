@@ -39,6 +39,7 @@ import { createImageUploader, squareAcceptsType } from "../../../shared/commerce
 import { idempotencyKey } from "../../../shared/commerce/square/ids.js";
 import { moneyToSquare } from "../../../shared/commerce/square/money.js";
 import { createVendor } from "../../../shared/commerce/square/vendors.js";
+import { errorDetail } from "./error-detail.js";
 import { CAPS } from "./caps.js";
 
 /* ── mirror READS, over the raw D1 binding ──────────────────────────────── */
@@ -1152,8 +1153,14 @@ export function createSquareCatalogWriter(env, opts = {}) {
           await this.updateProduct({ handle: p.handle, itemOptionIds: ids, ...(newVariations ? { variations: newVariations } : {}) });
           applied += 1;
         } catch (err) {
-          console.error(`ERROR catalog-writer: apply item options failed for ${p.handle} — ${err.message}`);
-          errors.push({ handle: p.handle, error: err.message });
+          /* err.message alone is only ever "Square POST /v2/catalog/object
+             failed with 400" — the real reason (category/code/field/detail,
+             a SquareError's own .errors, entirely separate from .message)
+             was being dropped right here, the one place a live failure
+             ("I tried it. Didn't work") most needed it. */
+          const detail = errorDetail(err);
+          console.error(`ERROR catalog-writer: apply item options failed for ${p.handle} — ${detail}`);
+          errors.push({ handle: p.handle, error: detail });
         }
       }
       return { applied, errors };
