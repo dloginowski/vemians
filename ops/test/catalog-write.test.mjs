@@ -3457,6 +3457,77 @@ check("test_PRD_P0_144_apply_category_item_options__pushes_the_categorys_own_eff
   assert.deepEqual(itemUpsert.body.object.item_data.item_options, [{ item_option_id: "SQ_OPT_SIZE" }]);
 });
 
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-144 (REVISED) — "I tried it. Didn't work" — the owner's own words,
+ * live: Square's real answer, once visible (Test-PRD-P0-149-auto_apply_
+ * failure_visibility's own incident), was "Expected ItemVariation to have
+ * 1 Item Option Values, got 0." A variation that predates this Option
+ * Sets feature entirely (the seeded coat's own VAR_COAT_S/VAR_COAT_M,
+ * titled "IT 38"/"IT 42", never given any item_option_values) is exactly
+ * that case. Auto-match by title — the owner's own choice, asked
+ * directly — is what retagByTitle (catalog-writer.js) now does.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_144_apply_category_item_options__an_existing_untagged_variation_is_retagged_by_matching_its_own_title", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  seedItemOptionInSquare(f, {
+    externalRef: "SQ_OPT_SIZE",
+    name: "Size",
+    /* The coat's own two REAL, pre-existing variations are titled exactly
+       this — SEED (square-catalog.json), never touched by this test. */
+    values: [{ externalRef: "SQ_OPTVAL_38", name: "IT 38" }, { externalRef: "SQ_OPTVAL_42", name: "IT 42" }],
+  });
+  await f.writer.adapter.pullCatalog({ full: true });
+  const size = f.mirror("SELECT id FROM mirror_item_option WHERE external_ref = 'SQ_OPT_SIZE'")[0];
+  await approvedCall(f, "catalog.set_category_item_options", { category_id: outerwear.id, item_option_ids: [size.id], reason: "test" });
+
+  const res = await approvedCall(f, "catalog.apply_category_item_options_to_products", { category_id: outerwear.id, reason: "test" });
+  assert.equal(res.ok, true, res.error);
+  assert.deepEqual(res.data.errors, []);
+  assert.equal(res.data.products_applied, 1);
+
+  const itemUpsert = f.calls().filter((c) => c.path === "/v2/catalog/object" && c.upsert === "ITEM").pop();
+  const variations = itemUpsert.body.object.item_data.variations;
+  assert.equal(variations.length, 2, "both existing variations are RETAGGED in place -- neither is duplicated as a new SKU");
+  const v38 = findVariationByOptionPairs(variations, [{ item_option_id: "SQ_OPT_SIZE", item_option_value_id: "SQ_OPTVAL_38" }]);
+  const v42 = findVariationByOptionPairs(variations, [{ item_option_id: "SQ_OPT_SIZE", item_option_value_id: "SQ_OPTVAL_42" }]);
+  assert.ok(v38, "the variation titled IT 38 must now carry Size=IT 38");
+  assert.ok(v42, "the variation titled IT 42 must now carry Size=IT 42");
+  assert.equal(v38.id, "VAR_COAT_S", "the SAME real SKU, retagged in place -- never a new variation");
+  assert.equal(v42.id, "VAR_COAT_M", "the SAME real SKU, retagged in place -- never a new variation");
+
+  const options = f.mirror("SELECT options FROM mirror_variant WHERE external_ref = 'VAR_COAT_S'")[0];
+  assert.deepEqual(JSON.parse(options.options), { Size: "IT 38" }, "the mirror itself reflects the retag after the resync");
+});
+
+check("test_PRD_P0_144_apply_category_item_options__a_title_that_matches_no_value_is_left_exactly_as_it_was", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  seedItemOptionInSquare(f, {
+    externalRef: "SQ_OPT_SIZE",
+    name: "Size",
+    /* Neither value matches "IT 38"/"IT 42" -- nothing here for
+       retagByTitle to find. */
+    values: [{ externalRef: "SQ_OPTVAL_S", name: "S" }, { externalRef: "SQ_OPTVAL_M", name: "M" }],
+  });
+  await f.writer.adapter.pullCatalog({ full: true });
+  const size = f.mirror("SELECT id FROM mirror_item_option WHERE external_ref = 'SQ_OPT_SIZE'")[0];
+  await approvedCall(f, "catalog.set_category_item_options", { category_id: outerwear.id, item_option_ids: [size.id], reason: "test" });
+
+  const res = await approvedCall(f, "catalog.apply_category_item_options_to_products", { category_id: outerwear.id, reason: "test" });
+  assert.equal(res.ok, true, res.error);
+
+  const itemUpsert = f.calls().filter((c) => c.path === "/v2/catalog/object" && c.upsert === "ITEM").pop();
+  const variations = itemUpsert.body.object.item_data.variations;
+  assert.equal(variations.length, 4, "S and M are both genuinely NEW -- the two existing, untouched variations stay, unretagged");
+  const untouched = variations.filter((v) => v.id === "VAR_COAT_S" || v.id === "VAR_COAT_M");
+  assert.equal(untouched.length, 2);
+  for (const v of untouched) {
+    assert.deepEqual(v.item_variation_data.item_option_values ?? [], [], "a title with no match is left exactly as it was, never guessed at");
+  }
+});
+
 check("test_PRD_P0_144_apply_category_item_options__applies_an_inherited_set_not_only_an_explicit_one", async () => {
   const f = await fixture();
   const outerwear = f.categories().find((c) => c.name === "Outerwear");

@@ -476,6 +476,13 @@ export function mergeVariations(current, patch) {
          it, the same "resend or it may vanish" reasoning title/price
          already use one line up. */
       unit_cost_minor: p.unit_cost_minor ?? cur.unit_cost_minor,
+      /* A patch naming an EXISTING variant's own option_values (catalog.
+         apply_category_item_options_to_products' own retagByTitle, for a
+         variation that predates Option Sets entirely and so carries none)
+         must actually reach it — this used to be silently dropped on the
+         UPDATE side of a merge; only a brand-new added entry ever carried
+         option_values through at all. */
+      option_values: p.option_values ?? cur.option_values,
     });
   }
   return { variations: [...order.map((id) => byId.get(id)), ...added] };
@@ -981,7 +988,7 @@ export function createSquareCatalogWriter(env, opts = {}) {
 
   async function variantsWithOptions(productId) {
     const res = await mirrorDb
-      .prepare("SELECT price_minor, currency, options FROM mirror_variant_index WHERE product_id = ? ORDER BY ordinal")
+      .prepare("SELECT id, title, price_minor, currency, options FROM mirror_variant_index WHERE product_id = ? ORDER BY ordinal")
       .bind(productId)
       .all();
     return (res.results ?? []).map((v) => {
@@ -991,8 +998,39 @@ export function createSquareCatalogWriter(env, opts = {}) {
       } catch {
         options = {};
       }
-      return { price_minor: v.price_minor, currency: v.currency, options };
+      return { id: v.id, title: v.title, price_minor: v.price_minor, currency: v.currency, options };
     });
+  }
+
+  /* "I tried it. Didn't work" — Square's own real answer, once the two
+     visibility fixes above finally surfaced it: "Expected ItemVariation
+     to have 1 Item Option Values, got 0." A variation created before this
+     Option Sets feature existed carries no item_option_values at all —
+     just a plain title ("S", "M", ...) — and Square refuses to let an
+     ITEM declare item_options at all while any of its own variations
+     carry none. The owner's own choice, asked directly: auto-match an
+     untagged variation's own title against the assigned option's own
+     value names (case-insensitive) and retag it that way, rather than
+     requiring a manual fix per product or leaving it permanently
+     untouched (and permanently unable to ever apply). Only ever ADDS a
+     dimension a variation does not already carry — an already-tagged
+     dimension is never overwritten — and only ever from an EXACT title
+     match; a title that matches nothing is left exactly as it was, its
+     own per-product failure now clearly visible rather than silently
+     wrong. */
+  function retagByTitle(existing, options) {
+    const merged = { ...existing.options };
+    let changed = false;
+    const title = (existing.title ?? "").trim().toLowerCase();
+    for (const opt of options) {
+      if (merged[opt.name]) continue;
+      const match = opt.values.find((v) => v.toLowerCase() === title);
+      if (match) {
+        merged[opt.name] = match;
+        changed = true;
+      }
+    }
+    return changed ? merged : null;
   }
 
   return {
@@ -1116,7 +1154,7 @@ export function createSquareCatalogWriter(env, opts = {}) {
         const ids = [...(effectiveByCategory.get(catId) ?? [])];
         const options = await itemOptionValueNames(ids);
         const combos = options.length ? optionCombinations(options).filter((c) => Object.keys(c).length) : [];
-        const data = { ids, combos };
+        const data = { ids, combos, options };
         comboDataCache.set(catId, data);
         return data;
       }
@@ -1130,11 +1168,24 @@ export function createSquareCatalogWriter(env, opts = {}) {
       const errors = [];
       for (const p of products.results ?? []) {
         try {
-          const { ids, combos } = await comboDataFor(p.category_id);
+          const { ids, combos, options } = await comboDataFor(p.category_id);
           const existing = await variantsWithOptions(p.id);
-          const existingSignatures = new Set(existing.map((v) => comboSignature(v.options)));
+          /* Retag first, so a title-matched existing variation counts as
+             covering its own combination below — never both retagged AND
+             regenerated as a second, duplicate SKU. */
+          const retagPatches = [];
+          const existingSignatures = new Set();
+          for (const v of existing) {
+            const retagged = retagByTitle(v, options);
+            if (retagged) {
+              retagPatches.push({ variant_id: v.id, option_values: retagged });
+              existingSignatures.add(comboSignature(retagged));
+            } else {
+              existingSignatures.add(comboSignature(v.options));
+            }
+          }
           const missing = combos.filter((c) => !existingSignatures.has(comboSignature(c)));
-          let newVariations;
+          const newEntries = [];
           if (missing.length) {
             const total = existing.length + missing.length;
             if (total > CAPS.CATALOG_MAX_VARIATIONS) {
@@ -1143,14 +1194,17 @@ export function createSquareCatalogWriter(env, opts = {}) {
               );
             }
             const base = existing[0] ?? { price_minor: 0, currency: "USD" };
-            newVariations = missing.map((combo) => ({
-              title: Object.values(combo).join(" / "),
-              price_minor: base.price_minor,
-              currency: base.currency,
-              option_values: combo,
-            }));
+            for (const combo of missing) {
+              newEntries.push({
+                title: Object.values(combo).join(" / "),
+                price_minor: base.price_minor,
+                currency: base.currency,
+                option_values: combo,
+              });
+            }
           }
-          await this.updateProduct({ handle: p.handle, itemOptionIds: ids, ...(newVariations ? { variations: newVariations } : {}) });
+          const variationsPatch = [...retagPatches, ...newEntries];
+          await this.updateProduct({ handle: p.handle, itemOptionIds: ids, ...(variationsPatch.length ? { variations: variationsPatch } : {}) });
           applied += 1;
         } catch (err) {
           /* err.message alone is only ever "Square POST /v2/catalog/object

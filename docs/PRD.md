@@ -6063,6 +6063,33 @@ that does not trace to one of these is a process failure (see §12).
     across the same subtree now too, so the approval summary already reflects the real scope of the
     call rather than only the clicked category's own direct products.
 
+    REVISED A THIRD TIME, from Square's own real answer once `Test-PRD-P0-149-auto_apply_failure_
+    visibility`'s own fix finally surfaced it: `INVALID_REQUEST_ERROR/BAD_REQUEST: Expected
+    ItemVariation to have 1 Item Option Values, got 0`. The Black Dress's own five real variations
+    predate this whole Option Sets feature — plain titles ("S", "M", ...), no `item_option_values` at
+    all — and Square refuses to let an ITEM declare `item_options` while any of its own variations
+    still carry none; generating the genuinely MISSING combinations was never the problem, the
+    pre-existing, never-touched ones were. Asked directly, the owner's own choice: auto-match an
+    untagged existing variation's own title against the assigned option's own value names
+    (case-insensitive exact match) and retag it in place — never a new SKU, never touching price/sku/
+    anything else — rather than a manual per-product fix or leaving every such product permanently
+    unable to ever apply. `retagByTitle` (`catalog-writer.js`) computes this before the missing-combo
+    pass, so a retagged variation counts as already covering its own combination (never both retagged
+    AND duplicated as a second SKU); `mergeVariations`'s own UPDATE branch — previously dropping
+    `option_values` on a patch matching an EXISTING variant entirely, only ever carrying it through for
+    a brand-new one — now carries it through either way, the actual gap that made a retag patch a
+    no-op before this fix. A title matching nothing is left exactly as it was, its own failure now
+    visible (the fix above) rather than silently wrong.
+
+    **Known, deliberately out of scope**: a product whose own base variation carries a generic title
+    that names no real value at all (a plain "One size", say) cannot be retagged by title — nothing to
+    match. Real Square very likely refuses that product's own apply the same way, the moment ANY
+    Option Set reaches its category; discovered live, while proving this fix, testing against several
+    of this suite's OWN existing fixtures. A real fix needs a genuine design decision (what should a
+    non-title-matchable base variation become?) that was not part of what was asked here — left for the
+    next report, now that a failure like it would surface clearly rather than silently, the same as the
+    Black Dress's own did.
+
 83. **`Test-PRD-P0-149-category_options_inherit_toggle`** — The owner's own words, right after P0-148
     shipped: "I think there needs to be a separate option called Inherit for every category. It should
     be set by default to inherit... but I should be able to disable the Inherit button and specify
