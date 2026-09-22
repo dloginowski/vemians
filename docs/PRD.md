@@ -4654,23 +4654,31 @@ that does not trace to one of these is a process failure (see §12).
     end.** "Categories/subcategories should be made if missing. And ids assigned auto bumped" —
     the owner's own words, asked directly whether that should write immediately (no separate
     approval, since uploading the batch is already a manager-level action) or park its own
-    approval first, same as everything else in this file: "1" — park it. A row naming a category
-    that matches nothing real still gets reported (its own reason now points at the request parked
-    below it, "approve it, then re-upload this row"), but `draftProductBatch` also mints ONE
-    `catalog.create_category` approval per DISTINCT missing name (`categoriesToCreate`, deduped —
-    ten rows naming the same missing category get one request, not ten), auto-numbered with the
-    next unused top-level `numeric_id` (`nextTopLevelNumericId`, `batch.js`) so a manager never has
-    to work out a free number by hand. Always top-level: a plain category cell names no parent to
-    nest a brand-new one under, and inventing one would be exactly the kind of silent guess this
-    file's own "never invent" rule exists to prevent — a manager can re-nest it afterward, same as
-    any other category. Still a REAL Square write requiring a REAL approval, the one thing nothing
-    in this file skips regardless of how confidently a number was computed:
-    `catalog.create_category`'s own `check()` still validates it (format, the two-pool conflict
-    check, the near-duplicate-name refusal) exactly as it would a hand-typed request, so a genuine
-    typo of an existing name still gets caught there, not silently created as a look-alike
-    duplicate. `batchReviewPage` (`views.js`) and the chat's own `batchDraftTable`/`formatBatchDraft`
-    (`agent.js`) both surface these requests FIRST, above the row table — a prerequisite, not just
-    another skip reason.
+    approval first, same as everything else in this file: "1" — park it.
+
+    **REVISED AGAIN, correcting that answer:** "We can make categories with UI can't we? Why not
+    just pre make them and switch to admin tab? If UI works why can't agent?" — the owner's own
+    words, pointing at the Admin panel's own `/admin/categories/create` route (`index.js`), which
+    never parks a separate approval at all: it calls `runTool` TWICE in the SAME request — once
+    with no token to get the T2 gate, immediately again with that gate's own approval token — so
+    a manager filling in the form and hitting Create is treated as the deliberate yes, no second
+    click on a separate page. Uploading a spreadsheet is just as deliberate an action, so a missing
+    category is now created the exact same way, inline, inside the SAME `draftProductBatch` call
+    (`resolveOrCreateCategory`, `batch.js`): the row that named it then proceeds to mint its own
+    product approval in that same call — no separate approval link, and no re-upload ever needed.
+    Auto-numbered with the next unused top-level `numeric_id` (`nextTopLevelNumericId`, `batch.js`)
+    so a manager never has to work out a free number by hand; a per-batch-run cache means several
+    rows naming the same missing category create it only once, and `categories`/the reserved-number
+    set both grow the moment a new one lands so every row after it — `nextTopLevelNumericId`'s own
+    pool-scan and this file's own `matchCategory` alike — sees it as real. Always top-level: a
+    plain category cell names no parent to nest a brand-new one under, and inventing one would be
+    exactly the kind of silent guess this file's own "never invent" rule exists to prevent — a
+    manager can re-nest it afterward, same as any other category. Still a REAL Square write, made
+    with the same `check()` that a hand-typed Admin request goes through (format, the two-pool
+    conflict check, the near-duplicate-name refusal) — a genuine typo of an existing name is still
+    refused there, and that refusal surfaces as the row's OWN skip reason directly, e.g. `category
+    "Outerwears" does not exist yet and could not be created: "Outerwears" overlaps the existing
+    category "Outerwear" (...)`, never a separate dead-end link to click through first.
 
 72. **`Test-PRD-P0-137-item_active_toggle`** — The owner's own words, in the same request that moved
     Web and the newly-added Active checkbox beside the item's own name: "move the web and the active
