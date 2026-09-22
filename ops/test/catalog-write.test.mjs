@@ -3841,6 +3841,87 @@ check("test_PRD_P0_148_auto_generate_variations__catalog_create_product_generate
   assert.notEqual(s.item_variation_data.sku, m.item_variation_data.sku);
 });
 
+check("test_PRD_P0_148_auto_generate_variations__a_style_id_makes_the_sku_human_readable_instead_of_the_opaque_fallback", async () => {
+  /* "Maybe generate it from the style id? Add option and size to the end?"
+     -- the owner's own words, on hearing the first version was a plain
+     opaque 12-digit code. */
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+
+  const created = await approvedCall(f, "catalog.create_product", {
+    title: "Cotton Robe",
+    category_id: outerwear.id,
+    style_id: "01-99-002",
+    variations: [
+      { title: "White, M", price_minor: 6000, currency: "USD", option_values: { Color: "White", Size: "M" } },
+      { title: "One size", price_minor: 6000, currency: "USD" },
+    ],
+  });
+  assert.equal(created.ok, true, created.error);
+
+  const itemUpsert = f
+    .calls()
+    .filter((c) => c.path === "/v2/catalog/object" && c.upsert === "ITEM" && c.body.object.item_data.name === "Cotton Robe")
+    .pop();
+  const variations = itemUpsert.body.object.item_data.variations;
+  const tagged = variations.find((v) => v.item_variation_data.name === "White, M");
+  const untagged = variations.find((v) => v.item_variation_data.name === "One size");
+  assert.equal(tagged.item_variation_data.sku, "01-99-002-WHITE-M", "human-readable: style_id plus this variation's own option values");
+  assert.equal(untagged.item_variation_data.sku, "01-99-002-ONE-SIZE", "no option_values at all -- falls back to the variation's own title instead");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0_144 (REVISED) -- "No, it must be auto generated when making the
+ * options assignment!" -- the owner's own words, on hearing that
+ * re-running Apply would never backfill a SKU for a combination it had
+ * already retagged in an earlier run. Retagging an untagged variation IS
+ * "making the options assignment" for it -- it must get a real SKU the
+ * moment it happens, not stay stuck the way the Black Dress's own White
+ * combinations were.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_144_apply_category_item_options__retagging_an_untagged_skuless_variation_also_gives_it_a_real_sku", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  seedItemOptionInSquare(f, {
+    externalRef: "SQ_OPT_SIZE",
+    name: "Size",
+    values: [{ externalRef: "SQ_OPTVAL_S", name: "S" }],
+  });
+  await f.writer.adapter.pullCatalog({ full: true });
+  const size = f.mirror("SELECT id FROM mirror_item_option WHERE external_ref = 'SQ_OPT_SIZE'")[0];
+  await approvedCall(f, "catalog.set_category_item_options", { category_id: outerwear.id, item_option_ids: [size.id], reason: "test" });
+
+  await approvedCall(f, "catalog.create_product", {
+    title: "Wrap Skirt",
+    category_id: outerwear.id,
+    style_id: "01-99-003",
+    /* Predates Option Sets entirely -- a plain title, no option_values, no
+       sku (the shop never got around to giving this specific one a real
+       one). */
+    variations: [{ title: "S", price_minor: 5000, currency: "USD" }],
+  });
+
+  const res = await approvedCall(f, "catalog.apply_category_item_options_to_products", { category_id: outerwear.id, reason: "test" });
+  assert.equal(res.ok, true, res.error);
+  assert.deepEqual(res.data.errors, []);
+
+  const itemUpsert = f
+    .calls()
+    .filter((c) => c.path === "/v2/catalog/object" && c.upsert === "ITEM" && c.body.object.item_data.name === "Wrap Skirt")
+    .pop();
+  const variations = itemUpsert.body.object.item_data.variations;
+  assert.equal(variations.length, 1, "S already existed and is retagged in place -- never duplicated");
+  const s = variations[0];
+  assert.deepEqual(s.item_variation_data.item_option_values, [{ item_option_id: "SQ_OPT_SIZE", item_option_value_id: "SQ_OPTVAL_S" }]);
+  assert.equal(s.item_variation_data.sku, "01-99-003-S", "retagging must also mint a real sku for a variation that never had one");
+
+  const mirrored = f.mirror(
+    "SELECT sku FROM mirror_variant v JOIN mirror_product p ON p.id = v.product_id WHERE p.handle = 'wrap-skirt'",
+  )[0];
+  assert.equal(mirrored.sku, "01-99-003-S", "the mirror itself reflects it after the resync");
+});
+
 check("test_PRD_P0_148_auto_generate_variations__an_existing_combination_is_never_duplicated_or_touched", async () => {
   const f = await fixture();
   const outerwear = f.categories().find((c) => c.name === "Outerwear");

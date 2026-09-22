@@ -177,14 +177,15 @@ export const commerceTools = {
       if (args.delta === 0) return { denied: "a delta of 0 would change nothing" };
       const variant = await this.variant(args, t);
       if (!variant) return { denied: `no variation '${args.variant_id}' in the mirror` };
-      if (!variant.sku) {
-        return {
-          denied:
-            `'${variant.product_title}' — '${variant.variant_title}' has no SKU yet, so it has never ` +
-            "been mirrored into stock — nothing to adjust",
-        };
-      }
-      const current = await this.onHand(variant.sku, t);
+      /* "When I add item to inventory, can't you auto generate it if
+         missing" — the owner's own words. A variation with no SKU yet
+         (never mirrored into stock) used to be an outright refusal here;
+         now it is simply a brand-new inventory_level row about to be
+         created for the first time — run() mints the real SKU
+         (t.square.ensureVariantSku) the moment this gets approved, so
+         `current` is 0 the same way any first-ever count is, never a
+         reason to deny the adjustment itself. */
+      const current = variant.sku ? await this.onHand(variant.sku, t) : 0;
       const resulting = current + args.delta;
       if (resulting < 0) {
         return {
@@ -192,10 +193,11 @@ export const commerceTools = {
           detail: { reason: "would_go_negative", current },
         };
       }
+      const skuNote = variant.sku ? "" : "no SKU yet — one will be generated automatically. ";
       return {
         ok: true,
         summary:
-          `adjust "${variant.product_title}" — "${variant.variant_title}" stock by ` +
+          `${skuNote}adjust "${variant.product_title}" — "${variant.variant_title}" stock by ` +
           `${args.delta > 0 ? "+" : ""}${args.delta} (${current} -> ${resulting})`,
         preflight: { variant, current },
       };
@@ -205,8 +207,14 @@ export const commerceTools = {
          check() and its approved run(), and someone else's sale or receipt in
          that gap must not be silently overwritten by a stale target count. */
       const variant = await this.variant(args, t);
-      if (!variant?.sku) return { error: `no SKU for variation '${args.variant_id}' — nothing to adjust` };
-      const current = await this.onHand(variant.sku, t);
+      if (!variant) return { error: `no variation '${args.variant_id}' in the mirror` };
+      /* Mint one now, the moment stock is actually being moved — the real
+         thing every prior "has no SKU yet — nothing to adjust" refusal was
+         missing (see check()'s own comment). A variant with one already
+         is a pure no-op read (ensureVariantSku's own comment,
+         catalog-writer.js). */
+      const sku = variant.sku || (await t.square.ensureVariantSku(variant.id));
+      const current = await this.onHand(sku, t);
       const resulting = current + args.delta;
       if (resulting < 0) {
         return { error: `${current} in stock now — a change of ${args.delta} would take it negative` };
@@ -225,11 +233,11 @@ export const commerceTools = {
         await t.square.adapter.pullInventory({ catalogObjectIds: [variant.external_ref] });
       } catch (err) {
         console.error(`ERROR inventory.adjust: immediate post-write sync failed, cron will reconcile — ${err.message}`);
-        return { adjusted: true, sku: variant.sku, delta: args.delta, on_hand: resulting, synced: false };
+        return { adjusted: true, sku, delta: args.delta, on_hand: resulting, synced: false };
       }
 
-      const after = await this.onHand(variant.sku, t);
-      return { adjusted: true, sku: variant.sku, delta: args.delta, on_hand: after, synced: true };
+      const after = await this.onHand(sku, t);
+      return { adjusted: true, sku, delta: args.delta, on_hand: after, synced: true };
     },
   },
 };

@@ -683,11 +683,21 @@ that does not trace to one of these is a process failure (see §12).
     `syncInventoryChanges` path that turns any OTHER Square-side stock event into a ledger row
     turns this one into one too — one writer into the ledger, always the sync, never an agent
     tool, the same rule `catalog.update_product` already holds for the mirror. Refused before
-    Square is ever touched: a zero delta, a variation with no SKU (never mirrored), or a delta
-    that would take stock negative. `stores: ["commerce"]` alone (`Test-PRD-P0-24-binding_scoped_
+    Square is ever touched: a zero delta, or a delta that would take stock negative.
+    `stores: ["commerce"]` alone (`Test-PRD-P0-24-binding_scoped_
     tools`: "no tool holds two stores at once") — resolving `variant_id` to its own `external_ref`/
     `sku` goes through `t.square`'s own internal mirror access (`variantById`, `catalog-writer.js`,
     exposed the same way `productByHandle` already is) rather than a second store binding.
+
+    REVISED, live, once the Black Dress's own auto-generated White combinations (`Test-PRD-P0-148-
+    auto_generate_variations`) were actually clicked on: a variation with NO SKU used to be refused
+    outright here ("has no SKU yet, so it has never been mirrored into stock — nothing to adjust").
+    The owner's own words: "When I add item to inventory, can't you auto generate it if missing."
+    The moment stock is first moved on a variation is exactly the moment it genuinely needs a real
+    SKU, not a reason to refuse — `run()` now mints one (`t.square.ensureVariantSku`,
+    `catalog-writer.js`) the instant it finds one missing, then adjusts as normal; `check()`'s own
+    preview says so plainly ("no SKU yet — one will be generated automatically") rather than denying
+    the whole request. An already-real SKU is a pure no-op read, never touched or regenerated.
     `listAllProducts` now also batches a read of the whole `inventory_level` view (one query, not
     one per variation — the same trade vendor names and images already make), so each variation
     row in the Items tab shows its own current count.
@@ -6162,6 +6172,36 @@ that does not trace to one of these is a process failure (see §12).
     `variant_id`) still rides through completely untouched, exactly as before — this only ever reaches a
     variation that did not exist a moment ago, never backfills one that predates this whole feature and
     still carries none.
+
+    REVISED A FOURTH TIME, minutes later, three more asks in one breath: "Maybe generate it from the
+    style id? Add option and size to the end? ... I want the barcode to work with it ... Will it conflict
+    with existing skus?" and, separately: "No it must be auto generated when making the options
+    assignment!" on hearing that a variation Apply had already retagged in an EARLIER run would never get
+    a SKU just from running Apply again.
+
+    `skuFromStyleId` (`catalog-writer.js`) replaces the opaque `generateSku` as the PREFERRED shape
+    whenever this product has a `style_id` on file: `${styleId}-${SUFFIX}`, e.g. `01-04-001-WHITE-M` for
+    the Black Dress's own White/M — the suffix is this variation's own `option_values`, uppercased and
+    joined (falling back to its own title when it carries no option_values at all, so two variations
+    sharing a product but no Option Sets yet still cannot collide, exactly as Square itself already
+    requires their titles to differ). Collision-free BY CONSTRUCTION, no live uniqueness check needed:
+    `style_id` is already refused when another product has it, and Square itself already refuses two
+    variations of the SAME item sharing the same `option_values` — so this can never match another SKU.
+    "Will the barcode work with it?" — yes, as Code128 (alphanumeric), the same as Square already prints
+    for any SKU that is not itself a valid numeric UPC/EAN; it is simply never a REGISTERED code outside
+    this shop's own account, same as `generateSku`'s own opaque one. The numeric `generateSku` fallback
+    still applies only when a product has no `style_id` at all (no category, and none given by hand).
+
+    "Auto generated when making the options assignment" — retagging an untagged variation (the REVISED A
+    THIRD TIME paragraph, above) now ALSO mints a SKU for it when it has none, right there in
+    `applyItemOptionsToProductsInCategory`'s own retag loop, using this same `skuFromStyleId`/`generateSku`
+    choice — going from untagged to a real Size/Color IS "making the options assignment" for that
+    variation, so it must be adjustable the instant that happens, not stuck the way the Black Dress's own
+    White combinations were until `inventory.adjust` itself was also fixed (`Test-PRD-P0-31-
+    inventory_ledger`'s own REVISED, above). Only when the variation's own SKU is genuinely missing — the
+    common case (a variation predating Option Sets almost always already has a real, physical SKU) is
+    never touched, exactly as `retagByTitle`'s own "never touching price/sku/anything else" rule already
+    promises for everything else about it.
 
 83. **`Test-PRD-P0-149-category_options_inherit_toggle`** — The owner's own words, right after P0-148
     shipped: "I think there needs to be a separate option called Inherit for every category. It should
