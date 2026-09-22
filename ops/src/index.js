@@ -1690,10 +1690,20 @@ async function ops(request, env, path) {
     if (request.method !== "POST") return json({ error: "POST only" }, 405);
     let q = "";
     let rawFile = null;
+    /* The client's own record of the turns it already rendered — the
+       browser resends it every turn, since this route has no session of
+       its own (see agent.js's own comment on sanitizeHistory for why that
+       used to make every turn a fresh, amnesiac conversation). A JSON body
+       already carries it as a real array; a multipart one (a file
+       attached) carries it as a JSON-string field, same as any other
+       FormData value. */
+    let history = [];
     try {
       const parsed = await body(request);
       q = String(parsed.q || "");
       if (parsed.file instanceof File && parsed.file.size > 0) rawFile = parsed.file;
+      if (Array.isArray(parsed.history)) history = parsed.history;
+      else if (typeof parsed.history === "string" && parsed.history) history = JSON.parse(parsed.history);
     } catch (err) {
       console.error(`ERROR ops/agent: unreadable body — ${err.message}`);
       return json({ error: "Unreadable request body." }, 400);
@@ -1710,7 +1720,7 @@ async function ops(request, env, path) {
       attachment = ingested;
     }
 
-    const turn = await agentTurn({ q, identity, env, attachment });
+    const turn = await agentTurn({ q, identity, env, attachment, history });
     return json({ verified: identity.verified, ...turn });
   }
 

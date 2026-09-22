@@ -747,7 +747,7 @@ check("test_PRD_P0_89_batch_preview_confirm__the_table_renders_right_under_its_o
   const script = body.slice(body.indexOf("<script>"), body.indexOf("</script>"));
   const stepsAt = script.indexOf('data.steps || []).forEach');
   const tableAt = script.indexOf("if (data.table) tableCard(data.table)");
-  const replyAt = script.indexOf('entry("agent", data.reply');
+  const replyAt = script.indexOf('entry("agent", replyText)');
   assert.ok(stepsAt > -1 && tableAt > -1 && replyAt > -1, "all three must be present in the real submit handler");
   assert.ok(stepsAt < tableAt, "tool steps must render before the table");
   assert.ok(tableAt < replyAt, "the table must render before the agent's own text reply, not after it");

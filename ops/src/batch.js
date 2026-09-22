@@ -66,9 +66,18 @@ async function parkRows(env, { actor, role, toolName }, rows) {
 
 /* ── merchandise ──────────────────────────────────────────────────────── */
 
+/* Bare "style" USED to be a title synonym too, on the theory that some shops
+   call a garment's own descriptive name its "style" ("style name" still is,
+   below). REVISED, hitting a real sheet: "Style #" and "Style" alike
+   normalize (normalizeKey, above) to the same bare "style" this list used to
+   claim for title — so a column of style NUMBERS ("001-001") was landing as
+   the product's own TITLE, and a real style_id column right next to it went
+   unrecognized. "You are mistaking style id with title" — the owner's own
+   words. Removed here; STYLE_ID_KEYS (below) claims "style" instead, the same
+   division SKU_KEYS' own comment already draws for "style number". */
 const TITLE_KEYS = [
   "title", "name", "product", "product title", "product name",
-  "item", "item name", "item title", "style", "style name",
+  "item", "item name", "item title", "style name",
 ];
 const DESCRIPTION_KEYS = ["description", "desc", "details", "product description", "copy"];
 const CATEGORY_KEYS = ["category", "category name", "type", "product type", "collection", "department"];
@@ -115,7 +124,11 @@ const SKU_KEYS = ["sku", "style number", "item number", "product code"];
    options — Square does that," the owner's own words, on discovering
    Square only does this for a Dashboard/POS-created item, never one this
    codebase creates through the Catalog API). */
-const STYLE_ID_KEYS = ["style id", "style_id"];
+/* Bare "style"/"style #" claimed here, not by SKU_KEYS' own "style number" —
+   see TITLE_KEYS' own comment above for the real sheet that hit this
+   collision. "style #", "style#" and "style" itself all normalize to the
+   same "style" key. */
+const STYLE_ID_KEYS = ["style id", "style_id", "style #", "style"];
 const VENDOR_KEYS = ["vendor", "vendor name", "supplier"];
 /* The vendor's OWN SKU/product code for this item — "an invoice-like
    identifier," the owner's own words — a real field on Square's own Vendor

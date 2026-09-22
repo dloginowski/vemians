@@ -45,6 +45,24 @@ const MAX_TOKENS = 16000;
 /* Six tool round-trips. Hit it and the turn ends; it does not send a seventh. */
 const MAX_ROUND_TRIPS = 6;
 
+/* index.js's own /agent route is a fresh HTTP request every time — nothing
+   here persists a session — so without `history` every turn was the ONLY
+   message the model ever saw, no matter how long the conversation had
+   already run. Caught live: a plain "1" answering the menu's own "1) Add
+   Merchandise..." got the SAME menu back, and a direct correction ("You
+   are mistaking style id with title") was ignored, greeting again from
+   scratch — turn N had no way to know turn N-1 had ever happened. Capped
+   at the last MAX_HISTORY_TURNS entries so one very long conversation
+   still bounds the request rather than growing forever. */
+const MAX_HISTORY_TURNS = 24;
+
+/* CAPS.MAX_TEXT (500) is sized for a short reason or note, not a full
+   conversational reply — the very explanation this history exists to
+   remember (a spreadsheet's own column-mapping writeup, say) routinely
+   runs longer than that. Bounded here instead, generously enough that a
+   normal reply is never visibly cut off, still far short of "unbounded". */
+const MAX_HISTORY_TEXT = 4000;
+
 /* searchIntent() below asks for a few words back, not a turn — 16000 tokens
    of headroom for that would be a cost bug waiting to happen, not caution. */
 const SEARCH_INTENT_MAX_TOKENS = 30;
@@ -790,6 +808,28 @@ export function buildUserContent(q, attachment, role) {
 /* ---- a turn ------------------------------------------------------------ */
 
 /*
+ * `history` is the client's OWN record of what it already rendered — the
+ * literal chat-bubble text (views.js's own `entry()` log), nothing more: no
+ * tool_use/tool_result plumbing from a past turn's internal round-trips, and
+ * no re-sent image bytes for a photo attached several turns ago. Anything
+ * else is dropped rather than trusted — a stray object with the wrong shape
+ * must not crash the turn just because it slipped past the client's own
+ * bookkeeping. Kept to plain {role, content} pairs so it drops straight into
+ * `messages` ahead of the new turn.
+ */
+function sanitizeHistory(history) {
+  if (!Array.isArray(history)) return [];
+  const clean = [];
+  for (const turn of history) {
+    const role = turn?.role === "assistant" ? "assistant" : turn?.role === "user" ? "user" : null;
+    const text = typeof turn?.text === "string" ? turn.text.trim().slice(0, MAX_HISTORY_TEXT) : "";
+    if (!role || !text) continue;
+    clean.push({ role, content: text });
+  }
+  return clean.slice(-MAX_HISTORY_TURNS);
+}
+
+/*
  * Runs one turn. Returns:
  *   { mode, actor, role, reply, steps: [{tool, tier, ok, auditId}], pending? }
  * `mode` is "stub" when no ANTHROPIC_API_KEY is set — the prototype keeps
@@ -798,8 +838,11 @@ export function buildUserContent(q, attachment, role) {
  * `attachment` (optional) is already-uploaded, from index.js's
  * ingestAgentAttachment — see the comment on buildUserContent above for why
  * this file never receives raw, unstored bytes.
+ *
+ * `history` (optional) is this same conversation's own prior turns — see
+ * sanitizeHistory, above, for its shape and why it exists at all.
  */
-export async function agentTurn({ q, identity, env, attachment = null }) {
+export async function agentTurn({ q, identity, env, attachment = null, history = [] }) {
   const actor = identity.email;
   /* `env` is not optional here even though roleFor defaults it. Roles arrive as
      `policy_id`, matched against OWNER_POLICY_ID and its siblings, which live
@@ -830,7 +873,7 @@ export async function agentTurn({ q, identity, env, attachment = null }) {
      dotted name via this reverse lookup. */
   const nameForWire = new Map(defs.map((d) => [wireName(d.name), d.name]));
   const wireDefs = defs.map((d) => ({ ...d, name: wireName(d.name) }));
-  const messages = [{ role: "user", content: buildUserContent(q, attachment, role) }];
+  const messages = [...sanitizeHistory(history), { role: "user", content: buildUserContent(q, attachment, role) }];
   const steps = [];
   /* The most recent tool call that produced a `table` — a preview or a batch
      draft result. Carried into the turn's final reply so the client can

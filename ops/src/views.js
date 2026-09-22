@@ -1268,6 +1268,14 @@ ${COPY_JS}
 const log = document.getElementById("log");
 const gate = document.getElementById("gate");
 
+/* This tab's own memory of the conversation so far — the literal chat-bubble
+   text, nothing more (no tool steps, no re-sent image bytes for a photo
+   attached turns ago) — since /ops/agent is a fresh HTTP request every time
+   and has no session of its own. Resent with every turn so the model can
+   see its own prior replies instead of starting over each time; page-lived
+   only, same as the chat log itself (a reload already clears both). */
+let history = [];
+
 /* One builder for every bubble. kind is "" (you), "agent" or "tool" — "you"
    gets an explicit class too (not left bare), since the bubble styling reads
    it the same way the other two do. */
@@ -1514,7 +1522,8 @@ document.getElementById("chat").addEventListener("submit", async (e) => {
   const file = pickedFile();
   if (!q && !file) return;
   gate.textContent = "";
-  entry("", q || ("(attached " + file.name + ")"));
+  const bubbleText = q || ("(attached " + file.name + ")");
+  entry("", bubbleText);
   box.value = "";
   clearAttachments();
   try {
@@ -1523,12 +1532,13 @@ document.getElementById("chat").addEventListener("submit", async (e) => {
       const form = new FormData();
       form.set("q", q);
       form.set("file", file);
+      form.set("history", JSON.stringify(history));
       res = await fetch("/ops/agent", { method: "POST", body: form });
     } else {
       res = await fetch("/ops/agent", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ q }),
+        body: JSON.stringify({ q, history }),
       });
     }
     const data = await res.json();
@@ -1539,8 +1549,12 @@ document.getElementById("chat").addEventListener("submit", async (e) => {
        from once the reply had any real length to it. */
     (data.steps || []).forEach((s) => entry("tool", (s.ok ? "ran " : "refused ") + s.tool + (s.auditId ? " · audit " + s.auditId : "")));
     if (data.table) tableCard(data.table);
-    entry("agent", data.reply || data.error || ("Request failed: " + res.status));
+    const replyText = data.reply || data.error || ("Request failed: " + res.status);
+    entry("agent", replyText);
     if (data.pending) card(data.pending);
+    /* Grow this tab's own memory of the conversation — see the "history"
+       declaration above for why /ops/agent needs it resent every turn. */
+    history.push({ role: "user", text: bubbleText }, { role: "assistant", text: replyText });
   } catch (err) {
     console.error("agent request failed", err);
     entry("agent", "Request failed: " + err.message);

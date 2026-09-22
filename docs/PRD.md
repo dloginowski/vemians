@@ -6359,6 +6359,35 @@ that does not trace to one of these is a process failure (see §12).
     `reason: "auto_apply_per_product_failures"`, the per-product detail) so a failure like this is
     queryable afterward, the same way this one was finally diagnosed.
 
+84. **`Test-PRD-P0-150-agent_chat_conversation_memory`** — "Why is the agentic input so
+    stupid?" — the owner's own words, after a real transcript showed the built-in chat (P0-68)
+    losing the thread constantly: typing "1" to the greeting menu's own "1) Add Merchandise"
+    got the SAME menu back rather than proceeding; a direct correction, "you are mistaking
+    style id with title," was ignored outright, the reply just the greeting again from
+    scratch. The root cause: `index.js`'s own `/agent` route is a fresh HTTP request every
+    time, and `agentTurn` (`agent.js`) built `messages` from nothing but the ONE new turn —
+    no matter how long the conversation already ran, the model saw exactly one message, every
+    single time, with zero memory that anything had been said before it. A plain "1" naming a
+    just-shown menu, or a correction referring to a mapping shown two turns ago, had no prior
+    turns in front of the model to refer to at all — indistinguishable, from the model's own
+    side, from a brand-new conversation, which is exactly why it kept re-running the FIRST
+    MESSAGE greeting instruction (`greetingScript`) turn after turn.
+    Fixed the same way any ordinary multi-turn chat client works: the BROWSER TAB keeps its
+    own running record of the conversation (`history` in `views.js`'s chat script) — the
+    literal chat-bubble text only, nothing more (no tool-call plumbing from a turn's internal
+    round-trips, no re-sent image bytes for a photo attached turns ago) — and resends it with
+    every new turn. `index.js`'s `/agent` route reads it back (a real JSON array on the plain
+    JSON path, a JSON-string FormData field on the file-attachment path) and passes it to
+    `agentTurn` as `history`; `agentTurn`'s own `sanitizeHistory` drops anything the wrong
+    shape (a stray non-string, an unrecognized role) rather than trusting the client blindly,
+    then caps it at the last `MAX_HISTORY_TURNS` (24) entries so one very long conversation
+    still bounds the request instead of growing forever, and drops each entry into `messages`
+    ahead of the new turn. `history` lives only as long as the tab does — a reload already
+    clears the visible chat log the same way, so losing it on reload is not a regression.
+    With the model's own prior replies genuinely in front of it, "1" resolves the menu it was
+    shown, a correction lands where it was meant to, and "I just sent it" has a chance of
+    meaning something rather than tripping a blind `assets.list` lookup.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
