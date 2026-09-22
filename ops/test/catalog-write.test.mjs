@@ -3622,6 +3622,61 @@ check("test_PRD_P0_148_auto_generate_variations__a_product_past_the_variation_ca
   assert.equal(overloadedWrites.length, 1);
 });
 
+check("test_PRD_P0_148_auto_generate_variations__an_assigned_option_with_no_values_yet_is_named_before_approval_not_a_silent_no_op", async () => {
+  /* "I only see sizes for the black dress. I don't see any colors" — the
+     owner's own words, the first time this shipped. Dress Colors WAS
+     checked, but had no VALUES on file in Square yet — and one assigned
+     option with no values collapses the WHOLE cross product to nothing,
+     not just its own dimension (optionCombinations' own comment,
+     catalog-writer.js). Named here, before approval, so this is never a
+     silent no-op discovered only after the fact. */
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  seedItemOptionInSquare(f, {
+    externalRef: "SQ_OPT_SIZE",
+    name: "Dress Sizes",
+    values: [{ externalRef: "SQ_OPTVAL_S", name: "S" }, { externalRef: "SQ_OPTVAL_M", name: "M" }],
+  });
+  /* Dress Colors exists and gets checked/assigned, but nobody has ever
+     given it a real value in Square — the exact gap this test covers. */
+  const color = seedItemOption(f, { id: "opt-color", externalRef: "SQ_OPT_COLOR", name: "Dress Colors" });
+  await f.writer.adapter.pullCatalog({ full: true });
+  const size = f.mirror("SELECT id FROM mirror_item_option WHERE external_ref = 'SQ_OPT_SIZE'")[0];
+  await approvedCall(f, "catalog.set_category_item_options", {
+    category_id: outerwear.id,
+    item_option_ids: [size.id, color.id],
+    reason: "test",
+  });
+
+  await approvedCall(f, "catalog.create_product", {
+    title: "Black Dress",
+    category_id: outerwear.id,
+    variations: [{ title: "One size", price_minor: 8900, currency: "USD" }],
+  });
+
+  const gate = await runTool("catalog.apply_category_item_options_to_products", { category_id: outerwear.id, reason: "test" }, f.ctx);
+  assert.equal(gate.needsApproval, true);
+  assert.match(
+    gate.data.would,
+    /WARNING: Dress Colors has no values on file in Square yet, so NO variations will be generated/,
+    `the approval summary must name the empty option before anyone says yes, got: ${gate.data.would}`,
+  );
+
+  const res = await approvedCall(f, "catalog.apply_category_item_options_to_products", { category_id: outerwear.id, reason: "test" });
+  assert.equal(res.ok, true, res.error);
+  assert.deepEqual(res.data.options_with_no_values_yet, ["Dress Colors"], "the result itself must still say why, not just the approval screen");
+
+  /* Confirms the actual behavior the owner hit: with Color empty, NOTHING
+     new is generated at all — not even a Size-only combination — since
+     the cross product collapses to nothing the moment one assigned
+     dimension has no values. */
+  const itemUpsert = f
+    .calls()
+    .filter((c) => c.path === "/v2/catalog/object" && c.upsert === "ITEM" && c.body.object.item_data.name === "Black Dress")
+    .pop();
+  assert.equal(itemUpsert.body.object.item_data.variations.length, 1, "no new variations at all while Dress Colors has no values");
+});
+
 check("test_PRD_P0_136_square_custom_attributes__create_vendor_makes_a_real_square_vendor_with_a_commission_on_file_immediately", async () => {
   const f = await fixture();
   const res = await approvedCall(f, "catalog.create_vendor", { name: "Acme Mills", commission: 20, reason: "test" });

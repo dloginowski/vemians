@@ -6003,6 +6003,17 @@ that does not trace to one of these is a process failure (see §12).
     `catalog.update_product` on a product with real `item_option_values` until this feature made it
     possible, so an unrelated edit could have silently wiped them.
 
+    REVISED: the owner hit this shipped, live — "I only see sizes for the black dress. I don't see any
+    colors" — even with both Dress Sizes and Dress Colors checked on the category. The cause:
+    `optionCombinations`' own cross product collapses to NOTHING the moment any ONE assigned Option Set
+    has zero values on file in Square yet — Dress Colors had never been given an actual value ("Black",
+    "Red", ...) — so no combinations were generated for EITHER dimension, silently, with no error and
+    no hint why. `catalog.apply_category_item_options_to_products`'s own `check()` now names any
+    assigned option with no values right in the approval summary ("WARNING: Dress Colors has no values
+    on file in Square yet, so NO variations will be generated..."), before anyone says yes — and the
+    same fact rides through to the executed result too (`options_with_no_values_yet`), not just the
+    approval screen, so this is never a silent no-op discovered only after the fact either way.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
