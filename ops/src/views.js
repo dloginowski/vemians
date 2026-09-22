@@ -2165,11 +2165,21 @@ ${INPUT_BAR_CSS}
    several sizes sharing one screen row instead of each stacking on its
    own full-width line; (3) toggleVariantGroupExclusive (the script,
    below) closes every other group before opening one, so at most one
-   color's own sizes ever show at once. */
+   color's own sizes ever show at once.
+
+   REVISED AGAIN: "keep the same styling, it needs to be an outline, the
+   container needs a border of one pixel, just like you had it before,
+   why'd you get rid of it?" — caught live: the old outer .variations-
+   header carried its own 1px solid var(--rule) border, the same
+   bordered-bar look every other accordion header in this file already
+   uses; removing that outer wrapper above dropped the border along with
+   it, since .variant-group-header was never actually given one of its
+   own. Restored here, so each color header reads with the identical
+   outline it always had. */
 .variant-groups { display: flex; flex-direction: column; gap: 4px; margin-top: 2px; }
 .variant-group-header {
   display: flex; align-items: center; gap: 6px; cursor: pointer;
-  background: var(--image-ground); border-radius: 6px; padding: 4px;
+  background: var(--image-ground); border: 1px solid var(--rule); border-radius: 6px; padding: 4px;
 }
 .variant-group-toggle {
   flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; padding: 0; display: inline-flex; align-items: center;

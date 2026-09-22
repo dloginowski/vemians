@@ -6022,6 +6022,14 @@ that does not trace to one of these is a process failure (see §12).
     Option Set names is unaffected — it still gets the ordinary "Variations" accordion and flat list,
     which was never the thing being nested in the first place.
 
+    REVISED A FOURTH TIME, caught live within minutes: "keep the same styling, it needs to be an
+    outline, the container needs a border of one pixel, just like you had it before, why'd you get rid
+    of it?" The old outer `.variations-header` carried its own `border: 1px solid var(--rule)`, the
+    same bordered-bar look every other accordion header in `views.js` already uses; removing that outer
+    wrapper (REVISED AGAIN, above) dropped the border along with it, since `.variant-group-header` was
+    never actually given one of its own to replace it. Restored directly onto `.variant-group-header`,
+    so each color header reads with the identical 1px outline it always had.
+
 82. **`Test-PRD-P0-148-auto_generate_variations`** — The owner's own words, on discovering the earlier
     P0-144 behavior was item-level only: "I expect the black dress to have these variations
     auto-assigned because I assigned the sets to its parent category." Asked directly and confirmed:
