@@ -257,6 +257,28 @@ function matchCategory(name, categories) {
   return categories.find((c) => c.name.trim().toLowerCase() === key) ?? null;
 }
 
+/* "Categories/subcategories should be made if missing. And ids assigned
+   auto bumped" — the owner's own words. Every auto-created-from-a-
+   spreadsheet category lands at the TOP LEVEL (parent_id null) — a plain
+   category cell names no parent to nest it under, and inventing one would
+   be a real, consequential guess this file's own "never silently invent"
+   rule (matchCategory's own comment) exists to avoid; a manager can
+   always re-nest it afterward, the same as any other category. The next
+   unused code in that SAME pool every top-level category shares
+   (catalog.create_category's own check() enforces the identical two-pool
+   split) — `reserved` is whatever this SAME batch has already virtually
+   claimed for an earlier missing name, so two distinct new categories in
+   one upload are never offered the same number before either is
+   actually approved. */
+function nextTopLevelNumericId(categories, reserved) {
+  const used = new Set(categories.filter((c) => !c.parent_id && c.numeric_id).map((c) => c.numeric_id));
+  for (let n = 0; n <= 99; n++) {
+    const code = String(n).padStart(2, "0");
+    if (!used.has(code) && !reserved.has(code)) return code;
+  }
+  return null;
+}
+
 /*
  * "I don't think we need to have [a name] as a requirement. I think that the
  * name should be auto-generated based on its category and its position in
@@ -288,11 +310,18 @@ function autoTitler(existingCounts) {
 
 /**
  * Parse a CSV, mint one catalog.create_product approval per row that
- * resolves cleanly, and report the rest with a plain reason.
+ * resolves cleanly, and report the rest with a plain reason. A row naming
+ * a category that does not exist yet also mints ONE catalog.create_category
+ * approval per distinct missing name (categoriesToCreate, below) — auto-
+ * numbered, always top-level (nextTopLevelNumericId's own comment) —
+ * rather than being an unconditional dead end; that row itself is still
+ * skipped, since the category it needs does not exist until that separate
+ * approval is actually clicked.
  *
  * @param env   CATALOG_MIRROR, and whatever runTool's own resources need.
  * @param actor, role  the uploader's own verified Access identity.
- * @returns { ready: [{row, title, url, summary}], skipped: [{row, title, reason}], tooMany?: number }
+ * @returns { ready: [{row, title, url, summary}], skipped: [{row, title, reason}],
+ *            categoriesToCreate: [{name, url, summary}|{name, error}], tooMany?: number }
  */
 export async function draftProductBatch(env, { text, actor, role }) {
   const records = csvRecords(parseCsv(text));
@@ -304,6 +333,10 @@ export async function draftProductBatch(env, { text, actor, role }) {
 
   const rows = [];
   const skipped = [];
+  /* Normalized lowercase -> the name as this sheet actually spelled it the
+     FIRST time it was seen — several rows naming the same missing
+     category get exactly ONE creation request between them, not one each. */
+  const missingCategoryNames = new Map();
 
   for (const [i, record] of records.entries()) {
     const rowNumber = i + 2; /* +1 for the header, +1 for 1-based rows */
@@ -317,22 +350,28 @@ export async function draftProductBatch(env, { text, actor, role }) {
        owner's own words, the exact same two-way derivation
        catalog.create_product's own check()/run() now do (resolveStyleId,
        deriveCategoryIdForStyleId — catalog-write.js/catalog-writer.js).
-       A named category that matches nothing real is still reported, never
-       silently invented (catalog.create_category is a separate manager
-       decision, same reasoning create_product's own check() already gives
-       for an unknown category_id) — but a row naming NO category at all is
-       no longer an automatic skip: a style ID that resolves to a real
-       category/subcategory fills it in, the same lookup an edit already
-       uses. Neither resolving leaves the row genuinely UNASSIGNED, exactly
-       as catalog.create_product already tolerates on its own — never a
-       reason to refuse the row over. */
+       A named category that matches nothing real is no longer just
+       reported and dropped, REVISED: "categories/subcategories should be
+       made if missing. And ids assigned auto bumped" — the owner's own
+       words, choosing to park a real creation request (below) rather than
+       silently invent one, since a real Square category write still needs
+       a manager's own approval, the same as anything else in this file.
+       A row naming NO category at all is a genuinely different case,
+       unaffected: no automatic skip either way — a style ID that resolves
+       to a real category/subcategory fills it in (below), the same lookup
+       an edit already uses, and neither resolving leaves the row
+       genuinely UNASSIGNED, exactly as catalog.create_product already
+       tolerates on its own. */
     let category = categoryName ? matchCategory(categoryName, categories) : null;
     if (categoryName && !category) {
-      const known = categories.map((c) => c.name).join(", ") || "none yet";
+      const key = categoryName.trim().toLowerCase();
+      if (!missingCategoryNames.has(key)) missingCategoryNames.set(key, categoryName.trim());
       skipped.push({
         row: rowNumber,
         title: rawTitle || "(no title)",
-        reason: `category "${categoryName}" does not exist — it must be exactly one of: ${known}`,
+        reason:
+          `category "${categoryName}" does not exist yet — a request to create it has been parked below ` +
+          '("categories to create"); approve it, then re-upload this row',
       });
       continue;
     }
@@ -466,7 +505,41 @@ export async function draftProductBatch(env, { text, actor, role }) {
   }
 
   const { parked, skipped: refused } = await parkRows(env, { actor, role, toolName: "catalog.create_product" }, rows);
-  return { ready: parked, skipped: [...skipped, ...refused].sort((a, b) => a.row - b.row) };
+
+  /* One catalog.create_category approval per DISTINCT missing name, each
+     with its own auto-picked, next-free top-level numeric_id
+     (nextTopLevelNumericId, above) — never left for a manager to type in
+     by hand. Parked the exact same way a product row is (runTool, then
+     parkForApproval): a real Square category write still needs a human's
+     own "yes", the one thing this file never skips regardless of how
+     confidently a decision was computed. */
+  const categoriesToCreate = [];
+  const reservedNumericIds = new Set();
+  for (const name of missingCategoryNames.values()) {
+    const numericId = nextTopLevelNumericId(categories, reservedNumericIds);
+    if (numericId) reservedNumericIds.add(numericId);
+    const args = {
+      name,
+      reason: "auto-requested while importing a spreadsheet",
+      ...(numericId ? { numeric_id: numericId } : {}),
+    };
+    const gate = await runTool("catalog.create_category", args, { actor, role, env });
+    if (!gate?.needsApproval) {
+      categoriesToCreate.push({ name, error: gate?.error || "could not be validated" });
+      continue;
+    }
+    const { url } = await parkForApproval(env, {
+      name: "catalog.create_category",
+      args,
+      actor,
+      role,
+      tier: "T2",
+      summary: gate.data.would,
+    });
+    categoriesToCreate.push({ name, url, summary: gate.data.would });
+  }
+
+  return { ready: parked, skipped: [...skipped, ...refused].sort((a, b) => a.row - b.row), categoriesToCreate };
 }
 
 /* ── customers ────────────────────────────────────────────────────────── */

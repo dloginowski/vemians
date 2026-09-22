@@ -591,6 +591,72 @@ check("test_PRD_P0_60_spreadsheet_products__a_bad_row_is_reported_with_why_not_s
   assert.deepEqual(result.skipped.map((s) => s.row), [2, 3, 4]);
 });
 
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-136 (REVISED) — "Categories/subcategories should be made if missing.
+ * And ids assigned auto bumped" — the owner's own words, choosing "park a
+ * separate approval per missing category" over silently inventing one.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_136_square_custom_attributes__a_missing_category_parks_its_own_auto_numbered_creation_approval", async () => {
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const csv = "title,category,price,cost\n" + "Sun Hat,Millinery,20.00,10.00\n";
+
+  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  assert.equal(result.ready.length, 0, "the row itself is still skipped -- the category does not exist yet");
+  assert.equal(result.categoriesToCreate.length, 1);
+  assert.equal(result.categoriesToCreate[0].name, "Millinery");
+  assert.match(result.categoriesToCreate[0].url, /\/approvals\//);
+  assert.match(result.categoriesToCreate[0].summary, /create the category "Millinery"/);
+
+  const id = result.categoriesToCreate[0].url.match(/\/approvals\/([^/]+)$/)[1];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let approved;
+  try {
+    approved = await approvePending(f.env, id, { email: "owner@vemians.com", role: "owner", verified: true });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(approved.ok, true, approved.error);
+  const created = f.categories().find((c) => c.name === "Millinery");
+  assert.ok(created, "approving the parked link must actually create the category");
+  assert.equal(created.numeric_id, "00", "the first-ever top-level category gets the first-ever code");
+});
+
+check("test_PRD_P0_136_square_custom_attributes__several_rows_naming_the_same_missing_category_park_only_one_request", async () => {
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const csv =
+    "title,category,price,cost\n" + "Sun Hat,Millinery,20.00,10.00\n" + "Beret,Millinery,25.00,12.00\n" + "Beanie,Millinery,15.00,8.00\n";
+
+  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  assert.equal(result.skipped.length, 3, "all three rows still wait on the same missing category");
+  assert.equal(result.categoriesToCreate.length, 1, "one request, not three, for the same missing name");
+});
+
+check("test_PRD_P0_136_square_custom_attributes__two_distinct_missing_categories_get_two_different_auto_picked_numbers", async () => {
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const csv = "title,category,price,cost\n" + "Sun Hat,Millinery,20.00,10.00\n" + "Tote,Handbags,40.00,20.00\n";
+
+  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  assert.equal(result.categoriesToCreate.length, 2);
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    for (const { url } of result.categoriesToCreate) {
+      const id = url.match(/\/approvals\/([^/]+)$/)[1];
+      const approved = await approvePending(f.env, id, { email: "owner@vemians.com", role: "owner", verified: true });
+      assert.equal(approved.ok, true, approved.error);
+    }
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  const millinery = f.categories().find((c) => c.name === "Millinery");
+  const handbags = f.categories().find((c) => c.name === "Handbags");
+  assert.ok(millinery && handbags);
+  assert.notEqual(millinery.numeric_id, handbags.numeric_id, "two distinct new categories in one upload must never land on the same number");
+});
+
 check("test_PRD_P0_145_auto_generated_title__a_blank_title_is_auto_generated_from_category_and_position", async () => {
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
@@ -5445,6 +5511,22 @@ check("test_PRD_P0_88_spreadsheet_via_chat__a_real_csv_drafts_through_the_same_p
   assert.match(outcome.block.content, /Wool Coat/);
   assert.match(outcome.block.content, /https?:\/\/\S+\/approvals\//, "a real approval link, not a placeholder");
   assert.match(outcome.block.content, /no vendor and no unit cost/i, "the skipped row's own reason must be relayed");
+});
+
+check("test_PRD_P0_136_square_custom_attributes__a_missing_category_via_chat_also_parks_its_own_creation_approval", async () => {
+  const f = await fixture();
+  const csv = "title,category,price,cost\nSun Hat,Millinery,20.00,10.00\n";
+  const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
+
+  const outcome = await dispatch(
+    "catalog_draft_product_batch",
+    { asset_id: "ast_1" },
+    { actor: "mara@vemians.com", role: "manager", env, allowed: new Set(["catalog_draft_product_batch"]) },
+  );
+  assert.equal(outcome.block.is_error, false);
+  assert.match(outcome.block.content, /Create category "Millinery" first/);
+  assert.match(outcome.block.content, /https?:\/\/\S+\/approvals\//);
+  assert.equal(outcome.table.rows[0][2], "create category", "the category-creation row must lead the table, before any product row");
 });
 
 check("test_PRD_P0_88_spreadsheet_via_chat__too_many_rows_reports_the_cap_not_a_partial_draft", async () => {
