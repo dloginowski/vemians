@@ -2183,6 +2183,17 @@ export const catalogWriteTools = {
    * A newly generated variation is priced the same as the product's own
    * first one, stock starting at 0 (a real count still has to come from
    * an actual inventory count).
+   *
+   * REVISED AGAIN: "I expect all subcategories to get the same settings
+   * applied... they should propagate — why don't they?" — the owner's
+   * own words. This now reaches every product filed ANYWHERE under the
+   * given category, not just the ones filed directly in it — every
+   * subcategory, at any depth. Each product still gets its OWN
+   * category's own current effective set (never blindly the clicked
+   * category's own), so a subcategory with its own explicit override
+   * keeps that override — only a subcategory with none of its own
+   * inherits what was clicked here, the same rule that already decides
+   * what "Sets" shows as assigned in the first place.
    */
   "catalog.apply_category_item_options_to_products": {
     tier: "T2",
@@ -2192,15 +2203,19 @@ export const catalogWriteTools = {
     minRole: "manager",
     describe:
       "Push a category's own CURRENT option sets (inherited or explicit — whatever catalog.categories/" +
-      "the Sets menu already shows for it) onto every product currently filed in that category, as a " +
-      "real Square write to each one's own item_data.item_options, AND generate every Size/Color (etc.) " +
-      "combination those option sets allow that a product does not already have a real variation for. " +
-      "An EXISTING variation is never touched, edited, or removed — only genuinely missing combinations " +
-      "get a new one, priced the same as the product's own first variation, with stock starting at 0 " +
-      "(adjust it afterward via inventory.adjust once a real count is known). A product already fully " +
-      "covered gets only the item-level write, nothing new. Call this after changing a category's own " +
-      "option sets to actually reach the products already in it — saving the category's own list on " +
-      "its own touches nothing in Square.",
+      "the Sets menu already shows for it) onto every product filed ANYWHERE under that category — the " +
+      "category itself and every subcategory beneath it, at any depth — as a real Square write to each " +
+      "one's own item_data.item_options, AND generate every Size/Color (etc.) combination those option " +
+      "sets allow that a product does not already have a real variation for. Each product gets its OWN " +
+      "category's own current effective set, never blindly the one given here: a subcategory with its " +
+      "own explicit override (a separate catalog.set_category_item_options call against it) keeps that " +
+      "override; only a subcategory with none of its own inherits this one. An EXISTING variation is " +
+      "never touched, edited, or removed — only genuinely missing combinations get a new one, priced " +
+      "the same as the product's own first variation, with stock starting at 0 (adjust it afterward via " +
+      "inventory.adjust once a real count is known). A product already fully covered gets only the " +
+      "item-level write, nothing new. Call this after changing a category's own option sets to actually " +
+      "reach the products already in it — saving the category's own list on its own touches nothing in " +
+      "Square.",
     undo: "no undo yet: reverting means re-running this after changing the category's own option sets back",
     schema: {
       category_id: { type: "string", required: true, format: "id" },
@@ -2211,9 +2226,30 @@ export const catalogWriteTools = {
       const category = categories.find((c) => c.id === args.category_id);
       if (!category) return { denied: `no category '${args.category_id}'` };
 
+      /* Every category filed anywhere under this one, itself included —
+         the same subtree applyItemOptionsToProductsInCategory (catalog-
+         writer.js) walks, computed here too so the product count and
+         the empty-values warning below both already reflect the real
+         scope of this call, not just the clicked category's own direct
+         products. */
+      const byParent = new Map();
+      for (const c of categories) {
+        if (!byParent.has(c.parent_id)) byParent.set(c.parent_id, []);
+        byParent.get(c.parent_id).push(c.id);
+      }
+      const subtreeIds = [category.id];
+      const queue = [category.id];
+      while (queue.length) {
+        const current = queue.shift();
+        for (const child of byParent.get(current) ?? []) {
+          subtreeIds.push(child);
+          queue.push(child);
+        }
+      }
+
       const productCount = await t.db.catalog_mirror
-        .prepare("SELECT COUNT(*) AS n FROM mirror_product_index WHERE category_id = ?")
-        .bind(category.id)
+        .prepare(`SELECT COUNT(*) AS n FROM mirror_product_index WHERE category_id IN (${subtreeIds.map(() => "?").join(",")})`)
+        .bind(...subtreeIds)
         .first("n");
 
       const effective = await effectiveCategoryItemOptionIds(t.db.catalog_mirror);
@@ -2227,8 +2263,12 @@ export const catalogWriteTools = {
          values collapses the WHOLE cross product to nothing
          (optionCombinations' own comment, catalog-writer.js), not just
          that one dimension. Named here, before approval, so this is
-         never a silent no-op discovered only after the fact. */
-      const emptyNames = ids
+         never a silent no-op discovered only after the fact. The UNION
+         across the whole subtree, not just the clicked category's own
+         set — a subcategory with its own different, empty-valued option
+         would otherwise warn about nothing at all. */
+      const unionIds = [...new Set(subtreeIds.flatMap((id) => [...(effective.get(id) ?? [])]))];
+      const emptyNames = unionIds
         .map((id) => itemOptions.find((o) => o.id === id))
         .filter((o) => o && o.values.length === 0)
         .map((o) => o.name);
@@ -2236,15 +2276,14 @@ export const catalogWriteTools = {
       /* "That should not be a stopping point for you... just ignore it and
          don't apply anything to it. I don't need to see an error about it
          and you don't need to stop" — the owner's own words, said while
-         clicking through many categories in a row (a top-level, purely
-         organizational one, say, with every real product living in its
-         subcategories instead). A category with nothing in it directly
-         is not a mistake to refuse — it is simply nothing to do, the
-         same as clearing an already-empty set. */
+         clicking through many categories in a row. A category (and its
+         subcategories) with nothing in them is not a mistake to refuse —
+         it is simply nothing to do, the same as clearing an
+         already-empty set. */
       if (!productCount) {
         return {
           ok: true,
-          summary: `"${category.name}" has no products of its own yet — nothing to apply`,
+          summary: `"${category.name}" and its subcategories have no products yet — nothing to apply`,
           preflight: { category, ids, emptyNames },
         };
       }
@@ -2253,17 +2292,17 @@ export const catalogWriteTools = {
         ok: true,
         summary:
           (names.length
-            ? `apply option sets (${names.join(", ")}) to all ${productCount} product${productCount === 1 ? "" : "s"} in "${category.name}", generating any missing combination as a new variation (stock starting at 0) — ${args.reason}`
-            : `clear every option set from all ${productCount} product${productCount === 1 ? "" : "s"} in "${category.name}" — ${args.reason}`) +
+            ? `apply option sets (${names.join(", ")}) across "${category.name}" and its subcategories to all ${productCount} product${productCount === 1 ? "" : "s"} (a subcategory with its own Sets of its own keeps those instead), generating any missing combination as a new variation (stock starting at 0) — ${args.reason}`
+            : `clear every option set across "${category.name}" and its subcategories for all ${productCount} product${productCount === 1 ? "" : "s"} with none of their own — ${args.reason}`) +
           (emptyNames.length
-            ? ` — WARNING: ${emptyNames.join(", ")} ${emptyNames.length === 1 ? "has" : "have"} no values on file in Square yet, so NO variations will be generated for any product until at least one value is added to ${emptyNames.length === 1 ? "it" : "each of them"}`
+            ? ` — WARNING: ${emptyNames.join(", ")} ${emptyNames.length === 1 ? "has" : "have"} no values on file in Square yet, so NO variations will be generated for any product using ${emptyNames.length === 1 ? "it" : "them"} until at least one value is added`
             : ""),
         preflight: { category, ids, emptyNames },
       };
     },
     async run(_args, t) {
       const { category, ids, emptyNames } = t.preflight;
-      const { applied, errors } = await t.square.applyItemOptionsToProductsInCategory(category.id, ids);
+      const { applied, errors } = await t.square.applyItemOptionsToProductsInCategory(category.id);
       return {
         category_id: category.id,
         item_option_ids: ids,

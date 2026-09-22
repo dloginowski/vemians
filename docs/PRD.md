@@ -6031,6 +6031,24 @@ that does not trace to one of these is a process failure (see §12).
     same fact rides through to the executed result too (`options_with_no_values_yet`), not just the
     approval screen, so this is never a silent no-op discovered only after the fact either way.
 
+    REVISED AGAIN: with the empty-values gap fixed, the owner still saw nothing on the black dress
+    itself — "I'm not seeing any of it... why even have the option to set those options on the category
+    if you're not going to do it. I expect all subcategories to get the same settings applied — they
+    should propagate, why don't they?" The actual product was filed in a SUBCATEGORY; "Apply to items"
+    only ever reached products filed DIRECTLY in the exact category clicked — Option Set ASSIGNMENT was
+    already inherited down the tree (`effectiveCategoryItemOptionIds`, P0-142), but actually PUSHING
+    that assignment to Square never followed the same rule, a real mismatch between what "Sets" showed
+    as assigned and what a bulk Apply actually reached. `applyItemOptionsToProductsInCategory`
+    (`catalog-writer.js`) now walks the category's own full subtree (itself plus every subcategory, at
+    any depth, via `mirror_category`'s own `parent_id` chain) and reaches every product filed anywhere
+    in it — but each product still gets its OWN category's own current effective set, resolved
+    individually, never blindly the clicked category's own: a subcategory with its own explicit
+    override (its own separate `catalog.set_category_item_options` call) keeps that override,
+    untouched by a parent's own bulk Apply; only a subcategory with no override of its own inherits
+    what was clicked. `check()`'s own product count, names and empty-values warning are all computed
+    across the same subtree now too, so the approval summary already reflects the real scope of the
+    call rather than only the clicked category's own direct products.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

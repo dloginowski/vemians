@@ -1053,36 +1053,72 @@ export function createSquareCatalogWriter(env, opts = {}) {
        category... because right now, you have to apply these options
        manually per item" — the owner's own words, and explicit go-ahead
        for a SEPARATE, explicit action over an automatic cascade on every
-       category save: catalog.apply_category_item_options_to_products'
-       own check() resolves the category's own EFFECTIVE (inherited or
-       explicit) option sets and hands them here as plain ids; this loops
-       every product currently filed under that category and pushes the
-       same "resend the whole thing, only item_options actually changes"
-       updateProduct call the rest of this file already relies on — one
-       real Square write per product, the same resortProductsByStyleId's
-       own shape just above uses for its own bulk write.
+       category save. One real Square write per product, the same
+       resortProductsByStyleId's own shape just above uses for its own
+       bulk write.
        REVISED: "I expect the black dress to have these variations
        auto-assigned because I assigned the sets to its parent category"
        — the owner's own words, asked directly and confirmed: this now
        ALSO generates the real missing variations (every Size x Color
-       combination this category's own assigned Option Sets allow, that
-       this product does not already have one of), not just the
-       item-level flag. EXISTING SKUS ARE NEVER TOUCHED OR REMOVED — only
-       combinations genuinely missing get a new one, priced the same as
-       the product's own first variation, stock starting at 0 (a real
-       count still has to come from an actual inventory count, the same
-       reasoning every other new variation in this codebase starts at 0
-       rather than a guess). A category with no Option Sets assigned, or
-       one whose values are all still empty, generates nothing — same
-       flag-only behavior as before. */
-    async applyItemOptionsToProductsInCategory(categoryId, itemOptionIds) {
-      const products = await mirrorDb.prepare("SELECT id, handle FROM mirror_product_index WHERE category_id = ?").bind(categoryId).all();
-      const options = await itemOptionValueNames(itemOptionIds);
-      const combos = options.length ? optionCombinations(options).filter((c) => Object.keys(c).length) : [];
+       combination a product's own EFFECTIVE Option Sets allow, that it
+       does not already have one of), not just the item-level flag.
+       EXISTING SKUS ARE NEVER TOUCHED OR REMOVED — only combinations
+       genuinely missing get a new one, priced the same as the product's
+       own first variation, stock starting at 0.
+       REVISED AGAIN: "I expect all subcategories to get the same
+       settings applied... they should propagate — why don't they?" —
+       the owner's own words. Every product filed ANYWHERE under the
+       given category — itself or any subcategory, at any depth, not
+       just the ones filed directly in it — now gets reached. Each one
+       still gets its OWN category's own current EFFECTIVE set
+       (effectiveCategoryItemOptionIds, inherited or explicit), never
+       blindly the clicked category's own set: a subcategory with its
+       own explicit override keeps that override, exactly as "Sets"
+       itself already shows it — only a subcategory with NO override of
+       its own inherits what was clicked here, the identical rule that
+       already governs what counts as "assigned" in the first place. */
+    async applyItemOptionsToProductsInCategory(categoryId) {
+      const categoriesRes = await mirrorDb.prepare("SELECT id, parent_id FROM mirror_category_index").bind().all();
+      const childrenByParent = new Map();
+      for (const c of categoriesRes.results ?? []) {
+        if (!childrenByParent.has(c.parent_id)) childrenByParent.set(c.parent_id, []);
+        childrenByParent.get(c.parent_id).push(c.id);
+      }
+      const subtreeIds = [categoryId];
+      const queue = [categoryId];
+      while (queue.length) {
+        const current = queue.shift();
+        for (const child of childrenByParent.get(current) ?? []) {
+          subtreeIds.push(child);
+          queue.push(child);
+        }
+      }
+
+      const effectiveByCategory = await effectiveCategoryItemOptionIds(mirrorDb);
+      /* One lookup per DISTINCT category in the subtree, not per product
+         — several products sharing a category (the common case) share
+         the same option-set/combo computation too. */
+      const comboDataCache = new Map();
+      async function comboDataFor(catId) {
+        if (comboDataCache.has(catId)) return comboDataCache.get(catId);
+        const ids = [...(effectiveByCategory.get(catId) ?? [])];
+        const options = await itemOptionValueNames(ids);
+        const combos = options.length ? optionCombinations(options).filter((c) => Object.keys(c).length) : [];
+        const data = { ids, combos };
+        comboDataCache.set(catId, data);
+        return data;
+      }
+
+      const placeholders = subtreeIds.map(() => "?").join(",");
+      const products = await mirrorDb
+        .prepare(`SELECT id, handle, category_id FROM mirror_product_index WHERE category_id IN (${placeholders})`)
+        .bind(...subtreeIds)
+        .all();
       let applied = 0;
       const errors = [];
       for (const p of products.results ?? []) {
         try {
+          const { ids, combos } = await comboDataFor(p.category_id);
           const existing = await variantsWithOptions(p.id);
           const existingSignatures = new Set(existing.map((v) => comboSignature(v.options)));
           const missing = combos.filter((c) => !existingSignatures.has(comboSignature(c)));
@@ -1102,7 +1138,7 @@ export function createSquareCatalogWriter(env, opts = {}) {
               option_values: combo,
             }));
           }
-          await this.updateProduct({ handle: p.handle, itemOptionIds, ...(newVariations ? { variations: newVariations } : {}) });
+          await this.updateProduct({ handle: p.handle, itemOptionIds: ids, ...(newVariations ? { variations: newVariations } : {}) });
           applied += 1;
         } catch (err) {
           console.error(`ERROR catalog-writer: apply item options failed for ${p.handle} — ${err.message}`);
