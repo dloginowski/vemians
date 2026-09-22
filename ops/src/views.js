@@ -2145,20 +2145,33 @@ ${INPUT_BAR_CSS}
   flex: 0 0 auto; width: 20px; height: 20px; padding: 0; line-height: 1; font: inherit; font-size: 13px;
   border: none; border-radius: 0; background: var(--ground); color: var(--muted); cursor: pointer;
 }
-/* "A whole grid of available size and color variations so that I can set
-   their quantities directly out of that variants dropdown" — the owner's
-   own words. One row per row-axis value (Size, say), one column per
-   column-axis value (Color) — variantsGridAxes/variantsGridHtml,
-   views.js. A blank cell (variants-grid-empty) is a real combination
-   this item has no Square variation for at all — "existing SKUs only,"
-   the owner's own choice — never a stepper with nothing behind it. */
-.variants-grid { border-collapse: collapse; font-size: 11px; margin-top: 2px; }
-.variants-grid th, .variants-grid td { padding: 2px 4px; }
-.variants-grid thead th { color: var(--muted); font-weight: normal; text-align: center; }
-.variants-grid tbody th { color: var(--muted); font-weight: normal; text-align: left; white-space: nowrap; padding-right: 8px; }
-.variants-grid .row { padding: 0; }
-.variants-grid-empty { color: var(--muted); text-align: center; }
-.variants-grid-empty::before { content: "—"; }
+/* "Two headers, expandable, just like you had before, and one for each
+   color. I need to be able to expand them, and I need to see individual
+   sizes for them that I can change quantity" — the owner's own words,
+   on seeing the first version of this (a flat table) and asking for a
+   nested accordion instead — one collapsed group per row-axis value
+   (Color, typically), each expanding to list its own column-axis values
+   (Size) with a stepper (variantsGroupedAccordionHtml, views.js). The
+   SAME accordion mechanics as the outer "Variations" header just above,
+   one level in — a lighter background only (no border of its own),
+   since it already reads as nested inside that bordered outer box. A
+   combination with no real variation is simply absent from its own
+   group — "existing SKUs only," the owner's own choice — never a
+   stepper with nothing behind it. */
+.variant-group { margin-top: 4px; }
+.variant-group-header {
+  display: flex; align-items: center; gap: 6px; cursor: pointer;
+  background: var(--image-ground); border-radius: 6px; padding: 4px;
+}
+.variant-group-toggle {
+  flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; padding: 0; display: inline-flex; align-items: center;
+  justify-content: center; border: none; background: transparent; color: var(--muted); cursor: pointer;
+  transition: transform 0.15s;
+}
+.variant-group.expanded .variant-group-toggle { transform: rotate(90deg); }
+.variant-group-label { flex: 0 0 auto; font-size: 11px; color: var(--muted); }
+.variant-group-body { display: none; flex-direction: column; margin-top: 4px; padding-left: 10px; }
+.variant-group.expanded .variant-group-body { display: flex; }
 .variation-stock-step:hover { background: var(--image-ground); }
 .variation-stock-step:disabled { opacity: 0.5; cursor: default; }
 /* "Any changed fields should be marked with an orange highlight" — added
@@ -2521,19 +2534,19 @@ function stockStepper(v) {
  * "I want to see those properties also listed in the variants dropdown
  * for each item... a whole grid of available size and color variations
  * so that I can set their quantities directly out of that variants
- * dropdown" — the owner's own words. A grid means exactly two axes; a
- * product using zero, one, or three-or-more Option Set names across its
- * own variations falls back to the flat list below instead, which
- * already handles those cases fine on its own.
+ * dropdown" — the owner's own words. Exactly two axes is what makes this
+ * meaningful at all; a product using zero, one, or three-or-more Option
+ * Set names across its own variations falls back to the flat list
+ * below instead, which already handles those cases fine on its own.
  *
  * EXISTING SKUS ONLY (the owner's own choice, asked directly): the row
  * and column values are only ever the ones this item's own variations
  * actually use, never every value the shop has ever defined for that
- * Option Set — a Size/Color pairing with no real Square variation is a
- * blank cell (variantsGridHtml, below), never one manufactured here.
- * ALL EXISTING VARIATIONS REGARDLESS OF STOCK (also asked directly): a
- * sold-out combination still gets its own row/column so it can be
- * restocked from the grid, never hidden for reading 0.
+ * Option Set — a combination with no real Square variation simply does
+ * not appear (variantsGroupedAccordionHtml, below), never one
+ * manufactured here. ALL EXISTING VARIATIONS REGARDLESS OF STOCK (also
+ * asked directly): a sold-out combination still gets its own row so it
+ * can be restocked, never hidden for reading 0.
  */
 function variantsGridAxes(variations, itemOptions) {
   const namesUsed = [...new Set(variations.flatMap((v) => Object.keys(v.options ?? {})))];
@@ -2557,25 +2570,44 @@ function variantsGridAxes(variations, itemOptions) {
   return { rowsName, colsName, rowValues: axisValues(rowsName), colValues: axisValues(colsName) };
 }
 
-function variantsGridHtml(variations, axes) {
+/* REVISED: "I want to see two headers, expandable, just like you had
+   before, and one for each color. I need to be able to expand them, and
+   I need to see individual sizes for them that I can change quantity"
+   — the owner's own words, on actually seeing the first version of this
+   (a flat spreadsheet-style table). A grid was not what "a grid of size
+   and color variations" meant to them after all: rowsName (the OUTER
+   axis — Color, typically, since it sorts alphabetically first among a
+   Size/Color pair the same way variantsGridAxes already orders them)
+   becomes one collapsed, expandable group per value; colsName is what
+   actually LISTS, one row per value, inside each expanded group — the
+   exact same accordion mechanics (a toggle chevron, an .expanded class)
+   the top-level "Variations" accordion already has, one level deeper,
+   and the exact same stock stepper every other variation row in this
+   file already uses. A combination with no real variation is simply
+   left out of its own group (EXISTING SKUS ONLY, variantsGridAxes' own
+   comment), never a manufactured row. */
+function variantsGroupedAccordionHtml(variations, axes) {
   const { rowsName, colsName, rowValues, colValues } = axes;
-  const byKey = new Map(variations.filter((v) => v.options?.[rowsName] && v.options?.[colsName]).map((v) => [`${v.options[rowsName]}\u0000${v.options[colsName]}`, v]));
-  return `<table class="variants-grid">
-    <thead><tr><th class="variants-grid-corner"></th>${colValues.map((c) => `<th>${esc(c)}</th>`).join("")}</tr></thead>
-    <tbody>
-      ${rowValues
-        .map((r) => {
-          const cells = colValues
-            .map((c) => {
-              const v = byKey.get(`${r}\u0000${c}`);
-              return v ? `<td><span class="row">${stockStepper(v)}</span></td>` : `<td class="variants-grid-empty"></td>`;
-            })
-            .join("");
-          return `<tr><th>${esc(r)}</th>${cells}</tr>`;
+  const byKey = new Map(
+    variations.filter((v) => v.options?.[rowsName] && v.options?.[colsName]).map((v) => [`${v.options[rowsName]}\u0000${v.options[colsName]}`, v]),
+  );
+  return rowValues
+    .map((r) => {
+      const rows = colValues
+        .map((c) => {
+          const v = byKey.get(`${r}\u0000${c}`);
+          return v ? `<div class="row"><span class="variation-title-label">${esc(c)}</span>${stockStepper(v)}</div>` : "";
         })
-        .join("")}
-    </tbody>
-  </table>`;
+        .join("");
+      return `<div class="variant-group">
+        <div class="variant-group-header">
+          <button type="button" class="variant-group-toggle" aria-label="Show ${esc(colsName)} for ${esc(r)}" title="Show ${esc(colsName)} for ${esc(r)}">${CARET_ICON}</button>
+          <span class="variant-group-label">${esc(r)}</span>
+        </div>
+        <div class="variant-group-body">${rows || `<p class="item-empty">No ${esc(colsName)} yet.</p>`}</div>
+      </div>`;
+    })
+    .join("");
 }
 
 function itemTile(product, canEdit, allCategories = [], allVendors = [], customFieldNames = [], allItemOptions = []) {
@@ -2714,14 +2746,15 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
   const variationRows = product.variations
     .map((v) => `<div class="row"><span class="variation-title-label">${esc(v.title)}</span>${stockStepper(v)}</div>`)
     .join("");
-  /* "A whole grid of available size and color variations" — a product
+  /* "Two headers, expandable, one for each color... I need to see
+     individual sizes for them that I can change quantity" — a product
      whose variations use exactly two Option Set names (Size, Color, or
-     any other pair) gets the real grid; anything else (no options at
-     all, one dimension, or three-plus) keeps the flat list above, which
-     already reads fine on its own in those cases. */
-  const gridAxes = variantsGridAxes(product.variations, allItemOptions);
-  const variationsBody = gridAxes
-    ? variantsGridHtml(product.variations, gridAxes)
+     any other pair) gets nested expandable groups; anything else (no
+     options at all, one dimension, or three-plus) keeps the flat list
+     above, which already reads fine on its own in those cases. */
+  const groupAxes = variantsGridAxes(product.variations, allItemOptions);
+  const variationsBody = groupAxes
+    ? variantsGroupedAccordionHtml(product.variations, groupAxes)
     : product.variations.length
       ? variationRows
       : `<p class="item-empty">No variations.</p>`;
@@ -3380,6 +3413,19 @@ document.getElementById("items-grid").addEventListener("click", async (e) => {
   const caret = e.target.closest(".variations-toggle");
   if (caret) {
     caret.closest(".variations-accordion")?.classList.toggle("expanded");
+    return;
+  }
+  /* One level in — the SAME toggle mechanics as the outer "Variations"
+     accordion just above, for each of its own nested per-color (etc.)
+     groups (variantsGroupedAccordionHtml, views.js). */
+  const groupCaret = e.target.closest(".variant-group-toggle");
+  if (groupCaret) {
+    groupCaret.closest(".variant-group")?.classList.toggle("expanded");
+    return;
+  }
+  const groupHeader = e.target.closest(".variant-group-header");
+  if (groupHeader && !e.target.closest("input, button")) {
+    groupHeader.closest(".variant-group")?.classList.toggle("expanded");
     return;
   }
   /* "Decorate the header so it's obvious it's an expandable accordion...

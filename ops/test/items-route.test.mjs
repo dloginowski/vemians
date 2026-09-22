@@ -1622,50 +1622,51 @@ check("test_PRD_P0_31_inventory_ledger__inventory_route_refuses_a_non_integer_de
 /* ─────────────────────────────────────────────────────────────────────────
  * P0-147 — "a whole grid of available size and color variations so that I
  * can set their quantities directly out of that variants dropdown" — the
- * owner's own words. Exactly two Option Set dimensions render as a real
- * row/column grid; anything else keeps the flat variation list.
+ * owner's own words, REVISED once they actually saw a flat table: "I want
+ * to see two headers, expandable, one for each color. I need to be able
+ * to expand them, and I need to see individual sizes for them that I can
+ * change quantity." Exactly two Option Set dimensions render as nested
+ * expandable groups (one per row-axis value); anything else keeps the
+ * flat variation list.
  * ───────────────────────────────────────────────────────────────────────── */
 
-check("test_PRD_P0_147_variants_grid__two_option_dimensions_render_as_a_grid_ordered_by_ordinal", async () => {
+check("test_PRD_P0_147_variants_grid__two_option_dimensions_render_as_nested_expandable_groups_ordered_by_ordinal", async () => {
   const mirror = mirrorDb();
   seedGridProduct(mirror);
   const body = await (await get("/items", MANAGER, env(mirror))).text();
 
-  assert.match(body, /<table class="variants-grid">/, "exactly two Option Set names must render as a grid, not the flat list");
-  const tableStart = body.indexOf('<table class="variants-grid">');
-  const tableEnd = body.indexOf("</table>", tableStart);
-  const table = body.slice(tableStart, tableEnd);
+  assert.match(body, /class="variant-group"/, "exactly two Option Set names must render as nested expandable groups, not the flat list");
 
   /* The two Option Set names are ordered the same way listItemOptions
      already orders every other reader of them (alphabetically by name)
-     — "Color" sorts before "Size", so Color becomes the row axis and
-     Size the column axis. Columns: S, M, L — Square's own ordinal
-     order, NOT alphabetical (which would read L, M, S). */
-  assert.match(table, /<thead><tr><th class="variants-grid-corner"><\/th><th>S<\/th><th>M<\/th><th>L<\/th><\/tr><\/thead>/);
-
-  /* Rows: Red before Blue — ordinal order (both alphabetical and
-     ordinal agree here, but the row order itself is confirmed by the
-     column assertion above already using the non-alphabetical case). */
-  const rowRedIdx = table.indexOf("<tr><th>Red</th>");
-  const rowBlueIdx = table.indexOf("<tr><th>Blue</th>");
-  assert.ok(rowRedIdx >= 0 && rowBlueIdx > rowRedIdx, "rows must read Red, Blue — Square's own ordinal order");
+     — "Color" sorts before "Size", so Color becomes the OUTER group and
+     Size is what lists inside each one, in Square's own ordinal order
+     (S, M, L), NOT alphabetical (which would read L, M, S). */
+  const redIdx = body.indexOf('<span class="variant-group-label">Red</span>');
+  const blueIdx = body.indexOf('<span class="variant-group-label">Blue</span>');
+  assert.ok(redIdx >= 0 && blueIdx > redIdx, "groups must read Red, Blue — Square's own ordinal order");
 
   /* S/Red has a real variation (v1) and gets a stepper; M/Red has no
-     variation at all and stays a blank cell — "existing SKUs only," the
-     owner's own choice. */
-  const redRow = table.slice(rowRedIdx, table.indexOf("</tr>", rowRedIdx));
-  assert.match(redRow, /variation-stock-step" data-variant-id="v1"/, "S/Red must carry v1's own stepper");
-  assert.match(redRow, /variation-stock-step" data-variant-id="v3"/, "L/Red must carry v3's own stepper");
-  assert.match(redRow, /class="variants-grid-empty"/, "M/Red has no SKU and must render blank");
+     variation at all and is simply absent — "existing SKUs only," the
+     owner's own choice — never a manufactured row. */
+  const redGroupStart = body.lastIndexOf('<div class="variant-group">', redIdx);
+  const nextGroupStart = body.indexOf('<div class="variant-group">', redGroupStart + 1);
+  const redGroup = body.slice(redGroupStart, nextGroupStart > 0 ? nextGroupStart : redGroupStart + 2000);
+  assert.match(redGroup, /<span class="variation-title-label">S<\/span>/, "the S row must be listed under Red");
+  assert.match(redGroup, /variation-stock-step" data-variant-id="v1"/, "S under Red must carry v1's own stepper");
+  assert.match(redGroup, /<span class="variation-title-label">L<\/span>/, "the L row must be listed under Red");
+  assert.match(redGroup, /variation-stock-step" data-variant-id="v3"/, "L under Red must carry v3's own stepper");
+  assert.doesNotMatch(redGroup, /<span class="variation-title-label">M<\/span>/, "M has no SKU under Red and must not appear at all");
 });
 
 check("test_PRD_P0_147_variants_grid__a_single_dimension_or_none_keeps_the_flat_list", async () => {
   /* seedProduct's own single "One size" variation carries no options at
-     all — zero dimensions, so the grid must not even try to render. */
+     all — zero dimensions, so the nested groups must not even try to
+     render. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const body = await (await get("/items", MANAGER, env(mirror))).text();
-  assert.doesNotMatch(body, /<table class="variants-grid">/);
+  assert.doesNotMatch(body, /class="variant-group"/);
   assert.match(body, /<span class="variation-title-label">One size<\/span>/);
 });
 
