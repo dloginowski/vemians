@@ -2215,7 +2215,6 @@ export const catalogWriteTools = {
         .prepare("SELECT COUNT(*) AS n FROM mirror_product_index WHERE category_id = ?")
         .bind(category.id)
         .first("n");
-      if (!productCount) return { denied: `"${category.name}" has no products to apply anything to` };
 
       const effective = await effectiveCategoryItemOptionIds(t.db.catalog_mirror);
       const ids = [...(effective.get(category.id) ?? [])];
@@ -2233,6 +2232,22 @@ export const catalogWriteTools = {
         .map((id) => itemOptions.find((o) => o.id === id))
         .filter((o) => o && o.values.length === 0)
         .map((o) => o.name);
+
+      /* "That should not be a stopping point for you... just ignore it and
+         don't apply anything to it. I don't need to see an error about it
+         and you don't need to stop" — the owner's own words, said while
+         clicking through many categories in a row (a top-level, purely
+         organizational one, say, with every real product living in its
+         subcategories instead). A category with nothing in it directly
+         is not a mistake to refuse — it is simply nothing to do, the
+         same as clearing an already-empty set. */
+      if (!productCount) {
+        return {
+          ok: true,
+          summary: `"${category.name}" has no products of its own yet — nothing to apply`,
+          preflight: { category, ids, emptyNames },
+        };
+      }
 
       return {
         ok: true,

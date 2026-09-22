@@ -5925,6 +5925,15 @@ that does not trace to one of these is a process failure (see §12).
     page) rather than a field folded into the batched Save-all, since it fires a real bulk Square write
     the moment it is clicked, not a mirror-only edit waiting to be reviewed and saved.
 
+    REVISED: a category with no products of its own (a purely organizational one, every real product
+    living in a subcategory instead) originally REFUSED this call outright — "has no products to apply
+    anything to." The owner's own words, clicking through many categories in a row: "that should not be
+    a stopping point for you... just ignore it and don't apply anything to it. I don't need to see an
+    error about it and you don't need to stop." `check()` now treats this as a quiet no-op (`ok: true`,
+    `products_applied: 0`, no Square call at all) rather than a refusal — the tool's own scope is
+    unchanged (still only the products directly filed in the given category, never its subcategories),
+    only the empty case stopped being treated as a mistake.
+
 80. **`Test-PRD-P0-146-dynamic_option_values`** — The owner's own words: "if we are adding a set of
     items and we specify its size or color, and this size or color is not already defined in our
     option, add this size or color to the option list and update it so that this item can still be

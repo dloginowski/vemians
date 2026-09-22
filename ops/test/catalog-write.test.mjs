@@ -3425,14 +3425,23 @@ check("test_PRD_P0_144_apply_category_item_options__a_later_unrelated_edit_does_
   assert.deepEqual(itemUpsert.body.object.item_data.item_options, [{ item_option_id: "SQ_OPT_SIZE" }], "must still be resent, not dropped");
 });
 
-check("test_PRD_P0_144_apply_category_item_options__refuses_a_category_with_no_products", async () => {
+check("test_PRD_P0_144_apply_category_item_options__a_category_with_no_products_of_its_own_is_a_quiet_no_op_not_a_refusal", async () => {
+  /* "That should not be a stopping point for you... just ignore it and
+     don't apply anything to it. I don't need to see an error about it
+     and you don't need to stop" — the owner's own words, clicking
+     through many categories in a row, some purely organizational
+     (every real product living in a subcategory instead). REVISED from
+     the original P0-144 behavior, which refused this outright. */
   const f = await fixture();
   const casual = (
     await approvedCall(f, "catalog.create_category", { name: "Casual", reason: "test" })
   ).data.category;
-  const res = await runTool("catalog.apply_category_item_options_to_products", { category_id: casual.id, reason: "test" }, f.ctx);
-  assert.equal(res.ok, false);
-  assert.match(res.error, /no products/);
+  const callsBefore = f.calls().length;
+  const res = await approvedCall(f, "catalog.apply_category_item_options_to_products", { category_id: casual.id, reason: "test" });
+  assert.equal(res.ok, true, res.error);
+  assert.equal(res.data.products_applied, 0);
+  assert.deepEqual(res.data.errors, []);
+  assert.equal(f.calls().length, callsBefore, "nothing to apply means no Square call at all, not an empty one");
 });
 
 check("test_PRD_P0_144_apply_category_item_options__staff_cannot_call_it", async () => {
