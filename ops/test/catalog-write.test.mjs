@@ -2302,14 +2302,17 @@ check("test_PRD_P0_37_mirror_is_ours__no_authoring_tool_writes_a_square_fact_to_
      catalog.create_category's own "set it at creation time" convenience)
      and item_options_set_at (catalog.set_category_item_options' own
      inherit-vs-explicit marker, schema.sql's own comment on the column
-     has the full reasoning) — checks every match, not just the first,
-     the same way the mirror_product loop above does. */
+     has the full reasoning) — set to datetime('now') on an explicit save,
+     and back to NULL by that same tool's own `inherit: true` (the one way
+     back to "still inheriting" once a category has ever been explicit) —
+     checks every match, not just the first, the same way the mirror_product
+     loop above does. */
   const categoryStmts = [...writer.matchAll(/UPDATE mirror_category SET ([\s\S]*?) WHERE/g)];
   assert.ok(
-    categoryStmts.length >= 3,
+    categoryStmts.length >= 4,
     "catalog.set_category_number's, catalog.create_category's and catalog.set_category_item_options' own UPDATEs have moved or been removed",
   );
-  const ALLOWED_CATEGORY_COLUMNS = ["numeric_id = ?", "item_options_set_at = datetime('now')"];
+  const ALLOWED_CATEGORY_COLUMNS = ["numeric_id = ?", "item_options_set_at = datetime('now')", "item_options_set_at = NULL"];
   for (const [, captured] of categoryStmts) {
     assert.ok(
       ALLOWED_CATEGORY_COLUMNS.includes(captured.trim()),
@@ -3362,6 +3365,71 @@ check("test_PRD_P0_142_category_item_options__a_top_level_category_with_nothing_
   seedItemOption(f);
   const effective = await effectiveCategoryItemOptionIds(f.mirrorDb);
   assert.deepEqual([...(effective.get(knitwear.id) ?? [])], []);
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-142 (REVISED AGAIN) — "there needs to be a separate option called
+ * Inherit for every category... set by default to inherit... once inherit
+ * is checked I don't see any options — they're grayed out and disabled.
+ * But if I disable inherit, I can now adjust" — the owner's own words.
+ * `inherit: true` is the one way back to NULL item_options_set_at once a
+ * category has ever been made explicit — before this, only another
+ * explicit save (even to the same list, or to []) was possible.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_142_category_item_options__inherit_true_clears_an_explicit_override_and_the_effective_set_reverts_to_the_parents", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const casual = (await approvedCall(f, "catalog.create_category", { name: "Casual", parent_id: outerwear.id, reason: "test" })).data
+    .category;
+  const size = seedItemOption(f, { id: "opt1", externalRef: "sqopt1", name: "Size" });
+  const color = seedItemOption(f, { id: "opt2", externalRef: "sqopt2", name: "Color" });
+  await approvedCall(f, "catalog.set_category_item_options", { category_id: outerwear.id, item_option_ids: [size.id], reason: "test" });
+  await approvedCall(f, "catalog.set_category_item_options", { category_id: casual.id, item_option_ids: [color.id], reason: "test" });
+
+  const res = await approvedCall(f, "catalog.set_category_item_options", { category_id: casual.id, inherit: true, reason: "test" });
+  assert.equal(res.ok, true, res.error);
+  assert.deepEqual(res.data, { category_id: casual.id, inherit: true, authority: "ours" });
+
+  const effective = await effectiveCategoryItemOptionIds(f.mirrorDb);
+  assert.deepEqual([...(effective.get(casual.id) ?? [])], [size.id], "Casual is back to following Outerwear's own set");
+
+  const setAt = f.mirror("SELECT item_options_set_at FROM mirror_category WHERE id = ?", casual.id)[0];
+  assert.equal(setAt.item_options_set_at, null, "item_options_set_at cleared -- Casual is inheriting again, not merely holding an empty explicit set");
+  const rows = f.mirror("SELECT archived_at FROM mirror_category_item_option WHERE category_id = ? AND item_option_id = ?", casual.id, color.id);
+  assert.ok(rows[0].archived_at, "Casual's own former explicit row is archived, not left active for a future re-explicit save to revive by accident");
+});
+
+check("test_PRD_P0_142_category_item_options__inherit_true_on_an_already_inheriting_category_is_refused_as_a_no_op", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const casual = (await approvedCall(f, "catalog.create_category", { name: "Casual", parent_id: outerwear.id, reason: "test" })).data
+    .category;
+  seedItemOption(f);
+
+  const res = await runTool("catalog.set_category_item_options", { category_id: casual.id, inherit: true, reason: "test" }, f.ctx);
+  assert.equal(res.ok, false);
+  assert.match(res.error, /already inheriting/);
+});
+
+check("test_PRD_P0_142_category_item_options__inherit_true_and_item_option_ids_together_still_only_clears_the_override", async () => {
+  /* inherit: true takes over the whole call -- item_option_ids, even if
+     also sent (e.g. a stale form field), is never consulted. */
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const size = seedItemOption(f, { id: "opt1", externalRef: "sqopt1", name: "Size" });
+  const color = seedItemOption(f, { id: "opt2", externalRef: "sqopt2", name: "Color" });
+  await approvedCall(f, "catalog.set_category_item_options", { category_id: outerwear.id, item_option_ids: [size.id], reason: "test" });
+
+  const res = await approvedCall(f, "catalog.set_category_item_options", {
+    category_id: outerwear.id,
+    inherit: true,
+    item_option_ids: [color.id],
+    reason: "test",
+  });
+  assert.equal(res.ok, true, res.error);
+  const effective = await effectiveCategoryItemOptionIds(f.mirrorDb);
+  assert.deepEqual([...(effective.get(outerwear.id) ?? [])], [], "no parent of its own to inherit from -- color was never actually applied");
 });
 
 /* ─────────────────────────────────────────────────────────────────────────

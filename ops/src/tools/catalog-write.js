@@ -2054,16 +2054,19 @@ export const catalogWriteTools = {
     describe:
       "Set the FULL list of Option Sets a category offers — replaces whatever was assigned before, " +
       "same as sending an empty list to unassign all of them. A subcategory with no explicit set of " +
-      "its own INHERITS its parent's, all the way up the tree — calling this even once for a " +
-      "subcategory (any list, including empty) makes its own set explicit from then on, no longer " +
-      "following its parent's future edits. Purely ours: no Square object is read, written, or " +
-      "affected. Call catalog.item_options first to see what option sets already exist by id.",
-    undo: "another catalog.set_category_item_options call, with the previous item_option_ids",
+      "its own INHERITS its parent's, all the way up the tree — calling this with `item_option_ids` " +
+      "(any list, including empty) makes a category's own set explicit from then on, no longer " +
+      "following its parent's future edits. Pass `inherit: true` instead (no `item_option_ids` needed) " +
+      "to reverse that: it clears the category's own explicit set entirely and goes back to following " +
+      "its parent's, forever, not just until the next explicit save. Purely ours: no Square object is " +
+      "read, written, or affected. Call catalog.item_options first to see what option sets already " +
+      "exist by id.",
+    undo: "another catalog.set_category_item_options call, with the previous item_option_ids (or inherit: true, to undo a first-time explicit set)",
     schema: {
       category_id: { type: "string", required: true, format: "id" },
+      inherit: { type: "boolean" },
       item_option_ids: {
         type: "array",
-        required: true,
         maxItems: CAPS.CATALOG_MAX_ITEM_OPTIONS_PER_CATEGORY,
         of: { type: "string", format: "id" },
       },
@@ -2074,7 +2077,27 @@ export const catalogWriteTools = {
       const category = categories.find((c) => c.id === args.category_id);
       if (!category) return { denied: `no category '${args.category_id}'` };
 
-      const ids = [...new Set(args.item_option_ids)];
+      /* "I should be able to disable the inherit button, and then specify
+         specific categories at that point" — the owner's own words: a
+         separate, explicit "Inherit" control, default on, rather than
+         inferring intent from whatever the (disabled while inheriting)
+         checkboxes happen to show. `inherit: true` reverses a category's
+         own first-time explicit set — the ONLY way back to NULL
+         item_options_set_at, since an explicit save with item_option_ids
+         (even []) can only ever mean "explicit," never "stop being." */
+      if (args.inherit) {
+        const alreadyInheriting = (await categoryItemOptionsSetAt(t.db.catalog_mirror, category.id)) == null;
+        if (alreadyInheriting) {
+          return { denied: `"${category.name}" is already inheriting — nothing to change` };
+        }
+        return {
+          ok: true,
+          summary: `make "${category.name}" inherit its option sets again (stops overriding, follows its parent's future edits from now on) — ${args.reason}`,
+          preflight: { category, inherit: true },
+        };
+      }
+
+      const ids = [...new Set(args.item_option_ids ?? [])];
       const itemOptions = await listItemOptions(t.db.catalog_mirror);
       const byId = new Map(itemOptions.map((o) => [o.id, o]));
       const unknown = ids.filter((id) => !byId.has(id));
@@ -2104,10 +2127,27 @@ export const catalogWriteTools = {
         summary: names.length
           ? `set "${category.name}"'s own option sets to: ${names.join(", ")}${overrideNote} — ${args.reason}`
           : `clear every option set from "${category.name}"${overrideNote} — ${args.reason}`,
-        preflight: { category, ids },
+        preflight: { category, ids, inherit: false },
       };
     },
     async run(_args, t) {
+      const { category, inherit } = t.preflight;
+      if (inherit) {
+        /* Archives whatever explicit rows this category ever had — a
+           harmless no-op if it has none — before clearing the flag
+           itself. effectiveCategoryItemOptionIds only ever reads a
+           category's own raw rows when item_options_set_at is
+           non-null, so a stale row left active here would otherwise
+           spring back to life if this category were ever made explicit
+           again by hand later. */
+        await t.db.catalog_mirror
+          .prepare("UPDATE mirror_category_item_option SET archived_at = datetime('now') WHERE category_id = ? AND archived_at IS NULL")
+          .bind(category.id)
+          .run();
+        await t.db.catalog_mirror.prepare("UPDATE mirror_category SET item_options_set_at = NULL WHERE id = ?").bind(category.id).run();
+        return { category_id: category.id, inherit: true, authority: "ours" };
+      }
+
       /* A full REPLACE, but never a literal DELETE — this tool layer refuses
          to contain that statement at all (Test-PRD-P0-25-write_approval_gate),
          so "not wanted any more" is archived_at, exactly like every
@@ -2115,7 +2155,7 @@ export const catalogWriteTools = {
          Square. A row already on file (active or previously unassigned) is
          reused rather than re-inserted, so created_at survives a
          reassign. */
-      const { category, ids } = t.preflight;
+      const { ids } = t.preflight;
       const wanted = new Set(ids);
       const existing = await t.db.catalog_mirror
         .prepare("SELECT item_option_id, archived_at FROM mirror_category_item_option WHERE category_id = ?")
@@ -2194,6 +2234,17 @@ export const catalogWriteTools = {
    * keeps that override — only a subcategory with none of its own
    * inherits what was clicked here, the same rule that already decides
    * what "Sets" shows as assigned in the first place.
+   *
+   * REVISED AGAIN: "why is there an apply button? Shouldn't it just make
+   * the save button dirty and press save?" — the owner's own words. The
+   * "SEPARATE, deliberate action" note above no longer describes the
+   * Admin panel: saving a category's own Sets there (catalog.set_
+   * category_item_options) now ALSO calls this tool automatically for
+   * that same category, index.js's own admin route, not here — this
+   * tool itself stays a plain, standalone T2 write, still only ever
+   * fired on purpose by whatever calls it (a chat agent included), and
+   * catalog.set_category_item_options' own resources stays [] either
+   * way.
    */
   "catalog.apply_category_item_options_to_products": {
     tier: "T2",

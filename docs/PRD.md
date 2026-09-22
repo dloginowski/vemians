@@ -6049,6 +6049,51 @@ that does not trace to one of these is a process failure (see §12).
     across the same subtree now too, so the approval summary already reflects the real scope of the
     call rather than only the clicked category's own direct products.
 
+83. **`Test-PRD-P0-149-category_options_inherit_toggle`** — The owner's own words, right after P0-148
+    shipped: "I think there needs to be a separate option called Inherit for every category. It should
+    be set by default to inherit... but I should be able to disable the Inherit button and specify
+    specific categories at that point. Once Inherit is checked, I don't see any options — they're
+    grayed out and disabled. But if I disable Inherit, I can now adjust." Before this, `item_options_
+    set_at` (P0-142) could only ever move ONE direction — NULL ("still inheriting") to a timestamp
+    ("explicit, even to an empty set") — every explicit save, even a resend of the exact list already
+    showing, could only ever set it, never clear it back to NULL: there was no way to go back to
+    inheriting once a category had ever been made explicit. `catalog.set_category_item_options` gains
+    `inherit: true` (schema: `item_option_ids` is no longer `required`, an `inherit: true` call needs
+    none), which reverses this — it archives every explicit `mirror_category_item_option` row the
+    category has and clears `item_options_set_at` back to NULL, resuming its parent's future edits
+    "forever, not just until the next explicit save." Already-inheriting is refused as a no-op, the
+    same shape as an already-explicit no-op resend. `categoryExplicitIds` (`catalog-writer.js`) gives
+    the Admin page a plain set of every category's own `item_options_set_at IS NOT NULL` id, so the
+    Sets menu (`views.js`) can render an "Inherit" checkbox above the option checkboxes — checked
+    (and its siblings disabled) whenever a category is NOT in that set, unchecked (siblings enabled)
+    when it is. A disabled checkbox is excluded from `FormData` automatically, so a still-inheriting
+    category's menu can never submit stale `item_option_ids` even by accident; a small `change`
+    listener keeps the disabled state live as Inherit itself is toggled in the browser, since the
+    server only ever renders the INITIAL state.
+
+    REVISED, from a report sent moments after seeing "Apply to items" live: "when I click Apply to
+    items, it stays orange. Should it clear the orange state? That indicates dirty." `.admin-category-
+    options-toggle-active` (the Sets button's own "this category has option sets assigned" indicator, a
+    persistent, non-dirty fact) had been styled with `--accent` — the exact color this codebase already
+    reserves ONLY for genuine unsaved/dirty state (P0-135's own "orange is reserved for a genuinely
+    dirty field, never a steady 'this is on' color" rule).
+    Fixed to `--muted`, the same brighter gray `.item-checkbox-toggle`'s own "on but saved" state
+    already uses, so a category with Sets assigned no longer reads as permanently unsaved.
+
+    REVISED AGAIN, asked in the same breath: "why is there an Apply button? Why not just use the Save
+    button? Shouldn't saving make the Save button dirty, and pressing Save apply all the options too?"
+    The standalone `POST /admin/categories/apply-item-options` route (and its own `.admin-category-
+    apply-btn`) is gone entirely. Saving a category's Sets now (`POST /admin/categories/item-options`,
+    the ordinary route the global Save-all button already posts every dirty form to) ALSO calls
+    `catalog.apply_category_item_options_to_products` for that same category immediately after the
+    Sets save succeeds — the owner's own literal ask, "just press Save and apply the options." This
+    cascade lives in the Admin route (`index.js`), not inside `catalog.set_category_item_options`
+    itself: that tool's own `describe` explicitly promises "no Square object is read, written, or
+    affected," a promise a chat agent calling it directly still gets — only the Admin UI's Save button
+    gets the auto-cascade. A cascade failure (no `SQUARE_ACCESS_TOKEN`, a per-product Square error, ...)
+    is logged (`console.error`) and never fails the Sets save itself, the same "one product's failure
+    never fails the batch" philosophy this feature area already follows one level down.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -6346,6 +6391,7 @@ Where each feature is enforced today:
 | P0-146 | `ops/test/catalog-write.test.mjs` |
 | P0-147 | `ops/test/items-route.test.mjs` |
 | P0-148 | `ops/test/catalog-write.test.mjs` |
+| P0-149 | `ops/test/catalog-write.test.mjs`, `ops/test/items-route.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
