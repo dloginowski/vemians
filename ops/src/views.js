@@ -2553,11 +2553,11 @@ function renderVendorPickerOptions(vendors, selectedName) {
 }
 
 /* A small read-only field and two +/- buttons — one stock stepper, shared
-   between the flat variation list and each populated cell of the
-   Variants grid below. `.row` is the class stepStock() itself walks up
-   to (button.closest(".row")) to find its own count field and sibling
-   buttons — reused here verbatim rather than taught a second selector,
-   so a stepper works identically wherever it is placed. */
+   between the flat variation list's own `.row` and each populated
+   `.variant-size-cell` of the Variants grid below. stepStock() walks up
+   to whichever of the two wraps it (button.closest(".row, .variant-size-cell"))
+   to find its own count field and sibling buttons, so a stepper works
+   identically wherever it is placed. */
 function stockStepper(v) {
   return (
     `<span class="variation-stock-stepper">` +
@@ -3782,7 +3782,7 @@ async function saveTile(tile) {
    rapid repeat clicks, and reloading the whole page after every one of
    them would make receiving ten units one at a time unusable. */
 async function stepStock(button) {
-  const row = button.closest(".row");
+  const row = button.closest(".row, .variant-size-cell");
   const existingError = row.nextElementSibling;
   if (existingError?.classList.contains("item-edit-error")) existingError.remove();
   const countField = row.querySelector(".variation-stock-count");
