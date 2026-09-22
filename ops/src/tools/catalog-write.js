@@ -2221,19 +2221,46 @@ export const catalogWriteTools = {
       const ids = [...(effective.get(category.id) ?? [])];
       const itemOptions = await listItemOptions(t.db.catalog_mirror);
       const names = ids.map((id) => itemOptions.find((o) => o.id === id)?.name ?? id);
+      /* "I only see sizes for the black dress. I don't see any colors" —
+         the owner's own words, the first time this shipped: Color WAS
+         checked, but had no VALUES on file in Square yet (no "Black",
+         "Red", ... ever created on it) — and one assigned option with no
+         values collapses the WHOLE cross product to nothing
+         (optionCombinations' own comment, catalog-writer.js), not just
+         that one dimension. Named here, before approval, so this is
+         never a silent no-op discovered only after the fact. */
+      const emptyNames = ids
+        .map((id) => itemOptions.find((o) => o.id === id))
+        .filter((o) => o && o.values.length === 0)
+        .map((o) => o.name);
 
       return {
         ok: true,
-        summary: names.length
-          ? `apply option sets (${names.join(", ")}) to all ${productCount} product${productCount === 1 ? "" : "s"} in "${category.name}", generating any missing combination as a new variation (stock starting at 0) — ${args.reason}`
-          : `clear every option set from all ${productCount} product${productCount === 1 ? "" : "s"} in "${category.name}" — ${args.reason}`,
-        preflight: { category, ids },
+        summary:
+          (names.length
+            ? `apply option sets (${names.join(", ")}) to all ${productCount} product${productCount === 1 ? "" : "s"} in "${category.name}", generating any missing combination as a new variation (stock starting at 0) — ${args.reason}`
+            : `clear every option set from all ${productCount} product${productCount === 1 ? "" : "s"} in "${category.name}" — ${args.reason}`) +
+          (emptyNames.length
+            ? ` — WARNING: ${emptyNames.join(", ")} ${emptyNames.length === 1 ? "has" : "have"} no values on file in Square yet, so NO variations will be generated for any product until at least one value is added to ${emptyNames.length === 1 ? "it" : "each of them"}`
+            : ""),
+        preflight: { category, ids, emptyNames },
       };
     },
     async run(_args, t) {
-      const { category, ids } = t.preflight;
+      const { category, ids, emptyNames } = t.preflight;
       const { applied, errors } = await t.square.applyItemOptionsToProductsInCategory(category.id, ids);
-      return { category_id: category.id, item_option_ids: ids, products_applied: applied, errors, authority: "square" };
+      return {
+        category_id: category.id,
+        item_option_ids: ids,
+        products_applied: applied,
+        errors,
+        /* Carried through from check() (never recomputed here — this is
+           the SAME "no values yet" fact the approver already saw before
+           saying yes) so the result itself still names why nothing new
+           may have been generated, not just the approval screen. */
+        ...(emptyNames?.length ? { options_with_no_values_yet: emptyNames } : {}),
+        authority: "square",
+      };
     },
   },
 
