@@ -3233,7 +3233,7 @@ check("test_PRD_P0_144_apply_category_item_options__admin_renders_an_apply_butto
   const body = await (await get("/admin", MANAGER, env(mirror))).text();
   assert.match(
     body,
-    /<button type="button" class="admin-category-apply-btn" data-category-id="cat1">Apply to items<\/button>/,
+    /<button type="button" class="admin-category-apply-btn" data-category-id="cat1" title="[^"]*">Apply to items<\/button>/,
   );
 });
 

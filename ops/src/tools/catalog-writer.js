@@ -39,6 +39,7 @@ import { createImageUploader, squareAcceptsType } from "../../../shared/commerce
 import { idempotencyKey } from "../../../shared/commerce/square/ids.js";
 import { moneyToSquare } from "../../../shared/commerce/square/money.js";
 import { createVendor } from "../../../shared/commerce/square/vendors.js";
+import { CAPS } from "./caps.js";
 
 /* ── mirror READS, over the raw D1 binding ──────────────────────────────── */
 /*
@@ -412,7 +413,18 @@ export async function listAllProducts(db, { limit } = {}) {
  * RESULT of the edit rather than the patch.
  */
 export function mergeVariations(current, patch) {
-  const byId = new Map((current ?? []).map((v) => [v.id, { ...v, price_minor: Number(v.price_minor) }]));
+  /* option_values rides along on BOTH sides now — an EXISTING variation's
+     own already-mirrored `options` (P0-143's own JSON blob, name -> value)
+     renamed here to the same `option_values` shape a NEW entry's own
+     patch data uses, so updateProduct's own resolution loop (below) reads
+     one field regardless of which side a kept variation came from. This
+     is what lets an unrelated edit resend an existing variation's own
+     Size/Color selection instead of silently dropping it — the same
+     "resend the whole thing or it vanishes" rule this file already
+     applies to item_options/vendor_information one level up. */
+  const byId = new Map(
+    (current ?? []).map((v) => [v.id, { ...v, price_minor: Number(v.price_minor), option_values: v.options ?? {} }]),
+  );
   const order = (current ?? []).map((v) => v.id);
   const added = [];
   for (const p of patch ?? []) {
@@ -428,6 +440,14 @@ export function mergeVariations(current, patch) {
            own per-variation resolution falls back to the product-level
            default, same as every other newly-added variation field. */
         unit_cost_minor: p.unit_cost_minor,
+        /* "Add this size or color to the option list and update it so
+           that this item can still be added as a SKU" — a brand-new
+           variation this file itself adds (catalog.apply_category_item_
+           options_to_products' own auto-generated combinations) names
+           which of the item's own Option Set values it IS, the same
+           option_values shape catalog.create_product's own variations
+           already use. */
+        option_values: p.option_values ?? {},
       });
       continue;
     }
@@ -903,6 +923,66 @@ export function createSquareCatalogWriter(env, opts = {}) {
     };
   }
 
+  /* Every value currently on file for a set of Option Sets, by name — "I
+     expect the black dress to have these variations auto-assigned
+     because I assigned the sets to its parent category," the owner's
+     own words. applyItemOptionsToProductsInCategory (below) crosses
+     these to find every Size x Color (etc.) combination a product in
+     that category SHOULD have, then generates whichever are missing. */
+  async function itemOptionValueNames(itemOptionIds) {
+    const options = await Promise.all(
+      itemOptionIds.map(async (id) => {
+        const option = await mirrorDb.prepare("SELECT name FROM mirror_item_option_index WHERE id = ?").bind(id).first();
+        if (!option) return null;
+        const values = await mirrorDb
+          .prepare("SELECT name FROM mirror_item_option_value_index WHERE item_option_id = ? ORDER BY ordinal, name COLLATE NOCASE")
+          .bind(id)
+          .all();
+        return { name: option.name, values: (values.results ?? []).map((v) => v.name) };
+      }),
+    );
+    return options.filter(Boolean);
+  }
+
+  /* The full cross product of every Option Set's own values — [{Size:
+     "S", Color: "Red"}, {Size: "S", Color: "Blue"}, ...]. A single
+     Option Set with no values at all collapses the WHOLE result to
+     nothing (there is no combination possible without at least one
+     value on every axis) rather than half a combination. */
+  function optionCombinations(options) {
+    return options.reduce(
+      (acc, opt) => acc.flatMap((combo) => opt.values.map((value) => ({ ...combo, [opt.name]: value }))),
+      [{}],
+    );
+  }
+
+  /* A combination's own identity, independent of key order — "Size=S|
+     Color=Red" reads the same whether Size or Color was inserted first,
+     so a real variation's own already-mirrored options and a freshly
+     generated combo compare equal when they mean the same thing. */
+  function comboSignature(optionValues) {
+    return Object.entries(optionValues ?? {})
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([k, v]) => `${k}=${v}`)
+      .join("|");
+  }
+
+  async function variantsWithOptions(productId) {
+    const res = await mirrorDb
+      .prepare("SELECT price_minor, currency, options FROM mirror_variant_index WHERE product_id = ? ORDER BY ordinal")
+      .bind(productId)
+      .all();
+    return (res.results ?? []).map((v) => {
+      let options = {};
+      try {
+        options = JSON.parse(v.options || "{}");
+      } catch {
+        options = {};
+      }
+      return { price_minor: v.price_minor, currency: v.currency, options };
+    });
+  }
+
   return {
     kind: "square",
     adapter,
@@ -980,17 +1060,49 @@ export function createSquareCatalogWriter(env, opts = {}) {
        same "resend the whole thing, only item_options actually changes"
        updateProduct call the rest of this file already relies on — one
        real Square write per product, the same resortProductsByStyleId's
-       own shape just above uses for its own bulk write. Item-level ONLY
-       (item_data.item_options): no variation is created, changed, or
-       removed by this call — "variants will be defined and configured in
-       Square" stays true. */
+       own shape just above uses for its own bulk write.
+       REVISED: "I expect the black dress to have these variations
+       auto-assigned because I assigned the sets to its parent category"
+       — the owner's own words, asked directly and confirmed: this now
+       ALSO generates the real missing variations (every Size x Color
+       combination this category's own assigned Option Sets allow, that
+       this product does not already have one of), not just the
+       item-level flag. EXISTING SKUS ARE NEVER TOUCHED OR REMOVED — only
+       combinations genuinely missing get a new one, priced the same as
+       the product's own first variation, stock starting at 0 (a real
+       count still has to come from an actual inventory count, the same
+       reasoning every other new variation in this codebase starts at 0
+       rather than a guess). A category with no Option Sets assigned, or
+       one whose values are all still empty, generates nothing — same
+       flag-only behavior as before. */
     async applyItemOptionsToProductsInCategory(categoryId, itemOptionIds) {
-      const products = await mirrorDb.prepare("SELECT handle FROM mirror_product_index WHERE category_id = ?").bind(categoryId).all();
+      const products = await mirrorDb.prepare("SELECT id, handle FROM mirror_product_index WHERE category_id = ?").bind(categoryId).all();
+      const options = await itemOptionValueNames(itemOptionIds);
+      const combos = options.length ? optionCombinations(options).filter((c) => Object.keys(c).length) : [];
       let applied = 0;
       const errors = [];
       for (const p of products.results ?? []) {
         try {
-          await this.updateProduct({ handle: p.handle, itemOptionIds });
+          const existing = await variantsWithOptions(p.id);
+          const existingSignatures = new Set(existing.map((v) => comboSignature(v.options)));
+          const missing = combos.filter((c) => !existingSignatures.has(comboSignature(c)));
+          let newVariations;
+          if (missing.length) {
+            const total = existing.length + missing.length;
+            if (total > CAPS.CATALOG_MAX_VARIATIONS) {
+              throw new Error(
+                `generating the missing Size/Color combinations would need ${total} variations, past the cap of ${CAPS.CATALOG_MAX_VARIATIONS}`,
+              );
+            }
+            const base = existing[0] ?? { price_minor: 0, currency: "USD" };
+            newVariations = missing.map((combo) => ({
+              title: Object.values(combo).join(" / "),
+              price_minor: base.price_minor,
+              currency: base.currency,
+              option_values: combo,
+            }));
+          }
+          await this.updateProduct({ handle: p.handle, itemOptionIds, ...(newVariations ? { variations: newVariations } : {}) });
           applied += 1;
         } catch (err) {
           console.error(`ERROR catalog-writer: apply item options failed for ${p.handle} — ${err.message}`);
@@ -1144,14 +1256,47 @@ export function createSquareCatalogWriter(env, opts = {}) {
          about it — mergeVariations' own fallback below needs them. */
       const currentRes = await mirrorDb
         .prepare(
-          "SELECT id, external_ref, source_version, sku, title, ordinal, price_minor, currency, unit_cost_minor, unit_cost_currency" +
+          "SELECT id, external_ref, source_version, sku, title, ordinal, price_minor, currency, options, unit_cost_minor, unit_cost_currency" +
             " FROM mirror_variant_index WHERE product_id = ? ORDER BY ordinal",
         )
         .bind(row.id)
         .all();
-      const merged = mergeVariations(currentRes.results ?? [], variations);
+      const currentVariations = (currentRes.results ?? []).map((v) => {
+        let options = {};
+        try {
+          options = JSON.parse(v.options || "{}");
+        } catch {
+          options = {};
+        }
+        return { ...v, options };
+      });
+      const merged = mergeVariations(currentVariations, variations);
       if (merged.error) throw new Error(`${merged.error} ('${handle}')`);
       const keep = merged.variations;
+
+      /* Every kept variation's own item_option_values must be resent
+         whole — Square's own UpsertCatalogObject replaces each
+         variation's own data wholesale, the same "resend or it
+         vanishes" rule item_options/vendor_information already follow
+         one level up. An EXISTING variation's own values (carried
+         through mergeVariations' own option_values, from this file's
+         SELECT above) resolve back to their own external refs; a newly
+         added one (only ever from an option_values-bearing patch entry
+         — catalog.apply_category_item_options_to_products' own
+         auto-generated combinations) resolves the same way
+         createProduct's own loop does. Nothing here is EXPECTED to
+         mint a brand-new value — every name/value reaching this call
+         already exists — but ensureItemOptionValue's own tolerance for
+         "not on file yet" costs nothing to reuse rather than duplicate. */
+      const variationOptionValueRefs = [];
+      for (const v of keep) {
+        const pairs = [];
+        for (const [optionName, valueName] of Object.entries(v.option_values ?? {})) {
+          const { itemOptionRef, itemOptionValueRef } = await ensureItemOptionValue(optionName, valueName);
+          pairs.push({ item_option_id: itemOptionRef, item_option_value_id: itemOptionValueRef });
+        }
+        variationOptionValueRefs.push(pairs);
+      }
 
       /* Undefined means "this call is not about that field" for style_id and
          commission alike — resolved to whatever the mirror already has, the
@@ -1218,7 +1363,8 @@ export function createSquareCatalogWriter(env, opts = {}) {
           `catalog.update:${row.external_ref}:${row.source_version}:${resolvedTitle}:` +
             `${resolvedDescription ?? ""}:${cat?.external_ref ?? ""}:${JSON.stringify(keep)}:` +
             `${resolvedStyleId ?? ""}:${resolvedVendorExternalRef ?? ""}:${JSON.stringify(vendorInfos)}:` +
-            `${resolvedCommissionPct ?? ""}:${JSON.stringify(resolvedItemOptionExternalRefs)}`,
+            `${resolvedCommissionPct ?? ""}:${JSON.stringify(resolvedItemOptionExternalRefs)}:` +
+            `${JSON.stringify(variationOptionValueRefs)}`,
         ),
         object: {
           type: "ITEM",
@@ -1237,6 +1383,7 @@ export function createSquareCatalogWriter(env, opts = {}) {
             }),
             vendorInfos,
             itemOptionRefs: resolvedItemOptionExternalRefs,
+            variationOptionValueRefs,
           }),
         },
       };

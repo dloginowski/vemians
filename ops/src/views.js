@@ -2327,7 +2327,7 @@ function renderAdminCategoryNodes(
                    Save-all/dirty-tracking flow the checkboxes above use,
                    the same immediate-action treatment .admin-remove-btn
                    already gets elsewhere on this page. -->
-              <button type="button" class="admin-category-apply-btn" data-category-id="${esc(c.id)}">Apply to items</button>
+              <button type="button" class="admin-category-apply-btn" data-category-id="${esc(c.id)}" title="Also generates any missing Size/Color variation, stock starting at 0">Apply to items</button>
             </form>
           </div>`
         : "";

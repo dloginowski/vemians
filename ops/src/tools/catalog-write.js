@@ -2174,10 +2174,15 @@ export const catalogWriteTools = {
    * item_options' own REVISED entry has the full reasoning) — never a
    * caller-supplied list — so this always means exactly "make every
    * product in this category match what Sets already shows for it."
-   * Item-level only (item_data.item_options): no variation is created,
-   * changed, or removed here — "variants will be defined and configured
-   * in Square" stays true; this only tells Square which option sets an
-   * item may build variations FROM.
+   * REVISED: "I expect the black dress to have these variations
+   * auto-assigned because I assigned the sets to its parent category" —
+   * the owner's own words, asked directly and confirmed: this now ALSO
+   * generates every Size/Color (etc.) combination the category's own
+   * Option Sets allow that a product does not already have a real
+   * variation for — never touching or removing one that already exists.
+   * A newly generated variation is priced the same as the product's own
+   * first one, stock starting at 0 (a real count still has to come from
+   * an actual inventory count).
    */
   "catalog.apply_category_item_options_to_products": {
     tier: "T2",
@@ -2188,11 +2193,14 @@ export const catalogWriteTools = {
     describe:
       "Push a category's own CURRENT option sets (inherited or explicit — whatever catalog.categories/" +
       "the Sets menu already shows for it) onto every product currently filed in that category, as a " +
-      "real Square write to each one's own item_data.item_options. Does not touch a single variation — " +
-      "no combination is created, changed, or removed; a product that already has variations keeps " +
-      "them exactly as they are. Call this after changing a category's own option sets to actually " +
-      "reach the products already in it — saving the category's own list on its own touches nothing " +
-      "in Square.",
+      "real Square write to each one's own item_data.item_options, AND generate every Size/Color (etc.) " +
+      "combination those option sets allow that a product does not already have a real variation for. " +
+      "An EXISTING variation is never touched, edited, or removed — only genuinely missing combinations " +
+      "get a new one, priced the same as the product's own first variation, with stock starting at 0 " +
+      "(adjust it afterward via inventory.adjust once a real count is known). A product already fully " +
+      "covered gets only the item-level write, nothing new. Call this after changing a category's own " +
+      "option sets to actually reach the products already in it — saving the category's own list on " +
+      "its own touches nothing in Square.",
     undo: "no undo yet: reverting means re-running this after changing the category's own option sets back",
     schema: {
       category_id: { type: "string", required: true, format: "id" },
@@ -2217,7 +2225,7 @@ export const catalogWriteTools = {
       return {
         ok: true,
         summary: names.length
-          ? `apply option sets (${names.join(", ")}) to all ${productCount} product${productCount === 1 ? "" : "s"} in "${category.name}" — ${args.reason}`
+          ? `apply option sets (${names.join(", ")}) to all ${productCount} product${productCount === 1 ? "" : "s"} in "${category.name}", generating any missing combination as a new variation (stock starting at 0) — ${args.reason}`
           : `clear every option set from all ${productCount} product${productCount === 1 ? "" : "s"} in "${category.name}" — ${args.reason}`,
         preflight: { category, ids },
       };

@@ -3448,6 +3448,180 @@ check("test_PRD_P0_144_apply_category_item_options__staff_cannot_call_it", async
   assert.equal(res.ok, false);
 });
 
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-148 — "I expect the black dress to have these variations
+ * auto-assigned because I assigned the sets to its parent category" — the
+ * owner's own words, asked directly and confirmed: applying a category's
+ * option sets now ALSO generates the real missing Size/Color variations,
+ * not just the item-level flag (P0-144).
+ * ───────────────────────────────────────────────────────────────────────── */
+
+/* A real ITEM_OPTION object, with real values, seeded straight into the
+   fake Square server — not just the mirror — so a full sync (below)
+   resolves a variation's own item_option_values back to real name/value
+   text exactly the way a live sync would (optionsFor(), shared/commerce/
+   square/catalog.js). Hand-seeding only the mirror (seedItemOption,
+   above) is enough for P0-142/144's own item-level-only assertions, but
+   not for a test that needs an EXISTING variation's own combination to
+   be recognized as already covered. */
+function seedItemOptionInSquare(f, { externalRef, name, values }) {
+  f.square.objects.set(externalRef, {
+    id: externalRef,
+    type: "ITEM_OPTION",
+    version: 1,
+    item_option_data: {
+      name,
+      values: values.map((v) => ({
+        type: "ITEM_OPTION_VAL",
+        id: v.externalRef,
+        item_option_value_data: { item_option_id: externalRef, name: v.name },
+      })),
+    },
+  });
+}
+
+/* Order-independent: optionCombinations' own key order is not a contract
+   this suite pins down, so a generated variation is found by WHICH
+   option/value pairs it carries, never by title text alone. */
+function findVariationByOptionPairs(variations, pairs) {
+  const want = new Set(pairs.map((p) => `${p.item_option_id}:${p.item_option_value_id}`));
+  return variations.find((v) => {
+    const has = new Set((v.item_variation_data.item_option_values ?? []).map((p) => `${p.item_option_id}:${p.item_option_value_id}`));
+    return has.size === want.size && [...want].every((k) => has.has(k));
+  });
+}
+
+check("test_PRD_P0_148_auto_generate_variations__applying_a_categorys_option_sets_creates_every_missing_combination", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  seedItemOptionInSquare(f, {
+    externalRef: "SQ_OPT_SIZE",
+    name: "Size",
+    values: [{ externalRef: "SQ_OPTVAL_S", name: "S" }, { externalRef: "SQ_OPTVAL_M", name: "M" }],
+  });
+  seedItemOptionInSquare(f, {
+    externalRef: "SQ_OPT_COLOR",
+    name: "Color",
+    values: [{ externalRef: "SQ_OPTVAL_BLACK", name: "Black" }, { externalRef: "SQ_OPTVAL_RED", name: "Red" }],
+  });
+  await f.writer.adapter.pullCatalog({ full: true });
+  const size = f.mirror("SELECT id FROM mirror_item_option WHERE external_ref = 'SQ_OPT_SIZE'")[0];
+  const color = f.mirror("SELECT id FROM mirror_item_option WHERE external_ref = 'SQ_OPT_COLOR'")[0];
+  await approvedCall(f, "catalog.set_category_item_options", { category_id: outerwear.id, item_option_ids: [size.id, color.id], reason: "test" });
+
+  const created = await approvedCall(f, "catalog.create_product", {
+    title: "Black Dress",
+    category_id: outerwear.id,
+    variations: [{ title: "One size", price_minor: 8900, currency: "USD" }],
+  });
+  assert.equal(created.ok, true, created.error);
+
+  const res = await approvedCall(f, "catalog.apply_category_item_options_to_products", { category_id: outerwear.id, reason: "test" });
+  assert.equal(res.ok, true, res.error);
+  assert.deepEqual(res.data.errors, []);
+
+  const itemUpsert = f
+    .calls()
+    .filter((c) => c.path === "/v2/catalog/object" && c.upsert === "ITEM" && c.body.object.item_data.name === "Black Dress")
+    .pop();
+  assert.ok(itemUpsert, "must reach Square with the black dress's own updated item");
+  assert.deepEqual(
+    itemUpsert.body.object.item_data.item_options.map((o) => o.item_option_id).sort(),
+    ["SQ_OPT_COLOR", "SQ_OPT_SIZE"],
+  );
+  const variations = itemUpsert.body.object.item_data.variations;
+  assert.equal(
+    variations.length,
+    5,
+    `1 existing + 4 combinations (2 sizes x 2 colors), got: ${JSON.stringify(variations.map((v) => v.item_variation_data.name))}`,
+  );
+
+  const sBlack = findVariationByOptionPairs(variations, [
+    { item_option_id: "SQ_OPT_SIZE", item_option_value_id: "SQ_OPTVAL_S" },
+    { item_option_id: "SQ_OPT_COLOR", item_option_value_id: "SQ_OPTVAL_BLACK" },
+  ]);
+  assert.ok(sBlack, "S/Black must be generated");
+  assert.equal(sBlack.item_variation_data.price_money.amount, 8900, "a new combination copies the product's own existing price");
+
+  const mRed = findVariationByOptionPairs(variations, [
+    { item_option_id: "SQ_OPT_SIZE", item_option_value_id: "SQ_OPTVAL_M" },
+    { item_option_id: "SQ_OPT_COLOR", item_option_value_id: "SQ_OPTVAL_RED" },
+  ]);
+  assert.ok(mRed, "M/Red must be generated");
+});
+
+check("test_PRD_P0_148_auto_generate_variations__an_existing_combination_is_never_duplicated_or_touched", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  seedItemOptionInSquare(f, {
+    externalRef: "SQ_OPT_SIZE",
+    name: "Size",
+    values: [{ externalRef: "SQ_OPTVAL_S", name: "S" }, { externalRef: "SQ_OPTVAL_M", name: "M" }],
+  });
+  await f.writer.adapter.pullCatalog({ full: true });
+  const size = f.mirror("SELECT id FROM mirror_item_option WHERE external_ref = 'SQ_OPT_SIZE'")[0];
+  await approvedCall(f, "catalog.set_category_item_options", { category_id: outerwear.id, item_option_ids: [size.id], reason: "test" });
+
+  await approvedCall(f, "catalog.create_product", {
+    title: "Wool Skirt",
+    category_id: outerwear.id,
+    variations: [{ title: "S", price_minor: 6000, currency: "USD", option_values: { Size: "S" } }],
+  });
+
+  const res = await approvedCall(f, "catalog.apply_category_item_options_to_products", { category_id: outerwear.id, reason: "test" });
+  assert.equal(res.ok, true, res.error);
+
+  const itemUpsert = f
+    .calls()
+    .filter((c) => c.path === "/v2/catalog/object" && c.upsert === "ITEM" && c.body.object.item_data.name === "Wool Skirt")
+    .pop();
+  assert.ok(itemUpsert);
+  const variations = itemUpsert.body.object.item_data.variations;
+  assert.equal(variations.length, 2, "S already existed; only M should be newly added, never a second S");
+  const m = findVariationByOptionPairs(variations, [{ item_option_id: "SQ_OPT_SIZE", item_option_value_id: "SQ_OPTVAL_M" }]);
+  assert.ok(m, "the missing M must still be generated");
+});
+
+check("test_PRD_P0_148_auto_generate_variations__a_product_past_the_variation_cap_is_reported_not_silently_skipped_or_capped", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  seedItemOptionInSquare(f, {
+    externalRef: "SQ_OPT_SIZE",
+    name: "Size",
+    values: Array.from({ length: 5 }, (_, i) => ({ externalRef: `SQ_OPTVAL_SIZE_${i}`, name: `Size${i}` })),
+  });
+  seedItemOptionInSquare(f, {
+    externalRef: "SQ_OPT_COLOR",
+    name: "Color",
+    values: Array.from({ length: 6 }, (_, i) => ({ externalRef: `SQ_OPTVAL_COLOR_${i}`, name: `Color${i}` })),
+  });
+  await f.writer.adapter.pullCatalog({ full: true });
+  const size = f.mirror("SELECT id FROM mirror_item_option WHERE external_ref = 'SQ_OPT_SIZE'")[0];
+  const color = f.mirror("SELECT id FROM mirror_item_option WHERE external_ref = 'SQ_OPT_COLOR'")[0];
+  await approvedCall(f, "catalog.set_category_item_options", { category_id: outerwear.id, item_option_ids: [size.id, color.id], reason: "test" });
+
+  await approvedCall(f, "catalog.create_product", {
+    title: "Overloaded Dress",
+    category_id: outerwear.id,
+    variations: [{ title: "One size", price_minor: 5000, currency: "USD" }],
+  });
+
+  /* 5 sizes x 6 colors = 30 combinations, plus the existing "One size" —
+     31, past CAPS.CATALOG_MAX_VARIATIONS (24). */
+  const res = await approvedCall(f, "catalog.apply_category_item_options_to_products", { category_id: outerwear.id, reason: "test" });
+  assert.equal(res.ok, true, res.error);
+  const err = res.data.errors.find((e) => /past the cap of 24/.test(e.error));
+  assert.ok(err, `expected a cap-exceeded error, got: ${JSON.stringify(res.data.errors)}`);
+
+  /* Only the original creation write should exist for it — the
+     cap-exceeded apply must not reach Square for this product at all,
+     partial or otherwise. */
+  const overloadedWrites = f
+    .calls()
+    .filter((c) => c.path === "/v2/catalog/object" && c.upsert === "ITEM" && c.body.object.item_data?.name === "Overloaded Dress");
+  assert.equal(overloadedWrites.length, 1);
+});
+
 check("test_PRD_P0_136_square_custom_attributes__create_vendor_makes_a_real_square_vendor_with_a_commission_on_file_immediately", async () => {
   const f = await fixture();
   const res = await approvedCall(f, "catalog.create_vendor", { name: "Acme Mills", commission: 20, reason: "test" });

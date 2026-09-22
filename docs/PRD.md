@@ -5976,6 +5976,33 @@ that does not trace to one of these is a process failure (see §12).
     list) the Variants panel has always had (P0-31) — no new write path, no new endpoint; only the
     layout is new.
 
+82. **`Test-PRD-P0-148-auto_generate_variations`** — The owner's own words, on discovering the earlier
+    P0-144 behavior was item-level only: "I expect the black dress to have these variations
+    auto-assigned because I assigned the sets to its parent category." Asked directly and confirmed:
+    `catalog.apply_category_item_options_to_products` now ALSO generates the real missing Size/Color
+    (etc.) variations, not just the item-level flag. `itemOptionValueNames`/`optionCombinations`
+    (`catalog-writer.js`) build the full cross product of every value currently on file for the
+    category's own assigned Option Sets; `variantsWithOptions` reads each product's own CURRENT
+    variations (via the same `mirror_variant.options` blob P0-147 reads); `comboSignature` compares
+    the two, key-order-independent, to find what is genuinely missing. A missing combination becomes a
+    brand-new variation — title joined from its own values, price copied from the product's own first
+    variation, stock starting at 0 (a real count still needs an actual inventory count, via
+    `inventory.adjust`) — never an existing one touched, edited, or removed. Capped by the existing
+    `CAPS.CATALOG_MAX_VARIATIONS`: a product that would need more variations than the cap allows is
+    reported as a per-product error (`catalog-writer.js`'s own established "one product's failure does
+    not fail the batch" shape, `resortProductsByStyleId`/P0-144's own), never silently truncated.
+
+    `mergeVariations` (shared by `catalog.create_product`/`catalog.update_product`'s own preflight and
+    write) now carries `option_values` through on BOTH sides of a merge — an EXISTING variation's own
+    already-mirrored `options` (renamed to the same field name), and a newly ADDED one's own patch
+    data — so `updateProduct`'s own resolution loop (mirroring `createProduct`'s own, via
+    `ensureItemOptionValue`) can resend every kept variation's own `item_option_values` whole. This
+    closes a latent instance of this codebase's own "resend the whole thing or it vanishes" rule
+    (Square's `UpsertCatalogObject` replaces a variation's own data wholesale, same as item_options/
+    vendor_information one level up) that no prior call had ever actually exercised: nothing called
+    `catalog.update_product` on a product with real `item_option_values` until this feature made it
+    possible, so an unrelated edit could have silently wiped them.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
@@ -6272,6 +6299,7 @@ Where each feature is enforced today:
 | P0-145 | `ops/test/catalog-write.test.mjs` |
 | P0-146 | `ops/test/catalog-write.test.mjs` |
 | P0-147 | `ops/test/items-route.test.mjs` |
+| P0-148 | `ops/test/catalog-write.test.mjs` |
 | P0-56, P0-57 | `store/test/site.test.mjs`, plus the drawer half of `store/test/storefront.test.mjs` |
 | P0-58, and the contact-form half of P0-26/P0-37 | `store/test/contact.test.mjs`, over a stubbed Square client — no Square account, token or network call is involved |
 | P0-50, P0-51, P0-52, P0-53 | `ops/test/authz.test.mjs` for the fail-closed and cache behaviour; a structural check over both `wrangler.toml` files and all Worker source for the binding and API-token bans |
