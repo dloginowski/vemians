@@ -70,6 +70,12 @@ jobs:
           npx wrangler d1 execute vemians-catalog-mirror --remote --yes \
             --command "SELECT handle, substr(title,1,50) AS title, archived_at IS NULL AS live FROM mirror_product ORDER BY handle LIMIT 20"
 
+      - name: DEBUG why the storefront still serves the seed -- status/channel per product
+        working-directory: ops
+        run: |
+          npx wrangler d1 execute vemians-catalog-mirror --remote --yes \
+            --command "SELECT handle, status, channel, archived_at IS NULL AS not_archived FROM mirror_product ORDER BY handle"
+
       - name: DEBUG contact-form intake -- any tickets from vemians.com/visit yet
         working-directory: ops
         run: |
