@@ -84,7 +84,27 @@ function fakeSquareInventory(seed = CATALOG_SEED, { failRetrieve = false } = {})
     calls.push(record);
 
     if (p === "/v2/catalog/list") return jsonRes({ objects: [...objects.values()] });
+    if (p === "/v2/catalog/search") return jsonRes({ objects: [...objects.values()], related_objects: [] });
     if (p === "/v2/vendors/search") return jsonRes({ vendors: [] });
+
+    /* A minimal UpsertCatalogObject — just enough for ensureVariantSku's own
+       write (catalog-writer.js) to actually land somewhere: this fake never
+       creates a brand-new item through this endpoint, only ever resends an
+       EXISTING one (updateProduct's own "resend the whole thing" shape)
+       with one variation's sku newly filled in. */
+    if (p === "/v2/catalog/object") {
+      const body = JSON.parse(init.body);
+      record.body = body;
+      const obj = structuredClone(body.object);
+      record.upsert = obj.type;
+      obj.version = Number(obj.version ?? 0) + 1;
+      for (const v of obj.item_data?.variations ?? []) {
+        v.version = Number(v.version ?? 0) + 1;
+        v.item_variation_data.item_id = obj.id;
+      }
+      objects.set(obj.id, obj);
+      return jsonRes({ catalog_object: obj });
+    }
 
     if (p === "/v2/inventory/changes/batch-create") {
       const body = JSON.parse(init.body);
@@ -115,6 +135,7 @@ function fakeSquareInventory(seed = CATALOG_SEED, { failRetrieve = false } = {})
   };
 
   impl.calls = calls;
+  impl.objects = objects;
   return impl;
 }
 
@@ -264,6 +285,58 @@ check("test_PRD_P0_31_inventory_ledger__a_failed_immediate_resync_does_not_refus
   assert.equal(res.ok, true, res.error);
   assert.equal(res.data.on_hand, 5, "the optimistic, just-pushed count, not a stale local read");
   assert.equal(res.data.synced, false, "honest about the immediate resync having failed");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-31 (REVISED) — "When I add item to inventory, can't you auto generate
+ * it if missing" — the owner's own words. A variation with no SKU yet used
+ * to refuse outright ("has no SKU yet... nothing to adjust"); the actual
+ * moment stock is first moved on it is exactly when a real SKU is finally
+ * needed, so run() mints one (t.square.ensureVariantSku, catalog-writer.js)
+ * instead of refusing.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+/* Clears an already-mirrored variation's own SKU straight in the fake
+   Square server, then re-syncs — the same shape a genuinely never-given-a-
+   SKU variation (a brand-new missing-combo generated before this session's
+   own SKU auto-generation existed, say) would already be in the mirror. */
+async function clearSku(f, externalRef) {
+  const item = f.square.objects.get("ITEM_COAT");
+  const v = item.item_data.variations.find((v) => v.id === externalRef);
+  delete v.item_variation_data.sku;
+  await f.ctx.square.adapter.pullCatalog({ full: true });
+  return f.mirrorDb._raw.prepare("SELECT id, external_ref, sku FROM mirror_variant WHERE external_ref = ?").get(externalRef);
+}
+
+check("test_PRD_P0_31_inventory_ledger__a_variation_with_no_sku_is_no_longer_refused_it_is_generated", async () => {
+  const f = await fixture();
+  const skuless = await clearSku(f, "VAR_COAT_IT40");
+  assert.equal(skuless.sku, null, "sanity: this variation genuinely has no sku yet");
+
+  const gate = await runTool("inventory.adjust", { variant_id: skuless.id, delta: 5 }, f.ctx);
+  assert.equal(gate.needsApproval, true, "no SKU is no longer a reason to deny outright");
+  assert.match(gate.data.would, /no SKU yet.*generated automatically/);
+
+  const res = await runTool("inventory.adjust", { variant_id: skuless.id, delta: 5 }, { ...f.ctx, approvalToken: gate.data.approval.token });
+  assert.equal(res.ok, true, res.error);
+  assert.match(res.data.sku, /^\d{12}$/, "this coat has no style_id in the seed, so the opaque numeric fallback applies");
+  assert.equal(res.data.on_hand, 5, "starts from 0, the same as any first-ever count");
+
+  const mirrored = f.mirrorDb._raw.prepare("SELECT sku FROM mirror_variant WHERE external_ref = 'VAR_COAT_IT40'").get();
+  assert.equal(mirrored.sku, res.data.sku, "the mirror itself reflects the newly minted sku after the write");
+});
+
+check("test_PRD_P0_31_inventory_ledger__a_variation_that_already_has_a_sku_is_never_touched", async () => {
+  const f = await fixture();
+  const before = f.calls().length;
+  const res = await approvedCall(f, "inventory.adjust", { variant_id: f.variant.id, delta: 3 });
+  assert.equal(res.ok, true, res.error);
+  assert.equal(res.data.sku, "VEM-COAT-40", "an already-real sku must ride through unchanged, never regenerated");
+  assert.ok(
+    !f.calls().some((c) => c.path === "/v2/catalog/object"),
+    "a variation that already has a sku must never trigger a catalog write at all",
+  );
+  assert.ok(f.calls().length > before, "sanity: the adjustment itself still made real calls");
 });
 
 check("test_PRD_P0_30_prd_traceability__every_label_used_in_this_file_exists_in_the_prd", () => {
