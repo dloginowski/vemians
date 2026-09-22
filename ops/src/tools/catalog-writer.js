@@ -441,10 +441,18 @@ export function mergeVariations(current, patch) {
   const added = [];
   for (const p of patch ?? []) {
     if (!p.variant_id) {
+      /* A stable per-product seed (an existing sibling variation's own
+         external_ref, when this product already has one) plus this
+         variation's own title/option_values — so a genuine retry of the
+         exact same patch (missing-combo generation re-run before the
+         mirror has synced, say) regenerates the identical code rather than
+         minting a second one, and two different new variations on the
+         same product never collide with each other. */
+      const skuSeed = `${current?.[0]?.external_ref ?? current?.[0]?.id ?? ""}|${p.title}|${JSON.stringify(p.option_values ?? {})}`;
       added.push({
         id: null,
         title: p.title,
-        sku: p.sku ?? null,
+        sku: p.sku ?? generateSku(skuSeed),
         price_minor: p.price_minor,
         currency: p.currency,
         /* A brand-new row added through this same patch has no existing
@@ -521,6 +529,45 @@ export async function priceBand(db, categoryId) {
 
 function tempId(prefix, n) {
   return `#${prefix}-${n}`;
+}
+
+/* A small, fast, purely synchronous hash (FNV-1a) — not crypto.randomUUID():
+   generateSku()'s own output rides inside mergeVariations'/createProduct's
+   own content, which Square's own idempotency_key is hashed from (this file
+   already got burned once by "same key, different body" —
+   IDEMPOTENCY_KEY_REUSED, updateProduct's own comment below). A genuinely
+   random sku would make an identical retry of the same write hash to a
+   DIFFERENT key every time, the same class of bug. Deterministic instead:
+   the same seed always produces the same code, so a retry regenerates
+   byte-for-byte identical content, never a second, duplicate object in
+   Square. */
+function fnv1aHash(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h = Math.imul(h ^ str.charCodeAt(i), 0x01000193);
+  }
+  return h >>> 0;
+}
+
+/* "SKU should be auto generated when adding variants or options — Square
+   does that" — the owner's own words. Verified live it does NOT, for a
+   variation created through the Catalog API this file calls: every one of
+   the missing Size/Color combinations this file itself auto-generated for
+   the Black Dress (catalog.apply_category_item_options_to_products, below)
+   came back from Square with no SKU at all. "Automatically generate SKUs"
+   is real, but a Dashboard/POS-side feature — it never fires for an object
+   this file creates through UpsertCatalogObject. A plain 12-digit numeric
+   code, the same shape a UPC-A barcode label already takes, so it prints
+   and scans in Square exactly like a real one would; it is simply never
+   registered outside this shop's own account, same as any other home-grown
+   SKU. `seed` should be whatever already distinguishes this variation from
+   every other one reached by the SAME write (a stable product identifier
+   plus the variation's own title/option_values), so two different variations
+   never collide and the same variation never gets a second code on retry. */
+function generateSku(seed) {
+  const a = fnv1aHash(seed);
+  const b = fnv1aHash(`${seed}#2`);
+  return `${a}${b}`.slice(0, 12).padStart(12, "0");
 }
 
 /* Square answers an upsert with id_mappings from our `#temp` ids to real ones. */
@@ -1278,6 +1325,15 @@ export function createSquareCatalogWriter(env, opts = {}) {
         unitCostMinor,
         unitCostCurrency,
       });
+      /* Every brand-new variation gets a real SKU, never left blank —
+         generateSku()'s own comment. Seeded on this ITEM's own title (no
+         external_ref exists yet for a product that does not exist yet)
+         plus each variation's own title/option_values, so two variations
+         on the same new item never collide with each other. */
+      const resolvedVariations = variations.map((v) => ({
+        ...v,
+        sku: v.sku ?? generateSku(`${title}|${v.title}|${JSON.stringify(v.option_values ?? {})}`),
+      }));
       /* A variation naming a Size/Color (etc.) it wants is resolved to
          Square's own refs here, minting whichever half (the option
          itself, or just a new value on an option that already exists) is
@@ -1286,7 +1342,7 @@ export function createSquareCatalogWriter(env, opts = {}) {
          SAME brand-new value would otherwise race to create it twice. */
       const variationOptionValueRefs = [];
       const itemOptionRefSet = new Set();
-      for (const v of variations) {
+      for (const v of resolvedVariations) {
         const pairs = [];
         for (const [optionName, valueName] of Object.entries(v.option_values ?? {})) {
           const { itemOptionRef, itemOptionValueRef } = await ensureItemOptionValue(optionName, valueName);
@@ -1305,14 +1361,14 @@ export function createSquareCatalogWriter(env, opts = {}) {
             title,
             description,
             catRef: cat?.external_ref ?? null,
-            variations,
+            variations: resolvedVariations,
             itemRef,
             imageIds,
             customAttributeValues: customAttributeValues({ styleId, commissionPct }),
             /* A brand-new product has no per-variation history yet — every
                variation starts with the SAME vendor/cost, the one given at
                creation time; they only diverge later, through updateProduct. */
-            vendorInfos: variations.map(() => vendorInfo),
+            vendorInfos: resolvedVariations.map(() => vendorInfo),
             /* The item itself must declare every Option Set any of its own
                variations actually uses (Square's own requirement — a
                variation's item_option_values means nothing without it),
@@ -1436,8 +1492,11 @@ export function createSquareCatalogWriter(env, opts = {}) {
          same "resend the whole thing, not just the diff" reasoning `keep`
          above already exists for. Neither is EVER generated here: style_id
          is validated and conflict-checked one layer up, in
-         catalog-write.js's own tool, and a variation's own `sku` a few
-         lines above is Square's, read back verbatim, never invented here. */
+         catalog-write.js's own tool, and an EXISTING variation's own `sku`
+         a few lines above (mergeVariations' own UPDATE branch) is Square's,
+         read back verbatim, never invented here — only a BRAND-NEW
+         variation with none given gets one minted, inside mergeVariations
+         itself (generateSku's own comment, above). */
       const resolvedStyleId = styleId !== undefined ? styleId : row.style_id;
       const resolvedCommissionPct = commissionPct !== undefined ? commissionPct : row.commission_pct;
 

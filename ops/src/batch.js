@@ -97,8 +97,15 @@ const SKU_KEYS = ["sku", "style number", "item number", "product code"];
    nothing repeated here at all; catalog.create_product's own check()
    copies that rate onto the row's own product automatically. Deliberately
    NOT "style number"/"item number" (SKU_KEYS above): those already mean
-   the SKU, a wholly different, Square-assigned identifier this codebase
-   never invents (see catalog-write.js's own STYLE_ID_FORMAT comment). */
+   the SKU, a wholly different identifier from this shop's own style_id
+   (see catalog-write.js's own STYLE_ID_FORMAT comment). A row that gives
+   one here is always kept verbatim, real stock's own real SKU; a row that
+   does not is no longer left blank either — catalog-writer.js's own
+   generateSku() mints one, the same as any other variation created with
+   none (REVISED: "SKU should be auto generated when adding variants or
+   options — Square does that," the owner's own words, on discovering
+   Square only does this for a Dashboard/POS-created item, never one this
+   codebase creates through the Catalog API). */
 const STYLE_ID_KEYS = ["style id", "style_id"];
 const VENDOR_KEYS = ["vendor", "vendor name", "supplier"];
 /* The vendor's OWN SKU/product code for this item — "an invoice-like
