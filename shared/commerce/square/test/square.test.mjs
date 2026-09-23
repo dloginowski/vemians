@@ -427,6 +427,20 @@ check("test_PRD_P0_16_commerce_port__the_pinned_api_version_and_bearer_token_go_
   assert.throws(() => createSquareClient({ SQUARE_ENV: "sandbox" }, { fetchImpl: f }), SquareError);
 });
 
+check("test_PRD_P0_16_commerce_port__a_pasted_token_with_stray_whitespace_is_trimmed_not_sent_verbatim", async () => {
+  /* A real incident: SQUARE_ACCESS_TOKEN_CONTACT was rotated to a genuine
+     production token and every submission still got a flat 401 from Square
+     — AUTHENTICATION_ERROR, the exact response an embedded newline or space
+     from a copy-paste produces, since Square cannot "loosely match" a
+     credential. Nothing upstream of this file strips that whitespace, and a
+     Worker secret set via `wrangler secret put` carries whatever was pasted
+     into its prompt byte for byte. */
+  const f = fakeFetch({ "/v2/catalog/list": { objects: [] } });
+  const client = createSquareClient(squareEnv({ SQUARE_ACCESS_TOKEN: "  fixture-token\n" }), { fetchImpl: f });
+  await client.get("/v2/catalog/list");
+  assert.equal(f.calls[0].headers.Authorization, "Bearer fixture-token", "no leading/trailing whitespace reaches Square");
+});
+
 check("test_PRD_P0_39_provider_rate_limits__a_rate_limited_request_backs_off_and_then_succeeds", async () => {
   const waits = [];
   let n = 0;
