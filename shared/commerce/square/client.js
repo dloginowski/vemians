@@ -124,7 +124,16 @@ export function createSquareClient(env, opts = {}) {
     maxAttempts = DEFAULT_MAX_ATTEMPTS,
   } = opts;
 
-  const token = env?.SQUARE_ACCESS_TOKEN;
+  /* Trimmed once, here, rather than trusted verbatim: `wrangler secret put`
+     reads exactly what is pasted into its prompt, and a token copied from a
+     dashboard or a password manager routinely carries an invisible leading
+     or trailing space or newline along with it. A token with one embedded is
+     not a near-miss Square can match loosely — it is simply a different,
+     invalid string, and Square answers with the same 401 AUTHENTICATION_ERROR
+     a genuinely wrong token gets, which points straight at the credential and
+     nowhere near the actual, invisible cause. */
+  const rawToken = env?.SQUARE_ACCESS_TOKEN;
+  const token = typeof rawToken === "string" ? rawToken.trim() : rawToken;
   if (!token) {
     /* A startup failure, per RULES.md §14: refuse here rather than fail
        per-request further in with a 401 nobody traces back to a missing var. */
