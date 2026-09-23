@@ -66,8 +66,17 @@ export async function handleContact(request, env, { categories, subs }) {
   /* The honeypot. An empty field a person never sees and a robot fills in.
      Answered with the SAME success page a real sender gets — telling a robot
      it was caught is telling whoever wrote it what to change — but nothing is
-     sent to Square: a caught submission is not a customer. */
-  if (field(form, "company", 100)) {
+     sent to Square: a caught submission is not a customer.
+
+     REVISED: the field used to be named "company" — a real, live submission
+     from a phone still got the identical "Thank you" page, and no customer
+     record ever showed up in Square. Mobile autofill (a saved Contacts
+     "Company" entry, in this case) fills a field by its NAME, not by whether
+     it is visible — `.trap`'s own off-canvas hiding (interaction.css) moves
+     it out of the viewport, it does not stop autofill from finding it. A
+     genuine sender was silently caught by their own browser. `vm_hp` matches
+     no autofill dictionary a browser or password manager actually ships. */
+  if (field(form, "vm_hp", 100)) {
     console.info("INFO store/contact: honeypot filled — discarded, nothing sent to Square");
     return html(contactResultPage(categories, subs, true, "Thank you. We will be in touch."));
   }

@@ -536,6 +536,31 @@ that does not trace to one of these is a process failure (see §12).
     Square, and the token itself never appears in a log line, matching the rule `client.js` already
     holds for every other Square credential in this codebase.
 
+    **REVISED, a real live incident:** a genuine submission sent from a phone got the identical
+    "Thank you" page a real send gets, and no customer record ever showed up in Square. The
+    honeypot field was named `company` — mobile autofill (a saved Contacts "Company" entry) fills a
+    field by its NAME, not by whether `.trap`'s own off-canvas CSS (`interaction.css`, `position:
+    absolute; left: -9999px`) makes it invisible to a sighted person. A real sender was silently
+    caught by their own browser's own autofill, with no way to tell the two cases apart from the
+    response alone — that ambiguity is the whole design ("Answered with the SAME success page a real
+    sender gets," this feature's own comment), which is exactly what made this incident invisible
+    until a customer noticed their own message never arrived. Renamed to `vm_hp` — a token that
+    matches no autofill dictionary a browser or password manager actually ships — rather than
+    switching hiding techniques, since `display:none`/`visibility:hidden` would then risk a screen
+    reader or a real bot alike skipping it, defeating the trap from the other direction.
+
+    **REVISED AGAIN, in the same incident:** the "did not send" page's own `detail` used to be a
+    fixed sentence, with the real reason (a Square-side failure like `401 AUTHENTICATION_ERROR`)
+    logged only via `console.error` — and this Worker's own logs are not retained anywhere, so
+    diagnosing an actual Square failure needed a live `wrangler tail` session timed to an actual
+    submission, repeatedly, with no durable record if the timing missed. `describeErrors`
+    (`client.js`) already formats Square's own category/code pair with the same guarantee the access
+    token itself carries — it never appears in a log line or a thrown object — so it is exported and
+    shown on the failure page directly now, not only logged: `"That did not send (401
+    AUTHENTICATION_ERROR/UNAUTHORIZED: ...). Please call ... or email ..."`. A visitor whose
+    submission fails for a real reason can now say exactly what the page told them, rather than only
+    "it didn't work."
+
 ### 3.9 Provider independence and traceability
 
 29. **`Test-PRD-P0-29-exit_test`** — Provider independence is a **CI check** (§7), not a claim.

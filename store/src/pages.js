@@ -138,10 +138,17 @@ const hoursTable = () =>
  * fast is. Phone is the one optional field — plenty of people write in who
  * would rather not be called.
  *
- * The honeypot (`company`) is a field a person never sees and a robot fills
+ * The honeypot (`vm_hp`) is a field a person never sees and a robot fills
  * in; hidden with `.trap` off-canvas rather than `display:none`, because a
  * screen reader and most bots both skip a field that is actually hidden from
  * assistive tech, which would defeat the point.
+ *
+ * REVISED: named `company` originally — mobile autofill (a saved Contacts
+ * "Company" entry) fills a field by NAME, not by whether it is visible, so a
+ * genuine phone sender got silently caught by their own browser's own
+ * autofill and saw the identical "Thank you" page a real send gets, with
+ * nothing ever reaching Square. `vm_hp` matches no autofill dictionary a
+ * browser or password manager actually ships.
  */
 function contactForm() {
   return `    <form class="contact" method="post" action="/contact">
@@ -157,7 +164,7 @@ function contactForm() {
       <label for="c-message">Message</label>
       <textarea id="c-message" name="message" rows="5" required></textarea>
 
-      <p class="trap" aria-hidden="true"><label>Leave this empty<input name="company" tabindex="-1" autocomplete="off"></label></p>
+      <p class="trap" aria-hidden="true"><label>Leave this empty<input name="vm_hp" tabindex="-1" autocomplete="off"></label></p>
 
       <button class="btn" type="submit">Send</button>
     </form>`;
