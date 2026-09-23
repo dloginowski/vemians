@@ -92,8 +92,14 @@ export function backoffMs(attempt, retryAfterHeader, random = Math.random) {
  * The token never appears in a log line, an error message or a thrown object.
  * `safeArguments` in ops/src/tools/audit.js redacts on the way into the audit
  * store; this is the same rule one layer lower, where the secret actually is.
+ * Exported for the same reason a caller might want it shown, not just logged
+ * — Square's own category/code pair ("AUTHENTICATION_ERROR/UNAUTHORIZED")
+ * carries none of that risk, so a caller with a genuine reason to surface it
+ * further (store/src/contact.js's own "did not send" page, so a failure is
+ * actually diagnosable instead of a dead end) can reuse the identical,
+ * already-audited formatting rather than inventing a second one.
  */
-function describeErrors(errors) {
+export function describeErrors(errors) {
   if (!Array.isArray(errors) || errors.length === 0) return "no error detail";
   return errors
     .map((e) => `${e.category ?? "?"}/${e.code ?? "?"}${e.detail ? `: ${e.detail}` : ""}`)

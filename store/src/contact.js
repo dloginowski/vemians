@@ -24,7 +24,7 @@
  * not arrive.
  */
 import { SITE } from "../../shared/site.js";
-import { createSquareClient, SquareError } from "../../shared/commerce/square/client.js";
+import { createSquareClient, SquareError, describeErrors } from "../../shared/commerce/square/client.js";
 import { createContactCustomer } from "../../shared/commerce/square/customers.js";
 import { contactResultPage } from "./pages.js";
 
@@ -102,9 +102,25 @@ export async function handleContact(request, env, { categories, subs }) {
   try {
     await createContactCustomer(client, { name, email, phone, message });
   } catch (err) {
-    const detail = err instanceof SquareError ? `${err.status} — ${err.message}` : err.message;
+    /* Square's own category/code pair ("AUTHENTICATION_ERROR/UNAUTHORIZED")
+       carries none of the token and none of this person's own submission —
+       describeErrors (client.js) is the same formatter that already goes into
+       the server log, exported for exactly this reason. Shown here rather
+       than only logged: a "did not send" page that names nothing real is a
+       dead end for anyone actually trying to fix it, this shop's own owner
+       included — the live incident this codebase almost shipped blind
+       (SQUARE_ACCESS_TOKEN_CONTACT rejected with a flat 401, nothing durable
+       anywhere to say so) is the reason this line exists at all. A transport
+       failure (Square unreachable — DNS, TLS, no error array at all) still
+       reads fine from err.message alone. */
+    const detail =
+      err instanceof SquareError
+        ? err.errors?.length
+          ? `${err.status} ${describeErrors(err.errors)}`
+          : err.message
+        : err.message;
     console.error(`ERROR store/contact: Square refused the submission — ${detail}`);
-    return fail(`That did not send. ${fallback()}`, 502);
+    return fail(`That did not send (${detail}). ${fallback()}`, 502);
   }
 
   return html(contactResultPage(categories, subs, true, "Thank you. We will be in touch."));
