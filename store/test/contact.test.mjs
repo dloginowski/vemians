@@ -205,6 +205,16 @@ check("test_PRD_P0_58_square_contact_form__a_square_failure_is_answered_honestly
     assert.equal(status, 502);
     assert.doesNotMatch(html, /Thank you/i, "a failed send must never read as a success");
     assert.match(html, /did not send/i);
+    /* REVISED: a live incident (SQUARE_ACCESS_TOKEN_CONTACT rejected with a
+       flat 401, nothing durable anywhere to say so) sat unexplained for a
+       stretch this codebase's own logs could not shorten — the Worker's own
+       console.error is not retained anywhere outside a live tail session.
+       Square's own category/code pair carries no token and no submitted
+       data (describeErrors, client.js), so it is shown on the page itself
+       now, not only logged — a "did not send" that names nothing real is a
+       dead end for anyone actually trying to fix it. */
+    assert.match(html, /AUTHENTICATION_ERROR/, "the real Square error must reach the page, not just the server log");
+    assert.match(html, /401/);
     /* The honest failure still hands over a way to actually be reached. */
     assert.ok(html.includes(SITE.phone) || html.includes(SITE.email), "a fallback contact method must be offered");
   } finally {
@@ -231,7 +241,7 @@ check("test_PRD_P0_58_square_contact_form__a_get_reads_as_not_found_not_as_a_hin
   assert.equal(res.status, 404, "a GET must not confirm a form lives at this address with a 405");
 });
 
-check("test_PRD_P0_58_square_contact_form__the_token_never_appears_in_a_log_line", async () => {
+check("test_PRD_P0_58_square_contact_form__the_token_never_appears_in_a_log_line_or_on_the_page", async () => {
   const f = fakeFetch({
     "/v2/customers": { status: 401, body: { errors: [{ category: "AUTHENTICATION_ERROR", code: "UNAUTHORIZED" }] } },
   });
@@ -241,7 +251,7 @@ check("test_PRD_P0_58_square_contact_form__the_token_never_appears_in_a_log_line
   console.error = (...args) => lines.push(args.join(" "));
   globalThis.fetch = f;
   try {
-    await worker.fetch(
+    const res = await worker.fetch(
       new Request("https://vemians.com/contact", {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -250,6 +260,11 @@ check("test_PRD_P0_58_square_contact_form__the_token_never_appears_in_a_log_line
       ENV,
     );
     for (const line of lines) assert.doesNotMatch(line, new RegExp(ENV.SQUARE_ACCESS_TOKEN_CONTACT));
+    /* Now that the real Square error reaches the page too (the check above
+       this one), the same guarantee has to hold there as well — showing a
+       diagnosable failure must never mean showing the credential itself. */
+    const html = await res.text();
+    assert.doesNotMatch(html, new RegExp(ENV.SQUARE_ACCESS_TOKEN_CONTACT));
   } finally {
     globalThis.fetch = realFetch;
     console.error = realError;
