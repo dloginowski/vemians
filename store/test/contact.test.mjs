@@ -183,12 +183,35 @@ check("test_PRD_P0_58_square_contact_form__the_honeypot_is_answered_but_never_se
   const realFetch = globalThis.fetch;
   globalThis.fetch = f;
   try {
-    const { status, html } = await postContact({ ...VALID, company: "I am a robot" });
+    const { status, html } = await postContact({ ...VALID, vm_hp: "I am a robot" });
     /* Answered exactly like a real success — telling a robot it was caught is
        telling whoever wrote it what to change. */
     assert.equal(status, 200);
     assert.match(html, /Thank you/i);
     assert.equal(f.calls.length, 0, "a caught submission must never reach Square");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_58_square_contact_form__a_field_named_company_is_a_real_field_not_the_trap", async () => {
+  /* REVISED: the honeypot used to be named "company" — a real, live
+     submission FROM A PHONE got the identical "Thank you" page a genuine
+     send gets, and no customer ever showed up in Square. Mobile autofill (a
+     saved Contacts "Company" entry) fills a field by its NAME, not by
+     whether `.trap`'s own off-canvas CSS makes it invisible — a real sender
+     was silently caught by their own browser's own autofill. The honeypot
+     is `vm_hp` now; a "company" value reaching this route at all proves it
+     is being read as ordinary form data (falling through to custom text,
+     same as any other unrecognized field), never mistaken for the trap. */
+  const f = fakeFetch({ "/v2/customers": { customer: { id: "CUST_5" } } });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f;
+  try {
+    const { status, html } = await postContact({ ...VALID, company: "Autofilled by a phone" });
+    assert.equal(status, 200);
+    assert.match(html, /Thank you/i);
+    assert.equal(f.calls.length, 1, "a real send with an incidental 'company' value must still reach Square");
   } finally {
     globalThis.fetch = realFetch;
   }
