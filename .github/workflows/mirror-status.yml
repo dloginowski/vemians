@@ -134,6 +134,28 @@ jobs:
               | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps([s.get("name") for s in d["result"]] if d.get("success") else d.get("errors"), indent=2))'
           done
 
+      # SCRATCH DEBUG — throwaway. Does the secrets LIST endpoint carry any
+      # timestamp at all, on the exact worker/name that matters? Full raw
+      # objects, still no value anywhere in the response — Cloudflare's own
+      # API for this endpoint does not return one, full stop.
+      - name: DEBUG full secret metadata for vemians-storefront (still no values)
+        if: always()
+        run: |
+          curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/vemians-storefront/secrets" \
+            | python3 -m json.tool
+
+      # SCRATCH DEBUG — throwaway. vemians-storefront's OWN deployed vars —
+      # never actually checked before now, only vemians-ops's. Same
+      # worker-env.py this file already trusts for ops.
+      - name: DEBUG vemians-storefront's own deployed SQUARE_ENV
+        if: always()
+        run: |
+          curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/vemians-storefront/settings" \
+            > /tmp/storefront-settings.json
+          python3 .github/scripts/worker-env.py /tmp/storefront-settings.json
+
       # SCRATCH DEBUG — throwaway, never merged to main. Live-tails
       # vemians-storefront so a real contact-form submission's own
       # console.error("ERROR store/contact: ...") reaches somewhere
