@@ -317,6 +317,26 @@ labeled("test_PRD_P0_56_shop_with_a_door__no_footer_link_goes_nowhere", async ()
   }
 });
 
+labeled("test_PRD_P0_56_shop_with_a_door__the_drawer_names_contact_us_above_visit_the_store", async () => {
+  /* The owner's own words: "it's not clear that that's where you contact us
+     from" — the drawer used to send someone looking for a way to write in
+     straight to "Visit the store," which says nothing about a form living
+     there. "Contact us" now names the destination directly, above "Visit
+     the store" itself, and opens the SAME page scrolled to the section that
+     actually has the form — the identical anchor-to-a-section pattern
+     "Join our list" (#join) already uses, not a page of its own. */
+  const { html } = await get("/");
+  const nav = html.slice(html.indexOf('<nav class="menu"'), html.indexOf("</nav>"));
+  const contactAt = nav.indexOf('href="/visit#contact"');
+  const visitAt = nav.indexOf('href="/visit"');
+  assert.ok(contactAt !== -1, "the drawer must link to /visit#contact");
+  assert.ok(contactAt < visitAt, "'Contact us' must appear above 'Visit the store'");
+
+  const { status, html: visitHtml } = await get("/visit");
+  assert.equal(status, 200, "/visit#contact's own page must actually answer");
+  assert.match(visitHtml, /id="contact"/, "the anchor must land on a real section, not nowhere");
+});
+
 /* ═══════════════════════════════════════════════════════════════════════════
    Test-PRD-P0-57-two_level_navigation
    ═══════════════════════════════════════════════════════════════════════════ */

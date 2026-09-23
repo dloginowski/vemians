@@ -504,6 +504,15 @@ that does not trace to one of these is a process failure (see §12).
     page carries the phone number and the email, both of which work. Anything not yet real — the
     address, the booking widget or link — is marked as a placeholder in the source rather than presented as
     fact. The sign-up link is not a placeholder: it is the real, owner-supplied URL.
+
+    **REVISED — a working form nobody can find is still a door nobody knows is there.** The
+    owner's own words, once the contact form itself actually worked: "it's not clear that that's
+    where you contact us from." The drawer's own static list (`shell.js`'s own `menu-rest`) sent
+    someone looking for a way to write in straight to "Visit the store," which names a place, not a
+    way to reach anyone. "Contact us" now names the destination directly, placed ABOVE "Visit the
+    store" itself — the owner's own explicit ordering — and opens the SAME `/visit` page scrolled to
+    its own `#contact` section, the identical anchor-to-a-section pattern "Join our list" (`#join`)
+    already uses on the same list, never a page of its own.
 42. **`Test-PRD-P0-57-two_level_navigation`** — The menu is a **drawer**: it slides in from the
     inline start over a scrim, and a category with sub-categories opens a second pane that arrives
     from the inline end with a back control at its head. **Both levels are derived from the serving
