@@ -80,21 +80,117 @@ ${tiles}
 
 /* ────────────────────────────────────────────────── one product's page ─── */
 
+const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+/*
+ * The facets a product's own variants can be picked by (Test-PRD-P0-151-
+ * product_variant_picker). Named options (Size, Color — catalog-writer.js's
+ * own `options` column) when at least one variant actually carries them;
+ * otherwise a variant's own bare TITLE is the only thing that tells two
+ * apart — a coat with "IT 38"/"IT 42" and no formal Size option set is real
+ * stock this page still has to let someone see. A single variant is not a
+ * choice, so no facet is built at all when there is nothing to pick between
+ * — a control that cannot do anything must not be on the page (the same
+ * rule shell.js's own drawer trigger already follows).
+ */
+function variantFacets(variants) {
+  if (!variants || variants.length < 2) return [];
+  const names = [...new Set(variants.flatMap((v) => Object.keys(v.options || {})))];
+  if (names.length) {
+    return names.map((name) => ({
+      name,
+      values: [...new Set(variants.map((v) => v.options[name]).filter(Boolean))],
+    }));
+  }
+  return [{ name: "Option", values: [...new Set(variants.map((v) => v.title))] }];
+}
+
+/*
+ * The variant a request's own selection resolves to. `selected` is whatever
+ * the query string named per facet (index.js's own `?Size=...&Color=...`,
+ * read straight off the URL with no facet names known in advance) — an
+ * exact match across every named facet wins; a stale or partial selection
+ * (a size this product no longer carries, a combination it never had) falls
+ * back to the first variant rather than rendering nothing, the same "never
+ * show a hole" rule the catalog grid's own bad-query handling already
+ * follows (query.js).
+ */
+function pickVariant(variants, facets, selected) {
+  if (!variants.length) return null;
+  if (!facets.length) return variants[0];
+  const match = variants.find((v) =>
+    facets.every((f) => {
+      const want = selected[f.name];
+      if (!want) return true;
+      return (f.name === "Option" ? v.title : v.options[f.name]) === want;
+    }),
+  );
+  return match || variants[0];
+}
+
+/* The picker itself — a plain GET form back to this same product, exactly
+   the idiom the catalog's own filter panel already uses (views.js's own
+   `filterPanel`): real radio inputs, a real submit, fully functional with
+   no script at all. Selecting a size and pressing Update reloads the page
+   with that choice in the URL and that variant's own price shown — no
+   client script exists or is needed for this to work. */
+function variantPicker(handle, facets, picked) {
+  if (!facets.length) return "";
+  const fieldsets = facets
+    .map((f) => {
+      const options = f.values
+        .map((v) => {
+          const id = `v-${slug(f.name)}-${slug(v)}`;
+          const have = f.name === "Option" ? picked.title : picked.options[f.name];
+          return `        <label for="${id}"><input type="radio" id="${id}" name="${esc(f.name)}" value="${esc(v)}"${have === v ? " checked" : ""}>${esc(v)}</label>`;
+        })
+        .join("\n");
+      return `      <fieldset>
+        <legend>${esc(f.name)}</legend>
+${options}
+      </fieldset>`;
+    })
+    .join("\n");
+
+  return `    <form class="variant-picker" method="get" action="/products/${esc(handle)}">
+${fieldsets}
+      <button class="btn" type="submit">Update</button>
+    </form>
+`;
+}
+
 /*
  * A product's own page, at /products/<handle> (Test-PRD-P0-72-product_detail_page).
  * `source` picks the footer note exactly as it does on the grid (P0-49) —
  * a page that opened through the seed fallback must say so as honestly as
- * the grid it was reached from.
+ * the grid it was reached from. `selected` is index.js's own raw query
+ * params for this request — every field on it, since a facet's own name is
+ * not known until `variantFacets` derives it from this product's variants.
  *
  * No "Add to bag": this Worker has no cart (see the note at the top of
  * store/src/index.js and the Non-goals in docs/PRD.md), and a button that
  * looked like checkout and did nothing would be a worse page than one that
- * points a visitor at the door instead.
+ * points a visitor at the door instead. The variant picker does not change
+ * that — Update only ever changes which variant's own price is shown here,
+ * never a purchase of anything.
+ *
+ * No live stock shown, on purpose, not yet an oversight: the actual
+ * quantity on hand lives in the `commerce` store's own inventory ledger
+ * (schema.sql's own comment on `mirror_inventory_change`), a database this
+ * public, unauthenticated Worker has never bound and does not bind here —
+ * ADR-002's own store-scoping holds. Worth revisiting once a real cart
+ * needs to refuse an out-of-stock size; today nothing on this page can be
+ * bought regardless, so an inaccurate stock claim would cost more than it
+ * would ever help.
  */
-export function productPage(categories, subsByCategory, product, source = "seed") {
+export function productPage(categories, subsByCategory, product, source = "seed", selected = {}) {
   const brand = product.brand || "";
   const description = product.description || "";
   const alt = brand ? `${esc(brand)} &mdash; ${esc(product.name)}` : esc(product.name);
+  const variants = product.variants || [];
+  const facets = variantFacets(variants);
+  const picked = pickVariant(variants, facets, selected);
+  const priced = picked || product;
 
   return shell(
     product.name,
@@ -104,8 +200,8 @@ export function productPage(categories, subsByCategory, product, source = "seed"
   </div>
   <section class="product-info"${reveal}>
 ${brand ? `    <p class="brand">${esc(brand)}</p>\n` : ""}    <h1>${esc(product.name)}</h1>
-    <p class="price">${esc(money(product.minor, product.currency))}</p>
-${description ? `    <p class="description">${esc(description)}</p>\n` : ""}    <p>There is no checkout here yet &mdash; <a href="/visit#contact">ask us about this piece</a>
+    <p class="price">${esc(money(priced.minor, priced.currency))}</p>
+${description ? `    <p class="description">${esc(description)}</p>\n` : ""}${variantPicker(product.handle, facets, picked)}    <p>There is no checkout here yet &mdash; <a href="/visit#contact">ask us about this piece</a>
        or come and see it in the shop.</p>
     <p><a href="/">&larr; Back to the shop</a></p>
   </section>

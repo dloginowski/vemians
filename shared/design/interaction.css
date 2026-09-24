@@ -627,6 +627,17 @@ button.heart::before { content: ""; position: absolute; inset: -8px; }
 .product-info h1 { font-size: var(--type); font-weight: 700; margin: 0; }
 .product-info .description { max-width: 34rem; padding-top: 12px; }
 
+/* The variant picker (Test-PRD-P0-151-product_variant_picker) — the exact
+   same fieldset/legend/radio treatment .panel already gives the filter form,
+   scoped to its own class rather than reusing .panel itself: `.js .panel`
+   (below) turns .panel into an off-canvas sliding dialog, which this inline,
+   always-visible picker must never become. */
+.variant-picker { padding-top: 16px; max-width: 34rem; }
+.variant-picker fieldset { border: 0; margin: 0 0 16px; padding: 0; }
+.variant-picker legend { font-size: var(--eyebrow); padding: 0 0 8px; }
+.variant-picker label { display: inline-block; padding: 5px 12px 5px 0; cursor: pointer; }
+.variant-picker input { margin-right: 6px; }
+
 /* Tiles — the four ways out of an empty bag. The image ground stands in for
    photography at the same 8:9 the cards use, so the page does not change shape
    when real pictures arrive. */

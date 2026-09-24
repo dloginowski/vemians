@@ -125,11 +125,18 @@ const { loadCatalog, loadProduct, toneFor } = await import("../src/catalog.js");
 
 const MIRROR_SQL = read("shared", "commerce", "square", "schema.sql");
 
-/* A mirror holding `items`, each { handle, title, category, minor, channel? }.
-   `channel` defaults to 'website' — the fixtures here are testing the grid's
-   mechanics, not the visibility feature, so a caller that does not mention
-   it should see exactly the pre-channel behaviour. Tests for the channel
-   filter itself pass it explicitly. */
+/* A mirror holding `items`, each { handle, title, category, minor, channel?,
+   variants? }. `channel` defaults to 'website' — the fixtures here are
+   testing the grid's mechanics, not the visibility feature, so a caller
+   that does not mention it should see exactly the pre-channel behaviour.
+   Tests for the channel filter itself pass it explicitly.
+
+   `variants`, when given, REPLACES the single-variant shorthand entirely —
+   an array of { title, minor, options? }, inserted in order (their own
+   ordinal) with `options` written as the same JSON text catalog-writer.js
+   writes ('{}' when omitted). Every existing caller passes plain `minor`
+   and gets exactly the one "One size" variant it always has; only the new
+   Test-PRD-P0-151-product_variant_picker checks need more than one. */
 function mirrorWith(items) {
   const db = d1FromSql(MIRROR_SQL);
   const cats = new Map();
@@ -147,6 +154,16 @@ function mirrorWith(items) {
         "INSERT INTO mirror_product (id, external_ref, handle, title, status, channel, category_id) VALUES (?, ?, ?, ?, 'active', ?, ?)",
       )
       .run(`prod-${i}`, `SQ_ITEM_${i}`, it.handle, it.title, it.channel ?? "website", it.category ? cats.get(it.category) : null);
+    if (it.variants) {
+      it.variants.forEach((v, j) => {
+        db._raw
+          .prepare(
+            "INSERT INTO mirror_variant (id, external_ref, product_id, sku, title, ordinal, price_minor, currency, options) VALUES (?, ?, ?, ?, ?, ?, ?, 'USD', ?)",
+          )
+          .run(`var-${i}-${j}`, `SQ_VAR_${i}_${j}`, `prod-${i}`, `SKU-${i}-${j}`, v.title, j, v.minor, JSON.stringify(v.options ?? {}));
+      });
+      return;
+    }
     if (it.minor === null) return;
     db._raw
       .prepare(
@@ -194,7 +211,10 @@ function render(search = "") {
 /* ── labels, for the P0-30 traceability check ───────────────────────────── */
 const usedLabels = new Set();
 function labeled(name, fn) {
-  const m = /^test_PRD_(P\d)_(\d\d)_([a-z0-9_]+)__/.exec(name);
+  /* (\d{2,3}), not (\d\d): the PRD's own P0 numbering has grown past 99
+     (Test-PRD-P0-151-product_variant_picker), the same widening the ops
+     suite's own equivalent pattern already needed. */
+  const m = /^test_PRD_(P\d)_(\d{2,3})_([a-z0-9_]+)__/.exec(name);
   assert.ok(m, `check name is not PRD-labeled: ${name}`);
   usedLabels.add(`Test-PRD-${m[1]}-${m[2]}-${m[3].replace(/_/g, "_")}`);
   return test(name, fn);
@@ -667,7 +687,7 @@ labeled("test_PRD_P0_28_image_contract__imagery_is_ours_and_addressable", () => 
 test("test_PRD_P0_30_prd_traceability__every_label_here_exists_in_the_prd", () => {
   const source = fs.readFileSync(fileURLToPath(import.meta.url), "utf8");
   const labels = new Set();
-  for (const m of source.matchAll(/\btest_PRD_(P\d)_(\d\d)_([a-z0-9_]+?)__/g)) {
+  for (const m of source.matchAll(/\btest_PRD_(P\d)_(\d{2,3})_([a-z0-9_]+?)__/g)) {
     labels.add(`Test-PRD-${m[1]}-${m[2]}-${m[3]}`);
   }
   assert.ok(labels.size >= 5, "expected this file to carry labeled checks");
@@ -1102,6 +1122,171 @@ labeled("test_PRD_P0_72_product_detail_page__the_grid_card_links_to_the_product_
     heartIdx < linkIdx || heartIdx > linkCloseIdx,
     "the wishlist heart must not be nested inside the product link, or tapping it would also navigate",
   );
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Test-PRD-P0-151-product_variant_picker
+
+   The owner's own words, once the storefront's contact form and nav actually
+   worked and there was room to ask about the shop itself: "get the variants
+   set up first [before the cart]." Before this, a product's own page showed
+   exactly one price and one photo, always the mirror's own first-ordinal
+   variation, no matter how many real sizes or colors that item actually had
+   in Square — there was nothing here for an edit to ever "update," which is
+   why the owner's own report read as a sync bug when it was a missing
+   feature.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+const COAT = {
+  handle: "wool-blend-coat",
+  brand: "",
+  name: "Wool-blend coat",
+  currency: "USD",
+  category: "Outerwear",
+  eyebrow: "",
+  tone: 0.1,
+  description: "",
+};
+
+labeled("test_PRD_P0_151_product_variant_picker__a_single_variant_shows_no_picker_at_all", () => {
+  /* One variant is not a choice — a fieldset with one radio in it, already
+     checked, is a control that cannot do anything, the same rule the
+     drawer's own trigger (shell.js) is hidden under until it can. */
+  const product = { ...COAT, minor: 45000, variants: [{ sku: "SKU-1", title: "One size", minor: 45000, currency: "USD", options: {} }] };
+  const html = productPage(["outerwear"], {}, product, "mirror");
+  assert.doesNotMatch(html, /<form class="variant-picker"/);
+  assert.ok(html.includes(money(45000, "USD")));
+});
+
+labeled("test_PRD_P0_151_product_variant_picker__named_options_render_one_fieldset_per_option_with_the_first_preselected", () => {
+  const product = {
+    ...COAT,
+    minor: 45000,
+    variants: [
+      { sku: "SKU-S", title: "S", minor: 45000, currency: "USD", options: { Size: "S" } },
+      { sku: "SKU-M", title: "M", minor: 45000, currency: "USD", options: { Size: "M" } },
+      { sku: "SKU-L", title: "L", minor: 45000, currency: "USD", options: { Size: "L" } },
+    ],
+  };
+  const html = productPage(["outerwear"], {}, product, "mirror");
+  assert.match(html, /<form class="variant-picker" method="get" action="\/products\/wool-blend-coat">/);
+  assert.match(html, /<legend>Size<\/legend>/);
+  for (const size of ["S", "M", "L"]) {
+    assert.match(html, new RegExp(`<input type="radio" id="v-size-${size.toLowerCase()}" name="Size" value="${size}"`));
+  }
+  assert.match(html, /id="v-size-s"[^>]*checked/, "the first variant is preselected when nothing was chosen");
+  assert.doesNotMatch(html, /id="v-size-m"[^>]*checked/);
+});
+
+labeled("test_PRD_P0_151_product_variant_picker__selecting_a_size_shows_that_variants_own_price", () => {
+  const product = {
+    ...COAT,
+    minor: 45000,
+    variants: [
+      { sku: "SKU-S", title: "S", minor: 45000, currency: "USD", options: { Size: "S" } },
+      { sku: "SKU-L", title: "L", minor: 52000, currency: "USD", options: { Size: "L" } },
+    ],
+  };
+  const chosen = productPage(["outerwear"], {}, product, "mirror", { Size: "L" });
+  assert.ok(chosen.includes(money(52000, "USD")), "the picked variant's own price must be shown, not the first one's");
+  assert.match(chosen, /id="v-size-l"[^>]*checked/);
+  assert.doesNotMatch(chosen, /id="v-size-s"[^>]*checked/);
+});
+
+labeled("test_PRD_P0_151_product_variant_picker__two_option_types_render_two_fieldsets_and_match_on_both", () => {
+  const product = {
+    ...COAT,
+    minor: 45000,
+    variants: [
+      { sku: "SKU-1", title: "S / Camel", minor: 45000, currency: "USD", options: { Size: "S", Color: "Camel" } },
+      { sku: "SKU-2", title: "S / Black", minor: 45000, currency: "USD", options: { Size: "S", Color: "Black" } },
+      { sku: "SKU-3", title: "M / Black", minor: 47000, currency: "USD", options: { Size: "M", Color: "Black" } },
+    ],
+  };
+  const html = productPage(["outerwear"], {}, product, "mirror", { Size: "M", Color: "Black" });
+  assert.match(html, /<legend>Size<\/legend>/);
+  assert.match(html, /<legend>Color<\/legend>/);
+  assert.ok(html.includes(money(47000, "USD")), "the exact Size+Color match must win, not either alone");
+});
+
+labeled("test_PRD_P0_151_product_variant_picker__no_named_options_falls_back_to_each_variants_own_title", () => {
+  /* A real shape from this codebase's own fixtures elsewhere: a coat with
+     "IT 38"/"IT 42" as bare variation titles, no formal Size option set at
+     all — still real stock, still a real choice a visitor should see. */
+  const product = {
+    ...COAT,
+    minor: 189000,
+    variants: [
+      { sku: "SKU-38", title: "IT 38", minor: 189000, currency: "USD", options: {} },
+      { sku: "SKU-42", title: "IT 42", minor: 189000, currency: "USD", options: {} },
+    ],
+  };
+  const html = productPage(["outerwear"], {}, product, "mirror");
+  assert.match(html, /<legend>Option<\/legend>/);
+  assert.match(html, /name="Option" value="IT 38"/);
+  assert.match(html, /name="Option" value="IT 42"/);
+});
+
+labeled("test_PRD_P0_151_product_variant_picker__a_stale_selection_falls_back_to_the_first_variant_not_a_blank_page", () => {
+  const product = {
+    ...COAT,
+    minor: 45000,
+    variants: [
+      { sku: "SKU-S", title: "S", minor: 45000, currency: "USD", options: { Size: "S" } },
+      { sku: "SKU-M", title: "M", minor: 47000, currency: "USD", options: { Size: "M" } },
+    ],
+  };
+  /* "XL" was never a real size on this product — a hand-edited or outdated
+     link must still render the shop, not an empty or broken page (the same
+     bar query.js's own bad-query handling already meets on the grid). */
+  const html = productPage(["outerwear"], {}, product, "mirror", { Size: "XL" });
+  assert.ok(html.includes(money(45000, "USD")), "an unmatched selection falls back to the first variant's own price");
+  assert.match(html, /id="v-size-s"[^>]*checked/);
+});
+
+labeled("test_PRD_P0_151_product_variant_picker__seed_served_products_show_no_picker", () => {
+  /* Seed products carry no `variants` field at all — the exact pre-existing
+     shape every other seed-served page already renders correctly; this
+     feature must not require touching the seed catalog to stay working. */
+  const product = { ...products[0] };
+  const html = productPage(CATEGORIES, {}, product, "seed");
+  assert.doesNotMatch(html, /<form class="variant-picker"/);
+  assert.ok(html.includes(money(product.minor, product.currency)));
+});
+
+labeled("test_PRD_P0_151_product_variant_picker__loadProduct_reads_every_variant_with_its_own_parsed_options", async () => {
+  const db = mirrorWith([
+    {
+      handle: "wool-blend-coat",
+      title: "Wool-blend coat",
+      category: "Outerwear",
+      minor: 45000,
+      variants: [
+        { title: "S", minor: 45000, options: { Size: "S" } },
+        { title: "M", minor: 47000, options: { Size: "M" } },
+      ],
+    },
+  ]);
+  const found = await loadProduct({ CATALOG_MIRROR: db }, "wool-blend-coat");
+  assert.equal(found.source, "mirror");
+  assert.equal(found.product.variants.length, 2);
+  assert.deepEqual(
+    found.product.variants.map((v) => [v.title, v.minor, v.options]),
+    [
+      ["S", 45000, { Size: "S" }],
+      ["M", 47000, { Size: "M" }],
+    ],
+  );
+});
+
+labeled("test_PRD_P0_151_product_variant_picker__a_malformed_options_value_reads_as_no_options_not_a_crash", async () => {
+  const db = mirrorWith([{ handle: "wool-blend-coat", title: "Wool-blend coat", category: "Outerwear", minor: 45000 }]);
+  /* A row this codebase's own writer never produces (catalog-writer.js only
+     ever writes valid JSON) — inserted directly to prove the READ side does
+     not trust it blindly either. */
+  db._raw.prepare("UPDATE mirror_variant SET options = 'not json' WHERE id = 'var-0'").run();
+  const found = await loadProduct({ CATALOG_MIRROR: db }, "wool-blend-coat");
+  assert.deepEqual(found.product.variants[0].options, {});
 });
 
 /* ═══════════════════════════════════════════════════════════════════════════

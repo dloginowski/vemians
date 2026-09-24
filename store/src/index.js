@@ -155,7 +155,15 @@ export default {
       const { products } = await loadCatalog(env);
       const categories = categoriesOf(products);
       const subs = subsFor(products, categories);
-      return html(productPage(categories, subs, found.product, found.source));
+      /* The variant picker's own selection (Test-PRD-P0-151-product_variant_
+         picker) — every query param, since a facet's own name (Size, Color,
+         or the generic "Option" fallback) is not known here at all, only
+         inside productPage once it has this product's own variants to
+         derive facets from. An unrelated stray param is simply ignored
+         there, the same as query.js's own handling of one it does not
+         recognize. */
+      const selected = Object.fromEntries(url.searchParams);
+      return html(productPage(categories, subs, found.product, found.source, selected));
     }
 
     /*

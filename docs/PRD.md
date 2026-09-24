@@ -1561,6 +1561,52 @@ that does not trace to one of these is a process failure (see §12).
     only a fully-placeholder product keeps the placeholder swap on both shots, unchanged from
     before this feature.
 
+47d. **`Test-PRD-P0-151-product_variant_picker`** — The owner's own words: "get the variants set
+    up" — asked for directly once the storefront's own contact form and nav actually worked and
+    there was room to ask about the shop itself, ahead of the cart ("I'll let you know when the
+    shopping cart's ready to go"). Before this, a product's own page (P0-72) showed exactly one
+    price and one photo, always the mirror's own first-ordinal variation — `PRODUCT_SQL`
+    (`catalog.js`) never read the others at all. A size or color change made in Square had nothing
+    to reach, which is why an earlier report that the page "wasn't updating" was a missing feature
+    read as a sync bug, not an actual staleness.
+
+    `PRODUCT_SQL` now also selects the mirror's own internal `p.id` (never rendered, only used to
+    run the second query below) and a new `VARIANTS_SQL` reads every one of that product's own
+    variants — sku, title, price, currency, and `options` (catalog-writer.js's own `{"Size":"M",
+    ...}` JSON) — from `mirror_variant_index`, the same index view every other read here already
+    uses. `store/src/pages.js`'s `variantFacets` groups them: named options when at least one
+    variant actually carries them, or — a coat with bare "IT 38"/"IT 42" variation titles and no
+    formal Size option set, a real shape this shop's own catalog holds — each variant's own TITLE
+    becomes the one facet, so that stock is still choosable rather than invisible. **A single
+    variant is not a choice**: no facet, and no picker markup at all, renders for it — the same
+    "a control that cannot do anything must not be on the page" rule the drawer's own trigger
+    (`shell.js`) already follows.
+
+    **The picker is a plain `<form method="get">` back to the same product page** — `store/src/
+    views.js`'s own filter-and-sort panel's exact idiom, reused rather than reinvented: real radio
+    inputs, a real submit button, and index.js reads the resulting query string
+    (`?Size=M&Color=Red`) with no facet names known in advance, since those are only derived once
+    `loadProduct` has a specific product's own variants in hand. **Fully functional with no script
+    at all** — selecting a size and pressing Update reloads the page with that choice named in the
+    URL and that exact variant's own price shown; no client-side interception exists or was
+    written for this, matching how the filter panel's own JS (`enhance.client.js`) only ever turns
+    it into a nicer dialog, never intercepts its submission either. A stale or partial selection (a
+    size this product no longer carries, a Size/Color combination it never had) falls back to the
+    first variant rather than rendering a hole — the same bar the catalog grid's own bad-query
+    handling (`query.js`) already meets.
+
+    **No live stock is shown, a scope decision, not an oversight.** The actual quantity on hand
+    lives in the `commerce` D1 store's own inventory ledger (`schema.sql`'s own comment on
+    `mirror_inventory_change`: "the stock number itself lives... in `inventory_adjustment` in the
+    `commerce` store") — a database this public, unauthenticated Worker has never bound and does
+    not bind here (`store/wrangler.toml`'s own explicit allow-list, Test-PRD-P0-24-binding_scoped_
+    tools), and ADR-002 forbids widening it without its own deliberate decision. Mirroring a
+    derived in-stock flag INTO `catalog_mirror` so the storefront could read it without ever
+    touching `commerce` is the honest way to do this properly, and is real, additional scope of its
+    own — deferred until the cart actually needs to refuse an out-of-stock size, since nothing on
+    this page can be bought regardless of what it claims about stock today; showing an inaccurate
+    claim now would cost more than it would help.
+
 34a''''. **`Test-PRD-P0-74-chat_first`** — The owner's own direction, asked for directly: the
     built-in ops assistant leads the page. The greeting still comes first — it names who is
     signed in before anything asks for input — but the "Ask the ops assistant" section
