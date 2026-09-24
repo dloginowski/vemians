@@ -95,16 +95,19 @@ export function drawer(categories, subsByCategory, q) {
       <li><a href="/"${q && !q.category ? ' aria-current="page"' : ""}>New in</a></li>
 ${rows}
   </ul>
-  <!-- "Contact us" links to the visit page's own #contact section rather
+  <!-- "Contact Us" links to the visit page's own #contact section rather
        than a page of its own — the form lives there (ADR-015), and this is
        the same anchor-to-a-section pattern "Join our list" (#join) already
-       uses. Placed above "Visit the store" itself: the owner's own words,
-       reached only by trying the menu and not finding an obvious place to
-       write in — "it's not clear that that's where you contact us from." -->
+       uses. Placed above "Visit Us" itself: the owner's own words, reached
+       only by trying the menu and not finding an obvious place to write in —
+       "it's not clear that that's where you contact us from." Both labels
+       are Title Case ("Visit Us", "Contact Us") per the owner's own explicit
+       correction — a deliberate exception to this file's own sentence-case
+       convention for these two action links specifically. -->
   <ul class="menu-root menu-rest">
     <li><a href="/collaborations">Collaborations</a></li>
-    <li><a href="/visit#contact">Contact us</a></li>
-    <li><a href="/visit">Visit the store</a></li>
+    <li><a href="/visit#contact">Contact Us</a></li>
+    <li><a href="/visit">Visit Us</a></li>
     <li><a href="/visit#join">Join our list</a></li>
   </ul>
 </nav>`;

@@ -317,20 +317,24 @@ labeled("test_PRD_P0_56_shop_with_a_door__no_footer_link_goes_nowhere", async ()
   }
 });
 
-labeled("test_PRD_P0_56_shop_with_a_door__the_drawer_names_contact_us_above_visit_the_store", async () => {
+labeled("test_PRD_P0_56_shop_with_a_door__the_drawer_names_contact_us_above_visit_us", async () => {
   /* The owner's own words: "it's not clear that that's where you contact us
      from" — the drawer used to send someone looking for a way to write in
      straight to "Visit the store," which says nothing about a form living
-     there. "Contact us" now names the destination directly, above "Visit
-     the store" itself, and opens the SAME page scrolled to the section that
+     there. "Contact Us" now names the destination directly, above "Visit
+     Us" itself, and opens the SAME page scrolled to the section that
      actually has the form — the identical anchor-to-a-section pattern
-     "Join our list" (#join) already uses, not a page of its own. */
+     "Join our list" (#join) already uses, not a page of its own. Both are
+     Title Case, the owner's own explicit correction over this file's usual
+     sentence case, for these two action links specifically. */
   const { html } = await get("/");
   const nav = html.slice(html.indexOf('<nav class="menu"'), html.indexOf("</nav>"));
   const contactAt = nav.indexOf('href="/visit#contact"');
   const visitAt = nav.indexOf('href="/visit"');
   assert.ok(contactAt !== -1, "the drawer must link to /visit#contact");
-  assert.ok(contactAt < visitAt, "'Contact us' must appear above 'Visit the store'");
+  assert.ok(contactAt < visitAt, "'Contact Us' must appear above 'Visit Us'");
+  assert.match(nav, />Contact Us<\/a>/, "the label must read 'Contact Us', Title Case");
+  assert.match(nav, />Visit Us<\/a>/, "the label must read 'Visit Us', Title Case");
 
   const { status, html: visitHtml } = await get("/visit");
   assert.equal(status, 200, "/visit#contact's own page must actually answer");
