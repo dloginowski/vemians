@@ -102,7 +102,8 @@ const MIRROR_SQL = `
  * MIRROR_SQL's own grid ALSO lists it.
  */
 const PRODUCT_SQL = `
-  SELECT p.handle                                    AS handle,
+  SELECT p.id                                         AS id,
+         p.handle                                    AS handle,
          p.title                                     AS name,
          p.source_description                        AS description,
          COALESCE(c.name, '')                        AS category,
@@ -117,6 +118,21 @@ const PRODUCT_SQL = `
     FROM mirror_product_index p
     LEFT JOIN mirror_category_index c ON c.id = p.category_id
    WHERE p.status = 'active' AND p.handle = ?`;
+
+/*
+ * Every one of a product's own variants, for the page that names them
+ * (Test-PRD-P0-151-product_variant_picker). `p.id` never reaches the
+ * rendered page itself — it exists only to run this second query, the same
+ * internal-only use the mirror's own `id` columns already have everywhere
+ * else in this file. `options` is read back as the JSON text
+ * catalog-writer.js wrote it as (`{"Size":"M","Color":"Red"}` or `{}`); this
+ * file parses it, never a caller.
+ */
+const VARIANTS_SQL = `
+  SELECT sku, title, price_minor AS minor, currency, options
+    FROM mirror_variant_index
+   WHERE product_id = ?
+   ORDER BY ordinal, id`;
 
 /*
  * A deterministic 0.00–0.24, the range the seed's hand-picked tones sit in.
@@ -153,9 +169,34 @@ function fromMirror(row) {
   };
 }
 
-/* The grid's shape, plus the one field only a product's own page needs. */
-function fromMirrorDetail(row) {
-  return { ...fromMirror(row), description: row.description || "" };
+/* Square's own written-JSON `options` column, defensively re-parsed:
+   catalog-writer.js always writes a valid object, but a row this file did
+   not write must not 500 the page it feeds — an unparseable value reads as
+   "no named options", the same as a genuinely empty {}. */
+function parseOptions(raw) {
+  try {
+    const parsed = JSON.parse(raw ?? "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+/* The grid's shape, plus the two fields only a product's own page needs: its
+   full description, and every variant it actually has — sku, title, price,
+   currency, options (Test-PRD-P0-151-product_variant_picker). */
+function fromMirrorDetail(row, variantRows = []) {
+  return {
+    ...fromMirror(row),
+    description: row.description || "",
+    variants: variantRows.map((v) => ({
+      sku: v.sku,
+      title: v.title,
+      minor: Number(v.minor),
+      currency: v.currency,
+      options: parseOptions(v.options),
+    })),
+  };
 }
 
 /**
@@ -261,7 +302,15 @@ export async function loadProduct(env, handle) {
   }
 
   if (row && row.minor !== null && row.minor !== undefined && row.currency) {
-    return { source: "mirror", product: fromMirrorDetail(row) };
+    let variantRows = [];
+    try {
+      variantRows = (await db.prepare(VARIANTS_SQL).bind(row.id).all())?.results ?? [];
+    } catch (err) {
+      /* The page's own price and photos already resolved — a picker that
+         cannot be built is a smaller page, not a broken one. */
+      console.error(`ERROR store: reading ${handle}'s own variants failed — ${err.message}`);
+    }
+    return { source: "mirror", product: fromMirrorDetail(row, variantRows) };
   }
 
   /* No visible, priced product at that handle in the mirror — could be a
