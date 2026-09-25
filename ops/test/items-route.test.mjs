@@ -3033,20 +3033,47 @@ check("test_PRD_P0_138_nested_categories__admin_add_toggle_queues_another_row_in
 });
 
 check("test_PRD_P0_138_nested_categories__admin_each_queued_row_auto_fills_a_distinct_numeric_id", async () => {
-  /* "Each new added category must have a new ID" — the owner's own words,
-     a direct follow-up once the toggle-vs-add bug above was fixed:
-     queuing several rows must not suggest the SAME next number for every
-     one of them just because nextNumericId only ever looks at already-
-     SAVED siblings. Every row after the first must bump past whatever
-     numeric_id every OTHER still-open pending row already carries. */
+  /* "You have to increment always. You can't just have the same ID
+     repeating" — the owner's own words. Queuing several rows must not
+     suggest the SAME next number for every one of them just because
+     nextNumericId only ever looks at already-SAVED siblings. Every row
+     after the first must bump past whatever numeric_id every OTHER
+     still-open pending row already carries -- and, for a subcategory,
+     that pool is TREE-WIDE (every top-level category's own pending
+     add-form counts, not just the one under the same parent), matching
+     the same tree-wide pool P0-138's own siblings check already enforces
+     for already-saved subcategories. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   seedCategoryTree(mirror);
   const body = await (await get("/admin", MANAGER, env(mirror))).text();
   assert.match(
     body,
-    /let suggested = Number\(nextNumericId\(siblings\)\);\s*\n\s*const taken = rows\s*\n\s*\.filter\(\(f\) => f !== form\)\s*\n\s*\.map\(\(f\) => Number\(f\.querySelector\("\.admin-category-new-numeric-id"\)\?\.value\.trim\(\)\)\)\s*\n\s*\.filter\(\(n\) => Number\.isInteger\(n\)\);\s*\n\s*while \(taken\.includes\(suggested\)\) suggested \+= 1;\s*\n\s*idInput\.value = String\(suggested\)\.padStart\(2, "0"\);/,
-    "the auto-fill must skip past every numeric_id already sitting in another still-open pending row, not just already-saved siblings",
+    /const siblings = addToggle\.dataset\.parentId\s*\n\s*\? document\.querySelectorAll\("\.admin-category-children \.admin-category-node"\)/,
+    "a subcategory's own already-saved pool must be read tree-wide, not scoped to the one parent being clicked",
+  );
+  assert.match(
+    body,
+    /const pendingIds = \[\s*\n\s*\.\.\.document\.querySelectorAll\(\s*\n\s*addToggle\.dataset\.parentId\s*\n\s*\? "\.admin-category-node > \.admin-category-add-form:not\(\[hidden\]\) \.admin-category-new-numeric-id"\s*\n\s*: "\.admin-section-body > \.admin-category-add-form:not\(\[hidden\]\) \.admin-category-new-numeric-id",\s*\n\s*\),\s*\n\s*\]\s*\n\s*\.filter\(\(el\) => el !== idInput\)\s*\n\s*\.map\(\(el\) => Number\(el\.value\.trim\(\)\)\)\s*\n\s*\.filter\(\(n\) => Number\.isInteger\(n\)\);\s*\n\s*let suggested = Number\(nextNumericId\(siblings\)\);\s*\n\s*while \(pendingIds\.includes\(suggested\)\) suggested \+= 1;\s*\n\s*idInput\.value = String\(suggested\)\.padStart\(2, "0"\);/,
+    "the auto-fill must skip past every numeric_id already sitting in another still-open pending row anywhere in the tree, not just already-saved siblings under the same parent",
+  );
+});
+
+check("test_PRD_P0_138_nested_categories__admin_add_toggle_refuses_to_queue_a_second_blank_row", async () => {
+  /* "If I don't have anything entered... you shouldn't let me add a new
+     subcategory if I have a new blank one already. Once I enter some
+     words in it, then you start adding more" — the owner's own words. A
+     row already open with nothing typed into its own name yet must not
+     get a second blank one piled on top of it -- "+" should just return
+     focus to the one already there. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  assert.match(
+    body,
+    /if \(!rows\.find\(\(f\) => f\.hidden\) && !rows\[rows\.length - 1\]\?\.querySelector\("\.admin-category-new-name"\)\?\.value\.trim\(\)\) \{\s*\n\s*rows\[rows\.length - 1\]\?\.querySelector\("\.admin-category-new-name"\)\?\.focus\(\);\s*\n\s*return;\s*\n\s*\}/,
+    "a click must refuse to queue another row while the last one open is still blank, focusing it instead",
   );
 });
 
