@@ -7487,6 +7487,32 @@ that does not trace to one of these is a process failure (see §12).
     both, or neither. "Full screen" (`.table-card.full`) still removes the cap entirely regardless, exactly
     as it always has.
 
+86. **`Test-PRD-P0-153-storefront_column_boundary`** — The owner's own words, after confirming the
+    vendor-independent cost attribute above: "cost USD is the actual cost, and then we have margins
+    provided, but... we never want the customers to see that... we need only specific columns." Cost,
+    commission, margin, the internal style number and any free-text import note are ops-only, and
+    `mirror_product_index` (schema.sql) carries every one of them — `custom_fields`, `style_id`,
+    `commission_pct`, `item_unit_cost_minor` — as real, selectable columns right alongside the
+    customer-facing ones, so "the storefront's UI just doesn't render them today" was never a real
+    guarantee, only an accident of what nobody had gotten around to reading yet. `store/src/catalog.js`'s
+    two reads (`MIRROR_SQL` for the grid, `PRODUCT_SQL` for a product's own page) already named only
+    customer-relevant columns one by one — handle, title, category, price, currency, the two photo
+    slots — never a wildcard and never any of the four ops-only ones, which was true before this entry
+    and is now enforced rather than merely observed. `Test-PRD-P0-153-storefront_column_boundary` proves
+    it two ways: a structural check that neither `MIRROR_SQL` nor `PRODUCT_SQL` names any of the four
+    ops-only columns (or anything vendor-related) at all, and a belt-and-braces data check — a product
+    seeded with real-looking sensitive values in every one of those columns, read back through
+    `loadCatalog`/`loadProduct`, asserting the served product OBJECT carries no property by any of the
+    four names, and through the actual rendered product page, asserting none of the seeded row's own
+    values (its style number, its vendor name) appear in the bytes served. That last check deliberately
+    does not search rendered HTML for the word "margin" itself — it is also a real CSS property name the
+    page legitimately renders, so treating it as a leak signature would be a false positive, not a real
+    guarantee. `Test-PRD-P0-
+    26-owned_storefront`'s "zero calls to a commerce provider" and `Test-PRD-P0-24-binding_scoped_tools`'s
+    binding allow-list already proved the storefront cannot reach Square or another store's data directly;
+    this closes the remaining gap — the one store it DOES legitimately read, `CATALOG_MIRROR`, also holds
+    ops-only columns, and reading that store at all does not mean every column in it is fair game.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
