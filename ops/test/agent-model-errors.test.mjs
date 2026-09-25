@@ -118,6 +118,45 @@ check("test_PRD_P0_86_surfaced_model_errors__the_detail_is_truncated_rather_than
   );
 });
 
+check("test_PRD_P0_86_surfaced_model_errors__a_tool_that_already_ran_is_not_lost_when_the_follow_up_call_fails", async () => {
+  /* A real transcript: "ran catalog_draft_product_batch" -- a real write,
+     draftProductBatch creates every clean row immediately -- immediately
+     followed by nothing but "The model service could not be reached." The
+     failed call is always the FOLLOW-UP request for the model's own closing
+     summary, made AFTER dispatch() already ran the round before's tool
+     call; a network hiccup at that exact moment must not make the person
+     think nothing happened when something real already did. */
+  let call = 0;
+  await withFakeAnthropic(
+    () => {
+      call += 1;
+      if (call === 1) {
+        return {
+          status: 200,
+          body: JSON.stringify({
+            content: [{ type: "tool_use", id: "toolu_1", name: "skills_list", input: {} }],
+            stop_reason: "tool_use",
+          }),
+        };
+      }
+      return { status: 503, body: JSON.stringify({ type: "error", error: { type: "overloaded_error", message: "Overloaded" } }) };
+    },
+    async (base) => {
+      const out = await agentTurn({
+        q: "hello",
+        identity: IDENTITY,
+        env: { ANTHROPIC_API_KEY: "test-key", ANTHROPIC_BASE_URL: base },
+      });
+      assert.equal(out.steps.length, 1, "the already-completed tool call must still be reported");
+      assert.equal(out.steps[0].tool, "skills_list");
+      assert.equal(out.steps[0].ok, true);
+      assert.match(out.reply, /503/, "the real follow-up error must still reach the reply");
+      assert.match(out.reply, /skills_list/, "the reply must name what already ran, not just the bare connectivity error");
+      assert.match(out.reply, /already ran/i);
+    },
+  );
+});
+
 test("test_PRD_P0_30_prd_traceability__every_label_used_here_exists_in_the_prd", async () => {
   const prd = fs.readFileSync(
     path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "docs", "PRD.md"),

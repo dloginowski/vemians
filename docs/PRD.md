@@ -2009,6 +2009,23 @@ that does not trace to one of these is a process failure (see §12).
     entry called unknown: every tool name in this registry has a dot, and Anthropic's own tool
     name grammar has never allowed one.
 
+    **REVISED, much later — a real transcript showed this fix had a gap that only mattered once a
+    batch draft could write immediately.** "ran catalog_draft_product_batch" — a real write,
+    `draftProductBatch` creates every clean row the moment it is called (P0-89's own "REVISED
+    AGAIN") — was immediately followed by nothing but "The model service could not be reached."
+    The failed call there is always the FOLLOW-UP request `agentTurn()`'s own loop makes for the
+    model's own closing summary, sent AFTER `dispatch()` already ran every tool call from the round
+    before — this branch, unchanged since this entry first shipped, returned early with the bare
+    connectivity error, no `table`, and no mention that a tool had already run: a person who just
+    watched their spreadsheet import go through had no way to tell it from a total failure, and
+    every reason to reasonably re-upload it. Both early-return branches in `agentTurn()`'s own loop
+    (a failed `callClaude()` call, and a model `stop_reason: "refusal"`) now build a plain
+    `alreadyRanNote` from `steps` — the tool calls that already completed this same turn, each
+    named with whether it succeeded — and append it to the reply, plus carry `table: lastTable`
+    through, exactly like the ordinary success path already did. A network hiccup at the exact
+    wrong moment still shows the real error; it no longer erases the real work that happened right
+    before it.
+
 34a'''''''''''''''''. **`Test-PRD-P0-87-wire_safe_tool_names`** — P0-86's own fix worked exactly
     as designed: the very next 400 was self-diagnosing. The owner pasted back Anthropic's own
     message — `tools.2.custom.name: String should match pattern '^[a-zA-Z0-9_-]{1,128}$'` — and
