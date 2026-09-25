@@ -180,8 +180,7 @@ async function parkClashRows(env, { actor, role, toolName }, rows) {
    claim for title — so a column of style NUMBERS ("001-001") was landing as
    the product's own TITLE, and a real style_id column right next to it went
    unrecognized. "You are mistaking style id with title" — the owner's own
-   words. Removed here; STYLE_ID_KEYS (below) claims "style" instead, the same
-   division SKU_KEYS' own comment already draws for "style number". */
+   words. Removed here; STYLE_ID_KEYS (below) claims "style" instead. */
 const TITLE_KEYS = [
   "title", "name", "product", "product title", "product name",
   "item", "item name", "item title", "style name",
@@ -205,7 +204,23 @@ const SUBCATEGORY_KEYS = ["subcategory", "subcategory name", "sub category", "su
    misinterpreted. */
 const PRICE_KEYS = ["price", "price (usd)", "retail price", "unit price", "sale price", "msrp"];
 const CURRENCY_KEYS = ["currency"];
-const SKU_KEYS = ["sku", "style number", "item number", "product code"];
+/* REVISED: "it should never be looking, expecting an SKU in our
+   spreadsheets, because the SKU is something that is generated
+   automatically" — the owner's own words, confirmed against the owner's
+   own real sample sheet (Style #/Category/Subcategory/Description/Color/
+   Size/Qty/Cost/Retail Price — no SKU column of any kind) taken as the
+   benchmark for what an upload actually looks like going forward. There is
+   no SKU_KEYS any more, and no column is ever read as one: a style-numbered
+   row's own full style number (styleIdRaw) becomes its real SKU verbatim,
+   the same as it already did when no explicit column existed; a row with
+   no style number at all sends no `sku` argument, and catalog-writer.js's
+   own generateSku() mints one — "SKU should be auto generated when adding
+   variants or options — Square does that," the owner's own words, on
+   discovering Square only does this for a Dashboard/POS-created item,
+   never one this codebase creates through the Catalog API. A column
+   literally named "SKU" (or "item number", "product code") is no longer
+   claimed at all — it falls through to custom_fields like any other
+   unrecognized column, "preserve all fields" applying here too. */
 /* style_id, vendor and commission are Square's own Custom Attributes now
    (Test-PRD-P0-136-square_custom_attributes), not a custom_fields example —
    recognized here so a sheet carrying them reaches catalog.create_product as
@@ -228,21 +243,9 @@ const SKU_KEYS = ["sku", "style number", "item number", "product code"];
    per vendor so their commission is recorded in a central location and
    automatically applied" — a vendor with a rate already on file needs
    nothing repeated here at all; catalog.create_product's own check()
-   copies that rate onto the row's own product automatically. Deliberately
-   NOT "style number"/"item number" (SKU_KEYS above): those already mean
-   the SKU, a wholly different identifier from this shop's own style_id
-   (see catalog-write.js's own STYLE_ID_FORMAT comment). A row that gives
-   one here is always kept verbatim, real stock's own real SKU; a row that
-   does not is no longer left blank either — catalog-writer.js's own
-   generateSku() mints one, the same as any other variation created with
-   none (REVISED: "SKU should be auto generated when adding variants or
-   options — Square does that," the owner's own words, on discovering
-   Square only does this for a Dashboard/POS-created item, never one this
-   codebase creates through the Catalog API). */
-/* Bare "style"/"style #" claimed here, not by SKU_KEYS' own "style number" —
-   see TITLE_KEYS' own comment above for the real sheet that hit this
-   collision. "style #", "style#" and "style" itself all normalize to the
-   same "style" key.
+   copies that rate onto the row's own product automatically. */
+/* Bare "style"/"style #" claimed here. "style #", "style#" and "style"
+   itself all normalize to the same "style" key.
    REVISED: this same cell may now carry the FULL style number — style_id
    plus a color and/or a size riding along after it, one dash each
    (parseStyleNumber, above) — not just the bare NN-NN-NNN this shop's own
@@ -299,7 +302,7 @@ const OPTION_KEYS = {
    dropped just because neither of us has a named field for it yet. */
 const PRODUCT_KNOWN_KEYS = [
   ...TITLE_KEYS, ...DESCRIPTION_KEYS, ...CATEGORY_KEYS, ...SUBCATEGORY_KEYS, ...PRICE_KEYS, ...CURRENCY_KEYS,
-  ...SKU_KEYS, ...STYLE_ID_KEYS, ...VENDOR_KEYS, ...VENDOR_CODE_KEYS, ...COMMISSION_KEYS, ...QUANTITY_KEYS,
+  ...STYLE_ID_KEYS, ...VENDOR_KEYS, ...VENDOR_CODE_KEYS, ...COMMISSION_KEYS, ...QUANTITY_KEYS,
   ...Object.values(OPTION_KEYS).flat(),
 ];
 
@@ -933,17 +936,19 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
     const variationTitle = [optValues.Color, optValues.Size].filter(Boolean).join(", ") || title;
     /* "For our full SKU number, we can go with the shorter names... the
        SKU is basically what we gave you in the first column. That's the
-       SKU" — the owner's own words. An explicit SKU column, when a sheet
-       has one, still wins (the same "explicit wins" rule as above); with
-       none, the row's own full style number — abbreviations and all,
-       verbatim — becomes this variation's own real, already-unique SKU.
-       "The only hard rule here is that we must have a unique SKU number
-       or ID for each item... if that's true, then add the product" —
-       catalog.create_product's own check() now refuses a SKU it finds
-       already in use by any OTHER product in the shop; that refusal is a
-       clash only the tool itself can discover, so it is caught and parked
-       one level up, in createRows, once it actually tries the write. */
-    const sku = pick(record, SKU_KEYS) || styleIdRaw;
+       SKU" — the owner's own words. "It should never be looking, expecting
+       an SKU in our spreadsheets, because the SKU is something that is
+       generated automatically" — REVISED: no column is ever read as an
+       explicit SKU any more (there is no SKU_KEYS); the row's own full
+       style number — abbreviations and all, verbatim — always becomes
+       this variation's own real, already-unique SKU. "The only hard rule
+       here is that we must have a unique SKU number or ID for each
+       item... if that's true, then add the product" — catalog.
+       create_product's own check() still refuses a SKU it finds already
+       in use by any OTHER product in the shop; that refusal is a clash
+       only the tool itself can discover, so it is caught and parked one
+       level up, in createRows, once it actually tries the write. */
+    const sku = styleIdRaw;
     variations.push({
       title: variationTitle,
       ...(priceMinor !== null ? { price_minor: priceMinor } : {}),
@@ -1265,13 +1270,18 @@ export async function draftProductBatch(env, { text, actor, role }) {
       ...(vendorCode && vendor ? { vendor_code: vendorCode } : {}),
       ...(unitCostMinor !== undefined ? { unit_cost_minor: unitCostMinor } : {}),
       ...(commission !== undefined ? { commission } : {}),
+      /* No style number here to derive a SKU from at all (this loop is
+         blank-style-id rows only) -- "it should never be looking,
+         expecting an SKU in our spreadsheets, because the SKU is
+         something that is generated automatically" -- the owner's own
+         words. No `sku` is ever sent from a column; catalog-writer.js's
+         own generateSku() mints one for a variation created with none. */
       variations: [
         {
           title,
           ...(priceMinor !== null ? { price_minor: priceMinor } : {}),
           currency,
           quantity,
-          ...(pick(record, SKU_KEYS) ? { sku: pick(record, SKU_KEYS) } : {}),
           ...(Object.keys(optValues).length ? { option_values: optValues } : {}),
         },
       ],
@@ -1435,16 +1445,16 @@ function mapProductRow(record) {
   const titleCol = pick(record, TITLE_KEYS);
   const descriptionCol = pick(record, DESCRIPTION_KEYS);
   const title = titleCol || descriptionCol || "(auto-generated from its category)";
-  /* "The SKU is basically what we gave you in the first column. That's
-     the SKU" — the owner's own words. With no explicit SKU column, a
-     style-numbered row's own full style number becomes its real SKU
-     verbatim (draftGroupedProduct's own variation loop); previewed the
-     same way, rather than showing a SKU column this row will not
-     actually end up missing. A row with neither (no style number either)
-     still gets a real, auto-generated SKU in Square (generateSku) — same
+  /* "It should never be looking, expecting an SKU in our spreadsheets,
+     because the SKU is something that is generated automatically" — the
+     owner's own words; no column is ever read as an explicit SKU (there
+     is no SKU_KEYS). A style-numbered row's own full style number becomes
+     its real SKU verbatim (draftGroupedProduct's own variation loop),
+     previewed the same way. A row with no style number at all still gets
+     a real, auto-generated SKU in Square (generateSku) — same
      DB-dependent case as style_id's own auto-generation just below,
      genuinely unpreviewable, left as "not found". */
-  const sku = pick(record, SKU_KEYS) || styleIdRaw || null;
+  const sku = styleIdRaw || null;
   return {
     title,
     category: categoryName || null,
