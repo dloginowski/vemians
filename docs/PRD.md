@@ -7322,6 +7322,30 @@ that does not trace to one of these is a process failure (see §12).
     Proven directly: exhausting an actor's real SHARED budget completely first, then confirming a batch
     for that same actor still creates its row.
 
+    **REVISED ONE MORE TIME — the chat itself now says something while a batch is actually running,
+    instead of going quiet until the whole thing is done.** The owner's own words: "I don't like how the
+    agent goes silent without any progress reports as it creates the new products." Both
+    `catalog_draft_product_batch` (drafted immediately, no approval click) and
+    `customer_draft_customer_batch`'s own Approve click run the WHOLE batch — several real Square writes
+    per row — inside the ONE blocking `/ops/agent` or `/ops/agent/approve` request the browser is already
+    waiting on; nothing reached the chat until that single call resolved, however many rows it took.
+    `onProgress`, an optional `({done, total, row, title, status}) => void`, is now a parameter on
+    `draftProductBatch`/`draftCustomerBatch` alike, called once per row exactly where `createRows`/
+    `parkRows` (above) already settle that row's own outcome — created, parked or skipped — never once
+    for the whole batch and never mid-row. `dispatchBatchDraft` (agent.js) is the one caller that actually
+    supplies it, writing each update into `BATCH_PROGRESS` — a third record in the identical in-memory,
+    per-isolate, TTL'd shape `PENDING`/`LAST_PREVIEW` already use, keyed by actor alone like
+    `LAST_PREVIEW`: the one batch an actor could plausibly have running is the one record means, by the
+    same construction — and clearing it in a `finally`, so a finished (or failed) batch never leaves a
+    stale "6 of 16" for a later, unrelated poll to read. A new `GET /agent/batch-progress` (index.js),
+    gated by nothing beyond the same real Access identity every other `/agent*` route already requires,
+    hands an actor back only their own record. The browser (views.js) polls this, cheaply, from the
+    moment either request is sent, updating the SAME transient chat bubble ("Working…" / "Approving
+    catalog_draft_product_batch…") in place every ~1.2s until the real response lands and replaces it —
+    no new wire format for `/ops/agent` itself, no change to any turn that is not a batch, and a missed or
+    empty poll (an ordinary fast turn, a cold isolate that lost the record) simply shows nothing, never a
+    wrong status.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

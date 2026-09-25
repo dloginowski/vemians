@@ -69,17 +69,21 @@ function pick(record, keys) {
  * args}]. Shared because parking is parking regardless of what the tool is —
  * only how a row becomes `args` differs between kinds.
  */
-async function parkRows(env, { actor, role, toolName, rate }, rows) {
+async function parkRows(env, { actor, role, toolName, rate, onProgress }, rows) {
   const parked = [];
   const skipped = [];
   for (const { rowNumber, title, args } of rows) {
     const gate = await runTool(toolName, args, { actor, role, env, rate });
+    let status;
     if (!gate?.needsApproval) {
       skipped.push({ row: rowNumber, title, reason: gate?.error || "could not be validated" });
-      continue;
+      status = "skipped";
+    } else {
+      const { url } = await parkForApproval(env, { name: toolName, args, actor, role, tier: "T2", summary: gate.data.would });
+      parked.push({ row: rowNumber, title, url, summary: gate.data.would });
+      status = "parked";
     }
-    const { url } = await parkForApproval(env, { name: toolName, args, actor, role, tier: "T2", summary: gate.data.would });
-    parked.push({ row: rowNumber, title, url, summary: gate.data.would });
+    onProgress?.({ done: parked.length + skipped.length, total: rows.length, row: rowNumber, title, status });
   }
   return { parked, skipped };
 }
@@ -114,30 +118,34 @@ async function parkRows(env, { actor, role, toolName, rate }, rows) {
  */
 const NOT_ROW_FIXABLE = /requires the .* role|^rate cap:|no tool '|cannot be passed as an argument|^bad_arguments/i;
 
-async function createRows(env, { actor, role, toolName, rate }, rows) {
+async function createRows(env, { actor, role, toolName, rate, onProgress }, rows) {
   const created = [];
   const parked = [];
   const skipped = [];
   const settle = async (rowNumber, title, args, reason) => {
     if (NOT_ROW_FIXABLE.test(reason)) {
       skipped.push({ row: rowNumber, title, reason });
-      return;
+      return "skipped";
     }
     const { url } = await parkForApproval(env, { name: toolName, args, actor, role, tier: "T2", summary: reason });
     parked.push({ row: rowNumber, title, url, summary: reason });
+    return "parked";
   };
   for (const { rowNumber, title, args } of rows) {
+    let status;
     const gate = await runTool(toolName, args, { actor, role, env, rate });
     if (!gate?.needsApproval) {
-      await settle(rowNumber, title, args, gate?.error || "could not be validated");
-      continue;
+      status = await settle(rowNumber, title, args, gate?.error || "could not be validated");
+    } else {
+      const result = await runTool(toolName, args, { actor, role, env, rate, approvalToken: gate.data.approval.token });
+      if (result?.error || result?.denied) {
+        status = await settle(rowNumber, title, args, result.error || result.denied || "was refused");
+      } else {
+        created.push({ row: rowNumber, title, handle: result.data?.product?.handle, summary: gate.data.would });
+        status = "created";
+      }
     }
-    const result = await runTool(toolName, args, { actor, role, env, rate, approvalToken: gate.data.approval.token });
-    if (result?.error || result?.denied) {
-      await settle(rowNumber, title, args, result.error || result.denied || "was refused");
-      continue;
-    }
-    created.push({ row: rowNumber, title, handle: result.data?.product?.handle, summary: gate.data.would });
+    onProgress?.({ done: created.length + parked.length + skipped.length, total: rows.length, row: rowNumber, title, status });
   }
   return { created, parked, skipped };
 }
@@ -1332,9 +1340,16 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
  *
  * @param env   CATALOG_MIRROR, and whatever runTool's own resources need.
  * @param actor, role  the uploader's own verified Access identity.
+ * @param onProgress  optional ({done, total, row, title, status}) => void, called
+ *   once per row as createRows (below) actually creates it — "I don't like how
+ *   the agent goes silent without any progress reports as it creates the new
+ *   products," the owner's own words. This one call already runs the whole
+ *   batch to completion before returning anything at all; this is the only
+ *   hook agent.js has to relay what is happening while that is still in
+ *   progress (dispatchBatchDraft's own recordBatchProgress).
  * @returns { created: [{row, title, handle, summary}], ready: [{row, title, url, summary}], skipped: [{row, title, reason}], tooMany?: number }
  */
-export async function draftProductBatch(env, { text, actor, role }) {
+export async function draftProductBatch(env, { text, actor, role, onProgress }) {
   const records = csvRecords(parseCsv(text));
   if (records.length > CAPS.BATCH_MAX_ROWS) {
     return { created: [], ready: [], skipped: [], tooMany: records.length };
@@ -1399,7 +1414,7 @@ export async function draftProductBatch(env, { text, actor, role }) {
 
   const { created: madeRows, parked: parkedFromDenials, skipped: refused } = await createRows(
     env,
-    { actor, role, toolName: "catalog.create_product", rate },
+    { actor, role, toolName: "catalog.create_product", rate, onProgress },
     rows,
   );
   const { parked: parkedFromClashes, skipped: refusedClashes } = await parkClashRows(
@@ -1438,9 +1453,11 @@ const REFERENCE_KEYS = ["reference_id", "reference", "member id", "loyalty id"];
  * relays whatever runTool refuses with, the same way draftProductBatch
  * relays a category-outside-the-set refusal it does not compose itself.
  *
+ * @param onProgress  optional ({done, total, row, title, status}) => void — see
+ *   draftProductBatch's own identical parameter, above.
  * @returns { ready: [{row, title, url, summary}], skipped: [{row, title, reason}], tooMany?: number }
  */
-export async function draftCustomerBatch(env, { text, actor, role }) {
+export async function draftCustomerBatch(env, { text, actor, role, onProgress }) {
   const records = csvRecords(parseCsv(text));
   if (records.length > CAPS.BATCH_MAX_ROWS) {
     return { ready: [], skipped: [], tooMany: records.length };
@@ -1474,7 +1491,7 @@ export async function draftCustomerBatch(env, { text, actor, role }) {
     };
   });
 
-  const { parked, skipped } = await parkRows(env, { actor, role, toolName: "customer.create", rate }, rows);
+  const { parked, skipped } = await parkRows(env, { actor, role, toolName: "customer.create", rate, onProgress }, rows);
   return { ready: parked, skipped: skipped.sort((a, b) => a.row - b.row) };
 }
 
