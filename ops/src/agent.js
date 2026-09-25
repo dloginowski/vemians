@@ -1182,10 +1182,32 @@ export async function agentTurn({ q, identity, env, attachment = null, history =
       tools: wireDefs,
       messages,
     });
-    if (error) return { mode: "model", actor, role, steps, pending: null, reply: error };
+    /* REVISED — a real product batch reported "ran catalog_draft_product_batch"
+       (a real write — draftProductBatch creates every clean row immediately,
+       P0-89's own "REVISED AGAIN") immediately followed by nothing but "The
+       model service could not be reached." — this branch, unchanged until
+       now, returning early with NEITHER `table` NOR any mention that a tool
+       had already run. The failed call here is always the FOLLOW-UP request
+       for the model's own closing summary, made AFTER dispatch() already ran
+       every tool call from the round before — a network hiccup reaching
+       Anthropic at that exact moment must not make a real write disappear
+       from what the person is shown. `alreadyRanNote` names what already
+       happened and points at the table sitting right there in `lastTable`,
+       rather than leaving a person who just watched their spreadsheet import
+       run wondering if it silently failed and re-uploading it. */
+    const alreadyRanNote = steps.length
+      ? ` ${steps.length} tool call${steps.length === 1 ? "" : "s"} already ran before this happened: ${steps
+          .map((s) => `${s.tool} (${s.ok ? "ok" : "refused"})`)
+          .join(", ")}. See the table below for exactly what it did — nothing here undoes it.`
+      : "";
+    if (error) return { mode: "model", actor, role, steps, pending: null, reply: `${error}${alreadyRanNote}`, table: lastTable };
 
     if (message.stop_reason === "refusal") {
-      return { mode: "model", actor, role, steps, pending: null, reply: "The model declined this request." };
+      return {
+        mode: "model", actor, role, steps, pending: null,
+        reply: `The model declined this request.${alreadyRanNote}`,
+        table: lastTable,
+      };
     }
 
     const uses = (message.content || []).filter((b) => b.type === "tool_use");
