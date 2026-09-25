@@ -267,9 +267,25 @@ export async function nextStyleIdFor(db, catCode, subCode) {
  * (Test-PRD-P0-136-square_custom_attributes, revised): it is Square's own
  * Vendor name now, not a plain-text custom attribute.
  */
+/* "For all items that do not have a vendor, they're now considered
+   In-house... this has nothing to do with vendors [conceptually], but
+   every item must have [a cost] associated with it" — the owner's own
+   words, retiring the vendor-independent item_unit_cost_minor Custom
+   Attribute (schema.sql's own comment has the full history). "No vendor
+   at all" is no longer a real state: a product either names a real
+   external vendor, or it gets this one, a real Square Vendor resolved/
+   created through the exact same vendorRef() every named vendor already
+   goes through — never a special case Square itself would treat
+   differently. Cost then always lives on vendor_information.
+   unit_cost_money (vendorInformationFor, below), whether the vendor is
+   "In-house" or a real supplier. Exported so catalog-write.js's own
+   no-op/no-vendor checks can compare against the identical literal
+   rather than a second copy of the string. */
+export const INHOUSE_VENDOR_NAME = "In-house";
+
 const PRODUCT_WITH_VENDOR_COLUMNS = `
   p.id, p.handle, p.title, p.source_description, p.status, p.channel, p.custom_fields,
-  p.style_id, p.commission_pct, p.item_unit_cost_minor, p.category_id,
+  p.style_id, p.commission_pct, p.category_id,
   mv.name AS vendor, v0.vendor_code, v0.unit_cost_minor, v0.unit_cost_currency
 `;
 const PRODUCT_WITH_VENDOR_JOIN = `
@@ -383,7 +399,7 @@ export async function listAllProducts(db, { limit } = {}) {
      call that surfaces them, same as mirror.js's own archivedProducts(). */
   const products = await db
     .prepare(
-      `SELECT p.id, p.handle, p.title, p.source_description, p.status, p.channel, p.custom_fields, p.style_id, p.commission_pct, p.item_unit_cost_minor, p.category_id, c.name AS category_name
+      `SELECT p.id, p.handle, p.title, p.source_description, p.status, p.channel, p.custom_fields, p.style_id, p.commission_pct, p.category_id, c.name AS category_name
          FROM mirror_product p
          LEFT JOIN mirror_category_index c ON c.id = p.category_id
         ORDER BY p.title COLLATE NOCASE
@@ -457,13 +473,13 @@ export async function listAllProducts(db, { limit } = {}) {
       style_id: p.style_id ?? null,
       vendor: v0?.vendor_id ? (vendorNameById.get(v0.vendor_id) ?? null) : null,
       vendor_code: v0?.vendor_code ?? null,
-      /* "The actual cost attribute that already exists for all items" — a
-         vendor's own cost (vendor_information, per-variation) still wins
-         whenever a real vendor exists; a vendor-less product falls back to
-         its own item_unit_cost_minor (a real Square Custom Attribute,
-         schema.sql's own comment) instead of reading as no cost at all. */
-      unit_cost_minor: v0?.vendor_id ? (v0.unit_cost_minor ?? 0) : (p.item_unit_cost_minor ?? 0),
-      unit_cost_currency: v0?.vendor_id ? (v0.unit_cost_currency ?? "USD") : "USD",
+      /* Every product has a real vendor now — a supplier's, or the built-in
+         "In-house" one (catalog-writer.js's own INHOUSE_VENDOR_NAME) — so
+         cost always lives on vendor_information, never a fallback column.
+         Still defensive against v0 itself being absent (a product created
+         but not yet synced has no variation row to join at all yet). */
+      unit_cost_minor: v0?.unit_cost_minor ?? 0,
+      unit_cost_currency: v0?.unit_cost_currency ?? "USD",
       commission_pct: p.commission_pct ?? null,
       variations,
       image_key: imageByProduct.get(p.id) ?? null,
@@ -853,7 +869,7 @@ export function createSquareCatalogWriter(env, opts = {}) {
   async function productRow(handle) {
     const row = await mirrorDb
       .prepare(
-        "SELECT id, external_ref, handle, title, source_description, source_version, category_id, style_id, commission_pct, item_unit_cost_minor" +
+        "SELECT id, external_ref, handle, title, source_description, source_version, category_id, style_id, commission_pct" +
           " FROM mirror_product_index WHERE handle = ?",
       )
       .bind(handle)
@@ -917,6 +933,10 @@ export function createSquareCatalogWriter(env, opts = {}) {
     return { external_ref: created.externalRef, name: created.name };
   }
 
+  async function vendorRefOrInHouse(name) {
+    return vendorRef(name || INHOUSE_VENDOR_NAME);
+  }
+
   /* Square's own CatalogItemVariationVendorInformation shape, applied to
      EVERY variation uniformly by itemData() below (option 1: one vendor per
      product, not Square's own per-variation granularity — the owner's own
@@ -946,22 +966,16 @@ export function createSquareCatalogWriter(env, opts = {}) {
      customAttr() as ONE code path for style_id/commission alike — see
      customAttrInt's own comment there for why NUMBER was considered and
      set aside. vendor is NOT built here any more — see vendorInformationFor
-     above; it lives on each variation, not in custom_attribute_values.
-     itemUnitCostMinor is the SAME idea a third time — "the actual cost
-     attribute that already exists for all items," the owner's own words,
-     never a raw custom_fields entry — but the caller (createProduct/
-     updateProduct, below) only ever passes it when there is genuinely no
-     vendor to attach a real vendor_information.unit_cost_money to; a
-     vendor-having product's own cost is untouched by this attribute at
-     all, so the two are never both set on the same product. */
-  function customAttributeValues({ styleId, commissionPct, itemUnitCostMinor } = {}) {
+     above; it lives on each variation, not in custom_attribute_values. Cost
+     no longer lives here either — item_unit_cost_minor (this file's own
+     third, vendor-independent attempt at it) is retired; every product now
+     has a real vendor (a supplier's, or INHOUSE_VENDOR_NAME above), so cost
+     always resolves through vendorInformationFor instead. */
+  function customAttributeValues({ styleId, commissionPct } = {}) {
     const out = {};
     if (styleId) out.style_id = { key: "style_id", type: "STRING", string_value: styleId };
     if (commissionPct !== undefined && commissionPct !== null) {
       out.commission = { key: "commission", type: "STRING", string_value: String(commissionPct) };
-    }
-    if (itemUnitCostMinor !== undefined && itemUnitCostMinor !== null) {
-      out.unit_cost = { key: "unit_cost", type: "STRING", string_value: String(itemUnitCostMinor) };
     }
     return Object.keys(out).length ? out : undefined;
   }
@@ -1086,7 +1100,7 @@ export function createSquareCatalogWriter(env, opts = {}) {
 
   async function readBack(externalRef) {
     const row = await mirrorDb
-      .prepare("SELECT id, handle, title, status, style_id, commission_pct, item_unit_cost_minor FROM mirror_product WHERE external_ref = ?")
+      .prepare("SELECT id, handle, title, status, style_id, commission_pct FROM mirror_product WHERE external_ref = ?")
       .bind(externalRef)
       .first();
     if (!row) return null;
@@ -1100,11 +1114,11 @@ export function createSquareCatalogWriter(env, opts = {}) {
       commission_pct: row.commission_pct,
       vendor: vendorInfo.vendor_name,
       vendor_code: vendorInfo.vendor_code,
-      /* "The actual cost attribute that already exists for all items" —
-         same fallback as listAllProducts above: a real vendor's own cost
-         wins when one exists, else this product's own item_unit_cost_minor. */
-      unit_cost_minor: vendorInfo.vendor_name ? vendorInfo.unit_cost_minor : (row.item_unit_cost_minor ?? 0),
-      unit_cost_currency: vendorInfo.vendor_name ? vendorInfo.unit_cost_currency : "USD",
+      /* Every product has a real vendor now (a supplier's, or "In-house"),
+         so this is always vendor_information's own cost — see
+         listAllProducts' own identical comment above. */
+      unit_cost_minor: vendorInfo.unit_cost_minor,
+      unit_cost_currency: vendorInfo.unit_cost_currency,
     };
   }
 
@@ -1458,6 +1472,40 @@ export function createSquareCatalogWriter(env, opts = {}) {
       return { applied, errors };
     },
 
+    /* One-time backfill for the "In-house" vendor rule (schema.sql's own
+       comment on mirror_product.commission_pct has the full history): every
+       product a real vendor was never named for still has vendor_id: null
+       on its own ordinal-0 variation, from before this shop's data could
+       not be in that state at all. vendor: "" is updateProduct's own
+       "reassign to In-house" signal (vendorRefOrInHouse) — the exact same
+       path a fresh clear_vendor call takes, run here once per row instead
+       of once per person clicking it. Same applied/errors shape as
+       applyItemOptionsToProductsInCategory above, for the same reason: a
+       genuine Square failure on one product must never stop the rest. */
+    async assignInHouseVendorToVendorlessProducts() {
+      const products = await mirrorDb
+        .prepare(
+          `SELECT p.handle FROM mirror_product_index p
+             JOIN mirror_variant_index v0 ON v0.product_id = p.id AND v0.ordinal = 0
+            WHERE v0.vendor_id IS NULL`,
+        )
+        .bind()
+        .all();
+      let applied = 0;
+      const errors = [];
+      for (const p of products.results ?? []) {
+        try {
+          await this.updateProduct({ handle: p.handle, vendor: "" });
+          applied += 1;
+        } catch (err) {
+          const detail = errorDetail(err);
+          console.error(`ERROR catalog-writer: assigning "In-house" failed for ${p.handle} — ${detail}`);
+          errors.push({ handle: p.handle, error: detail });
+        }
+      }
+      return { applied, errors };
+    },
+
     /**
      * ITEM + ITEM_VARIATIONs in one UpsertCatalogObject, then the image copies,
      * then the mirror sync. In that order, always.
@@ -1482,22 +1530,17 @@ export function createSquareCatalogWriter(env, opts = {}) {
          possible for bytes Square has not seen. */
       const imageIds = images.map((i) => i.imageRef).filter(Boolean);
       /* vendor is a plain NAME in, Square's own vendor_id out — vendorRef
-         resolves-or-creates against the real Vendors API. Nothing to
-         resolve for a fresh product with no vendor at all. */
-      const vref = vendor ? await vendorRef(vendor) : null;
+         resolves-or-creates against the real Vendors API. A fresh product
+         with no vendor named at all still gets one: vendorRefOrInHouse
+         falls back to the built-in "In-house" vendor, since "no vendor at
+         all" is no longer a state this shop's data can be in. */
+      const vref = await vendorRefOrInHouse(vendor);
       const vendorInfo = vendorInformationFor({
-        vendorExternalRef: vref?.external_ref ?? null,
+        vendorExternalRef: vref.external_ref,
         vendorCode,
         unitCostMinor,
         unitCostCurrency,
       });
-      /* No vendor at all -- vendorInformationFor above already returned
-         undefined, so unitCostMinor would otherwise just vanish. "The
-         actual cost attribute that already exists for all items" is
-         customAttributeValues' own item_unit_cost_minor fallback below,
-         never a raw custom_fields entry. A vendor-having product's cost
-         still goes ONLY through vendor_information — never both. */
-      const itemUnitCostMinor = vref ? undefined : unitCostMinor;
       /* Every brand-new variation gets a real SKU, never left blank —
          skuFromStyleId's own comment, human-readable off this product's own
          styleId whenever one was given at creation time. The opaque
@@ -1539,7 +1582,7 @@ export function createSquareCatalogWriter(env, opts = {}) {
             variations: resolvedVariations,
             itemRef,
             imageIds,
-            customAttributeValues: customAttributeValues({ styleId, commissionPct, itemUnitCostMinor }),
+            customAttributeValues: customAttributeValues({ styleId, commissionPct }),
             /* A brand-new product has no per-variation history yet — every
                variation starts with the SAME vendor/cost, the one given at
                creation time; they only diverge later, through updateProduct. */
@@ -1690,14 +1733,26 @@ export function createSquareCatalogWriter(env, opts = {}) {
          product's ordinal-0 one. */
       const current = await currentVendorInfo(row.id);
       /* vendor === "" (an explicit clear, from catalog.set_square_attributes'
-         own clear_vendor flag) resolves no vendorRef at all — never a real
-         lookup/create against Square for an empty name — and lands on
-         external_ref: null below, same as vendor === undefined's "no
-         vendorRef to give" case, but reaching resolvedVendorExternalRef via
-         the `vendor !== undefined` branch so the CURRENT ref is NOT carried
-         forward. */
-      const vref = vendor ? await vendorRef(vendor) : null;
-      const resolvedVendorExternalRef = vendor !== undefined ? vref?.external_ref ?? null : current.vendor_external_ref;
+         own clear_vendor flag) no longer lands on external_ref: null —
+         vendorRefOrInHouse resolves the empty name to the built-in
+         "In-house" vendor instead, same as createProduct's own fresh-
+         product default. vendor === undefined ("this call is not about
+         that field") keeps whatever the product already has, UNCHANGED —
+         an ordinary title or price edit must never reassign a legacy
+         vendor-less product's vendor as an unannounced side effect;
+         catalog.assign_inhouse_vendor is the real, explicit, one-time pass
+         for that. The ONE exception: this same call is setting a cost
+         (unitCostMinor !== undefined) on a product with no vendor at all —
+         "unit_cost_minor is never refused for lack of a vendor" (this
+         tool's own describe text) means the cost has to land somewhere
+         real, and vendor_information needs a real vendor_id to attach to,
+         so THAT specific combination gets "In-house" the same way a
+         brand-new vendor-less product's own cost already does at
+         creation. */
+      const resolvedVendorExternalRef =
+        vendor !== undefined
+          ? (await vendorRefOrInHouse(vendor)).external_ref
+          : (current.vendor_external_ref ?? (unitCostMinor !== undefined ? (await vendorRefOrInHouse(null)).external_ref : null));
       const resolvedVendorCode = vendorCode !== undefined ? vendorCode : current.vendor_code;
       const vendorInfos = keep.map((v) => {
         const perUnitCostMinor = unitCostMinor ?? v.unit_cost_minor ?? current.unit_cost_minor;
@@ -1709,19 +1764,6 @@ export function createSquareCatalogWriter(env, opts = {}) {
           unitCostCurrency: perUnitCostCurrency,
         });
       });
-      /* "The actual cost attribute that already exists for all items" —
-         the SAME item_unit_cost_minor fallback createProduct uses, for a
-         product with no vendor at all. "Resend the whole thing" like
-         style_id/commission just above: this call's own unitCostMinor when
-         it is actually about cost, else whatever the product already has
-         (row.item_unit_cost_minor) — never silently cleared by an edit
-         that was not about cost either. Never set alongside a real vendor:
-         resolvedVendorExternalRef existing means cost lives in
-         vendorInfos above instead, exactly like createProduct. */
-      const resolvedItemUnitCostMinor = resolvedVendorExternalRef
-        ? undefined
-        : (unitCostMinor !== undefined ? unitCostMinor : row.item_unit_cost_minor);
-
       const resolvedTitle = title ?? row.title;
       /* description has the same "resend or it may vanish" property as
          variations above — preserved from the mirror when this call was
@@ -1747,7 +1789,7 @@ export function createSquareCatalogWriter(env, opts = {}) {
           `catalog.update:${row.external_ref}:${row.source_version}:${resolvedTitle}:` +
             `${resolvedDescription ?? ""}:${cat?.external_ref ?? ""}:${JSON.stringify(keep)}:` +
             `${resolvedStyleId ?? ""}:${resolvedVendorExternalRef ?? ""}:${JSON.stringify(vendorInfos)}:` +
-            `${resolvedCommissionPct ?? ""}:${resolvedItemUnitCostMinor ?? ""}:${JSON.stringify(resolvedItemOptionExternalRefs)}:` +
+            `${resolvedCommissionPct ?? ""}:${JSON.stringify(resolvedItemOptionExternalRefs)}:` +
             `${JSON.stringify(variationOptionValueRefs)}`,
         ),
         object: {
@@ -1764,7 +1806,6 @@ export function createSquareCatalogWriter(env, opts = {}) {
             customAttributeValues: customAttributeValues({
               styleId: resolvedStyleId,
               commissionPct: resolvedCommissionPct,
-              itemUnitCostMinor: resolvedItemUnitCostMinor,
             }),
             vendorInfos,
             itemOptionRefs: resolvedItemOptionExternalRefs,

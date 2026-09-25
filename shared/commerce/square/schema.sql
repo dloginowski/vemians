@@ -307,13 +307,9 @@ CREATE TABLE mirror_product (
   -- field, zero to a hundred, integer... that's only for vendors —
   -- anything that has a vendor, it has a commission." Square has no
   -- concept of a resale commission at all, so unlike vendor/cost there is
-  -- nothing of Square's to move this onto. Cost-of-goods for a product
-  -- with NO vendor also stays put, in the pre-existing `custom_fields`
-  -- free-text entry above — Square's own unit_cost_money lives inside
-  -- vendor_information, which needs a vendor to attach to, so it simply
-  -- has no home for something this shop produces itself. The vendor-
-  -- requires-commission rule is checked in catalog.set_square_attributes
-  -- and catalog.create_product rather than as a CHECK constraint here (a
+  -- nothing of Square's to move this onto. The vendor-requires-commission
+  -- rule is checked in catalog.set_square_attributes and
+  -- catalog.create_product rather than as a CHECK constraint here (a
   -- constraint cannot see "the OTHER value this same call is also
   -- setting").
   --
@@ -323,30 +319,28 @@ CREATE TABLE mirror_product (
   -- the fact this column exists to reflect), but an item that names a
   -- vendor and no commission of its own gets the vendor's own on-file rate
   -- copied in here automatically, rather than being asked to restate it.
+  --
+  -- REVISED YET AGAIN, THEN WALKED BACK — a real transcript: "you created a
+  -- cost USD [custom field] instead of putting it into the actual cost
+  -- attribute that already exists for all items." That round introduced
+  -- item_unit_cost_minor, a vendor-independent Square Custom Attribute
+  -- (key "unit_cost"), read ONLY for a product with no vendor at all. The
+  -- owner rejected that mechanism outright on the very next pass: "cost
+  -- must always be a built-in attribute we serve, not a custom attribute —
+  -- this has nothing to do with vendors [conceptually], but every item
+  -- must have one associated with it." The fix is not a fourth mechanism —
+  -- it retires the third: every product with no REAL vendor is now, by
+  -- construction, assigned the built-in "In-house" vendor
+  -- (ops/src/tools/catalog-writer.js's own INHOUSE_VENDOR_NAME, resolved/
+  -- created in Square exactly like any other vendor name). "No vendor at
+  -- all" is no longer a state this shop's own data can be in — a product
+  -- either has a real external vendor, or it has "In-house" — so cost
+  -- ALWAYS lives on vendor_information.unit_cost_money (mirror_variant,
+  -- below), the one real, pre-existing, per-variation Square mechanism,
+  -- with no second code path and no column here to keep in sync with it.
+  -- item_unit_cost_minor and its custom attribute are gone; nothing reads
+  -- or writes them any more.
   commission_pct     INTEGER,
-  -- REVISED YET AGAIN — a real transcript: "you created a cost USD [custom
-  -- field] instead of putting it into the actual cost attribute that
-  -- already exists for all items... that's not the official place." The
-  -- "cost-of-goods... stays put in custom_fields" decision two paragraphs
-  -- above turned out to be the wrong call once a real batch import made a
-  -- vendor-less product common rather than hypothetical: a spreadsheet's
-  -- own Cost column, with no Vendor column to go with it, was landing as a
-  -- raw, free-text custom field instead of anything Square-authoritative.
-  -- item_unit_cost_minor is style_id/commission's own mechanism a third
-  -- time — a plain Square Custom Attribute (key "unit_cost"), STRING-typed
-  -- exactly like commission (a minor-units integer, stored as a string),
-  -- read here ONLY as a fallback for a product with no vendor at all;
-  -- vendor_information.unit_cost_money (mirror_variant, vendor-scoped)
-  -- still wins whenever a vendor genuinely exists — nothing about a
-  -- vendor's own per-variation cost tracking changed. Always USD: "we
-  -- don't need to have a USD... property either — everything is in USD" —
-  -- the owner's own words, so no currency column rides alongside this one,
-  -- unlike vendor_information's own unit_cost_currency. NOT NULL DEFAULT 0,
-  -- the same convention every other `_minor` column in this schema already
-  -- follows (Test-PRD-P0-15-money_minor_units) — 0 reads as "no cost given
-  -- yet," the identical simplification mirror_variant.unit_cost_minor's own
-  -- comment already makes for a vendor WITH no cost of its own stated.
-  item_unit_cost_minor INTEGER NOT NULL DEFAULT 0,
   category_id        TEXT REFERENCES mirror_category(id),
   source_version     INTEGER NOT NULL DEFAULT 0,  -- Square's optimistic-concurrency version
   archived_at        TEXT,
@@ -357,7 +351,7 @@ CREATE INDEX idx_mirror_product_style_id ON mirror_product (style_id);
 
 CREATE VIEW mirror_product_index AS
 SELECT id, external_ref, handle, title, source_description, status, channel,
-       custom_fields, style_id, commission_pct, item_unit_cost_minor, category_id, source_version, synced_at
+       custom_fields, style_id, commission_pct, category_id, source_version, synced_at
 FROM mirror_product WHERE archived_at IS NULL;
 
 -- Which Option Sets an ITEM itself declares (Square's own item_data.

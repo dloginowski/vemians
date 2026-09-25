@@ -101,6 +101,7 @@ import {
   categoryItemOptionsSetAt,
   deriveCategoryIdForStyleId,
   effectiveCategoryItemOptionIds,
+  INHOUSE_VENDOR_NAME,
   listCategories,
   listCustomFieldNames,
   listItemOptions,
@@ -864,11 +865,11 @@ export const catalogWriteTools = {
       "Square Vendor entity (Retail Plus/Premium), reused by name or created; vendor_code lives on that " +
       "same vendor association (see catalog.set_square_attributes for the full description of each) " +
       "and is refused without one. `unit_cost_minor` — what this shop paid for the item — is NEVER " +
-      "refused for lack of a vendor: WITH one, it lives on that same vendor association (Square's own " +
-      "vendor_information, so a different vendor can quote a different cost for the identical item); " +
-      "WITHOUT one, it is its own Square Custom Attribute instead, \"the actual cost attribute that " +
-      "already exists for all items\" — never `custom_fields`, and never invented under a made-up " +
-      "vendor just to give it a home. `commission` is NOT re-stated for every item from a " +
+      "refused for lack of a vendor: it always lives on Square's own vendor_information (a different " +
+      "vendor can quote a different cost for the identical item), and a product given no `vendor` at " +
+      "all is automatically assigned the built-in \"In-house\" vendor instead of being left without " +
+      "one — \"no vendor at all\" is not a state this shop's own data can be in any more, and cost is " +
+      "never `custom_fields`. `commission` is NOT re-stated for every item from a " +
       "vendor already known: a vendor's own rate is centralized (mirror_vendor.commission_pct, OURS, " +
       "not Square's — Square has no concept of a resale commission at all) and copied onto a new " +
       "product automatically whenever `vendor` is given with no `commission` of its own — refused only " +
@@ -887,8 +888,9 @@ export const catalogWriteTools = {
       "\"<category name> <n>\", n being 1 past however many products already sit in that category, " +
       "counting up across the rest of the same batch as more title-less rows land in it — never ask a " +
       "person to invent a name for a row that plainly has none. Give `unit_cost_minor` whenever a row " +
-      "states one, with or without a vendor — it always has a real home now (above), never `custom_fields`. " +
-      "WITH a vendor, also give " +
+      "states one, with or without a vendor named — a row with none gets the built-in \"In-house\" " +
+      "vendor automatically (above), never `custom_fields`. " +
+      "WITH a real vendor named, also give " +
       "commission only for that vendor's OWN FIRST row (or omit it entirely and let this tool refuse, " +
       "naming exactly which vendor still needs one) — do not ask a person to repeat a vendor's own " +
       "commission on every row, it is privileged information and this tool already carries it forward " +
@@ -919,11 +921,13 @@ export const catalogWriteTools = {
     },
     async check(args, t) {
       const problems = validateProposal(args);
-      /* unit_cost_minor is deliberately NOT in this list any more —
-         "the actual cost attribute that already exists for all items,"
-         the owner's own words, refusing the earlier custom_fields
-         workaround for a vendor-less row. See catalog-writer.js's own
-         itemUnitCostMinor comment for where it actually lives without one. */
+      /* unit_cost_minor is deliberately NOT in this list — it is never
+         refused for lack of a vendor, because a row with none named still
+         gets one: catalog-writer.js auto-assigns the built-in "In-house"
+         vendor whenever no real vendor is given. commission/vendor_code
+         stay refused without an EXPLICIT vendor, though — they are facts
+         about a real outside supplier relationship, and naming none here
+         must not silently attach them to the "In-house" placeholder. */
       const needsVendor = ["commission", "vendor_code"].filter((k) => args[k] !== undefined);
       if (needsVendor.length && !args.vendor) {
         problems.push(
@@ -1908,18 +1912,19 @@ export const catalogWriteTools = {
       "not apply to an edit): give one, or leave it as it is. One already assigned to another product " +
       "is never refused outright, though — it bumps to the next unused index under that same " +
       "category/subcategory pair instead, and the summary says so before anyone approves it. vendor is a plain name: an " +
-      "existing Square Vendor with that name is reused, or a new one is created. vendor_code is the " +
-      "VENDOR's own SKU/product code for this item (their invoice/catalog identifier — never Square's " +
-      "own `sku`, never this shop's `style_id`), and only makes sense for a product that HAS a vendor " +
-      "— refused for one with none. unit_cost_minor is what this shop paid, integer minor units like " +
-      "every other price in this codebase — NEVER refused for lack of a vendor: WITH one, it lives on " +
-      "that same vendor association (Square's own vendor_information); WITHOUT one, it is its own " +
-      "Square Custom Attribute instead, \"the actual cost attribute that already exists for all " +
-      "items\" — never `custom_fields`, and never a reason to invent a vendor just to give it a home. " +
+      "existing Square Vendor with that name is reused, or a new one is created. Every product HAS a " +
+      "vendor — one given a real name here, or the built-in \"In-house\" vendor it already carries " +
+      "when none has ever been set. vendor_code is the VENDOR's own SKU/product code for this item " +
+      "(their invoice/catalog identifier — never Square's own `sku`, never this shop's `style_id`), " +
+      "and only makes sense for a product with a REAL, named vendor — refused without one (naming no " +
+      "vendor at all still means \"In-house\", which has no invoice code of its own). unit_cost_minor is " +
+      "what this shop paid, integer minor units like every other price in this codebase, and lives on " +
+      "that same vendor association (Square's own vendor_information) regardless of which vendor that " +
+      "is — never refused for lack of a NAMED vendor, since \"In-house\" is a real one underneath. " +
       "commission is an integer 0-100 (a percentage) — the owner's own words: \"that's only for " +
       "vendors — anything that has a vendor, it has a commission\" — so unlike unit_cost_minor, it " +
-      "genuinely only makes sense for a product that HAS one, resolved from whatever this same call " +
-      "also sets, and is refused for one with none. `commission` is NOT re-stated for every item, " +
+      "only makes sense for a product with a REAL, named vendor, resolved from whatever this same call " +
+      "also sets, and is refused otherwise. `commission` is NOT re-stated for every item, " +
       "though: a vendor's own rate is centralized (mirror_vendor.commission_pct, OURS, not Square's) " +
       "and copied onto THIS product automatically whenever `vendor` is being (re)assigned here with no " +
       "`commission` of its own — refused only when that vendor genuinely has nothing on file yet. An " +
@@ -1927,11 +1932,11 @@ export const catalogWriteTools = {
       "applied the same way to every future item from it — reassigning a product to a DIFFERENT vendor " +
       "with no fresh commission adopts THAT vendor's own on-file rate, never the product's previous " +
       "vendor's own leftover value. Give any subset to leave the rest untouched. Give vendor to set " +
-      "it, or clear_vendor: true (not both) to remove the existing vendor association entirely — " +
-      "clearing it also clears vendor_code/commission for this product (neither applies without a " +
-      "vendor); unit_cost_minor is UNAFFECTED by clear_vendor — give it again in the same call if this " +
-      "product's cost should move from the vendor's own record onto its own Custom Attribute instead, " +
-      "or it is simply left as whatever it already was. " +
+      "it, or clear_vendor: true (not both) to reassign it back to the built-in \"In-house\" vendor — " +
+      "never to no vendor at all, which is not a state this shop's data can be in — clearing it also " +
+      "clears vendor_code/commission (neither applies to \"In-house\") and resets unit_cost_minor to 0 " +
+      "unless this SAME call also gives a fresh one: a different vendor relationship starts its own " +
+      "cost, never carries the old vendor's figure over. " +
       "NONE of these is the SKU on a variation: Square assigns that automatically and nothing in " +
       "this codebase ever sets it, reads it for anything but display, or treats it as this shop's " +
       "own nomenclature.",
@@ -1988,11 +1993,14 @@ export const catalogWriteTools = {
         excludeProductId: existing.id,
       });
 
-      const resultingVendor = args.clear_vendor ? null : args.vendor !== undefined ? args.vendor : existing.vendor;
+      const resultingVendor = args.clear_vendor ? INHOUSE_VENDOR_NAME : args.vendor !== undefined ? args.vendor : existing.vendor;
       /* unit_cost_minor deliberately excluded — see catalog.create_product's
-         own identical comment on its own needsVendor, above. */
+         own identical comment on its own needsVendor, above. "In-house" —
+         the built-in vendor every no-vendor product now carries — counts
+         as no REAL vendor for this purpose, same as clearing outright used
+         to: it has no invoice code and no resale commission of its own. */
       const needsVendor = ["commission", "vendor_code"].filter((k) => args[k] !== undefined);
-      if (needsVendor.length && !resultingVendor) {
+      if (needsVendor.length && (!resultingVendor || resultingVendor === INHOUSE_VENDOR_NAME)) {
         return {
           denied:
             `'${args.handle}' has no vendor, so ${needsVendor.join("/")} do${needsVendor.length > 1 ? "" : "es"} not apply — ` +
@@ -2035,19 +2043,12 @@ export const catalogWriteTools = {
               ? null
               : existing.commission_pct;
       const resultingVendorCode = args.vendor_code !== undefined ? args.vendor_code : args.clear_vendor ? null : existing.vendor_code;
-      /* 0, not null: mirror_variant.unit_cost_minor is NOT NULL DEFAULT 0 —
-         a variation with no vendor_information at all (mirror.js's own
-         sync, `toStorableMinor(v.unitCost?.amountMinor ?? 0n, ...)`) reads
-         back as 0, never null, so a genuinely vendor-less product's
-         existing.unit_cost_minor (the VENDOR-tied column) is already 0
-         too; clearing must resolve to that same value or this no-op check
-         below would never match. Which column is "current" depends on
-         whether this product already has a vendor: `existing.vendor` means
-         cost so far came from vendor_information (v0.unit_cost_minor);
-         with none, it came from item_unit_cost_minor instead — "the actual
-         cost attribute that already exists for all items," never
-         `custom_fields`. */
-      const currentEffectiveUnitCostMinor = existing.vendor ? existing.unit_cost_minor : (existing.item_unit_cost_minor ?? 0);
+      /* Every product has a real vendor now (a supplier's, or "In-house"),
+         so cost always comes from vendor_information — one column, no
+         fallback to pick between any more. 0, not null: mirror_variant.
+         unit_cost_minor is NOT NULL DEFAULT 0, so "no cost given yet"
+         already reads as 0 here, exactly what clearing resolves to too. */
+      const currentEffectiveUnitCostMinor = existing.unit_cost_minor;
       const resultingUnitCostMinor = args.unit_cost_minor !== undefined ? args.unit_cost_minor : args.clear_vendor ? 0 : currentEffectiveUnitCostMinor;
       if (
         resultingStyleId === existing.style_id &&
@@ -2062,7 +2063,7 @@ export const catalogWriteTools = {
       const changes = [
         resolvedStyleId !== undefined ? `style_id -> ${resolvedStyleId}${styleIdNote ? ` (${styleIdNote})` : ""}` : null,
         args.vendor !== undefined ? `vendor -> ${args.vendor}` : null,
-        args.clear_vendor ? "vendor -> (none)" : null,
+        args.clear_vendor ? `vendor -> ${INHOUSE_VENDOR_NAME}` : null,
         args.vendor_code !== undefined ? `vendor_code -> ${args.vendor_code}` : null,
         args.unit_cost_minor !== undefined ? `unit_cost_minor -> ${args.unit_cost_minor}` : null,
         args.commission !== undefined ? `commission -> ${args.commission}%` : null,
@@ -2103,17 +2104,31 @@ export const catalogWriteTools = {
             : args.clear_vendor
               ? null
               : undefined;
-      /* vendor: "" is updateProduct's own "clear it" signal (catalog-writer.js:
-         `vendor ? await vendorRef(vendor) : null`, reached only when vendor
-         !== undefined) — clear_vendor: true translates to exactly that,
-         never a real vendorRef lookup/create against Square for an empty
-         name. */
+      /* vendor: "" is updateProduct's own "reassign to In-house" signal
+         (catalog-writer.js: `vendorRefOrInHouse(vendor)`, reached only when
+         vendor !== undefined) — clear_vendor: true translates to exactly
+         that, never a real vendorRef lookup/create against Square for an
+         empty name. */
       const out = await t.square.updateProduct({
         handle: args.handle,
         styleId: t.preflight.styleId,
         vendor: args.clear_vendor ? "" : args.vendor,
-        vendorCode: args.vendor_code,
-        unitCostMinor: args.unit_cost_minor,
+        /* Explicit null on clear_vendor, the same "resend the whole thing"
+           reasoning commissionPct just above already follows — without
+           this, updateProduct's own "not given -> keep the current value"
+           fallback would carry the OLD vendor's own code onto the new
+           "In-house" vendor_information. Harmless before this rule existed
+           (a truly vendor-less product sent no vendor_information at all,
+           so vendor_code was silently dropped either way), but "In-house"
+           means vendor_information IS always sent now, so a stale value
+           would actually reach Square this time. */
+        vendorCode: args.clear_vendor ? null : args.vendor_code,
+        /* Same reasoning as vendorCode just above: without this, a
+           per-variation cost left over from the OLD vendor would leak
+           onto "In-house" instead of starting at 0 — updateProduct's own
+           describe text already promises a fresh vendor relationship
+           never carries the old one's cost over. */
+        unitCostMinor: args.clear_vendor ? 0 : args.unit_cost_minor,
         commissionPct,
         ...(derivedCategoryId ? { categoryId: derivedCategoryId } : {}),
       });
@@ -2544,6 +2559,60 @@ export const catalogWriteTools = {
         ...(emptyNames?.length ? { options_with_no_values_yet: emptyNames } : {}),
         authority: "square",
       };
+    },
+  },
+
+  /*
+   * One-time backfill for the "In-house" vendor rule: schema.sql's own
+   * comment on mirror_product.commission_pct has the full history, but in
+   * short — "for all items that do not have a vendor, they're now
+   * considered In-house... this has nothing to do with vendors
+   * [conceptually], but every item must have [a cost] associated with it,"
+   * the owner's own words. Every product created before this rule existed
+   * that never had a vendor named still has vendor_id: null on its own
+   * ordinal-0 variation; going forward, createProduct/updateProduct assign
+   * "In-house" automatically, but nothing retroactively touches a product
+   * nobody edits again. This tool is that one retroactive pass, run once.
+   */
+  "catalog.assign_inhouse_vendor": {
+    tier: "T2",
+    domain: "catalog",
+    stores: ["catalog_mirror"],
+    resources: ["square"],
+    minRole: "manager",
+    describe:
+      "One-time backfill: reassign the built-in \"In-house\" vendor to every product that currently has " +
+      "no vendor at all (from before that became automatic on every create/update). Each affected " +
+      "product gets a real Square write — vendor -> In-house, everything else about it untouched — then " +
+      "the mirror syncs back. Idempotent: a product already on \"In-house\" or a real named vendor is " +
+      "not touched again, so this is safe to run more than once (a later call simply finds nothing left " +
+      "to do). Call this once after the \"In-house\" rule ships; there is no need to run it on a " +
+      "schedule — every NEW product already gets a vendor at creation time.",
+    undo: "no undo: reassign a specific product back to a real vendor with catalog.set_square_attributes if one turns out to actually apply",
+    schema: {
+      reason: { type: "string", required: true, maxLength: CAPS.MAX_TEXT },
+    },
+    async check(args, t) {
+      const count = await t.db.catalog_mirror
+        .prepare(
+          `SELECT COUNT(*) AS n FROM mirror_product_index p
+             JOIN mirror_variant_index v0 ON v0.product_id = p.id AND v0.ordinal = 0
+            WHERE v0.vendor_id IS NULL`,
+        )
+        .bind()
+        .first("n");
+      if (!count) {
+        return { ok: true, summary: `every product already has a vendor — nothing to backfill`, preflight: {} };
+      }
+      return {
+        ok: true,
+        summary: `reassign the built-in "In-house" vendor to ${count} product${count === 1 ? "" : "s"} that currently ${count === 1 ? "has" : "have"} none at all — ${args.reason}`,
+        preflight: {},
+      };
+    },
+    async run(_args, t) {
+      const { applied, errors } = await t.square.assignInHouseVendorToVendorlessProducts();
+      return { products_assigned: applied, errors, authority: "square" };
     },
   },
 

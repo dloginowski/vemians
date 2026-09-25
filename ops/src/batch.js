@@ -1004,14 +1004,14 @@ function draftNamedCategoryProduct(category, resolutionError, nextAutoTitle, rec
       commission = undefined;
     }
   }
-  /* REVISED — "you created a cost USD [custom field] instead of putting it
-     into the actual cost attribute that already exists for all items,"
-     the owner's own words. A cost value no longer needs a vendor at all:
-     catalog.create_product now stores it as its own Square Custom
-     Attribute when there is none (catalog-writer.js's own
-     itemUnitCostMinor), never custom_fields -- this used to be gated on
-     `vendor &&` specifically because vendor_information (Square's own
-     vendor-tied cost) was the ONLY place cost could live at all. */
+  /* REVISED YET AGAIN — a cost value no longer needs a vendor NAMED in this
+     row at all: catalog.create_product resolves the built-in "In-house"
+     vendor automatically when a row gives none (catalog-writer.js's own
+     vendorRefOrInHouse), so cost always lands on the real, vendor-tied
+     vendor_information -- never custom_fields, and no longer a separate
+     Custom Attribute either. This used to be gated on `vendor &&`
+     specifically because vendor_information was the ONLY place cost could
+     live at all, and a vendor-less row had no vendor to attach it to. */
   const unitCostRaw = pick(record, UNIT_COST_KEYS);
   let unitCostMinor;
   if (unitCostRaw) {

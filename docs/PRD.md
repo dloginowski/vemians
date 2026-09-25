@@ -7513,6 +7513,68 @@ that does not trace to one of these is a process failure (see §12).
     this closes the remaining gap — the one store it DOES legitimately read, `CATALOG_MIRROR`, also holds
     ops-only columns, and reading that store at all does not mean every column in it is fair game.
 
+    **REVISED — `item_unit_cost_minor` no longer exists; its own leak surface moved to `mirror_variant`/
+    `mirror_vendor` instead.** P0-152's own final entry below retires the vendor-independent cost Custom
+    Attribute this entry originally listed as one of the four ops-only `mirror_product` columns — cost now
+    always lives on the real, pre-existing vendor-tied mechanism (`vendor_id`, `vendor_code`,
+    `unit_cost_minor`, `unit_cost_currency` on `mirror_variant`, joined to `mirror_vendor`), the same one a
+    real supplier's cost always used. `OPS_ONLY_COLUMNS` (store/test/storefront.test.mjs) dropped to three
+    (`custom_fields`, `style_id`, `commission_pct`); the belt-and-braces data check now ALSO seeds a real
+    `mirror_vendor` row and a variation's own `vendor_id`/`vendor_code`/`unit_cost_minor` to prove that path
+    leaks nothing either, on top of what it already checked. `MIRROR_SQL`/`PRODUCT_SQL`'s own structural
+    check already asserted "no vendor-related text at all," unchanged and still true.
+
+87. **`Test-PRD-P0-154-inhouse_vendor`** — Reacting to P0-153 above (the immediately preceding entry,
+    same session): "cost USD is the actual cost... don't, you know, that's not the, uh, like, we need only
+    specific columns" was read as approval of the vendor-independent `item_unit_cost_minor` Custom
+    Attribute (P0-152's own "REVISED YET AGAIN, THEN WALKED BACK" entry has the play-by-play). The owner
+    rejected that mechanism directly on the very next pass: "didn't we create a custom cost database
+    value?... custom attributes are what user defines... this is not a custom attribute you're just
+    tacking on using the UI. No, this is a built-in attribute that we always serve, and this should always
+    exist for any item. This has nothing to do with vendors." Then, told plainly that Square's only
+    built-in item-level cost mechanism (`vendor_information.unit_cost_money`) requires a real Vendor
+    entity: "let's do In-house. I like that. This is the vendor... for all items that do not have a
+    vendor, they're now considered In-house, and it should have a cost associated with that."
+
+    **The fix retires the third mechanism rather than inventing a fourth.** "No vendor at all" is no
+    longer a state this shop's data can be in: `catalog-writer.js`'s new `INHOUSE_VENDOR_NAME` ("In-house")
+    is a real Square Vendor, resolved-or-created through the exact same `vendorRef()` every named vendor
+    already goes through — never a special case Square itself would treat differently.
+    `createProduct`/`updateProduct` both resolve vendor through `vendorRefOrInHouse(vendor)`: a fresh
+    product naming no vendor gets "In-house" automatically, and `catalog.set_square_attributes`'s own
+    `clear_vendor: true` now reassigns to "In-house" instead of landing on no vendor at all — `run()`
+    explicitly zeroes `vendor_code`/`unit_cost_minor` on that path too, so a fresh vendor relationship
+    (even to the built-in one) never silently inherits the OLD vendor's own code or cost. `commission`/
+    `vendor_code` still require a REAL, explicitly named vendor — "In-house" counts as no vendor at all for
+    that specific check, since it has no invoice code and pays no resale commission to anyone.
+    `item_unit_cost_minor` (`mirror_product`, the whole column) and its Custom Attribute (`customAttributeValues`'
+    own `unit_cost` key) are gone outright — deleted from schema.sql, mirror.js's sync, catalog.js's
+    normaliser, and every read path in catalog-writer.js — not deprecated in place, since nothing yet
+    depended on it surviving.
+
+    **Deliberately narrow: an unrelated edit to a legacy vendor-less product does NOT silently reassign
+    it.** A title or price change on a product from before this rule existed leaves its vendor exactly as
+    it was — reassigning vendor as an unannounced side effect of an edit that was not about vendor or cost
+    would be a surprise, not a fix. The ONE exception: a `catalog.set_square_attributes` call that IS
+    setting `unit_cost_minor` on such a product resolves it to "In-house" right then, since "unit_cost_minor
+    is never refused for lack of a vendor" (the tool's own long-standing promise) means the cost has to
+    land somewhere real. Every other legacy vendor-less product is caught by the new, explicit, one-time
+    `catalog.assign_inhouse_vendor` (T2, manager+) — walks every product with `vendor_id IS NULL` on its own
+    ordinal-0 variation and reassigns each to "In-house" through the ordinary `updateProduct` path,
+    `applied`/`errors` accumulated exactly like `catalog.apply_category_item_options_to_products`'s own
+    bulk-write shape; idempotent, so running it twice finds nothing left to do the second time.
+
+    **A related, unrelated bug found and fixed in the same change:** `item_unit_cost_minor`
+    (`mirror_product`) was added to `schema.sql` in P0-152's own "REVISED YET AGAIN" round, but no
+    corresponding numbered file was ever added to `ops/migrations/catalog_mirror/` — the ONE mechanism
+    (`ops/migrations/catalog_mirror/README.md`) that actually reaches production D1, applied by
+    `wrangler d1 migrations apply` in `deploy-workers.yml`'s own "Migrate catalog mirror schema" step.
+    `mirror.js`'s own `syncCatalog` named that column unconditionally in its INSERT/UPDATE for every single
+    product, so production's mirror almost certainly never had the column at all, meaning every catalog
+    sync since that PR deployed was very likely failing outright. Retiring the column here removes every
+    reference to it rather than backfilling the missing migration — the fix and the incident cancel out in
+    the same change.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
