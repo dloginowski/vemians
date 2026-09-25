@@ -1107,6 +1107,21 @@ const MIC_ICON = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="t
 const MIC_STOP_ICON = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">` +
   `<rect x="4.5" y="4.5" width="7" height="7" rx="1" fill="currentColor"/></svg>`;
 
+/* "I should be able to have the agent automatically give me a list of all
+   the tools that I can click on" — asked, then walked back once the
+   front page's own recorded history came up: "No dev. No examples. No
+   mcp. Just chat and common actions," the owner's own words, on why the
+   old technical reference section (the roster, the tier contract, the
+   sample data) was removed in favour of "the assistant itself... explains
+   in conversation when asked." Settled on the smaller version instead:
+   one button that ASKS that question for you, plain chat in, plain chat
+   out — never a technical list of tool names rendered on the page. */
+const HELP_ICON = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">` +
+  `<circle cx="8" cy="8" r="6.3" fill="none" stroke="currentColor" stroke-width="1.4"/>` +
+  `<path d="M6.1 6.2a1.9 1.9 0 1 1 2.9 1.6c-.6.4-.9.7-.9 1.3v.3" fill="none" stroke="currentColor" ` +
+  `stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>` +
+  `<circle cx="8" cy="11.4" r="0.75" fill="currentColor"/></svg>`;
+
 /* Items' own search bar (itemsPage()) — the owner's own words: "it needs a
    search button on the right instead of the submit chat... it might be a
    magnifying glass," matching SEND_ICON's own 16x16/1.4-stroke-width shape
@@ -1326,6 +1341,7 @@ ${id}
        (a fresh chat) exists above it. -->
   <form class="chat" id="chat" method="post" action="/ops/agent">
     <div class="chat-bar input-bar">
+      <button type="button" class="icon-btn" id="help-btn" aria-label="What can you do?" title="What can you do?">${HELP_ICON}</button>
       <button type="button" class="icon-btn" id="attach-btn" aria-label="Attach a photo or file" title="Attach a photo or file">${ATTACH_ICON}</button>
       <input name="q" id="q" placeholder='e.g. "Add a wool coat, $450, Outerwear"' autocomplete="off">
       <button type="button" class="icon-btn mic-btn" id="mic-btn" aria-label="Voice input" title="Voice input">${MIC_ICON}</button>
@@ -1709,6 +1725,20 @@ function pickedFile() {
 }
 
 qInput.addEventListener("input", updateSendState);
+
+/* "I should be able to have the agent automatically give me a list of all
+   the tools that I can click on" — settled, after the front page's own
+   "just chat, no dev, no examples" history came up, on the smaller
+   version: one button that sends the question for you, same as if it had
+   been typed — never a rendered list of tool names. Plain chat in
+   ("What can you do?"), plain chat reply out, through the exact same
+   /ops/agent path every other message already takes. */
+const helpBtn = document.getElementById("help-btn");
+helpBtn.addEventListener("click", () => {
+  qInput.value = "What can you do?";
+  updateSendState();
+  document.getElementById("chat").requestSubmit();
+});
 
 attachBtn.addEventListener("click", () => {
   if (pickedFile()) {

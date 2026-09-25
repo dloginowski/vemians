@@ -77,6 +77,18 @@ check("test_PRD_P0_83_quick_prompts_route_through_chat__the_skip_menu_reply_does
   assert.match(clause, /do not greet them by name/i);
 });
 
+check("test_PRD_P0_156_ask_what_it_can_do__answering_it_never_lists_tool_names_at_any_point_in_the_conversation", () => {
+  /* The help button (ops-page.test.mjs's own P0-156 test) sends this exact
+     question at any point in a conversation, not only as the first
+     message's own menu — the model must answer it the same short, plain
+     way every time, and must never fall back to listing tool names,
+     domains or schemas just because this arrived mid-conversation rather
+     than as the "More Options" choice. */
+  const text = systemPrompt("ana@vemians.com", "staff", [], { given_name: "Ana" });
+  assert.match(text, /what can you do.*any point/i);
+  assert.match(text, /never list tool names, domains, tiers or schemas/i);
+});
+
 test("test_PRD_P0_30_prd_traceability__every_label_used_here_exists_in_the_prd", async () => {
   const { readFileSync } = await import("node:fs");
   const { fileURLToPath } = await import("node:url");
