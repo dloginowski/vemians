@@ -6778,6 +6778,35 @@ that does not trace to one of these is a process failure (see §12).
       minted only in `run()`, never given by a caller) is this system's own responsibility to keep
       unique, not checked here.
 
+    **REVISED YET AGAIN — a genuine clash is parked as an ordinary, EDITABLE approval, not silently
+    resolved and not a bare skip.** The owner's own words, refining the walk-back just above: "the only
+    time you want to do an approval link is if there's a clash and it has to be resolved by a person."
+    Read together with everything above, this draws the actual line between three outcomes, not two:
+    - **Genuinely absent, nothing to decide** (no vendor and no unit cost at all; a category code
+      matching nothing with no name to create one from; a malformed commission/unit-cost/vendor-code/
+      quantity value) stays exactly as the walk-back above made it — automatic, defaulted or dropped,
+      noted in `custom_fields["import notes"]`, created immediately. Nothing here disagrees with
+      anything; there is nothing for a person to resolve.
+    - **A genuine CLASH — two real facts disagree, or a refusal only a person can act on** (a category
+      name already numbered differently than a row's own style-number claim; a category or subcategory
+      Square's own near-duplicate-name check genuinely refuses to create; a SKU already used by a
+      different product; a vendor named with no commission on file yet; a price that will not parse) is
+      now PARKED as an ordinary T2 approval (`parkForApproval`) instead of the walk-back's own
+      "unassigned, noted" or "hard skip" treatment. Reusing the exact same editable-approval mechanism
+      every other T2 write already has (P0-63 — "a person reviewing the prefilled form may have fixed a
+      typo'd title or a wrong price before clicking 'Yes, do this'," approvals.js's own words) rather
+      than inventing a new "recommend a fix, click yes/no" UI — "if you can already automatically do
+      this, then do it. Don't reinvent the wheel," the owner's own words from the very same message.
+      `draftProductBatch` returns a THIRD bucket, `ready`, alongside `created` and `skipped` — the same
+      shape a customer batch's own `parkRows` has always returned, now shared by products for exactly
+      the clash case. `createRows`' own `settle()` and the new `parkClashRows` share one discriminator
+      (`NOT_ROW_FIXABLE`): a refusal about the actor's OWN role or a rate cap has nothing a person
+      editing THIS row could fix, so those two stay a plain skip, unchanged.
+    - **A row this file simply cannot attempt at all is still not something this file invents** — there
+      is no fourth bucket; the two above are exhaustive, matching "if that's true, then add the product"
+      (unique SKU) and "if there's a clash... resolved by a person" (everything else that could not be
+      resolved automatically) as the complete rule, together.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
