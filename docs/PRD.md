@@ -3466,6 +3466,16 @@ that does not trace to one of these is a process failure (see §12).
     `overflow: auto`, untouched) — the identical trade-off this app has made everywhere else a table
     could get wide.
 
+    **REVISED — a missing value reads as a plain "—" now, not the wordier "(not found)".** The
+    owner's own words: "instead of using not found, just use the dash, just kind of like indicate
+    that it's not there... it's not available." `previewTable()`'s own null-to-text conversion
+    (`agent.js`) and `formatBatchPreview()`'s own per-field text summary both switch from
+    `"(not found)"` to `"—"` — the identical lightweight not-applicable marker `positionalField()`
+    (`batch.js`) already uses inside a per-variant list for one row missing a value some other row in
+    the same group actually has. One marker for "genuinely absent" everywhere in this table now,
+    rather than a longer, more alarming phrase for the whole-field case and a bare dash for the
+    per-variant case.
+
 56. **`Test-PRD-P0-121-chat_matches_items_flush_padding`** — P0-118 halved `.chat-top`'s own side
     padding (14px to 7px) but the owner still saw a visible gap: "I'm still seeing more padding on
     the agent chat... if you look at the items page, the items have much less side padding than

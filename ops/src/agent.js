@@ -567,7 +567,7 @@ function formatBatchPreview(kind, preview) {
   const shown = preview.sampleRows.slice(0, PREVIEW_TEXT_SAMPLE);
   const lines = shown.map((row, i) => {
     const fields = Object.entries(row)
-      .map(([field, value]) => `${field}=${value === null ? "(not found)" : value}`)
+      .map(([field, value]) => `${field}=${value === null ? "—" : value}`)
       .join(", ");
     return `  ${singular} ${i + 1}: ${fields}`;
   });
@@ -589,7 +589,13 @@ function previewTable(kind, preview) {
   return {
     title: `Preview: ${total} ${total === 1 ? singular : noun} interpreted from ${preview.rowCount} row${preview.rowCount === 1 ? "" : "s"}`,
     columns,
-    rows: preview.sampleRows.map((row) => columns.map((c) => (row[c] === null ? "(not found)" : String(row[c])))),
+    /* "Instead of using not found, just use the dash... kind of like
+       indicate that it's not there, it's not available" — the owner's own
+       words. A blank/missing field reads as a plain "—", the same
+       lightweight not-applicable marker positionalField() (batch.js)
+       already uses for a single missing value inside a per-variant list,
+       rather than the more alarming, wordier "(not found)". */
+    rows: preview.sampleRows.map((row) => columns.map((c) => (row[c] === null ? "—" : String(row[c])))),
     /* Collapsed to a small default height by CSS (TABLE_CARD_CSS's own
        .table-card.preview) — REVISED, no longer because the data itself was
        ever this small: it now carries every row/group the sheet was

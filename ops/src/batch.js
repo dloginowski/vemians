@@ -1533,7 +1533,7 @@ function mapProductGroup(base, groupRows) {
      real blank title in the actual product either (nextAutoTitle names
      it "<category> N") — a DB round trip this side-effect-free preview
      cannot reproduce exactly, so it says so in words instead of showing a
-     misleading "(not found)". */
+     misleading blank "—". */
   const titleCol = pick(first, TITLE_KEYS);
   const descriptionCol = pick(first, DESCRIPTION_KEYS);
   const title = titleCol || descriptionCol || "(auto-generated from its category)";
@@ -1603,7 +1603,7 @@ export function previewBatch(text, kind) {
      nobody else left blank must not shift what column N means in the
      table. Every mapped row gets the SAME keys, in the SAME order, so
      previewTable()'s columns (this file's own first row's keys) describe
-     every row correctly — a key a later row lacks reads "(not found)",
+     every row correctly — a key a later row lacks reads as a plain "—",
      the same as a known field that was left blank, not a raw "undefined". */
   const allKeys = [...new Set(mapped.flatMap((row) => Object.keys(row)))];
   const sampleRows = mapped.map((row) => Object.fromEntries(allKeys.map((k) => [k, k in row ? row[k] : null])));
