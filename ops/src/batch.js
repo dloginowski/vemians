@@ -521,8 +521,15 @@ const STYLE_NUMBER_BASE = /^\d+-\d+-\d+$/;
  *      than creating a confusing near-duplicate beside it — one existing
  *      category already correctly matches, "Outerwear" style, from before
  *      this sheet's own numbering convention existed at all. Already
- *      carrying a DIFFERENT real number is a genuine mismatch, reported
- *      rather than silently reassigned.
+ *      carrying a DIFFERENT real number is a genuine mismatch — REVISED,
+ *      "the only hard rule... is a unique SKU... if that's true, then add
+ *      the product": this shop's own already-established number wins
+ *      outright over this row's own conflicting claim, the exact same
+ *      "existing real data over a mismatched spreadsheet column" rule
+ *      already applied the other way (an existing NUMBER match ignores a
+ *      mismatched NAME column, below in draftGroupedProduct) — never
+ *      reassigned, never refused, this row simply lands on the category
+ *      that name already, really is.
  *   3. Neither matches anything — a brand-new category, named from `name`
  *      and given `code`, normalized to this shop's own two-digit
  *      convention, as its numeric_id. With no `name` either, returns
@@ -548,10 +555,11 @@ async function resolveCategoryByCode(env, { actor, role, categories, reserved, c
 
   const byName = name ? pool.find((c) => c.name.trim().toLowerCase() === name.trim().toLowerCase()) : null;
   if (byName) {
+    /* Already numbered, just not the way this row's own style number
+       claims -- the existing, real number wins outright. See this
+       function's own header comment for why. */
     if (byName.numeric_id != null && byName.numeric_id !== "") {
-      return {
-        error: `"${name}" already exists numbered "${byName.numeric_id}", not "${code}" as this row's own style number says — check for a mismatch`,
-      };
+      return { category: byName };
     }
     const key = `assign::${byName.id}`;
     if (cache.has(key)) return cache.get(key);
@@ -654,11 +662,26 @@ function autoTitler(existingCounts) {
  * The CATEGORY resolves by NUMBER (resolveCategoryByCode, above); the
  * SUBCATEGORY resolves by NAME instead (see this function's own body for
  * why — a real sheet's own subcategory digit turned out to be incompatible
- * with this shop's tree-wide-unique subcategory pool). A failure at ANY
- * step — category, subcategory, or any ONE row's own price/quantity —
- * skips the WHOLE group with that one clear reason, rather than creating a
- * product missing a size. No title column exists on a sheet like this, so
- * the first row's own Description stands in for it — "Black hand-painted
+ * with this shop's tree-wide-unique subcategory pool).
+ *
+ * REVISED: "the only hard rule here is that we must have a unique SKU
+ * number or ID for each item... if that's true, then add the product" —
+ * the owner's own words, walking back the earlier "a failure at any step
+ * skips the whole group" rule for everything EXCEPT a genuinely
+ * unparseable price. A category/subcategory this shop cannot resolve or
+ * create lands the product UNASSIGNED instead of skipping it (exactly the
+ * fallback catalog.create_product already tolerates on its own for a row
+ * naming no category at all); a malformed or policy-incomplete vendor/
+ * commission/unit-cost/vendor-code/quantity value is simply left out of
+ * the write rather than blocking it. Every one of these is noted in the
+ * product's own custom_fields (via `notes`, below) so nothing a person
+ * typed is silently thrown away, even when this file could not act on it.
+ * Only a row's own price is still a hard, unavoidable requirement — Square
+ * has no way to sell an item for an amount nobody gave it — and only a
+ * REAL SKU collision (catalog.create_product's own check(), now checking
+ * every explicit SKU against the whole shop, not just this one call) still
+ * refuses the row outright. No title column exists on a sheet like this,
+ * so the first row's own Description stands in for it — "Black hand-painted
  * blazer" reads exactly like a product name already.
  *
  * @returns { skip: {row, title, reason} } | { row: {rowNumber, title, args} }
@@ -670,7 +693,10 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
   const [catCode, subCode, indexCode] = base.split("-");
   const categoryNameCol = pick(first, CATEGORY_KEYS);
   const subcategoryNameCol = pick(first, SUBCATEGORY_KEYS);
-  const fallbackTitle = pick(first, TITLE_KEYS) || pick(first, DESCRIPTION_KEYS) || "(no title)";
+  /* Everything this function could not resolve or use is noted here in
+     plain text, rather than skipping the row over it — "the only hard
+     rule... is a unique SKU... if that's true, then add the product." */
+  const notes = [];
 
   const catOutcome = await resolveCategoryByCode(
     env,
@@ -678,20 +704,20 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
     catCode,
     categoryNameCol,
   );
+  let topCategory = null;
   if (catOutcome.error) {
-    return { skip: { row: firstRow, title: fallbackTitle, reason: `category ${catCode}: ${catOutcome.error}` } };
+    notes.push(`style number "${base}": category ${catCode}: ${catOutcome.error}`);
+  } else if (!catOutcome.category) {
+    notes.push(`style number "${base}": category ${catCode} matches no existing category, and no Category name column was given to create one from`);
+  } else {
+    topCategory = catOutcome.category;
   }
-  /* The category itself has nothing left to fall back to (there is no
-     "parent" above it) -- a SOFT null here (resolveCategoryByCode's own
-     "nothing matched, no name to create from" case) is fatal at this
-     level, unlike at the subcategory level just below. */
-  if (!catOutcome.category) {
-    return { skip: { row: firstRow, title: fallbackTitle, reason: `category ${catCode}: no existing category has this number, and no Category name column was given to create one from` } };
-  }
-  const topCategory = catOutcome.category;
 
   /* SUBCATEGORY: two different rules, picked by whether a Subcategory
-     NAME column exists at all.
+     NAME column exists at all -- only even attempted once a real
+     top-level category exists to nest under; a subcategory named beside
+     an unresolved top-level category has nowhere to go, and is simply
+     noted below rather than resolved.
      WITH a name column (the owner's own actual sample sheet) — resolves
      by NAME, NOT by number, REVISED against that real file: this shop's
      own subcategory numeric_id pool is TREE-WIDE unique (P0-138's own
@@ -703,7 +729,10 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
      category actually resolved above, the same mechanism P0-146's own
      Subcategory column already uses, auto-assigning THIS shop's own
      real, tree-wide-unique numeric_id (nextSubcategoryNumericId) rather
-     than the sheet's own locally-scoped one.
+     than the sheet's own locally-scoped one. A CREATE failure (a real
+     Square refusal, a rate cap) no longer skips the row either — it
+     simply leaves the product at the TOP-level category instead, already
+     resolved and already in scope, rather than nested one level deeper.
      WITH NO name column (a bare style_id, from before that column
      existed) — resolves by NUMBER instead, tree-wide, MATCH ONLY, never
      creating: the exact deriveCategoryIdForStyleId lookup this shop's
@@ -716,8 +745,8 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
      — the same "no automatic skip either way" tolerance a bare style_id
      has always gotten. */
   let category = topCategory;
-  let subCodeNormalized = String(Number(subCode)).padStart(2, "0");
-  if (subcategoryNameCol) {
+  let subCodeNormalized = topCategory ? String(Number(subCode)).padStart(2, "0") : null;
+  if (topCategory && subcategoryNameCol) {
     let subcategory = matchCategory(subcategoryNameCol, categories.filter((c) => c.parent_id === topCategory.id));
     if (!subcategory) {
       const outcome = await resolveOrCreateCategory(
@@ -726,19 +755,16 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
         subcategoryNameCol,
       );
       if (outcome.error) {
-        return {
-          skip: {
-            row: firstRow,
-            title: fallbackTitle,
-            reason: `subcategory "${subcategoryNameCol}" does not exist yet under "${topCategory.name}" and could not be created: ${outcome.error}`,
-          },
-        };
+        notes.push(`subcategory "${subcategoryNameCol}" does not exist yet under "${topCategory.name}" and could not be created: ${outcome.error} -- filed under "${topCategory.name}" itself instead`);
+      } else {
+        subcategory = outcome.category;
       }
-      subcategory = outcome.category;
     }
-    category = subcategory;
-    subCodeNormalized = subcategory.numeric_id;
-  } else {
+    if (subcategory) {
+      category = subcategory;
+      subCodeNormalized = subcategory.numeric_id;
+    }
+  } else if (topCategory) {
     const subNumeric = Number(subCode);
     const match = categories.find(
       (c) => c.parent_id && c.numeric_id != null && c.numeric_id !== "" && Number(c.numeric_id) === subNumeric,
@@ -747,6 +773,8 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
       category = match;
       subCodeNormalized = match.numeric_id;
     }
+  } else if (subcategoryNameCol) {
+    notes.push(`subcategory "${subcategoryNameCol}" was given without a resolvable category to nest it under`);
   }
 
   /* "You are getting the title of the items, the title, right? Not the
@@ -769,38 +797,44 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
      tool's own schema has no per-variation home for any of them) — read
      once, from the group's own first row. This file's own data keeps them
      identical across every row in a group anyway (only price, quantity,
-     SKU and the option values genuinely vary by size/color). */
+     SKU and the option values genuinely vary by size/color).
+     REVISED: none of these block the row anymore either — a malformed or
+     policy-incomplete value is simply left OUT of the write (noted, never
+     lost) rather than refusing the whole product over optional business
+     data catalog.create_product itself has never actually required
+     (confirmed by its own check() — only a vendor genuinely missing a
+     commission ON FILE is a real refusal, and that one is still relayed
+     verbatim from the tool itself, exactly like any other tool refusal). */
   const vendor = pick(first, VENDOR_KEYS);
   const commissionRaw = pick(first, COMMISSION_KEYS);
   let commission;
   if (commissionRaw) {
     commission = parseCommission(commissionRaw);
     if (commission === null) {
-      return { skip: { row: firstRow, title, reason: `commission "${commissionRaw}" is not a plain whole number like 20` } };
+      notes.push(`commission "${commissionRaw}" is not a plain whole number like 20 -- left unset`);
+      commission = undefined;
     }
   }
   const unitCostRaw = pick(first, UNIT_COST_KEYS);
-  const hasUnitCost = Boolean(unitCostRaw);
-  if (!vendor && !hasUnitCost) {
-    return { skip: { row: firstRow, title, reason: "no vendor and no unit cost — a product needs a vendor or a unit cost" } };
-  }
   let unitCostMinor;
-  if (vendor && hasUnitCost) {
+  if (vendor && unitCostRaw) {
     unitCostMinor = parsePriceToMinor(unitCostRaw);
     if (unitCostMinor === null) {
-      return { skip: { row: firstRow, title, reason: `unit cost "${unitCostRaw}" is not a plain number like 45.00` } };
+      notes.push(`unit cost "${unitCostRaw}" is not a plain number like 45.00 -- left unset`);
+      unitCostMinor = undefined;
     }
   }
   const vendorCode = pick(first, VENDOR_CODE_KEYS);
   if (vendorCode && !vendor) {
-    return {
-      skip: { row: firstRow, title, reason: `vendor code "${vendorCode}" was given without a vendor — it is the VENDOR's own SKU for this product` },
-    };
+    notes.push(`vendor code "${vendorCode}" was given without a vendor -- left unset`);
   }
 
-  /* One variation per row, in the sheet's own order. A bad price or
-     quantity on any ONE row skips the whole group -- a product silently
-     missing one of its own sizes is worse than not creating it yet. */
+  /* One variation per row, in the sheet's own order. A bad price on any
+     ONE row still skips the WHOLE group -- Square has no way to sell an
+     item for an amount nobody gave it, the one thing here that genuinely
+     cannot be left blank or defaulted. A bad quantity, unlike a bad
+     price, now just defaults to 1 (noted) rather than blocking the row —
+     the same tolerance a genuinely blank quantity cell already gets. */
   const variations = [];
   for (const { record, rowNumber, color, size, styleIdRaw } of groupRows) {
     const priceRaw = pick(record, PRICE_KEYS);
@@ -812,9 +846,11 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
     const quantityRaw = pick(record, QUANTITY_KEYS);
     let quantity = 1;
     if (quantityRaw) {
-      quantity = parseQuantity(quantityRaw);
-      if (quantity === null) {
-        return { skip: { row: rowNumber, title, reason: `quantity "${quantityRaw}" is not a plain whole number like 5` } };
+      const parsedQuantity = parseQuantity(quantityRaw);
+      if (parsedQuantity === null) {
+        notes.push(`row ${rowNumber}: quantity "${quantityRaw}" is not a plain whole number like 5 -- defaulted to 1`);
+      } else {
+        quantity = parsedQuantity;
       }
     }
     /* "Our customers need to see one size or small, medium, large... they
@@ -839,7 +875,12 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
        SKU" — the owner's own words. An explicit SKU column, when a sheet
        has one, still wins (the same "explicit wins" rule as above); with
        none, the row's own full style number — abbreviations and all,
-       verbatim — becomes this variation's own real, already-unique SKU. */
+       verbatim — becomes this variation's own real, already-unique SKU.
+       "The only hard rule here is that we must have a unique SKU number
+       or ID for each item... if that's true, then add the product" —
+       catalog.create_product's own check() now refuses a SKU it finds
+       already in use by any OTHER product in the shop, relayed as this
+       row's own skip reason exactly like a bad price is. */
     const sku = pick(record, SKU_KEYS) || styleIdRaw;
     variations.push({
       title: variationTitle,
@@ -851,16 +892,25 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
     });
   }
 
-  const knownKeys = vendor ? [...PRODUCT_KNOWN_KEYS, ...UNIT_COST_KEYS] : PRODUCT_KNOWN_KEYS;
+  /* unit_cost_minor is excluded from custom_fields ONLY once it actually
+     became a real argument above -- a vendor-less row, or one whose own
+     value would not parse, still preserves the raw text verbatim via
+     extraFields below, same as it always has. */
+  const knownKeys = unitCostMinor !== undefined ? [...PRODUCT_KNOWN_KEYS, ...UNIT_COST_KEYS] : PRODUCT_KNOWN_KEYS;
   const customFields = extraFields(first, knownKeys);
+  if (notes.length) customFields["import notes"] = notes.join("; ").slice(0, CAPS.CATALOG_CUSTOM_FIELD_VALUE_MAX);
+
   /* This shop's own style_id, built from the category/subcategory actually
      resolved above (always real, always two digits by now — never the
      sheet's own wider padding) plus the group's own item index, padded to
      this shop's own three digits the same way. A conflict with an
      already-used style_id is still resolveStyleId's own job
      (catalog.create_product) — bumped to the next free index, never
-     refused, exactly as it already works everywhere else. */
-  const styleId = `${topCategory.numeric_id}-${subCodeNormalized}-${String(Number(indexCode)).padStart(3, "0")}`;
+     refused, exactly as it already works everywhere else. With no real
+     category at all to build it from, style_id is left out entirely — the
+     product lands unassigned, its own intended style number preserved
+     verbatim above in `notes` instead. */
+  const styleId = topCategory ? `${topCategory.numeric_id}-${subCodeNormalized}-${String(Number(indexCode)).padStart(3, "0")}` : undefined;
 
   return {
     row: {
@@ -869,10 +919,10 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
       args: {
         title,
         ...(description ? { description } : {}),
-        category_id: category.id,
-        style_id: styleId,
+        ...(category ? { category_id: category.id } : {}),
+        ...(styleId ? { style_id: styleId } : {}),
         ...(vendor ? { vendor } : {}),
-        ...(vendorCode ? { vendor_code: vendorCode } : {}),
+        ...(vendorCode && vendor ? { vendor_code: vendorCode } : {}),
         ...(unitCostMinor !== undefined ? { unit_cost_minor: unitCostMinor } : {}),
         ...(commission !== undefined ? { commission } : {}),
         variations,
@@ -976,21 +1026,26 @@ export async function draftProductBatch(env, { text, actor, role }) {
     const subcategoryName = pick(record, SUBCATEGORY_KEYS);
     const priceRaw = pick(record, PRICE_KEYS);
     const currency = (pick(record, CURRENCY_KEYS) || "USD").toUpperCase();
+    /* Everything below that used to skip the row over optional or
+       unresolvable data is now just noted instead — "the only hard rule
+       here is that we must have a unique SKU number or ID for each
+       item... if that's true, then add the product." Only a genuinely
+       unparseable PRICE still skips a row outright, below — nothing else
+       here is something Square actually requires. */
+    const notes = [];
 
-    /* This loop is reached ONLY by a row with a genuinely BLANK style-id
-       cell (draftProductBatch's own split, above) — a sheet that does not
-       encode everything into one cell, resolving purely by NAME.
-       "Categories/subcategories should be made if missing. And ids
+    /* "Categories/subcategories should be made if missing. And ids
        assigned auto bumped" — the owner's own words. REVISED: "we can
        make categories with UI can't we? ... if UI works why can't
        agent?" — created immediately, right here (resolveOrCreateCategory,
        above), the same "check, then re-run with the token" pattern the
        Admin panel's own category form already uses, rather than parking a
        separate approval and making the uploader come back. A real
-       creation failure (a near-duplicate name, say) is relayed as this
-       row's own skip reason directly. A row naming NO category at all is
-       a genuinely different case, unaffected: no automatic skip either
-       way — it stays genuinely UNASSIGNED, exactly as catalog.
+       creation failure (a near-duplicate name, say) no longer skips the
+       row either — it lands unassigned instead, its own intended
+       category name preserved in `notes`. A row naming NO category at
+       all is a genuinely different case, unaffected: no automatic skip
+       either way — it stays genuinely UNASSIGNED, exactly as catalog.
        create_product already tolerates on its own. */
     let category = categoryName ? matchCategory(categoryName, categories) : null;
     if (categoryName && !category) {
@@ -1000,14 +1055,10 @@ export async function draftProductBatch(env, { text, actor, role }) {
         categoryName,
       );
       if (outcome.error) {
-        skipped.push({
-          row: rowNumber,
-          title: rawTitle || "(no title)",
-          reason: `category "${categoryName}" does not exist yet and could not be created: ${outcome.error}`,
-        });
-        continue;
+        notes.push(`category "${categoryName}" does not exist yet and could not be created: ${outcome.error}`);
+      } else {
+        category = outcome.category;
       }
-      category = outcome.category;
     }
     /* A SEPARATE Subcategory column (SUBCATEGORY_KEYS, above) — "Jacket"/
        "Blazer" as two distinct cells. Matched (or created) as a child of
@@ -1015,35 +1066,28 @@ export async function draftProductBatch(env, { text, actor, role }) {
        this row's own category — the same "the subcategory is the
        authoritative, more specific level" rule this file already applies
        when a style ID's own digits resolve to one instead. Given with no
-       category at all to nest under, this is refused up front, the same
-       treatment a vendor code given with no vendor already gets below. */
+       category at all to nest under, or a create failure of its own, this
+       is simply noted now — the row still lands wherever `category`
+       already resolved to (unassigned, or the top-level category alone). */
     if (subcategoryName) {
       if (!category) {
-        skipped.push({
-          row: rowNumber,
-          title: rawTitle || "(no title)",
-          reason: `subcategory "${subcategoryName}" was given without a category to nest it under`,
-        });
-        continue;
-      }
-      let subcategory = matchCategory(subcategoryName, categories.filter((c) => c.parent_id === category.id));
-      if (!subcategory) {
-        const outcome = await resolveOrCreateCategory(
-          env,
-          { actor, role, categories, reserved: reservedSubcategoryNumericIds, cache: categoryCache, parentId: category.id },
-          subcategoryName,
-        );
-        if (outcome.error) {
-          skipped.push({
-            row: rowNumber,
-            title: rawTitle || "(no title)",
-            reason: `subcategory "${subcategoryName}" does not exist yet under "${category.name}" and could not be created: ${outcome.error}`,
-          });
-          continue;
+        notes.push(`subcategory "${subcategoryName}" was given without a category to nest it under`);
+      } else {
+        let subcategory = matchCategory(subcategoryName, categories.filter((c) => c.parent_id === category.id));
+        if (!subcategory) {
+          const outcome = await resolveOrCreateCategory(
+            env,
+            { actor, role, categories, reserved: reservedSubcategoryNumericIds, cache: categoryCache, parentId: category.id },
+            subcategoryName,
+          );
+          if (outcome.error) {
+            notes.push(`subcategory "${subcategoryName}" does not exist yet under "${category.name}" and could not be created: ${outcome.error} -- filed under "${category.name}" itself instead`);
+          } else {
+            subcategory = outcome.category;
+          }
         }
-        subcategory = outcome.category;
+        if (subcategory) category = subcategory;
       }
-      category = subcategory;
     }
     /* Title is spelled from whichever category this row actually landed on
        (its own subcategory name, when that is what matched) — autoTitler's
@@ -1066,14 +1110,16 @@ export async function draftProductBatch(env, { text, actor, role }) {
 
     /* "When quantity not specified use 1" — the owner's own words. Blank
        defaults rather than blocks; a value that IS given but does not
-       parse is a real typo, reported the same way a bad price is. */
+       parse now simply defaults the same way, noted rather than reported
+       as a skip. */
     const quantityRaw = pick(record, QUANTITY_KEYS);
     let quantity = 1;
     if (quantityRaw) {
-      quantity = parseQuantity(quantityRaw);
-      if (quantity === null) {
-        skipped.push({ row: rowNumber, title, reason: `quantity "${quantityRaw}" is not a plain whole number like 5` });
-        continue;
+      const parsedQuantity = parseQuantity(quantityRaw);
+      if (parsedQuantity === null) {
+        notes.push(`quantity "${quantityRaw}" is not a plain whole number like 5 -- defaulted to 1`);
+      } else {
+        quantity = parsedQuantity;
       }
     }
 
@@ -1083,63 +1129,48 @@ export async function draftProductBatch(env, { text, actor, role }) {
     if (commissionRaw) {
       commission = parseCommission(commissionRaw);
       if (commission === null) {
-        skipped.push({ row: rowNumber, title, reason: `commission "${commissionRaw}" is not a plain whole number like 20` });
-        continue;
+        notes.push(`commission "${commissionRaw}" is not a plain whole number like 20 -- left unset`);
+        commission = undefined;
       }
     }
+    /* REVISED: "the only hard rule here is that we must have a unique SKU
+       number or ID for each item... if that's true, then add the
+       product" — the owner's own words, walking back "if we don't have a
+       vendor name, then we must have a cost of goods" as a hard block.
+       Neither a vendor nor a unit cost is something catalog.create_product
+       itself has ever actually required (confirmed by its own check()) —
+       a row with a real price and nothing else about its cost simply goes
+       through with neither now. */
     const unitCostRaw = pick(record, UNIT_COST_KEYS);
-    const hasUnitCost = Boolean(unitCostRaw);
-    /* The owner's own words, walked through a final time, then revised: "if
-       we don't have a vendor name, then we must have a cost of goods... if
-       we're adding a product that has a price, no vendor, and no cogs,
-       that's a problem too" — still enforced below. A vendor row with no
-       commission of its own is a normal row too — the same
-       catalog.create_product's own check() already allows, REVISED once
-       more: only when that vendor already has a rate ON FILE centrally.
-       One with nothing on file at all (brand new, or one Square already
-       knew about) is not a normal row — catalog.create_product's own
-       check() refuses it, and that refusal is relayed as this row's own
-       skip reason exactly like a bad category or price already is. */
-    if (!vendor && !hasUnitCost) {
-      skipped.push({
-        row: rowNumber,
-        title,
-        reason: "no vendor and no unit cost — a product needs a vendor or a unit cost",
-      });
-      continue;
-    }
-
     /* WITH a vendor, "unit cost" is Square's own real unit_cost_minor now
        (Retail Plus/Premium) — the same UNIT_COST_KEYS synonyms, but parsed
        as money and sent as a real argument rather than left as opaque
-       custom_fields text. WITHOUT a vendor there is still no Square-native
-       home for it (unit_cost_money lives inside vendor_information, which
-       needs a vendor to attach to), so it stays exactly as it always has:
-       an opaque custom_fields entry, via extraFields below. */
+       custom_fields text. WITHOUT a vendor, or when it does not parse,
+       there is no Square-native home for it (unit_cost_money lives inside
+       vendor_information, which needs a vendor to attach to), so it stays
+       exactly as it always has: an opaque custom_fields entry, via
+       extraFields below. */
     let unitCostMinor;
-    if (vendor && hasUnitCost) {
+    if (vendor && unitCostRaw) {
       unitCostMinor = parsePriceToMinor(unitCostRaw);
       if (unitCostMinor === null) {
-        skipped.push({ row: rowNumber, title, reason: `unit cost "${unitCostRaw}" is not a plain number like 45.00` });
-        continue;
+        notes.push(`unit cost "${unitCostRaw}" is not a plain number like 45.00 -- left unset`);
+        unitCostMinor = undefined;
       }
     }
     const vendorCode = pick(record, VENDOR_CODE_KEYS);
     if (vendorCode && !vendor) {
-      skipped.push({
-        row: rowNumber,
-        title,
-        reason: `vendor code "${vendorCode}" was given without a vendor — it is the VENDOR's own SKU for this product`,
-      });
-      continue;
+      notes.push(`vendor code "${vendorCode}" was given without a vendor -- left unset`);
     }
 
     const description = pick(record, DESCRIPTION_KEYS);
     /* vendor's own UNIT_COST_KEYS column is excluded from custom_fields
-       ONLY when it just became a real argument above — a vendor-less row
-       still preserves it verbatim, unchanged from before this feature. */
-    const knownKeys = vendor ? [...PRODUCT_KNOWN_KEYS, ...UNIT_COST_KEYS] : PRODUCT_KNOWN_KEYS;
+       ONLY once it actually became a real argument above — a vendor-less
+       row, or one whose own value would not parse, still preserves it
+       verbatim, unchanged from before this feature. */
+    const knownKeys = unitCostMinor !== undefined ? [...PRODUCT_KNOWN_KEYS, ...UNIT_COST_KEYS] : PRODUCT_KNOWN_KEYS;
     const customFields = extraFields(record, knownKeys);
+    if (notes.length) customFields["import notes"] = notes.join("; ").slice(0, CAPS.CATALOG_CUSTOM_FIELD_VALUE_MAX);
     /* No style number here to derive a color/size from at all (this loop
        is blank-style-id rows only) -- an explicit Size/Color column
        (OPTION_KEYS) is the only source. */
@@ -1153,7 +1184,7 @@ export async function draftProductBatch(env, { text, actor, role }) {
         ...(category ? { category_id: category.id } : {}),
         ...(styleId ? { style_id: styleId } : {}),
         ...(vendor ? { vendor } : {}),
-        ...(vendorCode ? { vendor_code: vendorCode } : {}),
+        ...(vendorCode && vendor ? { vendor_code: vendorCode } : {}),
         ...(unitCostMinor !== undefined ? { unit_cost_minor: unitCostMinor } : {}),
         ...(commission !== undefined ? { commission } : {}),
         variations: [

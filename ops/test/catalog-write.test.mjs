@@ -581,12 +581,7 @@ check("test_PRD_P0_60_spreadsheet_products__a_clean_row_is_created_immediately",
 
 check("test_PRD_P0_60_spreadsheet_products__a_bad_row_is_reported_with_why_not_silently_dropped", async () => {
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
-  const outerwear = f.categories().find((c) => c.name === "Outerwear");
-  const csv =
-    "title,category,price\n" +
-    ",Outerwear,45.00\n" +
-    `Sun Hat,${outerwear.name}s,20.00\n` +
-    "Silk Scarf,Outerwear,free\n";
+  const csv = "title,category,price\n" + "Silk Scarf,Outerwear,free\n" + "Wool Coat,Outerwear,also-not-a-number\n";
 
   const realFetch = globalThis.fetch;
   globalThis.fetch = f.square;
@@ -597,20 +592,17 @@ check("test_PRD_P0_60_spreadsheet_products__a_bad_row_is_reported_with_why_not_s
     globalThis.fetch = realFetch;
   }
   assert.equal(result.created.length, 0);
-  assert.equal(result.skipped.length, 3);
-  /* A blank title is no longer the reason this row is skipped — it now
-     gets an auto-generated one and fails on the next real gap instead
-     (no vendor and no unit cost anywhere in this sheet; style ID is no
-     longer required at all, REVISED — see P0-31's own entry). Row 2's own
-     near-identical spelling ("Outerwears") is refused by catalog.create_
-     category's own near-duplicate check, immediately, now that creating a
-     missing category no longer waits on a separate approval either. */
-  assert.match(result.skipped[0].reason, /no vendor and no unit cost/i);
-  assert.match(result.skipped[1].reason, /could not be created/);
-  assert.match(result.skipped[2].reason, /"free" is not a plain number/);
+  assert.equal(result.skipped.length, 2);
+  /* A real price is the one thing this file still cannot default or leave
+     out -- REVISED, "the only hard rule here is that we must have a
+     unique SKU number or ID for each item... if that's true, then add
+     the product" — everything else (a missing category, vendor,
+     commission, unit cost, quantity) now lands the product anyway. */
+  assert.match(result.skipped[0].reason, /"free" is not a plain number/);
+  assert.match(result.skipped[1].reason, /"also-not-a-number" is not a plain number/);
   /* Rows are 1-based and counted past the header, so a person can find row 2
      in the spreadsheet they actually uploaded. */
-  assert.deepEqual(result.skipped.map((s) => s.row), [2, 3, 4]);
+  assert.deepEqual(result.skipped.map((s) => s.row), [2, 3]);
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -684,12 +676,16 @@ check("test_PRD_P0_136_square_custom_attributes__two_distinct_missing_categories
   assert.notEqual(millinery.numeric_id, handbags.numeric_id, "two distinct new categories in one upload must never land on the same number");
 });
 
-check("test_PRD_P0_136_square_custom_attributes__a_category_that_fails_to_create_skips_the_row_with_the_real_reason", async () => {
+check("test_PRD_P0_136_square_custom_attributes__a_category_that_fails_to_create_leaves_the_row_unassigned_instead_of_blocking_it", async () => {
+  /* "Outerwear" already exists; a near-identical spelling is refused by
+     catalog.create_category's own near-duplicate check. REVISED: "the
+     only hard rule here is that we must have a unique SKU number or ID
+     for each item... if that's true, then add the product" -- a category
+     this file cannot create no longer blocks the row either; the product
+     is still created, unassigned, the real refusal preserved in its own
+     custom_fields rather than silently dropped. */
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
-  /* "Outerwear" already exists; a near-identical spelling is refused by
-     catalog.create_category's own near-duplicate check — that refusal must
-     surface as this row's own skip reason, not a generic failure. */
   const csv = `title,category,price,cost\nParka,${outerwear.name}s,60.00,30.00\n`;
 
   const realFetch = globalThis.fetch;
@@ -701,10 +697,14 @@ check("test_PRD_P0_136_square_custom_attributes__a_category_that_fails_to_create
     globalThis.fetch = realFetch;
   }
 
-  assert.equal(result.created.length, 0);
-  assert.equal(result.skipped.length, 1);
-  assert.match(result.skipped[0].reason, /could not be created/);
-  assert.match(result.skipped[0].reason, /overlaps the existing/);
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.created.length, 1);
+
+  const row = f.mirror("SELECT category_id, custom_fields FROM mirror_product WHERE title = 'Parka'")[0];
+  assert.equal(row.category_id, null, "unassigned -- there was nowhere real to file it");
+  const notes = JSON.parse(row.custom_fields)["import notes"];
+  assert.match(notes, /could not be created/);
+  assert.match(notes, /overlaps the existing/);
 });
 
 check("test_PRD_P0_145_auto_generated_title__a_blank_title_is_auto_generated_from_category_and_position", async () => {
@@ -775,14 +775,29 @@ check("test_PRD_P0_31_inventory_ledger__a_spreadsheet_quantity_column_is_honored
   assert.match(result.created[0].summary, /Wool Coat: 12 in stock/);
 });
 
-check("test_PRD_P0_31_inventory_ledger__a_spreadsheet_quantity_that_does_not_parse_is_flagged", async () => {
+check("test_PRD_P0_31_inventory_ledger__a_spreadsheet_quantity_that_does_not_parse_defaults_to_1_instead_of_blocking_the_row", async () => {
+  /* REVISED: "the only hard rule here is that we must have a unique SKU
+     number or ID for each item... if that's true, then add the product"
+     -- an unparseable quantity is no different from a blank one now: it
+     defaults to 1, noted rather than reported as a skip. */
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   const csv = "title,category,price,style id,cost,quantity\n" + `Wool Coat,${outerwear.name},450.00,01-04-001,210.00,a dozen\n`;
 
-  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
-  assert.equal(result.created.length, 0);
-  assert.match(result.skipped[0].reason, /quantity "a dozen" is not a plain whole number/);
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.created.length, 1);
+  assert.match(result.created[0].summary, /Wool Coat: 1 in stock/);
+
+  const row = f.mirror("SELECT custom_fields FROM mirror_product WHERE title = 'Wool Coat'")[0];
+  assert.match(JSON.parse(row.custom_fields)["import notes"], /quantity "a dozen".*defaulted to 1/);
 });
 
 check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_derives_its_category_from_a_given_style_id_alone", async () => {
@@ -969,16 +984,57 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_vendor_rows_cost_
   assert.equal(variant.unit_cost_minor, 21000);
 });
 
-check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_commission_that_is_not_a_whole_number_is_flagged", async () => {
+check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_commission_that_is_not_a_whole_number_is_dropped_not_blocked", async () => {
+  /* REVISED: "the only hard rule here is that we must have a unique SKU
+     number or ID for each item... if that's true, then add the product"
+     -- a malformed commission no longer blocks the row on its own; it is
+     simply left unset, noted. catalog.create_product's own REAL rule --
+     a brand-new vendor genuinely has no commission to fall back to --
+     still applies underneath it, unchanged, and is relayed verbatim like
+     any other tool refusal. */
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   const csv =
     "title,category,price,style id,vendor,commission\n" +
     `Wool Coat,${outerwear.name},450.00,01-04-001,Acme Mills,twenty\n`;
 
-  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
   assert.equal(result.created.length, 0);
-  assert.match(result.skipped[0].reason, /commission "twenty" is not a plain whole number/);
+  assert.equal(result.skipped.length, 1);
+  assert.match(result.skipped[0].reason, /vendor 'Acme Mills' has no commission on file yet/);
+});
+
+check("test_PRD_P0_136_square_custom_attributes__a_malformed_commission_still_lets_the_row_through_when_the_vendor_already_has_one_on_file", async () => {
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  f.mirrorDb._raw
+    .prepare("INSERT INTO mirror_vendor (id, external_ref, name, commission_pct) VALUES ('vendor-seed', 'sqvendor-seed', 'Acme Mills', 15)")
+    .run();
+  const csv =
+    "title,category,price,style id,vendor,commission\n" +
+    `Wool Coat,${outerwear.name},450.00,01-04-001,Acme Mills,twenty\n`;
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.created.length, 1);
+
+  const row = f.mirror("SELECT commission_pct, custom_fields FROM mirror_product WHERE title = 'Wool Coat'")[0];
+  assert.equal(row.commission_pct, 15, "the vendor's own real rate on file, not the malformed row value");
+  assert.match(JSON.parse(row.custom_fields)["import notes"], /commission "twenty".*left unset/);
 });
 
 check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_no_style_id_is_no_longer_flagged", async () => {
@@ -1004,18 +1060,31 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_no_style
   assert.equal(result.created.length, 1);
 });
 
-check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_no_vendor_and_no_unit_cost_is_flagged", async () => {
-  /* The owner's own words: "if we don't have a vendor name, then we must
-     have a cost of goods... if we're adding a product that has a price, no
-     vendor, and no cogs, that's a problem too." Square's own "unit cost" IS
-     the cost-of-goods value here — there is no separate cogs attribute. */
+check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_no_vendor_and_no_unit_cost_is_no_longer_flagged", async () => {
+  /* REVISED: "the only hard rule here is that we must have a unique SKU
+     number or ID for each item... if that's true, then add the product"
+     -- walking back the earlier "if we don't have a vendor name, then we
+     must have a cost of goods" block. Neither is something catalog.
+     create_product itself has ever actually required; a row with a real
+     price and nothing about its cost simply goes through with neither. */
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   const csv = "title,category,price,style id\n" + `Wool Coat,${outerwear.name},450.00,01-04-001\n`;
 
-  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
-  assert.equal(result.created.length, 0);
-  assert.match(result.skipped[0].reason, /no vendor and no unit cost/);
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.created.length, 1);
+
+  const row = f.mirror("SELECT commission_pct, custom_fields FROM mirror_product WHERE title = 'Wool Coat'")[0];
+  assert.equal(row.commission_pct, null, "no vendor at all -- nothing to have a commission from");
+  assert.equal(JSON.parse(row.custom_fields)["import notes"], undefined, "nothing was actually wrong here, just absent -- no note needed");
 });
 
 check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_a_style_id_and_unit_cost_but_no_vendor_is_parked", async () => {
@@ -5608,7 +5677,7 @@ check("test_PRD_P0_88_spreadsheet_via_chat__a_real_csv_drafts_through_the_same_p
      a wrong guess by the same deterministic parser /products/batch itself
      trusts. */
   const f = await fixture();
-  const csv = "title,category,price,style id,cost\nWool Coat,Outerwear,450.00,01-04-001,210.00\n,Outerwear,10,,\n";
+  const csv = "title,category,price,style id,cost\nWool Coat,Outerwear,450.00,01-04-001,210.00\nSilk Scarf,Outerwear,free,,\n";
   const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
 
   const realFetch = globalThis.fetch;
@@ -5626,7 +5695,7 @@ check("test_PRD_P0_88_spreadsheet_via_chat__a_real_csv_drafts_through_the_same_p
   assert.equal(outcome.block.is_error, false);
   assert.match(outcome.block.content, /1 products created, 1 skipped/);
   assert.match(outcome.block.content, /Wool Coat/);
-  assert.match(outcome.block.content, /no vendor and no unit cost/i, "the skipped row's own reason must be relayed");
+  assert.match(outcome.block.content, /"free" is not a plain number/i, "the skipped row's own reason must be relayed");
 });
 
 check("test_PRD_P0_136_square_custom_attributes__a_missing_category_via_chat_is_created_immediately_too", async () => {
@@ -5800,7 +5869,7 @@ check("test_PRD_P0_89_batch_preview_confirm__the_draft_tools_carry_a_structured_
   /* Not just the preview — the real draft result is ALSO structured, since a
      person cannot review forty skip reasons rendered as one text bubble. */
   const f = await fixture();
-  const csv = "title,category,price,style id,cost\nWool Coat,Outerwear,450.00,01-04-001,210.00\n,Outerwear,10,,\n";
+  const csv = "title,category,price,style id,cost\nWool Coat,Outerwear,450.00,01-04-001,210.00\nSilk Scarf,Outerwear,free,,\n";
   const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
 
   const realFetch = globalThis.fetch;
@@ -5820,7 +5889,7 @@ check("test_PRD_P0_89_batch_preview_confirm__the_draft_tools_carry_a_structured_
   const created = outcome.table.rows.find((r) => r[2] === "created");
   assert.equal(created[1], "Wool Coat");
   const skipped = outcome.table.rows.find((r) => r[2] === "skipped");
-  assert.match(skipped[3], /no vendor and no unit cost/i);
+  assert.match(skipped[3], /"free" is not a plain number/i);
 });
 
 check("test_PRD_P0_89_batch_preview_confirm__too_many_rows_carries_no_table_only_the_cap_message", async () => {
@@ -6142,14 +6211,29 @@ check("test_PRD_P0_146_dynamic_option_values__separate_category_and_subcategory_
   assert.equal(colorObj.item_option_data.values[0].item_option_value_data.name, "Black");
 });
 
-check("test_PRD_P0_146_dynamic_option_values__a_subcategory_given_with_no_category_is_refused", async () => {
+check("test_PRD_P0_146_dynamic_option_values__a_subcategory_given_with_no_category_lands_unassigned_instead_of_being_refused", async () => {
+  /* REVISED: "the only hard rule here is that we must have a unique SKU
+     number or ID for each item... if that's true, then add the product"
+     -- a subcategory with nowhere to nest under no longer blocks the row
+     either; it lands unassigned, the subcategory name preserved as a
+     note rather than silently dropped. */
   const f = await fixture({ actor: "noor@vemians.com", role: "manager" });
   const csv = "title,subcategory,price,cost\n" + "Black Blazer,Blazer,165.00,30.00\n";
 
-  const result = await draftProductBatch(f.env, { text: csv, actor: "noor@vemians.com", role: "manager" });
-  assert.equal(result.created.length, 0);
-  assert.equal(result.skipped.length, 1);
-  assert.match(result.skipped[0].reason, /subcategory "Blazer" was given without a category to nest it under/);
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "noor@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.created.length, 1);
+
+  const row = f.mirror("SELECT category_id, custom_fields FROM mirror_product WHERE title = 'Black Blazer'")[0];
+  assert.equal(row.category_id, null);
+  assert.match(JSON.parse(row.custom_fields)["import notes"], /subcategory "Blazer" was given without a category to nest it under/);
 });
 
 check("test_PRD_P0_146_dynamic_option_values__the_same_subcategory_name_under_two_different_categories_creates_two_distinct_rows", async () => {
@@ -6326,7 +6410,14 @@ check("test_PRD_P0_152_style_number_grouping__an_existing_category_matched_by_na
   assert.equal(f.categories().find((c) => c.name === "Outerwear").numeric_id, "01");
 });
 
-check("test_PRD_P0_152_style_number_grouping__a_name_that_already_has_a_different_number_is_reported_not_silently_reassigned", async () => {
+check("test_PRD_P0_152_style_number_grouping__a_name_that_already_has_a_different_number_wins_over_the_rows_own_mismatched_claim", async () => {
+  /* REVISED: "the only hard rule here is that we must have a unique SKU
+     number or ID for each item... if that's true, then add the product"
+     -- a name already numbered differently is no longer a reported
+     mismatch; this shop's own already-established number wins outright,
+     the exact same "existing real data over a mismatched spreadsheet
+     column" rule already applied the other way (an existing NUMBER match
+     ignores a mismatched NAME column, tested below). */
   const f = await fixture({ actor: "priya@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   await approvedCall(f, "catalog.set_category_number", { category_id: outerwear.id, numeric_id: "05" });
@@ -6340,9 +6431,12 @@ check("test_PRD_P0_152_style_number_grouping__a_name_that_already_has_a_differen
   } finally {
     globalThis.fetch = realFetch;
   }
-  assert.equal(result.created.length, 0);
-  assert.equal(result.skipped.length, 1);
-  assert.match(result.skipped[0].reason, /already exists numbered "05", not "01"/);
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.created.length, 1);
+  assert.equal(f.categories().filter((c) => c.name === "Outerwear").length, 1, "no duplicate category created over the mismatch");
+
+  const row = f.mirror("SELECT style_id FROM mirror_product WHERE title = 'A coat'")[0];
+  assert.match(row.style_id, /^05-/, "the existing, real number (05) wins, never the row's own conflicting claim (01)");
 });
 
 check("test_PRD_P0_152_style_number_grouping__a_style_number_that_does_not_match_the_pattern_is_ignored_outright", async () => {
@@ -6631,4 +6725,95 @@ check("test_PRD_P0_152_style_number_grouping__a_tbd_color_or_size_is_dropped_as_
     sizeObj.item_option_data.values.map((v) => v.item_option_value_data.name).sort(),
     ["M", "S"],
   );
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-152 (REVISED AGAIN) — "the only hard rule here is that we must have a
+ * unique SKU number or ID for each item that's unique to each variation and
+ * size... if that's true, then add the product" — the owner's own words,
+ * walking back nearly every other per-row skip this file used to enforce
+ * (a missing vendor/commission/unit cost, an unresolvable category or
+ * subcategory, a malformed commission/quantity/vendor code) into something
+ * the row is simply created without, noted rather than blocked on. The one
+ * thing left that genuinely CANNOT be defaulted or left out is a real
+ * price, and the one thing NEWLY enforced as a hard rule is that a SKU
+ * must be unique across the WHOLE shop, not just within one call
+ * (catalog.create_product's own check(), extended with variantBySku).
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_152_style_number_grouping__a_sku_already_used_by_a_different_product_refuses_the_row", async () => {
+  const f = await fixture({ actor: "sana@vemians.com", role: "manager" });
+  const csv =
+    "Style #,Category,Description,Cost (USD),Retail Price,SKU\n" +
+    "001-001-001,Jacket,Blazer One,30,150,DUPE-1\n" +
+    "001-002-001,Jacket,Blazer Two,30,150,DUPE-1\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "sana@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.created.length, 1);
+  assert.equal(result.created[0].title, "Blazer One");
+  assert.equal(result.skipped.length, 1);
+  assert.match(result.skipped[0].reason, /SKU 'DUPE-1' is already used by 'Blazer One'/);
+
+  const products = f.mirror("SELECT title FROM mirror_product WHERE title LIKE 'Blazer%'");
+  assert.deepEqual(
+    products.map((p) => p.title),
+    ["Blazer One"],
+    "the second, colliding row must never have been created at all",
+  );
+});
+
+check("test_PRD_P0_152_style_number_grouping__a_vendor_code_given_without_a_vendor_no_longer_blocks_the_row", async () => {
+  const f = await fixture({ actor: "sana@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const csv =
+    "title,category,price,style id,vendor code\n" + `Wool Coat,${outerwear.name},45.00,01-04-001,ACME-999\n`;
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "sana@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.created.length, 1);
+
+  const row = f.mirror("SELECT custom_fields FROM mirror_product WHERE title = 'Wool Coat'")[0];
+  assert.match(JSON.parse(row.custom_fields)["import notes"], /vendor code "ACME-999" was given without a vendor -- left unset/);
+});
+
+check("test_PRD_P0_152_style_number_grouping__an_unparseable_unit_cost_with_a_vendor_is_preserved_not_blocking", async () => {
+  const f = await fixture({ actor: "sana@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  f.mirrorDb._raw
+    .prepare("INSERT INTO mirror_vendor (id, external_ref, name, commission_pct) VALUES ('vendor-seed', 'sqvendor-seed', 'Acme Mills', 15)")
+    .run();
+  const csv =
+    "title,category,price,style id,vendor,cost\n" + `Wool Coat,${outerwear.name},450.00,01-04-001,Acme Mills,not-a-price\n`;
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "sana@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.created.length, 1);
+
+  const product = f.mirror("SELECT id, custom_fields FROM mirror_product WHERE title = 'Wool Coat'")[0];
+  const customFields = JSON.parse(product.custom_fields);
+  assert.match(customFields["import notes"], /unit cost "not-a-price" is not a plain number like 45.00 -- left unset/);
+  assert.equal(customFields.cost, "not-a-price", "the raw text is still preserved, same as a vendor-less row already does");
+  const variant = f.mirror("SELECT unit_cost_minor FROM mirror_variant WHERE product_id = ?", product.id)[0];
+  assert.equal(variant.unit_cost_minor, 0, "never sent as a real argument -- left at the mirror's own default");
 });

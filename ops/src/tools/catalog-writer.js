@@ -315,6 +315,26 @@ export async function variantById(db, id) {
     .first();
 }
 
+/* catalog.create_product's own hard rule: "we must have a unique SKU number
+   or ID for each item that's unique to each variation and size... if that's
+   true, then add the product" — the owner's own words. validateProposal's
+   own "used twice in this product" check (catalog-write.js) only ever sees
+   ONE call's own variations; this is the other half, checking an explicitly
+   given SKU against every OTHER product already on file — the same join
+   variantById above already uses, just keyed by SKU rather than our own
+   variant id, since check() only ever has the SKU a caller is ABOUT to use,
+   not yet a variant id to look one up by. */
+export async function variantBySku(db, sku) {
+  return db
+    .prepare(
+      `SELECT v.id, p.title AS product_title
+         FROM mirror_variant_index v JOIN mirror_product_index p ON p.id = v.product_id
+        WHERE v.sku = ?`,
+    )
+    .bind(sku)
+    .first();
+}
+
 /* REVISED: "let's not force vendor's commission to be stated out loud [on
    every item]... we store it in essential locations per vendor so that
    their commission is recorded in a central location and automatically
