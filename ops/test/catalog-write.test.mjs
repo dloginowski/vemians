@@ -1283,15 +1283,14 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_no_vendo
   assert.equal(JSON.parse(row.custom_fields)["import notes"], undefined, "nothing was actually wrong here, just absent -- no note needed");
 });
 
-check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_a_style_id_and_unit_cost_but_no_vendor_gets_the_real_attribute", async () => {
-  /* REVISED — "you created a cost USD [custom field] instead of putting it
-     into the actual cost attribute that already exists for all items...
-     that's not the official place," the owner's own words, on seeing
-     exactly this row's own real result. A vendor-less row's own cost no
-     longer falls through to custom_fields at all: it lands on the
-     product's own item_unit_cost_minor — a real Square Custom Attribute,
-     the same mechanism style_id/commission already use — never a raw
-     "cost" text field. */
+check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_a_style_id_and_unit_cost_but_no_vendor_gets_the_inhouse_vendor", async () => {
+  /* REVISED YET AGAIN — "for all items that do not have a vendor, they're
+     now considered In-house... cost must always be a built-in attribute we
+     serve, not a custom attribute," the owner's own words, rejecting the
+     item_unit_cost_minor Custom Attribute this test used to check for. A
+     vendor-less row's own cost lands on the real, vendor-tied
+     vendor_information.unit_cost_money instead — under the built-in
+     "In-house" vendor, resolved automatically since the row names none. */
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   const csv = "title,category,price,style id,cost\n" + `Wool Coat,${outerwear.name},450.00,01-04-001,210.00\n`;
@@ -1307,12 +1306,15 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_a_style_
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
   assert.equal(result.created.length, 1);
 
-  const row = f.mirror("SELECT id, style_id, custom_fields, item_unit_cost_minor FROM mirror_product WHERE title = 'Wool Coat'")[0];
+  const row = f.mirror("SELECT id, style_id, custom_fields FROM mirror_product WHERE title = 'Wool Coat'")[0];
   assert.equal(row.style_id, "01-04-001");
   assert.deepEqual(JSON.parse(row.custom_fields), {}, "cost must not land in custom_fields any more");
-  assert.equal(row.item_unit_cost_minor, 21000, "cost must land in the real, vendor-independent Custom Attribute instead");
-  const variant = f.mirror(`SELECT vendor_id FROM mirror_variant WHERE product_id = '${row.id}'`)[0];
-  assert.equal(variant.vendor_id, null, "no vendor column was given — nothing to resolve");
+  const variant = f.mirror(
+    "SELECT v.unit_cost_minor, mv.name AS vendor FROM mirror_variant v JOIN mirror_vendor mv ON mv.id = v.vendor_id WHERE v.product_id = ?",
+    row.id,
+  )[0];
+  assert.equal(variant.vendor, "In-house", "no vendor column was given — the built-in vendor resolves automatically");
+  assert.equal(variant.unit_cost_minor, 21000, "cost must land on the real vendor-tied Square mechanism instead");
 });
 
 check("test_PRD_P0_70_flexible_spreadsheet_columns__a_real_world_header_row_still_matches", async () => {
@@ -1344,11 +1346,11 @@ check("test_PRD_P0_70_flexible_spreadsheet_columns__an_unrecognised_column_is_ke
      it is its own recognized field now (Test-PRD-P0-136-square_custom_
      attributes), with its own vendor-needs-a-commission rule, covered
      separately below. "Fabric Note" is a genuinely unknown column.
-     REVISED — "Unit Cost" is no longer an example of a preserved custom
-     field either: it now lands on the product's own real, vendor-
-     independent Custom Attribute (item_unit_cost_minor) instead, the same
-     as any OTHER row with a cost column and no vendor. "Fabric Note" alone
-     is what actually has nowhere else to go. */
+     REVISED YET AGAIN — "Unit Cost" is no longer an example of a preserved
+     custom field either: it now lands on the real vendor-tied Square
+     mechanism, under the built-in "In-house" vendor since the row names
+     none, the same as any OTHER row with a cost column and no vendor.
+     "Fabric Note" alone is what actually has nowhere else to go. */
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   const csv =
@@ -1369,9 +1371,10 @@ check("test_PRD_P0_70_flexible_spreadsheet_columns__an_unrecognised_column_is_ke
   /* csvRecords() already trims and lowercases every header before this file
      ever sees it — "Fabric Note" arrives here as "fabric note", still
      readable, just not the exact original capitalization. */
-  const row = f.mirror("SELECT custom_fields, item_unit_cost_minor FROM mirror_product WHERE title = 'Wool Coat'")[0];
+  const row = f.mirror("SELECT id, custom_fields FROM mirror_product WHERE title = 'Wool Coat'")[0];
   assert.deepEqual(JSON.parse(row.custom_fields), { "fabric note": "Boiled wool" });
-  assert.equal(row.item_unit_cost_minor, 21000);
+  const variant = f.mirror("SELECT unit_cost_minor FROM mirror_variant WHERE product_id = ?", row.id)[0];
+  assert.equal(variant.unit_cost_minor, 21000);
 });
 
 check("test_PRD_P0_70_flexible_spreadsheet_columns__a_margin_column_is_dropped_entirely_not_preserved", async () => {
@@ -1399,9 +1402,10 @@ check("test_PRD_P0_70_flexible_spreadsheet_columns__a_margin_column_is_dropped_e
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
   assert.equal(result.created.length, 1);
 
-  const row = f.mirror("SELECT custom_fields, item_unit_cost_minor FROM mirror_product WHERE title = 'Wool Coat'")[0];
+  const row = f.mirror("SELECT id, custom_fields FROM mirror_product WHERE title = 'Wool Coat'")[0];
   assert.deepEqual(JSON.parse(row.custom_fields), { "fabric note": "Boiled wool" }, "margin must not appear anywhere, not even as a custom field");
-  assert.equal(row.item_unit_cost_minor, 21000, "the real cost column right next to it must still land on the real attribute");
+  const variant = f.mirror("SELECT unit_cost_minor FROM mirror_variant WHERE product_id = ?", row.id)[0];
+  assert.equal(variant.unit_cost_minor, 21000, "the real cost column right next to it must still land on the real mechanism");
 });
 
 check("test_PRD_P0_70_flexible_spreadsheet_columns__a_cost_column_is_no_longer_misread_as_the_sale_price", async () => {
@@ -1430,9 +1434,10 @@ check("test_PRD_P0_70_flexible_spreadsheet_columns__a_cost_column_is_no_longer_m
   )[0];
   assert.equal(variant.price_minor, 45000, "the real 'price' column must still win, not 'cost'");
 
-  const row = f.mirror("SELECT custom_fields, item_unit_cost_minor FROM mirror_product WHERE title = 'Wool Coat'")[0];
+  const row = f.mirror("SELECT id, custom_fields FROM mirror_product WHERE title = 'Wool Coat'")[0];
   assert.deepEqual(JSON.parse(row.custom_fields), {}, "the 'cost' column must not be discarded into a custom field");
-  assert.equal(row.item_unit_cost_minor, 21000, "the 'cost' column must be preserved as the real cost attribute");
+  const unitCost = f.mirror("SELECT unit_cost_minor FROM mirror_variant WHERE product_id = ?", row.id)[0];
+  assert.equal(unitCost.unit_cost_minor, 21000, "the 'cost' column must be preserved on the real vendor-tied mechanism");
 });
 
 check("test_PRD_P0_70_flexible_spreadsheet_columns__the_preview_shows_extra_columns_the_same_way_it_shows_known_ones", async () => {
@@ -2783,11 +2788,21 @@ check("test_PRD_P0_37_mirror_is_ours__an_approved_create_writes_square_first_and
   assert.equal(res.data.created, true);
   assert.equal(res.data.authority, "square");
 
-  /* THE ORDERING. Upsert, image, vendors (pullCatalog's own always-first
-     step, Test-PRD-P0-136-square_custom_attributes revised), then the
-     search that refreshes our copy. */
+  /* THE ORDERING. The built-in "In-house" vendor (createProduct's own
+     vendorRefOrInHouse, resolved before the item write since a real
+     vendor_id must already exist to embed in vendor_information) is
+     created first — this coat names none of its own — then upsert, image,
+     vendors again (pullCatalog's own always-first sync step,
+     Test-PRD-P0-136-square_custom_attributes revised), then the search
+     that refreshes our copy. */
   const paths = f.calls().map((c) => c.path);
-  assert.deepEqual(paths, ["/v2/catalog/object", "/v2/catalog/images", "/v2/vendors/search", "/v2/catalog/search"]);
+  assert.deepEqual(paths, [
+    "/v2/vendors/create",
+    "/v2/catalog/object",
+    "/v2/catalog/images",
+    "/v2/vendors/search",
+    "/v2/catalog/search",
+  ]);
 
   /* And the mirror now holds it, keyed by OUR uuid and OUR handle. */
   const product = f.mirror("SELECT * FROM mirror_product WHERE title = 'Belted gabardine trench coat'");
@@ -3440,27 +3455,31 @@ check("test_PRD_P0_136_square_custom_attributes__vendor_code_still_requires_a_ve
   assert.deepEqual(f.calls(), [], "the refusal never reaches Square");
 });
 
-check("test_PRD_P0_136_square_custom_attributes__unit_cost_no_longer_requires_a_vendor", async () => {
-  /* REVISED — "you created a cost USD [custom field] instead of putting it
-     into the actual cost attribute that already exists for all items,"
-     the owner's own words. unit_cost_minor is no longer refused for lack
-     of a vendor: it lands on the product's own item_unit_cost_minor, a
-     real, vendor-independent Square Custom Attribute, instead of Square's
-     vendor-tied vendor_information. */
+check("test_PRD_P0_136_square_custom_attributes__unit_cost_no_longer_requires_a_named_vendor", async () => {
+  /* REVISED YET AGAIN — "for all items that do not have a vendor, they're
+     now considered In-house... cost must always be a built-in attribute,
+     not a custom attribute," the owner's own words, rejecting the
+     item_unit_cost_minor Custom Attribute this test used to check for.
+     unit_cost_minor is still never refused for lack of a NAMED vendor —
+     the product already carries the built-in "In-house" one from creation
+     (createProduct's own default), so this lands on the real, vendor-tied
+     vendor_information exactly like a real vendor's cost would. */
   const f = await fixture();
   const res = await approvedCall(f, "catalog.set_square_attributes", { handle: COAT_HANDLE, unit_cost_minor: 4200 });
   assert.equal(res.ok, true, res.error);
 
   const upsert = f.calls().find((c) => c.path === "/v2/catalog/object" && c.upsert === "ITEM");
-  assert.deepEqual(upsert.body.object.item_data.custom_attribute_values.unit_cost, {
-    key: "unit_cost",
-    type: "STRING",
-    string_value: "4200",
-  });
-  assert.equal(upsert.body.object.item_data.variations[0].item_variation_data.vendor_information, undefined, "still no real vendor association");
+  assert.equal(upsert.body.object.item_data.custom_attribute_values?.unit_cost, undefined, "no such Custom Attribute exists any more");
+  const vendorInfo = upsert.body.object.item_data.variations[0].item_variation_data.vendor_information[0];
+  assert.deepEqual(vendorInfo.unit_cost_money, { amount: 4200, currency: "USD" });
 
-  const row = f.mirror(`SELECT item_unit_cost_minor FROM mirror_product WHERE handle = '${COAT_HANDLE}'`)[0];
-  assert.equal(row.item_unit_cost_minor, 4200);
+  const product = f.mirror(`SELECT id FROM mirror_product WHERE handle = '${COAT_HANDLE}'`)[0];
+  const variant = f.mirror(
+    "SELECT v.unit_cost_minor, mv.name AS vendor FROM mirror_variant v JOIN mirror_vendor mv ON mv.id = v.vendor_id WHERE v.product_id = ?",
+    product.id,
+  )[0];
+  assert.equal(variant.vendor, "In-house");
+  assert.equal(variant.unit_cost_minor, 4200);
 });
 
 check("test_PRD_P0_136_square_custom_attributes__vendor_code_and_unit_cost_alongside_a_vendor_are_set_on_the_variation", async () => {
@@ -3490,7 +3509,7 @@ check("test_PRD_P0_136_square_custom_attributes__vendor_code_and_unit_cost_along
   assert.equal(variant.unit_cost_currency, "USD");
 });
 
-check("test_PRD_P0_136_square_custom_attributes__clear_vendor_removes_the_vendor_and_everything_that_depends_on_it", async () => {
+check("test_PRD_P0_136_square_custom_attributes__clear_vendor_reassigns_to_the_inhouse_vendor_not_to_none", async () => {
   /* "I don't like adding none to vendors. Let's just make the vendor
      selected vendor toggle so that if I selected a vendor and then I
      selected the same vendor again, it just clears that selection." —
@@ -3498,8 +3517,10 @@ check("test_PRD_P0_136_square_custom_attributes__clear_vendor_removes_the_vendor
      schema validator refuses an empty "vendor" string outright, so
      clearing needs its own boolean flag, the same shape catalog.
      set_category_number's own clear: true already established. Clearing
-     removes vendor_code/unit_cost/commission right along with it, since
-     none of those apply without a vendor. */
+     removes vendor_code/unit_cost/commission right along with it — none of
+     those apply to "In-house" either — but REVISED YET AGAIN, it lands the
+     product back on the built-in "In-house" vendor, never on no vendor at
+     all: that is not a state this shop's data can be in any more. */
   const f = await fixture();
   await approvedCall(f, "catalog.set_square_attributes", {
     handle: COAT_HANDLE,
@@ -3512,36 +3533,38 @@ check("test_PRD_P0_136_square_custom_attributes__clear_vendor_removes_the_vendor
   const callsBeforeClear = f.calls().length;
   const res = await approvedCall(f, "catalog.set_square_attributes", { handle: COAT_HANDLE, clear_vendor: true });
   assert.equal(res.ok, true, res.error);
-  assert.equal(res.data.vendor, null);
+  assert.equal(res.data.vendor, "In-house");
   assert.equal(res.data.vendor_code, null);
-  /* REVISED — 0, not null: item_unit_cost_minor (the vendor-independent
-     fallback a vendor-less product's own cost now reads from) is NOT NULL
-     DEFAULT 0, the same convention every other `_minor` column already
-     follows (Test-PRD-P0-15-money_minor_units) — this coat never had one
-     set, so clearing its vendor leaves it at that same real, meaningful
+  /* 0, not null: mirror_variant.unit_cost_minor is NOT NULL DEFAULT 0 — a
+     fresh vendor relationship (Acme Mills -> In-house) never carries the
+     old vendor's own cost figure over, so this reads as a real, meaningful
      zero, never a fake "unknown" null. */
   assert.equal(res.data.unit_cost_minor, 0);
   assert.equal(res.data.commission, null);
 
-  /* Square's own UpsertCatalogObject is full-replacement — clearing must
-     never call vendorRef/CreateVendor for an empty name, and must send
-     no vendor_information at all for the variation (undefined, the same
-     "genuinely absent, not present-and-empty" shape a brand-new product
-     with no vendor yet already gets). Only calls made BY THE CLEAR itself
-     count here — the earlier call above legitimately created "Acme Mills"
-     the first time it was ever named. */
+  /* Square's own UpsertCatalogObject is full-replacement — clearing now
+     DOES send real vendor_information for the variation (the "In-house"
+     vendor's own vendor_id, no cost), never `undefined` any more, since
+     "no vendor at all" is no longer a state to represent. Only calls made
+     BY THE CLEAR itself count here — the earlier call above legitimately
+     created "Acme Mills" the first time it was ever named, and this one
+     legitimately creates "In-house" the first time IT is ever named. */
   const callsDuringClear = f.calls().slice(callsBeforeClear);
   const upsert = callsDuringClear.find((c) => c.path === "/v2/catalog/object" && c.upsert === "ITEM");
   const variation = upsert.body.object.item_data.variations[0];
-  assert.equal(variation.item_variation_data.vendor_information, undefined);
+  assert.ok(variation.item_variation_data.vendor_information[0].vendor_id, "the In-house vendor's own real Square id");
+  assert.equal(variation.item_variation_data.vendor_information[0].unit_cost_money, undefined);
   assert.ok(
-    !callsDuringClear.some((c) => c.path === "/v2/vendors/create"),
-    "clearing must never create a Square Vendor for an empty name",
+    callsDuringClear.some((c) => c.path === "/v2/vendors/create"),
+    "the built-in vendor is a real Square Vendor, created on first use exactly like any other name",
   );
 
   const product = f.mirror(`SELECT id FROM mirror_product WHERE handle = '${COAT_HANDLE}'`)[0];
-  const variant = f.mirror(`SELECT vendor_id, vendor_code FROM mirror_variant WHERE product_id = '${product.id}'`)[0];
-  assert.equal(variant.vendor_id, null);
+  const variant = f.mirror(
+    "SELECT mv.name AS vendor, v.vendor_code FROM mirror_variant v JOIN mirror_vendor mv ON mv.id = v.vendor_id WHERE v.product_id = ?",
+    product.id,
+  )[0];
+  assert.equal(variant.vendor, "In-house");
   assert.equal(variant.vendor_code, null);
 });
 
@@ -3574,12 +3597,68 @@ check("test_PRD_P0_136_square_custom_attributes__clear_vendor_alongside_vendor_c
   assert.match(res.error, /no vendor/);
 });
 
-check("test_PRD_P0_136_square_custom_attributes__clear_vendor_on_a_product_with_no_vendor_is_refused_as_a_no_op", async () => {
+check("test_PRD_P0_136_square_custom_attributes__clear_vendor_on_a_legacy_vendorless_product_is_a_real_first_assignment_not_a_no_op", async () => {
+  /* REVISED — a product with genuinely no vendor at all is no longer a
+     state clear_vendor can find "already there": it is exactly the legacy
+     state catalog.assign_inhouse_vendor exists to fix, and clear_vendor
+     reaches the same real assignment one product at a time. Only a SECOND
+     clear_vendor call, once the product is already on "In-house", is the
+     actual no-op. */
   const f = await fixture();
+  const first = await approvedCall(f, "catalog.set_square_attributes", { handle: COAT_HANDLE, clear_vendor: true });
+  assert.equal(first.ok, true, first.error);
+  assert.equal(first.data.vendor, "In-house");
+
+  const callsBeforeSecond = f.calls().length;
   const res = await runTool("catalog.set_square_attributes", { handle: COAT_HANDLE, clear_vendor: true }, f.ctx);
   assert.equal(res.ok, false);
   assert.match(res.error, /already has those values/);
-  assert.deepEqual(f.calls(), [], "a no-op clear must never reach Square");
+  assert.equal(f.calls().length, callsBeforeSecond, "the true no-op must never reach Square");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-154 — the "In-house" vendor: no product may have no vendor at all any
+ * more, and catalog.assign_inhouse_vendor is the explicit, one-time pass
+ * that reaches every product still missing one from before this rule
+ * existed.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_154_inhouse_vendor__the_tool_is_registered_manager_only", () => {
+  const tool = TOOLS["catalog.assign_inhouse_vendor"];
+  assert.ok(tool, "catalog.assign_inhouse_vendor is not registered");
+  assert.deepEqual(tool.resources, ["square"]);
+  assert.deepEqual(tool.stores, ["catalog_mirror"]);
+  assert.equal(tool.tier, "T2");
+  assert.equal(tool.minRole, "manager");
+});
+
+check("test_PRD_P0_154_inhouse_vendor__reassigns_every_vendorless_product_and_is_idempotent", async () => {
+  const f = await fixture();
+  const before = f.mirror(
+    "SELECT mv.name AS vendor FROM mirror_variant v LEFT JOIN mirror_vendor mv ON mv.id = v.vendor_id" +
+      " WHERE v.product_id = (SELECT id FROM mirror_product WHERE handle = ?)",
+    COAT_HANDLE,
+  )[0];
+  assert.equal(before.vendor, null, "this coat starts with no vendor at all, from before this rule existed");
+
+  const first = await approvedCall(f, "catalog.assign_inhouse_vendor", { reason: "test" });
+  assert.equal(first.ok, true, first.error);
+  assert.ok(first.data.products_assigned >= 1, "at least this one vendor-less coat must be reassigned");
+  assert.deepEqual(first.data.errors, []);
+
+  const after = f.mirror(
+    "SELECT mv.name AS vendor FROM mirror_variant v LEFT JOIN mirror_vendor mv ON mv.id = v.vendor_id" +
+      " WHERE v.product_id = (SELECT id FROM mirror_product WHERE handle = ?)",
+    COAT_HANDLE,
+  )[0];
+  assert.equal(after.vendor, "In-house");
+
+  /* Idempotent: a second pass finds nothing left to do, and never reaches
+     Square for a product it already reassigned. */
+  const second = await approvedCall(f, "catalog.assign_inhouse_vendor", { reason: "test" });
+  assert.equal(second.ok, true, second.error);
+  assert.equal(second.data.products_assigned, 0);
+  assert.deepEqual(second.data.errors, []);
 });
 
 check("test_PRD_P0_136_square_custom_attributes__update_product_refuses_a_per_variation_unit_cost_with_no_vendor", async () => {
@@ -5361,9 +5440,12 @@ check("test_PRD_P0_29_exit_test__an_original_square_will_not_take_is_still_store
   /* The product exists and is priced; the photograph is ours; no image call. */
   assert.ok(res.data.product.handle);
   assert.equal(f.bucket._store.size, 1);
+  /* The built-in "In-house" vendor (createProduct's own default for a
+     product naming none) is resolved before the item write itself — see
+     Test-PRD-P0-37-mirror_is_ours' own identical ordering assertion. */
   assert.deepEqual(
     f.calls().map((c) => c.path),
-    ["/v2/catalog/object", "/v2/vendors/search", "/v2/catalog/search"],
+    ["/v2/vendors/create", "/v2/catalog/object", "/v2/vendors/search", "/v2/catalog/search"],
   );
 });
 
