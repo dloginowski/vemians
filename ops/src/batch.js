@@ -741,26 +741,37 @@ function autoTitler(existingCounts) {
  */
 /*
  * Split first: every record with a style number whose own first three
- * segments are all-digit joins a GROUP; a blank cell goes to the standalone
- * path unchanged; anything else non-blank (garbage, a totals row) is
- * dropped right here, never reported at all -- it was never a data row to
- * begin with. Shared between draftProductBatch (the real write) and
- * previewBatch (below) so a preview groups a sheet into products EXACTLY
- * the way the real draft will -- the whole point of a preview being able to
- * show "the agent interpreted N rows as this one product," not a second,
- * possibly-drifting guess at the same rule.
+ * segments are all-digit joins a GROUP; anything else -- a blank style-id
+ * cell, or a non-blank one that does not look like a real style number at
+ * all (garbage, a totals row) -- is dropped right here, never reported at
+ * all -- it was never a data row to begin with. Shared between
+ * draftProductBatch (the real write) and previewBatch (below) so a preview
+ * groups a sheet into products EXACTLY the way the real draft will -- the
+ * whole point of a preview being able to show "the agent interpreted N rows
+ * as this one product," not a second, possibly-drifting guess at the same
+ * rule.
+ *
+ * REVISED — a blank style-id cell used to take a separate STANDALONE path:
+ * one row, one product, category/subcategory resolved by NAME. The owner's
+ * own words, having actually seen what that path let through: "Why are you
+ * including the totals with a bunch of not found?... if you don't have the
+ * qualifying, like the style ID, just don't include that row at all... why
+ * would you show that to me?" A real inventory sheet's own totals/notes
+ * line has no style number either, and used to preview (and draft) as a
+ * near-empty "product" — every real product in this shop's own sheets
+ * already carries a style number, so a row with none is not a different
+ * KIND of real product, it is the same "not a data row" case a garbage
+ * style number already was. There is no more standalone path at all: a
+ * blank style-id cell is dropped by the exact same `STYLE_NUMBER_BASE`
+ * check as a non-blank garbage one, silently, matching how that case was
+ * always handled.
  */
 function splitProductRecords(records) {
   const groups = new Map();
   const groupOrder = [];
-  const standaloneRecords = [];
   for (const [i, record] of records.entries()) {
     const rowNumber = i + 2; /* +1 for the header, +1 for 1-based rows */
     const styleIdRaw = pick(record, STYLE_ID_KEYS);
-    if (!styleIdRaw) {
-      standaloneRecords.push({ record, rowNumber });
-      continue;
-    }
     const { base, color, size } = parseStyleNumber(styleIdRaw);
     if (!STYLE_NUMBER_BASE.test(base)) continue;
     if (!groups.has(base)) {
@@ -769,7 +780,7 @@ function splitProductRecords(records) {
     }
     groups.get(base).push({ record, rowNumber, color, size, styleIdRaw });
   }
-  return { groups, groupOrder, standaloneRecords };
+  return { groups, groupOrder };
 }
 
 async function draftGroupedProduct(env, ctx, base, groupRows) {
@@ -1038,25 +1049,21 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
 
 /**
  * Parse a CSV, mint one catalog.create_product approval per PRODUCT that
- * resolves cleanly, and report the rest with a plain reason. Two distinct
- * paths, decided per row by whether it gives a style number at all:
- *
- *   GROUPED — "it's not one product, one line... I gave you variations" —
- *   the owner's own words. Every row whose style number's own first three
- *   segments are all-digit (STYLE_NUMBER_BASE) joins a GROUP keyed by that
- *   exact base; several rows sharing one base become ONE catalog.
- *   create_product call with several variations, one per row, in the
- *   sheet's own order (draftGroupedProducts, below) — category/subcategory
- *   resolved by NUMBER (resolveCategoryByCode), never by name. A row whose
- *   own style number is non-blank but does NOT look like one at all (a
- *   totals line, a footnote) is dropped outright — "if they don't have
- *   that style ID pattern, then just ignore that."
- *
- *   STANDALONE — a row with NO style number cell at all keeps this
- *   importer's original shape: one row, one product, one variation,
- *   category/subcategory resolved by NAME (matchCategory/
- *   resolveOrCreateCategory) — for a sheet that does not encode a style
- *   number into every cell at all.
+ * resolves cleanly, and report the rest with a plain reason. "It's not one
+ * product, one line... I gave you variations" — the owner's own words.
+ * Every row whose style number's own first three segments are all-digit
+ * (STYLE_NUMBER_BASE) joins a GROUP keyed by that exact base; several rows
+ * sharing one base become ONE catalog.create_product call with several
+ * variations, one per row, in the sheet's own order (draftGroupedProducts,
+ * below) — category/subcategory resolved by NUMBER (resolveCategoryByCode),
+ * never by name. A row whose own style number is blank, or non-blank but
+ * does NOT look like one at all (a totals line, a footnote), is dropped
+ * outright — "if they don't have that style ID pattern, then just ignore
+ * that," and, REVISED, the identical treatment for a blank cell too: "if
+ * you don't have the qualifying, like the style ID, just don't include
+ * that row at all... why would you show that to me?" — every real product
+ * in this shop's own sheets already carries a style number; there is no
+ * separate STANDALONE path any more for a row that does not.
  *
  * A row naming a category that does not exist yet gets it created
  * immediately, inline — via the same "check, then immediately re-run with
@@ -1094,7 +1101,7 @@ export async function draftProductBatch(env, { text, actor, role }) {
   const reservedNumericIds = new Set();
   const reservedSubcategoryNumericIds = new Set();
 
-  const { groups, groupOrder, standaloneRecords } = splitProductRecords(records);
+  const { groups, groupOrder } = splitProductRecords(records);
 
   const clashes = [];
 
@@ -1102,208 +1109,6 @@ export async function draftProductBatch(env, { text, actor, role }) {
     const outcome = await draftGroupedProduct(env, { actor, role, categories, reservedNumericIds, reservedSubcategoryNumericIds, categoryCache, nextAutoTitle }, base, groups.get(base));
     if (outcome.clash) clashes.push(outcome.clash);
     else rows.push(outcome.row);
-  }
-
-  for (const { record, rowNumber } of standaloneRecords) {
-    const rawTitle = pick(record, TITLE_KEYS).slice(0, 200);
-    const categoryName = pick(record, CATEGORY_KEYS);
-    const subcategoryName = pick(record, SUBCATEGORY_KEYS);
-    const priceRaw = pick(record, PRICE_KEYS);
-    const currency = (pick(record, CURRENCY_KEYS) || "USD").toUpperCase();
-    /* Something this row's own data leaves genuinely absent (no vendor, no
-       unit cost, a malformed optional value) is simply noted, automatic,
-       no approval needed. Something this row FOUND a real, conflicting
-       answer for and cannot safely pick a side on -- a category/
-       subcategory Square genuinely refused to create, or a price that
-       will not parse -- is a real CLASH instead: "the only time you want
-       to do an approval link is if there's a clash and it has to be
-       resolved by a person" -- the owner's own words. The row still gets
-       built all the way through either way, so a parked clash still shows
-       a complete, editable proposal. */
-    const notes = [];
-    const rowClashes = [];
-
-    /* "Categories/subcategories should be made if missing. And ids
-       assigned auto bumped" — the owner's own words. REVISED: "we can
-       make categories with UI can't we? ... if UI works why can't
-       agent?" — created immediately, right here (resolveOrCreateCategory,
-       above), the same "check, then re-run with the token" pattern the
-       Admin panel's own category form already uses, rather than parking a
-       separate approval and making the uploader come back. A real
-       creation failure (a near-duplicate name, say) IS a clash, parked for
-       a person to resolve. A row naming NO category at all is a genuinely
-       different case, unaffected: no clash, no automatic skip either way
-       — it stays genuinely UNASSIGNED, exactly as catalog.create_product
-       already tolerates on its own. */
-    let category = categoryName ? matchCategory(categoryName, categories) : null;
-    if (categoryName && !category) {
-      const outcome = await resolveOrCreateCategory(
-        env,
-        { actor, role, categories, reserved: reservedNumericIds, cache: categoryCache },
-        categoryName,
-      );
-      if (outcome.error) {
-        rowClashes.push(`category "${categoryName}" does not exist yet and could not be created: ${outcome.error}`);
-      } else {
-        category = outcome.category;
-      }
-    }
-    /* A SEPARATE Subcategory column (SUBCATEGORY_KEYS, above) — "Jacket"/
-       "Blazer" as two distinct cells. Matched (or created) as a child of
-       whichever category this row just landed on, then REPLACES it as
-       this row's own category — the same "the subcategory is the
-       authoritative, more specific level" rule this file already applies
-       when a style ID's own digits resolve to one instead. Given with no
-       category at all to nest under, there is nothing to disagree with —
-       simply noted, automatic. A real CREATE failure of its own, though,
-       is a genuine clash, same as the top-level category's own. */
-    if (subcategoryName) {
-      if (!category) {
-        notes.push(`subcategory "${subcategoryName}" was given without a category to nest it under`);
-      } else {
-        let subcategory = matchCategory(subcategoryName, categories.filter((c) => c.parent_id === category.id));
-        if (!subcategory) {
-          const outcome = await resolveOrCreateCategory(
-            env,
-            { actor, role, categories, reserved: reservedSubcategoryNumericIds, cache: categoryCache, parentId: category.id },
-            subcategoryName,
-          );
-          if (outcome.error) {
-            rowClashes.push(`subcategory "${subcategoryName}" does not exist yet under "${category.name}" and could not be created: ${outcome.error}`);
-          } else {
-            subcategory = outcome.category;
-          }
-        }
-        if (subcategory) category = subcategory;
-      }
-    }
-    /* Title is spelled from whichever category this row actually landed on
-       (its own subcategory name, when that is what matched) — autoTitler's
-       own "Item" fallback only fires for a row that is genuinely
-       unassigned either way. */
-    const title = rawTitle || nextAutoTitle(category);
-    const priceMinor = parsePriceToMinor(priceRaw);
-    if (priceMinor === null) {
-      rowClashes.push(`price "${priceRaw}" is not a plain number like 45.00`);
-    }
-
-    /* Never given here at all: this loop is ONLY reached by a row with a
-       genuinely BLANK style-id cell (draftProductBatch's own split, above
-       — anything non-blank either joins a GROUP or is dropped outright).
-       create_product's own resolveStyleId (catalog-write.js) still builds
-       one automatically from `category`'s own NN-NN pair, the moment this
-       row lands on a real subcategory that has one. */
-    const styleId = undefined;
-
-    /* "When quantity not specified use 1" — the owner's own words. Blank
-       defaults rather than blocks; a value that IS given but does not
-       parse now simply defaults the same way, noted rather than treated
-       as a clash — nothing here disagrees with anything, it just is not
-       usable as given. */
-    const quantityRaw = pick(record, QUANTITY_KEYS);
-    let quantity = 1;
-    if (quantityRaw) {
-      const parsedQuantity = parseQuantity(quantityRaw);
-      if (parsedQuantity === null) {
-        notes.push(`quantity "${quantityRaw}" is not a plain whole number like 5 -- defaulted to 1`);
-      } else {
-        quantity = parsedQuantity;
-      }
-    }
-
-    const vendor = pick(record, VENDOR_KEYS);
-    const commissionRaw = pick(record, COMMISSION_KEYS);
-    let commission;
-    if (commissionRaw) {
-      commission = parseCommission(commissionRaw);
-      if (commission === null) {
-        notes.push(`commission "${commissionRaw}" is not a plain whole number like 20 -- left unset`);
-        commission = undefined;
-      }
-    }
-    /* REVISED: "the only hard rule here is that we must have a unique SKU
-       number or ID for each item... if that's true, then add the
-       product" — the owner's own words, walking back "if we don't have a
-       vendor name, then we must have a cost of goods" as a hard block.
-       Neither a vendor nor a unit cost is something catalog.create_product
-       itself has ever actually required (confirmed by its own check()) —
-       a row with a real price and nothing else about its cost simply goes
-       through with neither now. A vendor with no commission ON FILE is
-       still a real clash, but only the tool's own check() can discover
-       it — caught and parked one level up, in createRows. */
-    const unitCostRaw = pick(record, UNIT_COST_KEYS);
-    /* WITH a vendor, "unit cost" is Square's own real unit_cost_minor now
-       (Retail Plus/Premium) — the same UNIT_COST_KEYS synonyms, but parsed
-       as money and sent as a real argument rather than left as opaque
-       custom_fields text. WITHOUT a vendor, or when it does not parse,
-       there is no Square-native home for it (unit_cost_money lives inside
-       vendor_information, which needs a vendor to attach to), so it stays
-       exactly as it always has: an opaque custom_fields entry, via
-       extraFields below. */
-    let unitCostMinor;
-    if (vendor && unitCostRaw) {
-      unitCostMinor = parsePriceToMinor(unitCostRaw);
-      if (unitCostMinor === null) {
-        notes.push(`unit cost "${unitCostRaw}" is not a plain number like 45.00 -- left unset`);
-        unitCostMinor = undefined;
-      }
-    }
-    const vendorCode = pick(record, VENDOR_CODE_KEYS);
-    if (vendorCode && !vendor) {
-      notes.push(`vendor code "${vendorCode}" was given without a vendor -- left unset`);
-    }
-
-    const description = pick(record, DESCRIPTION_KEYS);
-    /* vendor's own UNIT_COST_KEYS column is excluded from custom_fields
-       ONLY once it actually became a real argument above — a vendor-less
-       row, or one whose own value would not parse, still preserves it
-       verbatim, unchanged from before this feature. */
-    const knownKeys = unitCostMinor !== undefined ? [...PRODUCT_KNOWN_KEYS, ...UNIT_COST_KEYS] : PRODUCT_KNOWN_KEYS;
-    const customFields = extraFields(record, knownKeys);
-    if (notes.length) customFields["import notes"] = notes.join("; ").slice(0, CAPS.CATALOG_CUSTOM_FIELD_VALUE_MAX);
-    /* No style number here to derive a color/size from at all (this loop
-       is blank-style-id rows only) -- an explicit Size/Color column
-       (OPTION_KEYS) is the only source. "Any time you see TBD, just use
-       like a default or no option... it doesn't need an option" -- the
-       owner's own words, the same rule draftGroupedProduct's own variation
-       loop already applies; ported here too, since a standalone row's own
-       explicit Color/Size column can say "TBD" exactly as a grouped row's
-       column can, and this path had never applied the filter at all. */
-    const optValues = Object.fromEntries(
-      Object.entries(optionValues(record)).filter(([, value]) => value.trim().toUpperCase() !== "TBD"),
-    );
-    const args = {
-      title,
-      ...(description ? { description } : {}),
-      ...(category ? { category_id: category.id } : {}),
-      ...(styleId ? { style_id: styleId } : {}),
-      ...(vendor ? { vendor } : {}),
-      ...(vendorCode && vendor ? { vendor_code: vendorCode } : {}),
-      ...(unitCostMinor !== undefined ? { unit_cost_minor: unitCostMinor } : {}),
-      ...(commission !== undefined ? { commission } : {}),
-      /* No style number here to derive a SKU from at all (this loop is
-         blank-style-id rows only) -- "it should never be looking,
-         expecting an SKU in our spreadsheets, because the SKU is
-         something that is generated automatically" -- the owner's own
-         words. No `sku` is ever sent from a column; catalog-writer.js's
-         own generateSku() mints one for a variation created with none. */
-      variations: [
-        {
-          title,
-          ...(priceMinor !== null ? { price_minor: priceMinor } : {}),
-          currency,
-          quantity,
-          ...(Object.keys(optValues).length ? { option_values: optValues } : {}),
-        },
-      ],
-      ...(Object.keys(customFields).length ? { custom_fields: customFields } : {}),
-    };
-
-    if (rowClashes.length) {
-      clashes.push({ row: rowNumber, title, args, reason: rowClashes.join("; ") });
-    } else {
-      rows.push({ rowNumber, title, args });
-    }
   }
 
   const { created: madeRows, parked: parkedFromDenials, skipped: refused } = await createRows(
@@ -1434,9 +1239,7 @@ export async function draftCustomerBatch(env, { text, actor, role }) {
  * rows actually carry, aggregated rather than repeated — "how the agent
  * interpreted everything," at a glance, not the raw variant list a person
  * would have to reconstruct the grouping from by hand. A row-group of
- * exactly one variant (including every standalone, non-style-numbered
- * product, which is always a "group" of one) previews identically to
- * before this change.
+ * exactly one variant previews identically to before this change.
  *
  * REVISED ONE MORE TIME — the first version of the collapsing above got two
  * things wrong, both caught by a real person actually reading the result:
@@ -1455,6 +1258,18 @@ export async function draftCustomerBatch(env, { text, actor, role }) {
  * below) — one entry per row in the group's own order, always exactly
  * `variants` long, so column N of one always names the same variant as
  * column N of any other.
+ *
+ * REVISED YET ONE MORE TIME — there is no longer a STANDALONE row at all.
+ * The owner's own words, having watched a real totals/notes line preview as
+ * a near-empty "product": "Why are you including the totals with a bunch of
+ * not found?... if you don't have the qualifying, like the style ID, just
+ * don't include that row at all... why would you show that to me?" A row
+ * with no style number used to preview (and draft) as its own one-variant
+ * product, category/subcategory resolved by NAME — that whole path is gone
+ * (`splitProductRecords`'s own header comment has the full reasoning);
+ * `previewBatch` now only ever calls `mapProductGroup` for a real,
+ * style-numbered group, so `sku`/`style_id` are always real values too, not
+ * a placeholder for a row this preview could never actually resolve.
  *
  * @returns { headers: string[], rowCount: number, sampleRows: object[] }
  *   `rowCount` is the number of raw CSV data rows read; `sampleRows` has one
@@ -1523,10 +1338,10 @@ function mapProductGroup(base, groupRows) {
      reported back after the chat agent saw this preview's own title come
      back null (no title column, only Description) and asked a person
      which column was meant to be the title instead of trusting the real
-     ingest — draftGroupedProduct/the standalone loop already resolve this
-     exact case automatically (DESCRIPTION_KEYS stands in for a missing
-     title, and is never ALSO sent as a separate description then); this
-     preview just never mirrored that same rule, so it showed a
+     ingest — draftGroupedProduct already resolves this exact case
+     automatically (DESCRIPTION_KEYS stands in for a missing title, and is
+     never ALSO sent as a separate description then); this preview just
+     never mirrored that same rule, so it showed a
      misleadingly empty title for a row the real draft handles perfectly
      fine. Same fallback, same "never double-counted" rule, here too.
      Neither a title NOR a description column at all is still never a
@@ -1543,13 +1358,11 @@ function mapProductGroup(base, groupRows) {
      no SKU_KEYS). EVERY style-numbered row's own full style number is
      already its real SKU verbatim (draftGroupedProduct's own variation
      loop) — known at preview time, one per variant, whether the group has
-     one row or several; "never not found" for exactly this case, since it
-     never actually is. Only a genuinely STANDALONE row (no style number
-     column used at all) has a real SKU this preview cannot know yet — an
-     auto-generated one, minted only once the real write actually happens
-     (generateSku) — shown as "(auto-generated)" rather than the generic,
-     alarming "(not found)" a truly missing value would read as. */
-  const sku = groupRows[0].styleIdRaw ? groupRows.map(({ styleIdRaw }) => styleIdRaw).join(" | ") : "(auto-generated)";
+     one row or several. REVISED: `mapProductGroup` is only ever reached by
+     a real style-numbered group now (splitProductRecords drops anything
+     else outright — see its own header comment) — `sku`/`style_id` are
+     always real values, never a placeholder for an unknowable one. */
+  const sku = groupRows.map(({ styleIdRaw }) => styleIdRaw).join(" | ");
   return {
     title,
     category: categoryName || null,
@@ -1558,7 +1371,7 @@ function mapProductGroup(base, groupRows) {
     currency: (pick(first, CURRENCY_KEYS) || "USD").toUpperCase(),
     description: titleCol ? descriptionCol || null : null,
     sku,
-    style_id: base || null,
+    style_id: base,
     variants: groupRows.length,
     vendor: pick(first, VENDOR_KEYS) || null,
     vendor_code: pick(first, VENDOR_CODE_KEYS) || null,
@@ -1591,11 +1404,8 @@ export function previewBatch(text, kind) {
   if (kind === "customers") {
     mapped = records.map(mapCustomerRow);
   } else {
-    const { groups, groupOrder, standaloneRecords } = splitProductRecords(records);
-    mapped = [
-      ...groupOrder.map((base) => mapProductGroup(base, groups.get(base))),
-      ...standaloneRecords.map(({ record, rowNumber }) => mapProductGroup("", [{ record, rowNumber, color: undefined, size: undefined, styleIdRaw: undefined }])),
-    ];
+    const { groups, groupOrder } = splitProductRecords(records);
+    mapped = groupOrder.map((base) => mapProductGroup(base, groups.get(base)));
   }
 
   /* mapProductGroup's extra (custom) fields are per-group: a sheet's own
