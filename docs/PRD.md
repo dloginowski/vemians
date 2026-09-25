@@ -6696,6 +6696,28 @@ that does not trace to one of these is a process failure (see §12).
     separate `description` when it does — so the preview and the real draft agree, and this exact
     question no longer has a reason to come up.
 
+    **REVISED AGAIN — "make sure it doesn't make any more mistakes that are similar," so this file's
+    other real-draft-vs-standalone-path-vs-preview inconsistencies were audited rather than left for the
+    next real upload to surface one at a time.** The title/description bug's own root cause — a rule
+    written once for the GROUPED, style-numbered path and never ported everywhere else that needed it —
+    turned out to have two more instances:
+    - **A real behavior bug, not just a preview mismatch: the STANDALONE path (a row with no style
+      number at all) never filtered a literal "TBD" Color/Size value the way `draftGroupedProduct`'s own
+      variation loop already did.** An ordinary row (no style number) with an explicit `Color` or `Size`
+      column reading "TBD" would have actually minted a real "TBD" option in Square — exactly the
+      outcome "any time you see TBD... it doesn't need an option" already ruled out for a style-numbered
+      row. Fixed by applying the identical filter to the standalone loop's own `option_values`.
+    - **Two more `previewBatch`/`mapProductRow` mismatches, same class as the title bug: showing a field
+      as missing (or present) when the real draft would not.** With no explicit SKU column, a
+      style-numbered row's own full style number becomes its real SKU verbatim — the preview showed a
+      plain `sku: null` instead of that same fallback. And a literal "TBD" Color/Size previewed as a
+      real value, the mirror image of the same problem — the real product will never actually have it,
+      so the preview now filters it out too, matching what `draftGroupedProduct` actually does. A row
+      with NEITHER a title nor a description column at all still never ends up with a genuinely blank
+      title in the real product either (`nextAutoTitle` names it "<category> N", P0-145) — a DB round
+      trip this side-effect-free preview cannot reproduce exactly, so it now says so in words
+      ("(auto-generated from its category)") rather than showing a misleading "(not found)".
+
     **With no SKU column, a variation's own SKU is the row's own full style number, verbatim.** The
     owner's own words: "for our full SKU number, we can go with the shorter names... the SKU is
     basically what we gave you in the first column. That's the SKU." Two different rows in the same

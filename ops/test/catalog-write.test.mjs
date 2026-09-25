@@ -6893,3 +6893,86 @@ check("test_PRD_P0_152_style_number_grouping__an_unparseable_unit_cost_with_a_ve
   const variant = f.mirror("SELECT unit_cost_minor FROM mirror_variant WHERE product_id = ?", product.id)[0];
   assert.equal(variant.unit_cost_minor, 0, "never sent as a real argument -- left at the mirror's own default");
 });
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * "Make sure it doesn't make any more mistakes that are similar" — the
+ * owner's own words, after the title/description preview mismatch above.
+ * Two more of the same root cause (a rule implemented for the GROUPED,
+ * style-numbered path never ported to the STANDALONE, blank-style-id path,
+ * or never mirrored into previewBatch's own side-effect-free mapping) —
+ * found by auditing every other place this file duplicates logic between
+ * the real draft and its own preview, rather than waiting for a second
+ * real upload to surface the next one.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_146_dynamic_option_values__a_tbd_color_is_dropped_on_a_standalone_row_too", async () => {
+  /* The real bug, not just a preview mismatch: draftGroupedProduct's own
+     variation loop already filtered a literal "TBD" out of option_values
+     (P0-152), but the STANDALONE path (a row with no style number at
+     all) never got the same filter -- a plain "Color: TBD" column on an
+     ordinary row would have actually minted a real "TBD" Color in Square,
+     exactly the outcome the owner's own words ("it doesn't need an
+     option") already ruled out for the grouped path. */
+  const f = await fixture({ actor: "tamsin@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const csv = "title,category,price,size,color\n" + `Wool Coat,${outerwear.name},45.00,S,TBD\n`;
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "tamsin@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.created.length, 1);
+
+  const colorObj = [...f.square.objects.values()].find((o) => o.type === "ITEM_OPTION" && o.item_option_data?.name === "Color");
+  const sizeObj = [...f.square.objects.values()].find((o) => o.type === "ITEM_OPTION" && o.item_option_data?.name === "Size");
+  assert.equal(colorObj, undefined, "TBD must never be minted as a real Color option, on this path either");
+  assert.ok(sizeObj, "Size alone is still a real, meaningful option");
+});
+
+check("test_PRD_P0_152_style_number_grouping__the_preview_shows_the_same_sku_fallback_the_real_draft_already_uses", async () => {
+  /* "The SKU is basically what we gave you in the first column. That's
+     the SKU" — the owner's own words. With no explicit SKU column, a
+     style-numbered row's own full style number becomes its real SKU
+     (draftGroupedProduct's own variation loop) -- the preview used to
+     show this as a plain missing "sku: null" instead of mirroring that
+     same fallback. */
+  const { previewBatch } = await import("../src/batch.js");
+  const preview = previewBatch(
+    "Style #,Category,Subcategory,Description,Color,Size,Cost (USD),Retail Price\n" +
+      "001-001-001-BLK-S,Jacket,Blazer,Black hand-painted blazer,Black,S,30,165\n",
+    "products",
+  );
+  assert.equal(preview.sampleRows[0].sku, "001-001-001-BLK-S", "the row's own full style number, same as the real draft's own SKU");
+});
+
+check("test_PRD_P0_152_style_number_grouping__the_preview_drops_a_tbd_color_or_size_the_same_way_the_real_draft_does", async () => {
+  /* "Any time you see TBD, just use like a default or no option... it
+     doesn't need an option" — the owner's own words. The preview used to
+     show a literal "TBD" as though it were a real color/size the product
+     would actually end up with. */
+  const { previewBatch } = await import("../src/batch.js");
+  const preview = previewBatch(
+    "Style #,Category,Subcategory,Description,Color,Size,Cost (USD),Retail Price\n" +
+      "001-001-003-TBD-S,Jacket,Blazer,Embellished blazer,TBD,S,35,125\n",
+    "products",
+  );
+  assert.equal(preview.sampleRows[0].color, null, "TBD previews as genuinely absent, matching what the real product ends up with");
+  assert.equal(preview.sampleRows[0].size, "S", "a real size is unaffected");
+});
+
+check("test_PRD_P0_152_style_number_grouping__the_preview_says_a_blank_title_will_auto_generate_rather_than_showing_not_found", async () => {
+  /* Neither a title NOR a description column at all is still never a real
+     blank title in the actual product -- nextAutoTitle names it "<category>
+     N" (P0-145). A DB round trip this side-effect-free preview cannot
+     reproduce exactly, but showing a bare "(not found)" for something
+     that will never actually be missing is the same class of mismatch the
+     title/description bug already was. */
+  const { previewBatch } = await import("../src/batch.js");
+  const preview = previewBatch("category,price\nOuterwear,45.00\n", "products");
+  assert.equal(preview.sampleRows[0].title, "(auto-generated from its category)");
+});
