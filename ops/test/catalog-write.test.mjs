@@ -5924,6 +5924,33 @@ check("test_PRD_P0_89_batch_preview_confirm__previews_the_first_rows_and_heading
   assert.doesNotMatch(outcome.block.content + JSON.stringify(outcome.table), /not found/i, "the wordier, more alarming phrase must be gone entirely");
 });
 
+check("test_PRD_P0_89_batch_preview_confirm__the_preview_reply_carries_the_asset_id_forward_in_plain_text", async () => {
+  /* A real chat transcript showed the actual failure this guards against:
+     previewed, the person replied "Yes" in plain chat, and the NEXT turn --
+     with nothing but its own stripped-down text history (sanitizeHistory,
+     agent.js) -- could no longer find the asset id at all ("refused
+     assets.list", "refused catalog_draft_product_batch", twice each, then
+     "I can't find its asset id right now"). The primary fix is behavioral
+     (the model now calls the draft tool immediately, in the SAME turn, per
+     PREVIEW_TOOL_DEFS'/attachmentNote's own updated instructions) -- but a
+     genuinely ambiguous sheet can still make the model pause and ask a real
+     clarifying question first, and that reply arrives in a turn just as
+     stripped-down. This is the backup: the asset id rides along in the
+     preview's own visible reply text, the one thing `history` actually
+     preserves, so even that slower path can still recover it. */
+  const f = await fixture();
+  const csv = "title,category,price,style id\nWool Coat,Outerwear,450.00,01-04-001\n";
+  const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
+
+  const outcome = await dispatch(
+    "catalog_preview_product_batch",
+    { asset_id: "ast_1" },
+    { actor: "mara@vemians.com", role: "manager", env, allowed: new Set(["catalog_preview_product_batch"]) },
+  );
+  assert.equal(outcome.block.is_error, false);
+  assert.match(outcome.block.content, /asset id: ast_1/, "the exact id this call was given rides along in the visible reply");
+});
+
 check("test_PRD_P0_117_batch_preview_one_row_fits_without_scrolling__the_preview_table_is_marked_compact", async () => {
   /* Compact tables (this one) are what let views.js's tableCard() skip the
      fixed max-height clip entirely — "the height fits all the data" —
