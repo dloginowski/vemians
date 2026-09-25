@@ -7668,6 +7668,48 @@ that does not trace to one of these is a process failure (see §12).
     never list tool names, domains, tiers or schemas, so the technical reference material stays gone
     everywhere, not just off the page's own markup.
 
+90. **`Test-PRD-P0-157-items_grid_flush_to_bar`** — Reacting to P0-104/P0-71 above (the flex-based
+    auto-sizing fix), a real transcript: "There is also like a 15 to 20 pixels of dead space above the
+    item, like the search or the text entry field. So you're not — you didn't fully extend it and are
+    not using all available space." P0-104's own fix made `.items-grid`'s own BOX fill exactly what is
+    left over (`flex: 1 1 auto`), but two smaller gaps still stacked on top of each other between the
+    last visible row and the bar:
+
+    1. **The shared `.ops` rule's own bottom padding (76px) was a stale guess.** Its own comment called
+       it "enough to clear `.input-bar` alone... plus a little breathing room" — measured against the
+       bar's real footprint (8px off the screen's own bottom edge, ~45px of its own rendered height),
+       that "breathing room" was actually ~23px of pure dead air, on every `.ops` page, not only Items.
+       Tightened to 64px — a real, deliberate ~11px gap (close to this same padding's own 12px top),
+       not a leftover number carried from an earlier layout.
+    2. **`.items-grid`'s own default `align-content: start` packs rows against the top and dumps
+       whatever is left over as blank space below the LAST row**, inside the grid's own box — visible
+       exactly when a catalog's row count doesn't happen to divide the available height evenly.
+       `align-content: space-between` spends that same leftover space as extra room BETWEEN rows
+       instead, so the last row's own bottom edge always meets the grid box's own bottom edge. This
+       only repositions whole rows — it never stretches an individual tile off its own
+       `aspect-ratio: 1` square, confirmed by rendering the real page (not just reasoning about the
+       CSS) and measuring both the grid's own box and the actual tile rectangles before and after.
+
+91. **`Test-PRD-P0-158-help_answer_scales_with_role`** — Reacting to P0-156/P0-157 above (the "what can
+    you do?" help button), a real transcript: "these tools should only be visible by an admin or somebody
+    with sufficient rights to actually run them... my permission level is the highest level and I should
+    be the only permission level that sees advanced tools... for an advanced user, obviously, this help
+    chip would mention the more advanced tools that the user can do." Tool visibility was already
+    structurally subtractive before this round (P0-24) — `toolDefinitions(role)` builds a genuinely
+    different, shorter `defs` list for staff than for a manager or owner, so a staff conversation has no
+    advanced tool to even describe in the first place, not merely an instruction telling the model to
+    hold back. What this round adds is the missing HALF of that instruction: `systemPrompt()` previously
+    only ever said "grounded in what this person's role can actually reach," worded as a ceiling — nothing
+    told the model the rundown should scale UP for a role that reaches more, and a generic help answer
+    risked reading the same, plain, staff-level way for every role regardless of what `defs` actually
+    held. The new instruction names the person's own role explicitly and tells the model a manager or
+    owner's own rundown should mention the fuller, more advanced set actually reachable (bulk imports,
+    vendor and pricing management, approvals) rather than flattening it down — while repeating, in the
+    same sentence, that nothing outside the tools actually listed may ever be invented or hinted at,
+    in either direction. The "no tool names, domains, tiers or schemas" rule from P0-156 is unchanged:
+    this is about how MUCH capability the plain-language rundown admits to, never about naming the
+    underlying tools themselves.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

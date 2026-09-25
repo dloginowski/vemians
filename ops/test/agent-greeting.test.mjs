@@ -89,6 +89,25 @@ check("test_PRD_P0_156_ask_what_it_can_do__answering_it_never_lists_tool_names_a
   assert.match(text, /never list tool names, domains, tiers or schemas/i);
 });
 
+check("test_PRD_P0_158_help_answer_scales_with_role__an_owners_own_rundown_is_told_to_mention_the_fuller_advanced_set", () => {
+  /* A real transcript, reacting to P0-156's own help button: "these tools
+     should only be visible by an admin or somebody with sufficient rights
+     to actually run them... for an advanced user, obviously, this help
+     chip would mention the more advanced tools that the user can do."
+     Tool visibility is already structurally subtractive (P0-24) — an
+     owner's own `defs` genuinely differ from a staff member's, so there is
+     nothing here for a staff prompt to even describe — but the instruction
+     itself has to say the rundown should scale UP for a role that can
+     reach more, not flatten every role's own answer down to the same
+     plain staff-level script. */
+  const staffText = systemPrompt("ana@vemians.com", "staff", ["one"], { given_name: "Ana" });
+  const ownerText = systemPrompt("dimitri@handsome.la", "owner", ["one", "two", "three"], { given_name: "Dimitri" });
+  assert.match(staffText, /scales with what staff can actually reach/i);
+  assert.match(ownerText, /scales with what owner can actually reach/i);
+  assert.match(ownerText, /manager or owner.*mention the fuller, more advanced set/i);
+  assert.match(ownerText, /never invent or hint at a capability outside the tools actually listed/i);
+});
+
 test("test_PRD_P0_30_prd_traceability__every_label_used_here_exists_in_the_prd", async () => {
   const { readFileSync } = await import("node:fs");
   const { fileURLToPath } = await import("node:url");

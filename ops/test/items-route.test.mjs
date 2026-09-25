@@ -329,6 +329,26 @@ check("test_PRD_P0_104_items_grid_scrolls_in_place__the_grid_has_its_own_scrollb
   assert.doesNotMatch(body, /\.items-grid\s*\{[^}]*max-height/s, "no more flat vh guess capping the grid's own height");
 });
 
+check("test_PRD_P0_157_items_grid_flush_to_bar__the_shared_bottom_padding_and_the_grids_own_row_alignment_both_tightened", async () => {
+  /* P0-104's own fix made the grid's own BOX fill exactly what's left,
+     but two smaller gaps still stacked on top of it — a real transcript:
+     "there is also like a 15 to 20 pixels of dead space above the item,
+     like the search or the text entry field... you didn't fully extend
+     it and are not using all available space." Verified by rendering the
+     real page and measuring both the grid's own box and the actual tile
+     rectangles (not just reasoning about the CSS): (1) the shared .ops
+     rule's own bottom padding was a stale 76px, ~23px more than
+     .input-bar's own real footprint needs; (2) .items-grid's own default
+     align-content (start) left whatever didn't divide evenly into full
+     rows as blank space below the last one. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.match(body, /\.ops\s*\{[^}]*max-width:\s*64rem;\s*padding:\s*12px 8px 64px/s, "the shared .ops bottom padding must be tightened, not the stale 76px");
+  assert.match(body, /\.items-grid\s*\{[^}]*align-content:\s*space-between/s, "leftover row space must be spent BETWEEN rows, not left below the last one");
+});
+
 check("test_PRD_P0_71_items_tab__a_tile_expands_to_the_full_screen_instead_of_cramming_data_into_a_cell", async () => {
   /* The owner's own words: "when I click on the item, it's gonna
      expand to my entire phone screen, and I should see all of that
@@ -682,9 +702,10 @@ check("test_PRD_P0_109_status_line_matches_greeting__the_page_container_shares_t
      status line silently sat twice as far from the top as "Hi Dimitri"
      despite living in the exact same .greet markup. Caught live: "you
      need to match the agent exactly... that exact place." The fix moved
-     the shared part of .ops (max-width, top, sides, and the 76px bottom
-     that clears .input-bar alone) into OPS_DARK_CSS, which ITEMS_CSS
-     already imports. */
+     the shared part of .ops (max-width, top, sides, and the bottom that
+     clears .input-bar alone) into OPS_DARK_CSS, which ITEMS_CSS already
+     imports. Bottom is 64px, not the original 76px — see Test-PRD-P0-157's
+     own comment on .ops for why that padding shrank. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const res = await get("/items", STAFF, env(mirror));
@@ -693,7 +714,7 @@ check("test_PRD_P0_109_status_line_matches_greeting__the_page_container_shares_t
      stylesheet (it always is — page() inlines it unconditionally) but no
      longer decides anything here: this tightened rule comes later in the
      cascade at equal specificity, so it wins regardless. */
-  assert.match(body, /\.ops\s*\{[^}]*max-width:\s*64rem;\s*padding:\s*12px 8px 76px/s);
+  assert.match(body, /\.ops\s*\{[^}]*max-width:\s*64rem;\s*padding:\s*12px 8px 64px/s);
 });
 
 check("test_PRD_P0_112_dashboard_status_filter__the_item_tile_hidden_attribute_actually_hides_it", async () => {
