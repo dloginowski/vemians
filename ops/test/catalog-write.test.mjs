@@ -76,7 +76,88 @@ import { normaliseCatalog } from "../../shared/commerce/square/catalog.js";
 register("../../shared/test/text-modules.mjs", import.meta.url);
 const { approvePending, parkForApproval } = await import("../src/approvals.js");
 const { draftProductBatch } = await import("../src/batch.js");
-const { dispatch, NO_TEXT_TABLE_NOTE } = await import("../src/agent.js");
+const { dispatch, agentTurn, approve, NO_TEXT_TABLE_NOTE } = await import("../src/agent.js");
+const http = await import("node:http");
+
+/*
+ * A fake Anthropic, the same technique test/agent-tool-wire-names.test.mjs
+ * already proved out — the only way to reach the real, PRIVATE PENDING map
+ * (stashPending/PENDING are not exported) is to drive a real agentTurn()
+ * tool-use round-trip and read back the `pending.id` it hands the client.
+ */
+function fakeAnthropic(handleRequest) {
+  const server = http.createServer((req, res) => {
+    const chunks = [];
+    req.on("data", (c) => chunks.push(c));
+    req.on("end", () => {
+      const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      const { status, response } = handleRequest(body);
+      res.writeHead(status, { "content-type": "application/json" });
+      res.end(JSON.stringify(response));
+    });
+  });
+  return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(server)));
+}
+
+async function withFakeAnthropic(handleRequest, fn) {
+  const server = await fakeAnthropic(handleRequest);
+  try {
+    await fn(`http://127.0.0.1:${server.address().port}`);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+}
+
+/*
+ * "I need to be able to click yes or no" — drives the exact path a click
+ * on the chat card's own Approve button takes: a scripted model turn that
+ * calls the batch-draft meta-tool once (mints a real PENDING record), then
+ * approve() against that record's own id, never against re-typed args.
+ *
+ * `square`, when given, is spliced in as the fetch a real draft would use to
+ * reach Square — routed alongside, not instead of, the real fetch the fake
+ * Anthropic HTTP server itself needs, since both are live during this call.
+ */
+async function draftBatchViaChatButton(name, args, { actor = "mara@vemians.com", env, square = null }) {
+  const realFetch = globalThis.fetch;
+  if (square) {
+    globalThis.fetch = (url, init) => {
+      const href = typeof url === "string" ? url : url.url;
+      return href.startsWith("http://127.0.0.1") ? realFetch(url, init) : square(url, init);
+    };
+  }
+  try {
+    let pendingId = null;
+    await withFakeAnthropic(
+      () => {
+        if (!pendingId) {
+          return {
+            status: 200,
+            response: {
+              content: [{ type: "tool_use", id: "toolu_1", name, input: args }],
+              stop_reason: "tool_use",
+            },
+          };
+        }
+        return { status: 200, response: { content: [{ type: "text", text: "ok" }], stop_reason: "end_turn" } };
+      },
+      async (base) => {
+        const identity = { email: actor, groups: ["vemians-manager"] };
+        const out = await agentTurn({
+          q: "please ingest the file",
+          identity,
+          env: { ...env, ANTHROPIC_API_KEY: "test-key", ANTHROPIC_BASE_URL: base },
+        });
+        assert.ok(out.pending, "the model's first call must stop for a real approval, not run the draft itself");
+        assert.equal(out.pending.tool, name);
+        pendingId = out.pending.id;
+      },
+    );
+    return await approve({ id: pendingId, identity: { email: actor, groups: ["vemians-manager"] }, env });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OPS = path.join(HERE, "..");
@@ -5678,31 +5759,24 @@ check("test_PRD_P0_88_spreadsheet_via_chat__refuses_plainly_when_the_file_had_no
 
 check("test_PRD_P0_88_spreadsheet_via_chat__a_real_csv_drafts_through_the_same_path_products_batch_uses", async () => {
   /* THE POINT: the same draftProductBatch() that /products/batch calls
-     directly, reached instead through the chat's own tool-call loop, with
-     the CSV read back from the asset store rather than re-typed by the
-     model — a wrong guess on this row from the model is not possible, only
-     a wrong guess by the same deterministic parser /products/batch itself
-     trusts. */
+     directly, reached instead through the chat's own tool-call loop AND its
+     own real Approve button — click, not free text — with the CSV read back
+     from the asset store rather than re-typed by the model — a wrong guess
+     on this row from the model is not possible, only a wrong guess by the
+     same deterministic parser /products/batch itself trusts. */
   const f = await fixture();
   const csv = "title,category,price,style id,cost\nWool Coat,Outerwear,450.00,01-04-001,210.00\nSilk Scarf,Outerwear,free,,\n";
   const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
 
-  const realFetch = globalThis.fetch;
-  globalThis.fetch = f.square;
-  let outcome;
-  try {
-    outcome = await dispatch(
-      "catalog_draft_product_batch",
-      { asset_id: "ast_1" },
-      { actor: "mara@vemians.com", role: "manager", env, allowed: new Set(["catalog_draft_product_batch"]) },
-    );
-  } finally {
-    globalThis.fetch = realFetch;
-  }
-  assert.equal(outcome.block.is_error, false);
-  assert.match(outcome.block.content, /1 products created, 1 need a person's decision, 0 skipped/);
-  assert.match(outcome.block.content, /Wool Coat/);
-  assert.match(outcome.block.content, /"free" is not a plain number/i, "the clashed row's own reason must be relayed");
+  const outcome = await draftBatchViaChatButton(
+    "catalog_draft_product_batch",
+    { asset_id: "ast_1" },
+    { env, square: f.square },
+  );
+  assert.equal(outcome.ok, true);
+  assert.match(outcome.reply, /1 products created, 1 need a person's decision, 0 skipped/);
+  assert.match(outcome.reply, /Wool Coat/);
+  assert.match(outcome.reply, /"free" is not a plain number/i, "the clashed row's own reason must be relayed");
 });
 
 check("test_PRD_P0_136_square_custom_attributes__a_missing_category_via_chat_is_created_immediately_too", async () => {
@@ -5710,21 +5784,14 @@ check("test_PRD_P0_136_square_custom_attributes__a_missing_category_via_chat_is_
   const csv = "title,category,price,cost\nSun Hat,Millinery,20.00,10.00\n";
   const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
 
-  const realFetch = globalThis.fetch;
-  globalThis.fetch = f.square;
-  let outcome;
-  try {
-    outcome = await dispatch(
-      "catalog_draft_product_batch",
-      { asset_id: "ast_1" },
-      { actor: "mara@vemians.com", role: "manager", env, allowed: new Set(["catalog_draft_product_batch"]) },
-    );
-  } finally {
-    globalThis.fetch = realFetch;
-  }
-  assert.equal(outcome.block.is_error, false);
-  assert.match(outcome.block.content, /1 products created, 0 need a person's decision, 0 skipped/);
-  assert.match(outcome.block.content, /Sun Hat/);
+  const outcome = await draftBatchViaChatButton(
+    "catalog_draft_product_batch",
+    { asset_id: "ast_1" },
+    { env, square: f.square },
+  );
+  assert.equal(outcome.ok, true);
+  assert.match(outcome.reply, /1 products created, 0 need a person's decision, 0 skipped/);
+  assert.match(outcome.reply, /Sun Hat/);
   assert.equal(outcome.table.rows[0][2], "created", "the row itself is created, in the same upload, once its missing category is created");
   assert.ok(f.categories().find((c) => c.name === "Millinery"), "the category must actually have been created");
 });
@@ -5874,23 +5941,18 @@ check("test_PRD_P0_89_batch_preview_confirm__an_empty_spreadsheet_previews_as_no
 
 check("test_PRD_P0_89_batch_preview_confirm__the_draft_tools_carry_a_structured_table_too", async () => {
   /* Not just the preview — the real draft result is ALSO structured, since a
-     person cannot review forty skip reasons rendered as one text bubble. */
+     person cannot review forty skip reasons rendered as one text bubble.
+     Carried on the Approve button's own response now, since that button —
+     not a second model turn — is what actually runs the draft. */
   const f = await fixture();
   const csv = "title,category,price,style id,cost\nWool Coat,Outerwear,450.00,01-04-001,210.00\nSilk Scarf,Outerwear,free,,\n";
   const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
 
-  const realFetch = globalThis.fetch;
-  globalThis.fetch = f.square;
-  let outcome;
-  try {
-    outcome = await dispatch(
-      "catalog_draft_product_batch",
-      { asset_id: "ast_1" },
-      { actor: "mara@vemians.com", role: "manager", env, allowed: new Set(["catalog_draft_product_batch"]) },
-    );
-  } finally {
-    globalThis.fetch = realFetch;
-  }
+  const outcome = await draftBatchViaChatButton(
+    "catalog_draft_product_batch",
+    { asset_id: "ast_1" },
+    { env, square: f.square },
+  );
   assert.equal(outcome.table.columns.length, 4);
   assert.equal(outcome.table.rows.length, 2);
   const created = outcome.table.rows.find((r) => r[2] === "created");

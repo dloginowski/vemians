@@ -490,6 +490,48 @@ async function dispatchBatchDraft(name, args, { actor, role, env }) {
   }
 }
 
+/*
+ * "I need to be able to click yes or no" — the owner's own words, after the
+ * mapping-confirm step was a free-text question ("does this look right?")
+ * that a person answered in plain chat text — relying on the NEXT model turn
+ * to correctly recall the asset id from its own history-stripped context,
+ * which it did not reliably do ("it can't find the file... asked me to
+ * re-provide it"). The model's FIRST call to catalog_draft_product_batch/
+ * customer_draft_customer_batch (right after showing a preview) no longer
+ * runs the draft at all — dispatch() below only PRE-CHECKS the role and that
+ * the asset genuinely exists and has readable text (so a bad call still
+ * fails immediately, same message as before), then stashes a real approval
+ * (agent.js's own PENDING map, the same mechanism every other T2 tool in
+ * chat already uses) carrying the asset id in the SERVER's own record. The
+ * button's own click needs no model turn, and no memory of the asset id, at
+ * all — approve() re-reads rec.args and runs the real draft only then.
+ */
+async function precheckBatchDraft(name, args, { role, env }) {
+  if (!canDraftBatches(role)) {
+    return { isError: true, text: "Your role cannot do what this would create — a manager or owner has to do this one." };
+  }
+  const asset = await readAssetText(env, args?.asset_id);
+  if (asset.isError) return asset;
+  /* The row cap is checked here too, not only inside the real draft, so a
+     sheet that is already known to be too big is refused immediately —
+     never offering a confirm button for something that cannot proceed
+     either way. previewBatch's own {rowCount} is side-effect-free, the
+     same reason dispatchBatchPreview already trusts it. */
+  const kind = name === "catalog_draft_product_batch" ? "products" : "customers";
+  const preview = previewBatch(asset.row.extracted_text, kind);
+  if (preview.rowCount > CAPS.BATCH_MAX_ROWS) {
+    /* Not a tool error (isError stays false, matching dispatchBatchDraft's
+       own tooMany case below) -- a real, expected outcome the model
+       should simply relay, same as it always could. */
+    return {
+      isError: false,
+      tooMany: true,
+      text: `The spreadsheet has ${preview.rowCount} rows, past the ${CAPS.BATCH_MAX_ROWS}-row cap for one upload. Split it and try again.`,
+    };
+  }
+  return { isError: false, filename: asset.row.filename };
+}
+
 /* Preview relays previewBatch's own {headers, rowCount, sampleRows} — a
    read-only look at column headings and the first few rows, so a wrong
    mapping is caught before the draft tools mint anything. Only as many
@@ -711,8 +753,21 @@ export async function dispatch(name, args, { actor, role, env, allowed }) {
     return { kind: "result", block: { type: "tool_result", tool_use_id: null, content: text, is_error: isError } };
   }
   if (name === "catalog_draft_product_batch" || name === "customer_draft_customer_batch") {
-    const { isError, text, table } = await dispatchBatchDraft(name, args, { actor, role, env });
-    return { kind: "result", table, block: { type: "tool_result", tool_use_id: null, content: text, is_error: isError } };
+    const pre = await precheckBatchDraft(name, args, { role, env });
+    if (pre.isError || pre.tooMany) {
+      return { kind: "result", table: null, block: { type: "tool_result", tool_use_id: null, content: pre.text, is_error: pre.isError } };
+    }
+    const kind = name === "catalog_draft_product_batch" ? "products" : "customers";
+    const store = name === "catalog_draft_product_batch" ? "catalog_mirror" : "customer_mirror";
+    return {
+      kind: "approval",
+      out: { tier: "T2" },
+      effect:
+        `Ingest "${pre.filename}" as ${kind} — creates every row that resolves cleanly, ` +
+        (kind === "products" ? "parks a clash for a person to review, " : "") +
+        "skips only a genuine problem.",
+      stores: [store],
+    };
   }
   if (name === "catalog_preview_product_batch" || name === "customer_preview_customer_batch") {
     const { isError, text, table } = await dispatchBatchPreview(name, args, { role, env });
@@ -967,7 +1022,10 @@ export async function agentTurn({ q, identity, env, attachment = null, history =
 
       if (outcome.kind === "approval") {
         /* A T2 tool wants a human. The turn stops here — including any sibling
-           tool calls in the same assistant message, which are not run. */
+           tool calls in the same assistant message, which are not run.
+           `outcome.effect`/`outcome.stores`, when dispatch() set them (a
+           META-tool like a batch draft, not a real TOOLS[] entry), win over
+           the ordinary TOOLS-derived description/stores below. */
         const tool = TOOLS[name];
         const id = stashPending({ actor, role, tool: name, args: use.input });
         return {
@@ -982,8 +1040,8 @@ export async function agentTurn({ q, identity, env, attachment = null, history =
             tool: name,
             tier: (tool && tool.tier) || outcome.out.tier,
             args: use.input,
-            effect: describeTool(tool, name, use.input),
-            stores: (tool && tool.stores) || [],
+            effect: outcome.effect || describeTool(tool, name, use.input),
+            stores: outcome.stores || (tool && tool.stores) || [],
           },
         };
       }
@@ -1074,6 +1132,21 @@ export async function approve({ id, identity, env }) {
   if (rec.actor !== actor) {
     console.error(`ERROR agent: approval ${id} raised by ${rec.actor} but approved by ${actor}; refused`);
     return { ok: false, status: 403, reply: "That approval belongs to a different person." };
+  }
+
+  /* A spreadsheet batch draft is a META-tool (agent.js's own dispatch(), not
+     runTool/TOOLS) — "I need to be able to click yes or no" — the owner's
+     own words, after the mapping-confirm step used to be a free-text
+     question a person answered in plain chat, relying on the model to
+     correctly recall the asset id from its own stripped-down history on
+     the NEXT turn (it did not, reliably — "it can't find the file"). This
+     button instead carries the asset id in the server's own PENDING
+     record from the moment it was proposed, the same way any other T2
+     approval already does; clicking it needs no model turn at all. */
+  const BATCH_DRAFT_TOOLS = new Set(["catalog_draft_product_batch", "customer_draft_customer_batch"]);
+  if (BATCH_DRAFT_TOOLS.has(rec.tool)) {
+    const { isError, text, table } = await dispatchBatchDraft(rec.tool, rec.args, { actor, role, env });
+    return { ok: !isError, status: 200, tool: rec.tool, reply: text, table };
   }
 
   /* Re-checked against the role as it is NOW, not as it was when proposed. */

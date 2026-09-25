@@ -1381,6 +1381,11 @@ function card(p) {
       const data = await res.json();
       gate.textContent = "";
       line.textContent = data.reply || data.error || ("Approve failed: " + res.status);
+      /* A batch draft's own approval carries its full per-row results table
+         alongside "reply" — the same table shape any other tool result
+         already renders via tableCard(), just arriving from this button's
+         own click instead of the model's next turn. */
+      if (data.table) { tableCard(data.table); }
     } catch (err) {
       console.error("approve request failed", err);
       buttons.forEach((b) => (b.disabled = false));

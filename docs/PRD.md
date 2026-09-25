@@ -6850,6 +6850,47 @@ that does not trace to one of these is a process failure (see §12).
       (unique SKU) and "if there's a clash... resolved by a person" (everything else that could not be
       resolved automatically) as the complete rule, together.
 
+    **REVISED ONE MORE TIME — confirming a draft is a real clickable button now, not a free-text "yes"
+    the model has to remember the file for.** A genuine bug report, the owner's own words: "After I
+    replied yes, it told me that it can't find the file and asked me to re-provide the file. What the
+    fuck is that all about?" `/agent` keeps no server-side session — each HTTP request resends the
+    client's OWN `history`, and `sanitizeHistory()` strips it down to bare `{role, text}` chat bubbles
+    before it goes back to the model. The asset id only ever reached the model's context via
+    `attachmentNote()`, on the ORIGINAL upload turn — never written into the rendered bubble text that
+    becomes `history` — so a later "yes," arriving as a fresh request with no memory of its own, handed
+    the model a conversation with no asset id anywhere in it. It had, correctly from its own vantage
+    point, genuinely lost the file. Followed immediately by the actual fix the owner asked for directly:
+    "agent should give me an actual clickable button or sort of field or something that I can press to
+    continue with the ingest. It should not be just asking me if that looks good or not. I need to be
+    able to click yes or no."
+
+    Both `catalog_draft_product_batch` and `customer_draft_customer_batch` now run through the exact
+    same PENDING-map-plus-Approve-button mechanism every other T2 tool in chat already uses (P0-63),
+    rather than a bespoke free-text confirmation loop — "if you can already automatically do this,
+    then do it. Don't reinvent the wheel" applies here as much as it did to the clash logic above.
+    The model's first call to either tool no longer runs the draft: `dispatch()` calls a new
+    `precheckBatchDraft()` — the same role check, the same asset-exists-and-has-text check, and the
+    same `CAPS.BATCH_MAX_ROWS` cap check `dispatchBatchDraft` always ran, but nothing that writes —
+    and on success returns `{kind: "approval", ...}` with a plain-English `effect` describing what the
+    ingest will do. `agentTurn()`'s existing pending-approval path stashes it in `PENDING` exactly as it
+    would any other T2 call, carrying the real `asset_id` in the SERVER's own record, keyed by a minted
+    id the client never has to echo back correctly. `views.js`'s `card()` renders the same real
+    `<button>Approve</button>` every other T2 gate already renders; clicking it POSTs only `{id}` to
+    `/ops/agent/approve`, which reads `rec.args` back from `PENDING` itself — never from anything the
+    client sent — and only THEN calls the real `dispatchBatchDraft`, rendering its reply and its result
+    table under the same card. No model turn, and no chat history of any kind, is on the path between
+    "click Approve" and the real draft running any more, which is what makes the asset id durable across
+    that boundary instead of a chat-reconstructed guess.
+
+    **Deliberately NOT built yet, flagged rather than guessed at:** the preview still samples just
+    `PREVIEW_SAMPLE_ROWS` (1) row, per the owner's own earlier, explicit instruction ("I already need to
+    really see just one... I don't need to see three of them") — a later request to see the entire
+    file's resolved fields before confirming has not been reconciled with that instruction, and needs
+    its own design pass rather than silently overriding it. Column-to-field mapping also stays
+    deterministic pattern-matching (`pick()` against a fixed synonym list, `batch.js`), not
+    model-interpreted — typing a correction ("no, that column is the vendor, not the SKU") has no code
+    path to act on it yet; only Approve/Cancel are wired to anything today.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
