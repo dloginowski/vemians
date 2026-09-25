@@ -1247,8 +1247,15 @@ export async function draftProductBatch(env, { text, actor, role }) {
     if (notes.length) customFields["import notes"] = notes.join("; ").slice(0, CAPS.CATALOG_CUSTOM_FIELD_VALUE_MAX);
     /* No style number here to derive a color/size from at all (this loop
        is blank-style-id rows only) -- an explicit Size/Color column
-       (OPTION_KEYS) is the only source. */
-    const optValues = optionValues(record);
+       (OPTION_KEYS) is the only source. "Any time you see TBD, just use
+       like a default or no option... it doesn't need an option" -- the
+       owner's own words, the same rule draftGroupedProduct's own variation
+       loop already applies; ported here too, since a standalone row's own
+       explicit Color/Size column can say "TBD" exactly as a grouped row's
+       column can, and this path had never applied the filter at all. */
+    const optValues = Object.fromEntries(
+      Object.entries(optionValues(record)).filter(([, value]) => value.trim().toUpperCase() !== "TBD"),
+    );
     const args = {
       title,
       ...(description ? { description } : {}),
@@ -1398,7 +1405,17 @@ function mapProductRow(record) {
   const { base: styleBase, color: styleColor, size: styleSize } = styleIdRaw
     ? parseStyleNumber(styleIdRaw)
     : { base: "", color: undefined, size: undefined };
-  const optValues = { ...(styleColor ? { Color: styleColor } : {}), ...(styleSize ? { Size: styleSize } : {}), ...optionValues(record) };
+  /* "Any time you see TBD, just use like a default or no option... it
+     doesn't need an option" — the owner's own words. Filtered here the
+     same way draftGroupedProduct's own variation loop already filters it,
+     so a "TBD" color/size previews as genuinely absent, matching what the
+     real product will actually end up with, rather than showing a value
+     that will never become a real Color/Size in Square. */
+  const optValues = Object.fromEntries(
+    Object.entries({ ...(styleColor ? { Color: styleColor } : {}), ...(styleSize ? { Size: styleSize } : {}), ...optionValues(record) }).filter(
+      ([, value]) => value.trim().toUpperCase() !== "TBD",
+    ),
+  );
   /* "It should assume title is description by default and not expect a
      description at all from these ingests" — the owner's own words,
      reported back after the chat agent saw this preview's own title come
@@ -1409,17 +1426,33 @@ function mapProductRow(record) {
      title, and is never ALSO sent as a separate description then); this
      preview just never mirrored that same rule, so it showed a
      misleadingly empty title for a row the real draft handles perfectly
-     fine. Same fallback, same "never double-counted" rule, here too. */
+     fine. Same fallback, same "never double-counted" rule, here too.
+     Neither a title NOR a description column at all is still never a
+     real blank title in the actual product either (nextAutoTitle names
+     it "<category> N") — a DB round trip this side-effect-free preview
+     cannot reproduce exactly, so it says so in words instead of showing a
+     misleading "(not found)". */
   const titleCol = pick(record, TITLE_KEYS);
   const descriptionCol = pick(record, DESCRIPTION_KEYS);
+  const title = titleCol || descriptionCol || "(auto-generated from its category)";
+  /* "The SKU is basically what we gave you in the first column. That's
+     the SKU" — the owner's own words. With no explicit SKU column, a
+     style-numbered row's own full style number becomes its real SKU
+     verbatim (draftGroupedProduct's own variation loop); previewed the
+     same way, rather than showing a SKU column this row will not
+     actually end up missing. A row with neither (no style number either)
+     still gets a real, auto-generated SKU in Square (generateSku) — same
+     DB-dependent case as style_id's own auto-generation just below,
+     genuinely unpreviewable, left as "not found". */
+  const sku = pick(record, SKU_KEYS) || styleIdRaw || null;
   return {
-    title: titleCol || descriptionCol || null,
+    title,
     category: categoryName || null,
     subcategory: pick(record, SUBCATEGORY_KEYS) || null,
     price: pick(record, PRICE_KEYS) || null,
     currency: (pick(record, CURRENCY_KEYS) || "USD").toUpperCase(),
     description: titleCol ? descriptionCol || null : null,
-    sku: pick(record, SKU_KEYS) || null,
+    sku,
     style_id: styleBase || null,
     vendor: pick(record, VENDOR_KEYS) || null,
     vendor_code: pick(record, VENDOR_CODE_KEYS) || null,
