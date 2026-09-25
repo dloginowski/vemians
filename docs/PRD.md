@@ -6669,14 +6669,40 @@ that does not trace to one of these is a process failure (see §12).
     reported the ordinary way once something else about it fails (its own blank price, typically) —
     "ignore" was never asked for the case that already resolves cleanly on its own.
 
-    **No title column exists on a sheet like this — `Description` stands in for it.** `rawTitle` now
-    tries `TITLE_KEYS` first (a sheet that does have one still wins) and falls through to
+    **No title column exists on a sheet like this — `Description` stands in for it, and REVISED,
+    stands in ONLY for the title.** The owner's own words: "you are getting the title of the items,
+    the title, right? Not the descriptions. The descriptions will generate automatically later."
+    `rawTitle` tries `TITLE_KEYS` first (a sheet that does have one still wins) and falls through to
     `DESCRIPTION_KEYS` only when it does not — "Black hand-painted blazer" reads exactly like a
-    product's own name already, and this is a WEAKER rule than the one this file already enforces
-    the other way (bare "style"/"style #" must never become the title, `Test-PRD-P0-136-...__a_style_
-    number_column_is_never_read_as_the_products_title`): DESCRIPTION_KEYS is a distinct, deliberately
-    named column, not the same collision. `description` itself is unaffected — the same text simply
-    appears twice on a row that has no separate title, never suppressed to avoid the duplication.
+    product's own name already, and this is a WEAKER rule than the one this file already enforces the
+    other way (bare "style"/"style #" must never become the title, `Test-PRD-P0-136-...__a_style_
+    number_column_is_never_read_as_the_products_title`): `DESCRIPTION_KEYS` is a distinct, deliberately
+    named column, not the same collision. But a `Description` value consumed THIS way is never also
+    sent as `description` — a future, separate process writes real descriptions, and a row's own title
+    stand-in showing up twice would only get in that process's way. A sheet that gives BOTH a real
+    title AND a separate description keeps sending both, exactly as before — this only changes the "no
+    title column at all" case.
+
+    **With no SKU column, a variation's own SKU is the row's own full style number, verbatim.** The
+    owner's own words: "for our full SKU number, we can go with the shorter names... the SKU is
+    basically what we gave you in the first column. That's the SKU." Two different rows in the same
+    group (`001-001-001-BLK-S` vs `...-BLK-M`) already differ in exactly the way a real SKU should —
+    unique per exact variant, abbreviations and all, no further construction needed. An explicit `SKU`
+    column, when a sheet has one, still wins — the same "explicit wins" rule as everywhere else in
+    this file.
+
+    **A value of literally "TBD" is not a real option value — it is dropped, not minted as one.** The
+    owner's own words: "any time you see TBD, just use like a default or no option... it's just one of
+    a kind, it's just one off. It doesn't need an option. That's the only one we have." Checked on the
+    FINAL, already-merged `option_values` (whichever the style number's own trailing segment or an
+    explicit Color/Size column ended up winning) — three rows differing only by size, all sharing color
+    "TBD," keep Size as a real, meaningful option while Color is dropped entirely, never becoming a
+    real "TBD" Color in Square. **Customer-facing values are always the full, spelled-out name.** The
+    owner's own words: "our customers need to see one size or small, medium, large... they want to see
+    black, white, the full names of the options" — already what "explicit wins" (P0-146) has always
+    done: a sheet's own separate Color/Size columns carry the full name, and win over the style
+    number's own abbreviation for `option_values` (though not for the SKU, above, which deliberately
+    keeps the shorter form).
 
     **Deliberately NOT built yet, flagged rather than guessed at: auto-configuring a CATEGORY's own
     Option Sets from what a batch of its own items actually uses, when it has none configured.** The
