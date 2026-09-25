@@ -6718,13 +6718,21 @@ that does not trace to one of these is a process failure (see §12).
       trip this side-effect-free preview cannot reproduce exactly, so it now says so in words
       ("(auto-generated from its category)") rather than showing a misleading "(not found)".
 
-    **With no SKU column, a variation's own SKU is the row's own full style number, verbatim.** The
-    owner's own words: "for our full SKU number, we can go with the shorter names... the SKU is
-    basically what we gave you in the first column. That's the SKU." Two different rows in the same
-    group (`001-001-001-BLK-S` vs `...-BLK-M`) already differ in exactly the way a real SKU should —
-    unique per exact variant, abbreviations and all, no further construction needed. An explicit `SKU`
-    column, when a sheet has one, still wins — the same "explicit wins" rule as everywhere else in
-    this file.
+    **A variation's own SKU is always the row's own full style number, verbatim — REVISED, no column is
+    ever read as an explicit SKU any more.** The owner's own words, first: "for our full SKU number, we
+    can go with the shorter names... the SKU is basically what we gave you in the first column. That's
+    the SKU." Two different rows in the same group (`001-001-001-BLK-S` vs `...-BLK-M`) already differ
+    in exactly the way a real SKU should — unique per exact variant, abbreviations and all, no further
+    construction needed. Then, REVISED AGAIN, after an "SKU" column briefly won when a sheet happened to
+    have one: "it should never be looking, expecting an SKU in our spreadsheets, because the SKU is
+    something that is generated automatically" — the owner's own real sample sheet (Style #/Category/
+    Subcategory/Description/Color/Size/Qty/Cost/Retail Price — no SKU column at all) is the BENCHMARK
+    for what an upload actually looks like going forward, and taken that way there was never a real "SKU
+    column" case to defer to. There is no `SKU_KEYS` any more: a column literally named "SKU" (or "item
+    number", "product code") is no longer claimed at all — it falls through to `custom_fields` like any
+    other unrecognized column, "preserve all fields" applying here too — and a row with NO style number
+    either sends no `sku` argument at all, letting `catalog-writer.js`'s own `generateSku()` mint one,
+    exactly as it already does for any other variation created with none.
 
     **A value of literally "TBD" is not a real option value — it is dropped, not minted as one.** The
     owner's own words: "any time you see TBD, just use like a default or no option... it's just one of

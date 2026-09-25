@@ -6742,7 +6742,14 @@ check("test_PRD_P0_152_style_number_grouping__with_no_sku_column_the_rows_own_fu
   assert.deepEqual(skus, ["001-001-001-BLK-M", "001-001-001-BLK-S"], "each variation's own SKU is that exact row's own full style number");
 });
 
-check("test_PRD_P0_152_style_number_grouping__an_explicit_sku_column_still_wins_over_the_style_number", async () => {
+check("test_PRD_P0_152_style_number_grouping__a_sku_column_is_ignored_entirely_the_style_number_is_always_the_real_sku", async () => {
+  /* REVISED: "it should never be looking, expecting an SKU in our
+     spreadsheets, because the SKU is something that is generated
+     automatically" -- the owner's own words, the real sample sheet (no
+     SKU column at all) taken as the benchmark going forward. A column
+     literally named "SKU" is no longer read as one at all -- it falls
+     through to custom_fields like any other unrecognized column, and the
+     row's own full style number is always the real SKU, verbatim. */
   const f = await fixture({ actor: "priya@vemians.com", role: "manager" });
   const csv =
     "Style #,Category,Subcategory,Description,Color,Size,SKU,Cost (USD),Retail Price\n" +
@@ -6758,9 +6765,10 @@ check("test_PRD_P0_152_style_number_grouping__an_explicit_sku_column_still_wins_
   }
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
 
-  const product = f.mirror("SELECT id FROM mirror_product WHERE title = 'Black hand-painted blazer'")[0];
+  const product = f.mirror("SELECT id, custom_fields FROM mirror_product WHERE title = 'Black hand-painted blazer'")[0];
   const variant = f.mirror("SELECT sku FROM mirror_variant WHERE product_id = ?", product.id)[0];
-  assert.equal(variant.sku, "VEM-100");
+  assert.equal(variant.sku, "001-001-001-BLK-S", "the row's own full style number is always the real SKU, regardless of an SKU column");
+  assert.equal(JSON.parse(product.custom_fields).sku, "VEM-100", "the SKU column's own value is preserved as an ordinary custom field, not lost");
 });
 
 check("test_PRD_P0_152_style_number_grouping__a_tbd_color_or_size_is_dropped_as_a_real_option_entirely", async () => {
@@ -6814,27 +6822,35 @@ check("test_PRD_P0_152_style_number_grouping__a_sku_already_used_by_a_different_
      there's a clash and it has to be resolved by a person" -- a SKU
      collision only surfaces once catalog.create_product's own check()
      actually runs, and it is exactly this kind of clash: parked, not
-     silently skipped, so a person can rename the SKU and approve. */
+     silently skipped, so a person can rename the SKU and approve.
+     REVISED YET AGAIN: SKU is never read from a spreadsheet column any
+     more -- it is always the row's own full style number, verbatim -- so
+     the only way a real collision can still arise from a CSV upload is
+     against a product ALREADY on file (created directly, or from an
+     earlier upload) whose own SKU happens to equal this row's own full
+     style number exactly. */
   const f = await fixture({ actor: "sana@vemians.com", role: "manager" });
-  const csv =
-    "Style #,Category,Description,Cost (USD),Retail Price,SKU\n" +
-    "001-001-001,Jacket,Blazer One,30,150,DUPE-1\n" +
-    "001-002-001,Jacket,Blazer Two,30,150,DUPE-1\n";
-
   const realFetch = globalThis.fetch;
   globalThis.fetch = f.square;
   let result;
   try {
+    const jacket = (await approvedCall(f, "catalog.create_category", { name: "Jacket", numeric_id: "01", reason: "test" })).data.category;
+    await approvedCall(f, "catalog.create_product", {
+      title: "Blazer One",
+      category_id: jacket.id,
+      variations: [{ title: "Blazer One", price_minor: 15000, currency: "USD", sku: "01-02-001" }],
+    });
+
+    const csv = "Style #,Category,Description,Cost (USD),Retail Price\n" + "01-02-001,Jacket,Blazer Two,30,150\n";
     result = await draftProductBatch(f.env, { text: csv, actor: "sana@vemians.com", role: "manager" });
   } finally {
     globalThis.fetch = realFetch;
   }
-  assert.equal(result.created.length, 1);
-  assert.equal(result.created[0].title, "Blazer One");
+  assert.equal(result.created.length, 0);
   assert.equal(result.skipped.length, 0);
   assert.equal(result.ready.length, 1);
   assert.equal(result.ready[0].title, "Blazer Two");
-  assert.match(result.ready[0].summary, /SKU 'DUPE-1' is already used by 'Blazer One'/);
+  assert.match(result.ready[0].summary, /SKU '01-02-001' is already used by 'Blazer One'/);
   assert.ok(result.ready[0].url, "a real, openable approval link, so the SKU can be fixed and approved");
 
   const products = f.mirror("SELECT title FROM mirror_product WHERE title LIKE 'Blazer%'");
