@@ -5929,3 +5929,124 @@ check("test_PRD_P0_146_dynamic_option_values__a_csv_size_or_color_column_reaches
   assert.equal(itemWrite.body.object.item_data.item_options.length, 2);
   assert.equal(itemWrite.body.object.item_data.variations[0].item_variation_data.item_option_values.length, 2);
 });
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-146 (REVISED) — "we're now going to be providing you with the full
+ * style number... the category first, a subcategory ID, then the actual
+ * index of the item, then a dash and an abbreviation for a color if there
+ * is one, then a dash for any size. OS size means all sizes, it fits all"
+ * — the owner's own words. The style id/style number column (STYLE_ID_KEYS)
+ * may now carry this shop's own NN-NN-NNN style_id PLUS a trailing color
+ * and/or size (parseStyleNumber, batch.js), instead of needing separate
+ * Size/Color columns for every row.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_146_dynamic_option_values__a_full_style_number_supplies_color_and_size_too", async () => {
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const csv = "title,category,price,style id,cost\n" + `Wool Coat,${outerwear.name},450.00,01-04-001-BLK-M,210.00\n`;
+
+  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.ready.length, 1);
+
+  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let approved;
+  try {
+    approved = await approvePending(f.env, result.ready[0].url.split("/").pop(), approver);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(approved.ok, true, approved.error);
+
+  const colorObj = [...f.square.objects.values()].find((o) => o.type === "ITEM_OPTION" && o.item_option_data?.name === "Color");
+  const sizeObj = [...f.square.objects.values()].find((o) => o.type === "ITEM_OPTION" && o.item_option_data?.name === "Size");
+  assert.ok(colorObj && sizeObj, "the style number's own trailing segments must mint both a Color and a Size option");
+  assert.equal(colorObj.item_option_data.values[0].item_option_value_data.name, "BLK");
+  assert.equal(sizeObj.item_option_data.values[0].item_option_value_data.name, "M");
+
+  const row = f.mirror("SELECT style_id FROM mirror_product WHERE title = 'Wool Coat'")[0];
+  assert.equal(row.style_id, "01-04-001", "only the base three segments become style_id -- the color/size suffix is never sent along as part of it");
+});
+
+check("test_PRD_P0_146_dynamic_option_values__a_lone_trailing_segment_is_always_read_as_a_size_never_a_color", async () => {
+  /* "OS size means all sizes, it fits all... so we need to have an OS
+     size" -- the owner's own words. Color is the segment that goes
+     missing entirely when an item has no color axis; size is always
+     given, "OS" reserved for one with no real size axis either -- so a
+     style number with only ONE segment after its base style_id is never
+     mistaken for a color standing in alone. */
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const csv = "title,category,price,style id,cost\n" + `Silk Scarf,${outerwear.name},90.00,01-04-001-OS,40.00\n`;
+
+  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+
+  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let approved;
+  try {
+    approved = await approvePending(f.env, result.ready[0].url.split("/").pop(), approver);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(approved.ok, true, approved.error);
+
+  const colorObj = [...f.square.objects.values()].find((o) => o.type === "ITEM_OPTION" && o.item_option_data?.name === "Color");
+  const sizeObj = [...f.square.objects.values()].find((o) => o.type === "ITEM_OPTION" && o.item_option_data?.name === "Size");
+  assert.equal(colorObj, undefined, "no Color option must be created -- there was no color segment, not a coincidentally short one");
+  assert.ok(sizeObj, "the lone trailing segment must still become a Size option");
+  assert.equal(sizeObj.item_option_data.values[0].item_option_value_data.name, "OS");
+
+  const row = f.mirror("SELECT style_id FROM mirror_product WHERE title = 'Silk Scarf'")[0];
+  assert.equal(row.style_id, "01-04-001");
+});
+
+check("test_PRD_P0_146_dynamic_option_values__an_explicit_size_or_color_column_wins_over_the_full_style_numbers_own", async () => {
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const csv =
+    "title,category,price,style id,cost,size,color\n" + `Wool Coat,${outerwear.name},450.00,01-04-001-BLK-M,210.00,XL,Red\n`;
+
+  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+
+  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let approved;
+  try {
+    approved = await approvePending(f.env, result.ready[0].url.split("/").pop(), approver);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(approved.ok, true, approved.error);
+
+  const colorObj = [...f.square.objects.values()].find((o) => o.type === "ITEM_OPTION" && o.item_option_data?.name === "Color");
+  const sizeObj = [...f.square.objects.values()].find((o) => o.type === "ITEM_OPTION" && o.item_option_data?.name === "Size");
+  assert.equal(colorObj.item_option_data.values[0].item_option_value_data.name, "Red", 'the explicit Color column wins over the style number\'s own "BLK"');
+  assert.equal(sizeObj.item_option_data.values[0].item_option_value_data.name, "XL", 'the explicit Size column wins over the style number\'s own "M"');
+});
+
+check("test_PRD_P0_146_dynamic_option_values__the_preview_splits_a_full_style_number_into_style_id_color_and_size", async () => {
+  const { previewBatch } = await import("../src/batch.js");
+  const preview = previewBatch("title,category,price,style id\nWool Coat,Outerwear,450.00,01-04-001-BLK-M\n", "products");
+  assert.equal(preview.sampleRows[0].style_id, "01-04-001");
+  assert.equal(preview.sampleRows[0].color, "BLK");
+  assert.equal(preview.sampleRows[0].size, "M");
+});
+
+check("test_PRD_P0_146_dynamic_option_values__a_bare_style_id_with_no_suffix_still_derives_no_color_or_size", async () => {
+  /* Backward compatibility: every row before this feature existed gave a
+     bare NN-NN-NNN with no trailing segment at all -- parseStyleNumber
+     must leave it completely alone. */
+  const { previewBatch } = await import("../src/batch.js");
+  const preview = previewBatch("title,category,price,style id\nWool Coat,Outerwear,450.00,01-04-001\n", "products");
+  assert.equal(preview.sampleRows[0].style_id, "01-04-001");
+  assert.equal(preview.sampleRows[0].color, null);
+  assert.equal(preview.sampleRows[0].size, null);
+});

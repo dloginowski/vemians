@@ -127,7 +127,11 @@ const SKU_KEYS = ["sku", "style number", "item number", "product code"];
 /* Bare "style"/"style #" claimed here, not by SKU_KEYS' own "style number" —
    see TITLE_KEYS' own comment above for the real sheet that hit this
    collision. "style #", "style#" and "style" itself all normalize to the
-   same "style" key. */
+   same "style" key.
+   REVISED: this same cell may now carry the FULL style number — style_id
+   plus a color and/or a size riding along after it, one dash each
+   (parseStyleNumber, above) — not just the bare NN-NN-NNN this shop's own
+   style_id nomenclature is on its own. */
 const STYLE_ID_KEYS = ["style id", "style_id", "style #", "style"];
 const VENDOR_KEYS = ["vendor", "vendor name", "supplier"];
 /* The vendor's OWN SKU/product code for this item — "an invoice-like
@@ -165,7 +169,11 @@ const QUANTITY_KEYS = ["quantity", "qty", "stock", "initial quantity", "initial 
    named; a real third option (Material, say) still falls through to
    custom_fields via extraFields exactly as any other unrecognized column
    already does, rather than this file inventing a new Option Set nobody
-   asked for. */
+   asked for.
+   REVISED: a color and/or a size embedded in the full style number itself
+   (parseStyleNumber, above) fill these same two option values too — an
+   explicit Size/Color column here always wins when a row has both,
+   the derived one only ever filling a gap the column itself left blank. */
 const OPTION_KEYS = {
   Size: ["size", "size name"],
   Color: ["color", "colour", "color name", "colour name"],
@@ -262,6 +270,43 @@ function parseQuantity(raw) {
   const cleaned = String(raw ?? "").trim();
   if (!/^\d+$/.test(cleaned)) return null;
   return Number(cleaned);
+}
+
+/*
+ * "We're now going to be providing you with the full style number... the
+ * category first, this represents an ID that matches our existing
+ * categories, then a subcategory ID, number dash number, and then the
+ * actual index of the item. Then, if there's an option like a color,
+ * that's going to be a dash and then an abbreviation for the color, and
+ * then a dash for any sizes. OS size means all sizes, it fits all" — the
+ * owner's own words. This shop's own style_id nomenclature (STYLE_ID_
+ * FORMAT, catalog-write.js) is exactly the first three segments
+ * (NN-NN-NNN); a color and/or a size may now ride along after it in the
+ * very same cell, one dash each, color before size.
+ *
+ * A single trailing segment is always the SIZE, never a color standing
+ * in alone — color is the segment that goes missing entirely when an
+ * item has no color axis, while size is always given, "OS" being the
+ * reserved value for an item that has no real size axis either ("it
+ * fits all"). That is what keeps a FOUR-segment number from ever being
+ * ambiguous about which one it is.
+ *
+ * Anything that is not exactly a 3-, 4- or 5-segment NN-NN-NNN[-X[-X]]
+ * shape (a plain, already-bare style_id; a genuinely malformed one; some
+ * other identifier entirely) is left completely untouched, returned as
+ * the given `styleId` with no color or size at all — still handed to
+ * catalog.create_product verbatim, whose own STYLE_ID_FORMAT check
+ * reports a real format problem exactly as it always has. This only ever
+ * EXTRACTS a trailing color/size when the shape actually matches; it
+ * never invents a rejection of its own.
+ */
+const FULL_STYLE_NUMBER = /^(\d{2}-\d{2}-\d{3})(?:-([^-]+))?(?:-([^-]+))?$/;
+
+function parseStyleNumber(raw) {
+  const match = FULL_STYLE_NUMBER.exec(String(raw ?? "").trim());
+  if (!match) return { styleId: raw, color: undefined, size: undefined };
+  const [, styleId, first, second] = match;
+  return second !== undefined ? { styleId, color: first, size: second } : { styleId, color: undefined, size: first };
 }
 
 /** Case- and whitespace-insensitive; the closed set's real names, never guessed. */
@@ -410,6 +455,12 @@ export async function draftProductBatch(env, { text, actor, role }) {
     const rawTitle = pick(record, TITLE_KEYS).slice(0, 200);
     const categoryName = pick(record, CATEGORY_KEYS);
     const styleIdRaw = pick(record, STYLE_ID_KEYS);
+    /* parseStyleNumber's own header comment: a bare style_id passes
+       through untouched (color/size both undefined), the same as every
+       row before this feature existed. */
+    const { styleId: styleIdCode, color: styleColor, size: styleSize } = styleIdRaw
+      ? parseStyleNumber(styleIdRaw)
+      : { styleId: "", color: undefined, size: undefined };
     const priceRaw = pick(record, PRICE_KEYS);
     const currency = (pick(record, CURRENCY_KEYS) || "USD").toUpperCase();
 
@@ -450,8 +501,8 @@ export async function draftProductBatch(env, { text, actor, role }) {
       }
       category = outcome.category;
     }
-    if (!category && styleIdRaw) {
-      const derivedId = await deriveCategoryIdForStyleId(env.CATALOG_MIRROR, styleIdRaw);
+    if (!category && styleIdCode) {
+      const derivedId = await deriveCategoryIdForStyleId(env.CATALOG_MIRROR, styleIdCode);
       if (derivedId) category = categories.find((c) => c.id === derivedId) ?? null;
     }
     /* Title is spelled from whichever category this row actually landed on
@@ -473,7 +524,7 @@ export async function draftProductBatch(env, { text, actor, role }) {
        auto-bump, never a refusal) are still catalog.create_product's own
        check() to make, relayed the same way a bad category or price
        already is. */
-    const styleId = styleIdRaw || undefined;
+    const styleId = styleIdCode || undefined;
 
     /* "When quantity not specified use 1" — the owner's own words. Blank
        defaults rather than blocks; a value that IS given but does not
@@ -551,7 +602,13 @@ export async function draftProductBatch(env, { text, actor, role }) {
        still preserves it verbatim, unchanged from before this feature. */
     const knownKeys = vendor ? [...PRODUCT_KNOWN_KEYS, ...UNIT_COST_KEYS] : PRODUCT_KNOWN_KEYS;
     const customFields = extraFields(record, knownKeys);
-    const optValues = optionValues(record);
+    /* An explicit Size/Color column (OPTION_KEYS) always wins — a
+       deliberate, unambiguous override — the full style number's own
+       parsed color/size (parseStyleNumber, above) only fills in whichever
+       of the two that column left out, the same "explicit wins, derived
+       fills the gap" rule this file's own category/style_id derivation
+       already follows. */
+    const optValues = { ...(styleColor ? { Color: styleColor } : {}), ...(styleSize ? { Size: styleSize } : {}), ...optionValues(record) };
     rows.push({
       rowNumber,
       title,
@@ -673,6 +730,15 @@ const PREVIEW_SAMPLE_ROWS = 1;
    — "preserve all fields" means visible before confirming, not just kept
    silently in the background. */
 function mapProductRow(record) {
+  const styleIdRaw = pick(record, STYLE_ID_KEYS);
+  /* Same parse, same explicit-wins-derived-fills-the-gap precedence
+     draftProductBatch itself applies (parseStyleNumber, above) — the
+     preview must show exactly the style_id/color/size a real upload
+     would actually park, not the raw, unsplit cell. */
+  const { styleId: styleIdCode, color: styleColor, size: styleSize } = styleIdRaw
+    ? parseStyleNumber(styleIdRaw)
+    : { styleId: "", color: undefined, size: undefined };
+  const optValues = { ...(styleColor ? { Color: styleColor } : {}), ...(styleSize ? { Size: styleSize } : {}), ...optionValues(record) };
   return {
     title: pick(record, TITLE_KEYS) || null,
     category: pick(record, CATEGORY_KEYS) || null,
@@ -680,12 +746,12 @@ function mapProductRow(record) {
     currency: (pick(record, CURRENCY_KEYS) || "USD").toUpperCase(),
     description: pick(record, DESCRIPTION_KEYS) || null,
     sku: pick(record, SKU_KEYS) || null,
-    style_id: pick(record, STYLE_ID_KEYS) || null,
+    style_id: styleIdCode || null,
     vendor: pick(record, VENDOR_KEYS) || null,
     vendor_code: pick(record, VENDOR_CODE_KEYS) || null,
     commission: pick(record, COMMISSION_KEYS) || null,
     quantity: pick(record, QUANTITY_KEYS) || "1 (default)",
-    ...Object.fromEntries(Object.keys(OPTION_KEYS).map((name) => [name.toLowerCase(), optionValues(record)[name] ?? null])),
+    ...Object.fromEntries(Object.keys(OPTION_KEYS).map((name) => [name.toLowerCase(), optValues[name] ?? null])),
     ...extraFields(record, PRODUCT_KNOWN_KEYS),
   };
 }

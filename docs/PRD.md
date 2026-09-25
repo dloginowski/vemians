@@ -6233,6 +6233,35 @@ that does not trace to one of these is a process failure (see §12).
     a real third one still falls through to `custom_fields`, unrecognized, exactly as any other column
     already does, rather than this codebase inventing further Option Sets nobody asked for.
 
+    **REVISED: the style id/style number column can now carry the FULL style number — color and/or size
+    riding along after this shop's own NN-NN-NNN style_id, one dash each — instead of needing separate
+    Size/Color columns for every row.** The owner's own words: "we're now going to be providing you with
+    the full style number, which matches our style SQ format — the category first, this represents an
+    ID that matches our existing categories, then a subcategory ID, number dash number, and then the
+    actual index of the item. Then, if there's an option like a color, that's going to be a dash and
+    then an abbreviation for the color, and then a dash for any sizes. Note that OS size means all
+    sizes, it fits all — so we need to have an OS size." `parseStyleNumber` (`batch.js`) reads
+    `NN-NN-NNN[-COLOR][-SIZE]` out of the SAME cell `STYLE_ID_KEYS` already claims: the base three
+    segments become `style_id` exactly as before (still validated by `catalog.create_product`'s own
+    `STYLE_ID_FORMAT`, still what `deriveCategoryIdForStyleId` resolves a category from — both now
+    fed the extracted three-segment code, never the longer raw cell), and a trailing color and/or size
+    fill the row's own `option_values` the identical way an explicit Size/Color column already does.
+    **A lone trailing segment is always the SIZE, never a color standing in alone** — color is the
+    segment that goes missing entirely when an item has no color axis, while size is always given,
+    "OS" the reserved value for an item with no real size axis either ("it fits all") — that is what
+    keeps a four-segment number from ever being ambiguous about which one it is. An explicit Size/Color
+    column, when a row still has one of its own, wins over the style number's own — a deliberate,
+    unambiguous override, the same "explicit wins, derived fills the gap" rule this file's own
+    category/style_id derivation already follows — the style number's own value only ever fills
+    whichever of the two that column left blank. Anything that is not exactly a 3-, 4- or 5-segment
+    `NN-NN-NNN[-X[-X]]` shape (a plain bare style_id — every row before this feature existed — a
+    genuinely malformed one, or some other identifier entirely) is left completely untouched, still
+    handed to `catalog.create_product` verbatim, whose own format check reports a real problem exactly
+    as it always has; this only ever EXTRACTS a trailing color/size when the shape actually matches, it
+    never invents a rejection of its own. The preview (`previewBatch`/`mapProductRow`) applies the exact
+    same parse and precedence, so the sample row shown before confirming already reads `style_id` split
+    from `color`/`size`, never the raw, unsplit cell.
+
 81. **`Test-PRD-P0-147-variants_grid`** — The owner's own words: "I want to see those properties also
     listed in the variants dropdown for each item... a whole grid of available size and color
     variations so that I can set their quantities directly out of that variants dropdown." An item
