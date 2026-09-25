@@ -5659,7 +5659,7 @@ check("test_PRD_P0_89_batch_preview_confirm__previews_the_first_rows_and_heading
      sample row now (PREVIEW_SAMPLE_ROWS, batch.js) — "just... one, two
      rows, one for the headings and one row of data" — even though the
      sheet itself has two. */
-  assert.deepEqual(outcome.table.columns, ["title", "category", "price", "currency", "description", "sku", "style_id", "vendor", "vendor_code", "commission", "quantity", "size", "color"]);
+  assert.deepEqual(outcome.table.columns, ["title", "category", "subcategory", "price", "currency", "description", "sku", "style_id", "vendor", "vendor_code", "commission", "quantity", "size", "color"]);
   assert.equal(outcome.table.rows.length, 1, "only the first row is sampled");
   const titleCol = outcome.table.columns.indexOf("title");
   assert.equal(outcome.table.rows[0][titleCol], "Wool Coat");
@@ -6049,4 +6049,124 @@ check("test_PRD_P0_146_dynamic_option_values__a_bare_style_id_with_no_suffix_sti
   assert.equal(preview.sampleRows[0].style_id, "01-04-001");
   assert.equal(preview.sampleRows[0].color, null);
   assert.equal(preview.sampleRows[0].size, null);
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-146 (REVISED AGAIN) — a real sheet: "Style #,Category,Subcategory,
+ * Description,Color,Size,Qty,Cost (USD),Retail Price,..." whose own Style #
+ * pads category/subcategory to THREE digits ("001-001-001"), not this
+ * shop's own two -- Category/Subcategory NAME columns resolve the row
+ * instead (a brand-new SUBCATEGORY_KEYS column, nesting under whichever
+ * CATEGORY_KEYS column resolved to), and this shop's own style_id is left
+ * to auto-generate from THOSE categories' own real numeric_id rather than
+ * forcing the sheet's own mismatched numbering through as one.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_146_dynamic_option_values__separate_category_and_subcategory_columns_nest_a_new_subcategory", async () => {
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const csv =
+    "title,category,subcategory,price,style id,cost,color,size\n" +
+    "Black Blazer,Jacket,Blazer,165.00,001-001-001-BLK-S,30.00,Black,S\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.ready.length, 1);
+
+  const categories = f.categories();
+  const jacket = categories.find((c) => c.name === "Jacket");
+  const blazer = categories.find((c) => c.name === "Blazer");
+  assert.ok(jacket && !jacket.parent_id, "Jacket must be created as a new TOP-LEVEL category");
+  assert.ok(blazer && blazer.parent_id === jacket.id, "Blazer must be created NESTED under Jacket");
+
+  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
+  globalThis.fetch = f.square;
+  let approved;
+  try {
+    approved = await approvePending(f.env, result.ready[0].url.split("/").pop(), approver);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(approved.ok, true, approved.error);
+
+  const row = f.mirror("SELECT category_id, style_id FROM mirror_product WHERE title = 'Black Blazer'")[0];
+  assert.equal(row.category_id, blazer.id, "the product must land on the SUBcategory, the more specific level");
+  assert.notEqual(row.style_id, "001-001-001", "the sheet's own mismatched 3-digit numbering must never become this shop's own style_id");
+  assert.match(row.style_id, /^\d{2}-\d{2}-\d{3}$/, "style_id must still auto-generate in this shop's own real shape, from Jacket/Blazer's own real numeric_id");
+
+  /* The explicit Color/Size columns ("Black"/"S") win over the style
+     number's own embedded abbreviation ("BLK"/"S") -- the nicer, full
+     word is what a real customer would actually see. */
+  const colorObj = [...f.square.objects.values()].find((o) => o.type === "ITEM_OPTION" && o.item_option_data?.name === "Color");
+  assert.equal(colorObj.item_option_data.values[0].item_option_value_data.name, "Black");
+});
+
+check("test_PRD_P0_146_dynamic_option_values__a_subcategory_given_with_no_category_is_refused", async () => {
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const csv = "title,subcategory,price,cost\n" + "Black Blazer,Blazer,165.00,30.00\n";
+
+  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  assert.equal(result.ready.length, 0);
+  assert.equal(result.skipped.length, 1);
+  assert.match(result.skipped[0].reason, /subcategory "Blazer" was given without a category to nest it under/);
+});
+
+check("test_PRD_P0_146_dynamic_option_values__the_same_subcategory_name_under_two_different_categories_creates_two_distinct_rows", async () => {
+  /* P0-138's own rule: "a subcategory name can be used more than once [under
+     a different parent]. The ID cannot." Two rows naming the SAME
+     subcategory NAME under two DIFFERENT categories must create two
+     genuinely separate rows, never collide on one shared cache entry. */
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const csv =
+    "title,category,subcategory,price,cost\n" +
+    "Black Blazer,Jacket,Casual,165.00,30.00\n" +
+    "Wool Trousers,Pants,Casual,89.00,20.00\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.ready.length, 2);
+
+  const categories = f.categories();
+  const jacket = categories.find((c) => c.name === "Jacket");
+  const pants = categories.find((c) => c.name === "Pants");
+  const casualRows = categories.filter((c) => c.name === "Casual");
+  assert.equal(casualRows.length, 2, "two distinct Casual rows, one per parent");
+  assert.ok(casualRows.some((c) => c.parent_id === jacket.id));
+  assert.ok(casualRows.some((c) => c.parent_id === pants.id));
+});
+
+check("test_PRD_P0_146_dynamic_option_values__several_rows_naming_the_same_category_and_subcategory_only_create_them_once", async () => {
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const csv =
+    "title,category,subcategory,price,cost\n" +
+    "Black Blazer,Jacket,Blazer,165.00,30.00\n" +
+    "White Blazer,Jacket,Blazer,185.00,45.00\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.ready.length, 2);
+
+  const categories = f.categories();
+  assert.equal(categories.filter((c) => c.name === "Jacket").length, 1);
+  assert.equal(categories.filter((c) => c.name === "Blazer").length, 1);
 });
