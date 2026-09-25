@@ -668,7 +668,10 @@ check("test_PRD_P0_60_spreadsheet_products__a_bad_row_is_reported_with_why_not_s
      real reason as its own summary, never silently dropped and never a
      bare skip either. */
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
-  const csv = "title,category,price\n" + "Silk Scarf,Outerwear,free\n" + "Wool Coat,Outerwear,also-not-a-number\n";
+  const csv =
+    "title,category,price,style id\n" +
+    "Silk Scarf,Outerwear,free,01-01-001\n" +
+    "Wool Coat,Outerwear,also-not-a-number,01-01-002\n";
 
   const realFetch = globalThis.fetch;
   globalThis.fetch = f.square;
@@ -700,8 +703,13 @@ check("test_PRD_P0_60_spreadsheet_products__a_bad_row_is_reported_with_why_not_s
  * ───────────────────────────────────────────────────────────────────────── */
 
 check("test_PRD_P0_136_square_custom_attributes__a_missing_category_is_created_immediately_and_the_row_proceeds", async () => {
+  /* REVISED — every real row now carries a style number (splitProductRecords'
+     own header comment), so a brand-new top-level category's own number is
+     always the style number's own explicit code now, never an auto-picked
+     one — "auto-picking" only ever existed for the standalone (no style
+     number) path this shop's own sheets never actually used. */
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
-  const csv = "title,category,price,cost\n" + "Sun Hat,Millinery,20.00,10.00\n";
+  const csv = "title,category,price,cost,style id\n" + "Sun Hat,Millinery,20.00,10.00,50-01-001\n";
 
   const realFetch = globalThis.fetch;
   globalThis.fetch = f.square;
@@ -717,13 +725,16 @@ check("test_PRD_P0_136_square_custom_attributes__a_missing_category_is_created_i
 
   const created = f.categories().find((c) => c.name === "Millinery");
   assert.ok(created, "the missing category must actually have been created, not just proposed");
-  assert.equal(created.numeric_id, "00", "the first-ever top-level category gets the first-ever code");
+  assert.equal(created.numeric_id, "50", "given the style number's own explicit code");
 });
 
 check("test_PRD_P0_136_square_custom_attributes__several_rows_naming_the_same_missing_category_create_it_only_once", async () => {
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
   const csv =
-    "title,category,price,cost\n" + "Sun Hat,Millinery,20.00,10.00\n" + "Beret,Millinery,25.00,12.00\n" + "Beanie,Millinery,15.00,8.00\n";
+    "title,category,price,cost,style id\n" +
+    "Sun Hat,Millinery,20.00,10.00,50-01-001\n" +
+    "Beret,Millinery,25.00,12.00,50-01-002\n" +
+    "Beanie,Millinery,15.00,8.00,50-01-003\n";
 
   const realFetch = globalThis.fetch;
   globalThis.fetch = f.square;
@@ -739,9 +750,16 @@ check("test_PRD_P0_136_square_custom_attributes__several_rows_naming_the_same_mi
   assert.equal(f.categories().filter((c) => c.name === "Millinery").length, 1, "created only once, not three times");
 });
 
-check("test_PRD_P0_136_square_custom_attributes__two_distinct_missing_categories_get_two_different_auto_picked_numbers", async () => {
+check("test_PRD_P0_136_square_custom_attributes__two_distinct_missing_categories_in_one_upload_never_collide", async () => {
+  /* REVISED — the code itself is explicit (the style number's own first
+     segment) now, not auto-picked, so this no longer proves "two distinct
+     auto-picked numbers never collide" (nothing is picked any more); it
+     proves the shared per-batch bookkeeping (reservedNumericIds/cache)
+     lets two DIFFERENT brand-new categories, each with its own explicit
+     code, both get created correctly in the same upload without
+     interfering with each other. */
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
-  const csv = "title,category,price,cost\n" + "Sun Hat,Millinery,20.00,10.00\n" + "Tote,Handbags,40.00,20.00\n";
+  const csv = "title,category,price,cost,style id\n" + "Sun Hat,Millinery,20.00,10.00,50-01-001\n" + "Tote,Handbags,40.00,20.00,51-01-001\n";
 
   const realFetch = globalThis.fetch;
   globalThis.fetch = f.square;
@@ -756,8 +774,8 @@ check("test_PRD_P0_136_square_custom_attributes__two_distinct_missing_categories
   assert.equal(result.created.length, 2);
   const millinery = f.categories().find((c) => c.name === "Millinery");
   const handbags = f.categories().find((c) => c.name === "Handbags");
-  assert.ok(millinery && handbags);
-  assert.notEqual(millinery.numeric_id, handbags.numeric_id, "two distinct new categories in one upload must never land on the same number");
+  assert.equal(millinery?.numeric_id, "50");
+  assert.equal(handbags?.numeric_id, "51");
 });
 
 check("test_PRD_P0_136_square_custom_attributes__a_category_that_fails_to_create_is_a_clash_parked_for_a_person", async () => {
@@ -769,7 +787,7 @@ check("test_PRD_P0_136_square_custom_attributes__a_category_that_fails_to_create
      than either skipped or silently filed unassigned. */
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
-  const csv = `title,category,price,cost\nParka,${outerwear.name}s,60.00,30.00\n`;
+  const csv = `title,category,price,cost,style id\nParka,${outerwear.name}s,60.00,30.00,60-01-001\n`;
 
   const realFetch = globalThis.fetch;
   globalThis.fetch = f.square;
@@ -784,7 +802,6 @@ check("test_PRD_P0_136_square_custom_attributes__a_category_that_fails_to_create
   assert.equal(result.created.length, 0);
   assert.equal(result.ready.length, 1);
   assert.equal(result.ready[0].title, "Parka");
-  assert.match(result.ready[0].summary, /could not be created/);
   assert.match(result.ready[0].summary, /overlaps the existing/);
   assert.ok(result.ready[0].url, "a real, openable approval link");
 
@@ -935,7 +952,17 @@ check("test_PRD_P0_136_square_custom_attributes__a_style_number_column_is_never_
   assert.equal(row.style_id, "01-04-001", "the style number column must land as style_id, not be dropped");
 });
 
-check("test_PRD_P0_145_auto_generated_title__a_row_with_neither_category_nor_style_id_is_still_created_unassigned", async () => {
+check("test_PRD_P0_145_auto_generated_title__revised_a_row_with_no_style_id_at_all_is_dropped_not_created_unassigned", async () => {
+  /* REVISED — this used to be the standalone path's own "no category and
+     no style ID" case, auto-titled and created unassigned. The owner's own
+     words, having actually seen a row with nothing qualifying it preview
+     as a near-empty "product": "if you don't have the qualifying, like the
+     style ID, just don't include that row at all... why would you show
+     that to me?" There is no more standalone path — a row with no style
+     number is not a different KIND of real product, it is the same "not a
+     data row" case a garbage style number already was (splitProductRecords'
+     own header comment). Never created, never parked, never even reported
+     as skipped — it was never a data row to begin with. */
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
   const csv = "title,price,cost\n" + ",300.00,150.00\n";
   const realFetch = globalThis.fetch;
@@ -946,9 +973,9 @@ check("test_PRD_P0_145_auto_generated_title__a_row_with_neither_category_nor_sty
   } finally {
     globalThis.fetch = realFetch;
   }
-  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.equal(result.created[0].title, "Item 1", "no category and no derivable style ID -- a generic, still-numbered title");
-  assert.match(result.created[0].summary, /with no category/);
+  assert.equal(result.created.length, 0, "no style number at all -- not a real product row");
+  assert.equal(result.ready.length, 0);
+  assert.equal(result.skipped.length, 0, "dropped silently, not even reported as a skip");
 });
 
 check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_vendor_with_no_commission_is_parked_when_the_vendor_already_has_one_on_file", async () => {
@@ -1125,13 +1152,16 @@ check("test_PRD_P0_136_square_custom_attributes__a_malformed_commission_still_le
   assert.match(JSON.parse(row.custom_fields)["import notes"], /commission "twenty".*left unset/);
 });
 
-check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_no_style_id_is_no_longer_flagged", async () => {
-  /* REVISED: "category and subcategory is style id and vice versa" — the
-     owner's own words. A row naming a real category but no style ID at
-     all is no longer a skip — it goes through with no style_id given
-     (create_product's own resolveStyleId leaves it unassigned when the
-     category itself has no numeric_id yet, exactly as it already
-     tolerates on its own). */
+check("test_PRD_P0_136_square_custom_attributes__revised_a_row_with_no_style_id_at_all_is_dropped_not_created", async () => {
+  /* REVISED YET AGAIN — this test used to prove a row naming a real
+     category but no style ID at all still went through (create_product's
+     own resolveStyleId tolerates no style_id given). The owner's own
+     words, having actually seen what that let through: "if you don't have
+     the qualifying, like the style ID, just don't include that row at
+     all... why would you show that to me?" There is no more path for a
+     no-style-id row to go through at all, category given or not —
+     splitProductRecords drops it outright, the same as a garbage style
+     number always was. */
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   const csv = "title,category,price,cost\n" + `Wool Coat,${outerwear.name},450.00,210.00\n`;
@@ -1144,8 +1174,9 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_no_style
   } finally {
     globalThis.fetch = realFetch;
   }
-  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.equal(result.created.length, 1);
+  assert.equal(result.created.length, 0, "no style number at all -- dropped, not a real product row");
+  assert.equal(result.ready.length, 0);
+  assert.equal(result.skipped.length, 0, "dropped silently, not even reported as a skip");
 });
 
 check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_no_vendor_and_no_unit_cost_is_no_longer_flagged", async () => {
@@ -1283,14 +1314,13 @@ check("test_PRD_P0_70_flexible_spreadsheet_columns__a_cost_column_is_no_longer_m
 
 check("test_PRD_P0_70_flexible_spreadsheet_columns__the_preview_shows_extra_columns_the_same_way_it_shows_known_ones", async () => {
   const { previewBatch } = await import("../src/batch.js");
-  const preview = previewBatch("title,category,price,Season\nWool Coat,Outerwear,450.00,Fall 2026\n", "products");
+  const preview = previewBatch("title,category,price,style id,Season\nWool Coat,Outerwear,450.00,01-04-001,Fall 2026\n", "products");
   assert.equal(preview.sampleRows[0].season, "Fall 2026");
 
-  /* Only the one sampled row exists now (PREVIEW_SAMPLE_ROWS, batch.js) —
-     a blank extra column on that row simply has no key at all, the same
-     as any known column left blank being pruned by extraFields(), rather
-     than surfacing as a column with a raw "undefined" value. */
-  const blank = previewBatch("title,category,price,Season\nSilk Scarf,Accessories,90.00,\n", "products");
+  /* A blank extra column on that row simply has no key at all, the same as
+     any known column left blank being pruned by extraFields(), rather than
+     surfacing as a column with a raw "undefined" value. */
+  const blank = previewBatch("title,category,price,style id,Season\nSilk Scarf,Accessories,90.00,01-05-001,\n", "products");
   assert.equal("season" in blank.sampleRows[0], false);
 });
 
@@ -5765,7 +5795,7 @@ check("test_PRD_P0_88_spreadsheet_via_chat__a_real_csv_drafts_through_the_same_p
      on this row from the model is not possible, only a wrong guess by the
      same deterministic parser /products/batch itself trusts. */
   const f = await fixture();
-  const csv = "title,category,price,style id,cost\nWool Coat,Outerwear,450.00,01-04-001,210.00\nSilk Scarf,Outerwear,free,,\n";
+  const csv = "title,category,price,style id,cost\nWool Coat,Outerwear,450.00,01-04-001,210.00\nSilk Scarf,Outerwear,free,01-04-002,\n";
   const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
 
   const outcome = await draftBatchViaChatButton(
@@ -5781,7 +5811,7 @@ check("test_PRD_P0_88_spreadsheet_via_chat__a_real_csv_drafts_through_the_same_p
 
 check("test_PRD_P0_136_square_custom_attributes__a_missing_category_via_chat_is_created_immediately_too", async () => {
   const f = await fixture();
-  const csv = "title,category,price,cost\nSun Hat,Millinery,20.00,10.00\n";
+  const csv = "title,category,price,cost,style id\nSun Hat,Millinery,20.00,10.00,50-01-001\n";
   const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
 
   const outcome = await draftBatchViaChatButton(
@@ -5835,7 +5865,7 @@ check("test_PRD_P0_89_batch_preview_confirm__staff_cannot_call_the_preview_meta_
 
 check("test_PRD_P0_89_batch_preview_confirm__previews_the_first_rows_and_headings_without_minting_anything", async () => {
   const f = await fixture();
-  const csv = "title,category,price\nWool Coat,Outerwear,450.00\nAnother Coat,Outerwear,99.00\n";
+  const csv = "title,category,price,style id\nWool Coat,Outerwear,450.00,01-04-001\nAnother Coat,Outerwear,99.00,01-04-002\n";
   const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
 
   const outcome = await dispatch(
@@ -5845,7 +5875,7 @@ check("test_PRD_P0_89_batch_preview_confirm__previews_the_first_rows_and_heading
   );
   assert.equal(outcome.block.is_error, false);
   assert.match(outcome.block.content, /2 rows detected/);
-  assert.match(outcome.block.content, /title, category, price/);
+  assert.match(outcome.block.content, /title, category, price, style id/);
   assert.match(outcome.block.content, /Wool Coat/);
   assert.doesNotMatch(outcome.block.content, /https?:\/\/\S+\/approvals\//, "a preview must mint no approval link");
   assert.deepEqual(f.calls(), [], "a preview must not touch Square at all");
@@ -5877,7 +5907,7 @@ check("test_PRD_P0_117_batch_preview_one_row_fits_without_scrolling__the_preview
      fixed max-height clip entirely — "the height fits all the data" —
      unlike batchDraftTable()'s own potentially-long ready/skipped result,
      which stays plain (uncapped rows, still needs the scroll frame). */
-  const csv = "title,category,price\nWool Coat,Outerwear,450.00\n";
+  const csv = "title,category,price,style id\nWool Coat,Outerwear,450.00,01-04-001\n";
   const outcome = await dispatch(
     "catalog_preview_product_batch",
     { asset_id: "ast_1" },
@@ -5901,8 +5931,8 @@ check("test_PRD_P0_89_batch_preview_confirm__shows_every_interpreted_row_not_jus
      own words. A sheet with far more rows than fit collapsed must still
      carry every one of them in the structured table (collapsed by CSS,
      not by a smaller dataset) — only the plain-text summary stays short. */
-  const rows = Array.from({ length: 20 }, (_, i) => `Item ${i},Outerwear,${10 + i}.00`).join("\n");
-  const csv = `title,category,price\n${rows}\n`;
+  const rows = Array.from({ length: 20 }, (_, i) => `Item ${i},Outerwear,${10 + i}.00,01-04-${String(i + 1).padStart(3, "0")}`).join("\n");
+  const csv = `title,category,price,style id\n${rows}\n`;
   const outcome = await dispatch(
     "catalog_preview_product_batch",
     { asset_id: "ast_1" },
@@ -5982,7 +6012,7 @@ check("test_PRD_P0_89_batch_preview_confirm__the_draft_tools_carry_a_structured_
      Carried on the Approve button's own response now, since that button —
      not a second model turn — is what actually runs the draft. */
   const f = await fixture();
-  const csv = "title,category,price,style id,cost\nWool Coat,Outerwear,450.00,01-04-001,210.00\nSilk Scarf,Outerwear,free,,\n";
+  const csv = "title,category,price,style id,cost\nWool Coat,Outerwear,450.00,01-04-001,210.00\nSilk Scarf,Outerwear,free,01-04-002,\n";
   const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
 
   const outcome = await draftBatchViaChatButton(
@@ -6322,9 +6352,14 @@ check("test_PRD_P0_146_dynamic_option_values__a_subcategory_given_with_no_catego
      number or ID for each item... if that's true, then add the product"
      -- a subcategory with nowhere to nest under no longer blocks the row
      either; it lands unassigned, the subcategory name preserved as a
-     note rather than silently dropped. */
+     note rather than silently dropped. REVISED AGAIN: every real row now
+     carries a style number (splitProductRecords' own header comment) --
+     "99" here matches no existing top-level category, and no Category
+     name column is given to create one from either, so the row still
+     lands genuinely unassigned, through draftGroupedProduct's own
+     equivalent note instead of the removed standalone loop's. */
   const f = await fixture({ actor: "noor@vemians.com", role: "manager" });
-  const csv = "title,subcategory,price,cost\n" + "Black Blazer,Blazer,165.00,30.00\n";
+  const csv = "title,subcategory,price,cost,style id\n" + "Black Blazer,Blazer,165.00,30.00,99-01-001\n";
 
   const realFetch = globalThis.fetch;
   globalThis.fetch = f.square;
@@ -6339,19 +6374,21 @@ check("test_PRD_P0_146_dynamic_option_values__a_subcategory_given_with_no_catego
 
   const row = f.mirror("SELECT category_id, custom_fields FROM mirror_product WHERE title = 'Black Blazer'")[0];
   assert.equal(row.category_id, null);
-  assert.match(JSON.parse(row.custom_fields)["import notes"], /subcategory "Blazer" was given without a category to nest it under/);
+  assert.match(JSON.parse(row.custom_fields)["import notes"], /subcategory "Blazer" was given without a resolvable category to nest it under/);
 });
 
 check("test_PRD_P0_146_dynamic_option_values__the_same_subcategory_name_under_two_different_categories_creates_two_distinct_rows", async () => {
   /* P0-138's own rule: "a subcategory name can be used more than once [under
      a different parent]. The ID cannot." Two rows naming the SAME
      subcategory NAME under two DIFFERENT categories must create two
-     genuinely separate rows, never collide on one shared cache entry. */
+     genuinely separate rows, never collide on one shared cache entry.
+     Two distinct, brand-new top-level codes (60, 61) so each row's own
+     style number resolves to its own real "Jacket"/"Pants" category. */
   const f = await fixture({ actor: "noor@vemians.com", role: "manager" });
   const csv =
-    "title,category,subcategory,price,cost\n" +
-    "Black Blazer,Jacket,Casual,165.00,30.00\n" +
-    "Wool Trousers,Pants,Casual,89.00,20.00\n";
+    "title,category,subcategory,price,cost,style id\n" +
+    "Black Blazer,Jacket,Casual,165.00,30.00,60-01-001\n" +
+    "Wool Trousers,Pants,Casual,89.00,20.00,61-01-001\n";
 
   const realFetch = globalThis.fetch;
   globalThis.fetch = f.square;
@@ -6374,11 +6411,14 @@ check("test_PRD_P0_146_dynamic_option_values__the_same_subcategory_name_under_tw
 });
 
 check("test_PRD_P0_146_dynamic_option_values__several_rows_naming_the_same_category_and_subcategory_only_create_them_once", async () => {
+  /* Both rows share the SAME brand-new top-level code (62 -- "Jacket"), but
+     are two genuinely different products (distinct style-number indexes),
+     not two variations of one. */
   const f = await fixture({ actor: "noor@vemians.com", role: "manager" });
   const csv =
-    "title,category,subcategory,price,cost\n" +
-    "Black Blazer,Jacket,Blazer,165.00,30.00\n" +
-    "White Blazer,Jacket,Blazer,185.00,45.00\n";
+    "title,category,subcategory,price,cost,style id\n" +
+    "Black Blazer,Jacket,Blazer,165.00,30.00,62-01-001\n" +
+    "White Blazer,Jacket,Blazer,185.00,45.00,62-01-002\n";
 
   const realFetch = globalThis.fetch;
   globalThis.fetch = f.square;
@@ -6604,13 +6644,18 @@ check("test_PRD_P0_152_style_number_grouping__a_style_number_that_does_not_match
   assert.equal(result.skipped.length, 0, "the footnote is dropped outright, never reported as a problem");
 });
 
-check("test_PRD_P0_152_style_number_grouping__a_totals_rows_blank_style_number_still_goes_through_the_ordinary_standalone_path", async () => {
-  /* A trailing totals line (blank Style #, blank Category, a number in
-     Qty) is a DIFFERENT case from a garbled cell -- nothing to "ignore
-     outright" about a blank one, it simply has no style number to group
-     by at all, so it takes the pre-existing standalone path same as any
-     other style-id-less row, and is reported the ordinary way once
-     something else about it fails (its own blank price, here). */
+check("test_PRD_P0_152_style_number_grouping__a_totals_rows_blank_style_number_is_dropped_not_a_parked_clash", async () => {
+  /* REVISED — a trailing totals line (blank Style #, blank Category, a
+     number in Qty) used to take the standalone path like any other
+     style-id-less row, and got reported once something else about it
+     failed (its own blank price). The owner's own words, having actually
+     seen a real totals line preview as a near-empty "product": "Why are
+     you including the totals with a bunch of not found?... if you don't
+     have the qualifying, like the style ID, just don't include that row
+     at all... why would you show that to me?" A blank style-id cell is
+     no longer a different KIND of row from a garbled one — both are
+     dropped outright by splitProductRecords, silently, never even
+     reaching the point where its own blank price would matter. */
   const f = await fixture({ actor: "priya@vemians.com", role: "manager" });
   const csv =
     "Style #,Category,Subcategory,Description,Color,Size,Qty,Cost (USD),Retail Price\n" +
@@ -6625,10 +6670,9 @@ check("test_PRD_P0_152_style_number_grouping__a_totals_rows_blank_style_number_s
   } finally {
     globalThis.fetch = realFetch;
   }
-  assert.equal(result.created.length, 1);
-  assert.equal(result.skipped.length, 0);
-  assert.equal(result.ready.length, 1, "an unparseable price is a clash, parked for a person, not silently skipped");
-  assert.match(result.ready[0].summary, /price ".*" is not a plain number/);
+  assert.equal(result.created.length, 1, "only the one real, style-numbered row becomes a product");
+  assert.equal(result.ready.length, 0, "the totals row is dropped outright, never parked as a clash");
+  assert.equal(result.skipped.length, 0, "dropped silently, not even reported as a skip");
 });
 
 check("test_PRD_P0_152_style_number_grouping__a_bad_price_on_any_one_row_skips_the_whole_group", async () => {
@@ -7020,14 +7064,15 @@ check("test_PRD_P0_152_style_number_grouping__an_unparseable_unit_cost_with_a_ve
  * real upload to surface the next one.
  * ───────────────────────────────────────────────────────────────────────── */
 
-check("test_PRD_P0_146_dynamic_option_values__a_tbd_color_is_dropped_on_a_standalone_row_too", async () => {
-  /* The real bug, not just a preview mismatch: draftGroupedProduct's own
-     variation loop already filtered a literal "TBD" out of option_values
-     (P0-152), but the STANDALONE path (a row with no style number at
-     all) never got the same filter -- a plain "Color: TBD" column on an
-     ordinary row would have actually minted a real "TBD" Color in Square,
-     exactly the outcome the owner's own words ("it doesn't need an
-     option") already ruled out for the grouped path. */
+check("test_PRD_P0_146_dynamic_option_values__revised_a_row_with_no_style_id_is_dropped_before_tbd_even_matters", async () => {
+  /* REVISED — this used to prove the STANDALONE path (a row with no style
+     number at all) filtered a literal "TBD" Color out of option_values,
+     the same way draftGroupedProduct's own variation loop already did.
+     There is no more standalone path (splitProductRecords' own header
+     comment) -- a row with no style number is dropped before ANY of its
+     other columns, TBD included, are ever read for a real write. The
+     TBD-filter itself is still fully covered for the only path left
+     (draftGroupedProduct's own variation loop, P0-152's own tests). */
   const f = await fixture({ actor: "tamsin@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   const csv = "title,category,price,size,color\n" + `Wool Coat,${outerwear.name},45.00,S,TBD\n`;
@@ -7040,13 +7085,9 @@ check("test_PRD_P0_146_dynamic_option_values__a_tbd_color_is_dropped_on_a_standa
   } finally {
     globalThis.fetch = realFetch;
   }
-  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.equal(result.created.length, 1);
-
-  const colorObj = [...f.square.objects.values()].find((o) => o.type === "ITEM_OPTION" && o.item_option_data?.name === "Color");
-  const sizeObj = [...f.square.objects.values()].find((o) => o.type === "ITEM_OPTION" && o.item_option_data?.name === "Size");
-  assert.equal(colorObj, undefined, "TBD must never be minted as a real Color option, on this path either");
-  assert.ok(sizeObj, "Size alone is still a real, meaningful option");
+  assert.equal(result.created.length, 0, "no style number at all -- dropped, not a real product row");
+  assert.equal(result.ready.length, 0);
+  assert.equal(result.skipped.length, 0, "dropped silently, not even reported as a skip");
 });
 
 check("test_PRD_P0_152_style_number_grouping__the_preview_shows_the_same_sku_fallback_the_real_draft_already_uses", async () => {
@@ -7088,7 +7129,7 @@ check("test_PRD_P0_152_style_number_grouping__the_preview_says_a_blank_title_wil
      that will never actually be missing is the same class of mismatch the
      title/description bug already was. */
   const { previewBatch } = await import("../src/batch.js");
-  const preview = previewBatch("category,price\nOuterwear,45.00\n", "products");
+  const preview = previewBatch("category,price,style id\nOuterwear,45.00,01-04-001\n", "products");
   assert.equal(preview.sampleRows[0].title, "(auto-generated from its category)");
 });
 
@@ -7146,19 +7187,28 @@ check("test_PRD_P0_89_batch_preview_confirm__a_lone_variant_group_still_previews
   assert.equal(row.color, "Red");
 });
 
-check("test_PRD_P0_89_batch_preview_confirm__a_standalone_products_own_sku_reads_as_auto_generated_not_not_found", async () => {
-  /* "How can SKUs be not found?... that's a failure mode" -- the owner's
-     own words. A truly standalone row's own real SKU genuinely cannot be
-     known at preview time (Square mints one, generateSku, only at the real
-     write) -- but that is an expected, named outcome, not a missing value,
-     so it reads as "(auto-generated)" rather than the generic, alarming
-     "(not found)" a value nobody supplied would read as. */
+check("test_PRD_P0_89_batch_preview_confirm__a_row_with_no_style_id_never_appears_in_the_preview_at_all", async () => {
+  /* REVISED — this used to prove a standalone row's own not-yet-minted SKU
+     read as "(auto-generated)" rather than the alarming "(not found)"
+     ("How can SKUs be not found?... that's a failure mode" -- the owner's
+     own words). There is no more standalone preview row at all: "if you
+     don't have the qualifying, like the style ID, just don't include that
+     row at all... why would you show that to me?" -- the owner's own
+     words, having actually seen a real totals/notes line preview as a
+     near-empty "product." A row with no style number is dropped by
+     previewBatch's own splitProductRecords call, the same as a garbled
+     one always was, so this sheet previews as nothing at all. */
   const { previewBatch } = await import("../src/batch.js");
   const preview = previewBatch("title,category,price\nLoose Scarf,Accessories,35.00\n", "products");
-  assert.equal(preview.sampleRows[0].sku, "(auto-generated)");
+  assert.equal(preview.sampleRows.length, 0, "no style number at all -- not a real product row, not previewed either");
 });
 
-check("test_PRD_P0_89_batch_preview_confirm__groups_and_standalone_rows_in_the_same_sheet_each_preview_correctly", async () => {
+check("test_PRD_P0_89_batch_preview_confirm__a_style_id_less_row_in_a_mixed_sheet_is_dropped_the_group_still_previews", async () => {
+  /* REVISED — this used to prove a grouped product and a standalone row in
+     the same sheet each previewed correctly, side by side. There is no
+     more standalone row to preview at all -- only the real, style-numbered
+     group survives; "Loose Scarf" (no style number) is dropped outright,
+     the same as it now is in the real draft too. */
   const { previewBatch } = await import("../src/batch.js");
   const csv =
     "title,Style #,Category,Color,Size,Retail Price\n" +
@@ -7168,13 +7218,10 @@ check("test_PRD_P0_89_batch_preview_confirm__groups_and_standalone_rows_in_the_s
   const preview = previewBatch(csv, "products");
 
   assert.equal(preview.rowCount, 3);
-  assert.equal(preview.sampleRows.length, 2, "the two-row group and the standalone row are two products, not three");
+  assert.equal(preview.sampleRows.length, 1, "only the real, style-numbered group previews -- the style-id-less row is dropped outright");
   const grouped = preview.sampleRows.find((r) => r.style_id === "001-001-003");
   assert.equal(grouped.variants, 2);
   assert.equal(grouped.size, "S | M");
   assert.equal(grouped.sku, "001-001-003-BLU-S | 001-001-003-BLU-M");
-  const standalone = preview.sampleRows.find((r) => r.title === "Loose Scarf");
-  assert.equal(standalone.style_id, null, "a standalone row has no style number to group by at all");
-  assert.equal(standalone.variants, 1);
-  assert.equal(standalone.sku, "(auto-generated)");
+  assert.equal(preview.sampleRows.find((r) => r.title === "Loose Scarf"), undefined, "the style-id-less row never appears in the preview at all");
 });

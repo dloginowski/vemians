@@ -6806,9 +6806,11 @@ that does not trace to one of these is a process failure (see §12).
     NON-BLANK cell that fails this shape (a footnote sentence, sitting in the Style # column of a
     real sheet's own trailing note) is silently skipped, matching "just ignore that" rather than
     surfacing a skip reason for something that was never a data row. A genuinely BLANK style-id cell
-    (a totals row) is a different case, unaffected: it takes the pre-existing standalone path and is
-    reported the ordinary way once something else about it fails (its own blank price, typically) —
-    "ignore" was never asked for the case that already resolves cleanly on its own.
+    (a totals row) used to be a different case, unaffected — it took the pre-existing standalone path
+    and was reported the ordinary way once something else about it failed (its own blank price,
+    typically). **REVISED, much later, once a real totals row actually did this**: see this entry's
+    own final "REVISED" paragraph, at the end — a blank cell is no longer a different case from a
+    non-blank garbled one at all.
 
     **No title column exists on a sheet like this — `Description` stands in for it, and REVISED,
     stands in ONLY for the title.** The owner's own words: "you are getting the title of the items,
@@ -7023,14 +7025,35 @@ that does not trace to one of these is a process failure (see §12).
     "click Approve" and the real draft running any more, which is what makes the asset id durable across
     that boundary instead of a chat-reconstructed guess.
 
-    **Deliberately NOT built yet, flagged rather than guessed at:** the preview still samples just
-    `PREVIEW_SAMPLE_ROWS` (1) row, per the owner's own earlier, explicit instruction ("I already need to
-    really see just one... I don't need to see three of them") — a later request to see the entire
-    file's resolved fields before confirming has not been reconciled with that instruction, and needs
-    its own design pass rather than silently overriding it. Column-to-field mapping also stays
-    deterministic pattern-matching (`pick()` against a fixed synonym list, `batch.js`), not
+    **Deliberately NOT built yet, flagged rather than guessed at, as of THIS entry:** the preview still
+    samples just `PREVIEW_SAMPLE_ROWS` (1) row, per the owner's own earlier, explicit instruction ("I
+    already need to really see just one... I don't need to see three of them") — a later request to see
+    the entire file's resolved fields before confirming has not been reconciled with that instruction,
+    and needs its own design pass rather than silently overriding it. (RESOLVED a few rounds later —
+    see P0-89's own "REVISED YET AGAIN"/"REVISED ONE MORE TIME" entries, above: the preview now carries
+    every row, collapsed small by CSS rather than by a smaller dataset.) Column-to-field mapping also
+    stays deterministic pattern-matching (`pick()` against a fixed synonym list, `batch.js`), not
     model-interpreted — typing a correction ("no, that column is the vendor, not the SKU") has no code
     path to act on it yet; only Approve/Cancel are wired to anything today.
+
+    **REVISED, MUCH LATER — there is no more STANDALONE path at all; every real product row now
+    carries a style number, or it is not treated as a product row.** A genuinely BLANK style-id cell
+    used to take the pre-existing standalone path (this entry's own original text, above): one row,
+    one product, category resolved by NAME. The owner's own words, having actually watched a real
+    inventory sheet's own trailing totals line preview as a near-empty "product" through that path:
+    "Why are you including the totals with a bunch of not found?... if you don't have the qualifying,
+    like the style ID, just don't include that row at all... why would you show that to me?" Every
+    real product in this shop's own sheets already carries a style number — a row with none was never
+    a different KIND of real product, it was always closer to the "not a data row" case a non-blank,
+    garbled style number already was (this entry's own "dropped outright, never reported" rule,
+    above). `splitProductRecords` (`batch.js`) now drops a blank style-id cell through the EXACT SAME
+    `STYLE_NUMBER_BASE` check as a garbled one, silently, in both `draftProductBatch` (the real write)
+    and `previewBatch` — the whole standalone loop (category/subcategory resolution by NAME, its own
+    TBD-filter, its own args-building) is deleted outright, not merely bypassed. `mapProductGroup`
+    (the preview's own per-product row builder) is now reached only for a real, style-numbered group,
+    so `sku`/`style_id` are always real, known values too — the `"(auto-generated)"` placeholder a
+    standalone row's own not-yet-minted SKU used to need (a separate, still more recent "REVISED" round
+    fixing "How can SKUs be not found?... that's a failure mode") no longer has a case left to apply to.
 
 ## 4. P1 features
 
