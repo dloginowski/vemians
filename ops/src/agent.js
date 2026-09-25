@@ -36,7 +36,6 @@
 
 import { TOOLS, runTool, CAPS } from "./tools/index.js";
 import { draftProductBatch, draftCustomerBatch, previewBatch } from "./batch.js";
-import { listCategories } from "./tools/catalog-writer.js";
 
 const MODEL = "claude-sonnet-5";
 const API_BASE = "https://api.anthropic.com";
@@ -615,16 +614,7 @@ async function dispatchBatchPreview(name, args, { role, env }) {
 
   const kind = name === "catalog_preview_product_batch" ? "products" : "customers";
   try {
-    /* previewBatch's own `categories` param (batch.js) is what lets a row
-       naming an existing category/subcategory by name (no style number at
-       all) preview as the real product it will become, rather than
-       disappearing the way an unmatched one still does — the SAME
-       listCategories() read draftProductBatch itself makes, so the two can
-       never resolve a name differently. No CATALOG_MIRROR bound at all
-       (never happens in production, but several tests preview with a
-       minimal env) degrades to the old behavior, not a crash. */
-    const categories = kind === "products" && env.CATALOG_MIRROR ? await listCategories(env.CATALOG_MIRROR) : [];
-    const preview = previewBatch(asset.row.extracted_text, kind, categories);
+    const preview = previewBatch(asset.row.extracted_text, kind);
     return { isError: false, text: formatBatchPreview(kind, preview), table: previewTable(kind, preview) };
   } catch (err) {
     console.error(`ERROR agent: ${name} failed — ${err.message}`);

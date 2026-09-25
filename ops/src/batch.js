@@ -39,6 +39,7 @@
  */
 import { runTool } from "./tools/index.js";
 import { listCategories, categoryProductCounts } from "./tools/catalog-writer.js";
+import { nearestCategory } from "./tools/catalog-write.js";
 import { parkForApproval } from "./approvals.js";
 import { csvRecords, parseCsv } from "./tools/csv.js";
 import { CAPS } from "./tools/caps.js";
@@ -490,6 +491,36 @@ function nextSubcategoryNumericId(categories, reserved) {
   return null;
 }
 
+/*
+ * Gives `category` a real number (`numericId`) if it does not already have
+ * one — "it should all category have a must have a unique number... that's
+ * a hard fail" if it does not, the owner's own words. Shared by
+ * `resolveCategoryByCode`'s own name-matched (exact or corrected
+ * near-duplicate) category and `resolveOrCreateCategory`'s own
+ * near-duplicate match, so an existing-but-unnumbered category (one
+ * created by hand through the Admin panel, which still allows leaving
+ * numeric_id blank) gets a real number the moment a spreadsheet import
+ * references it by name, rather than staying unnumbered forever. Mutates
+ * `category` in place on success (the same object every caller's own
+ * `categories` array already holds), so the one real number is visible to
+ * every row after it in this same batch, not just the one that assigned it.
+ */
+async function ensureNumbered(env, { actor, role, reserved }, category, numericId) {
+  if (category.numeric_id != null && category.numeric_id !== "") return { category };
+  if (reserved.has(numericId)) {
+    return { error: `numeric_id "${numericId}" was already claimed earlier in this same upload` };
+  }
+  const gate = await runTool("catalog.set_category_number", { category_id: category.id, numeric_id: numericId }, { actor, role, env });
+  if (!gate?.needsApproval) return { error: gate?.error || "could not be numbered" };
+  const result = await runTool("catalog.set_category_number", { category_id: category.id, numeric_id: numericId }, {
+    actor, role, env, approvalToken: gate.data.approval.token,
+  });
+  if (result?.error || result?.denied) return { error: result.error || result.denied || "could not be numbered" };
+  reserved.add(numericId);
+  category.numeric_id = numericId;
+  return { category };
+}
+
 /* "We can make categories with UI can't we? Why not just pre make them and
    switch to admin tab? If UI works why can't agent?" — the owner's own
    words, correcting an earlier design that parked a SEPARATE approval for
@@ -515,18 +546,61 @@ function nextSubcategoryNumericId(categories, reserved) {
    own tree-wide pool rather than nextTopLevelNumericId's, and keying the
    cache by parent TOO (`"a subcategory name can be used more than once
    [under a different parent]"` — P0-138 — so "Casual" under "Outerwear"
-   and "Casual" under "Knitwear" must never share one cache entry). */
+   and "Casual" under "Knitwear" must never share one cache entry).
+
+   REVISED AGAIN — two hard rules, the owner's own words, given directly:
+   "if [a category or subcategory] does not match anything we already have,
+   provided that they are properly spelled, go ahead and do create them on
+   the fly. If they're improperly spelled, do correct the spelling and
+   create the properly spelled category" (a misspelling of one that already
+   EXISTS conforms to it instead — see the near-duplicate check, below,
+   reusing the identical `nearestCategory`/`CATEGORY_DUPLICATE_SIMILARITY`
+   scoring `catalog.create_category`'s own check() already uses for this
+   exact purpose, so "properly spelled" here means the same thing it
+   already means there); and "it should all category have a must have a
+   unique number... that's a hard fail" if it does not — a category created
+   by THIS function never goes out with no numeric_id, full stop; a pool
+   with no free code left (all 100 of 00-99 already in use) is now a real
+   error, never a silent unnumbered create. */
 async function resolveOrCreateCategory(env, { actor, role, categories, reserved, cache, parentId = null }, name) {
   const key = `${parentId ?? ""}::${name.trim().toLowerCase()}`;
   if (cache.has(key)) return cache.get(key);
 
+  const siblings = categories.filter((c) => (c.parent_id ?? null) === parentId);
+  const near = nearestCategory(name, siblings);
+  if (near && near.score >= CAPS.CATEGORY_DUPLICATE_SIMILARITY) {
+    if (near.numeric_id != null && near.numeric_id !== "") {
+      const outcome = { category: near };
+      cache.set(key, outcome);
+      return outcome;
+    }
+    /* A near-duplicate match that itself has no number yet (e.g. created by
+       hand through the Admin panel, which still allows leaving numeric_id
+       blank) still must not go out unnumbered — "it should all category
+       have a must have a unique number... that's a hard fail" otherwise. */
+    const assignId = parentId ? nextSubcategoryNumericId(categories, reserved) : nextTopLevelNumericId(categories, reserved);
+    if (!assignId) {
+      const outcome = { error: `no free ${parentId ? "subcategory" : "top-level category"} number available — all 100 codes (00-99) are already in use` };
+      cache.set(key, outcome);
+      return outcome;
+    }
+    const outcome = await ensureNumbered(env, { actor, role, reserved }, near, assignId);
+    cache.set(key, outcome);
+    return outcome;
+  }
+
   const numericId = parentId ? nextSubcategoryNumericId(categories, reserved) : nextTopLevelNumericId(categories, reserved);
-  if (numericId) reserved.add(numericId);
+  if (!numericId) {
+    const outcome = { error: `no free ${parentId ? "subcategory" : "top-level category"} number available — all 100 codes (00-99) are already in use` };
+    cache.set(key, outcome);
+    return outcome;
+  }
+  reserved.add(numericId);
   const args = {
     name: name.trim(),
     reason: "auto-created while importing a spreadsheet",
     ...(parentId ? { parent_id: parentId } : {}),
-    ...(numericId ? { numeric_id: numericId } : {}),
+    numeric_id: numericId,
   };
   const gate = await runTool("catalog.create_category", args, { actor, role, env });
   if (!gate?.needsApproval) {
@@ -581,25 +655,33 @@ const STYLE_NUMBER_BASE = /^\d+-\d+-\d+$/;
  *      `name` never even consulted. This is the expected, ordinary case
  *      for every row after the first one naming a category the batch
  *      already resolved.
- *   2. No numeric match, but an EXISTING one already carries `name`
- *      VERBATIM — the same real category, simply never numbered yet.
- *      Given this exact number NOW (catalog.set_category_number) rather
- *      than creating a confusing near-duplicate beside it — one existing
- *      category already correctly matches, "Outerwear" style, from before
- *      this sheet's own numbering convention existed at all. Already
- *      carrying a DIFFERENT real number is a genuine mismatch — REVISED
- *      AGAIN: "the only time you want to do an approval link is if there's
- *      a clash and it has to be resolved by a person" — the owner's own
- *      words. This IS exactly such a clash (two real, on-file facts
- *      disagree; nothing here can safely guess which one is right), so it
- *      is reported as an `{error}` — its caller (draftGroupedProduct) turns
- *      that into a parked approval a person reviews and fixes, never a
- *      silent pick either way and never a bare skip.
- *   3. Neither matches anything — a brand-new category, named from `name`
- *      and given `code`, normalized to this shop's own two-digit
- *      convention, as its numeric_id. With no `name` either, returns
- *      `{ category: null }` instead — a SOFT outcome, not an error (its
- *      caller decides whether that is fatal).
+ *   2. No numeric match, but an EXISTING one matches `name` — exactly, or a
+ *      corrected near-duplicate spelling of one (`nearestCategory`, the
+ *      identical scoring `catalog.create_category`'s own check() already
+ *      uses). Never numbered yet: given this exact number NOW
+ *      (catalog.set_category_number) rather than creating a confusing
+ *      near-duplicate beside it — one existing category already correctly
+ *      matches, "Outerwear" style, from before this sheet's own numbering
+ *      convention existed at all. Already carrying a DIFFERENT real number
+ *      — REVISED, no longer a clash to park: "we already have categories
+ *      and subcategories with their corresponding IDs defined in our
+ *      database... they do not provide the source of truth. We have the
+ *      source of truth, and we must map the incoming spreadsheets to match
+ *      ours" — the owner's own words. The existing, real number wins
+ *      outright; `draftGroupedProduct`'s own variation loop rebuilds this
+ *      row's own style_id/sku from it, never keeping the row's own (wrong)
+ *      claimed code verbatim.
+ *   3. Neither matches anything, not even a near-duplicate spelling — a
+ *      brand-new category, named from `name` and given `code`, normalized
+ *      to this shop's own two-digit convention, as its numeric_id — "if
+ *      [it does] not match anything we already have, provided that they
+ *      are properly spelled, go ahead and do create them on the fly," the
+ *      owner's own words, and never without a real number: "it should all
+ *      category have a must have a unique number... that's a hard fail" if
+ *      it does not (see `resolveOrCreateCategory`'s own header comment,
+ *      which enforces the identical rule for a subcategory). With no
+ *      `name` either, returns `{ category: null }` instead — a SOFT
+ *      outcome, not an error (its caller decides whether that is fatal).
  *
  * `reserved` and `cache` are the SAME per-batch-run bookkeeping
  * resolveOrCreateCategory's own already keeps, shared with it (both
@@ -618,40 +700,32 @@ async function resolveCategoryByCode(env, { actor, role, categories, reserved, c
   const byNumber = pool.find((c) => c.numeric_id != null && c.numeric_id !== "" && Number(c.numeric_id) === numeric);
   if (byNumber) return { category: byNumber };
 
-  const byName = name ? pool.find((c) => c.name.trim().toLowerCase() === name.trim().toLowerCase()) : null;
-  if (byName) {
-    /* Already numbered, just not the way this row's own style number
-       claims -- a genuine clash, not something to silently pick a side
-       on. See this function's own header comment for why. */
-    if (byName.numeric_id != null && byName.numeric_id !== "") {
-      return {
-        error: `"${name}" already exists numbered "${byName.numeric_id}", not "${code}" as this row's own style number says — check for a mismatch`,
-      };
+  /* An exact name match, or a corrected near-duplicate spelling of one --
+     "if they're improperly spelled, do correct the spelling and create the
+     properly spelled category" -- the owner's own words. Reuses the
+     identical `nearestCategory`/`CATEGORY_DUPLICATE_SIMILARITY` scoring
+     `catalog.create_category`'s own check() already uses for the same
+     purpose, so "properly spelled" here means the same thing it already
+     means there. */
+  const exact = name ? pool.find((c) => c.name.trim().toLowerCase() === name.trim().toLowerCase()) : null;
+  const near = !exact && name ? nearestCategory(name, pool) : null;
+  const matched = exact || (near && near.score >= CAPS.CATEGORY_DUPLICATE_SIMILARITY ? near : null);
+  if (matched) {
+    /* REVISED — already numbered, just not the way this row's own style
+       number claims: no longer a genuine clash to park. "We already have
+       categories and subcategories with their corresponding IDs defined
+       in our database... they do not provide the source of truth. We have
+       the source of truth, and we must map the incoming spreadsheets to
+       match ours" -- the owner's own words. The existing, real number wins
+       outright; draftGroupedProduct's own variation loop rebuilds this
+       row's own style_id/sku from it, rather than keeping the row's own
+       (wrong) claimed code verbatim. */
+    if (matched.numeric_id != null && matched.numeric_id !== "") {
+      return { category: matched };
     }
-    const key = `assign::${byName.id}`;
+    const key = `assign::${matched.id}`;
     if (cache.has(key)) return cache.get(key);
-    if (reserved.has(padded)) {
-      const outcome = { error: `numeric_id "${padded}" was already claimed earlier in this same upload` };
-      cache.set(key, outcome);
-      return outcome;
-    }
-    const gate = await runTool("catalog.set_category_number", { category_id: byName.id, numeric_id: padded }, { actor, role, env });
-    if (!gate?.needsApproval) {
-      const outcome = { error: gate?.error || "could not be numbered" };
-      cache.set(key, outcome);
-      return outcome;
-    }
-    const result = await runTool("catalog.set_category_number", { category_id: byName.id, numeric_id: padded }, {
-      actor, role, env, approvalToken: gate.data.approval.token,
-    });
-    if (result?.error || result?.denied) {
-      const outcome = { error: result.error || result.denied || "could not be numbered" };
-      cache.set(key, outcome);
-      return outcome;
-    }
-    reserved.add(padded);
-    byName.numeric_id = padded;
-    const outcome = { category: byName };
+    const outcome = await ensureNumbered(env, { actor, role, reserved }, matched, padded);
     cache.set(key, outcome);
     return outcome;
   }
@@ -822,30 +896,44 @@ function splitProductRecords(records) {
 }
 
 /*
- * A row with no style number, but naming BOTH an existing, already-numbered
- * top-level category AND an existing, already-numbered subcategory under
- * it — matched by NAME, never a number, and never created if missing (that
- * would be inventing a decision only a person should make; the row is
- * dropped instead, `null`, the same as any other row this file cannot
- * safely attempt). Plural/singular is never a real distinction here
- * (matchCategory's own fold) — "Jacket"/"Jackets" name the same category.
+ * A row with no style number, but naming BOTH a top-level category AND a
+ * subcategory under it -- resolved by NAME, reusing resolveOrCreateCategory
+ * (above) for BOTH levels, the same exact-or-corrected-near-duplicate
+ * matching, and the same "must have a unique number... hard fail otherwise"
+ * guarantee, every other name-driven category resolution in this file
+ * already uses. REVISED from this function's own former, more limited
+ * self (renamed from matchNamedCategory): a category or subcategory name
+ * matching nothing at all is no longer a reason to drop the row -- "if
+ * [it does] not match anything we already have, provided that they are
+ * properly spelled, go ahead and do create them on the fly," the owner's
+ * own words -- it is created instead, top-level first, then the
+ * subcategory resolved (or created) under it. A genuine failure (the
+ * numeric pool exhausted, a real create refusal) is returned as `{error}`,
+ * a clash for a person to review, never a silent drop.
  *
  * Nothing here computes a style_id — `catalog.create_product`'s own
  * `resolveStyleId` (catalog-write.js) already builds one automatically from
  * a given `category_id`'s own NN-NN pair, plus the next free index, the
  * moment that category_id belongs to a real, numbered subcategory. Handing
- * it the matched subcategory's own id with no `style_id` argument at all is
- * everything this needs.
+ * it the resolved subcategory's own id with no `style_id` argument at all
+ * is everything this needs.
  */
-function matchNamedCategory(categories, record) {
+async function resolveNamedCategory(env, ctx, record) {
   const categoryName = pick(record, CATEGORY_KEYS);
   const subcategoryName = pick(record, SUBCATEGORY_KEYS);
-  if (!categoryName || !subcategoryName) return null;
-  const topCategory = matchCategory(categoryName, categories.filter((c) => !c.parent_id));
-  if (!topCategory?.numeric_id) return null;
-  const subcategory = matchCategory(subcategoryName, categories.filter((c) => c.parent_id === topCategory.id));
-  if (!subcategory?.numeric_id) return null;
-  return subcategory;
+  if (!categoryName || !subcategoryName) return { category: null };
+  const { actor, role, categories, reservedNumericIds, reservedSubcategoryNumericIds, categoryCache } = ctx;
+  const topOutcome = await resolveOrCreateCategory(
+    env,
+    { actor, role, categories, reserved: reservedNumericIds, cache: categoryCache, parentId: null },
+    categoryName,
+  );
+  if (topOutcome.error) return topOutcome;
+  return resolveOrCreateCategory(
+    env,
+    { actor, role, categories, reserved: reservedSubcategoryNumericIds, cache: categoryCache, parentId: topOutcome.category.id },
+    subcategoryName,
+  );
 }
 
 /*
@@ -853,17 +941,22 @@ function matchNamedCategory(categories, record) {
  * field-by-field defaulting the (now-removed) standalone loop always used
  * (a malformed optional value is noted, automatic; only an unparseable
  * price is a genuine clash), minus everything about resolving OR CREATING a
- * category by name, since `subcategory` here is already a real, matched,
- * numbered one and nothing here ever creates one.
+ * category by name, since that already happened above, in
+ * resolveNamedCategory. `category` is `null` only when resolution failed
+ * entirely or was never attempted (no name given) -- `resolutionError`,
+ * when given, is folded into this row's own clashes exactly like a bad
+ * price is, so a category creation failure still parks a complete,
+ * editable proposal for a person, rather than silently vanishing.
  */
-function draftNamedCategoryProduct(subcategory, nextAutoTitle, record, rowNumber) {
+function draftNamedCategoryProduct(category, resolutionError, nextAutoTitle, record, rowNumber) {
   const rawTitle = pick(record, TITLE_KEYS).slice(0, 200);
   const priceRaw = pick(record, PRICE_KEYS);
   const currency = (pick(record, CURRENCY_KEYS) || "USD").toUpperCase();
   const notes = [];
   const rowClashes = [];
+  if (resolutionError) rowClashes.push(resolutionError);
 
-  const title = rawTitle || nextAutoTitle(subcategory);
+  const title = rawTitle || nextAutoTitle(category);
   const priceMinor = parsePriceToMinor(priceRaw);
   if (priceMinor === null) rowClashes.push(`price "${priceRaw}" is not a plain number like 45.00`);
 
@@ -910,7 +1003,7 @@ function draftNamedCategoryProduct(subcategory, nextAutoTitle, record, rowNumber
   const args = {
     title,
     ...(description ? { description } : {}),
-    category_id: subcategory.id,
+    ...(category ? { category_id: category.id } : {}),
     ...(vendor ? { vendor } : {}),
     ...(vendorCode && vendor ? { vendor_code: vendorCode } : {}),
     ...(unitCostMinor !== undefined ? { unit_cost_minor: unitCostMinor } : {}),
@@ -1029,6 +1122,25 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
     notes.push(`subcategory "${subcategoryNameCol}" was given without a resolvable category to nest it under`);
   }
 
+  /* This shop's own style_id, built from the category/subcategory actually
+     resolved above (always real, always two digits by now — never the
+     sheet's own wider padding) plus the group's own item index, padded to
+     this shop's own three digits the same way. Computed here, BEFORE the
+     variations loop below, because each row's own SKU must be rebuilt from
+     this SAME corrected value, not the sheet's own possibly-stale one --
+     "we have the source of truth, and we must map the incoming spreadsheets
+     to match ours," the owner's own words, apply just as much to a row's
+     SKU as to its style_id: a category/subcategory that got silently
+     conformed to an existing, differently-numbered match above must not
+     leave its old, wrong numbers riding into the SKU verbatim. A conflict
+     with an already-used style_id is still resolveStyleId's own job
+     (catalog.create_product) — bumped to the next free index, never
+     refused, exactly as it already works everywhere else. With no real
+     category at all to build it from, style_id is left out entirely — the
+     product lands unassigned, its own intended style number preserved
+     verbatim above in `notes` instead. */
+  const styleId = topCategory ? `${topCategory.numeric_id}-${subCodeNormalized}-${String(Number(indexCode)).padStart(3, "0")}` : undefined;
+
   /* "You are getting the title of the items, the title, right? Not the
      descriptions. The descriptions will generate automatically later" —
      the owner's own words. TITLE_KEYS still wins when a sheet actually
@@ -1133,14 +1245,22 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
        generated automatically" — REVISED: no column is ever read as an
        explicit SKU any more (there is no SKU_KEYS); the row's own full
        style number — abbreviations and all, verbatim — always becomes
-       this variation's own real, already-unique SKU. "The only hard rule
-       here is that we must have a unique SKU number or ID for each
-       item... if that's true, then add the product" — catalog.
+       this variation's own real, already-unique SKU. REVISED AGAIN: only
+       the row's own trailing color/size suffix rides in verbatim now --
+       the LEADING base (category-subcategory-index) is always rebuilt from
+       `styleId`, the same corrected value the product's own style_id above
+       was built from, so a row whose category/subcategory got silently
+       conformed to an existing, differently-numbered match does not leave
+       its SKU quietly disagreeing with its own style_id. With no real
+       category resolved at all, `styleId` is undefined and the row's own
+       raw text rides in completely unchanged, exactly as before. "The only
+       hard rule here is that we must have a unique SKU number or ID for
+       each item... if that's true, then add the product" — catalog.
        create_product's own check() still refuses a SKU it finds already
        in use by any OTHER product in the shop; that refusal is a clash
        only the tool itself can discover, so it is caught and parked one
        level up, in createRows, once it actually tries the write. */
-    const sku = styleIdRaw;
+    const sku = styleId ? `${styleId}${styleIdRaw.slice(base.length)}` : styleIdRaw;
     variations.push({
       title: variationTitle,
       ...(priceMinor !== null ? { price_minor: priceMinor } : {}),
@@ -1158,18 +1278,6 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
   const knownKeys = unitCostMinor !== undefined ? [...PRODUCT_KNOWN_KEYS, ...UNIT_COST_KEYS] : PRODUCT_KNOWN_KEYS;
   const customFields = extraFields(first, knownKeys);
   if (notes.length) customFields["import notes"] = notes.join("; ").slice(0, CAPS.CATALOG_CUSTOM_FIELD_VALUE_MAX);
-
-  /* This shop's own style_id, built from the category/subcategory actually
-     resolved above (always real, always two digits by now — never the
-     sheet's own wider padding) plus the group's own item index, padded to
-     this shop's own three digits the same way. A conflict with an
-     already-used style_id is still resolveStyleId's own job
-     (catalog.create_product) — bumped to the next free index, never
-     refused, exactly as it already works everywhere else. With no real
-     category at all to build it from, style_id is left out entirely — the
-     product lands unassigned, its own intended style number preserved
-     verbatim above in `notes` instead. */
-  const styleId = topCategory ? `${topCategory.numeric_id}-${subCodeNormalized}-${String(Number(indexCode)).padStart(3, "0")}` : undefined;
 
   const args = {
     title,
@@ -1260,9 +1368,13 @@ export async function draftProductBatch(env, { text, actor, role }) {
   }
 
   for (const { record, rowNumber } of namedRecords) {
-    const subcategory = matchNamedCategory(categories, record);
-    if (!subcategory) continue; /* names nothing this shop already has, both required -- dropped, never invented */
-    const outcome = draftNamedCategoryProduct(subcategory, nextAutoTitle, record, rowNumber);
+    const resolved = await resolveNamedCategory(
+      env,
+      { actor, role, categories, reservedNumericIds, reservedSubcategoryNumericIds, categoryCache },
+      record,
+    );
+    if (!resolved.category && !resolved.error) continue; /* neither name was even given -- nothing to build from */
+    const outcome = draftNamedCategoryProduct(resolved.category ?? null, resolved.error, nextAutoTitle, record, rowNumber);
     if (outcome.clash) clashes.push(outcome.clash);
     else rows.push(outcome.row);
   }
@@ -1557,7 +1669,7 @@ function mapCustomerRow(record) {
   };
 }
 
-export function previewBatch(text, kind, categories = []) {
+export function previewBatch(text, kind) {
   const records = csvRecords(parseCsv(text));
   if (!records.length) return { headers: [], rowCount: 0, sampleRows: [] };
 
@@ -1567,21 +1679,23 @@ export function previewBatch(text, kind, categories = []) {
     mapped = records.map(mapCustomerRow);
   } else {
     const { groups, groupOrder, namedRecords } = splitProductRecords(records);
-    /* `categories`, when the caller has them (dispatchBatchPreview passes
-       the SAME listCategories() result draftProductBatch itself would use),
-       is what lets a name-matched row preview as the real product it will
-       become, rather than silently disappearing the way an unmatched or
-       ineligible one still does — "how the agent interpreted everything"
-       (P0-89's own standing goal) has to include this path too, or the
-       preview would understate what the real ingest actually does. Kept a
-       plain array parameter, never fetched here, so previewBatch itself
-       stays the same side-effect-free, DB-free function it has always
-       been — a caller with no categories handy (or none at all) simply
-       gets the old behavior: an ineligible-looking row drops silently. */
-    const namedRows = namedRecords
-      .map(({ record, rowNumber }) => ({ record, rowNumber, subcategory: matchNamedCategory(categories, record) }))
-      .filter(({ subcategory }) => subcategory)
-      .map(({ record, rowNumber }) => mapProductGroup("", [{ record, rowNumber, color: undefined, size: undefined, styleIdRaw: undefined }]));
+    /* REVISED — a named row (no style number, but naming a category and
+       subcategory) is never dropped from the preview any more, matched or
+       not: the real ingest itself no longer drops one either, it creates
+       the missing category/subcategory on the fly (resolveNamedCategory,
+       above) — "how the agent interpreted everything" (P0-89's own
+       standing goal) would understate what actually happens if this preview
+       kept silently omitting the ones with no existing match yet. Category
+       resolution/creation itself stays a real DB write, so it is never
+       attempted here — previewBatch stays the exact same side-effect-free,
+       DB-free function it has always been; it shows the row exactly as
+       given (mapProductGroup already reads the category/subcategory names
+       straight off the sheet, the same as it always has for a style-numbered
+       group), leaving what the real create/conform will resolve to for the
+       real draft to actually do. */
+    const namedRows = namedRecords.map(({ record, rowNumber }) =>
+      mapProductGroup("", [{ record, rowNumber, color: undefined, size: undefined, styleIdRaw: undefined }]),
+    );
     mapped = [...groupOrder.map((base) => mapProductGroup(base, groups.get(base))), ...namedRows];
   }
 
