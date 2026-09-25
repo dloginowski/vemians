@@ -1435,6 +1435,20 @@ that does not trace to one of these is a process failure (see §12).
     the phone" — the search box moved from above the grid to below it, since a thumb reaches the
     bottom of a phone screen far more easily than the top.
 
+    **REVISED — "why is the bottom of the item view cut off? It's like the frame doesn't extend all
+    the way to the bottom of the page."** `.item-tile.full`'s own `inset: 12px` put its bottom edge
+    12px from the true viewport bottom — but the SAME page's own `.input-bar` (that Third fix's
+    search box, moved to the bottom, `INPUT_BAR_CSS`) sits `bottom: 8px`, 4px CLOSER to the true
+    edge. `.item-tile.full` has the higher `z-index` (50 vs. 20), so it painted over the search bar
+    everywhere the two boxes actually overlapped — but never in that bottom 4px sliver, since its own
+    box simply did not reach that far down. The search bar's own rounded pill border showed through
+    in exactly that gap, reading as a second, broken edge right where the tile's real one already
+    was — most visible on a phone, where both elements span nearly the same width, confirmed with a
+    local screenshot before and after. Fixed by giving `.item-tile.full` an explicit `bottom: 8px` of
+    its own — the same value, not a coincidence — while the other three sides keep their original
+    `12px`, so the tile's own edge now sits flush with (fully covering) the search bar's, and the
+    double line is gone.
+
     **A redundant title, wasting the vertical space a phone can least afford.** The owner's own
     words: "you're eating up way too much space on top with that item's title. We have the tab, we
     know we're in items right now. Get rid of all that stuff." `itemsPage()`'s own `<section

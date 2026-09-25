@@ -2037,8 +2037,19 @@ ${INPUT_BAR_CSS}
    Expand button any more — "clicking the entire button should expand it
    automatically" — the click-delegation handler below toggles this class
    on a click anywhere in the tile except inside .item-edit. */
+/* bottom: 8px, not the same 12px the other three sides use — matching
+   .input-bar's own bottom: 8px (INPUT_BAR_CSS, shared with the Items
+   search box) exactly, rather than sitting 4px short of it. "The bottom of
+   the item view is cut off, like the frame doesn't extend all the way to
+   the bottom of the page" — a real transcript: with a flat 12px inset,
+   this tile's own bottom edge sat 4px ABOVE the search bar's, which is
+   also position: fixed and z-index: 20 (lower, so it never painted OVER
+   this tile) but still tall enough to peek out from UNDER it in that 4px
+   sliver — its own rounded pill border reading as a second, broken edge
+   right where this tile's real one already was, on every screen size, and
+   most visible on a phone where both elements span nearly the same width. */
 .item-tile.full {
-  position: fixed; inset: 12px; z-index: 50; overflow: auto; cursor: default;
+  position: fixed; top: 12px; right: 12px; bottom: 8px; left: 12px; z-index: 50; overflow: auto; cursor: default;
   aspect-ratio: auto; display: flex; flex-direction: column;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
 }

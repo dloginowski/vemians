@@ -330,6 +330,35 @@ check("test_PRD_P0_71_items_tab__a_tile_expands_to_the_full_screen_instead_of_cr
   assert.match(body, /classList\.add\("full"\)/, "a click on a collapsed tile must expand the SAME element, not open a second one");
 });
 
+check("test_PRD_P0_71_items_tab__the_full_screen_tiles_own_bottom_edge_covers_the_search_bar_with_no_gap", async () => {
+  /* A real transcript: "why is the bottom of the item view cut off? It's
+     like the frame doesn't extend all the way to the bottom of the
+     page." .item-tile.full used a flat inset: 12px on every side, but
+     .input-bar (the search box, fixed to the bottom of this same page)
+     sits bottom: 8px — 4px CLOSER to the true edge. .item-tile.full has
+     the higher z-index, so it painted over the search bar everywhere the
+     two boxes actually overlapped, but never in that bottom 4px sliver,
+     where the search bar's own rounded border showed through as a
+     second, broken edge. Asserting the two values are EQUAL, not just
+     that both exist, is the point: a future change to either one alone
+     reopens the same gap. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  const tileRule = /\.item-tile\.full\s*\{([^}]*)\}/s.exec(body)?.[1];
+  const barRule = /\.input-bar\s*\{([^}]*)\}/s.exec(body)?.[1];
+  assert.ok(tileRule && barRule, "both rules must be present to compare");
+  const tileBottom = /bottom:\s*(\d+)px/.exec(tileRule)?.[1];
+  const barBottom = /bottom:\s*(\d+)px/.exec(barRule)?.[1];
+  assert.ok(tileBottom && barBottom, "both rules must state an explicit bottom offset");
+  assert.equal(tileBottom, barBottom, ".item-tile.full's own bottom offset must match .input-bar's exactly, or it leaves a gap for the search bar to peek through");
+  /* The other three sides are unaffected by this fix — still the original 12px. */
+  assert.match(tileRule, /top:\s*12px/);
+  assert.match(tileRule, /right:\s*12px/);
+  assert.match(tileRule, /left:\s*12px/);
+});
+
 check("test_PRD_P0_71_items_tab__the_search_box_sits_below_the_grid_not_above_it", async () => {
   /* The owner's own words: "it's not easy to put in stuff at the top
      of the screen of the phone." A thumb reaches the bottom of a phone
