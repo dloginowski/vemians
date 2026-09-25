@@ -3034,7 +3034,7 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
     (!canEdit && product.style_id ? `<div><span>Style ID</span><span>${esc(product.style_id)}</span></div>` : "") +
     (product.vendor ? `<div><span>Vendor</span><span>${esc(product.vendor)}</span></div>` : "") +
     (product.vendor_code ? `<div><span>Vendor code</span><span>${esc(product.vendor_code)}</span></div>` : "") +
-    (!canEdit && product.vendor && product.unit_cost_minor
+    (!canEdit && product.unit_cost_minor
       ? `<div><span>Unit cost</span><span>${esc(money(product.unit_cost_minor, product.unit_cost_currency ?? "USD"))}</span></div>`
       : "") +
     (product.commission_pct != null ? `<div><span>Commission</span><span>${esc(String(product.commission_pct))}%</span></div>` : "");
@@ -3252,7 +3252,7 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
                  ? `<span class="vendor-commission-badge" title="Set centrally, in Admin → Vendors">${esc(String(product.commission_pct))}%</span>`
                  : ""
              }
-             <input class="item-unit-cost" name="unit_cost" value="${product.unit_cost_minor ? esc(String(Math.round(product.unit_cost_minor / 100))) : ""}" placeholder="Cost" title="What this shop paid the vendor -- applied to every variation at once. Whole dollars, no cents.">
+             <input class="item-unit-cost" name="unit_cost" value="${product.unit_cost_minor ? esc(String(Math.round(product.unit_cost_minor / 100))) : ""}" placeholder="Cost" title="What this shop paid -- applied to every variation at once. No vendor required. Whole dollars, no cents.">
            </form>
            <form method="post" action="/items/${esc(product.handle)}/price">
              <input class="item-msrp" name="price" value="${primaryVariant ? esc(String(Math.round(primaryVariant.price_minor / 100))) : ""}" placeholder="MSRP" title="Set every variation's own price at once. Whole dollars, no cents.">

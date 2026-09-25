@@ -321,6 +321,18 @@ const PRODUCT_KNOWN_KEYS = [
   ...Object.values(OPTION_KEYS).flat(),
 ];
 
+/* The one deliberate exception to "preserve all fields" (PRODUCT_KNOWN_KEYS'
+   own comment, above): "we don't need to have a margin... we don't need
+   that," the owner's own words, looking at a real product's own stray
+   "Margin" custom field. A margin is a derived number (price minus cost,
+   already both real fields in their own right) with nowhere useful to
+   go and nothing this shop asked to keep — genuinely dropped, not merely
+   redirected the way a real cost column now is (unitCostRaw, above). Added
+   to `knownKeys` alongside PRODUCT_KNOWN_KEYS so extraFields treats it as
+   already-handled and never captures it at all, rather than inventing a
+   `custom_fields` home for a value with none. */
+const IGNORED_KEYS = ["margin", "margin %", "margin pct", "gross margin", "profit margin"];
+
 /* {Size: "XL", Color: "Red"} from whichever of OPTION_KEYS' own columns this
    row actually filled in — empty ones (no column, or the cell was blank)
    are left out entirely rather than sent as "". */
@@ -992,9 +1004,17 @@ function draftNamedCategoryProduct(category, resolutionError, nextAutoTitle, rec
       commission = undefined;
     }
   }
+  /* REVISED — "you created a cost USD [custom field] instead of putting it
+     into the actual cost attribute that already exists for all items,"
+     the owner's own words. A cost value no longer needs a vendor at all:
+     catalog.create_product now stores it as its own Square Custom
+     Attribute when there is none (catalog-writer.js's own
+     itemUnitCostMinor), never custom_fields -- this used to be gated on
+     `vendor &&` specifically because vendor_information (Square's own
+     vendor-tied cost) was the ONLY place cost could live at all. */
   const unitCostRaw = pick(record, UNIT_COST_KEYS);
   let unitCostMinor;
-  if (vendor && unitCostRaw) {
+  if (unitCostRaw) {
     unitCostMinor = parsePriceToMinor(unitCostRaw);
     if (unitCostMinor === null) {
       notes.push(`unit cost "${unitCostRaw}" is not a plain number like 45.00 -- left unset`);
@@ -1005,7 +1025,7 @@ function draftNamedCategoryProduct(category, resolutionError, nextAutoTitle, rec
   if (vendorCode && !vendor) notes.push(`vendor code "${vendorCode}" was given without a vendor -- left unset`);
 
   const description = pick(record, DESCRIPTION_KEYS);
-  const knownKeys = unitCostMinor !== undefined ? [...PRODUCT_KNOWN_KEYS, ...UNIT_COST_KEYS] : PRODUCT_KNOWN_KEYS;
+  const knownKeys = unitCostMinor !== undefined ? [...PRODUCT_KNOWN_KEYS, ...UNIT_COST_KEYS, ...IGNORED_KEYS] : [...PRODUCT_KNOWN_KEYS, ...IGNORED_KEYS];
   const customFields = extraFields(record, knownKeys);
   if (notes.length) customFields["import notes"] = notes.join("; ").slice(0, CAPS.CATALOG_CUSTOM_FIELD_VALUE_MAX);
 
@@ -1193,9 +1213,13 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
       commission = undefined;
     }
   }
+  /* REVISED — see draftNamedCategoryProduct's own identical comment: a cost
+     value no longer needs a vendor at all, now that catalog.create_product
+     gives it a real, vendor-independent Square Custom Attribute to live in
+     when there is none. */
   const unitCostRaw = pick(first, UNIT_COST_KEYS);
   let unitCostMinor;
-  if (vendor && unitCostRaw) {
+  if (unitCostRaw) {
     unitCostMinor = parsePriceToMinor(unitCostRaw);
     if (unitCostMinor === null) {
       notes.push(`unit cost "${unitCostRaw}" is not a plain number like 45.00 -- left unset`);
@@ -1285,11 +1309,12 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
     });
   }
 
-  /* unit_cost_minor is excluded from custom_fields ONLY once it actually
-     became a real argument above -- a vendor-less row, or one whose own
-     value would not parse, still preserves the raw text verbatim via
-     extraFields below, same as it always has. */
-  const knownKeys = unitCostMinor !== undefined ? [...PRODUCT_KNOWN_KEYS, ...UNIT_COST_KEYS] : PRODUCT_KNOWN_KEYS;
+  /* REVISED — unit_cost_minor no longer needs a vendor to become a real
+     argument (catalog-writer.js's own item-level fallback attribute); it is
+     excluded from custom_fields whenever it parsed at all, vendor or not.
+     Only a value that would not parse still preserves the raw text
+     verbatim via extraFields below, so nothing is silently lost. */
+  const knownKeys = unitCostMinor !== undefined ? [...PRODUCT_KNOWN_KEYS, ...UNIT_COST_KEYS, ...IGNORED_KEYS] : [...PRODUCT_KNOWN_KEYS, ...IGNORED_KEYS];
   const customFields = extraFields(first, knownKeys);
   if (notes.length) customFields["import notes"] = notes.join("; ").slice(0, CAPS.CATALOG_CUSTOM_FIELD_VALUE_MAX);
 

@@ -287,19 +287,19 @@ export function createMirror(mirror, { commerce, locationId, audit = null, now =
           productId = existing.id;
           /* handle is deliberately absent from this SET — channel and
              custom_fields too, same reason, see schema.sql's own comment.
-             style_id/commission_pct ARE named here, on purpose: unlike
-             those, Square is authoritative for both now, so a re-sync
-             overwrites them the same way it already overwrites title.
-             vendor is no longer a product-level column at all — see the
-             per-variant vendor_id resolution below. */
+             style_id/commission_pct/item_unit_cost_minor ARE named here, on
+             purpose: unlike those, Square is authoritative for all three
+             now, so a re-sync overwrites them the same way it already
+             overwrites title. vendor is no longer a product-level column at
+             all — see the per-variant vendor_id resolution below. */
           await run(
             `UPDATE mirror_product
                 SET title = ?, source_description = ?, status = ?, category_id = ?,
-                    style_id = ?, commission_pct = ?,
+                    style_id = ?, commission_pct = ?, item_unit_cost_minor = ?,
                     source_version = ?, archived_at = ?, synced_at = ?
               WHERE id = ?`,
             p.title ?? "", p.sourceDescription ?? "", status, categoryId,
-            p.styleId ?? null, p.commissionPct ?? null,
+            p.styleId ?? null, p.commissionPct ?? null, p.itemUnitCostMinor ?? 0,
             Number(p.sourceVersion ?? 0), archivedAt, stamp, productId,
           );
           counts.productsUpdated += 1;
@@ -309,10 +309,10 @@ export function createMirror(mirror, { commerce, locationId, audit = null, now =
           await run(
             `INSERT INTO mirror_product
                (id, external_ref, handle, title, source_description, status,
-                category_id, style_id, commission_pct, source_version, archived_at, synced_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                category_id, style_id, commission_pct, item_unit_cost_minor, source_version, archived_at, synced_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             productId, p.externalRef, handle, p.title ?? "", p.sourceDescription ?? "",
-            status, categoryId, p.styleId ?? null, p.commissionPct ?? null,
+            status, categoryId, p.styleId ?? null, p.commissionPct ?? null, p.itemUnitCostMinor ?? 0,
             Number(p.sourceVersion ?? 0), archivedAt, stamp,
           );
           counts.productsInserted += 1;

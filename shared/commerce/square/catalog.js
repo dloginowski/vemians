@@ -380,6 +380,15 @@ export function normaliseCatalog(objects, { locationId = null, related = [] } = 
       ].filter((id, i, arr) => id && arr.indexOf(id) === i),
       styleId: customAttr(data, "style_id"),
       commissionPct: customAttrInt(data, "commission"),
+      /* A vendor-less product's own unit cost — style_id/commission's own
+         mechanism a third time, "the actual cost attribute that already
+         exists for all items," never a raw custom_fields entry. Read
+         through the SAME customAttrInt() commission already uses; ops/src/
+         tools/catalog-writer.js's own readBack/listAllProducts prefer
+         vendor_information's own unit_cost_money whenever a real vendor
+         exists, falling back to this only when one does not — see
+         schema.sql's own item_unit_cost_minor comment for the full story. */
+      itemUnitCostMinor: customAttrInt(data, "unit_cost"),
       /* Which Option Sets this ITEM itself declares (item_data.item_options,
          an array of {item_option_id} pairs) — separate from optionsFor()'s
          own per-VARIATION name resolution above, and from mirror_category_
