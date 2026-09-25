@@ -4547,10 +4547,7 @@ document.body.addEventListener("click", (e) => {
        genuinely blank, never a copy of whatever the row before it already
        has typed into it, and keeps its own hidden parent_id untouched (the
        one field cloneNode must NOT blank, or the clone would create a
-       top-level category instead of a subcategory). Two queued rows that
-       land on the same auto-filled ID are still caught — just server-side,
-       at Save, the same "you cannot save that" refusal a duplicate ID
-       already gets anywhere else in this tree. */
+       top-level category instead of a subcategory). */
     const form = rows.find((f) => f.hidden) ?? rows[rows.length - 1]?.cloneNode(true);
     if (!form) return;
     if (!form.isConnected) {
@@ -4564,7 +4561,21 @@ document.body.addEventListener("click", (e) => {
       const siblings = addToggle.dataset.parentId
         ? addToggle.closest(".admin-category-node")?.querySelectorAll(":scope > .admin-category-children > .admin-category-node") ?? []
         : addToggle.closest(".admin-section")?.querySelectorAll(":scope > .admin-section-body > .admin-category-node") ?? [];
-      idInput.value = nextNumericId(siblings);
+      /* "Each new added category must have a new ID" — the owner's own
+         words. nextNumericId only knows about already-SAVED siblings, so
+         a second (or third) row queued up in the same sitting would
+         otherwise suggest the exact same next number as the row already
+         open beside it. Bumping past whatever every OTHER still-open
+         pending row in this same list already carries (typed by hand or
+         auto-filled a moment ago) keeps every queued row distinct from
+         the start, not just once Save catches the clash. */
+      let suggested = Number(nextNumericId(siblings));
+      const taken = rows
+        .filter((f) => f !== form)
+        .map((f) => Number(f.querySelector(".admin-category-new-numeric-id")?.value.trim()))
+        .filter((n) => Number.isInteger(n));
+      while (taken.includes(suggested)) suggested += 1;
+      idInput.value = String(suggested).padStart(2, "0");
     }
     form.querySelector(".admin-category-new-name")?.focus();
     return;

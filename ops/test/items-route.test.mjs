@@ -3032,6 +3032,24 @@ check("test_PRD_P0_138_nested_categories__admin_add_toggle_queues_another_row_in
   );
 });
 
+check("test_PRD_P0_138_nested_categories__admin_each_queued_row_auto_fills_a_distinct_numeric_id", async () => {
+  /* "Each new added category must have a new ID" — the owner's own words,
+     a direct follow-up once the toggle-vs-add bug above was fixed:
+     queuing several rows must not suggest the SAME next number for every
+     one of them just because nextNumericId only ever looks at already-
+     SAVED siblings. Every row after the first must bump past whatever
+     numeric_id every OTHER still-open pending row already carries. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  assert.match(
+    body,
+    /let suggested = Number\(nextNumericId\(siblings\)\);\s*\n\s*const taken = rows\s*\n\s*\.filter\(\(f\) => f !== form\)\s*\n\s*\.map\(\(f\) => Number\(f\.querySelector\("\.admin-category-new-numeric-id"\)\?\.value\.trim\(\)\)\)\s*\n\s*\.filter\(\(n\) => Number\.isInteger\(n\)\);\s*\n\s*while \(taken\.includes\(suggested\)\) suggested \+= 1;\s*\n\s*idInput\.value = String\(suggested\)\.padStart\(2, "0"\);/,
+    "the auto-fill must skip past every numeric_id already sitting in another still-open pending row, not just already-saved siblings",
+  );
+});
+
 check("test_PRD_P0_138_nested_categories__admin_backfills_every_blank_numeric_id_on_load_not_just_the_add_form", async () => {
   /* REVISED: "you should never have any categories without an ID at all
      assigned to it... if you have one and there is a default, just
