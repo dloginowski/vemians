@@ -1531,9 +1531,22 @@ export async function planProductBatch(env, { text, actor, role }) {
  * already knows how to park (a SKU collision landed by another actor's
  * submit in the meantime, say) — this is never assumed safe just because
  * planProductBatch's own earlier gate call already liked it once.
+ *
+ * `editedTitle`, when given, replaces the row's own planned title before it
+ * is ever sent — "the only thing the user might want to tweak is the
+ * title," the owner's own words, reviewing the checklist this feeds. Both
+ * the PRODUCT'S own `args.title` and this row's own bookkeeping `title`
+ * (what the result table shows afterward) are replaced together, so the
+ * two never disagree; a variation's own title (color/size, or the
+ * product's original title as ITS OWN fallback — draftGroupedProduct's own
+ * comment) is untouched, since a variation label was never what a person
+ * meant by "the title." Whatever a person types still has to clear
+ * catalog.create_product's own real checks (CATALOG_TITLE_MAX included) —
+ * nothing here validates it twice.
  */
-export async function submitProductBatchRow(env, { actor, role, rate }, row) {
-  const { created, parked, skipped } = await createRows(env, { actor, role, toolName: "catalog.create_product", rate }, [row]);
+export async function submitProductBatchRow(env, { actor, role, rate }, row, editedTitle) {
+  const target = editedTitle ? { ...row, title: editedTitle, args: { ...row.args, title: editedTitle } } : row;
+  const { created, parked, skipped } = await createRows(env, { actor, role, toolName: "catalog.create_product", rate }, [target]);
   if (created.length) return { status: "created", ...created[0] };
   if (parked.length) return { status: "parked", ...parked[0] };
   return { status: "skipped", ...skipped[0] };

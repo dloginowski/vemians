@@ -962,12 +962,17 @@ ${TABLE_CARD_CSS}
 /* The product-batch checklist (checklistCard) — a scrollable list of
    checkboxes, one per row planProductBatch already found genuinely ready,
    pre-checked since everything shown already passed its own real gate
-   check; a person can still uncheck one before Submit. */
+   check; a person can still uncheck one before Submit, or fix its own
+   title — "the only thing the user might want to tweak," the owner's own
+   words — right in place. */
 .gate ul.checklist { list-style: none; margin: 8px 0; padding: 0; max-height: 240px; overflow-y: auto; }
-.gate ul.checklist li { padding: 6px 0; border-bottom: 1px solid var(--rule); }
-.gate ul.checklist li:last-child { border-bottom: none; }
-.gate ul.checklist label { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; }
-.gate ul.checklist input[disabled] { cursor: default; }
+.gate .checklist-row { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; border-bottom: 1px solid var(--rule); }
+.gate .checklist-row:last-child { border-bottom: none; }
+.gate .checklist-row input[type=checkbox] { margin-top: 4px; }
+.gate .checklist-fields { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.gate .checklist-title { font: inherit; color: inherit; background: transparent; border: 1px solid var(--rule); border-radius: 6px; padding: 3px 6px; }
+.gate .checklist-summary { color: var(--muted); font-size: 12px; }
+.gate ul.checklist input[disabled] { cursor: default; opacity: 0.7; }
 .gate progress { width: 100%; margin: 8px 0; accent-color: var(--ink); }
 .gate .checklist-status { margin: 0; color: var(--muted); font-size: 13px; }
 /*
@@ -1499,6 +1504,19 @@ function card(p) {
  * exactly like the T2 approval card (card(), above): only one of either is
  * showing at a time, and Cancel leaves every row exactly as un-submitted as
  * it already was — nothing here parks or creates anything until Submit.
+ *
+ * Each row's own title is a real, editable text input, not plain text —
+ * "the beauty of this workflow is the user gets to confirm and maybe
+ * modify... I think really the only thing that the user might want to
+ * tweak is the title," the owner's own words. Everything else shown
+ * (category, price, variation count) already passed catalog.create_
+ * product's own real gate at plan time and is exactly what would be
+ * created; the title is the one field worth a second look before it goes
+ * out, without cancelling and re-uploading the whole sheet over a typo.
+ * Submitted verbatim as "title" alongside the row number — index.js's own
+ * POST /agent/batch-submit-row, then submitBatchPlanRow (agent.js) — and
+ * still has to clear catalog.create_product's own real checks
+ * (CATALOG_TITLE_MAX included) exactly like any other title would.
  */
 function checklistCard(c) {
   gate.textContent = "";
@@ -1513,19 +1531,36 @@ function checklistCard(c) {
     "<p class='checklist-status' hidden></p>";
   el.querySelector("h3").textContent = "Ready to submit — " + c.rows.length + " " + noun;
 
+  /* "The only thing the user might want to tweak is the title" — the
+     owner's own words, reviewing this exact checklist. Everything else
+     shown (category, price, variation count) already passed a real gate
+     check and is what would actually get created; the title is the one
+     field a person can fix on the spot — a typo, an auto-generated
+     placeholder, a name they'd rather use — without cancelling and
+     re-uploading the whole sheet over it. */
   const list = el.querySelector("ul.checklist");
   c.rows.forEach((r) => {
     const li = document.createElement("li");
-    const label = document.createElement("label");
+    li.className = "checklist-row";
+    li.dataset.row = String(r.row);
     const box = document.createElement("input");
     box.type = "checkbox";
     box.checked = true;
-    box.dataset.row = String(r.row);
-    const text = document.createElement("span");
-    text.textContent = r.title + " — " + r.summary;
-    label.appendChild(box);
-    label.appendChild(text);
-    li.appendChild(label);
+    box.className = "checklist-check";
+    const fields = document.createElement("div");
+    fields.className = "checklist-fields";
+    const titleInput = document.createElement("input");
+    titleInput.type = "text";
+    titleInput.className = "checklist-title";
+    titleInput.value = r.title;
+    titleInput.maxLength = 200;
+    const summary = document.createElement("span");
+    summary.className = "checklist-summary";
+    summary.textContent = r.summary;
+    fields.appendChild(titleInput);
+    fields.appendChild(summary);
+    li.appendChild(box);
+    li.appendChild(fields);
     list.appendChild(li);
   });
 
@@ -1539,30 +1574,32 @@ function checklistCard(c) {
   });
 
   el.querySelector("[data-a=submit]").addEventListener("click", async () => {
-    const checked = [...list.querySelectorAll("input[type=checkbox]:checked")].map((b) => Number(b.dataset.row));
+    const items = [...list.querySelectorAll("li.checklist-row")]
+      .filter((li) => li.querySelector(".checklist-check").checked)
+      .map((li) => ({ row: Number(li.dataset.row), title: li.querySelector(".checklist-title").value }));
     status.hidden = false;
-    if (!checked.length) {
+    if (!items.length) {
       status.textContent = "Nothing checked — nothing to submit.";
       return;
     }
     buttons.forEach((b) => (b.disabled = true));
-    list.querySelectorAll("input[type=checkbox]").forEach((b) => (b.disabled = true));
+    list.querySelectorAll("input").forEach((b) => (b.disabled = true));
     bar.hidden = false;
-    bar.max = checked.length;
+    bar.max = items.length;
     bar.value = 0;
 
     let created = 0;
     let parked = 0;
     let skipped = 0;
     const rows = [];
-    for (const row of checked) {
-      status.textContent = "Submitting " + (bar.value + 1) + " of " + checked.length + "…";
+    for (const { row, title } of items) {
+      status.textContent = "Submitting " + (bar.value + 1) + " of " + items.length + "…";
       let result;
       try {
         const res = await fetch("/ops/agent/batch-submit-row", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ id: c.id, row }),
+          body: JSON.stringify({ id: c.id, row, title }),
         });
         result = await res.json();
       } catch (err) {
@@ -1580,7 +1617,7 @@ function checklistCard(c) {
         rows.push([String(row), result.title, "skipped", result.reason || ""]);
       } else {
         skipped += 1;
-        rows.push([String(row), "row " + row, "skipped", result.reply || "failed"]);
+        rows.push([String(row), title, "skipped", result.reply || "failed"]);
       }
     }
 

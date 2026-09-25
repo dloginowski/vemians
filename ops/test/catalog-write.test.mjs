@@ -7150,6 +7150,73 @@ check("test_PRD_P0_152_style_number_grouping__a_plan_belongs_to_the_actor_who_ra
   }
 });
 
+check("test_PRD_P0_152_style_number_grouping__the_checklists_own_title_can_be_edited_before_submitting", async () => {
+  /* "The beauty of this workflow is the user gets to confirm and maybe
+     modify... I think really the only thing that the user might want to
+     tweak is the title" -- the owner's own words, reviewing the checklist.
+     Proven directly: plan a row named "Wool Coat", submit it with a
+     DIFFERENT title, and confirm the real, created product carries the
+     edited title -- never the one the sheet itself proposed. */
+  const f = await fixture({ actor: "zeynep@vemians.com", role: "manager" });
+  const csv = "title,category,price,style id,cost\nWool Coat,Outerwear,450.00,01-04-001,210.00\n";
+  const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
+  const identity = { email: "zeynep@vemians.com", groups: ["vemians-manager"] };
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const outcome = await dispatch(
+      "catalog_draft_product_batch",
+      { asset_id: "ast_1" },
+      { actor: "zeynep@vemians.com", role: "manager", env, allowed: new Set(["catalog_draft_product_batch"]) },
+    );
+    assert.equal(outcome.kind, "checklist");
+    assert.match(outcome.checklist.rows[0].title, /Wool Coat/, "the checklist itself still shows the originally planned title");
+    const row = outcome.checklist.rows[0].row;
+
+    const result = await submitBatchPlanRow({ id: outcome.checklist.id, row, title: "Winter Parka", identity, env });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(result.status, "created");
+    assert.equal(result.title, "Winter Parka", "the result itself must reflect the edited title, not the planned one");
+
+    const product = f.mirror("SELECT title FROM mirror_product WHERE title = 'Winter Parka'");
+    assert.equal(product.length, 1, "the real created product must carry the edited title");
+    const original = f.mirror("SELECT title FROM mirror_product WHERE title = 'Wool Coat'");
+    assert.equal(original.length, 0, "the originally planned title must never have been used at all");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_152_style_number_grouping__a_blank_edited_title_falls_back_to_the_planned_one", async () => {
+  /* An empty string is not an edit -- "submitted verbatim... still has to
+     clear catalog.create_product's own real checks" only ever applies to a
+     REAL replacement; a blank field left by mistake (or a client sending
+     "" rather than omitting the field) must never reach Square as an
+     actual empty title. */
+  const f = await fixture({ actor: "zeynep@vemians.com", role: "manager" });
+  const csv = "title,category,price,style id,cost\nWool Coat,Outerwear,450.00,01-04-001,210.00\n";
+  const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
+  const identity = { email: "zeynep@vemians.com", groups: ["vemians-manager"] };
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const outcome = await dispatch(
+      "catalog_draft_product_batch",
+      { asset_id: "ast_1" },
+      { actor: "zeynep@vemians.com", role: "manager", env, allowed: new Set(["catalog_draft_product_batch"]) },
+    );
+    const row = outcome.checklist.rows[0].row;
+
+    const result = await submitBatchPlanRow({ id: outcome.checklist.id, row, title: "   ", identity, env });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(result.title, "Wool Coat", "a blank edit must fall back to the row's own planned title");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 check("test_PRD_P0_152_style_number_grouping__a_named_category_with_no_subcategory_given_is_dropped_too", async () => {
   /* Confirmed directly: both a category AND a subcategory name are
      required to qualify -- a category-only row is dropped even when that

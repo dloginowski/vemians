@@ -1775,17 +1775,22 @@ async function ops(request, env, path) {
     if (request.method !== "POST") return json({ error: "POST only" }, 405);
     let id = "";
     let row = NaN;
+    let title;
     try {
       const parsed = await body(request);
       id = String(parsed.id || "");
       row = Number(parsed.row);
+      /* Optional: "the only thing the user might want to tweak is the
+         title" — the owner's own words. Absent or blank means "submit the
+         planned title unchanged," the same as before this existed. */
+      if (typeof parsed.title === "string") title = parsed.title;
     } catch (err) {
       console.error(`ERROR ops/agent/batch-submit-row: unreadable body — ${err.message}`);
       return json({ error: "Unreadable request body." }, 400);
     }
     if (!Number.isInteger(row)) return json({ error: "row must be a whole number." }, 400);
 
-    const out = await submitBatchPlanRow({ id, row, identity, env });
+    const out = await submitBatchPlanRow({ id, row, title, identity, env });
     return json({ verified: identity.verified, ...out }, out.status);
   }
 
