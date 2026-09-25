@@ -3017,6 +3017,26 @@ that does not trace to one of these is a process failure (see §12).
     clip a `position: fixed` descendant on its own, with no `transform`/`filter`/`will-change`
     also in play here to create a containing block that would.
 
+    **REVISED — the `min(72vh, 900px)` cap itself turned out to be the bug, not the fix.** A real
+    transcript, on seeing a real catalog (six real products, plenty of them) leave a large dead
+    gap between the grid and the search bar: "this is not a question of not enough items. There's
+    plenty of items. You're cropping the height of the bar unnaturally. This is an issue of the
+    auto-sizing of the contents." The cap was always a flat GUESS at "roughly one screen's worth,"
+    with no actual relationship to the real space left over once the status line above it and the
+    fixed `.input-bar` below it are accounted for — on a device where that guess undershoots the
+    real remaining space (confirmed live with a local screenshot on a real phone-sized viewport),
+    the grid stops early and leaves exactly this dead gap, regardless of how many products exist
+    to fill it. Replaced with real auto-sizing: `<main class="ops items-page">` (the Items page's
+    own wrapper, a new class scoped to it alone — `.ops` itself is shared by every ops page, and
+    this was never meant to touch Agent/Dashboard/Website too) is now `display: flex;
+    flex-direction: column; height: 100dvh` (the same `100vh` fallback `SHELL_CSS`'s own `.shell`
+    already uses, for the identical "largest possible mobile viewport" reason). `.greet` (the
+    status line) keeps its own natural content height; `.items-grid` gets `flex: 1 1 auto;
+    min-height: 0` in its place — no cap to guess at, no dead gap, and no clipped partial row on
+    the opposite kind of screen either, since the grid now always occupies exactly whatever space
+    genuinely remains. `overflow-y: auto` stays exactly as it was: the grid still scrolls in place
+    rather than moving the whole page, which was always the actual point of P0-104's own fix.
+
 40. **`Test-PRD-P0-105-input_bar_button_spacing`** — The owner's own words, once Items' own bar
     could hold up to four elements at once (filter, input, mic, send): "a padding between the
     search and the chat entry and microphone so that they're not so tight next to each other...
