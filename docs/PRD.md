@@ -3447,6 +3447,25 @@ that does not trace to one of these is a process failure (see §12).
     `.table-card td` already carries — is what actually fixes it: full screen was always meant to
     read like that card, not a narrower one.
 
+    **REVISED AGAIN — the `min-width` fix above turned out not to be enough on its own.** The owner's
+    own words, having tried it: "I mean, the columns are super, super narrow and super tall. What
+    would you do?" `6em` is nowhere near enough room for this preview's own newer fields — P0-89's own
+    positional `size`/`color`/`price`/`quantity`/`sku` lists, `"|"`-joined, easily 40-60+ characters
+    for a real multi-variant product — to fit more than a word or two per line; a real `min-width` no
+    longer collapsing to zero still wrapped a long value across a dozen short lines, still "super
+    tall." Guessing at a bigger fixed number was never going to hold for every field this table can
+    carry (some short, some this long) — the actual fix is to stop wrapping full-screen cells
+    entirely: `white-space: nowrap` replaces `white-space: normal`, the same trade this codebase
+    already makes for every `.table-card`'s own headers, and for the identical reason this file has
+    stated before, in the collapsed card's own defense: "if we need to scroll it horizontally, that's
+    okay, we should never have to scroll it vertically though." Full screen is "read every value in
+    full," not "fit everything into the viewport" — every column now sizes to its own longest
+    single-line value, never squeezed artificially narrow and never wrapped into unreadable height,
+    and a spreadsheet wide enough (many columns, or one genuinely long value) to exceed the
+    full-screen overlay's own width scrolls sideways to reach the rest (the card's own pre-existing
+    `overflow: auto`, untouched) — the identical trade-off this app has made everywhere else a table
+    could get wide.
+
 56. **`Test-PRD-P0-121-chat_matches_items_flush_padding`** — P0-118 halved `.chat-top`'s own side
     padding (14px to 7px) but the owner still saw a visible gap: "I'm still seeing more padding on
     the agent chat... if you look at the items page, the items have much less side padding than
