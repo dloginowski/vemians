@@ -778,16 +778,22 @@ check("test_PRD_P0_136_square_custom_attributes__two_distinct_missing_categories
   assert.equal(handbags?.numeric_id, "51");
 });
 
-check("test_PRD_P0_136_square_custom_attributes__a_category_that_fails_to_create_is_a_clash_parked_for_a_person", async () => {
-  /* "Outerwear" already exists; a near-identical spelling is refused by
-     catalog.create_category's own near-duplicate check. REVISED AGAIN:
-     "the only time you want to do an approval link is if there's a clash
-     and it has to be resolved by a person" -- this genuinely is one (is
-     "Outerwears" a typo, or a real new category?), so it is parked rather
-     than either skipped or silently filed unassigned. */
+check("test_PRD_P0_136_square_custom_attributes__a_misspelled_named_category_silently_conforms_to_the_real_one", async () => {
+  /* REVISED AGAIN — "Outerwear" already exists, already numbered "01".
+     "Outerwears" is a typo of it, not a real new category: "if they're
+     improperly spelled, do correct the spelling and create the properly
+     spelled category" -- but "create" here really means "use the one that
+     already exists," since it is not actually missing, just misspelled.
+     The sheet's own claimed code ("60") disagrees with Outerwear's real
+     number ("01") -- REVISED YET AGAIN, this is no longer a clash either:
+     "we already have categories... they do not provide the source of
+     truth. We have the source of truth" -- the owner's own words. Both the
+     product's own style_id AND its SKU are rebuilt from Outerwear's real
+     "01", never the sheet's own wrong "60". */
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
-  const csv = `title,category,price,cost,style id\nParka,${outerwear.name}s,60.00,30.00,60-01-001\n`;
+  await approvedCall(f, "catalog.set_category_number", { category_id: outerwear.id, numeric_id: "01" });
+  const csv = `title,category,price,cost,style id\nParka,${outerwear.name}s,60.00,30.00,60-05-001\n`;
 
   const realFetch = globalThis.fetch;
   globalThis.fetch = f.square;
@@ -799,14 +805,17 @@ check("test_PRD_P0_136_square_custom_attributes__a_category_that_fails_to_create
   }
 
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.equal(result.created.length, 0);
-  assert.equal(result.ready.length, 1);
-  assert.equal(result.ready[0].title, "Parka");
-  assert.match(result.ready[0].summary, /overlaps the existing/);
-  assert.ok(result.ready[0].url, "a real, openable approval link");
+  assert.equal(result.ready.length, 0, `expected no clashes, got: ${JSON.stringify(result.ready)}`);
+  assert.equal(result.created.length, 1);
+  assert.equal(result.created[0].title, "Parka");
 
-  const row = f.mirror("SELECT id FROM mirror_product WHERE title = 'Parka'")[0];
-  assert.equal(row, undefined, "nothing is created until the parked approval is actually approved");
+  const row = f.mirror("SELECT category_id, style_id FROM mirror_product WHERE title = 'Parka'")[0];
+  assert.equal(row.category_id, outerwear.id, "filed under the real, existing Outerwear, not a new duplicate");
+  assert.equal(row.style_id, "01-05-001", "style_id rebuilt from Outerwear's own real number, not the sheet's wrong '60'");
+  const sku = f.mirror(
+    "SELECT sku FROM mirror_variant WHERE product_id = (SELECT id FROM mirror_product WHERE title = 'Parka')",
+  )[0];
+  assert.equal(sku.sku, "01-05-001", "the SKU is rebuilt right alongside the style_id, never left disagreeing with it");
 });
 
 check("test_PRD_P0_145_auto_generated_title__a_blank_title_is_auto_generated_from_category_and_position", async () => {
@@ -6556,40 +6565,52 @@ check("test_PRD_P0_152_style_number_grouping__an_existing_category_matched_by_na
   assert.equal(f.categories().find((c) => c.name === "Outerwear").numeric_id, "01");
 });
 
-check("test_PRD_P0_152_style_number_grouping__a_name_that_already_has_a_different_number_is_a_clash_parked_for_a_person", async () => {
-  /* REVISED AGAIN: "the only time you want to do an approval link is if
-     there's a clash and it has to be resolved by a person" -- a name
-     already numbered differently than this row's own style-number claim
-     is exactly such a clash: two real, on-file facts disagree, and this
-     file has no safe way to guess which one is right, so it is parked
-     rather than silently picking a side either way. */
+check("test_PRD_P0_152_style_number_grouping__a_name_that_already_has_a_different_number_silently_conforms_to_it", async () => {
+  /* REVISED AGAIN — no longer a clash to park: "we already have categories
+     and subcategories with their corresponding IDs defined in our
+     database... they do not provide the source of truth. We have the
+     source of truth, and we must map the incoming spreadsheets to match
+     ours" -- the owner's own words. Outerwear is really numbered "05"; the
+     sheet's own style number claims "01" instead -- the real "05" wins
+     outright, and BOTH the product's own style_id and its SKU are rebuilt
+     from it, never left carrying the sheet's own wrong "01". */
   const f = await fixture({ actor: "priya@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   await approvedCall(f, "catalog.set_category_number", { category_id: outerwear.id, numeric_id: "05" });
 
   const csv = "Style #,Category,Description,Color,Size,Cost (USD),Retail Price\n" + "01-99-001-BLK-M,Outerwear,A coat,Black,M,30,165\n";
-  const result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.equal(result.created.length, 0);
-  assert.equal(result.ready.length, 1);
-  assert.equal(result.ready[0].title, "A coat");
-  assert.match(result.ready[0].summary, /already exists numbered "05", not "01"/);
-  assert.equal(f.categories().filter((c) => c.name === "Outerwear").length, 1, "no duplicate category created over the mismatch");
+  assert.equal(result.ready.length, 0, `expected no clashes, got: ${JSON.stringify(result.ready)}`);
+  assert.equal(result.created.length, 1);
+  assert.equal(f.categories().filter((c) => c.name === "Outerwear").length, 1, "still just the one Outerwear, no duplicate created over the mismatch");
+
+  const row = f.mirror("SELECT category_id, style_id FROM mirror_product WHERE title = 'A coat'")[0];
+  assert.equal(row.category_id, outerwear.id);
+  assert.equal(row.style_id, "05-99-001", "rebuilt from Outerwear's real '05', not the sheet's own wrong '01'");
+  const sku = f.mirror(
+    "SELECT sku FROM mirror_variant WHERE product_id = (SELECT id FROM mirror_product WHERE title = 'A coat')",
+  )[0];
+  assert.equal(sku.sku, "05-99-001-BLK-M", "the SKU's own leading base is rebuilt too, its trailing color/size suffix kept verbatim");
 });
 
-check("test_PRD_P0_152_style_number_grouping__a_subcategory_that_fails_to_create_is_a_clash_parked_for_a_person", async () => {
-  /* "Blazer" already exists under "Jacket"; a near-identical spelling for
-     a SECOND, different top-level index is refused by catalog.
-     create_category's own near-duplicate check, scoped to siblings under
-     the same parent. Exactly the same kind of clash a top-level category
-     name conflict already is -- parked, not silently filed under
-     "Jacket" alone and not skipped either.
-     REVISED: "Blazers" (a plain plural) no longer reaches this check at
-     all -- matchCategory itself now folds plural/singular ("either plural
-     or singular should match," the owner's own words), so it resolves
-     straight to the existing "Blazer" without ever attempting a create. A
-     genuinely different but overlapping name ("Casual Blazer") is what
-     still reaches catalog.create_category's own near-duplicate check. */
+check("test_PRD_P0_152_style_number_grouping__a_near_duplicate_subcategory_name_silently_conforms_to_the_real_one", async () => {
+  /* "Blazer" already exists under "Jacket". REVISED AGAIN: a near-identical
+     SECOND spelling for a different index is no longer a clash to park at
+     all -- "if they're improperly spelled, do correct the spelling and
+     create the properly spelled category" -- since one already exists
+     under this exact name, "create" really means "use the one that's
+     already there." "Casual Blazer"'s own token set is a superset of
+     "Blazer"'s (nearestCategory's own subset shortcut), so it conforms to
+     the real "Blazer" outright -- no second, confusingly similar
+     subcategory is ever created beside it. */
   const f = await fixture({ actor: "sana@vemians.com", role: "manager" });
   const csv =
     "Style #,Category,Subcategory,Description,Color,Size,Cost (USD),Retail Price\n" +
@@ -6605,19 +6626,29 @@ check("test_PRD_P0_152_style_number_grouping__a_subcategory_that_fails_to_create
     globalThis.fetch = realFetch;
   }
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.equal(result.created.length, 1);
+  assert.equal(result.ready.length, 0, `expected no clashes, got: ${JSON.stringify(result.ready)}`);
+  assert.equal(result.created.length, 2);
   assert.equal(result.created[0].title, "Black hand-painted blazer");
-  assert.equal(result.ready.length, 1);
-  assert.equal(result.ready[0].title, "White blazer");
-  assert.match(result.ready[0].summary, /could not be created/);
-  assert.match(result.ready[0].summary, /overlaps the existing/);
-  assert.ok(result.ready[0].url, "a real, openable approval link");
+  assert.equal(result.created[1].title, "White blazer");
 
-  const products = f.mirror("SELECT title FROM mirror_product WHERE title LIKE '%blazer%' COLLATE NOCASE");
+  const jacket = f.categories().find((c) => c.name === "Jacket");
+  const blazer = f.categories().find((c) => c.name === "Blazer" && c.parent_id === jacket.id);
+  assert.equal(
+    f.categories().filter((c) => c.parent_id === jacket.id).length,
+    1,
+    "still just the one Blazer subcategory -- no confusingly similar duplicate created beside it",
+  );
+
+  const products = f.mirror(
+    "SELECT title, category_id FROM mirror_product WHERE title LIKE '%blazer%' COLLATE NOCASE ORDER BY title",
+  );
   assert.deepEqual(
     products.map((p) => p.title),
-    ["Black hand-painted blazer"],
-    "the parked row must never have been created until its own approval is",
+    ["Black hand-painted blazer", "White blazer"],
+  );
+  assert.ok(
+    products.every((p) => p.category_id === blazer.id),
+    "both rows filed under the SAME real Blazer subcategory, the second one conformed rather than getting its own",
   );
 });
 
@@ -6702,19 +6733,83 @@ check("test_PRD_P0_152_style_number_grouping__matching_a_named_category_folds_pl
   assert.equal(row.style_id, "71-00-002");
 });
 
-check("test_PRD_P0_152_style_number_grouping__a_named_category_or_subcategory_matching_nothing_is_dropped_never_created", async () => {
-  /* Confirmed directly: no match at all means dropped, same as a totals
-     row -- this path never CREATES a category or subcategory, only looks
-     one up. */
+check("test_PRD_P0_152_style_number_grouping__a_named_category_or_subcategory_matching_nothing_is_created_on_the_fly", async () => {
+  /* REVISED AGAIN: "if [a category or subcategory does] not match anything
+     we already have, provided that they are properly spelled, go ahead and
+     do create them on the fly" -- the owner's own words. Neither name
+     matches (or even near-matches) anything on file, so both get created
+     fresh, each with a real, auto-picked number -- never a silent drop,
+     never left unnumbered. */
   const f = await fixture({ actor: "keiko@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, {
+      text: "title,category,subcategory,price\nMystery Item,Brand New Category,Brand New Sub,50.00\n",
+      actor: "keiko@vemians.com",
+      role: "manager",
+    });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.ready.length, 0, `expected no clashes, got: ${JSON.stringify(result.ready)}`);
+  assert.equal(result.created.length, 1);
+
+  const top = f.categories().find((c) => c.name === "Brand New Category");
+  assert.ok(top, "the top-level category was created");
+  assert.ok(top.numeric_id, "never left unnumbered -- 'that's a hard fail' otherwise");
+  const sub = f.categories().find((c) => c.name === "Brand New Sub" && c.parent_id === top.id);
+  assert.ok(sub, "the subcategory was created under it");
+  assert.ok(sub.numeric_id, "the subcategory is never left unnumbered either");
+
+  const row = f.mirror("SELECT category_id, style_id FROM mirror_product WHERE title = 'Mystery Item'")[0];
+  assert.equal(row.category_id, sub.id);
+  assert.equal(row.style_id, `${top.numeric_id}-${sub.numeric_id}-001`);
+});
+
+check("test_PRD_P0_152_style_number_grouping__a_top_level_pool_with_no_free_number_left_is_a_hard_fail", async () => {
+  /* "It should all category have a must have a unique number... that's a
+     hard fail" if it does not -- the owner's own words, given directly. All
+     100 possible top-level codes (00-99) are already claimed here, so a
+     genuinely new category name has no real number left to be given one --
+     parked for a person, never silently filed unnumbered. */
+  const f = await fixture({ actor: "omar@vemians.com", role: "manager" });
+  for (let n = 0; n < 100; n++) {
+    f.mirrorDb._raw
+      .prepare("INSERT INTO mirror_category (id, external_ref, name, parent_id, numeric_id) VALUES (?, ?, ?, NULL, ?)")
+      .run(`cat-filler-${n}`, `SQ_CAT_FILLER_${n}`, `Filler ${n}`, String(n).padStart(2, "0"));
+  }
   const result = await draftProductBatch(f.env, {
-    text: "title,category,subcategory,price\nMystery Item,Nonexistent Category,Nonexistent Sub,50.00\n",
-    actor: "keiko@vemians.com",
+    text: "title,category,subcategory,price\nMystery Item,Brand New Category,Brand New Sub,50.00\n",
+    actor: "omar@vemians.com",
     role: "manager",
   });
   assert.equal(result.created.length, 0);
-  assert.equal(result.ready.length, 0);
-  assert.equal(result.skipped.length, 0, "no match at all -- dropped silently, never auto-created either");
+  assert.equal(result.ready.length, 1);
+  assert.match(result.ready[0].summary, /no free top-level category number available/);
+  assert.equal(f.categories().filter((c) => c.name === "Brand New Category").length, 0, "never silently created unnumbered");
+});
+
+check("test_PRD_P0_152_style_number_grouping__a_subcategory_pool_with_no_free_number_left_is_a_hard_fail", async () => {
+  /* The identical hard-fail rule, one level down -- this shop's own
+     subcategory numeric_id pool is tree-wide, shared by every subcategory
+     regardless of parent (P0-138), so it can run out even while the
+     top-level pool still has plenty of room. */
+  const f = await fixture({ actor: "noor@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  for (let n = 0; n < 100; n++) {
+    f.mirrorDb._raw
+      .prepare("INSERT INTO mirror_category (id, external_ref, name, parent_id, numeric_id) VALUES (?, ?, ?, ?, ?)")
+      .run(`sub-filler-${n}`, `SQ_SUB_FILLER_${n}`, `Sub Filler ${n}`, outerwear.id, String(n).padStart(2, "0"));
+  }
+  const csv = "Style #,Category,Subcategory,Description,Price\n01-01-001,Outerwear,Brand New Subcategory,A coat,165.00\n";
+  const result = await draftProductBatch(f.env, { text: csv, actor: "noor@vemians.com", role: "manager" });
+  assert.equal(result.created.length, 0);
+  assert.equal(result.ready.length, 1);
+  assert.match(result.ready[0].summary, /no free subcategory number available/);
+  assert.equal(f.categories().filter((c) => c.name === "Brand New Subcategory").length, 0, "never silently created unnumbered");
 });
 
 check("test_PRD_P0_152_style_number_grouping__a_named_category_with_no_subcategory_given_is_dropped_too", async () => {
@@ -6779,12 +6874,8 @@ check("test_PRD_P0_152_style_number_grouping__two_named_rows_matching_the_same_c
 
 check("test_PRD_P0_89_batch_preview_confirm__a_named_category_row_previews_with_auto_generated_style_id_and_sku", async () => {
   const { previewBatch } = await import("../src/batch.js");
-  const categories = [
-    { id: "cat_jacket", name: "Jacket", parent_id: null, numeric_id: "70" },
-    { id: "cat_blazer", name: "Blazer", parent_id: "cat_jacket", numeric_id: "01" },
-  ];
-  const preview = previewBatch("title,category,subcategory,price\nWhite Blazer,Jacket,Blazer,175.00\n", "products", categories);
-  assert.equal(preview.sampleRows.length, 1, "matches a real, numbered category/subcategory -- not dropped");
+  const preview = previewBatch("title,category,subcategory,price\nWhite Blazer,Jacket,Blazer,175.00\n", "products");
+  assert.equal(preview.sampleRows.length, 1, "a named row previews as a real product, not dropped");
   const row = preview.sampleRows[0];
   assert.equal(row.title, "White Blazer");
   assert.equal(row.style_id, "(auto-generated)");
@@ -6792,40 +6883,23 @@ check("test_PRD_P0_89_batch_preview_confirm__a_named_category_row_previews_with_
   assert.equal(row.variants, 1);
 });
 
-check("test_PRD_P0_89_batch_preview_confirm__a_named_category_row_with_nothing_to_match_still_drops_from_preview", async () => {
-  /* previewBatch's own `categories` param defaults to []; with nothing to
-     match against, this behaves exactly as it did before this feature. */
+check("test_PRD_P0_89_batch_preview_confirm__a_named_category_row_with_nothing_to_match_still_previews_not_dropped", async () => {
+  /* REVISED AGAIN — the real ingest no longer drops a named row that
+     matches nothing existing either; it creates the category/subcategory
+     on the fly instead (resolveNamedCategory, batch.js). Category
+     creation is a real DB write, so this side-effect-free preview never
+     attempts it -- but it must not understate what the real draft will
+     actually do by silently omitting the row either, "how the agent
+     interpreted everything" (P0-89's own standing goal). It previews the
+     same way any other named row does, category/subcategory names shown
+     exactly as given. */
   const { previewBatch } = await import("../src/batch.js");
-  const preview = previewBatch("title,category,subcategory,price\nWhite Blazer,Jacket,Blazer,175.00\n", "products");
-  assert.equal(preview.sampleRows.length, 0);
-});
-
-check("test_PRD_P0_89_batch_preview_confirm__the_chat_preview_tool_actually_fetches_real_categories_to_match_against", async () => {
-  const f = await fixture({ actor: "keiko@vemians.com", role: "manager" });
-  const realFetch = globalThis.fetch;
-  globalThis.fetch = f.square;
-  let seed;
-  try {
-    seed = await draftProductBatch(f.env, {
-      text: "Style #,Category,Subcategory,Description,Price\n74-01-001,Jacket,Blazer,Black Blazer,165.00\n",
-      actor: "keiko@vemians.com",
-      role: "manager",
-    });
-  } finally {
-    globalThis.fetch = realFetch;
-  }
-  assert.equal(seed.created.length, 1);
-
-  const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: "title,category,subcategory,price\nWhite Blazer,Jacket,Blazer,175.00\n" }) };
-  const outcome = await dispatch(
-    "catalog_preview_product_batch",
-    { asset_id: "ast_1" },
-    { actor: "keiko@vemians.com", role: "manager", env, allowed: new Set(["catalog_preview_product_batch"]) },
-  );
-  assert.equal(outcome.block.is_error, false);
-  assert.equal(outcome.table.rows.length, 1, "the chat preview tool fetched real categories and matched this row against them");
-  const titleCol = outcome.table.columns.indexOf("title");
-  assert.equal(outcome.table.rows[0][titleCol], "White Blazer");
+  const preview = previewBatch("title,category,subcategory,price\nMystery Item,Nonexistent Category,Nonexistent Sub,50.00\n", "products");
+  assert.equal(preview.sampleRows.length, 1);
+  const row = preview.sampleRows[0];
+  assert.equal(row.title, "Mystery Item");
+  assert.equal(row.category, "Nonexistent Category");
+  assert.equal(row.subcategory, "Nonexistent Sub");
 });
 
 check("test_PRD_P0_152_style_number_grouping__a_style_number_that_does_not_match_the_pattern_is_ignored_outright", async () => {
@@ -7070,7 +7144,14 @@ check("test_PRD_P0_152_style_number_grouping__the_preview_shows_the_same_title_f
 check("test_PRD_P0_152_style_number_grouping__with_no_sku_column_the_rows_own_full_style_number_becomes_its_sku", async () => {
   /* "For our full SKU number, we can go with the shorter names... the SKU
      is basically what we gave you in the first column. That's the SKU" --
-     the owner's own words. */
+     the owner's own words. REVISED AGAIN: only the trailing color/size
+     suffix rides in verbatim now -- the leading base is always the REAL,
+     resolved category/subcategory codes, never the sheet's own possibly
+     locally-scoped digits. "Blazer" is a brand-new subcategory in this
+     fresh fixture, so it gets "00", the first free code in the tree-wide
+     pool -- not the sheet's own "001" (a real sheet's own middle segment
+     restarts at 1 for every new top-level category, incompatible with this
+     shop's own tree-wide-unique pool). */
   const f = await fixture({ actor: "priya@vemians.com", role: "manager" });
   const csv =
     "Style #,Category,Subcategory,Description,Color,Size,Cost (USD),Retail Price\n" +
@@ -7087,12 +7168,17 @@ check("test_PRD_P0_152_style_number_grouping__with_no_sku_column_the_rows_own_fu
   }
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
 
-  const product = f.mirror("SELECT id FROM mirror_product WHERE title = 'Black hand-painted blazer'")[0];
+  const product = f.mirror("SELECT id, style_id FROM mirror_product WHERE title = 'Black hand-painted blazer'")[0];
+  assert.equal(product.style_id, "01-00-001", "Jacket's own claimed '01' plus Blazer's real, auto-assigned '00'");
   const skus = f
     .mirror("SELECT sku FROM mirror_variant WHERE product_id = ?", product.id)
     .map((v) => v.sku)
     .sort();
-  assert.deepEqual(skus, ["001-001-001-BLK-M", "001-001-001-BLK-S"], "each variation's own SKU is that exact row's own full style number");
+  assert.deepEqual(
+    skus,
+    ["01-00-001-BLK-M", "01-00-001-BLK-S"],
+    "the leading base is rebuilt to match the real style_id, the trailing color/size suffix kept verbatim",
+  );
 });
 
 check("test_PRD_P0_152_style_number_grouping__a_sku_column_is_ignored_entirely_the_style_number_is_always_the_real_sku", async () => {
@@ -7102,7 +7188,7 @@ check("test_PRD_P0_152_style_number_grouping__a_sku_column_is_ignored_entirely_t
      SKU column at all) taken as the benchmark going forward. A column
      literally named "SKU" is no longer read as one at all -- it falls
      through to custom_fields like any other unrecognized column, and the
-     row's own full style number is always the real SKU, verbatim. */
+     row's own real, resolved style number is always the real SKU. */
   const f = await fixture({ actor: "priya@vemians.com", role: "manager" });
   const csv =
     "Style #,Category,Subcategory,Description,Color,Size,SKU,Cost (USD),Retail Price\n" +
@@ -7118,9 +7204,9 @@ check("test_PRD_P0_152_style_number_grouping__a_sku_column_is_ignored_entirely_t
   }
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
 
-  const product = f.mirror("SELECT id, custom_fields FROM mirror_product WHERE title = 'Black hand-painted blazer'")[0];
+  const product = f.mirror("SELECT id, custom_fields, style_id FROM mirror_product WHERE title = 'Black hand-painted blazer'")[0];
   const variant = f.mirror("SELECT sku FROM mirror_variant WHERE product_id = ?", product.id)[0];
-  assert.equal(variant.sku, "001-001-001-BLK-S", "the row's own full style number is always the real SKU, regardless of an SKU column");
+  assert.equal(variant.sku, "01-00-001-BLK-S", "the row's own real, resolved style number is always the real SKU, regardless of an SKU column");
   assert.equal(JSON.parse(product.custom_fields).sku, "VEM-100", "the SKU column's own value is preserved as an ordinary custom field, not lost");
 });
 

@@ -7105,6 +7105,61 @@ that does not trace to one of these is a process failure (see §12).
     true in production, but a minimal test env) degrades to the pre-existing behavior — an unmatched-
     looking row simply drops from the preview — rather than a crash.
 
+    **REVISED AGAIN — a name matching nothing is created, not dropped; a name already numbered
+    differently is conformed to, not clashed over; every category gets a real number or the row is
+    parked, never silently unnumbered.** The owner's own words, given directly, in one dense round:
+    "if [a category or subcategory does] not match anything we already have, provided that they are
+    properly spelled, go ahead and do create them on the fly. If they're improperly spelled, do correct
+    the spelling and create the properly spelled category... it should all category have a must have a
+    unique number... that's a hard fail [otherwise]... if a categories or subcategories are provided,
+    but their style ID numbers are not correct because we already have the style ID numbers defined...
+    you should match the incoming style ID number and all of its SKU numbers to match the present
+    category and subcategories... we already have categories and subcategories with their corresponding
+    IDs defined in our database... they do not provide the source of truth. We have the source of truth,
+    and we must map the incoming spreadsheets to match ours." Four changes to `batch.js`, all sharing
+    the identical `nearestCategory`/`CAPS.CATEGORY_DUPLICATE_SIMILARITY` (0.5) scoring
+    `catalog.create_category`'s own near-duplicate check already uses, so "properly spelled" means the
+    same thing here it always has there:
+
+    - **A near-duplicate name conforms instead of clashing.** `resolveOrCreateCategory` (the
+      subcategory-by-name path, and the new name-driven top-level path below) now checks `nearestCategory`
+      against its own siblings BEFORE ever attempting a `catalog.create_category` call — a scoring match
+      is used outright (numbered via a new `ensureNumbered` helper first, if it was not numbered yet),
+      never offered to Square as a genuinely new category at all, so the near-duplicate refusal
+      `catalog.create_category`'s own `check()` still enforces elsewhere (a live person at the Admin
+      panel, who can just look at the list) is never even reached from a spreadsheet import. The identical
+      idea reaches `resolveCategoryByCode`'s own by-name branch too: an exact OR corrected near-duplicate
+      match that is already numbered *differently* than the row's own style-number claim is no longer a
+      clash to park — the real, existing number wins outright, silently.
+    - **Both the product's own `style_id` and its SKU are rebuilt from the corrected number, never kept
+      verbatim.** `draftGroupedProduct` now computes its `styleId` BEFORE the per-variation loop (it used
+      to come after), so each row's own `sku` is built as the corrected `styleId` plus that row's own
+      trailing color/size suffix (`styleIdRaw.slice(base.length)`), rather than the sheet's own raw text
+      unchanged — a row whose category/subcategory got silently conformed above no longer leaves its SKU
+      quietly disagreeing with its own style_id. A row with no category resolved at all still falls back
+      to the sheet's own raw style number, exactly as before.
+    - **A name matching nothing is created, top-level first, then its subcategory under it.** The
+      named-record path (no style number at all) is no longer a read-only lookup — `matchNamedCategory`
+      became `resolveNamedCategory`, async, reusing `resolveOrCreateCategory` for BOTH levels, the
+      identical mechanism `draftGroupedProduct`'s own subcategory-by-name path already used. A genuine
+      resolution failure (the pool exhausted, a real create refusal) is threaded through as a row clash
+      (`draftNamedCategoryProduct` now takes the resolved `category` — possibly `null` — and an optional
+      `resolutionError` folded into that row's own clashes) rather than a silent drop; only a row naming
+      neither a category nor a subcategory at all is still dropped, since there is nothing to build from.
+    - **Never a silent unnumbered create — a full pool is a hard fail.** `resolveOrCreateCategory`'s own
+      former silent "create anyway" branch, for whichever numeric pool (top-level or, tree-wide,
+      subcategory) has no free code left, is now a real, parked error — `"no free ... number available —
+      all 100 codes (00-99) are already in use"` — never a category that goes out with no `numeric_id`.
+      An existing-but-never-numbered category matched by name (created by hand through the Admin panel,
+      which still allows leaving `numeric_id` blank) is given a real number the moment a spreadsheet
+      import references it, via the same `ensureNumbered` helper, rather than staying unnumbered forever.
+
+    `previewBatch` drops its own `categories` parameter entirely — with a named row no longer ever
+    dropped from the preview (matched, near-matched, or not, the real ingest now handles all three), the
+    parameter's one use (deciding whether to keep or drop the row) no longer exists; a named row previews
+    exactly as given, `style_id`/`sku` reading `"(auto-generated)"` same as always, and category creation
+    itself — a real write — is still never attempted from this side-effect-free, DB-free function.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
