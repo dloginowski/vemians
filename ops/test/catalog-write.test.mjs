@@ -5863,6 +5863,13 @@ check("test_PRD_P0_89_batch_preview_confirm__previews_the_first_rows_and_heading
   const titleCol = outcome.table.columns.indexOf("title");
   assert.equal(outcome.table.rows[0][titleCol], "Wool Coat");
   assert.equal(outcome.table.rows[1][titleCol], "Another Coat");
+
+  /* "Instead of using not found, just use the dash... indicate that it's
+     not there, it's not available" — the owner's own words. Neither row
+     gives a vendor at all. */
+  const vendorCol = outcome.table.columns.indexOf("vendor");
+  assert.equal(outcome.table.rows[0][vendorCol], "—");
+  assert.doesNotMatch(outcome.block.content + JSON.stringify(outcome.table), /not found/i, "the wordier, more alarming phrase must be gone entirely");
 });
 
 check("test_PRD_P0_117_batch_preview_one_row_fits_without_scrolling__the_preview_table_is_marked_compact", async () => {
