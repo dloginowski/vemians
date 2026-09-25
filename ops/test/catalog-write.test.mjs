@@ -723,7 +723,11 @@ check("test_PRD_P0_136_square_custom_attributes__a_missing_category_is_created_i
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
   assert.equal(result.created.length, 1, "the row itself proceeds in the SAME upload, no re-upload needed");
 
-  const created = f.categories().find((c) => c.name === "Millinery");
+  /* "Millinery" -- created under its own plural name, "Millineries":
+     catalog.create_category folds every new name to plural before ever
+     creating it ("I want to have all categories and subcategories to be
+     plurals... never singular" -- the owner's own words). */
+  const created = f.categories().find((c) => c.name === "Millineries");
   assert.ok(created, "the missing category must actually have been created, not just proposed");
   assert.equal(created.numeric_id, "50", "given the style number's own explicit code");
 });
@@ -747,7 +751,7 @@ check("test_PRD_P0_136_square_custom_attributes__several_rows_naming_the_same_mi
 
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
   assert.equal(result.created.length, 3, "all three rows proceed against the one category created for them");
-  assert.equal(f.categories().filter((c) => c.name === "Millinery").length, 1, "created only once, not three times");
+  assert.equal(f.categories().filter((c) => c.name === "Millineries").length, 1, "created only once, not three times");
 });
 
 check("test_PRD_P0_136_square_custom_attributes__two_distinct_missing_categories_in_one_upload_never_collide", async () => {
@@ -772,7 +776,7 @@ check("test_PRD_P0_136_square_custom_attributes__two_distinct_missing_categories
 
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
   assert.equal(result.created.length, 2);
-  const millinery = f.categories().find((c) => c.name === "Millinery");
+  const millinery = f.categories().find((c) => c.name === "Millineries");
   const handbags = f.categories().find((c) => c.name === "Handbags");
   assert.equal(millinery?.numeric_id, "50");
   assert.equal(handbags?.numeric_id, "51");
@@ -1723,10 +1727,14 @@ check("test_PRD_P0_40_closed_category_set__a_near_duplicate_category_is_refused_
   const f = await fixture();
   /* "Coats & Jackets" beside "Outerwear" is allowed by lexical overlap alone —
      the fixture has no "Coats" — so this drives the real duplicate: a second
-     name for a category that is already there. */
+     name for a category that is already there. "Fashion Accessory" (not the
+     bare singular "Accessory") -- catalog.create_category folds every new
+     name to plural first, and a bare "Accessory" would fold straight to the
+     EXACT existing "Accessories", never reaching the near-duplicate check at
+     all. */
   const dup = await runTool(
     "catalog.create_category",
-    { name: "Accessory", reason: "the belt does not fit anywhere" },
+    { name: "Fashion Accessory", reason: "the belt does not fit anywhere" },
     f.ctx,
   );
   assert.equal(dup.ok, false);
@@ -1734,9 +1742,14 @@ check("test_PRD_P0_40_closed_category_set__a_near_duplicate_category_is_refused_
   assert.match(dup.error, /navigation meaningless/);
   assert.deepEqual(f.calls(), [], "a refused category makes no Square call");
 
+  /* "Knitwear" is a legacy, deliberately-uncountable name, grandfathered in
+     unpluralized ("going forward" only, never renamed) -- a fresh
+     "knitwear" now folds to "knitwears" first, so it no longer literal-
+     matches "Knitwear" exactly, but still resolves as a near-duplicate
+     (the same singular-fold scoring), refused the identical way. */
   const exact = await runTool("catalog.create_category", { name: "knitwear", reason: "jumpers" }, f.ctx);
   assert.equal(exact.ok, false);
-  assert.match(exact.error, /"Knitwear" already exists/);
+  assert.match(exact.error, /overlaps the existing category "Knitwear"/);
 
   /* And the matcher itself, on the case the description warns about. */
   const set = [{ id: "1", name: "Coats & Jackets" }];
@@ -1764,11 +1777,11 @@ check("test_PRD_P0_40_closed_category_set__creating_a_category_is_a_separate_gat
 
   /* A manager, approved, and only then does Square hear about it. */
   const made = await approvedCall(f, "catalog.create_category", {
-    name: "Eyewear",
+    name: "Sunglasses",
     reason: "we now sell sunglasses",
   });
   assert.equal(made.ok, true, made.error);
-  assert.equal(made.data.category.name, "Eyewear");
+  assert.equal(made.data.category.name, "Sunglasses", "already plural -- round-trips to itself unchanged");
   assert.equal(made.data.existing_before, 3);
   assert.equal(f.categories().length, 4);
   assert.equal(f.calls().filter((c) => c.upsert === "CATEGORY").length, 1);
@@ -1852,7 +1865,7 @@ check("test_PRD_P0_138_nested_categories__create_category_can_set_its_own_numeri
   const made = await approvedCall(f, "catalog.create_category", { name: "Eyewear", numeric_id: "42", reason: "test" });
   assert.equal(made.ok, true, made.error);
   assert.equal(made.data.category.numeric_id, "42");
-  const row = f.categories().find((c) => c.name === "Eyewear");
+  const row = f.categories().find((c) => c.name === "Eyewears");
   assert.equal(row.numeric_id, "42", "the mirror actually persists it, not just the tool's own response");
 });
 
@@ -1860,7 +1873,7 @@ check("test_PRD_P0_138_nested_categories__create_category_numeric_id_is_optional
   const f = await fixture();
   const made = await approvedCall(f, "catalog.create_category", { name: "Eyewear", reason: "test" });
   assert.equal(made.ok, true, made.error);
-  const row = f.categories().find((c) => c.name === "Eyewear");
+  const row = f.categories().find((c) => c.name === "Eyewears");
   assert.equal(row.numeric_id, null, "leaving it blank must not assign anything");
 });
 
@@ -2378,7 +2391,7 @@ check("test_PRD_P0_138_nested_categories__a_category_with_products_assigned_cann
   const res = await runTool("catalog.remove_category", { category_id: category.data.category.id }, f.ctx);
   assert.equal(res.ok, false);
   assert.match(res.error, /still has 1 product assigned to it — move them to a different category first/);
-  assert.ok(f.categories().some((c) => c.name === "Loungewear"), "refused, so Loungewear must still be there");
+  assert.ok(f.categories().some((c) => c.name === "Loungewears"), "refused, so Loungewears must still be there");
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -5832,7 +5845,7 @@ check("test_PRD_P0_136_square_custom_attributes__a_missing_category_via_chat_is_
   assert.match(outcome.reply, /1 products created, 0 need a person's decision, 0 skipped/);
   assert.match(outcome.reply, /Sun Hat/);
   assert.equal(outcome.table.rows[0][2], "created", "the row itself is created, in the same upload, once its missing category is created");
-  assert.ok(f.categories().find((c) => c.name === "Millinery"), "the category must actually have been created");
+  assert.ok(f.categories().find((c) => c.name === "Millineries"), "the category must actually have been created");
 });
 
 check("test_PRD_P0_88_spreadsheet_via_chat__too_many_rows_reports_the_cap_not_a_partial_draft", async () => {
@@ -6339,10 +6352,10 @@ check("test_PRD_P0_146_dynamic_option_values__separate_category_and_subcategory_
   assert.equal(result.created.length, 1);
 
   const categories = f.categories();
-  const jacket = categories.find((c) => c.name === "Jacket");
-  const blazer = categories.find((c) => c.name === "Blazer");
-  assert.ok(jacket && !jacket.parent_id, "Jacket must be created as a new TOP-LEVEL category");
-  assert.ok(blazer && blazer.parent_id === jacket.id, "Blazer must be created NESTED under Jacket");
+  const jacket = categories.find((c) => c.name === "Jackets");
+  const blazer = categories.find((c) => c.name === "Blazers");
+  assert.ok(jacket && !jacket.parent_id, "Jackets must be created as a new TOP-LEVEL category, folded to its plural");
+  assert.ok(blazer && blazer.parent_id === jacket.id, "Blazers must be created NESTED under Jackets, folded to its plural too");
 
   const row = f.mirror("SELECT category_id, style_id FROM mirror_product WHERE title = 'Black Blazer'")[0];
   assert.equal(row.category_id, blazer.id, "the product must land on the SUBcategory, the more specific level");
@@ -6411,10 +6424,10 @@ check("test_PRD_P0_146_dynamic_option_values__the_same_subcategory_name_under_tw
   assert.equal(result.created.length, 2);
 
   const categories = f.categories();
-  const jacket = categories.find((c) => c.name === "Jacket");
+  const jacket = categories.find((c) => c.name === "Jackets");
   const pants = categories.find((c) => c.name === "Pants");
-  const casualRows = categories.filter((c) => c.name === "Casual");
-  assert.equal(casualRows.length, 2, "two distinct Casual rows, one per parent");
+  const casualRows = categories.filter((c) => c.name === "Casuals");
+  assert.equal(casualRows.length, 2, "two distinct Casuals rows, one per parent");
   assert.ok(casualRows.some((c) => c.parent_id === jacket.id));
   assert.ok(casualRows.some((c) => c.parent_id === pants.id));
 });
@@ -6441,8 +6454,8 @@ check("test_PRD_P0_146_dynamic_option_values__several_rows_naming_the_same_categ
   assert.equal(result.created.length, 2);
 
   const categories = f.categories();
-  assert.equal(categories.filter((c) => c.name === "Jacket").length, 1);
-  assert.equal(categories.filter((c) => c.name === "Blazer").length, 1);
+  assert.equal(categories.filter((c) => c.name === "Jackets").length, 1);
+  assert.equal(categories.filter((c) => c.name === "Blazers").length, 1);
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -6485,10 +6498,10 @@ check("test_PRD_P0_152_style_number_grouping__rows_sharing_a_style_base_become_o
   const variants = f.mirror("SELECT price_minor FROM mirror_variant WHERE product_id = ?", product.id);
   assert.equal(variants.length, 3, "three sizes -- three variations on the SAME product, not three products");
 
-  const jacket = f.categories().find((c) => c.name === "Jacket");
-  const blazer = f.categories().find((c) => c.name === "Blazer");
+  const jacket = f.categories().find((c) => c.name === "Jackets");
+  const blazer = f.categories().find((c) => c.name === "Blazers");
   assert.ok(jacket && !jacket.parent_id && jacket.numeric_id === "01");
-  assert.ok(blazer && blazer.parent_id === jacket.id, `Blazer must be created and nested under Jacket -- got: ${JSON.stringify(blazer)}`);
+  assert.ok(blazer && blazer.parent_id === jacket.id, `Blazers must be created and nested under Jackets -- got: ${JSON.stringify(blazer)}`);
   assert.match(blazer.numeric_id, /^\d{2}$/, "auto-assigned, this shop's own two-digit convention");
 });
 
@@ -6531,10 +6544,10 @@ check("test_PRD_P0_152_style_number_grouping__a_number_with_no_match_creates_a_n
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
   assert.equal(result.created.length, 1);
 
-  const coat = f.categories().find((c) => c.name === "Coat");
-  const winterCoat = f.categories().find((c) => c.name === "Winter Coat");
+  const coat = f.categories().find((c) => c.name === "Coats");
+  const winterCoat = f.categories().find((c) => c.name === "Winter Coats");
   assert.ok(coat && !coat.parent_id && coat.numeric_id === "04", '"004" normalizes to this shop\'s own two-digit "04" -- the TOP-LEVEL number IS taken from the style number');
-  assert.ok(winterCoat && winterCoat.parent_id === coat.id, "Winter Coat must be created and nested under Coat");
+  assert.ok(winterCoat && winterCoat.parent_id === coat.id, "Winter Coats must be created and nested under Coats");
   /* The SUBCATEGORY's own numeric_id is auto-assigned (this shop's own
      tree-wide pool), never the sheet's own "002" -- see draftGroupedProduct's
      own header comment on why subcategory resolution goes by name. */
@@ -6631,12 +6644,12 @@ check("test_PRD_P0_152_style_number_grouping__a_near_duplicate_subcategory_name_
   assert.equal(result.created[0].title, "Black hand-painted blazer");
   assert.equal(result.created[1].title, "White blazer");
 
-  const jacket = f.categories().find((c) => c.name === "Jacket");
-  const blazer = f.categories().find((c) => c.name === "Blazer" && c.parent_id === jacket.id);
+  const jacket = f.categories().find((c) => c.name === "Jackets");
+  const blazer = f.categories().find((c) => c.name === "Blazers" && c.parent_id === jacket.id);
   assert.equal(
     f.categories().filter((c) => c.parent_id === jacket.id).length,
     1,
-    "still just the one Blazer subcategory -- no confusingly similar duplicate created beside it",
+    "still just the one Blazers subcategory -- no confusingly similar duplicate created beside it",
   );
 
   const products = f.mirror(
@@ -6757,11 +6770,11 @@ check("test_PRD_P0_152_style_number_grouping__a_named_category_or_subcategory_ma
   assert.equal(result.ready.length, 0, `expected no clashes, got: ${JSON.stringify(result.ready)}`);
   assert.equal(result.created.length, 1);
 
-  const top = f.categories().find((c) => c.name === "Brand New Category");
-  assert.ok(top, "the top-level category was created");
+  const top = f.categories().find((c) => c.name === "Brand New Categories");
+  assert.ok(top, "the top-level category was created, folded to its plural");
   assert.ok(top.numeric_id, "never left unnumbered -- 'that's a hard fail' otherwise");
-  const sub = f.categories().find((c) => c.name === "Brand New Sub" && c.parent_id === top.id);
-  assert.ok(sub, "the subcategory was created under it");
+  const sub = f.categories().find((c) => c.name === "Brand New Subs" && c.parent_id === top.id);
+  assert.ok(sub, "the subcategory was created under it, folded to its plural too");
   assert.ok(sub.numeric_id, "the subcategory is never left unnumbered either");
 
   const row = f.mirror("SELECT category_id, style_id FROM mirror_product WHERE title = 'Mystery Item'")[0];
@@ -7029,20 +7042,20 @@ check("test_PRD_P0_152_style_number_grouping__the_actual_sample_sheet_drafts_six
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
   assert.equal(result.created.length, 16, "28 rows, 16 distinct products once grouped by style base");
 
-  const jacket = f.categories().find((c) => c.name === "Jacket");
+  const jacket = f.categories().find((c) => c.name === "Jackets");
   const pants = f.categories().find((c) => c.name === "Pants");
-  const coat = f.categories().find((c) => c.name === "Coat");
+  const coat = f.categories().find((c) => c.name === "Coats");
   assert.ok(jacket && jacket.numeric_id === "01" && !jacket.parent_id);
   assert.ok(pants && pants.numeric_id === "03" && !pants.parent_id);
   assert.ok(coat && coat.numeric_id === "04" && !coat.parent_id);
 
-  const subNames = ["Blazer", "Denim Jacket", "Vest", "Dress Pants", "Trench Coat", "Winter Coat"];
+  const subNames = ["Blazers", "Denim Jackets", "Vests", "Dress Pants", "Trench Coats", "Winter Coats"];
   for (const name of subNames) {
     assert.equal(f.categories().filter((c) => c.name === name).length, 1, `${name} must be created exactly once across all its own rows`);
   }
-  const blazer = f.categories().find((c) => c.name === "Blazer");
-  const vest = f.categories().find((c) => c.name === "Vest");
-  const denim = f.categories().find((c) => c.name === "Denim Jacket");
+  const blazer = f.categories().find((c) => c.name === "Blazers");
+  const vest = f.categories().find((c) => c.name === "Vests");
+  const denim = f.categories().find((c) => c.name === "Denim Jackets");
   assert.ok(blazer.parent_id === jacket.id && vest.parent_id === jacket.id && denim.parent_id === jacket.id);
   assert.notEqual(blazer.numeric_id, vest.numeric_id);
   assert.notEqual(blazer.numeric_id, denim.numeric_id);
