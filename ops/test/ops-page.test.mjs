@@ -624,19 +624,26 @@ check("test_PRD_P0_117_batch_preview_one_row_fits_without_scrolling__revised_the
   const { body } = await frontPage(OWNER);
   assert.doesNotMatch(body, /\.table-card\.preview\s*\{[^}]*max-height:\s*none/s, "the preview card must no longer waive the height cap now that it can carry every interpreted row, not one sample");
   assert.match(body, /\.table-card\.full\s*\{[^}]*max-height:\s*none/s, "Full screen must still remove the cap entirely, .preview or not");
-  assert.match(body, /className = t\.compact \? "table-card preview" : "table-card"/, "tableCard() still adds the modifier for compact table data, now just for its cell-crop styling rather than an uncapped height");
+  assert.match(
+    body,
+    /className = "table-card" \+ \(t\.compact \? " preview" : ""\)/,
+    "tableCard() still adds the preview modifier for compact table data, now just for its cell-crop styling rather than an uncapped height",
+  );
 });
 
 check("test_PRD_P0_89_batch_preview_confirm__the_collapsed_preview_card_is_three_times_taller_than_the_ordinary_cap", async () => {
   /* "Make the preview card like three times taller than it currently is" —
      the owner's own words. A dedicated .table-card.preview height, scoped
-     to the preview only — batchDraftTable()'s own plain .table-card
-     ready/skipped result keeps the ordinary 86px, since nothing asked for
-     that one to grow. */
+     to the preview only at the time. REVISED — batchDraftTable()'s own
+     ready/skipped result later got the identical 258px too (its own
+     .table-card.tall, "I can't see shit, it's collapsed!!"), but the BARE
+     .table-card rule itself (what anything with neither modifier still
+     gets) stays the original 86px either way. */
   const { body } = await frontPage(OWNER);
   assert.match(body, /\.table-card\.preview\s*\{[^}]*max-height:\s*258px/s, "three times the ordinary 86px cap");
-  assert.match(body, /\.table-card\s*\{[^}]*max-height:\s*86px/s, "the ordinary, non-preview cap must be unchanged");
-  assert.match(body, /\.table-card\.full\s*\{[^}]*max-height:\s*none/s, "Full screen must still remove the cap entirely, .preview or not");
+  assert.match(body, /\.table-card\.tall\s*\{[^}]*max-height:\s*258px/s, "a batch result table gets the same three-times height, on its own modifier");
+  assert.match(body, /\.table-card\s*\{[^}]*max-height:\s*86px/s, "the bare, unmodified cap must be unchanged");
+  assert.match(body, /\.table-card\.full\s*\{[^}]*max-height:\s*none/s, "Full screen must still remove the cap entirely, whichever modifier applies");
 });
 
 check("test_PRD_P0_89_batch_preview_confirm__the_table_is_as_space_efficient_as_possible", async () => {

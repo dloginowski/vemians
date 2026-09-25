@@ -7420,6 +7420,23 @@ that does not trace to one of these is a process failure (see §12).
     real checks exactly like any other title would; nothing here trusts it any more than the sheet's own
     original guess was trusted.
 
+    **REVISED — a batch RESULT table is no longer stuck at the same one-row-tall cap a preview already
+    escaped two rounds ago.** A real transcript: "it says 9 need a person's decision but the next preview
+    row is too short! I can't see shit, it's collapsed!!" `TABLE_CARD_CSS`'s own `.table-card` cap (86px)
+    was only ever raised for the PREVIEW card (`.table-card.preview`, 258px — "make the preview card like
+    three times taller," above) — `batchDraftTable()`'s own ready/skipped result, and the checklist's own
+    final per-row results table (`checklistCard`'s own Submit handler, views.js), stayed plain `.table-card`
+    the whole time, so a batch with as many rows needing review as a real sheet can have was just as
+    cramped as the preview card used to be, with no equivalent fix ever applied to it. A new
+    `.table-card.tall` (also 258px) is now on its own modifier rather than folded into `.preview`, because a
+    result table still needs to wrap its cells in FULL — a skip reason or a park link is worth reading
+    completely, never cropped with an ellipsis the way a preview's own column-shape-only cells are
+    (`.table-card.preview td`'s own comment, unchanged). `batchDraftTable()` (agent.js) and the checklist's
+    own final `tableCard(...)` call (views.js) both now set `tall: true`; `tableCard()` itself (views.js)
+    adds the class whenever either flag is set, independently, so a table can carry `.preview`, `.tall`,
+    both, or neither. "Full screen" (`.table-card.full`) still removes the cap entirely regardless, exactly
+    as it always has.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

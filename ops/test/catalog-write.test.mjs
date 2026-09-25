@@ -6190,6 +6190,7 @@ check("test_PRD_P0_89_batch_preview_confirm__the_draft_tools_carry_a_structured_
   assert.match(outcome.checklist.rows[0].title, /Wool Coat/);
   assert.equal(outcome.table.columns.length, 4);
   assert.equal(outcome.table.rows.length, 1);
+  assert.equal(outcome.table.tall, true, "a batch result table must not be stuck at the plain, one-row-tall cap (\"I can't see shit, it's collapsed!!\")");
   const needsPerson = outcome.table.rows.find((r) => r[2] === "needs a person");
   assert.match(needsPerson[3], /"free" is not a plain number/i);
   /* And once actually submitted (the helper already ran every checklist row

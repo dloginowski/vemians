@@ -485,9 +485,20 @@ const TABLE_CARD_CSS = `
    currently is" — the owner's own words. A dedicated .table-card.preview
    height, three times the ordinary 86px cap (258px), scoped to the preview
    ONLY — batchDraftTable()'s own ready/skipped result (plain .table-card,
-   no .preview class) keeps the original 86px, since nothing asked for that
-   one to grow too. */
+   no .preview class) kept the original 86px at the time, since nothing had
+   asked for that one to grow too.
+
+   REVISED ONCE MORE — something did: "it says 9 need a person's decision
+   but the next preview row is too short! I can't see shit, it's
+   collapsed!!" A batch RESULT can carry just as many rows as a preview
+   can, and was still stuck at the plain 86px cap. .table-card.tall is the
+   same 258px, on its own class rather than folded into .preview, because a
+   result table still wraps its cells in FULL (the rule right below this
+   one is preview-only) — a skip reason or a park link is worth reading
+   completely, never cropped with an ellipsis the way a preview's own
+   column-shape-only cells are. */
 .table-card.preview { max-height: 258px; }
+.table-card.tall { max-height: 258px; }
 /* The preview's own data cells crop with an ellipsis instead of wrapping
    — the owner's own correction, after Test-PRD-P0-119-table_headers_never_wrap
    let data wrap onto as many lines as it needed: "your test is a little
@@ -1389,7 +1400,7 @@ function pollBatchProgress(line) {
    in place — no second element, no separate scroll state to track. */
 function tableCard(t) {
   const wrap = document.createElement("div");
-  wrap.className = t.compact ? "table-card preview" : "table-card";
+  wrap.className = "table-card" + (t.compact ? " preview" : "") + (t.tall ? " tall" : "");
 
   const head = document.createElement("h4");
   const title = document.createElement("span");
@@ -1627,6 +1638,10 @@ function checklistCard(c) {
       title: "Products: " + created + " created, " + parked + " need a person's decision, " + skipped + " skipped",
       columns: ["Row", "Title", "Status", "Detail"],
       rows,
+      /* Same "9 need a person's decision... collapsed" complaint this
+         checklist itself was built to answer — see .table-card.tall's own
+         comment (TABLE_CARD_CSS, above). */
+      tall: true,
     });
   });
 

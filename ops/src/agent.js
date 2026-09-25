@@ -537,6 +537,15 @@ function batchDraftTable(kind, result) {
     title: `${kind[0].toUpperCase()}${kind.slice(1)}: ${created.length} created, ${ready.length} need a person's decision, ${result.skipped.length} skipped`,
     columns: ["Row", "Title", "Status", "Detail"],
     rows,
+    /* "It says 9 need a person's decision but the next preview row is too
+       short! I can't see shit, it's collapsed!!" — a real batch result can
+       carry as many rows as the sheet did, same as a preview can, and this
+       table was still stuck at the plain 86px cap nothing but a preview
+       (P0-117/P0-89's own "three times taller") ever got raised — never
+       ellipsis-cropped the way a preview is, though (views.js's own
+       TABLE_CARD_CSS comment): a skip reason or a park link here is worth
+       reading in full, not just recognizing the shape of. */
+    tall: true,
   };
 }
 
