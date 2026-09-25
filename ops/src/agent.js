@@ -333,9 +333,11 @@ const PREVIEW_TOOL_DEFS = [
     name: "catalog_preview_product_batch",
     description:
       "Read only the column headings and first row of an attached spreadsheet (asset id from the attachment " +
-      "note) and show how they map to title/category/price/description/sku — without drafting or approving " +
-      "anything. Call this FIRST for any spreadsheet of products: show the person the mapping, and only " +
-      "call catalog_draft_product_batch once they confirm it looks right." +
+      "note) and show how they map to title/category/price/description/sku — without creating anything at " +
+      "all. Call this FIRST for any spreadsheet of products: catalog_draft_product_batch now creates every " +
+      "row that resolves cleanly IMMEDIATELY, with no approval step afterward, so this preview is the one " +
+      "chance to catch a wrong column mapping before it becomes real, wrong products — show the person the " +
+      "mapping, and only call catalog_draft_product_batch once they confirm it looks right." +
       NO_TEXT_TABLE_NOTE,
     input_schema: {
       type: "object",
@@ -361,10 +363,13 @@ const BATCH_TOOL_DEFS = [
       "Parse an attached spreadsheet (already uploaded — pass the asset id from the attachment note) " +
       "into products: matches column headings (title/name/item/style, category, price, description, sku " +
       "— any reasonable spelling) the same way /products/batch does, validates each row against the " +
-      "closed category set and the price format, and mints a T2 approval link for every row that " +
-      "resolves cleanly. Reports the rest with a plain reason. Call catalog_preview_product_batch on the " +
-      "same asset first and get the person's confirmation on the column mapping before calling this — " +
-      "this is the same deterministic logic the dedicated upload page uses, just reached from chat." +
+      "closed category set and the price format, and CREATES every row that resolves cleanly RIGHT NOW — " +
+      "no approval link, no second click, the upload itself is the deliberate action. Reports the rest " +
+      "with a plain reason (a genuine problem — a bad price, a category mismatch — never blocks any OTHER " +
+      "row from still going through). Call catalog_preview_product_batch on the same asset first and get " +
+      "the person's confirmation on the column mapping before calling this, since there is no undo-by-" +
+      "not-approving any more — this is the same deterministic logic the dedicated upload page uses, just " +
+      "reached from chat." +
       NO_TEXT_TABLE_NOTE,
     input_schema: {
       type: "object",
@@ -374,7 +379,12 @@ const BATCH_TOOL_DEFS = [
   },
   {
     name: "customer_draft_customer_batch",
-    description: "The same as catalog_draft_product_batch, for a spreadsheet of customers instead of products." + NO_TEXT_TABLE_NOTE,
+    description:
+      "Parse an attached spreadsheet of customers and mint a T2 approval link for every row that resolves " +
+      "cleanly, for a person to open and approve individually — UNLIKE catalog_draft_product_batch, this " +
+      "one does NOT create anything immediately; customer records still go through the ordinary approval " +
+      "step." +
+      NO_TEXT_TABLE_NOTE,
     input_schema: {
       type: "object",
       properties: { asset_id: { type: "string", description: "The asset id named in the attachment note." } },
@@ -411,25 +421,32 @@ async function readAssetText(env, assetId) {
    re-deriving prose from a JSON blob — the same reason describeTool exists
    for a single-item proposal. `table` is the same information shaped for
    the client's own compact review table, not for the model at all. */
+/* Products create immediately (createRows, batch.js) — REVISED, "I don't
+   want to sit here and approve them" — the owner's own words; customers
+   still park an approval link (parkRows, unchanged). */
 function formatBatchDraft(kind, result) {
   if (result.tooMany !== undefined) {
     return `The spreadsheet has ${result.tooMany} rows, past the ${CAPS.BATCH_MAX_ROWS}-row cap for one upload. Split it and try again.`;
   }
-  const lines = [`${result.ready.length} ${kind} ready, ${result.skipped.length} skipped.`];
-  for (const r of result.ready) lines.push(`- Row ${r.row} "${r.title}": ${r.summary} — ${r.url}`);
+  const immediate = kind === "products";
+  const made = immediate ? result.created : result.ready;
+  const lines = [`${made.length} ${kind} ${immediate ? "created" : "ready"}, ${result.skipped.length} skipped.`];
+  for (const r of made) lines.push(immediate ? `- Row ${r.row} "${r.title}": created — ${r.summary}` : `- Row ${r.row} "${r.title}": ${r.summary} — ${r.url}`);
   for (const s of result.skipped) lines.push(`- Row ${s.row} "${s.title}": skipped — ${s.reason}`);
   return lines.join("\n");
 }
 
 function batchDraftTable(kind, result) {
   if (result.tooMany !== undefined) return null;
+  const immediate = kind === "products";
+  const made = immediate ? result.created : result.ready;
   const rows = [
-    ...result.ready.map((r) => [String(r.row), r.title, "ready", `${r.summary} — ${r.url}`]),
+    ...made.map((r) => [String(r.row), r.title, immediate ? "created" : "ready", immediate ? r.summary : `${r.summary} — ${r.url}`]),
     ...result.skipped.map((s) => [String(s.row), s.title, "skipped", s.reason]),
   ];
   rows.sort((a, b) => Number(a[0]) - Number(b[0]));
   return {
-    title: `${kind[0].toUpperCase()}${kind.slice(1)}: ${result.ready.length} ready, ${result.skipped.length} skipped`,
+    title: `${kind[0].toUpperCase()}${kind.slice(1)}: ${made.length} ${immediate ? "created" : "ready"}, ${result.skipped.length} skipped`,
     columns: ["Row", "Title", "Status", "Detail"],
     rows,
   };
@@ -437,7 +454,7 @@ function batchDraftTable(kind, result) {
 
 async function dispatchBatchDraft(name, args, { actor, role, env }) {
   if (!canDraftBatches(role)) {
-    return { isError: true, text: "Your role cannot approve what this would create — a manager or owner has to do this one." };
+    return { isError: true, text: "Your role cannot do what this would create — a manager or owner has to do this one." };
   }
   const asset = await readAssetText(env, args?.asset_id);
   if (asset.isError) return asset;

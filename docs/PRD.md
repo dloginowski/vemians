@@ -6714,6 +6714,32 @@ that does not trace to one of these is a process failure (see §12).
     makes this a change to the APPROVAL-EXECUTION path, not the importer, and needs its own design
     pass; nothing here assigns a category's own Option Sets automatically yet.
 
+    **REVISED — a PRODUCT row from a spreadsheet is created immediately, no separate approval step at
+    all.** The owner's own words: "I expect you to create all of the options and variations as
+    needed... this should not be a separate process or approval. You have all the information to
+    create all of them, so just make them. I don't want to sit here and approve them." Every row (or
+    row-group, P0-152 above) that resolves cleanly now runs straight through the same check-then-
+    execute pattern this file already used for inline category creation (`resolveCategoryByCode`,
+    `resolveOrCreateCategory`) — a `catalog.create_product` gate call for the preview `would`, then the
+    same call again with its own token, real Square write and all, inside the single `draftProductBatch`
+    call the upload itself triggers. `createRows` (batch.js) replaces `parkForApproval`/`parkRows` for
+    products only, returning `{created: [{row, title, handle, summary}], skipped}` in place of
+    `{ready: [{..., url}], skipped}` — a created row carries no approval link because there is nothing
+    left to approve. **"If there is a major clash that prevents a spreadsheet from being ingested, then
+    it should stop and explain what needs to be fixed. Otherwise, it just needs to go through without
+    any hitches"** — unchanged from before: every existing per-row skip reason (a bad price, an
+    unresolvable category, a vendor with no commission on file) still skips just that one row (or that
+    one row-group, atomically) with its own real reason, while every other row in the same upload is
+    still created. `catalog_preview_product_batch` is correspondingly now the ONE chance to catch a
+    wrong column mapping before it becomes 400 real products instead of 400 unclicked approval links —
+    its own tool description says so. **Deliberately NOT built: the "ideally" half of the same
+    instruction** — "ideally, it should recommend the fixes and just have the user say yes or no" for a
+    row that failed. A skip reason is still surfaced as plain text, not yet as an interactive
+    accept/reject suggestion; that is a genuinely separate, larger UI a future pass should design on its
+    own, not guessed at here. **CUSTOMER rows are explicitly unaffected** — `draftCustomerBatch` still
+    parks an ordinary approval via the unchanged `parkRows`, since customer records carry no analogous
+    "major clash" concept and were never part of this instruction.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
