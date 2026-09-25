@@ -6170,3 +6170,318 @@ check("test_PRD_P0_146_dynamic_option_values__several_rows_naming_the_same_categ
   assert.equal(categories.filter((c) => c.name === "Jacket").length, 1);
   assert.equal(categories.filter((c) => c.name === "Blazer").length, 1);
 });
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-152 — a real sheet: "it's not one product, one line... I gave you
+ * variations. So it's not one product... it's one variation per row."
+ * "The numbers will provide you with everything you need to know... look
+ * at the style number... whatever we have configured, you assign to that
+ * category using its ID... if you find that we do not have an ID that
+ * matches what we are supplying you, then you will use the columns for
+ * the... name and create a new one" — the owner's own words. Rows sharing
+ * one style number's own first three segments (category-subcategory-
+ * index) become ONE catalog.create_product call with several variations,
+ * one per row; category/subcategory resolve by NUMBER first, name only
+ * when creating one from scratch or reconciling an unnumbered match.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_152_style_number_grouping__rows_sharing_a_style_base_become_one_product_with_multiple_variations", async () => {
+  const f = await fixture({ actor: "priya@vemians.com", role: "manager" });
+  const csv =
+    "Style #,Category,Subcategory,Description,Color,Size,Qty,Cost (USD),Retail Price\n" +
+    "001-001-001-BLK-S,Jacket,Blazer,Black hand-painted blazer,Black,S,2,30,165\n" +
+    "001-001-001-BLK-M,Jacket,Blazer,Black hand-painted blazer,Black,M,2,30,165\n" +
+    "001-001-001-BLK-L,Jacket,Blazer,Black hand-painted blazer,Black,L,1,30,165\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.ready.length, 1, "three rows sharing one style base -- ONE product");
+  assert.equal(result.ready[0].title, "Black hand-painted blazer", "no title column -- the Description stands in for it");
+
+  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
+  globalThis.fetch = f.square;
+  let approved;
+  try {
+    approved = await approvePending(f.env, result.ready[0].url.split("/").pop(), approver);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(approved.ok, true, approved.error);
+
+  const product = f.mirror("SELECT id, style_id FROM mirror_product WHERE title = 'Black hand-painted blazer'")[0];
+  assert.ok(product, "the product must actually exist");
+  assert.match(product.style_id, /^\d{2}-\d{2}-001$/, "this shop's own two-digit codes, the sheet's own three-digit index kept");
+  const variants = f.mirror("SELECT price_minor FROM mirror_variant WHERE product_id = ?", product.id);
+  assert.equal(variants.length, 3, "three sizes -- three variations on the SAME product, not three products");
+
+  const jacket = f.categories().find((c) => c.name === "Jacket");
+  const blazer = f.categories().find((c) => c.name === "Blazer");
+  assert.ok(jacket && !jacket.parent_id && jacket.numeric_id === "01");
+  assert.ok(blazer && blazer.parent_id === jacket.id, `Blazer must be created and nested under Jacket -- got: ${JSON.stringify(blazer)}`);
+  assert.match(blazer.numeric_id, /^\d{2}$/, "auto-assigned, this shop's own two-digit convention");
+});
+
+check("test_PRD_P0_152_style_number_grouping__category_and_subcategory_resolve_by_number_ignoring_a_mismatched_name_column", async () => {
+  /* "You don't have to think about the names... whatever we have
+     configured, you assign to that category using its ID." An EXISTING
+     category already numbered "01" is matched by that number alone, even
+     though the sheet's own Category column spells something else. */
+  const f = await fixture({ actor: "priya@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  await approvedCall(f, "catalog.set_category_number", { category_id: outerwear.id, numeric_id: "01" });
+
+  const csv = "Style #,Category,Description,Color,Size,Cost (USD),Retail Price\n" + "01-99-001-BLK-M,Not Outerwear At All,A coat,Black,M,30,165\n";
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.ready.length, 1);
+  assert.equal(f.categories().filter((c) => c.name === "Outerwear").length, 1, "no duplicate category created just because the sheet's own name column disagreed");
+  assert.equal(f.categories().some((c) => c.name === "Not Outerwear At All"), false, "the mismatched name column is never used when the number already resolves to something real");
+});
+
+check("test_PRD_P0_152_style_number_grouping__a_number_with_no_match_creates_a_new_category_named_from_the_column", async () => {
+  const f = await fixture({ actor: "priya@vemians.com", role: "manager" });
+  const csv = "Style #,Category,Subcategory,Description,Color,Size,Cost (USD),Retail Price\n" + "004-002-002-MLT-OS,Coat,Winter Coat,Winter coat with a polka dot print,Multi,OS,40,295\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.ready.length, 1);
+
+  const coat = f.categories().find((c) => c.name === "Coat");
+  const winterCoat = f.categories().find((c) => c.name === "Winter Coat");
+  assert.ok(coat && !coat.parent_id && coat.numeric_id === "04", '"004" normalizes to this shop\'s own two-digit "04" -- the TOP-LEVEL number IS taken from the style number');
+  assert.ok(winterCoat && winterCoat.parent_id === coat.id, "Winter Coat must be created and nested under Coat");
+  /* The SUBCATEGORY's own numeric_id is auto-assigned (this shop's own
+     tree-wide pool), never the sheet's own "002" -- see draftGroupedProduct's
+     own header comment on why subcategory resolution goes by name. */
+  assert.match(winterCoat.numeric_id, /^\d{2}$/);
+});
+
+check("test_PRD_P0_152_style_number_grouping__an_existing_category_matched_by_name_gets_numbered_rather_than_duplicated", async () => {
+  /* "Outerwear" already exists but was never numbered -- this is the ONE
+     case a name column still gets consulted even under "you don't have to
+     think about the names": to avoid minting a confusing near-duplicate
+     beside a category that is really the same one. */
+  const f = await fixture({ actor: "priya@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  assert.equal(outerwear.numeric_id, null, "must start unnumbered for this test to mean anything");
+
+  const csv = "Style #,Category,Description,Color,Size,Cost (USD),Retail Price\n" + "01-99-001-BLK-M,Outerwear,A coat,Black,M,30,165\n";
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.ready.length, 1);
+  assert.equal(f.categories().filter((c) => c.name === "Outerwear").length, 1, "still just the one Outerwear -- now numbered, not duplicated");
+  assert.equal(f.categories().find((c) => c.name === "Outerwear").numeric_id, "01");
+});
+
+check("test_PRD_P0_152_style_number_grouping__a_name_that_already_has_a_different_number_is_reported_not_silently_reassigned", async () => {
+  const f = await fixture({ actor: "priya@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  await approvedCall(f, "catalog.set_category_number", { category_id: outerwear.id, numeric_id: "05" });
+
+  const csv = "Style #,Category,Description,Color,Size,Cost (USD),Retail Price\n" + "01-99-001-BLK-M,Outerwear,A coat,Black,M,30,165\n";
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.ready.length, 0);
+  assert.equal(result.skipped.length, 1);
+  assert.match(result.skipped[0].reason, /already exists numbered "05", not "01"/);
+});
+
+check("test_PRD_P0_152_style_number_grouping__a_style_number_that_does_not_match_the_pattern_is_ignored_outright", async () => {
+  /* "Ignore any rows that do not match our style ID nomenclature... if
+     they don't have that style ID pattern, then just ignore that" -- the
+     owner's own words, describing exactly a real sheet's own trailing
+     footnote (a whole sentence sitting in the Style # cell, no dashes at
+     all). A genuinely BLANK style-id cell (a totals row, say) is a
+     DIFFERENT case -- it still goes through the pre-existing standalone
+     path and is reported the normal way once it fails on something else
+     (a blank price, here) -- this test is only about a NON-blank cell
+     that was clearly an attempt at something, but not this shop's own
+     style number shape. */
+  const f = await fixture({ actor: "priya@vemians.com", role: "manager" });
+  const csv =
+    "Style #,Category,Subcategory,Description,Color,Size,Qty,Cost (USD),Retail Price\n" +
+    "001-001-001-BLK-S,Jacket,Blazer,Black hand-painted blazer,Black,S,2,30,165\n" +
+    "Red rows = color not yet specified (TBD) please confirm color for these items.,,,,,,,,\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.ready.length, 1, "the one real row still goes through");
+  assert.equal(result.skipped.length, 0, "the footnote is dropped outright, never reported as a problem");
+});
+
+check("test_PRD_P0_152_style_number_grouping__a_totals_rows_blank_style_number_still_goes_through_the_ordinary_standalone_path", async () => {
+  /* A trailing totals line (blank Style #, blank Category, a number in
+     Qty) is a DIFFERENT case from a garbled cell -- nothing to "ignore
+     outright" about a blank one, it simply has no style number to group
+     by at all, so it takes the pre-existing standalone path same as any
+     other style-id-less row, and is reported the ordinary way once
+     something else about it fails (its own blank price, here). */
+  const f = await fixture({ actor: "priya@vemians.com", role: "manager" });
+  const csv =
+    "Style #,Category,Subcategory,Description,Color,Size,Qty,Cost (USD),Retail Price\n" +
+    "001-001-001-BLK-S,Jacket,Blazer,Black hand-painted blazer,Black,S,2,30,165\n" +
+    ",,,TOTALS,,,3,,\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.ready.length, 1);
+  assert.equal(result.skipped.length, 1);
+  assert.match(result.skipped[0].reason, /price ".*" is not a plain number/);
+});
+
+check("test_PRD_P0_152_style_number_grouping__a_bad_price_on_any_one_row_skips_the_whole_group", async () => {
+  const f = await fixture({ actor: "priya@vemians.com", role: "manager" });
+  const csv =
+    "Style #,Category,Subcategory,Description,Color,Size,Cost (USD),Retail Price\n" +
+    "001-001-001-BLK-S,Jacket,Blazer,Black hand-painted blazer,Black,S,30,165\n" +
+    "001-001-001-BLK-M,Jacket,Blazer,Black hand-painted blazer,Black,M,30,not-a-price\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.ready.length, 0, "a product missing one of its own sizes is worse than not creating it yet");
+  assert.equal(result.skipped.length, 1);
+  assert.match(result.skipped[0].reason, /price "not-a-price"/);
+});
+
+check("test_PRD_P0_152_style_number_grouping__the_actual_sample_sheet_drafts_sixteen_products_from_twenty_eight_rows", async () => {
+  /* The owner's own real sample sheet, verbatim (minus its own byte-order
+     mark and its trailing TOTALS/footnote rows, both already covered by
+     their own dedicated tests above) -- 27 data rows, 16 distinct
+     products once grouped by style base, spanning 3 top-level categories
+     and 6 subcategories, none of which exist yet in a fresh shop. */
+  const f = await fixture({ actor: "priya@vemians.com", role: "manager" });
+  const csv = [
+    "Style #,Category,Subcategory,Description,Color,Size,Qty,Cost (USD),Retail Price,Margin,Margin %",
+    "001-001-001-BLK-S,Jacket,Blazer,Black hand-painted blazer,Black,S,2,30,165,135,0.8181818182",
+    "001-001-001-BLK-M,Jacket,Blazer,Black hand-painted blazer,Black,M,2,30,165,135,0.8181818182",
+    "001-001-001-BLK-L,Jacket,Blazer,Black hand-painted blazer,Black,L,1,30,165,135,0.8181818182",
+    "001-001-002-WHT-S,Jacket,Blazer,White blazer with pearls,White,S,1,45,185,140,0.7567567568",
+    "001-001-003-TBD-S,Jacket,Blazer,Embellished blazer,TBD,S,1,35,125,90,0.72",
+    "001-001-003-TBD-M,Jacket,Blazer,Embellished blazer,TBD,M,2,35,125,90,0.72",
+    "001-001-003-TBD-L,Jacket,Blazer,Embellished blazer,TBD,L,1,35,125,90,0.72",
+    "001-001-004-WHT-L,Jacket,Blazer,White blazer,White,L,1,19,75,56,0.7466666667",
+    "001-002-001-DNM-OS,Jacket,Denim Jacket,Printed denim jacket,Denim,OS,4,25,225,200,0.8888888889",
+    "001-003-001-BLK-S,Jacket,Vest,Black hand-painted vest,Black,S,3,25,135,110,0.8148148148",
+    "001-003-001-BLK-M,Jacket,Vest,Black hand-painted vest,Black,M,2,25,135,110,0.8148148148",
+    "001-003-001-BLK-L,Jacket,Vest,Black hand-painted vest,Black,L,1,25,135,110,0.8148148148",
+    '001-003-002-WHT-S,Jacket,Vest,"Embellished vest, white",White,S,2,29,145,116,0.8',
+    '001-003-002-WHT-M,Jacket,Vest,"Embellished vest, white",White,M,1,29,145,116,0.8',
+    '001-003-002-WHT-L,Jacket,Vest,"Embellished vest, white",White,L,2,29,145,116,0.8',
+    "001-003-003-CRM-M,Jacket,Vest,Cream embellished vest,Cream,M,1,25,115,90,0.7826086957",
+    '001-003-004-B/W-L,Jacket,Vest,"Hand-painted vest, black & white",Black & White,L,1,25,140,115,0.8214285714',
+    "001-003-005-WHT-M,Jacket,Vest,White vest,White,M,1,19,65,46,0.7076923077",
+    "003-001-001-BLK-S,Pants,Dress Pants,Black dress pants,Black,S,1,14,49,35,0.7142857143",
+    "003-001-001-BLK-M,Pants,Dress Pants,Black dress pants,Black,M,1,14,49,35,0.7142857143",
+    "003-001-001-BLK-L,Pants,Dress Pants,Black dress pants,Black,L,2,14,49,35,0.7142857143",
+    "003-001-002-WHT-S,Pants,Dress Pants,White dress pants,White,S,1,18,75,57,0.76",
+    "003-001-002-WHT-M,Pants,Dress Pants,White dress pants,White,M,1,18,75,57,0.76",
+    "004-001-001-TBD-OS,Coat,Trench Coat,Trench coat,TBD,OS,2,15,135,120,0.8888888889",
+    '004-001-002-GRY-OS,Coat,Trench Coat,"Trench coat, gray",Gray,OS,2,40,225,185,0.8222222222',
+    '004-002-001-GRY-OS,Coat,Winter Coat,"Winter coat, gray with print",Gray,OS,1,40,295,255,0.8644067797',
+    '004-002-002-MLT-OS,Coat,Winter Coat,"Winter coat, polka dot",Multi (Polka Dot),OS,1,40,295,255,0.8644067797',
+  ].join("\n");
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.ready.length, 16, "28 rows, 16 distinct products once grouped by style base");
+
+  const jacket = f.categories().find((c) => c.name === "Jacket");
+  const pants = f.categories().find((c) => c.name === "Pants");
+  const coat = f.categories().find((c) => c.name === "Coat");
+  assert.ok(jacket && jacket.numeric_id === "01" && !jacket.parent_id);
+  assert.ok(pants && pants.numeric_id === "03" && !pants.parent_id);
+  assert.ok(coat && coat.numeric_id === "04" && !coat.parent_id);
+
+  const subNames = ["Blazer", "Denim Jacket", "Vest", "Dress Pants", "Trench Coat", "Winter Coat"];
+  for (const name of subNames) {
+    assert.equal(f.categories().filter((c) => c.name === name).length, 1, `${name} must be created exactly once across all its own rows`);
+  }
+  const blazer = f.categories().find((c) => c.name === "Blazer");
+  const vest = f.categories().find((c) => c.name === "Vest");
+  const denim = f.categories().find((c) => c.name === "Denim Jacket");
+  assert.ok(blazer.parent_id === jacket.id && vest.parent_id === jacket.id && denim.parent_id === jacket.id);
+  assert.notEqual(blazer.numeric_id, vest.numeric_id);
+  assert.notEqual(blazer.numeric_id, denim.numeric_id);
+
+  /* Approve every one of the 16 and confirm the mirror actually ends up
+     with 16 NEW products (on top of whatever the base fixture's own seed
+     catalog already carried), each with a real, correctly-shaped
+     style_id -- the one thing the pre-existing seed product does NOT
+     have, so filtering on it isolates exactly the newly-created ones. */
+  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
+  globalThis.fetch = f.square;
+  try {
+    for (const ready of result.ready) {
+      const approved = await approvePending(f.env, ready.url.split("/").pop(), approver);
+      assert.equal(approved.ok, true, approved.error);
+    }
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  const products = f.mirror("SELECT title, style_id FROM mirror_product WHERE style_id IS NOT NULL");
+  assert.equal(products.length, 16, `titles: ${JSON.stringify(products.map((p) => p.title))}`);
+  for (const p of products) assert.match(p.style_id, /^\d{2}-\d{2}-\d{3}$/, `${p.title}'s own style_id must be this shop's real shape`);
+
+  const coatRow = f.mirror("SELECT id FROM mirror_product WHERE title LIKE 'Black hand-painted blazer'")[0];
+  const variants = f.mirror("SELECT price_minor FROM mirror_variant WHERE product_id = ?", coatRow.id);
+  assert.equal(variants.length, 3, "the blazer's own three sizes landed as three variations on ONE product");
+});
