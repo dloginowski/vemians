@@ -283,6 +283,19 @@ export async function nextStyleIdFor(db, catCode, subCode) {
    rather than a second copy of the string. */
 export const INHOUSE_VENDOR_NAME = "In-house";
 
+/* Every spreadsheet-column spelling batch.js's own UNIT_COST_KEYS/
+   IGNORED_KEYS already recognize as "this is cost" / "this is margin" —
+   re-exported here, the single canonical list, rather than a second copy
+   in catalog-write.js's own legacy-field cleanup tool (below) that could
+   drift out of sync with batch.js's own. Before the real cost/vendor
+   mechanism existed (this file's own INHOUSE_VENDOR_NAME comment has the
+   history), a spreadsheet's Cost/Margin column landed here, in a
+   product's own custom_fields, verbatim — catalog.strip_legacy_cost_
+   fields (catalog-write.js) is the one-time pass that removes it from
+   whatever product still carries it. */
+export const LEGACY_COST_FIELD_KEYS = ["unit cost", "cost", "cost (usd)", "cost usd", "cogs", "cost of goods", "wholesale cost"];
+export const LEGACY_MARGIN_FIELD_KEYS = ["margin", "margin %", "margin pct", "gross margin", "profit margin"];
+
 const PRODUCT_WITH_VENDOR_COLUMNS = `
   p.id, p.handle, p.title, p.source_description, p.status, p.channel, p.custom_fields,
   p.style_id, p.commission_pct, p.category_id,
@@ -1491,9 +1504,10 @@ export function createSquareCatalogWriter(env, opts = {}) {
         )
         .bind()
         .all();
+      const rows = products.results ?? [];
       let applied = 0;
       const errors = [];
-      for (const p of products.results ?? []) {
+      for (const p of rows) {
         try {
           await this.updateProduct({ handle: p.handle, vendor: "" });
           applied += 1;
@@ -1502,6 +1516,22 @@ export function createSquareCatalogWriter(env, opts = {}) {
           console.error(`ERROR catalog-writer: assigning "In-house" failed for ${p.handle} — ${detail}`);
           errors.push({ handle: p.handle, error: detail });
         }
+      }
+      /* "We should have In-house [in the vendor picker], right?" — the
+         owner's own words, after running this with every product already
+         on a real named vendor. Every row the loop above actually touches
+         already creates "In-house" (updateProduct's own vendorRefOrInHouse)
+         and syncs it back through its own syncAfterWrite — but a shop
+         where NOTHING currently lacks a vendor would leave rows empty and
+         skip both entirely, so the one product-level guarantee this tool
+         makes ("In-house exists, and is on file in our own mirror") would
+         quietly not hold. Ensured here, once, regardless of how many rows
+         there were to reassign — idempotent, since vendorRefOrInHouse
+         itself already resolves to the existing vendor once one is on
+         file, never creating a second. */
+      if (!rows.length) {
+        await vendorRefOrInHouse(null);
+        await syncAfterWrite();
       }
       return { applied, errors };
     },

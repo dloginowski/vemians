@@ -3653,12 +3653,96 @@ check("test_PRD_P0_154_inhouse_vendor__reassigns_every_vendorless_product_and_is
   )[0];
   assert.equal(after.vendor, "In-house");
 
-  /* Idempotent: a second pass finds nothing left to do, and never reaches
-     Square for a product it already reassigned. */
+  /* Idempotent: a second pass reassigns nothing further (every product
+     already has a real vendor, or "In-house") — REVISED: it still touches
+     Square once, confirming "In-house" itself is on file, but that call
+     is itself idempotent (vendorRefOrInHouse resolves the existing vendor
+     rather than creating a second one), so no product is reassigned
+     again either way. */
   const second = await approvedCall(f, "catalog.assign_inhouse_vendor", { reason: "test" });
   assert.equal(second.ok, true, second.error);
   assert.equal(second.data.products_assigned, 0);
   assert.deepEqual(second.data.errors, []);
+});
+
+check("test_PRD_P0_154_inhouse_vendor__the_vendor_itself_is_guaranteed_even_with_nothing_to_reassign", async () => {
+  /* A real transcript: "we should have In-house [in the vendor dropdown],
+     right?" — asked after every product in a real shop already had a real
+     named vendor, so nothing ever exercised the reassignment loop at all,
+     and "In-house" had never been created or mirrored. This is the gap:
+     a shop with zero vendor-less products must still end up with
+     "In-house" on file after running this tool, not only a shop that
+     happened to have one to reassign. */
+  const f = await fixture();
+  await approvedCall(f, "catalog.set_square_attributes", { handle: COAT_HANDLE, vendor: "Acme Mills", commission: 20 });
+  const beforeVendors = f.mirror("SELECT name FROM mirror_vendor_index").map((r) => r.name);
+  assert.ok(!beforeVendors.includes("In-house"), "In-house must not exist yet in this scenario");
+
+  const res = await approvedCall(f, "catalog.assign_inhouse_vendor", { reason: "test" });
+  assert.equal(res.ok, true, res.error);
+  assert.equal(res.data.products_assigned, 0, "Acme Mills is a real vendor -- nothing here needed reassigning");
+
+  const afterVendors = f.mirror("SELECT name FROM mirror_vendor_index").map((r) => r.name);
+  assert.ok(afterVendors.includes("In-house"), "In-house must exist and be mirrored even with nothing to reassign");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-155 — cleaning up whatever a spreadsheet import left in custom_fields
+ * before cost/margin had a real home (or, for margin, before it was
+ * dropped outright). A real transcript: "I also want the custom field
+ * gone from all the items that we've created, the cost, that cost and
+ * the margin or whatever."
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_155_strip_legacy_cost_fields__the_tool_is_registered_manager_only_and_never_calls_square", () => {
+  const tool = TOOLS["catalog.strip_legacy_cost_fields"];
+  assert.ok(tool, "catalog.strip_legacy_cost_fields is not registered");
+  assert.deepEqual(tool.resources ?? [], [], "custom_fields has no Square correlate -- this must never call Square");
+  assert.deepEqual(tool.stores, ["catalog_mirror"]);
+  assert.equal(tool.tier, "T2");
+  assert.equal(tool.minRole, "manager");
+});
+
+check("test_PRD_P0_155_strip_legacy_cost_fields__removes_only_the_known_cost_and_margin_spellings", async () => {
+  const f = await fixture();
+  f.mirror(
+    "UPDATE mirror_product SET custom_fields = ? WHERE handle = ?",
+    JSON.stringify({ cost: "210.00", "cost usd": "210.00", margin: "53%", "fabric note": "Boiled wool" }),
+    COAT_HANDLE,
+  );
+
+  const callsBefore = f.calls().length;
+  const res = await approvedCall(f, "catalog.strip_legacy_cost_fields", { reason: "test" });
+  assert.equal(res.ok, true, res.error);
+  assert.equal(res.data.products_cleaned, 1);
+  assert.equal(res.data.fields_removed, 3, "cost, cost usd, and margin -- three legacy keys on this one product");
+  assert.equal(f.calls().length, callsBefore, "custom_fields has no Square correlate -- this must never reach Square");
+
+  const row = f.mirror("SELECT custom_fields FROM mirror_product WHERE handle = ?", COAT_HANDLE)[0];
+  assert.deepEqual(JSON.parse(row.custom_fields), { "fabric note": "Boiled wool" }, "only the legacy keys are gone -- everything else survives untouched");
+});
+
+check("test_PRD_P0_155_strip_legacy_cost_fields__a_product_with_none_of_the_legacy_keys_is_left_alone", async () => {
+  const f = await fixture();
+  f.mirror("UPDATE mirror_product SET custom_fields = ? WHERE handle = ?", JSON.stringify({ "fabric note": "Boiled wool" }), COAT_HANDLE);
+
+  const res = await runTool("catalog.strip_legacy_cost_fields", { reason: "test" }, f.ctx);
+  assert.equal(res.ok, false);
+  assert.match(res.error, /nothing to strip/);
+  assert.deepEqual(f.calls(), []);
+});
+
+check("test_PRD_P0_155_strip_legacy_cost_fields__is_idempotent", async () => {
+  const f = await fixture();
+  f.mirror("UPDATE mirror_product SET custom_fields = ? WHERE handle = ?", JSON.stringify({ cost: "210.00" }), COAT_HANDLE);
+
+  const first = await approvedCall(f, "catalog.strip_legacy_cost_fields", { reason: "test" });
+  assert.equal(first.ok, true, first.error);
+  assert.equal(first.data.products_cleaned, 1);
+
+  const second = await runTool("catalog.strip_legacy_cost_fields", { reason: "test" }, f.ctx);
+  assert.equal(second.ok, false);
+  assert.match(second.error, /nothing to strip/);
 });
 
 check("test_PRD_P0_136_square_custom_attributes__update_product_refuses_a_per_variation_unit_cost_with_no_vendor", async () => {

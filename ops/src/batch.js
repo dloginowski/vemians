@@ -38,7 +38,7 @@
  * product.
  */
 import { runTool } from "./tools/index.js";
-import { listCategories, categoryProductCounts } from "./tools/catalog-writer.js";
+import { listCategories, categoryProductCounts, LEGACY_COST_FIELD_KEYS, LEGACY_MARGIN_FIELD_KEYS } from "./tools/catalog-writer.js";
 import { nearestCategory } from "./tools/catalog-write.js";
 import { parkForApproval } from "./approvals.js";
 import { csvRecords, parseCsv } from "./tools/csv.js";
@@ -280,8 +280,11 @@ const COMMISSION_KEYS = ["commission", "commission %", "commission pct", "commis
    "Unit Cost"/"Cost"/"COGS" column still falls through to custom_fields via
    extraFields exactly as it always has, preserved verbatim. It is listed
    here ONLY so this file can check whether a value was actually GIVEN, for
-   the "no vendor needs a unit cost" rule immediately below. */
-const UNIT_COST_KEYS = ["unit cost", "cost", "cost (usd)", "cost usd", "cogs", "cost of goods", "wholesale cost"];
+   the "no vendor needs a unit cost" rule immediately below. The actual key
+   list (LEGACY_COST_FIELD_KEYS) now lives in catalog-writer.js, the one
+   canonical copy catalog.strip_legacy_cost_fields (catalog-write.js) also
+   reads from, rather than a second list here that could drift out of
+   sync with it. */
 /* "When quantity not specified use 1" — the owner's own words. A real
    catalog.create_product argument now (VARIATION_WITH_OPTIONS' own
    `quantity`), set as part of the same approved write, never a second
@@ -330,8 +333,10 @@ const PRODUCT_KNOWN_KEYS = [
    redirected the way a real cost column now is (unitCostRaw, above). Added
    to `knownKeys` alongside PRODUCT_KNOWN_KEYS so extraFields treats it as
    already-handled and never captures it at all, rather than inventing a
-   `custom_fields` home for a value with none. */
-const IGNORED_KEYS = ["margin", "margin %", "margin pct", "gross margin", "profit margin"];
+   `custom_fields` home for a value with none. The actual key list
+   (LEGACY_MARGIN_FIELD_KEYS) now lives in catalog-writer.js, alongside
+   LEGACY_COST_FIELD_KEYS above, for the same single-canonical-copy
+   reason. */
 
 /* {Size: "XL", Color: "Red"} from whichever of OPTION_KEYS' own columns this
    row actually filled in — empty ones (no column, or the cell was blank)
@@ -1012,7 +1017,7 @@ function draftNamedCategoryProduct(category, resolutionError, nextAutoTitle, rec
      Custom Attribute either. This used to be gated on `vendor &&`
      specifically because vendor_information was the ONLY place cost could
      live at all, and a vendor-less row had no vendor to attach it to. */
-  const unitCostRaw = pick(record, UNIT_COST_KEYS);
+  const unitCostRaw = pick(record, LEGACY_COST_FIELD_KEYS);
   let unitCostMinor;
   if (unitCostRaw) {
     unitCostMinor = parsePriceToMinor(unitCostRaw);
@@ -1025,7 +1030,7 @@ function draftNamedCategoryProduct(category, resolutionError, nextAutoTitle, rec
   if (vendorCode && !vendor) notes.push(`vendor code "${vendorCode}" was given without a vendor -- left unset`);
 
   const description = pick(record, DESCRIPTION_KEYS);
-  const knownKeys = unitCostMinor !== undefined ? [...PRODUCT_KNOWN_KEYS, ...UNIT_COST_KEYS, ...IGNORED_KEYS] : [...PRODUCT_KNOWN_KEYS, ...IGNORED_KEYS];
+  const knownKeys = unitCostMinor !== undefined ? [...PRODUCT_KNOWN_KEYS, ...LEGACY_COST_FIELD_KEYS, ...LEGACY_MARGIN_FIELD_KEYS] : [...PRODUCT_KNOWN_KEYS, ...LEGACY_MARGIN_FIELD_KEYS];
   const customFields = extraFields(record, knownKeys);
   if (notes.length) customFields["import notes"] = notes.join("; ").slice(0, CAPS.CATALOG_CUSTOM_FIELD_VALUE_MAX);
 
@@ -1217,7 +1222,7 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
      value no longer needs a vendor at all, now that catalog.create_product
      gives it a real, vendor-independent Square Custom Attribute to live in
      when there is none. */
-  const unitCostRaw = pick(first, UNIT_COST_KEYS);
+  const unitCostRaw = pick(first, LEGACY_COST_FIELD_KEYS);
   let unitCostMinor;
   if (unitCostRaw) {
     unitCostMinor = parsePriceToMinor(unitCostRaw);
@@ -1314,7 +1319,7 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
      excluded from custom_fields whenever it parsed at all, vendor or not.
      Only a value that would not parse still preserves the raw text
      verbatim via extraFields below, so nothing is silently lost. */
-  const knownKeys = unitCostMinor !== undefined ? [...PRODUCT_KNOWN_KEYS, ...UNIT_COST_KEYS, ...IGNORED_KEYS] : [...PRODUCT_KNOWN_KEYS, ...IGNORED_KEYS];
+  const knownKeys = unitCostMinor !== undefined ? [...PRODUCT_KNOWN_KEYS, ...LEGACY_COST_FIELD_KEYS, ...LEGACY_MARGIN_FIELD_KEYS] : [...PRODUCT_KNOWN_KEYS, ...LEGACY_MARGIN_FIELD_KEYS];
   const customFields = extraFields(first, knownKeys);
   if (notes.length) customFields["import notes"] = notes.join("; ").slice(0, CAPS.CATALOG_CUSTOM_FIELD_VALUE_MAX);
 

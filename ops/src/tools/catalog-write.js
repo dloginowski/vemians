@@ -102,6 +102,9 @@ import {
   deriveCategoryIdForStyleId,
   effectiveCategoryItemOptionIds,
   INHOUSE_VENDOR_NAME,
+  LEGACY_COST_FIELD_KEYS,
+  LEGACY_MARGIN_FIELD_KEYS,
+  listAllProducts,
   listCategories,
   listCustomFieldNames,
   listItemOptions,
@@ -2582,12 +2585,15 @@ export const catalogWriteTools = {
     minRole: "manager",
     describe:
       "One-time backfill: reassign the built-in \"In-house\" vendor to every product that currently has " +
-      "no vendor at all (from before that became automatic on every create/update). Each affected " +
-      "product gets a real Square write — vendor -> In-house, everything else about it untouched — then " +
-      "the mirror syncs back. Idempotent: a product already on \"In-house\" or a real named vendor is " +
-      "not touched again, so this is safe to run more than once (a later call simply finds nothing left " +
-      "to do). Call this once after the \"In-house\" rule ships; there is no need to run it on a " +
-      "schedule — every NEW product already gets a vendor at creation time.",
+      "no vendor at all (from before that became automatic on every create/update), AND guarantee " +
+      "\"In-house\" itself exists as a real Square Vendor on file in our own mirror — so it shows up " +
+      "in the vendor picker dropdown — even when there is currently nothing left to reassign. Each " +
+      "affected product gets a real Square write — vendor -> In-house, everything else about it " +
+      "untouched — then the mirror syncs back. Idempotent: a product already on \"In-house\" or a real " +
+      "named vendor is not touched again, and creating the vendor itself is a no-op once it is already " +
+      "on file, so this is safe to run more than once. Call this once after the \"In-house\" rule " +
+      "ships, or any time the vendor picker is missing \"In-house\" as an option; there is no need to " +
+      "run it on a schedule — every NEW product already gets a vendor at creation time.",
     undo: "no undo: reassign a specific product back to a real vendor with catalog.set_square_attributes if one turns out to actually apply",
     schema: {
       reason: { type: "string", required: true, maxLength: CAPS.MAX_TEXT },
@@ -2602,7 +2608,11 @@ export const catalogWriteTools = {
         .bind()
         .first("n");
       if (!count) {
-        return { ok: true, summary: `every product already has a vendor — nothing to backfill`, preflight: {} };
+        return {
+          ok: true,
+          summary: `every product already has a vendor — nothing to reassign, but this still confirms "In-house" itself is on file (creating it now if it is not) — ${args.reason}`,
+          preflight: {},
+        };
       }
       return {
         ok: true,
@@ -2613,6 +2623,90 @@ export const catalogWriteTools = {
     async run(_args, t) {
       const { applied, errors } = await t.square.assignInHouseVendorToVendorlessProducts();
       return { products_assigned: applied, errors, authority: "square" };
+    },
+  },
+
+  /*
+   * One-time cleanup for whatever a spreadsheet import left behind in a
+   * product's own custom_fields before the real cost/vendor mechanism
+   * existed (catalog.assign_inhouse_vendor, above) and before margin was
+   * dropped outright rather than preserved as a custom field at all
+   * (P0-152's own "REVISED" entry, batch.js). A real transcript: "I also
+   * want the custom field gone from all the items that we've created, the
+   * cost, that cost and the margin or whatever." Never a Square call —
+   * custom_fields has no Square correlate at all (catalog.set_custom_
+   * fields' own header comment on this file), so this writes the mirror
+   * directly, exactly like that tool already does for one product at a
+   * time, just across every affected product in a single pass.
+   */
+  "catalog.strip_legacy_cost_fields": {
+    tier: "T2",
+    domain: "catalog",
+    stores: ["catalog_mirror"],
+    minRole: "manager",
+    describe:
+      "One-time cleanup: remove any leftover cost or margin entry from every product's own " +
+      "custom_fields — whatever a spreadsheet import left there before catalog.create_product/catalog." +
+      "set_square_attributes had a real, Square-authoritative home for cost (vendor_information, under " +
+      "a real vendor or the built-in \"In-house\" one) and before margin was dropped outright rather " +
+      "than preserved as a custom field at all. Recognizes the exact same column spellings the " +
+      "spreadsheet importer already treats as cost (\"unit cost\", \"cost\", \"cost (usd)\", \"cost " +
+      "usd\", \"cogs\", \"cost of goods\", \"wholesale cost\") or margin (\"margin\", \"margin %\", " +
+      "\"margin pct\", \"gross margin\", \"profit margin\") — every OTHER custom field on every product " +
+      "is left completely untouched, including a genuinely custom \"cost\" a person actually wants kept " +
+      "(there is no way to tell those apart automatically; ask before running this if that might be the " +
+      "case). Never calls Square: custom_fields has no Square correlate at all, so this writes the " +
+      "mirror directly, the same as catalog.set_custom_fields always has. Idempotent — a product with " +
+      "none of these keys left is simply not touched, so this is safe to run more than once.",
+    undo: "no undo: restore a specific value by hand with catalog.set_custom_fields if one turns out to still be wanted",
+    schema: {
+      reason: { type: "string", required: true, maxLength: CAPS.MAX_TEXT },
+    },
+    async check(args, t) {
+      const products = await listAllProducts(t.db.catalog_mirror);
+      const affected = products
+        .map((p) => ({
+          handle: p.handle,
+          keys: Object.keys(p.custom_fields ?? {}).filter(
+            (k) => LEGACY_COST_FIELD_KEYS.includes(k) || LEGACY_MARGIN_FIELD_KEYS.includes(k),
+          ),
+        }))
+        .filter((p) => p.keys.length);
+      if (!affected.length) {
+        return { denied: `no product carries a leftover cost or margin custom field — nothing to strip` };
+      }
+      const totalKeys = affected.reduce((n, p) => n + p.keys.length, 0);
+      return {
+        ok: true,
+        summary:
+          `strip ${totalKeys} leftover cost/margin field${totalKeys === 1 ? "" : "s"} across ` +
+          `${affected.length} product${affected.length === 1 ? "" : "s"} — ` +
+          `${affected.map((p) => `${p.handle} (${p.keys.join(", ")})`).join("; ")} — ${args.reason}`,
+        preflight: {},
+      };
+    },
+    async run(_args, t) {
+      const products = await listAllProducts(t.db.catalog_mirror);
+      let productsCleaned = 0;
+      let fieldsRemoved = 0;
+      const cleaned = [];
+      for (const p of products) {
+        const fields = p.custom_fields ?? {};
+        const keys = Object.keys(fields).filter(
+          (k) => LEGACY_COST_FIELD_KEYS.includes(k) || LEGACY_MARGIN_FIELD_KEYS.includes(k),
+        );
+        if (!keys.length) continue;
+        const remaining = { ...fields };
+        for (const k of keys) delete remaining[k];
+        await t.db.catalog_mirror
+          .prepare("UPDATE mirror_product SET custom_fields = ? WHERE handle = ?")
+          .bind(JSON.stringify(remaining), p.handle)
+          .run();
+        productsCleaned += 1;
+        fieldsRemoved += keys.length;
+        cleaned.push({ handle: p.handle, removed: keys });
+      }
+      return { products_cleaned: productsCleaned, fields_removed: fieldsRemoved, cleaned, authority: "ours" };
     },
   },
 
