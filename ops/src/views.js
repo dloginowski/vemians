@@ -474,13 +474,20 @@ const TABLE_CARD_CSS = `
    the chat preview and expand and see the entire column... scroll up and
    down and just review the entire contents" — the owner's own words,
    correcting the assumption behind the rule above: the collapsed default
-   was always meant to stay small, only the DATA it carries grew. No
-   dedicated preview rule any more — it falls back to the ordinary
-   .table-card cap right above (86px, scrollable in place), same as
-   batchDraftTable()'s own result; .table-card.full (also above) already
-   removes that cap unconditionally the moment "Full screen" is clicked,
-   .preview or not, which is what actually delivers "scroll up and down and
-   review the entire contents" now. */
+   was always meant to stay small, only the DATA it carries grew. For a
+   while this fell back to the ordinary .table-card cap right above (86px),
+   same as batchDraftTable()'s own result; .table-card.full (also above)
+   already removes that cap unconditionally the moment "Full screen" is
+   clicked, .preview or not, which is what actually delivers "scroll up
+   and down and review the entire contents" now.
+
+   REVISED AGAIN — "make the preview card like three times taller than it
+   currently is" — the owner's own words. A dedicated .table-card.preview
+   height, three times the ordinary 86px cap (258px), scoped to the preview
+   ONLY — batchDraftTable()'s own ready/skipped result (plain .table-card,
+   no .preview class) keeps the original 86px, since nothing asked for that
+   one to grow too. */
+.table-card.preview { max-height: 258px; }
 /* The preview's own data cells crop with an ellipsis instead of wrapping
    — the owner's own correction, after Test-PRD-P0-119-table_headers_never_wrap
    let data wrap onto as many lines as it needed: "your test is a little

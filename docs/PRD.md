@@ -3418,6 +3418,14 @@ that does not trace to one of these is a process failure (see §12).
     which is what now actually delivers "scroll up and down and just review the entire contents" —
     the mechanism this entry built was always the right one, it just had nothing real to show yet.
 
+    **REVISED AGAIN — the collapsed default grows back up, on request.** The owner's own words:
+    "make the preview card like three times taller than it currently is." A dedicated
+    `.table-card.preview { max-height: 258px; }` — three times the ordinary `.table-card` cap
+    (86px) — scoped to the preview card only; `batchDraftTable()`'s own plain, non-`.preview`
+    ready/skipped result keeps the original 86px, since nothing asked for that one to grow too.
+    `.table-card.full` (unconditional on `.preview`) still drops the cap entirely the moment "Full
+    screen" is clicked, exactly as before.
+
 53. **`Test-PRD-P0-118-chat_top_side_padding_halved`** — The owner's own words, comparing the
     agent chat's own two pieces: "reduce the overall page padding in the agent section... the chat
     fields have too much padding on the sides and we're kind of wasting usable space. Notice how
