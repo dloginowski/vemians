@@ -308,26 +308,43 @@ function skillsReadResult(role, name) {
  * chat reply, in words — "does this look right?" / "yes" — never skipped.
  *
  * REVISED — the confirmation still happens in chat, but the asset id no
- * longer has to survive in the MODEL's own memory to get there. A real
- * transcript showed exactly why that used to fail: previewed, the person
- * replied "Yes," and the very next turn — with nothing but its own
- * stripped-down text history (sanitizeHistory, below has no tool calls, no
- * attachment note, nothing but rendered chat bubbles) — the model could no
- * longer find the asset id at all ("refused assets.list", "refused
- * catalog_draft_product_batch," twice each, then "I can't find its asset id
- * right now"). `attachmentNote`'s own asset id is handed to the model
- * exactly once, in the turn the file was attached, and a person's reply to
- * the preview always arrives LATER — there is no way around that turn
- * boundary, only a way to survive it. `formatBatchPreview`, below, now
- * tags its own reply with the exact asset id in plain text (`[asset id:
- * ...]`) — the ONE thing a later turn's history actually preserves — so the
- * model reads the real id back off ITS OWN preview reply rather than
- * recalling it from memory or guessing via assets.list, which is what
- * failed in that transcript. This is the second time this exact failure
- * has been diagnosed (see precheckBatchDraft's own comment below for the
- * first, narrower fix — the click itself needing no model memory of the id
- * — which never covered the model successfully making that first call at
- * all).
+ * longer has to survive in the MODEL's own memory to get there at all. A
+ * real transcript showed exactly why that used to fail: previewed, the
+ * person replied "Yes," and the very next turn — with nothing but its own
+ * stripped-down text history (sanitizeHistory, below, keeps only the
+ * client's own rendered chat bubbles: no tool call, no tool result, no
+ * attachment note) — the model could no longer find the asset id at all
+ * ("refused assets.list", "refused catalog_draft_product_batch," twice
+ * each, then "I can't find its asset id right now"). `attachmentNote`'s
+ * own asset id is handed to the model exactly once, in the turn the file
+ * was attached, and a person's reply to the preview always arrives LATER.
+ *
+ * REVISED AGAIN — the FIRST fix here tried tagging the preview's own TOOL
+ * RESULT text with the asset id, on the theory that "a later turn's history
+ * still has it." It does not: `dispatchBatchPreview`'s return value is a
+ * `tool_result` the MODEL reads on the same turn, never a chat bubble a
+ * person sees or the client stores into `history` — only the model's OWN
+ * subsequent reply text does that, and `NO_TEXT_TABLE_NOTE` (below) already
+ * tells the model to keep that short and table-free, giving it every reason
+ * to leave a raw id tag out. A second real transcript proved it: the exact
+ * same failure recurred, unchanged. The asset id now survives the turn
+ * boundary a different way, one the model cannot forget to do right because
+ * it never has to do anything: `dispatchBatchPreview` records, SERVER-SIDE,
+ * which asset this exact actor most recently previewed (`LAST_PREVIEW`,
+ * below — the identical in-memory, per-isolate, TTL'd pattern `PENDING`
+ * already uses for approvals, with the identical accepted limitation: a
+ * cold isolate loses it, and that fails closed into the honest "please
+ * re-attach it" outcome, never a wrong file). `dispatch()`'s own
+ * catalog_draft_product_batch/customer_draft_customer_batch handling now
+ * prefers that server-side record over whatever asset_id the model's own
+ * call happens to carry — correct precisely because both tools' own
+ * descriptions already require preview to be called on the same asset
+ * immediately before draft, so "the actor's own most recent preview" and
+ * "the asset this draft call means" are the same fact by construction. This
+ * is the THIRD time this exact failure has been diagnosed (see
+ * precheckBatchDraft's own comment below for the first, narrower fix — the
+ * approval click itself needing no model memory of the id — which never
+ * covered the model successfully making that first call at all).
  *
  * REVISED AGAIN — "I shouldn't need to do that," the owner's own words,
  * looking at the approval card catalog_draft_product_batch used to stash
@@ -377,9 +394,10 @@ const PREVIEW_TOOL_DEFS = [
       "row that resolves cleanly IMMEDIATELY, with no approval step of its own, so this preview is the one " +
       "chance to catch a wrong column mapping before it becomes real, wrong products — show the person the " +
       "mapping, and wait for them to confirm it looks right before calling catalog_draft_product_batch. " +
-      "This reply's own text ends with a plain [asset id: ...] tag naming the exact id this call was given " +
-      "— when their reply confirms it, re-use that SAME id straight from this reply's own text; never " +
-      "guess one, never call assets.list to look it up again, that is what fails." +
+      "You do not need to remember or re-supply this exact asset id later: this app tracks, on its own, " +
+      "which file you most recently previewed for you, and catalog_draft_product_batch automatically uses " +
+      "that one when you call it — pass whatever asset_id you have at that point, even a guess, it is not " +
+      "what actually decides which file gets drafted." +
       NO_TEXT_TABLE_NOTE,
     /* A row that resolves cleanly still creates immediately, unaffected;
        a row with a real CLASH (a category name already numbered
@@ -423,10 +441,11 @@ const BATCH_TOOL_DEFS = [
       "to salvage — a rate cap, the actor's own role) is still reported as a plain skip with its real " +
       "reason, never blocking any OTHER row. Call catalog_preview_product_batch on the same asset FIRST and " +
       "wait for the person to confirm the mapping looks right before calling this one — a clean row is not " +
-      "undoable by declining, there is no button left to not click. When they do confirm, use the exact " +
-      "asset id from the [asset id: ...] tag at the end of that earlier preview reply, never a guess, never " +
-      "assets.list — this is the same deterministic logic the dedicated upload page uses, just reached from " +
-      "chat." +
+      "undoable by declining, there is no button left to not click. This app automatically drafts whichever " +
+      "file you most recently previewed, regardless of the asset_id argument given here, so there is no need " +
+      "to recall or re-derive the exact id from an earlier turn — pass whatever value is at hand and never " +
+      "call assets.list to try to relocate the file yourself. This is the same deterministic logic the " +
+      "dedicated upload page uses, just reached from chat." +
       NO_TEXT_TABLE_NOTE,
     input_schema: {
       type: "object",
@@ -438,12 +457,14 @@ const BATCH_TOOL_DEFS = [
     name: "customer_draft_customer_batch",
     description:
       "Mostly the same as catalog_draft_product_batch (call customer_preview_customer_batch on the same " +
-      "asset first, wait for the person to confirm the mapping, then use the exact id from that preview " +
-      "reply's own [asset id: ...] tag, never a guess, never assets.list) — but UNLIKE that one, this call " +
-      "itself still shows the person a real Approve button first (a bulk customer import is still its own " +
-      "T2 decision) and, even once they click it, a customer row is STILL never created immediately: every " +
-      "row that resolves cleanly mints its OWN separate T2 approval link instead, for a person to open and " +
-      "approve individually — customer records always go through that ordinary, per-row approval step." +
+      "asset first, wait for the person to confirm the mapping, then call this one — this app automatically " +
+      "drafts whichever file was most recently previewed, regardless of the asset_id argument given here, " +
+      "so pass whatever value is at hand and never call assets.list to try to relocate the file yourself) — " +
+      "but UNLIKE that one, this call itself still shows the person a real Approve button first (a bulk " +
+      "customer import is still its own T2 decision) and, even once they click it, a customer row is STILL " +
+      "never created immediately: every row that resolves cleanly mints its OWN separate T2 approval link " +
+      "instead, for a person to open and approve individually — customer records always go through that " +
+      "ordinary, per-row approval step." +
       NO_TEXT_TABLE_NOTE,
     input_schema: {
       type: "object",
@@ -599,20 +620,18 @@ async function precheckBatchDraft(name, args, { role, env }) {
    down"/"Full screen" (views.js) actually work. */
 const PREVIEW_TEXT_SAMPLE = 1;
 
-/* `assetId` is appended as a short, plain, easy-to-re-read tag — never
-   folded into the prose above it. This is THE mechanism the confirmation
-   flow now relies on (see the header comment above PREVIEW_TOOL_DEFS): the
-   person's own "yes" always arrives in a LATER turn, and `history` is
-   literally the client's own rendered chat-bubble text, nothing more — no
-   tool call, no tool result, no attachment note survives between turns.
-   There is no side channel to carry the asset id forward except the
-   preview's own visible reply text, so it goes here, plainly, rather than
-   relying on the model to recall it from memory (which failed, in a real
-   transcript) or re-derive it via assets.list (which also failed, in that
-   same transcript). */
-function formatBatchPreview(kind, preview, assetId) {
-  const tag = `\n\n[asset id: ${assetId}]`;
-  if (!preview.rowCount) return `That spreadsheet has no rows to preview.${tag}`;
+/* REVISED, THEN REVERTED — a round briefly appended a "[asset id: ...]" tag
+   here, on the theory that a later turn's own history would still carry it.
+   It does not: this function's return value is a tool_result the MODEL
+   reads on the turn it is produced, never a chat bubble the person sees or
+   the client stores into `history` — only the model's OWN subsequent reply
+   text does that, and nothing here controls what the model chooses to say.
+   The asset id now survives the turn boundary a different way entirely
+   (LAST_PREVIEW, a server-side record keyed by actor — see the header
+   comment above PREVIEW_TOOL_DEFS), so this function is back to describing
+   the preview and nothing else. */
+function formatBatchPreview(kind, preview) {
+  if (!preview.rowCount) return "That spreadsheet has no rows to preview.";
   const noun = kind === "customers" ? "customers" : "products";
   const singular = noun.slice(0, -1);
   const total = preview.sampleRows.length;
@@ -626,7 +645,7 @@ function formatBatchPreview(kind, preview, assetId) {
   if (!total) {
     return (
       `${preview.rowCount} row${preview.rowCount === 1 ? "" : "s"} detected, but none of them could be read as a ${singular} — ` +
-      `check that the column mapping (${preview.headers.join(", ")}) is what was intended.${tag}`
+      `check that the column mapping (${preview.headers.join(", ")}) is what was intended.`
     );
   }
   const shown = preview.sampleRows.slice(0, PREVIEW_TEXT_SAMPLE);
@@ -641,8 +660,7 @@ function formatBatchPreview(kind, preview, assetId) {
     `Columns found: ${preview.headers.join(", ")}.\n\n` +
     `For example, as one would read:\n${lines.join("\n")}\n\n` +
     `The complete, expandable table below has every ${singular} this file was interpreted as — have the person review it in full there ` +
-    "before drafting the rest, since a wrong mapping there will be wrong for every row." +
-    tag
+    "before drafting the rest, since a wrong mapping there will be wrong for every row."
   );
 }
 
@@ -671,7 +689,7 @@ function previewTable(kind, preview) {
   };
 }
 
-async function dispatchBatchPreview(name, args, { role, env }) {
+async function dispatchBatchPreview(name, args, { actor, role, env }) {
   if (!canDraftBatches(role)) {
     return { isError: true, text: "Your role cannot approve what this would create — a manager or owner has to do this one." };
   }
@@ -681,7 +699,14 @@ async function dispatchBatchPreview(name, args, { role, env }) {
   const kind = name === "catalog_preview_product_batch" ? "products" : "customers";
   try {
     const preview = previewBatch(asset.row.extracted_text, kind);
-    return { isError: false, text: formatBatchPreview(kind, preview, args.asset_id), table: previewTable(kind, preview) };
+    /* Recorded on a SUCCESSFUL preview only — a bad asset_id must never
+       overwrite a real, earlier preview this same actor could still go on
+       to confirm. See LAST_PREVIEW's own header comment for why this,
+       rather than a tag in this call's own reply text, is what actually
+       carries the id across the turn boundary to the confirming draft
+       call. */
+    recordLastPreview(actor, kind, args.asset_id);
+    return { isError: false, text: formatBatchPreview(kind, preview), table: previewTable(kind, preview) };
   } catch (err) {
     console.error(`ERROR agent: ${name} failed — ${err.message}`);
     return { isError: true, text: `Previewing "${asset.row.filename}" failed: ${err.message}` };
@@ -763,6 +788,46 @@ function stashPending(rec) {
   const id = crypto.randomUUID();
   PENDING.set(id, { ...rec, at: now });
   return id;
+}
+
+/*
+ * Which asset THIS ACTOR most recently previewed, for THIS kind of batch —
+ * so a later confirmation reply can find the right file without the model
+ * ever having to recall or repeat its id. See the "PREVIEW BEFORE DRAFT"
+ * header comment, above PREVIEW_TOOL_DEFS, for the two things this replaced
+ * (a chat turn's own stripped-down history; a tag in a tool result the
+ * model was never going to relay to the person on its own) and why both
+ * failed for the same underlying reason. The identical in-memory,
+ * per-isolate, TTL'd shape PENDING (above) already uses for approvals, with
+ * the identical accepted limitation: a cold isolate loses the record, and a
+ * later confirmation then falls back to whatever asset_id the model's own
+ * call happens to carry (usually none, or a guess) — the same honest
+ * "please re-attach it" outcome this always degraded to before, never a
+ * wrong file drafted by mistake. Keyed by actor+kind, not by any per-file
+ * or per-conversation id, on purpose: catalog_draft_product_batch's own
+ * description already requires preview to be called on the very same asset
+ * immediately before draft, so "the actor's own most recent preview of this
+ * kind" and "the asset this draft call means" are the same fact by
+ * construction, not a guess.
+ */
+const LAST_PREVIEW = new Map();
+const LAST_PREVIEW_TTL_MS = 15 * 60 * 1000;
+const LAST_PREVIEW_MAX = 256;
+
+function sweepLastPreview(now) {
+  for (const [key, rec] of LAST_PREVIEW) if (now - rec.at > LAST_PREVIEW_TTL_MS) LAST_PREVIEW.delete(key);
+  while (LAST_PREVIEW.size >= LAST_PREVIEW_MAX) LAST_PREVIEW.delete(LAST_PREVIEW.keys().next().value);
+}
+
+function recordLastPreview(actor, kind, assetId) {
+  const now = Date.now();
+  sweepLastPreview(now);
+  LAST_PREVIEW.set(`${actor}::${kind}`, { assetId, at: now });
+}
+
+function lastPreviewedAsset(actor, kind) {
+  sweepLastPreview(Date.now());
+  return LAST_PREVIEW.get(`${actor}::${kind}`)?.assetId ?? null;
 }
 
 /* ---- the Anthropic call ------------------------------------------------ */
@@ -866,12 +931,17 @@ export async function dispatch(name, args, { actor, role, env, allowed }) {
        no button is ever shown. A row-level CLASH still parks its OWN,
        genuinely necessary approval link either way (createRows, batch.js)
        — nothing about THAT changed, only the redundant outer gate on the
-       whole batch is gone. */
-    const pre = await precheckBatchDraft(name, args, { role, env });
+       whole batch is gone.
+       `resolvedArgs` prefers LAST_PREVIEW's own record of what this actor
+       most recently previewed over whatever asset_id the model's own call
+       happens to carry — see LAST_PREVIEW's header comment for why that is
+       the reliable one and the model's own copy is not. */
+    const resolvedArgs = { ...args, asset_id: lastPreviewedAsset(actor, "products") ?? args?.asset_id };
+    const pre = await precheckBatchDraft(name, resolvedArgs, { role, env });
     if (pre.isError || pre.tooMany) {
       return { kind: "result", table: null, block: { type: "tool_result", tool_use_id: null, content: pre.text, is_error: pre.isError } };
     }
-    const { isError, text, table } = await dispatchBatchDraft(name, args, { actor, role, env });
+    const { isError, text, table } = await dispatchBatchDraft(name, resolvedArgs, { actor, role, env });
     return { kind: "result", table, block: { type: "tool_result", tool_use_id: null, content: text, is_error: isError } };
   }
   if (name === "customer_draft_customer_batch") {
@@ -881,20 +951,24 @@ export async function dispatch(name, args, { actor, role, env, allowed }) {
        regardless (createRows, batch.js's own customer path) — so the outer
        gate here is not a redundant SECOND click on the same yes the way the
        product one was; it is still the only place a bulk customer import is
-       ever actually approved at all. Left exactly as it was. */
-    const pre = await precheckBatchDraft(name, args, { role, env });
+       ever actually approved at all. Left exactly as it was; only the same
+       LAST_PREVIEW preference for the real asset_id is new, matching the
+       product path immediately above. */
+    const resolvedArgs = { ...args, asset_id: lastPreviewedAsset(actor, "customers") ?? args?.asset_id };
+    const pre = await precheckBatchDraft(name, resolvedArgs, { role, env });
     if (pre.isError || pre.tooMany) {
       return { kind: "result", table: null, block: { type: "tool_result", tool_use_id: null, content: pre.text, is_error: pre.isError } };
     }
     return {
       kind: "approval",
       out: { tier: "T2" },
+      args: resolvedArgs,
       effect: `Ingest "${pre.filename}" as customers — mints a review link for every row that resolves cleanly, skips only a genuine problem.`,
       stores: ["customer_mirror"],
     };
   }
   if (name === "catalog_preview_product_batch" || name === "customer_preview_customer_batch") {
-    const { isError, text, table } = await dispatchBatchPreview(name, args, { role, env });
+    const { isError, text, table } = await dispatchBatchPreview(name, args, { actor, role, env });
     return { kind: "result", table, block: { type: "tool_result", tool_use_id: null, content: text, is_error: isError } };
   }
 
@@ -972,11 +1046,10 @@ function attachmentNote(attachment, role) {
       "list of products, or customer_preview_customer_batch if it is a list of customers, with this asset id " +
       "— ask the person which if it is not already obvious from what they said. Show them the column mapping " +
       "it returns, and wait for them to confirm it looks right before calling catalog_draft_product_batch / " +
-      "customer_draft_customer_batch. This asset id only exists in THIS turn's context — but that preview " +
-      "reply's own text ends with a plain [asset id: ...] tag, so when the person's confirmation arrives, " +
-      "in whatever later turn, read the real id back off that tag rather than from memory. Never guess an " +
-      "id, and never call assets.list to try to relocate the file — reading the tag is the only reliable way " +
-      "to carry it forward.]"
+      "customer_draft_customer_batch. When their confirmation arrives, in whatever later turn, you do not " +
+      "need to recall or re-derive this asset id at all: this app automatically drafts whichever file was " +
+      "most recently previewed, so pass whatever asset_id value is at hand and never call assets.list to try " +
+      "to relocate the file yourself.]"
     );
   }
   return (
@@ -1153,9 +1226,16 @@ export async function agentTurn({ q, identity, env, attachment = null, history =
            tool calls in the same assistant message, which are not run.
            `outcome.effect`/`outcome.stores`, when dispatch() set them (a
            META-tool like a batch draft, not a real TOOLS[] entry), win over
-           the ordinary TOOLS-derived description/stores below. */
+           the ordinary TOOLS-derived description/stores below. `outcome.args`,
+           when dispatch() set it (customer_draft_customer_batch's own
+           LAST_PREVIEW-resolved asset_id, never the model's raw copy — see
+           LAST_PREVIEW's header comment), wins over the model's own `use.input`
+           too, so the record a person actually clicks Approve on — and the
+           real draft that record later runs — both use the SAME, correct
+           asset id regardless of what the model itself supplied. */
         const tool = TOOLS[name];
-        const id = stashPending({ actor, role, tool: name, args: use.input });
+        const args = outcome.args || use.input;
+        const id = stashPending({ actor, role, tool: name, args });
         return {
           mode: "model",
           actor,
@@ -1167,8 +1247,8 @@ export async function agentTurn({ q, identity, env, attachment = null, history =
             id,
             tool: name,
             tier: (tool && tool.tier) || outcome.out.tier,
-            args: use.input,
-            effect: outcome.effect || describeTool(tool, name, use.input),
+            args,
+            effect: outcome.effect || describeTool(tool, name, args),
             stores: outcome.stores || (tool && tool.stores) || [],
           },
         };
