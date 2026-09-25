@@ -1333,6 +1333,38 @@ function entry(kind, text) {
   return p;
 }
 
+/* "I don't like how the agent goes silent without any progress reports as it
+   creates the new products" — the owner's own words. Both /ops/agent (a
+   product batch, drafted immediately) and /ops/agent/approve (a customer
+   batch's own approval click) run the WHOLE batch inside one blocking fetch,
+   several real Square writes per row, before anything comes back at all.
+   GET /agent/batch-progress (index.js) is a separate, cheap route this polls
+   in parallel while that one real request is still in flight, updating the
+   given bubble in place. Returns a stopper; the caller always calls it once
+   the real fetch settles, success or failure alike, so a late tick never
+   overwrites a bubble that has already moved on to its real, final text. */
+function pollBatchProgress(line) {
+  let stopped = false;
+  const timer = setInterval(async () => {
+    if (stopped) return;
+    try {
+      const res = await fetch("/ops/agent/batch-progress");
+      if (!res.ok || stopped) return;
+      const p = await res.json();
+      if (stopped || !p || !p.total) return;
+      line.textContent =
+        "Creating " + (p.kind || "rows") + "… " + p.done + " of " + p.total + (p.title ? " (" + p.title + ")" : "");
+    } catch {
+      /* A missed poll is not worth surfacing — the next tick, or the real
+         response this is only a preview of, will catch up regardless. */
+    }
+  }, 1200);
+  return () => {
+    stopped = true;
+    clearInterval(timer);
+  };
+}
+
 /* One builder for a preview/draft result table — column headings on the
    left, values on the right for a preview; row/title/status/detail for a
    draft result. Lives in the same scrolling log as the message bubbles
@@ -1417,6 +1449,7 @@ function card(p) {
   el.querySelector("[data-a=ok]").addEventListener("click", async () => {
     buttons.forEach((b) => (b.disabled = true));
     const line = entry("tool", "Approving " + p.tool + "…");
+    const stopPolling = pollBatchProgress(line);
     try {
       const res = await fetch("/ops/agent/approve", {
         method: "POST",
@@ -1424,6 +1457,7 @@ function card(p) {
         body: JSON.stringify({ id: p.id }),
       });
       const data = await res.json();
+      stopPolling();
       gate.textContent = "";
       line.textContent = data.reply || data.error || ("Approve failed: " + res.status);
       /* A batch draft's own approval carries its full per-row results table
@@ -1432,6 +1466,7 @@ function card(p) {
          own click instead of the model's next turn. */
       if (data.table) { tableCard(data.table); }
     } catch (err) {
+      stopPolling();
       console.error("approve request failed", err);
       buttons.forEach((b) => (b.disabled = false));
       line.textContent = "Approve failed: " + err.message;
@@ -1576,6 +1611,14 @@ document.getElementById("chat").addEventListener("submit", async (e) => {
   entry("", bubbleText);
   box.value = "";
   clearAttachments();
+  /* "I don't like how the agent goes silent without any progress reports as
+     it creates the new products" — the owner's own words. A batch draft runs
+     entirely inside this one fetch, so this transient bubble is the only
+     thing on the page while it does; pollBatchProgress (above) keeps it
+     current, and it is removed the moment the real reply is ready to render
+     in its place, same as it never existed for any ordinary, fast turn. */
+  const line = entry("tool", "Working…");
+  const stopPolling = pollBatchProgress(line);
   try {
     let res;
     if (file) {
@@ -1592,6 +1635,8 @@ document.getElementById("chat").addEventListener("submit", async (e) => {
       });
     }
     const data = await res.json();
+    stopPolling();
+    line.remove();
     /* Table right under the tool step that produced it — "insert table
        right under 'ran catalog_preview_product_batch' text," the owner's
        own words — not after the agent's own text reply, which used to
@@ -1606,6 +1651,8 @@ document.getElementById("chat").addEventListener("submit", async (e) => {
        declaration above for why /ops/agent needs it resent every turn. */
     history.push({ role: "user", text: bubbleText }, { role: "assistant", text: replyText });
   } catch (err) {
+    stopPolling();
+    line.remove();
     console.error("agent request failed", err);
     entry("agent", "Request failed: " + err.message);
   }

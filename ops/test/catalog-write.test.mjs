@@ -76,7 +76,7 @@ import { normaliseCatalog } from "../../shared/commerce/square/catalog.js";
 register("../../shared/test/text-modules.mjs", import.meta.url);
 const { approvePending, parkForApproval } = await import("../src/approvals.js");
 const { draftProductBatch } = await import("../src/batch.js");
-const { dispatch, agentTurn, approve, NO_TEXT_TABLE_NOTE } = await import("../src/agent.js");
+const { dispatch, agentTurn, approve, NO_TEXT_TABLE_NOTE, readBatchProgress } = await import("../src/agent.js");
 const http = await import("node:http");
 
 /*
@@ -6956,6 +6956,69 @@ check("test_PRD_P0_152_style_number_grouping__a_batch_import_is_not_starved_by_t
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
   assert.equal(result.ready.length, 0, `expected no clashes, got: ${JSON.stringify(result.ready)}`);
   assert.equal(result.created.length, 1, "created despite this actor's shared rate budget already being fully spent");
+});
+
+check("test_PRD_P0_152_style_number_grouping__onprogress_fires_once_per_row_as_each_one_is_actually_created", async () => {
+  /* "I don't like how the agent goes silent without any progress reports as
+     it creates the new products" -- the owner's own words. draftProductBatch
+     itself has no idea a person is watching a chat window; onProgress is the
+     one seam agent.js's own dispatchBatchDraft (recordBatchProgress) uses to
+     relay what is happening while this one call is still running. Two rows,
+     two distinct new top-level categories, so each is its OWN pass through
+     createRows' own per-row loop (batch.js) -- proving the callback fires
+     per PRODUCT actually created, not once for the whole batch. */
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const csv =
+    "Style #,Category,Subcategory,Description,Price\n" +
+    "70-01-001,Brand New Hats,Brand New Sun Hats,A hat,45.00\n" +
+    "71-01-001,Brand New Belts,Brand New Leather Belts,A belt,35.00\n";
+
+  const seen = [];
+  const onProgress = (p) => seen.push(p);
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager", onProgress });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.created.length, 2, `expected both rows created, got: ${JSON.stringify(result)}`);
+  assert.equal(seen.length, 2, `expected one progress update per row, got: ${JSON.stringify(seen)}`);
+  assert.deepEqual(seen.map((p) => p.done), [1, 2]);
+  assert.deepEqual(seen.map((p) => p.total), [2, 2]);
+  assert.deepEqual(seen.map((p) => p.status), ["created", "created"]);
+  assert.equal(seen[0].row, 2);
+  assert.equal(seen[1].row, 3);
+});
+
+check("test_PRD_P0_152_style_number_grouping__batch_progress_is_cleared_once_the_real_chat_dispatch_finishes", async () => {
+  /* dispatchBatchDraft (agent.js) is what actually wires onProgress into
+     recordBatchProgress -- this drives the real dispatch() path a chat
+     turn takes (draftProductBatchViaChat, above), rather than calling
+     draftProductBatch directly, so a mistake in that wiring (the wrong
+     actor key, a callback never passed through, a missing `finally`) would
+     show up here even though the previous test already proves onProgress
+     itself fires correctly in isolation. Asserting AFTER dispatch() has
+     already resolved: a real client would never poll the instant its own
+     main request lands, so all this can prove is that nothing is left
+     behind for a later, unrelated poll to read stale -- the "6 of 16"
+     that would otherwise never go away once this actor's next ordinary
+     chat turn (or someone else's batch) polls it. */
+  const f = await fixture();
+  const csv = "Style #,Category,Subcategory,Description,Price\n80-01-001,Brand New Scarves,Brand New Silk Scarves,A scarf,55.00\n";
+  const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
+
+  assert.equal(readBatchProgress("mara@vemians.com"), null, "nothing should be in flight before this test's own call");
+  const outcome = await draftProductBatchViaChat(
+    "catalog_draft_product_batch",
+    { asset_id: "ast_1" },
+    { env, square: f.square },
+  );
+  assert.equal(outcome.ok, true);
+  assert.match(outcome.reply, /1 products created/);
+  assert.equal(readBatchProgress("mara@vemians.com"), null, "the finished batch must not leave a stale progress record behind");
 });
 
 check("test_PRD_P0_152_style_number_grouping__a_named_category_with_no_subcategory_given_is_dropped_too", async () => {

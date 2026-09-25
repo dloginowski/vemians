@@ -549,12 +549,18 @@ async function dispatchBatchDraft(name, args, { actor, role, env }) {
 
   const draft = name === "catalog_draft_product_batch" ? draftProductBatch : draftCustomerBatch;
   const kind = name === "catalog_draft_product_batch" ? "products" : "customers";
+  const onProgress = (progress) => recordBatchProgress(actor, { ...progress, kind });
   try {
-    const result = await draft(env, { text: asset.row.extracted_text, actor, role });
+    const result = await draft(env, { text: asset.row.extracted_text, actor, role, onProgress });
     return { isError: false, text: formatBatchDraft(kind, result), table: batchDraftTable(kind, result) };
   } catch (err) {
     console.error(`ERROR agent: ${name} failed — ${err.message}`);
     return { isError: true, text: `Drafting from "${asset.row.filename}" failed: ${err.message}` };
+  } finally {
+    /* Whether it finished or threw, there is nothing left in flight for the
+       client to poll for — a record left behind here would show a stale
+       "6 of 16" forever, to a client that has already moved on. */
+    clearBatchProgress(actor);
   }
 }
 
@@ -828,6 +834,50 @@ function recordLastPreview(actor, kind, assetId) {
 function lastPreviewedAsset(actor, kind) {
   sweepLastPreview(Date.now());
   return LAST_PREVIEW.get(`${actor}::${kind}`)?.assetId ?? null;
+}
+
+/*
+ * Live progress for a batch draft actually running right now — "I don't like
+ * how the agent goes silent without any progress reports as it creates the
+ * new products," the owner's own words. draftProductBatch/draftCustomerBatch
+ * (batch.js) already run every row to completion, several real Square writes
+ * each, before dispatchBatchDraft (below) returns anything at all — nothing
+ * reaches the chat until that ONE call the browser is already blocked on
+ * finally resolves. This is a third record in the identical in-memory,
+ * per-isolate, TTL'd shape PENDING/LAST_PREVIEW (above) already use, keyed by
+ * actor alone like LAST_PREVIEW: the one batch an actor could plausibly have
+ * running right now is the one this record means, by the same construction.
+ * index.js's own GET /agent/batch-progress is a separate, cheap route the
+ * client polls while the one real POST is still in flight; the same "a cold
+ * isolate loses the record" limitation PENDING already accepts degrades this
+ * to simply no progress shown, never a wrong one.
+ */
+const BATCH_PROGRESS = new Map();
+const BATCH_PROGRESS_TTL_MS = 15 * 60 * 1000;
+const BATCH_PROGRESS_MAX = 256;
+
+function sweepBatchProgress(now) {
+  for (const [key, rec] of BATCH_PROGRESS) if (now - rec.at > BATCH_PROGRESS_TTL_MS) BATCH_PROGRESS.delete(key);
+  while (BATCH_PROGRESS.size >= BATCH_PROGRESS_MAX) BATCH_PROGRESS.delete(BATCH_PROGRESS.keys().next().value);
+}
+
+function recordBatchProgress(actor, progress) {
+  const now = Date.now();
+  sweepBatchProgress(now);
+  BATCH_PROGRESS.set(actor, { ...progress, at: now });
+}
+
+function clearBatchProgress(actor) {
+  BATCH_PROGRESS.delete(actor);
+}
+
+/* index.js's own GET /agent/batch-progress reads this back for the polling
+   client — null means "nothing in flight for this actor right now," which is
+   the ordinary case for almost every poll: most turns are not a batch draft
+   at all, and a batch that already finished clears its own record. */
+export function readBatchProgress(actor) {
+  sweepBatchProgress(Date.now());
+  return BATCH_PROGRESS.get(actor) ?? null;
 }
 
 /* ---- the Anthropic call ------------------------------------------------ */

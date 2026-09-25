@@ -27,7 +27,7 @@
 
 import { notFoundPage } from "../../shared/view/html.js";
 import { explainRole, readAccessIdentity } from "./access.js";
-import { agentTurn, approve, roleFor, searchIntent } from "./agent.js";
+import { agentTurn, approve, roleFor, searchIntent, readBatchProgress } from "./agent.js";
 import { approvePending, peekPending } from "./approvals.js";
 import { CAPS } from "./tools/caps.js";
 import { roleAtLeast } from "./tools/roles.js";
@@ -124,7 +124,7 @@ function servesOps(hostname, env) {
 
 /* Both agent endpoints answer JSON, so a refusal on them must be JSON too —
    the composer's fetch() has no use for a login page. */
-const AGENT_PATHS = new Set(["/agent", "/agent/approve", "/media/upload"]);
+const AGENT_PATHS = new Set(["/agent", "/agent/approve", "/agent/batch-progress", "/media/upload"]);
 
 /*
  * The other half of catalog.upload_image.
@@ -1722,6 +1722,23 @@ async function ops(request, env, path) {
 
     const turn = await agentTurn({ q, identity, env, attachment, history });
     return json({ verified: identity.verified, ...turn });
+  }
+
+  /*
+   * GET /agent/batch-progress — "I don't like how the agent goes silent
+   * without any progress reports as it creates the new products," the
+   * owner's own words. The browser polls this, cheaply, while the ONE real
+   * /agent (or /agent/approve, for a customer batch) POST that actually
+   * runs the batch is still in flight — see agent.js's own BATCH_PROGRESS
+   * header comment for why a separate route is what a single blocking
+   * request-response has room for. Never gated beyond "a real identity":
+   * it hands back only this actor's own in-flight progress, keyed by their
+   * own email, nothing any other actor's record could ever leak into.
+   */
+  if (path === "/agent/batch-progress") {
+    if (request.method !== "GET") return json({ error: "GET only" }, 405);
+    const progress = readBatchProgress(identity.email);
+    return json(progress ?? { done: 0, total: 0 });
   }
 
   if (path === "/agent/approve") {
