@@ -7609,6 +7609,39 @@ that does not trace to one of these is a process failure (see §12).
     reference to it rather than backfilling the missing migration — the fix and the incident cancel out in
     the same change.
 
+    **REVISED — `catalog.assign_inhouse_vendor` now guarantees "In-house" exists even with nothing to
+    reassign.** A real transcript, after running it on a shop where every product already had a real
+    named vendor: "we should have In-house [in the vendor dropdown], right?" The tool's own reassignment
+    loop is the ONLY place that ever called `vendorRefOrInHouse` — a shop with zero vendor-less products
+    left the loop empty and skipped it entirely, so "In-house" was never created or mirrored, and the
+    vendor picker (built from a plain `listMirrorVendors()` read, no special-casing) never had it to
+    show. `assignInHouseVendorToVendorlessProducts` (catalog-writer.js) now calls `vendorRefOrInHouse(null)`
+    and syncs once, unconditionally, whenever the loop finds nothing to reassign — idempotent, since
+    resolving an existing vendor is the whole point of that function either way. `check()`'s own
+    "nothing to backfill" summary now says so plainly, so an approver knows the call still does something.
+
+88. **`Test-PRD-P0-155-strip_legacy_cost_fields`** — The same conversation as P0-154 above, immediately
+    following the "In-house" fix: "I also want the custom field gone from all the items that we've
+    created, the cost, that cost and the margin or whatever." Every product created before P0-152's own
+    real cost mechanism existed, or before margin was dropped outright rather than preserved, can still
+    carry a leftover `custom_fields` entry from a spreadsheet import — `catalog.create_product`/`catalog.
+    set_square_attributes` moving cost onto `vendor_information` going forward never reached back to fix
+    what a PAST import already wrote into a product's own `custom_fields`.
+
+    **A one-time cleanup, never a Square call.** `custom_fields` has no Square correlate at all
+    (`catalog.set_custom_fields`'s own header comment) — Square is never involved in setting it and is
+    never involved in un-setting it either, so this new T2, manager-only tool declares no `square`
+    resource, the same structural shape `catalog.set_custom_fields` itself already has. `LEGACY_COST_
+    FIELD_KEYS`/`LEGACY_MARGIN_FIELD_KEYS` (catalog-writer.js) are the exact same column spellings
+    batch.js's own spreadsheet importer already recognizes as cost or margin — moved there as the one
+    canonical list both files read, rather than a second copy in this tool that could drift out of sync
+    with the importer's own. Every product is read once (`listAllProducts`), any of those keys present
+    on it are removed, and only products actually carrying one are written back — an unrelated custom
+    field (a fabric note, a reorder date) on the SAME product is left completely untouched, and a
+    product with none of the legacy keys is not touched at all. Idempotent, and deliberately narrow: it
+    cannot tell a leftover import artifact from a genuinely custom field someone actually named "cost" on
+    purpose, so its own description says to ask first if that might be the case, rather than guessing.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
