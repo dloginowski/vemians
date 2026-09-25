@@ -296,7 +296,7 @@ check("test_PRD_P0_71_items_tab__the_grid_is_two_columns_on_a_phone_and_fills_in
   assert.match(body, /@media \(min-width: 480px\)\s*\{\s*\.items-grid\s*\{[^}]*grid-template-columns:\s*repeat\(auto-fill, minmax\(240px, 1fr\)\)/s);
 });
 
-check("test_PRD_P0_104_items_grid_scrolls_in_place__the_grid_has_its_own_height_cap_and_scrollbar", async () => {
+check("test_PRD_P0_104_items_grid_scrolls_in_place__the_grid_has_its_own_scrollbar_sized_to_the_real_space_left", async () => {
   /* Caught live: typing into the search box re-filters tiles, changing
      the grid's own content height on every keystroke — with no height
      cap of its own, that moved the WHOLE page, losing sight of the grid
@@ -304,13 +304,29 @@ check("test_PRD_P0_104_items_grid_scrolls_in_place__the_grid_has_its_own_height_
      list is its own frame so that it scales to fit content, and it has
      its own scroll bar instead of scrolling the entire page." Same
      technique .log (the chat history) already uses for the identical
-     reason. */
+     reason.
+     REVISED — the height cap used to be a flat max-height: min(72vh,
+     900px), a guess with no relationship to the real space actually
+     left over. A real transcript: "this is not a question of not
+     enough items. There's plenty of items. You're cropping the height
+     of the bar unnaturally. This is an issue of the auto-sizing of the
+     contents." .ops.items-page now makes the whole page a flex column
+     instead — .items-grid's own flex: 1 1 auto (plus min-height: 0, or
+     a flex child with overflow will not shrink below its own content)
+     takes up exactly whatever space is left after the status line
+     above it, no cap to guess at, still scrolling in place rather than
+     moving the page underneath it. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const res = await get("/items", STAFF, env(mirror));
   const body = await res.text();
-  assert.match(body, /\.items-grid\s*\{[^}]*max-height:\s*min\(72vh, 900px\)/s);
+  assert.match(body, /<main class="ops items-page">/, "the flex-column sizing below is scoped to this page specifically");
+  assert.match(body, /\.ops\.items-page\s*\{[^}]*display:\s*flex/s);
+  assert.match(body, /\.ops\.items-page\s*\{[^}]*flex-direction:\s*column/s);
+  assert.match(body, /\.ops\.items-page \.items-grid\s*\{[^}]*flex:\s*1 1 auto/s);
+  assert.match(body, /\.ops\.items-page \.items-grid\s*\{[^}]*min-height:\s*0/s);
   assert.match(body, /\.items-grid\s*\{[^}]*overflow-y:\s*auto/s);
+  assert.doesNotMatch(body, /\.items-grid\s*\{[^}]*max-height/s, "no more flat vh guess capping the grid's own height");
 });
 
 check("test_PRD_P0_71_items_tab__a_tile_expands_to_the_full_screen_instead_of_cramming_data_into_a_cell", async () => {

@@ -1888,15 +1888,42 @@ ${INPUT_BAR_CSS}
    into the search box re-filters tiles, changing the grid's own content
    height on every keystroke, which on a page with no height cap of its
    own made the WHOLE page scroll — losing sight of the grid entirely on
-   a short screen. max-height + overflow-y: auto bounds the grid to
-   roughly one screen's worth and scrolls internally past that, so
+   a short screen. A HEIGHT CAP + overflow-y: auto bounds the grid so
    filtering, and focusing the search box itself, never move the page
-   underneath it. */
+   underneath it — that part still holds.
+   REVISED — the cap itself is no longer a guessed vh fraction. A real
+   transcript: "this is not a question of not enough items. There's
+   plenty of items. You're cropping the height of the bar unnaturally.
+   This is an issue of the auto-sizing of the contents."
+   "max-height: min(72vh, 900px)" was a flat guess at "roughly one
+   screen's worth," with no actual relationship to the real space left over once the
+   status line above it and the fixed .input-bar below it are accounted
+   for — on a device where that guess undershoots the real remaining
+   space, the grid stops early and leaves a dead gap above the search
+   bar; on one where it overshoots, the grid would clip a partial row
+   instead of showing all it could. ".ops.items-page" (below) turns the
+   WHOLE page into a flex column instead: the grid's own "flex: 1 1 auto"
+   there makes it take up exactly whatever space is actually left, on any
+   device, with no cap to guess at all. */
 .items-grid {
   display: grid; grid-template-columns: repeat(2, 1fr);
   gap: 10px; align-items: start;
-  max-height: min(72vh, 900px); overflow-y: auto;
+  overflow-y: auto;
 }
+/* The flex column that makes .items-grid's own sizing above real: .greet
+   (the status line) takes exactly its own content height, .items-grid
+   takes exactly what's left, and .input-bar stays position: fixed,
+   overlaid on top rather than a flex child, unaffected either way.
+   Scoped to .items-page specifically — .ops itself is shared by every
+   ops page (Agent, Dashboard, Website), and turning ALL of them into a
+   fixed-height flex column was never asked for and was not this fix's
+   to make. height: 100dvh with the same 100vh fallback SHELL_CSS's own
+   .shell already uses, for the identical reason: 100vh alone is measured
+   against the largest possible mobile viewport, not the one actually
+   visible. */
+.ops.items-page { display: flex; flex-direction: column; height: 100vh; height: 100dvh; box-sizing: border-box; }
+.ops.items-page .greet { flex: 0 0 auto; }
+.ops.items-page .items-grid { flex: 1 1 auto; min-height: 0; }
 @media (min-width: 480px) {
   .items-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
 }
@@ -3365,7 +3392,7 @@ export function itemsPage({ role }, products, allCategories = [], allVendors = [
        already and after a screenshot showed a short catalog leaving it
        stranded mid-screen: "make them the same looking... there's not
        enough content to make them on the bottom." */
-    `<main class="ops">
+    `<main class="ops items-page">
   <section class="greet">
     <h1><span id="category-label">All categories</span>
       <select id="item-status-filter" class="dash-status-select">
