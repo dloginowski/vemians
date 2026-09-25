@@ -4536,6 +4536,16 @@ document.body.addEventListener("click", (e) => {
       ? ":scope > .admin-category-add-form"
       : ":scope > .admin-section-body > .admin-category-add-form";
     const rows = [...(container?.querySelectorAll(selector) ?? [])];
+    /* "You shouldn't let me add a new subcategory if I have a new blank
+       one already... once I enter some words in it, then you start
+       adding more" — the owner's own words. A row that is already open
+       with nothing typed into its own name yet is not something to pile
+       another blank one on top of; "+" just returns focus to it instead,
+       the same as clicking it a first time would have. */
+    if (!rows.find((f) => f.hidden) && !rows[rows.length - 1]?.querySelector(".admin-category-new-name")?.value.trim()) {
+      rows[rows.length - 1]?.querySelector(".admin-category-new-name")?.focus();
+      return;
+    }
     /* "If I add a subcategory, right, one after the other, it's just
        toggling up and down... it should be adding another one so I can
        add multiples" — the owner's own words. The very first click still
@@ -4559,22 +4569,30 @@ document.body.addEventListener("click", (e) => {
     const idInput = form.querySelector(".admin-category-new-numeric-id");
     if (idInput && !idInput.value) {
       const siblings = addToggle.dataset.parentId
-        ? addToggle.closest(".admin-category-node")?.querySelectorAll(":scope > .admin-category-children > .admin-category-node") ?? []
+        ? document.querySelectorAll(".admin-category-children .admin-category-node")
         : addToggle.closest(".admin-section")?.querySelectorAll(":scope > .admin-section-body > .admin-category-node") ?? [];
-      /* "Each new added category must have a new ID" — the owner's own
-         words. nextNumericId only knows about already-SAVED siblings, so
-         a second (or third) row queued up in the same sitting would
-         otherwise suggest the exact same next number as the row already
-         open beside it. Bumping past whatever every OTHER still-open
-         pending row in this same list already carries (typed by hand or
-         auto-filled a moment ago) keeps every queued row distinct from
-         the start, not just once Save catches the clash. */
-      let suggested = Number(nextNumericId(siblings));
-      const taken = rows
-        .filter((f) => f !== form)
-        .map((f) => Number(f.querySelector(".admin-category-new-numeric-id")?.value.trim()))
+      /* "You have to increment always. You can't just have the same ID
+         repeating" — the owner's own words. A SUBCATEGORY's own numeric_id
+         pool is tree-wide regardless of parent (P0-138's own two-pool
+         rule — every subcategory anywhere shares ONE pool, only a
+         top-level category's own pool is siblings-only), so a row queued
+         up under one category must still bump past a numeric_id already
+         sitting in a still-open pending row under a COMPLETELY DIFFERENT
+         category, not just one under the very same parent — matching the
+         siblings variable above, widened the exact same way for the
+         exact same reason. */
+      const pendingIds = [
+        ...document.querySelectorAll(
+          addToggle.dataset.parentId
+            ? ".admin-category-node > .admin-category-add-form:not([hidden]) .admin-category-new-numeric-id"
+            : ".admin-section-body > .admin-category-add-form:not([hidden]) .admin-category-new-numeric-id",
+        ),
+      ]
+        .filter((el) => el !== idInput)
+        .map((el) => Number(el.value.trim()))
         .filter((n) => Number.isInteger(n));
-      while (taken.includes(suggested)) suggested += 1;
+      let suggested = Number(nextNumericId(siblings));
+      while (pendingIds.includes(suggested)) suggested += 1;
       idInput.value = String(suggested).padStart(2, "0");
     }
     form.querySelector(".admin-category-new-name")?.focus();

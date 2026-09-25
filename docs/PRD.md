@@ -5854,13 +5854,36 @@ that does not trace to one of these is a process failure (see §12).
     (`nextNumericId`) only ever looks at already-SAVED siblings, so every row queued up in the same
     sitting suggested the identical next number — correct for the FIRST one, wrong for every one after
     it, since nothing about a still-open, unsaved row was ever fed into that calculation. Revealing or
-    cloning a row now also reads every OTHER pending row already open in the same list (by hand-typed
-    or previously auto-filled `numeric_id`) and keeps bumping the suggestion past any of them it
-    collides with, so three subcategories queued up in one sitting land on three consecutive numbers
-    from the start, not the same one three times over. Two rows that still end up sharing an ID despite
-    this (one was auto-filled before the other existed to bump against, then hand-edited back to match)
-    are refused at Save, the same "you cannot save that" duplicate-ID rule this tree already enforces
-    everywhere else — not a new failure mode, just no longer the common case.
+    cloning a row now also reads every OTHER pending row already open and keeps bumping the suggestion
+    past any of them it collides with, so several subcategories queued up in one sitting land on
+    consecutive numbers from the start, not the same one repeated.
+
+    **REVISED YET AGAIN: that "every OTHER pending row" pool is now TREE-WIDE for a subcategory, not
+    scoped to the one parent being clicked.** The first pass at this fix only compared a new row against
+    OTHER pending rows under the exact same parent, which still repeated an ID whenever the owner opened
+    "add subcategory" under two DIFFERENT categories in the same sitting — "you have to increment
+    always. You can't just have the same ID repeating," reported again once that gap surfaced. A
+    subcategory's own numeric_id pool is tree-wide regardless of parent (P0-138's own two-pool rule,
+    above — every subcategory anywhere shares ONE pool, only a top-level category's own pool is
+    siblings-only) — the auto-fill's `siblings` (already-saved) and its new pending-row check both now
+    read every `.admin-category-add-form` on the WHOLE page for a subcategory add (`document.
+    querySelectorAll(".admin-category-children .admin-category-node")` for saved ones, every still-open
+    `.admin-category-node > .admin-category-add-form` for pending ones), the identical tree-wide scope
+    `numericIdPoolFor` already established for revalidating already-saved rows. A top-level category's
+    own pool stays siblings-only, since that was always the correct, narrower pool for it. Two rows that
+    still end up sharing an ID despite this (one was auto-filled before the other existed to bump
+    against, then hand-edited back to match) are refused at Save, the same "you cannot save that"
+    duplicate-ID rule this tree already enforces everywhere else — not a new failure mode, just no
+    longer the common case.
+
+    **A second thing raised in the same report: "you shouldn't let me add a new subcategory if I have a
+    new blank one already... once I enter some words in it, then you start adding more."** Queuing
+    unlimited rows on every click, even before this one had a name in it, meant repeated impatient
+    clicking (or a genuine double click) piled up several identical blank rows with nothing to tell them
+    apart. A click on "+" while the row already open has nothing typed into its own name yet no longer
+    clones another one — it just returns focus to that same blank row, exactly as if this were the very
+    first click. Only once a name is actually typed into the row already open does the next click clone
+    a fresh one.
 
     **Not a new requirement, already covered: a freshly created subcategory inherits its parent's
     option sets automatically, whether it is the only one queued up or one of several.** The owner's
