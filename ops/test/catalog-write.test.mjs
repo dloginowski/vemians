@@ -76,7 +76,7 @@ import { normaliseCatalog } from "../../shared/commerce/square/catalog.js";
 register("../../shared/test/text-modules.mjs", import.meta.url);
 const { approvePending, parkForApproval } = await import("../src/approvals.js");
 const { draftProductBatch } = await import("../src/batch.js");
-const { dispatch, agentTurn, approve, NO_TEXT_TABLE_NOTE, readBatchProgress } = await import("../src/agent.js");
+const { dispatch, agentTurn, approve, NO_TEXT_TABLE_NOTE, readBatchProgress, submitBatchPlanRow } = await import("../src/agent.js");
 const http = await import("node:http");
 
 /*
@@ -166,19 +166,58 @@ async function draftBatchViaChatButton(name, args, { actor = "mara@vemians.com",
  * REVISED — "I shouldn't need to do that," the owner's own words, looking
  * at the approval card catalog_draft_product_batch used to show even after
  * the person had already confirmed the preview mapping in chat. That outer
- * click is gone: dispatch() now runs the real draft immediately and hands
- * its own result straight back as a plain tool result — no PENDING record,
- * no approve() call, no separate model turn needed to relay it either, so
- * this drives dispatch() directly rather than the full scripted-model round
- * trip draftBatchViaChatButton (above) still needs for the approval path.
+ * click is gone.
+ *
+ * REVISED AGAIN — "have the agent check everything and fill everything out
+ * and then just do a straight submit... with the progress bar," the
+ * owner's own words, and the fix for a real "too many subrequests" report:
+ * dispatch() now plans the batch (a `checklist` outcome) rather than
+ * creating everything itself, so this drives the REAL two-step path a
+ * browser now takes — dispatch() for the plan, then one
+ * submitBatchPlanRow call per row it offers back, exactly as the client's
+ * own submit loop does (views.js) — and folds the per-row results back
+ * into the same {ok, created, ready, skipped} shape the old, one-call
+ * immediate-create path used to return directly, so callers below barely
+ * had to change. A sheet with NOTHING left to submit (every row already a
+ * clash or skip at plan time) still returns `kind: "result"` directly,
+ * exactly as it always did — that path is unchanged.
  */
 async function draftProductBatchViaChat(name, args, { actor = "mara@vemians.com", role = "manager", env, square = null }) {
   const realFetch = globalThis.fetch;
   if (square) globalThis.fetch = square;
   try {
     const outcome = await dispatch(name, args, { actor, role, env, allowed: new Set([name]) });
-    assert.equal(outcome.kind, "result", "catalog_draft_product_batch must run immediately, never stop for a separate approval");
-    return { ok: !outcome.block.is_error, reply: outcome.block.content, table: outcome.table };
+    if (outcome.kind === "result") {
+      return { ok: !outcome.block.is_error, reply: outcome.block.content, table: outcome.table, checklist: null };
+    }
+    assert.equal(outcome.kind, "checklist", "catalog_draft_product_batch must plan a checklist, never stop for an old-style approval");
+    const identity = { email: actor, groups: ["vemians-manager"] };
+    const created = [];
+    const parked = [];
+    const skipped = [];
+    for (const row of outcome.checklist.rows) {
+      const result = await submitBatchPlanRow({ id: outcome.checklist.id, row: row.row, identity, env });
+      assert.equal(result.ok, true, `row ${row.row} failed to submit: ${JSON.stringify(result)}`);
+      if (result.status === "created") created.push(result);
+      else if (result.status === "parked") parked.push(result);
+      else skipped.push(result);
+    }
+    /* outcome.table already carries whatever planProductBatch itself parked
+       or skipped at PLAN time (a clash, or a row the gate check already
+       knew would fail) — folded in here so a caller sees the same complete
+       {created, ready, skipped} picture the old one-call path used to
+       return directly, regardless of which of the two moments a given
+       row's own outcome was actually decided at. */
+    const plannedReady = (outcome.table?.rows ?? []).filter((r) => r[2] === "needs a person");
+    const plannedSkipped = (outcome.table?.rows ?? []).filter((r) => r[2] === "skipped");
+    return {
+      ok: true,
+      table: outcome.table,
+      checklist: outcome.checklist,
+      created,
+      ready: [...parked, ...plannedReady.map((r) => ({ title: r[1], summary: r[3] }))],
+      skipped: [...skipped, ...plannedSkipped.map((r) => ({ title: r[1], reason: r[3] }))],
+    };
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -5852,9 +5891,11 @@ check("test_PRD_P0_88_spreadsheet_via_chat__a_real_csv_drafts_through_the_same_p
     { env, square: f.square },
   );
   assert.equal(outcome.ok, true);
-  assert.match(outcome.reply, /1 products created, 1 need a person's decision, 0 skipped/);
-  assert.match(outcome.reply, /Wool Coat/);
-  assert.match(outcome.reply, /"free" is not a plain number/i, "the clashed row's own reason must be relayed");
+  assert.equal(outcome.created.length, 1);
+  assert.equal(outcome.ready.length, 1);
+  assert.equal(outcome.skipped.length, 0);
+  assert.match(outcome.created[0].title, /Wool Coat/);
+  assert.match(outcome.ready[0].summary || outcome.ready[0].reason, /"free" is not a plain number/i, "the clashed row's own reason must be relayed");
 });
 
 check("test_PRD_P0_136_square_custom_attributes__a_missing_category_via_chat_is_created_immediately_too", async () => {
@@ -5868,9 +5909,10 @@ check("test_PRD_P0_136_square_custom_attributes__a_missing_category_via_chat_is_
     { env, square: f.square },
   );
   assert.equal(outcome.ok, true);
-  assert.match(outcome.reply, /1 products created, 0 need a person's decision, 0 skipped/);
-  assert.match(outcome.reply, /Sun Hat/);
-  assert.equal(outcome.table.rows[0][2], "created", "the row itself is created, in the same upload, once its missing category is created");
+  assert.equal(outcome.created.length, 1, "the row itself is created, in the same upload, once its missing category is created");
+  assert.equal(outcome.ready.length, 0);
+  assert.equal(outcome.skipped.length, 0);
+  assert.match(outcome.created[0].title, /Sun Hat/);
   assert.ok(f.categories().find((c) => c.name === "Millineries"), "the category must actually have been created");
 });
 
@@ -5997,8 +6039,9 @@ check("test_PRD_P0_89_batch_preview_confirm__the_draft_tool_uses_the_actors_own_
   } finally {
     globalThis.fetch = realFetch;
   }
-  assert.equal(outcome.block.is_error, false, outcome.block.content);
-  assert.match(outcome.block.content, /1 products created/, "drafted from the actually-previewed file, ignoring the wrong id the call itself carried");
+  assert.equal(outcome.kind, "checklist", "planned from the actually-previewed file, ignoring the wrong id the call itself carried");
+  assert.equal(outcome.checklist.rows.length, 1);
+  assert.match(outcome.checklist.rows[0].title, /Wool Coat/);
 });
 
 check("test_PRD_P0_117_batch_preview_one_row_fits_without_scrolling__the_preview_table_is_marked_compact", async () => {
@@ -6125,11 +6168,15 @@ check("test_PRD_P0_89_batch_preview_confirm__rows_that_all_fail_to_group_preview
 });
 
 check("test_PRD_P0_89_batch_preview_confirm__the_draft_tools_carry_a_structured_table_too", async () => {
-  /* Not just the preview — the real draft result is ALSO structured, since a
+  /* Not just the preview — the plan's own result is ALSO structured, since a
      person cannot review forty skip reasons rendered as one text bubble.
-     Carried on the model's own call to catalog_draft_product_batch itself
-     now, since that call — not a separate approval click — is what
-     actually runs the draft. */
+     REVISED — catalog_draft_product_batch now PLANS rather than creating
+     (dispatchProductBatchPlan, agent.js): a row still needing a person's
+     decision at plan time (Silk Scarf's unparseable price, a clash
+     batch.js itself already found) is in the checklist reply's own
+     `table`, same shape as before; a row that is genuinely ready
+     (Wool Coat) is in `checklist.rows` instead — nothing to put in a
+     "created" table row until it is actually submitted. */
   const f = await fixture();
   const csv = "title,category,price,style id,cost\nWool Coat,Outerwear,450.00,01-04-001,210.00\nSilk Scarf,Outerwear,free,01-04-002,\n";
   const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
@@ -6139,12 +6186,16 @@ check("test_PRD_P0_89_batch_preview_confirm__the_draft_tools_carry_a_structured_
     { asset_id: "ast_1" },
     { env, square: f.square },
   );
+  assert.equal(outcome.checklist.rows.length, 1);
+  assert.match(outcome.checklist.rows[0].title, /Wool Coat/);
   assert.equal(outcome.table.columns.length, 4);
-  assert.equal(outcome.table.rows.length, 2);
-  const created = outcome.table.rows.find((r) => r[2] === "created");
-  assert.equal(created[1], "Wool Coat");
+  assert.equal(outcome.table.rows.length, 1);
   const needsPerson = outcome.table.rows.find((r) => r[2] === "needs a person");
   assert.match(needsPerson[3], /"free" is not a plain number/i);
+  /* And once actually submitted (the helper already ran every checklist row
+     through submitBatchPlanRow), Wool Coat really was created. */
+  assert.equal(outcome.created.length, 1);
+  assert.match(outcome.created[0].title, /Wool Coat/);
 });
 
 check("test_PRD_P0_89_batch_preview_confirm__too_many_rows_carries_no_table_only_the_cap_message", async () => {
@@ -6993,32 +7044,110 @@ check("test_PRD_P0_152_style_number_grouping__onprogress_fires_once_per_row_as_e
   assert.equal(seen[1].row, 3);
 });
 
-check("test_PRD_P0_152_style_number_grouping__batch_progress_is_cleared_once_the_real_chat_dispatch_finishes", async () => {
-  /* dispatchBatchDraft (agent.js) is what actually wires onProgress into
-     recordBatchProgress -- this drives the real dispatch() path a chat
-     turn takes (draftProductBatchViaChat, above), rather than calling
-     draftProductBatch directly, so a mistake in that wiring (the wrong
-     actor key, a callback never passed through, a missing `finally`) would
-     show up here even though the previous test already proves onProgress
-     itself fires correctly in isolation. Asserting AFTER dispatch() has
-     already resolved: a real client would never poll the instant its own
-     main request lands, so all this can prove is that nothing is left
-     behind for a later, unrelated poll to read stale -- the "6 of 16"
-     that would otherwise never go away once this actor's next ordinary
-     chat turn (or someone else's batch) polls it. */
+check("test_PRD_P0_152_style_number_grouping__batch_progress_is_cleared_once_the_real_customer_dispatch_finishes", async () => {
+  /* REVISED — catalog_draft_product_batch no longer uses BATCH_PROGRESS at
+     all (dispatchProductBatchPlan/planProductBatch replace the one-call
+     create-everything path onProgress/recordBatchProgress were built for —
+     see planProductBatch's own header comment, batch.js); this mechanism
+     is customer_draft_customer_batch's alone now. dispatchBatchDraft
+     (agent.js) is what actually wires onProgress into recordBatchProgress
+     — this drives the real approve() path a chat turn's own Approve click
+     takes (draftBatchViaChatButton), rather than calling draftCustomerBatch
+     directly, so a mistake in that wiring (the wrong actor key, a callback
+     never passed through, a missing `finally`) would show up here.
+     Asserting AFTER the click has already resolved: a real client would
+     never poll the instant its own main request lands, so all this can
+     prove is that nothing is left behind for a later, unrelated poll to
+     read stale — the "6 of 16" that would otherwise never go away once
+     this actor's next ordinary chat turn (or someone else's batch) polls
+     it. */
   const f = await fixture();
-  const csv = "Style #,Category,Subcategory,Description,Price\n80-01-001,Brand New Scarves,Brand New Silk Scarves,A scarf,55.00\n";
-  const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
+  const csv = "given_name,family_name,email_address\nAva,Stone,ava@example.com\n";
+  const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv, filename: "customers.csv" }) };
 
   assert.equal(readBatchProgress("mara@vemians.com"), null, "nothing should be in flight before this test's own call");
-  const outcome = await draftProductBatchViaChat(
-    "catalog_draft_product_batch",
-    { asset_id: "ast_1" },
-    { env, square: f.square },
-  );
-  assert.equal(outcome.ok, true);
-  assert.match(outcome.reply, /1 products created/);
+  const outcome = await draftBatchViaChatButton("customer_draft_customer_batch", { asset_id: "ast_1" }, { env, square: f.square });
+  assert.equal(outcome.ok, true, outcome.reply);
+  assert.match(outcome.reply, /0 customers created, 1 need a person's decision, 0 skipped/);
   assert.equal(readBatchProgress("mara@vemians.com"), null, "the finished batch must not leave a stale progress record behind");
+});
+
+check("test_PRD_P0_152_style_number_grouping__a_plan_rows_own_submission_is_single_use", async () => {
+  /* The analogous "nothing stale left behind" guarantee for the NEW
+     checklist/plan mechanism (planProductBatch/submitBatchPlanRow) that
+     replaced the one-call create-everything path above — a plan's own row
+     is spliced out of BATCH_PLANS the moment it is picked up (agent.js's
+     own submitBatchPlanRow), the same "single use" property PENDING's own
+     approve() already has for a T2 approval. Proven directly: submit a
+     one-row plan's only row, then submit that exact same {id, row} again
+     — it must be refused as unknown, never create the same product twice
+     or hand back a stale success. */
+  const f = await fixture({ actor: "zeynep@vemians.com", role: "manager" });
+  const csv = "title,category,price,style id,cost\nWool Coat,Outerwear,450.00,01-04-001,210.00\n";
+  const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
+  const identity = { email: "zeynep@vemians.com", groups: ["vemians-manager"] };
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let outcome;
+  try {
+    outcome = await dispatch(
+      "catalog_draft_product_batch",
+      { asset_id: "ast_1" },
+      { actor: "zeynep@vemians.com", role: "manager", env, allowed: new Set(["catalog_draft_product_batch"]) },
+    );
+    assert.equal(outcome.kind, "checklist");
+    assert.equal(outcome.checklist.rows.length, 1);
+    const row = outcome.checklist.rows[0].row;
+
+    const first = await submitBatchPlanRow({ id: outcome.checklist.id, row, identity, env });
+    assert.equal(first.ok, true, JSON.stringify(first));
+    assert.equal(first.status, "created");
+
+    const second = await submitBatchPlanRow({ id: outcome.checklist.id, row, identity, env });
+    assert.equal(second.ok, false);
+    assert.equal(second.status, 404);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_152_style_number_grouping__a_plan_belongs_to_the_actor_who_raised_it", async () => {
+  /* The same actor check PENDING's own approve() already enforces
+     (P0-25's own "the approval token is never in the model's reach"),
+     applied to the new checklist mechanism -- a plan is stashed with the
+     actor who uploaded the sheet, and submitBatchPlanRow (agent.js) refuses
+     anyone else's attempt to spend a row from it, whether that is a
+     genuine attacker or just a stale/copy-pasted request. */
+  const f = await fixture({ actor: "zeynep@vemians.com", role: "manager" });
+  const csv = "title,category,price,style id,cost\nWool Coat,Outerwear,450.00,01-04-001,210.00\n";
+  const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const outcome = await dispatch(
+      "catalog_draft_product_batch",
+      { asset_id: "ast_1" },
+      { actor: "zeynep@vemians.com", role: "manager", env, allowed: new Set(["catalog_draft_product_batch"]) },
+    );
+    assert.equal(outcome.kind, "checklist");
+    const row = outcome.checklist.rows[0].row;
+
+    const wrongActor = { email: "someone-else@vemians.com", groups: ["vemians-manager"] };
+    const result = await submitBatchPlanRow({ id: outcome.checklist.id, row, identity: wrongActor, env });
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 403);
+
+    /* And the plan survives that refused attempt -- the actor who actually
+       raised it can still submit it normally afterward. */
+    const identity = { email: "zeynep@vemians.com", groups: ["vemians-manager"] };
+    const retry = await submitBatchPlanRow({ id: outcome.checklist.id, row, identity, env });
+    assert.equal(retry.ok, true, JSON.stringify(retry));
+    assert.equal(retry.status, "created");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });
 
 check("test_PRD_P0_152_style_number_grouping__a_named_category_with_no_subcategory_given_is_dropped_too", async () => {

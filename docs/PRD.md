@@ -7346,6 +7346,57 @@ that does not trace to one of these is a process failure (see §12).
     empty poll (an ordinary fast turn, a cold isolate that lost the record) simply shows nothing, never a
     wrong status.
 
+    **REVISED ONE FINAL TIME — a product batch is no longer created inside one giant call at all; it is
+    planned once, then submitted one row per request, with a real progress bar instead of a polled
+    approximation.** The owner's own words, pushing back on the previous entry's own "too many
+    subrequests" report and its assumption that a Cloudflare plan upgrade was the fix: "Why does this need
+    the 50 [subrequest] limit? Why don't you just make a submission like a page preview and automatically
+    uncheck things that were already detected to skip them... and then have the agent check everything and
+    fill everything out and then just do a straight submit... with the progress bar." Right: the actual
+    problem was never the size of the limit, it was that `draftProductBatch` (still used, unchanged, by
+    the standalone `/products/batch` upload form) spends its ENTIRE Square subrequest cost — one row's
+    worth times every row in the sheet — inside a single Worker invocation, and Cloudflare's own
+    per-invocation ceiling (50 on the Free plan) is reachable well under `BATCH_MAX_ROWS`. Splitting the
+    ONE call into many, each too small to approach that ceiling, fixes it with no plan upgrade needed at
+    all.
+
+    `resolveProductRows` (batch.js) is the category/subcategory-resolution phase `draftProductBatch` and
+    the new `planProductBatch` now share verbatim — resolving/creating whatever categories and
+    subcategories the sheet needs, bounded by how many DISTINCT ones it names, never by row count, so this
+    part alone was never actually the risk. `planProductBatch` stops there: every row that would reach
+    `catalog.create_product` is run through that tool's own GATE call — a pure validation that never
+    writes (catalog-write.js's own `check()`/`run()` split) — so a row that would just clash again anyway
+    (most often a SKU already used by an earlier, already-completed run of this SAME sheet — "why would
+    you resubmit the same thing twice?") gets its OWN approval link immediately, exactly like a clash
+    batch.js itself already found (`parkOrSkip`, shared with `parkClashRows` now), rather than sitting in
+    front of a person as something to submit at all. This IS the "automatically uncheck" the owner asked
+    for — structural, not a checkbox left unticked: a row already known to fail is simply never offered as
+    a choice, it is independently actionable via its own link from the moment the sheet is read.
+
+    What is left is genuinely ready, and `catalog_draft_product_batch`'s own dispatch (`dispatch()`,
+    agent.js) no longer creates anything at all — it returns a NEW outcome kind, `checklist`, the same way
+    an `approval` outcome already becomes `pending`; `agentTurn()` turns it into a `checklist` field on its
+    own reply. `BATCH_PLANS` (agent.js) stashes the ready rows plus the SAME dedicated rate limiter
+    `planProductBatch` already minted for the whole plan — the identical in-memory, per-isolate, TTL'd
+    shape `PENDING`/`LAST_PREVIEW` already use, keyed by a minted id. `submitBatchPlanRow` is the new `POST
+    /agent/batch-submit-row` (index.js): given a plan id and a row number, it checks the SAME actor-owns-
+    this-record invariant `approve()` already enforces for `PENDING`, splices that one row out of the
+    plan's own array (single use, the identical property a `PENDING` record already has), and reuses
+    `createRows` — one-row slice and all — to actually gate-then-execute it, exactly the mechanism every
+    other inline write already trusts, never a new one. The plan record itself is deleted the moment its
+    last row is spent.
+
+    `views.js`'s new `checklistCard` renders the offered rows as a plain checkbox list — pre-checked,
+    since everything shown already cleared a real gate check, though a person can still untick one before
+    Submit — and Submit itself drives the actual "straight submit... with the progress bar" the owner
+    asked for: one `POST /agent/batch-submit-row` per checked row, awaited in sequence so each becomes its
+    own fresh Worker invocation, updating a real `<progress>` element off the ACTUAL responses coming
+    back — never the earlier entry's polled guess at a single call still in flight. The old `onProgress`/
+    `BATCH_PROGRESS`/polling mechanism (the previous entry, above) is now `customer_draft_customer_batch`'s
+    alone: a customer batch still parks one approval per row inside one call (`parkRows`, unchanged — a
+    plain DB write per row, never a Square call, so it was never the subrequest risk this entry fixes),
+    and still has no other way to show progress while that one call runs.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

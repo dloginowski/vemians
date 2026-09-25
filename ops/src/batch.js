@@ -167,16 +167,21 @@ async function createRows(env, { actor, role, toolName, rate, onProgress }, rows
  * either, so it is skipped, the same discriminator createRows' own
  * settle() already applies.
  */
+/* The single park-or-skip decision every "this row cannot proceed as is"
+   path needs — parkClashRows (below) and planProductBatch's own gate-check
+   loop (further down) both reduce to exactly this once a reason is known. */
+async function parkOrSkip(env, { actor, role, toolName }, { row, title, args, reason }) {
+  if (NOT_ROW_FIXABLE.test(reason)) return { bucket: "skipped", entry: { row, title, reason } };
+  const { url } = await parkForApproval(env, { name: toolName, args, actor, role, tier: "T2", summary: reason });
+  return { bucket: "parked", entry: { row, title, url, summary: reason } };
+}
+
 async function parkClashRows(env, { actor, role, toolName }, rows) {
   const parked = [];
   const skipped = [];
   for (const { row, title, args, reason } of rows) {
-    if (NOT_ROW_FIXABLE.test(reason)) {
-      skipped.push({ row, title, reason });
-      continue;
-    }
-    const { url } = await parkForApproval(env, { name: toolName, args, actor, role, tier: "T2", summary: reason });
-    parked.push({ row, title, url, summary: reason });
+    const outcome = await parkOrSkip(env, { actor, role, toolName }, { row, title, args, reason });
+    (outcome.bucket === "skipped" ? skipped : parked).push(outcome.entry);
   }
   return { parked, skipped };
 }
@@ -1349,11 +1354,16 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
  *   progress (dispatchBatchDraft's own recordBatchProgress).
  * @returns { created: [{row, title, handle, summary}], ready: [{row, title, url, summary}], skipped: [{row, title, reason}], tooMany?: number }
  */
-export async function draftProductBatch(env, { text, actor, role, onProgress }) {
-  const records = csvRecords(parseCsv(text));
-  if (records.length > CAPS.BATCH_MAX_ROWS) {
-    return { created: [], ready: [], skipped: [], tooMany: records.length };
-  }
+/*
+ * The category/subcategory resolution phase draftProductBatch and
+ * planProductBatch (both below) share verbatim — parse into product-shaped
+ * rows, creating whichever categories/subcategories the sheet names that do
+ * not exist yet, and set aside anything that clashes before it ever reaches
+ * catalog.create_product. Everything downstream (create everything in one
+ * call, or plan a checklist to submit row by row) differs; this part does
+ * not.
+ */
+async function resolveProductRows(env, { actor, role }, records) {
   const categories = await listCategories(env.CATALOG_MIRROR);
   const nextAutoTitle = autoTitler(await categoryProductCounts(env.CATALOG_MIRROR));
 
@@ -1371,11 +1381,15 @@ export async function draftProductBatch(env, { text, actor, role, onProgress }) 
      the shared cap defends against (at most two runTool calls per row,
      once, ever), so it gets its OWN limiter instead, fresh for this one
      call and sized for the real worst case (CAPS.BATCH_CALLS_PER_MINUTE's
-     own header comment) rather than anti-abuse. */
+     own header comment) rather than anti-abuse. Shared here rather than
+     re-created per row: planProductBatch stashes this SAME instance
+     alongside its own checklist, so every row's own later, separate submit
+     request still spends from the one batch-wide budget, never a fresh one
+     each time (see planProductBatch's own header comment for why that
+     still matters even once submission itself is chunked). */
   const rate = createRateLimiter({ max: CAPS.BATCH_CALLS_PER_MINUTE });
 
   const rows = [];
-  const skipped = [];
   /* resolveOrCreateCategory's/resolveCategoryByCode's own shared,
      per-batch-run memory (dedup by lowercased, trimmed name — or by id,
      for a number-driven assignment/creation — keyed by parent too) and
@@ -1412,6 +1426,16 @@ export async function draftProductBatch(env, { text, actor, role, onProgress }) 
     else rows.push(outcome.row);
   }
 
+  return { rows, clashes, rate };
+}
+
+export async function draftProductBatch(env, { text, actor, role, onProgress }) {
+  const records = csvRecords(parseCsv(text));
+  if (records.length > CAPS.BATCH_MAX_ROWS) {
+    return { created: [], ready: [], skipped: [], tooMany: records.length };
+  }
+  const { rows, clashes, rate } = await resolveProductRows(env, { actor, role }, records);
+
   const { created: madeRows, parked: parkedFromDenials, skipped: refused } = await createRows(
     env,
     { actor, role, toolName: "catalog.create_product", rate, onProgress },
@@ -1426,8 +1450,93 @@ export async function draftProductBatch(env, { text, actor, role, onProgress }) 
   return {
     created: madeRows,
     ready: [...parkedFromClashes, ...parkedFromDenials].sort((a, b) => a.row - b.row),
-    skipped: [...skipped, ...refused, ...refusedClashes].sort((a, b) => a.row - b.row),
+    skipped: [...refused, ...refusedClashes].sort((a, b) => a.row - b.row),
   };
+}
+
+/*
+ * "Why does this need the 50 [subrequest] limit? Why don't you just make a
+ * submission like a page preview and automatically uncheck things that were
+ * already detected to skip them... and then have the agent check everything
+ * and fill everything out and then just do a straight submit... with the
+ * progress bar" — the owner's own words, and the actual fix, not a
+ * workaround: draftProductBatch (above) creates every row inside ONE
+ * Worker invocation, so its Square subrequest cost is the WHOLE batch's,
+ * and Cloudflare's own per-invocation ceiling (50 on the Free plan) is
+ * reachable well under BATCH_MAX_ROWS. planProductBatch instead does only
+ * the part that has to happen once, together — resolving/creating whatever
+ * categories and subcategories the sheet needs, bounded by how many
+ * DISTINCT ones it names, never by row count — and stops there: every row
+ * that would actually reach catalog.create_product is checked (its own
+ * GATE call, which never writes — see catalog-write.js's own check()/run()
+ * split) so a row that would just clash again anyway (most often a SKU
+ * already used by an earlier, already-completed run of this SAME sheet —
+ * "why would you resubmit the same thing twice?") gets its OWN approval
+ * link immediately, exactly like a clash batch.js itself already found,
+ * rather than sitting in the checklist offered back. What is left —
+ * `rows` — is genuinely ready, and agent.js's own dispatchProductBatchPlan
+ * stashes it, one row's own args at a time, for submitProductBatchRow
+ * (below) to actually create ONE AT A TIME, each its own request, each its
+ * own fresh Cloudflare invocation and subrequest budget, with a REAL
+ * progress bar the browser can only build from a real response per row —
+ * never a polled approximation of one big call still in flight.
+ *
+ * @returns { rows: [{rowNumber, title, args, summary}], ready: [...], skipped: [...], tooMany?: number }
+ */
+export async function planProductBatch(env, { text, actor, role }) {
+  const records = csvRecords(parseCsv(text));
+  if (records.length > CAPS.BATCH_MAX_ROWS) {
+    return { rows: [], ready: [], skipped: [], tooMany: records.length };
+  }
+  const { rows: built, clashes, rate } = await resolveProductRows(env, { actor, role }, records);
+
+  const readyRows = [];
+  const parkedFromGate = [];
+  const skippedFromGate = [];
+  for (const row of built) {
+    const gate = await runTool("catalog.create_product", row.args, { actor, role, env, rate });
+    if (gate?.needsApproval) {
+      readyRows.push({ ...row, summary: gate.data.would });
+      continue;
+    }
+    const reason = gate?.error || "could not be validated";
+    const outcome = await parkOrSkip(env, { actor, role, toolName: "catalog.create_product" }, { row: row.rowNumber, title: row.title, args: row.args, reason });
+    (outcome.bucket === "skipped" ? skippedFromGate : parkedFromGate).push(outcome.entry);
+  }
+
+  const { parked: parkedFromClashes, skipped: refusedClashes } = await parkClashRows(
+    env,
+    { actor, role, toolName: "catalog.create_product" },
+    clashes,
+  );
+
+  return {
+    rows: readyRows,
+    ready: [...parkedFromClashes, ...parkedFromGate].sort((a, b) => a.row - b.row),
+    skipped: [...skippedFromGate, ...refusedClashes].sort((a, b) => a.row - b.row),
+    rate,
+  };
+}
+
+/*
+ * ONE row of a stashed planProductBatch plan, actually created — the unit
+ * the browser's own submit loop calls once per checked row, sequentially.
+ * `rate` is the SAME limiter instance planProductBatch minted for the
+ * whole plan (agent.js carries it in the stashed record), not a fresh one
+ * per row: a plan spends one batch-wide budget across every one of its own
+ * later, separate requests, exactly as it would have inside one call.
+ * Reuses createRows (above) wholesale, one-row slice and all, rather than
+ * re-implementing the identical gate-then-execute-then-settle dance: a row
+ * this late can still turn out to be a clash createRows' own settle()
+ * already knows how to park (a SKU collision landed by another actor's
+ * submit in the meantime, say) — this is never assumed safe just because
+ * planProductBatch's own earlier gate call already liked it once.
+ */
+export async function submitProductBatchRow(env, { actor, role, rate }, row) {
+  const { created, parked, skipped } = await createRows(env, { actor, role, toolName: "catalog.create_product", rate }, [row]);
+  if (created.length) return { status: "created", ...created[0] };
+  if (parked.length) return { status: "parked", ...parked[0] };
+  return { status: "skipped", ...skipped[0] };
 }
 
 /* ── customers ────────────────────────────────────────────────────────── */
