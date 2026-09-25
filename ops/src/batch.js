@@ -1399,13 +1399,26 @@ function mapProductRow(record) {
     ? parseStyleNumber(styleIdRaw)
     : { base: "", color: undefined, size: undefined };
   const optValues = { ...(styleColor ? { Color: styleColor } : {}), ...(styleSize ? { Size: styleSize } : {}), ...optionValues(record) };
+  /* "It should assume title is description by default and not expect a
+     description at all from these ingests" — the owner's own words,
+     reported back after the chat agent saw this preview's own title come
+     back null (no title column, only Description) and asked a person
+     which column was meant to be the title instead of trusting the real
+     ingest — draftGroupedProduct/the standalone loop already resolve this
+     exact case automatically (DESCRIPTION_KEYS stands in for a missing
+     title, and is never ALSO sent as a separate description then); this
+     preview just never mirrored that same rule, so it showed a
+     misleadingly empty title for a row the real draft handles perfectly
+     fine. Same fallback, same "never double-counted" rule, here too. */
+  const titleCol = pick(record, TITLE_KEYS);
+  const descriptionCol = pick(record, DESCRIPTION_KEYS);
   return {
-    title: pick(record, TITLE_KEYS) || null,
+    title: titleCol || descriptionCol || null,
     category: categoryName || null,
     subcategory: pick(record, SUBCATEGORY_KEYS) || null,
     price: pick(record, PRICE_KEYS) || null,
     currency: (pick(record, CURRENCY_KEYS) || "USD").toUpperCase(),
-    description: pick(record, DESCRIPTION_KEYS) || null,
+    description: titleCol ? descriptionCol || null : null,
     sku: pick(record, SKU_KEYS) || null,
     style_id: styleBase || null,
     vendor: pick(record, VENDOR_KEYS) || null,
