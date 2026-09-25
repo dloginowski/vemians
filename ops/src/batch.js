@@ -694,12 +694,21 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
     }
   }
 
-  /* "There's no title column, but the description reads exactly like the
-     product's own name already" — TITLE_KEYS still wins when a sheet
-     actually has one; DESCRIPTION_KEYS stands in only when it does not. */
-  const rawTitle = (pick(first, TITLE_KEYS) || pick(first, DESCRIPTION_KEYS)).slice(0, 200);
+  /* "You are getting the title of the items, the title, right? Not the
+     descriptions. The descriptions will generate automatically later" —
+     the owner's own words. TITLE_KEYS still wins when a sheet actually
+     has one; DESCRIPTION_KEYS stands in for it ONLY when there is no
+     title column at all — but a Description column consumed THAT way is
+     never also sent as `description`, since it was never really a
+     description to begin with, just the title's own stand-in. A sheet
+     that gives BOTH a real title AND a separate description keeps
+     sending both, unaffected — this only changes the "no title column"
+     case. */
+  const titleCol = pick(first, TITLE_KEYS);
+  const descriptionCol = pick(first, DESCRIPTION_KEYS);
+  const rawTitle = (titleCol || descriptionCol).slice(0, 200);
   const title = rawTitle || nextAutoTitle(category);
-  const description = pick(first, DESCRIPTION_KEYS);
+  const description = titleCol ? descriptionCol : "";
 
   /* Vendor/commission/unit cost/vendor code are PRODUCT-level facts (the
      tool's own schema has no per-variation home for any of them) — read
@@ -738,7 +747,7 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
      quantity on any ONE row skips the whole group -- a product silently
      missing one of its own sizes is worse than not creating it yet. */
   const variations = [];
-  for (const { record, rowNumber, color, size } of groupRows) {
+  for (const { record, rowNumber, color, size, styleIdRaw } of groupRows) {
     const priceRaw = pick(record, PRICE_KEYS);
     const priceMinor = parsePriceToMinor(priceRaw);
     if (priceMinor === null) {
@@ -753,17 +762,36 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
         return { skip: { row: rowNumber, title, reason: `quantity "${quantityRaw}" is not a plain whole number like 5` } };
       }
     }
-    /* An explicit Size/Color column always wins over the style number's
-       own trailing segment — the same "explicit wins, derived fills the
-       gap" rule this file already follows elsewhere. */
-    const optValues = { ...(color ? { Color: color } : {}), ...(size ? { Size: size } : {}), ...optionValues(record) };
+    /* "Our customers need to see one size or small, medium, large... they
+       want to see black, white, the full names of the options" — the
+       owner's own words. An explicit Size/Color column (the full,
+       customer-facing name) always wins over the style number's own
+       abbreviated trailing segment — the same "explicit wins, derived
+       fills the gap" rule this file already follows elsewhere.
+       "Any time you see TBD, just use like a default or no option...
+       it's just one of a kind, it doesn't need an option" — a value of
+       literally "TBD" (case-insensitive) is not a real option value at
+       all, so it is dropped from option_values entirely rather than
+       becoming a real "TBD" Color/Size in Square. */
+    const optValues = Object.fromEntries(
+      Object.entries({ ...(color ? { Color: color } : {}), ...(size ? { Size: size } : {}), ...optionValues(record) }).filter(
+        ([, value]) => value.trim().toUpperCase() !== "TBD",
+      ),
+    );
     const variationTitle = [optValues.Color, optValues.Size].filter(Boolean).join(", ") || title;
+    /* "For our full SKU number, we can go with the shorter names... the
+       SKU is basically what we gave you in the first column. That's the
+       SKU" — the owner's own words. An explicit SKU column, when a sheet
+       has one, still wins (the same "explicit wins" rule as above); with
+       none, the row's own full style number — abbreviations and all,
+       verbatim — becomes this variation's own real, already-unique SKU. */
+    const sku = pick(record, SKU_KEYS) || styleIdRaw;
     variations.push({
       title: variationTitle,
       price_minor: priceMinor,
       currency,
       quantity,
-      ...(pick(record, SKU_KEYS) ? { sku: pick(record, SKU_KEYS) } : {}),
+      ...(sku ? { sku } : {}),
       ...(Object.keys(optValues).length ? { option_values: optValues } : {}),
     });
   }
@@ -878,7 +906,7 @@ export async function draftProductBatch(env, { text, actor, role }) {
       groups.set(base, []);
       groupOrder.push(base);
     }
-    groups.get(base).push({ record, rowNumber, color, size });
+    groups.get(base).push({ record, rowNumber, color, size, styleIdRaw });
   }
 
   for (const base of groupOrder) {

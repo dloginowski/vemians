@@ -6485,3 +6485,184 @@ check("test_PRD_P0_152_style_number_grouping__the_actual_sample_sheet_drafts_six
   const variants = f.mirror("SELECT price_minor FROM mirror_variant WHERE product_id = ?", coatRow.id);
   assert.equal(variants.length, 3, "the blazer's own three sizes landed as three variations on ONE product");
 });
+
+check("test_PRD_P0_152_style_number_grouping__a_description_column_standing_in_for_a_missing_title_is_never_also_sent_as_the_description", async () => {
+  /* "You are getting the title of the items, the title, right? Not the
+     descriptions. The descriptions will generate automatically later" --
+     the owner's own words. Description text used as a title stand-in must
+     not ALSO become the product's own description -- that would just be
+     the same string twice. */
+  const f = await fixture({ actor: "priya@vemians.com", role: "manager" });
+  const csv =
+    "Style #,Category,Subcategory,Description,Color,Size,Cost (USD),Retail Price\n" +
+    "001-001-001-BLK-S,Jacket,Blazer,Black hand-painted blazer,Black,S,30,165\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.ready[0].title, "Black hand-painted blazer");
+
+  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
+  globalThis.fetch = f.square;
+  let approved;
+  try {
+    approved = await approvePending(f.env, result.ready[0].url.split("/").pop(), approver);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(approved.ok, true, approved.error);
+
+  const product = f.mirror("SELECT source_description FROM mirror_product WHERE title = 'Black hand-painted blazer'")[0];
+  assert.ok(!product.source_description, "no description at all -- the title stand-in is never duplicated into it");
+});
+
+check("test_PRD_P0_152_style_number_grouping__a_real_title_column_still_keeps_its_own_separate_description", async () => {
+  /* The REVISED rule above only changes the "no title column" case -- a
+     sheet that gives BOTH a real title and its own description keeps
+     sending both, exactly as it always has. */
+  const f = await fixture({ actor: "priya@vemians.com", role: "manager" });
+  const csv =
+    "Style #,Title,Category,Subcategory,Description,Color,Size,Cost (USD),Retail Price\n" +
+    "001-001-001-BLK-S,Bomber Blazer,Jacket,Blazer,A hand-painted piece,Black,S,30,165\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.ready[0].title, "Bomber Blazer");
+
+  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
+  globalThis.fetch = f.square;
+  let approved;
+  try {
+    approved = await approvePending(f.env, result.ready[0].url.split("/").pop(), approver);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(approved.ok, true, approved.error);
+
+  const product = f.mirror("SELECT source_description FROM mirror_product WHERE title = 'Bomber Blazer'")[0];
+  assert.equal(product.source_description, "A hand-painted piece");
+});
+
+check("test_PRD_P0_152_style_number_grouping__with_no_sku_column_the_rows_own_full_style_number_becomes_its_sku", async () => {
+  /* "For our full SKU number, we can go with the shorter names... the SKU
+     is basically what we gave you in the first column. That's the SKU" --
+     the owner's own words. */
+  const f = await fixture({ actor: "priya@vemians.com", role: "manager" });
+  const csv =
+    "Style #,Category,Subcategory,Description,Color,Size,Cost (USD),Retail Price\n" +
+    "001-001-001-BLK-S,Jacket,Blazer,Black hand-painted blazer,Black,S,30,165\n" +
+    "001-001-001-BLK-M,Jacket,Blazer,Black hand-painted blazer,Black,M,30,165\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+
+  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
+  globalThis.fetch = f.square;
+  let approved;
+  try {
+    approved = await approvePending(f.env, result.ready[0].url.split("/").pop(), approver);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(approved.ok, true, approved.error);
+
+  const product = f.mirror("SELECT id FROM mirror_product WHERE title = 'Black hand-painted blazer'")[0];
+  const skus = f
+    .mirror("SELECT sku FROM mirror_variant WHERE product_id = ?", product.id)
+    .map((v) => v.sku)
+    .sort();
+  assert.deepEqual(skus, ["001-001-001-BLK-M", "001-001-001-BLK-S"], "each variation's own SKU is that exact row's own full style number");
+});
+
+check("test_PRD_P0_152_style_number_grouping__an_explicit_sku_column_still_wins_over_the_style_number", async () => {
+  const f = await fixture({ actor: "priya@vemians.com", role: "manager" });
+  const csv =
+    "Style #,Category,Subcategory,Description,Color,Size,SKU,Cost (USD),Retail Price\n" +
+    "001-001-001-BLK-S,Jacket,Blazer,Black hand-painted blazer,Black,S,VEM-100,30,165\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+
+  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
+  globalThis.fetch = f.square;
+  let approved;
+  try {
+    approved = await approvePending(f.env, result.ready[0].url.split("/").pop(), approver);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(approved.ok, true, approved.error);
+
+  const product = f.mirror("SELECT id FROM mirror_product WHERE title = 'Black hand-painted blazer'")[0];
+  const variant = f.mirror("SELECT sku FROM mirror_variant WHERE product_id = ?", product.id)[0];
+  assert.equal(variant.sku, "VEM-100");
+});
+
+check("test_PRD_P0_152_style_number_grouping__a_tbd_color_or_size_is_dropped_as_a_real_option_entirely", async () => {
+  /* "Any time you see TBD, just use like a default or no option... it's
+     just one of a kind, it's just one off. It doesn't need an option.
+     That's the only one we have" -- the owner's own words. Three rows
+     differing only by SIZE, all sharing color "TBD" -- Size alone is
+     still a real, meaningful option; "Color: TBD" is not. */
+  const f = await fixture({ actor: "priya@vemians.com", role: "manager" });
+  const csv =
+    "Style #,Category,Subcategory,Description,Color,Size,Cost (USD),Retail Price\n" +
+    "001-001-003-TBD-S,Jacket,Blazer,Embellished blazer,TBD,S,35,125\n" +
+    "001-001-003-TBD-M,Jacket,Blazer,Embellished blazer,TBD,M,35,125\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+
+  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
+  globalThis.fetch = f.square;
+  let approved;
+  try {
+    approved = await approvePending(f.env, result.ready[0].url.split("/").pop(), approver);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(approved.ok, true, approved.error);
+
+  const colorObj = [...f.square.objects.values()].find((o) => o.type === "ITEM_OPTION" && o.item_option_data?.name === "Color");
+  const sizeObj = [...f.square.objects.values()].find((o) => o.type === "ITEM_OPTION" && o.item_option_data?.name === "Size");
+  assert.equal(colorObj, undefined, "TBD is never minted as a real Color option");
+  assert.ok(sizeObj, "Size alone is still a real, meaningful option");
+  assert.deepEqual(
+    sizeObj.item_option_data.values.map((v) => v.item_option_value_data.name).sort(),
+    ["M", "S"],
+  );
+});
