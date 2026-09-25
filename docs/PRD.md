@@ -6262,6 +6262,30 @@ that does not trace to one of these is a process failure (see §12).
     same parse and precedence, so the sample row shown before confirming already reads `style_id` split
     from `color`/`size`, never the raw, unsplit cell.
 
+    **REVISED AGAIN, once a real sheet arrived: "Style #,Category,Subcategory,Description,Color,Size,
+    ..." whose own Style # pads category/subcategory to THREE digits ("001-001-001"), not this shop's
+    own two, alongside separate Category and Subcategory NAME columns for every row.** Two real gaps,
+    fixed together: `parseStyleNumber` now splits purely on SEGMENT COUNT (exactly 4 or 5 dash-separated
+    pieces) rather than on digit width, so a trailing color/size is found the same way regardless of how
+    the sheet itself pads its own base code — a 3-, 4- or 5-segment cell that does not match this exact
+    count is left as `base` completely untouched, same as always. A brand-new `SUBCATEGORY_KEYS` column
+    nests under whichever category the row's own `CATEGORY_KEYS` column resolved (matched by name, or
+    created immediately, the identical `resolveOrCreateCategory` mechanism `CATEGORY_KEYS` alone already
+    used — now generalized with an optional `parentId`, its own tree-wide `nextSubcategoryNumericId` pool
+    (P0-138's own two-pool rule) instead of the top-level one, and a cache key that includes the parent,
+    since "a subcategory name can be used more than once [under a different parent]" already held for
+    style-ID-derived rows and must hold here too) — the resolved subcategory then REPLACES `category` as
+    this row's own, the same "the more specific level is authoritative" rule already applied elsewhere.
+    A `Subcategory` column given with no `Category` at all is refused up front, the same treatment a
+    vendor code given with no vendor already gets. **The parsed `base` is only ever sent to
+    catalog.create_product AS `style_id` when a Category name was NOT given, or when it actually matches
+    this shop's own `NN-NN-NNN` shape** — a sheet whose own numbering is padded differently already gets
+    a real category from its own name columns, so forcing a mismatched base through as `style_id` would
+    only ever get the row refused for nothing; left unset, it auto-generates from whichever category the
+    row actually landed on, via `catalog.create_product`'s own existing `resolveStyleId`. A row naming NO
+    category at all is unaffected either way — its own `base` still rides through verbatim, and a
+    genuinely malformed one is still reported as such, exactly as before this.
+
 81. **`Test-PRD-P0-147-variants_grid`** — The owner's own words: "I want to see those properties also
     listed in the variants dropdown for each item... a whole grid of available size and color
     variations so that I can set their quantities directly out of that variants dropdown." An item

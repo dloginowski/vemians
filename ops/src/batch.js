@@ -81,6 +81,14 @@ const TITLE_KEYS = [
 ];
 const DESCRIPTION_KEYS = ["description", "desc", "details", "product description", "copy"];
 const CATEGORY_KEYS = ["category", "category name", "type", "product type", "collection", "department"];
+/* A SEPARATE column naming a SUBcategory to nest under whichever row this
+   same record's own CATEGORY_KEYS column resolves to — "Jacket" / "Blazer"
+   as two distinct cells, rather than one column and a slash or a colon
+   this file would have to invent a convention for. Given with no category
+   column at all, it is refused the same way a vendor code given with no
+   vendor already is (this file's own VENDOR_CODE_KEYS check, below) —
+   nothing real to nest it under. */
+const SUBCATEGORY_KEYS = ["subcategory", "subcategory name", "sub category", "sub-category"];
 /* "cost" is deliberately NOT a price synonym. The owner's own words: "Every
    product has a price and a unit cost" — two different numbers (what a
    customer pays vs. what we paid), and a sheet with its own "Cost" column
@@ -183,8 +191,8 @@ const OPTION_KEYS = {
    with. Anything else in the sheet is CUSTOM — ours, not Square's, and not
    dropped just because neither of us has a named field for it yet. */
 const PRODUCT_KNOWN_KEYS = [
-  ...TITLE_KEYS, ...DESCRIPTION_KEYS, ...CATEGORY_KEYS, ...PRICE_KEYS, ...CURRENCY_KEYS, ...SKU_KEYS,
-  ...STYLE_ID_KEYS, ...VENDOR_KEYS, ...VENDOR_CODE_KEYS, ...COMMISSION_KEYS, ...QUANTITY_KEYS,
+  ...TITLE_KEYS, ...DESCRIPTION_KEYS, ...CATEGORY_KEYS, ...SUBCATEGORY_KEYS, ...PRICE_KEYS, ...CURRENCY_KEYS,
+  ...SKU_KEYS, ...STYLE_ID_KEYS, ...VENDOR_KEYS, ...VENDOR_CODE_KEYS, ...COMMISSION_KEYS, ...QUANTITY_KEYS,
   ...Object.values(OPTION_KEYS).flat(),
 ];
 
@@ -279,10 +287,14 @@ function parseQuantity(raw) {
  * actual index of the item. Then, if there's an option like a color,
  * that's going to be a dash and then an abbreviation for the color, and
  * then a dash for any sizes. OS size means all sizes, it fits all" — the
- * owner's own words. This shop's own style_id nomenclature (STYLE_ID_
- * FORMAT, catalog-write.js) is exactly the first three segments
- * (NN-NN-NNN); a color and/or a size may now ride along after it in the
- * very same cell, one dash each, color before size.
+ * owner's own words. The style id/style number cell may carry a color
+ * and/or a size riding along after its own base code, one dash each,
+ * color before size — REVISED, once a real sheet showed the base itself
+ * is not always this shop's own two-digit NN-NN-NNN shape (some sheets
+ * pad category/subcategory to three digits of their own, "001" rather
+ * than "01") — split purely on SEGMENT COUNT, never on digit width, so
+ * whatever the base itself looks like, the trailing color/size are still
+ * found the same way.
  *
  * A single trailing segment is always the SIZE, never a color standing
  * in alone — color is the segment that goes missing entirely when an
@@ -291,23 +303,35 @@ function parseQuantity(raw) {
  * fits all"). That is what keeps a FOUR-segment number from ever being
  * ambiguous about which one it is.
  *
- * Anything that is not exactly a 3-, 4- or 5-segment NN-NN-NNN[-X[-X]]
- * shape (a plain, already-bare style_id; a genuinely malformed one; some
- * other identifier entirely) is left completely untouched, returned as
- * the given `styleId` with no color or size at all — still handed to
- * catalog.create_product verbatim, whose own STYLE_ID_FORMAT check
- * reports a real format problem exactly as it always has. This only ever
- * EXTRACTS a trailing color/size when the shape actually matches; it
- * never invents a rejection of its own.
+ * Exactly 4 or 5 dash-separated segments split into a 3-segment `base`
+ * plus a size, or a color and a size; anything else (3 segments, a
+ * genuinely malformed cell, some other identifier entirely) is left
+ * completely untouched as `base`, with no color or size at all — this
+ * only ever EXTRACTS a trailing color/size when the segment count
+ * actually says to, it never guesses at where the split should be.
  */
-const FULL_STYLE_NUMBER = /^(\d{2}-\d{2}-\d{3})(?:-([^-]+))?(?:-([^-]+))?$/;
-
 function parseStyleNumber(raw) {
-  const match = FULL_STYLE_NUMBER.exec(String(raw ?? "").trim());
-  if (!match) return { styleId: raw, color: undefined, size: undefined };
-  const [, styleId, first, second] = match;
-  return second !== undefined ? { styleId, color: first, size: second } : { styleId, color: undefined, size: first };
+  const trimmed = String(raw ?? "").trim();
+  const segments = trimmed.split("-");
+  if (segments.length === 4) return { base: segments.slice(0, 3).join("-"), color: undefined, size: segments[3] };
+  if (segments.length === 5) return { base: segments.slice(0, 3).join("-"), color: segments[3], size: segments[4] };
+  return { base: trimmed, color: undefined, size: undefined };
 }
+
+/* This shop's own style_id nomenclature (STYLE_ID_FORMAT, catalog-write.js,
+   duplicated here rather than imported — the same small, stable pattern
+   catalog-writer.js's own deriveCategoryIdForStyleId already keeps a
+   second copy of, instead of the two files importing from one another
+   over one regex). A parsed style number's own `base` (parseStyleNumber,
+   above) is only ever sent to catalog.create_product AS `style_id` when
+   it actually matches this exact shape — a sheet using a wider or
+   otherwise different numbering of its own (the REVISED comment above)
+   still resolves its category/subcategory from CATEGORY_KEYS/
+   SUBCATEGORY_KEYS by NAME instead, and this shop's own style_id is left
+   to auto-generate from THAT category's own real numeric_id
+   (catalog.create_product's own resolveStyleId) rather than forcing a
+   base that was never meant to be OUR style_id through as one. */
+const STYLE_ID_FORMAT = /^\d{2}-\d{2}-\d{3}$/;
 
 /** Case- and whitespace-insensitive; the closed set's real names, never guessed. */
 function matchCategory(name, categories) {
@@ -337,6 +361,24 @@ function nextTopLevelNumericId(categories, reserved) {
   return null;
 }
 
+/* The SAME idea as nextTopLevelNumericId, immediately above, for the OTHER
+   of this shop's own two numeric_id pools: every subcategory anywhere in
+   the tree, regardless of depth or parent, shares ONE pool (P0-138's own
+   two-pool rule — the identical scope the Admin panel's own
+   numericIdPoolFor already uses, and the same partial unique index
+   schema.sql enforces). `reserved` is its OWN separate set from the
+   top-level one — the two pools never collide with each other, so "01"
+   can be freely in use by a top-level category AND, separately, by a
+   subcategory at the same time. */
+function nextSubcategoryNumericId(categories, reserved) {
+  const used = new Set(categories.filter((c) => c.parent_id && c.numeric_id).map((c) => c.numeric_id));
+  for (let n = 0; n <= 99; n++) {
+    const code = String(n).padStart(2, "0");
+    if (!used.has(code) && !reserved.has(code)) return code;
+  }
+  return null;
+}
+
 /* "We can make categories with UI can't we? Why not just pre make them and
    switch to admin tab? If UI works why can't agent?" — the owner's own
    words, correcting an earlier design that parked a SEPARATE approval for
@@ -355,16 +397,23 @@ function nextTopLevelNumericId(categories, reserved) {
    trimmed name), so several rows naming the same missing category only
    create it once; `categories`/`reserved` grow the moment a new one lands
    so nextTopLevelNumericId's own pool-scan and this file's own
-   matchCategory both see it as real for every row after it. */
-async function resolveOrCreateCategory(env, { actor, role, categories, reserved, cache }, name) {
-  const key = name.trim().toLowerCase();
+   matchCategory both see it as real for every row after it.
+   REVISED: `parentId`, when given, makes this create a SUBCATEGORY under
+   that specific category instead — picking nextSubcategoryNumericId's
+   own tree-wide pool rather than nextTopLevelNumericId's, and keying the
+   cache by parent TOO (`"a subcategory name can be used more than once
+   [under a different parent]"` — P0-138 — so "Casual" under "Outerwear"
+   and "Casual" under "Knitwear" must never share one cache entry). */
+async function resolveOrCreateCategory(env, { actor, role, categories, reserved, cache, parentId = null }, name) {
+  const key = `${parentId ?? ""}::${name.trim().toLowerCase()}`;
   if (cache.has(key)) return cache.get(key);
 
-  const numericId = nextTopLevelNumericId(categories, reserved);
+  const numericId = parentId ? nextSubcategoryNumericId(categories, reserved) : nextTopLevelNumericId(categories, reserved);
   if (numericId) reserved.add(numericId);
   const args = {
     name: name.trim(),
     reason: "auto-created while importing a spreadsheet",
+    ...(parentId ? { parent_id: parentId } : {}),
     ...(numericId ? { numeric_id: numericId } : {}),
   };
   const gate = await runTool("catalog.create_category", args, { actor, role, env });
@@ -444,23 +493,29 @@ export async function draftProductBatch(env, { text, actor, role }) {
   const rows = [];
   const skipped = [];
   /* resolveOrCreateCategory's own per-batch-run memory (dedup by
-     lowercased, trimmed name) and its own record of numeric_ids this SAME
-     batch has already actually claimed — shared across every row below so
-     several rows naming the same missing category create it only once. */
+     lowercased, trimmed name, now also keyed by parent) and its own record
+     of numeric_ids this SAME batch has already actually claimed — shared
+     across every row below so several rows naming the same missing
+     category (or subcategory, under the same parent) create it only once.
+     TWO separate reserved sets, matching this shop's own two separate
+     numeric_id pools (P0-138) — a top-level reservation must never block a
+     subcategory from claiming the identical code, and vice versa. */
   const categoryCache = new Map();
   const reservedNumericIds = new Set();
+  const reservedSubcategoryNumericIds = new Set();
 
   for (const [i, record] of records.entries()) {
     const rowNumber = i + 2; /* +1 for the header, +1 for 1-based rows */
     const rawTitle = pick(record, TITLE_KEYS).slice(0, 200);
     const categoryName = pick(record, CATEGORY_KEYS);
+    const subcategoryName = pick(record, SUBCATEGORY_KEYS);
     const styleIdRaw = pick(record, STYLE_ID_KEYS);
     /* parseStyleNumber's own header comment: a bare style_id passes
        through untouched (color/size both undefined), the same as every
        row before this feature existed. */
-    const { styleId: styleIdCode, color: styleColor, size: styleSize } = styleIdRaw
+    const { base: styleBase, color: styleColor, size: styleSize } = styleIdRaw
       ? parseStyleNumber(styleIdRaw)
-      : { styleId: "", color: undefined, size: undefined };
+      : { base: "", color: undefined, size: undefined };
     const priceRaw = pick(record, PRICE_KEYS);
     const currency = (pick(record, CURRENCY_KEYS) || "USD").toUpperCase();
 
@@ -501,8 +556,44 @@ export async function draftProductBatch(env, { text, actor, role }) {
       }
       category = outcome.category;
     }
-    if (!category && styleIdCode) {
-      const derivedId = await deriveCategoryIdForStyleId(env.CATALOG_MIRROR, styleIdCode);
+    /* A SEPARATE Subcategory column (SUBCATEGORY_KEYS, above) — "Jacket"/
+       "Blazer" as two distinct cells. Matched (or created) as a child of
+       whichever category this row just landed on, then REPLACES it as
+       this row's own category — the same "the subcategory is the
+       authoritative, more specific level" rule this file already applies
+       when a style ID's own digits resolve to one instead. Given with no
+       category at all to nest under, this is refused up front, the same
+       treatment a vendor code given with no vendor already gets below. */
+    if (subcategoryName) {
+      if (!category) {
+        skipped.push({
+          row: rowNumber,
+          title: rawTitle || "(no title)",
+          reason: `subcategory "${subcategoryName}" was given without a category to nest it under`,
+        });
+        continue;
+      }
+      let subcategory = matchCategory(subcategoryName, categories.filter((c) => c.parent_id === category.id));
+      if (!subcategory) {
+        const outcome = await resolveOrCreateCategory(
+          env,
+          { actor, role, categories, reserved: reservedSubcategoryNumericIds, cache: categoryCache, parentId: category.id },
+          subcategoryName,
+        );
+        if (outcome.error) {
+          skipped.push({
+            row: rowNumber,
+            title: rawTitle || "(no title)",
+            reason: `subcategory "${subcategoryName}" does not exist yet under "${category.name}" and could not be created: ${outcome.error}`,
+          });
+          continue;
+        }
+        subcategory = outcome.category;
+      }
+      category = subcategory;
+    }
+    if (!category && styleBase) {
+      const derivedId = await deriveCategoryIdForStyleId(env.CATALOG_MIRROR, styleBase);
       if (derivedId) category = categories.find((c) => c.id === derivedId) ?? null;
     }
     /* Title is spelled from whichever category this row actually landed on
@@ -523,8 +614,21 @@ export async function draftProductBatch(env, { text, actor, role }) {
        through verbatim; format and cross-catalog conflict (now an
        auto-bump, never a refusal) are still catalog.create_product's own
        check() to make, relayed the same way a bad category or price
-       already is. */
-    const styleId = styleIdCode || undefined;
+       already is.
+       REVISED: when a Category NAME was given (this row resolves by name,
+       above — a Category/Subcategory pair, or a plain Category alone),
+       `styleBase` is only sent along AS style_id when it actually matches
+       this shop's own NN-NN-NNN shape (STYLE_ID_FORMAT, above) — a sheet
+       whose own numbering is shaped differently (wider category codes,
+       say) already got a real category from its own name columns, so
+       forcing that mismatched base through as style_id would only ever
+       get it refused for nothing; left undefined here, it auto-generates
+       from the category actually resolved, exactly the "no style_id at
+       all" case already handles. A row that named NO category at all is
+       unaffected either way — `styleBase` still rides through verbatim, a
+       genuinely malformed one still reported as such by
+       catalog.create_product's own check(), exactly as before this. */
+    const styleId = categoryName ? (styleBase && STYLE_ID_FORMAT.test(styleBase) ? styleBase : undefined) : styleBase || undefined;
 
     /* "When quantity not specified use 1" — the owner's own words. Blank
        defaults rather than blocks; a value that IS given but does not
@@ -730,23 +834,28 @@ const PREVIEW_SAMPLE_ROWS = 1;
    — "preserve all fields" means visible before confirming, not just kept
    silently in the background. */
 function mapProductRow(record) {
+  const categoryName = pick(record, CATEGORY_KEYS);
   const styleIdRaw = pick(record, STYLE_ID_KEYS);
-  /* Same parse, same explicit-wins-derived-fills-the-gap precedence
-     draftProductBatch itself applies (parseStyleNumber, above) — the
-     preview must show exactly the style_id/color/size a real upload
-     would actually park, not the raw, unsplit cell. */
-  const { styleId: styleIdCode, color: styleColor, size: styleSize } = styleIdRaw
+  /* Same parse, same explicit-wins-derived-fills-the-gap precedence, and
+     the same "only sent as style_id when a Category name did not already
+     take over resolving this row" rule draftProductBatch itself applies
+     (parseStyleNumber/STYLE_ID_FORMAT, above) — the preview must show
+     exactly the style_id/color/size a real upload would actually park,
+     not the raw, unsplit cell. */
+  const { base: styleBase, color: styleColor, size: styleSize } = styleIdRaw
     ? parseStyleNumber(styleIdRaw)
-    : { styleId: "", color: undefined, size: undefined };
+    : { base: "", color: undefined, size: undefined };
+  const styleId = categoryName ? (styleBase && STYLE_ID_FORMAT.test(styleBase) ? styleBase : undefined) : styleBase || undefined;
   const optValues = { ...(styleColor ? { Color: styleColor } : {}), ...(styleSize ? { Size: styleSize } : {}), ...optionValues(record) };
   return {
     title: pick(record, TITLE_KEYS) || null,
-    category: pick(record, CATEGORY_KEYS) || null,
+    category: categoryName || null,
+    subcategory: pick(record, SUBCATEGORY_KEYS) || null,
     price: pick(record, PRICE_KEYS) || null,
     currency: (pick(record, CURRENCY_KEYS) || "USD").toUpperCase(),
     description: pick(record, DESCRIPTION_KEYS) || null,
     sku: pick(record, SKU_KEYS) || null,
-    style_id: styleIdCode || null,
+    style_id: styleId || null,
     vendor: pick(record, VENDOR_KEYS) || null,
     vendor_code: pick(record, VENDOR_CODE_KEYS) || null,
     commission: pick(record, COMMISSION_KEYS) || null,
