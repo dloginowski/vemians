@@ -371,6 +371,28 @@ check("test_PRD_P0_89_batch_preview_confirm__the_note_points_at_the_preview_tool
   assert.ok(content.indexOf("catalog_preview_product_batch") < content.indexOf("catalog_draft_product_batch"));
 });
 
+check("test_PRD_P0_89_batch_preview_confirm__the_note_says_to_call_draft_in_the_same_turn_not_after_a_reply", () => {
+  /* REVISED — a real chat transcript showed the actual failure this
+     replaces: the note used to say "only call catalog_draft_product_batch
+     ... once they confirm it looks right," which meant a separate, LATER
+     turn -- one with no memory of this asset id at all (sanitizeHistory,
+     agent.js, keeps only plain rendered text, never a tool call or its
+     arguments). The person really did reply "Yes" in chat, and the very
+     next turn came back "refused assets.list", "refused
+     catalog_draft_product_batch", twice each, then "I can't find its asset
+     id right now, so I can't create the batch yet." The fix: this note now
+     tells the model to call the draft tool immediately, in the SAME turn
+     as the preview, while the id is still real -- never to wait for a
+     reply first. */
+  const content = buildUserContent("", CSV_ATTACHMENT, "manager");
+  assert.match(content, /same turn/i, "instructs calling draft right after preview, not after a separate reply");
+  assert.doesNotMatch(
+    content,
+    /once they confirm it looks right/i,
+    "the old wording asked the model to wait for a later, asset-id-less turn -- exactly the bug",
+  );
+});
+
 test("test_PRD_P0_30_prd_traceability__every_label_used_here_exists_in_the_prd", async () => {
   const prd = fs.readFileSync(
     path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "docs", "PRD.md"),

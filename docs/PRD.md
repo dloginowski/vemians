@@ -2330,6 +2330,48 @@ that does not trace to one of these is a process failure (see §12).
     `"(not found)"` a value nobody supplied at all would read as — the distinction the owner's own
     "failure mode" complaint was actually about.
 
+    **REVISED YET AGAIN — "only call the draft tool once they confirm the mapping looks right,"
+    this entry's own original text above, turned out to be the bug.** A real chat transcript showed
+    exactly why: a person previewed a spreadsheet, replied "Yes" in plain chat, and the VERY NEXT
+    turn came back "refused assets.list", "refused catalog_draft_product_batch" (twice each), then
+    "I'm hitting a system error trying to look up the asset for that upload — I can't find its asset
+    id right now, so I can't create the batch yet." `sanitizeHistory` (`agent.js`) keeps only the
+    client's own literal, already-rendered chat-bubble text between turns — no tool call, no tool
+    result, no attachment note — by design (P0-77's own contract: history is what the person actually
+    saw, nothing more). `attachmentNote()`'s own asset id is handed to the model exactly ONCE, in the
+    text of the turn the file was attached; asking it to wait for a REPLY before calling the draft
+    tool sends that id into a later turn that structurally cannot carry it forward. This is the
+    second time this exact shape of bug was diagnosed — the first (this entry's own `precheckBatchDraft`/
+    `approve()`, `agent.js`) fixed the CLICK itself needing no model turn or memory of the id at all
+    ("I need to be able to click yes or no," the owner's own words), by stashing a real, server-side
+    PENDING approval record carrying the asset id from the moment `catalog_draft_product_batch` is
+    first called — but it never fixed the more basic problem of the model successfully making that
+    FIRST call at all, since the instructions still told it to wait for a spoken "yes" before ever
+    trying. Compounding it, `catalog_draft_product_batch`'s own tool description had drifted stale,
+    still claiming "no approval link, no second click, the upload itself is the deliberate action" —
+    true before that same earlier fix, false after it — which only reinforced the model's own instinct
+    to get a person's explicit spoken go-ahead first, reasonably enough, for a call it was being told
+    was irreversible.
+
+    **The fix is to never need the memory trick at all.** `PREVIEW_TOOL_DEFS`/`BATCH_TOOL_DEFS`'s own
+    descriptions and `attachmentNote()`'s spreadsheet pointer (`agent.js`) now tell the model to call
+    `catalog_draft_product_batch`/`customer_draft_customer_batch` immediately after showing the
+    preview, in the SAME turn, while the asset id is still real — never to wait for the person's own
+    reply first. Nothing is created any less safely for it: that call still only stashes a PENDING T2
+    approval (the existing, unchanged `precheckBatchDraft` mechanism) and still waits for the person's
+    own Approve click before anything runs; they still see the full preview table and still have to
+    click to proceed, they simply never have to also type "yes" in a turn that cannot possibly carry
+    the file forward with it. `catalog_draft_product_batch`'s own stale description is corrected
+    alongside it, to actually describe the gate it has had since the earlier fix.
+
+    **A second, backup safety net for the case even this cannot fully close.** A genuinely ambiguous
+    sheet can still make the model pause and ask a real clarifying question before drafting, and that
+    reply arrives in a turn just as stripped-down. `formatBatchPreview` (`agent.js`) now appends the
+    exact asset id, plainly, to the end of its own visible reply text — the ONE thing `sanitizeHistory`
+    actually preserves between turns, there being no other side channel to carry it forward at all —
+    so even that slower, question-asking path can still recover the real id on a later turn rather
+    than guessing or giving up.
+
 34a''''''''''''''''''''. **`Test-PRD-P0-90-daylight_contrast`** — The owner's own words: "Bump up
     the contrast of the dimmer elements on ops page. Its a little hard to see on a mobile device
     in broad daylight." Direct sun washes out exactly the mid-tones a "dim, secondary" colour is
