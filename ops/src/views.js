@@ -465,14 +465,22 @@ const TABLE_CARD_CSS = `
   position: fixed; inset: 12px; z-index: 50; max-height: none;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
 }
-/* A batch preview is one header row plus PREVIEW_SAMPLE_ROWS (1) data row
-   now (batch.js) — small and fixed in size, never the hundreds of rows
-   batchDraftTable()'s own full result can carry. The owner's own words,
-   after the fixed 58px cap still clipped it: "the preview in chat still
-   doesn't expand vertically to show the entire table... make sure the
-   height fits all the data." No cap at all for this one — the outer .log
-   scroll frame already bounds the whole chat column if it ever runs long. */
-.table-card.preview { max-height: none; }
+/* REVISED — a batch preview used to be one header row plus a single data
+   row (batch.js's own PREVIEW_SAMPLE_ROWS), so this rule dropped the height
+   cap entirely: "the preview in chat still doesn't expand vertically to
+   show the entire table... make sure the height fits all the data." A
+   preview now carries EVERY interpreted product/customer (batch.js's own
+   previewBatch, REVISED again) — "I always wanted to be able to click on
+   the chat preview and expand and see the entire column... scroll up and
+   down and just review the entire contents" — the owner's own words,
+   correcting the assumption behind the rule above: the collapsed default
+   was always meant to stay small, only the DATA it carries grew. No
+   dedicated preview rule any more — it falls back to the ordinary
+   .table-card cap right above (86px, scrollable in place), same as
+   batchDraftTable()'s own result; .table-card.full (also above) already
+   removes that cap unconditionally the moment "Full screen" is clicked,
+   .preview or not, which is what actually delivers "scroll up and down and
+   review the entire contents" now. */
 /* The preview's own data cells crop with an ellipsis instead of wrapping
    — the owner's own correction, after Test-PRD-P0-119-table_headers_never_wrap
    let data wrap onto as many lines as it needed: "your test is a little
@@ -483,8 +491,7 @@ const TABLE_CARD_CSS = `
    making sure the data in the CSV matches the headings — a legible view
    of the entire heading, and a preview of the data underneath, even if
    it's cropped by ellipses, as long as we get the idea of what's in
-   there. We should never have to scroll vertically." Cancels
-   .table-card td's own general "overflow-wrap: anywhere; word-break:
+   there." Cancels .table-card td's own general "overflow-wrap: anywhere; word-break:
    break-word; min-width: 6em" for the PREVIEW card only — that base
    behavior is untouched for batchDraftTable()'s own full ready/skipped
    result (still plain .table-card, still wrapping, since reading a real

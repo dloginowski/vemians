@@ -533,38 +533,68 @@ async function precheckBatchDraft(name, args, { role, env }) {
 }
 
 /* Preview relays previewBatch's own {headers, rowCount, sampleRows} — a
-   read-only look at column headings and the first few rows, so a wrong
-   mapping is caught before the draft tools mint anything. Only as many
-   rows as previewBatch actually sampled — "just top 2 or 3 rows to see the
-   headings," not the whole sheet. */
+   read-only look at column headings, so a wrong mapping is caught before
+   the draft tools mint anything.
+   REVISED — "I always wanted to be able to click on the chat preview and
+   expand and see the entire column, entire like a table... scroll up and
+   down and just review the entire contents" — previewBatch's own
+   `sampleRows` now carries every interpreted product/customer, not a
+   sample; this text stays a SHORT orientation regardless (still just the
+   first one), the same reason NO_TEXT_TABLE_NOTE bans restating the whole
+   table as prose elsewhere in this file — the structured table below is
+   where "the entire contents" actually lives, and where "scroll up and
+   down"/"Full screen" (views.js) actually work. */
+const PREVIEW_TEXT_SAMPLE = 1;
+
 function formatBatchPreview(kind, preview) {
   if (!preview.rowCount) return "That spreadsheet has no rows to preview.";
   const noun = kind === "customers" ? "customers" : "products";
-  const lines = preview.sampleRows.map((row, i) => {
+  const singular = noun.slice(0, -1);
+  const total = preview.sampleRows.length;
+  /* Grouping (previewBatch's own splitProductRecords, batch.js) can drop a
+     row outright -- a non-blank style-id cell that does not parse as one at
+     all, "if they don't have that style ID pattern, then just ignore that"
+     -- the same way the real draft silently drops it. Every row detected
+     but none of them a real one to interpret is a genuinely different case
+     from an empty sheet, and previewTable() below has nothing to build a
+     table from either way. */
+  if (!total) {
+    return (
+      `${preview.rowCount} row${preview.rowCount === 1 ? "" : "s"} detected, but none of them could be read as a ${singular} — ` +
+      `check that the column mapping (${preview.headers.join(", ")}) is what was intended.`
+    );
+  }
+  const shown = preview.sampleRows.slice(0, PREVIEW_TEXT_SAMPLE);
+  const lines = shown.map((row, i) => {
     const fields = Object.entries(row)
       .map(([field, value]) => `${field}=${value === null ? "(not found)" : value}`)
       .join(", ");
-    return `  Row ${i + 1}: ${fields}`;
+    return `  ${singular} ${i + 1}: ${fields}`;
   });
   return (
-    `${preview.rowCount} row${preview.rowCount === 1 ? "" : "s"} detected. Columns found: ${preview.headers.join(", ")}.\n\n` +
-    `First ${preview.sampleRows.length} of them, as ${noun} would read:\n${lines.join("\n")}\n\n` +
-    "Show this mapping to the person before drafting the rest — if anything above looks wrong, it will be wrong for every row."
+    `${preview.rowCount} row${preview.rowCount === 1 ? "" : "s"} detected, interpreted as ${total} ${total === 1 ? singular : noun}. ` +
+    `Columns found: ${preview.headers.join(", ")}.\n\n` +
+    `For example, as one would read:\n${lines.join("\n")}\n\n` +
+    `The complete, expandable table below has every ${singular} this file was interpreted as — have the person review it in full there ` +
+    "before drafting the rest, since a wrong mapping there will be wrong for every row."
   );
 }
 
 function previewTable(kind, preview) {
-  if (!preview.rowCount) return null;
+  if (!preview.rowCount || !preview.sampleRows.length) return null;
+  const noun = kind === "customers" ? "customers" : "products";
+  const singular = noun.slice(0, -1);
+  const total = preview.sampleRows.length;
   const columns = Object.keys(preview.sampleRows[0]);
   return {
-    title: `Preview: first ${preview.sampleRows.length} of ${preview.rowCount} row${preview.rowCount === 1 ? "" : "s"}`,
+    title: `Preview: ${total} ${total === 1 ? singular : noun} interpreted from ${preview.rowCount} row${preview.rowCount === 1 ? "" : "s"}`,
     columns,
     rows: preview.sampleRows.map((row) => columns.map((c) => (row[c] === null ? "(not found)" : String(row[c])))),
-    /* Just a header plus PREVIEW_SAMPLE_ROWS (1) data row — small enough to
-       show in full, never needing the inner scroll frame batchDraftTable()'s
-       own (potentially hundreds of rows) table still needs. views.js's
-       tableCard() reads this to add .table-card.preview instead of leaving
-       the fixed max-height clip it at an arbitrary height. */
+    /* Collapsed to a small default height by CSS (TABLE_CARD_CSS's own
+       .table-card.preview) — REVISED, no longer because the data itself was
+       ever this small: it now carries every row/group the sheet was
+       interpreted as, same as batchDraftTable()'s own result, scrollable in
+       place or via "Full screen" (views.js's tableCard()) either way. */
     compact: true,
   };
 }

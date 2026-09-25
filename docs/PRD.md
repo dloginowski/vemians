@@ -2238,6 +2238,51 @@ that does not trace to one of these is a process failure (see §12).
     `max-height` is recomputed once more for the smaller row height this produces, `58px`, still
     the same header-row-plus-two-data-rows target every earlier round targeted.
 
+    **REVISED YET AGAIN — the preview now shows every row the sheet actually has, and one row per
+    PRODUCT, not one row per raw CSV line.** Two corrections from the owner in one message. First:
+    "my initial request was to keep the preview small in chat, but I always wanted to be able to
+    click on the chat preview and expand and see the entire column, entire like a table. I can
+    scroll up and down and just review the entire contents to verify that everything is included.
+    So my initial instructions was never followed." `PREVIEW_SAMPLE_ROWS` had capped what
+    `previewBatch` even COMPUTED, not just what the collapsed card showed — "Full screen" (P0-89's
+    own toggle, above) had nothing more to reveal than the identical one row, bigger. Full detail is
+    covered in P0-117's own "REVISED" entry, above (the same underlying data change; this entry
+    covers the second correction, about what a "row" of that data actually means).
+
+    Second: "make sure that my preview table lists actual... compressed style ID for each product,
+    and its sizes listed and its options listed. It should be collapsed. I don't want to see all
+    the variants... just to show that the agent has properly interpreted the product list." One row
+    per raw CSV line was never the same claim as one row per PRODUCT — a style-numbered sheet's own
+    several size/color rows are one product with several variations (P0-152's own grouping rule),
+    and a preview built one CSV row at a time could only ever repeat that product's own style_id and
+    title once per variant, never actually show that the grouping had happened at all.
+    `previewBatch` (`batch.js`) now runs its product rows through `splitProductRecords` — the exact
+    same grouping split `draftProductBatch` itself uses, pulled out into its own function so preview
+    and real draft can never drift apart on WHICH rows become one product — and a new
+    `mapProductGroup(base, groupRows)` collapses each group into ONE preview row: `style_id` is the
+    group's own shared base (the same compressed `NN-NN-NNN` a real style number carries, not a
+    per-variant SKU), `size`/`color` are every DISTINCT value the group's own rows actually carry —
+    "Wool Coat" in S, M and L previews with `size: "S, M, L"`, not three near-identical rows — and a
+    new `variants` column names how many rows became this one product, the plainest possible
+    confirmation that grouping happened at all. `price`/`quantity` are similarly the group's own
+    distinct values, joined ("450.00 / 480.00") rather than only the first row's own — a real price
+    difference between sizes is a fact worth seeing, not one this collapsing should silently hide.
+    `sku` — a single scalar — only still applies to a group of exactly one variant, where it always
+    has: a MULTI-variant group has no one SKU to show (each variation keeps its own full style
+    number as ITS real SKU, unaffected in the real write), and `style_id`/`size`/`color`/`variants`
+    together already tell that story better than repeating every variant's own number would. A
+    standalone (non-style-numbered) row previews exactly as it always did — every product is a
+    "group," a lone one just has exactly one member.
+
+    Both corrections read together as the owner's own explicit fallback, given in the same message:
+    "if you feel that it's better to show all the variants as raw data... then feel free to do so as
+    well. I'm just saying maybe it'll be nice to see how the agent interpreted everything." The
+    collapsed, grouped view above is the one built, as the more direct answer to "how the agent
+    interpreted everything" — the ungrouped, one-row-per-variant alternative was deliberately not
+    built alongside it, since a person can already reach the real per-variant detail once a group is
+    approved (`batchDraftTable`'s own uncapped result, P0-89's original text above), and building
+    both would mean maintaining two different "here is what this file means" views of the same data.
+
 34a''''''''''''''''''''. **`Test-PRD-P0-90-daylight_contrast`** — The owner's own words: "Bump up
     the contrast of the dimmer elements on ops page. Its a little hard to see on a mobile device
     in broad daylight." Direct sun washes out exactly the mid-tones a "dim, secondary" colour is
@@ -3241,6 +3286,27 @@ that does not trace to one of these is a process failure (see §12).
     and scrolling, since that one can carry hundreds of rows). The outer chat log
     (`.log`, P0-78's own `min(62vh, 560px)` scroll frame) still bounds the whole conversation
     column if a preview card ever runs unexpectedly tall.
+
+    **REVISED — the collapsed default was always meant to stay small; only the DATA behind it was
+    ever supposed to grow, and it never had.** The owner's own words, catching that this feature's
+    own earlier instruction had quietly become a ceiling rather than a starting point: "my initial
+    request was to keep the preview small in chat, but I always wanted to be able to click on the
+    chat preview and expand and see the entire column, entire like a table. I can scroll up and
+    down and just review the entire contents to verify that everything is included. So my initial
+    instructions was never followed." `previewBatch` (`batch.js`) used to cap what it COMPUTED at
+    `PREVIEW_SAMPLE_ROWS` (1) — the same number this entry's own original text describes — which
+    meant there was nothing for "Full screen" to ever reveal beyond that one row; the toggle
+    existed, but expanding it just showed the identical single row bigger, never "the entire
+    contents." `previewBatch` now maps EVERY row the sheet contains (one entry per interpreted
+    product/customer — see P0-89's own "REVISED YET AGAIN," below, for what "interpreted" means for
+    products specifically) into `sampleRows`, and the small, collapsed look stays exactly as small
+    as before by becoming a CSS property of the DEFAULT (non-full) state rather than a fact about
+    the dataset: `.table-card.preview { max-height: none; }` is removed outright, so the collapsed
+    card falls back to the ordinary `.table-card` rule right above it (86px, `overflow: auto`) —
+    scrollable in place, same as `batchDraftTable()`'s own result always was. `.table-card.full`
+    (unconditional on `.preview`) still drops the cap entirely the moment "Full screen" is clicked,
+    which is what now actually delivers "scroll up and down and just review the entire contents" —
+    the mechanism this entry built was always the right one, it just had nothing real to show yet.
 
 53. **`Test-PRD-P0-118-chat_top_side_padding_halved`** — The owner's own words, comparing the
     agent chat's own two pieces: "reduce the overall page padding in the agent section... the chat
