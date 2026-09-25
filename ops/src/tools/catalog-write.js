@@ -110,6 +110,7 @@ import {
   priceBand,
   productByHandle,
   styleIdCodesFor,
+  variantBySku,
   variantsOf,
   vendorCommission,
 } from "./catalog-writer.js";
@@ -901,6 +902,23 @@ export const catalogWriteTools = {
           `style_id '${args.style_id}' does not match this shop's own nomenclature — ` +
             "NN-NN-NNN (2-digit category, 2-digit subcategory, 3-digit item number), e.g. \"01-04-001\".",
         );
+      }
+      /* "We must have a unique SKU number or ID for each item that's
+         unique to each variation and size... if that's true, then add the
+         product" — the owner's own words, the one hard rule a batch import
+         defers to. validateProposal above already refuses a SKU reused
+         TWICE IN THIS SAME CALL; this is the other half — an explicitly
+         given SKU that collides with a DIFFERENT product already on file.
+         Never checked for a SKU this call did not itself give (an
+         auto-generated one, minted only in run() below, is this system's
+         own responsibility to keep unique, not a caller's). */
+      for (const v of args.variations) {
+        const sku = String(v?.sku ?? "").trim();
+        if (!sku) continue;
+        const existing = await variantBySku(t.db.catalog_mirror, sku);
+        if (existing) {
+          problems.push(`SKU '${sku}' is already used by '${existing.product_title}' — every item needs its own unique SKU`);
+        }
       }
       if (problems.length) {
         return {

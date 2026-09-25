@@ -6740,6 +6740,44 @@ that does not trace to one of these is a process failure (see §12).
     parks an ordinary approval via the unchanged `parkRows`, since customer records carry no analogous
     "major clash" concept and were never part of this instruction.
 
+    **REVISED AGAIN — most of the per-row skips just above turned out to BE the "ideally" left
+    undone, and the owner answered it directly: "if you can already automatically do this, then do it.
+    Don't reinvent the wheel... the only hard rule here is that we must have a unique SKU number or ID
+    for each item that's unique to each variation and size. If that's true, then add the product."**
+    Read against `catalog.create_product`'s own `check()` (catalog-write.js), it turns out almost none
+    of this file's own per-row skips were ever things Square itself, or that tool, actually required —
+    they were policy this file invented on top, and the owner's instruction here is to stop inventing
+    it. Reworked in `draftGroupedProduct` and the standalone loop alike (batch.js):
+    - A category or subcategory this shop cannot resolve or create (a code matching nothing with no
+      name to create from, a real Square refusal, a rate cap, a subcategory named with no category to
+      nest under) no longer skips the row — it lands the product UNASSIGNED instead, exactly the
+      fallback `catalog.create_product` already tolerates on its own for a row naming no category at
+      all, or (for a subcategory specifically) one level shallower, at the top-level category alone.
+      Nothing is silently lost: the real reason lands in the product's own `custom_fields["import
+      notes"]`, alongside the raw style number when even the TOP-level category could not be resolved.
+    - A category name already numbered DIFFERENTLY than a row's own conflicting style-number claim is
+      no longer a reported mismatch (`resolveCategoryByCode`) — this shop's own already-established
+      number wins outright, the same "existing real data over a mismatched spreadsheet column" rule
+      already applied the other way (an existing NUMBER ignores a mismatched NAME column, unchanged).
+    - "No vendor and no unit cost" is no longer a skip at all — walking back the earlier "if we don't
+      have a vendor name, then we must have a cost of goods" rule outright, since `catalog.
+      create_product`'s own `check()` was confirmed to never actually require either.
+    - A malformed commission, a malformed unit cost (with a vendor), a vendor code given without a
+      vendor, and a quantity that will not parse are no longer skips either — each is simply left OUT
+      of the write (quantity defaults to 1, same as a blank cell already did) and noted in `import
+      notes`, rather than blocking a row over optional or already-defaulted business data.
+    - A genuinely unparseable PRICE is the one exception left standing, still a hard skip — Square has
+      no way to sell an item for an amount nobody gave it, the one thing here that is not a business
+      policy but an unavoidable technical requirement.
+    - **NEWLY enforced as the one hard rule that replaces all of the above: a SKU must be unique across
+      the WHOLE shop, not merely within one `catalog.create_product` call.** `validateProposal`'s own
+      "used twice in this product" check (catalog-write.js) only ever saw one call's own `variations`;
+      `variantBySku` (catalog-writer.js) is the other half, queried from `check()` for every explicitly
+      given SKU, refusing the row outright — `SKU 'X' is already used by 'Y'` — the moment it collides
+      with any OTHER product already on file. An auto-generated SKU (`generateSku`/`skuFromStyleId`,
+      minted only in `run()`, never given by a caller) is this system's own responsibility to keep
+      unique, not checked here.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
