@@ -5846,11 +5846,33 @@ that does not trace to one of these is a process failure (see §12).
     the row it copied, per the HTML cloning steps) while its hidden `parent_id` is left completely
     untouched, since blanking THAT one field would turn the clone into a top-level category instead of
     a subcategory. Save All still just submits every `form[data-dirty='1']` it finds, unchanged — it
-    was already written generically enough to not care how many add-forms exist. Two queued rows that
-    land on the same auto-suggested numeric_id (the auto-fill only looks at already-SAVED siblings, not
-    at other still-pending rows in the same batch) are still refused, just at Save rather than before
-    it — the same "you cannot save that" duplicate-ID refusal this tree already enforces everywhere
-    else, not a new failure mode.
+    was already written generically enough to not care how many add-forms exist.
+
+    **REVISED AGAIN: each queued row now auto-fills its own DISTINCT numeric_id, not the same one
+    repeated.** The owner's own words, a direct follow-up once the toggling itself was fixed: "if I hit
+    plus multiple times, each new added category must have a new ID added." The existing auto-fill
+    (`nextNumericId`) only ever looks at already-SAVED siblings, so every row queued up in the same
+    sitting suggested the identical next number — correct for the FIRST one, wrong for every one after
+    it, since nothing about a still-open, unsaved row was ever fed into that calculation. Revealing or
+    cloning a row now also reads every OTHER pending row already open in the same list (by hand-typed
+    or previously auto-filled `numeric_id`) and keeps bumping the suggestion past any of them it
+    collides with, so three subcategories queued up in one sitting land on three consecutive numbers
+    from the start, not the same one three times over. Two rows that still end up sharing an ID despite
+    this (one was auto-filled before the other existed to bump against, then hand-edited back to match)
+    are refused at Save, the same "you cannot save that" duplicate-ID rule this tree already enforces
+    everywhere else — not a new failure mode, just no longer the common case.
+
+    **Not a new requirement, already covered: a freshly created subcategory inherits its parent's
+    option sets automatically, whether it is the only one queued up or one of several.** The owner's
+    own words, raised in the same breath as the ID point above: "you must always inherit whatever the
+    option sets are from the parent... unless they change something." `catalog.create_category`
+    (P0-138, above) never touches `item_options_set_at` — a brand-new row's own column starts NULL
+    exactly like any other never-touched category's, which is this codebase's own established
+    inheriting signal (P0-142's `effectiveCategoryItemOptionIds`) — already proven, for exactly this
+    "a brand-new subcategory" case, by P0-142's own
+    `a_subcategory_with_no_explicit_set_inherits_its_parents` test. Queuing several new rows before
+    Save changes nothing about how each one is created — every one of them starts inheriting, and only
+    stops the moment someone explicitly sets its own option sets or names it directly.
 
 74. **`Test-PRD-P0-139-honest_write_failures`** — A Square write refused with a plain `Square POST
     /v2/catalog/object failed with 400` and nothing else — the owner's own words, pasting exactly that
