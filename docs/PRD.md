@@ -3431,6 +3431,22 @@ that does not trace to one of these is a process failure (see §12).
     matching how every other `.table-card`'s own cells already read, so nothing is ever
     permanently hidden, only cropped by default.
 
+    **REVISED — a real bug, only visible once the preview grew from one sample row to a whole,
+    many-column spreadsheet (P0-89's own later revisions).** The owner's own words: "Full screen is
+    completely unusable. You've collapsed all the rows to be super tall and super thin, which makes
+    them unreadable." `.table-card.preview.full td` (right above) lifted the ellipsis crop's own
+    `white-space: nowrap` and `max-width: 10em` back to ordinary wrapping, but never restored a
+    `min-width` to go with it — it stayed at the collapsed state's own `0` (`.table-card.preview
+    td`'s own value, needed there only to let the ellipsis crop bite at all). With `table-layout:
+    auto` and no floor, the browser is free to size each column down to its own narrowest
+    unbreakable unit — and with `overflow-wrap: anywhere` restored in the very same rule, that unit
+    is a single character. A preview with many real columns, in a fixed-width full-screen overlay,
+    rendered every column at almost no width with every cell's text wrapping one character per
+    line — tall and thin, the literal opposite of the readability "Full screen" exists to provide.
+    `min-width: 6em` restored on the same rule — the identical floor the ordinary, non-preview
+    `.table-card td` already carries — is what actually fixes it: full screen was always meant to
+    read like that card, not a narrower one.
+
 56. **`Test-PRD-P0-121-chat_matches_items_flush_padding`** — P0-118 halved `.chat-top`'s own side
     padding (14px to 7px) but the owner still saw a visible gap: "I'm still seeing more padding on
     the agent chat... if you look at the items page, the items have much less side padding than

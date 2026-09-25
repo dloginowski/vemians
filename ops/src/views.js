@@ -508,8 +508,22 @@ const TABLE_CARD_CSS = `
   overflow-wrap: normal; word-break: normal; min-width: 0; max-width: 10em;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+/* REVISED — "Full screen is completely unusable. You've collapsed all the
+   rows to be super tall and super thin, which makes them unreadable" — the
+   owner's own words. This rule restored wrapping and dropped the collapsed
+   state's own max-width, but never restored its min-width, left at the
+   collapsed card's own "0" (needed there only to let the ellipsis crop bite
+   at all). With table-layout: auto and no floor, the browser is free to
+   squeeze a column down to whatever its narrowest unbreakable unit is —
+   with overflow-wrap: anywhere lifted back in the same rule, that unit can
+   be a single character, so a wide table with many columns (a real
+   spreadsheet preview) rendered every column at almost no width and every
+   cell's text wrapping one character per line: tall and thin, the exact
+   opposite of readable. Restoring the same "6em" floor the ordinary,
+   non-preview .table-card td already carries is what actually fixes it —
+   full screen was always meant to read like that card, not a narrower one. */
 .table-card.preview.full td {
-  overflow-wrap: anywhere; word-break: break-word; max-width: none;
+  overflow-wrap: anywhere; word-break: break-word; max-width: none; min-width: 6em;
   white-space: normal; overflow: visible; text-overflow: clip;
 }
 `;
