@@ -2372,6 +2372,27 @@ that does not trace to one of these is a process failure (see §12).
     so even that slower, question-asking path can still recover the real id on a later turn rather
     than guessing or giving up.
 
+    **REVISED ONE MORE TIME — the "call it in the same turn" fix immediately above lasted one real
+    round-trip.** Looking at the very approval card this whole entry exists to describe, after having
+    ALREADY said the mapping looked right in chat: "I shouldn't need to do that" — the owner's own
+    words. That card was never the safety check it looked like; it was a second click on a decision
+    already made. `catalog_draft_product_batch` (`dispatch()`, `agent.js`) no longer stashes a PENDING
+    approval at all — it runs the real draft the moment it is called, and hands its own result straight
+    back as an ordinary tool result, nothing left for a person to click. That, in turn, means calling it
+    in the SAME turn as the preview (the immediately-preceding fix) is no longer safe: with no button
+    left at all, doing so would mean creating real products with no human review moment between the
+    preview and the write, undoing the entire point of this feature. So the confirmation moves back to
+    where it always was — a real chat reply, in words, still genuinely waited for — and the fix that
+    actually survives is the ONE from the "backup safety net" paragraph just above: `formatBatchPreview`'s
+    own `[asset id: ...]` tag is what lets the model recover the real id on that later, confirming turn,
+    rather than trying (and, in the original transcript, failing) to recall it from memory or re-derive
+    it via `assets.list`. `PREVIEW_TOOL_DEFS`/`BATCH_TOOL_DEFS`/`attachmentNote()` all point at that tag
+    explicitly now, and explicitly rule out `assets.list` as a fallback. `customer_draft_customer_batch`
+    is UNCHANGED by any of this — a clean customer row was never created immediately even once its own
+    batch approval was clicked, it always minted its own separate, individual review link regardless, so
+    its own outer click was never a redundant second yes on the same decision the way the product one
+    was; it is still the only place a customer batch is approved at all.
+
 34a''''''''''''''''''''. **`Test-PRD-P0-90-daylight_contrast`** — The owner's own words: "Bump up
     the contrast of the dimmer elements on ops page. Its a little hard to see on a mobile device
     in broad daylight." Direct sun washes out exactly the mid-tones a "dim, secondary" colour is

@@ -113,6 +113,9 @@ async function withFakeAnthropic(handleRequest, fn) {
  * on the chat card's own Approve button takes: a scripted model turn that
  * calls the batch-draft meta-tool once (mints a real PENDING record), then
  * approve() against that record's own id, never against re-typed args.
+ * REVISED — customer_draft_customer_batch only, now: catalog_draft_product_
+ * batch no longer stops for a separate approval at all (see
+ * draftProductBatchViaChat, immediately below, for that one).
  *
  * `square`, when given, is spliced in as the fetch a real draft would use to
  * reach Square — routed alongside, not instead of, the real fetch the fake
@@ -154,6 +157,28 @@ async function draftBatchViaChatButton(name, args, { actor = "mara@vemians.com",
       },
     );
     return await approve({ id: pendingId, identity: { email: actor, groups: ["vemians-manager"] }, env });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+
+/*
+ * REVISED — "I shouldn't need to do that," the owner's own words, looking
+ * at the approval card catalog_draft_product_batch used to show even after
+ * the person had already confirmed the preview mapping in chat. That outer
+ * click is gone: dispatch() now runs the real draft immediately and hands
+ * its own result straight back as a plain tool result — no PENDING record,
+ * no approve() call, no separate model turn needed to relay it either, so
+ * this drives dispatch() directly rather than the full scripted-model round
+ * trip draftBatchViaChatButton (above) still needs for the approval path.
+ */
+async function draftProductBatchViaChat(name, args, { actor = "mara@vemians.com", role = "manager", env, square = null }) {
+  const realFetch = globalThis.fetch;
+  if (square) globalThis.fetch = square;
+  try {
+    const outcome = await dispatch(name, args, { actor, role, env, allowed: new Set([name]) });
+    assert.equal(outcome.kind, "result", "catalog_draft_product_batch must run immediately, never stop for a separate approval");
+    return { ok: !outcome.block.is_error, reply: outcome.block.content, table: outcome.table };
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -5811,16 +5836,17 @@ check("test_PRD_P0_88_spreadsheet_via_chat__refuses_plainly_when_the_file_had_no
 
 check("test_PRD_P0_88_spreadsheet_via_chat__a_real_csv_drafts_through_the_same_path_products_batch_uses", async () => {
   /* THE POINT: the same draftProductBatch() that /products/batch calls
-     directly, reached instead through the chat's own tool-call loop AND its
-     own real Approve button — click, not free text — with the CSV read back
-     from the asset store rather than re-typed by the model — a wrong guess
-     on this row from the model is not possible, only a wrong guess by the
-     same deterministic parser /products/batch itself trusts. */
+     directly, reached instead through the chat's own tool-call loop — the
+     model's own call to catalog_draft_product_batch runs it immediately, no
+     approval button in between — with the CSV read back from the asset
+     store rather than re-typed by the model — a wrong guess on this row
+     from the model is not possible, only a wrong guess by the same
+     deterministic parser /products/batch itself trusts. */
   const f = await fixture();
   const csv = "title,category,price,style id,cost\nWool Coat,Outerwear,450.00,01-04-001,210.00\nSilk Scarf,Outerwear,free,01-04-002,\n";
   const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
 
-  const outcome = await draftBatchViaChatButton(
+  const outcome = await draftProductBatchViaChat(
     "catalog_draft_product_batch",
     { asset_id: "ast_1" },
     { env, square: f.square },
@@ -5836,7 +5862,7 @@ check("test_PRD_P0_136_square_custom_attributes__a_missing_category_via_chat_is_
   const csv = "title,category,price,cost,style id\nSun Hat,Millinery,20.00,10.00,50-01-001\n";
   const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
 
-  const outcome = await draftBatchViaChatButton(
+  const outcome = await draftProductBatchViaChat(
     "catalog_draft_product_batch",
     { asset_id: "ast_1" },
     { env, square: f.square },
@@ -6016,6 +6042,25 @@ check("test_PRD_P0_89_batch_preview_confirm__customers_preview_maps_the_square_f
   assert.equal(outcome.table.rows[0][emailCol], "ava@example.com");
 });
 
+check("test_PRD_P0_89_batch_preview_confirm__customer_draft_still_stops_for_a_real_approval_button", async () => {
+  /* UNLIKE catalog_draft_product_batch (draftProductBatchViaChat, above):
+     a bulk customer import is still its own T2 decision, gated behind a
+     real Approve click -- the outer click here is not a redundant second
+     yes on top of one already given in chat, it is the only place the
+     batch as a whole is ever approved at all. And even once clicked, a
+     clean row still never creates immediately, it still mints its own
+     separate, individual approval link -- so this one row reads "0
+     customers created, 1 need a person's decision" rather than "created". */
+  const f = await fixture();
+  const csv = "given_name,family_name,email_address\nAva,Stone,ava@example.com\n";
+  const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv, filename: "customers.csv" }) };
+
+  const outcome = await draftBatchViaChatButton("customer_draft_customer_batch", { asset_id: "ast_1" }, { env, square: f.square });
+  assert.equal(outcome.ok, true, outcome.reply);
+  assert.match(outcome.reply, /0 customers created, 1 need a person's decision, 0 skipped/);
+  assert.match(outcome.reply, /Ava/);
+});
+
 check("test_PRD_P0_89_batch_preview_confirm__an_empty_spreadsheet_previews_as_nothing_to_show_not_a_crash", async () => {
   const outcome = await dispatch(
     "catalog_preview_product_batch",
@@ -6058,13 +6103,14 @@ check("test_PRD_P0_89_batch_preview_confirm__rows_that_all_fail_to_group_preview
 check("test_PRD_P0_89_batch_preview_confirm__the_draft_tools_carry_a_structured_table_too", async () => {
   /* Not just the preview — the real draft result is ALSO structured, since a
      person cannot review forty skip reasons rendered as one text bubble.
-     Carried on the Approve button's own response now, since that button —
-     not a second model turn — is what actually runs the draft. */
+     Carried on the model's own call to catalog_draft_product_batch itself
+     now, since that call — not a separate approval click — is what
+     actually runs the draft. */
   const f = await fixture();
   const csv = "title,category,price,style id,cost\nWool Coat,Outerwear,450.00,01-04-001,210.00\nSilk Scarf,Outerwear,free,01-04-002,\n";
   const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
 
-  const outcome = await draftBatchViaChatButton(
+  const outcome = await draftProductBatchViaChat(
     "catalog_draft_product_batch",
     { asset_id: "ast_1" },
     { env, square: f.square },
