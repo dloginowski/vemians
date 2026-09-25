@@ -35,7 +35,7 @@
  */
 
 import { TOOLS, runTool, CAPS } from "./tools/index.js";
-import { draftProductBatch, draftCustomerBatch, previewBatch } from "./batch.js";
+import { draftProductBatch, draftCustomerBatch, previewBatch, planProductBatch, submitProductBatchRow } from "./batch.js";
 
 const MODEL = "claude-sonnet-5";
 const API_BASE = "https://api.anthropic.com";
@@ -565,6 +565,62 @@ async function dispatchBatchDraft(name, args, { actor, role, env }) {
 }
 
 /*
+ * catalog_draft_product_batch's OWN dispatch, replacing a call straight
+ * through to draftProductBatch (dispatchBatchDraft, above, still customers'
+ * own path unchanged) — "have the agent check everything and fill
+ * everything out and then just do a straight submit... with the progress
+ * bar," the owner's own words, and the fix for a real "too many
+ * subrequests" report a single giant create-everything call hit. See
+ * planProductBatch's own header comment (batch.js) for why: this plans the
+ * whole batch in one call (still bounded, still safe — resolving whatever
+ * DISTINCT categories/subcategories the sheet names, never one Square
+ * write per ROW), stashes whatever is genuinely ready to submit, and hands
+ * the chat a CHECKLIST instead of a finished result — dispatch() (below)
+ * turns that into agentTurn()'s own new `checklist` field, the same way an
+ * `approval` outcome already becomes `pending`. Nothing here creates a
+ * single product; that only happens later, one row per request, through
+ * submitBatchPlanRow.
+ */
+async function dispatchProductBatchPlan(args, { actor, role, env }) {
+  const asset = await readAssetText(env, args?.asset_id);
+  if (asset.isError) return asset;
+
+  let plan;
+  try {
+    plan = await planProductBatch(env, { text: asset.row.extracted_text, actor, role });
+  } catch (err) {
+    console.error(`ERROR agent: catalog_draft_product_batch planning failed — ${err.message}`);
+    return { isError: true, text: `Drafting from "${asset.row.filename}" failed: ${err.message}` };
+  }
+
+  /* Nothing left needing a person to pick rows at all -- either every row
+     was a clash/skip already (parked or reported below, same as always),
+     or the sheet had no product rows in it. Relayed exactly like the old
+     one-call draft always did for this same shape (formatBatchDraft/
+     batchDraftTable already treat a missing `created` as empty). */
+  if (!plan.rows.length) {
+    const result = { ready: plan.ready, skipped: plan.skipped, tooMany: plan.tooMany };
+    return { isError: false, text: formatBatchDraft("products", result), table: batchDraftTable("products", result) };
+  }
+
+  const id = stashBatchPlan({ actor, role, rows: plan.rows, rate: plan.rate, total: plan.rows.length });
+  const readyCount = plan.rows.length;
+  const lines = [
+    `${readyCount} products ready to submit, ${plan.ready.length} need a person's decision, ${plan.skipped.length} skipped.`,
+    "Review the list and press Submit to create the ready ones.",
+  ];
+  return {
+    isError: false,
+    text: lines.join("\n"),
+    table: batchDraftTable("products", { ready: plan.ready, skipped: plan.skipped }),
+    checklist: {
+      id,
+      rows: plan.rows.map((r) => ({ row: r.rowNumber, title: r.title, summary: r.summary })),
+    },
+  };
+}
+
+/*
  * Shared by both catalog_draft_product_batch and customer_draft_customer_batch
  * (dispatch(), below), which now diverge right after this same pre-check:
  *
@@ -797,6 +853,41 @@ function stashPending(rec) {
 }
 
 /*
+ * A planned, not-yet-submitted product batch — "have the agent check
+ * everything and fill everything out and then just do a straight submit
+ * ... with the progress bar," the owner's own words, and the actual fix
+ * for the earlier "too many subrequests" report: planProductBatch (batch.js)
+ * resolves every row's category/subcategory once, together, then stops —
+ * the checklist offered back is genuinely ready to submit, one row per
+ * later, SEPARATE request (submitBatchPlanRow, below), each its own fresh
+ * Cloudflare invocation and subrequest budget. The identical in-memory,
+ * per-isolate, TTL'd shape PENDING (above) already uses, keyed by a minted
+ * id the same way — this is not one durable "the batch" record either, it
+ * shrinks as rows are submitted (submitBatchPlanRow splices the row it just
+ * ran out of `rows`) and is deleted outright once none are left, the same
+ * "single use" property PENDING already has, just spent N times instead of
+ * once. `rate` rides along whole: every one of a plan's own later, separate
+ * submit requests still spends from the ONE budget planProductBatch's own
+ * header comment sized for the whole batch, never a fresh one per row.
+ */
+const BATCH_PLANS = new Map();
+const BATCH_PLAN_TTL_MS = 15 * 60 * 1000;
+const BATCH_PLAN_MAX = 64;
+
+function sweepBatchPlans(now) {
+  for (const [id, rec] of BATCH_PLANS) if (now - rec.at > BATCH_PLAN_TTL_MS) BATCH_PLANS.delete(id);
+  while (BATCH_PLANS.size >= BATCH_PLAN_MAX) BATCH_PLANS.delete(BATCH_PLANS.keys().next().value);
+}
+
+function stashBatchPlan(rec) {
+  const now = Date.now();
+  sweepBatchPlans(now);
+  const id = crypto.randomUUID();
+  BATCH_PLANS.set(id, { ...rec, at: now });
+  return id;
+}
+
+/*
  * Which asset THIS ACTOR most recently previewed, for THIS kind of batch —
  * so a later confirmation reply can find the right file without the model
  * ever having to recall or repeat its id. See the "PREVIEW BEFORE DRAFT"
@@ -975,23 +1066,31 @@ export async function dispatch(name, args, { actor, role, env, allowed }) {
        already confirmed the preview mapping looks right has already made
        the deliberate decision; a SECOND, separate button on top of that is
        not an extra safety check, it is a second click for the same yes.
-       Runs immediately: still pre-checked (role, the asset genuinely
-       exists and has readable text, the row cap) so a bad call still fails
-       the same way it always did, but no PENDING approval is stashed and
-       no button is ever shown. A row-level CLASH still parks its OWN,
-       genuinely necessary approval link either way (createRows, batch.js)
-       — nothing about THAT changed, only the redundant outer gate on the
-       whole batch is gone.
+       Still pre-checked (role, the asset genuinely exists and has readable
+       text, the row cap) so a bad call still fails the same way it always
+       did. A row-level CLASH still parks its OWN, genuinely necessary
+       approval link either way (createRows, batch.js) — nothing about
+       THAT changed.
        `resolvedArgs` prefers LAST_PREVIEW's own record of what this actor
        most recently previewed over whatever asset_id the model's own call
        happens to carry — see LAST_PREVIEW's header comment for why that is
-       the reliable one and the model's own copy is not. */
+       the reliable one and the model's own copy is not.
+       REVISED AGAIN — no longer creates anything itself at all. "Too many
+       subrequests" from a single call creating every row is what
+       dispatchProductBatchPlan/planProductBatch (above/batch.js) exist to
+       fix: this plans the whole batch, once, and hands back a CHECKLIST —
+       a NEW outcome kind, translated into agentTurn()'s own `checklist`
+       field below, the same way `approval` already becomes `pending` —
+       rather than the finished result a single dispatchBatchDraft call
+       used to return here. Actually creating anything now happens later,
+       one row per request, through submitBatchPlanRow. */
     const resolvedArgs = { ...args, asset_id: lastPreviewedAsset(actor, "products") ?? args?.asset_id };
     const pre = await precheckBatchDraft(name, resolvedArgs, { role, env });
     if (pre.isError || pre.tooMany) {
       return { kind: "result", table: null, block: { type: "tool_result", tool_use_id: null, content: pre.text, is_error: pre.isError } };
     }
-    const { isError, text, table } = await dispatchBatchDraft(name, resolvedArgs, { actor, role, env });
+    const { isError, text, table, checklist } = await dispatchProductBatchPlan(resolvedArgs, { actor, role, env });
+    if (checklist) return { kind: "checklist", checklist, table, text };
     return { kind: "result", table, block: { type: "tool_result", tool_use_id: null, content: text, is_error: isError } };
   }
   if (name === "customer_draft_customer_batch") {
@@ -1326,6 +1425,26 @@ export async function agentTurn({ q, identity, env, attachment = null, history =
         };
       }
 
+      if (outcome.kind === "checklist") {
+        /* catalog_draft_product_batch's own new outcome (dispatch(), above)
+           — a planned, not-yet-created batch, waiting on which rows a
+           person actually wants submitted, never a model decision. The
+           turn stops here the same way an `approval` does, for the same
+           reason: nothing past this point should run until a person acts,
+           and no sibling tool call in this same assistant message runs
+           either. */
+        return {
+          mode: "model",
+          actor,
+          role,
+          steps,
+          reply: textOf(message) || outcome.text || "Review the rows below and press Submit to create the ready ones.",
+          table: lastTable,
+          pending: null,
+          checklist: outcome.checklist,
+        };
+      }
+
       steps.push({ tool: name, tier: (TOOLS[name] || {}).tier, ok: !outcome.block.is_error, auditId: outcome.audit });
       results.push({ ...outcome.block, tool_use_id: use.id });
     }
@@ -1456,4 +1575,51 @@ export async function approve({ id, identity, env }) {
     auditId: out && out.auditId,
     reply: out && out.ok ? `${rec.tool} ran. ${describeTool(tool, rec.tool, rec.args)}` : `${rec.tool} refused: ${(out && out.error) || "unknown error"}`,
   };
+}
+
+/*
+ * ONE row of a stashed planProductBatch checklist (BATCH_PLANS, above),
+ * actually created — index.js's own POST /agent/batch-submit-row, called
+ * once per checked row, sequentially, by the browser's own submit loop.
+ * Deliberately not run through dispatch()/runTool's usual approvalToken
+ * dance a second time here: submitProductBatchRow (batch.js) already does
+ * the real gate-then-execute pair against Square, the identical mechanism
+ * createRows always has; this function's own job is only the same
+ * authorization PENDING/approve() already enforce — the plan belongs to
+ * the actor asking to spend it, and one submitted row is spent once.
+ */
+export async function submitBatchPlanRow({ id, row, identity, env }) {
+  const actor = identity.email;
+  const role = await roleFor(identity, env);
+
+  sweepBatchPlans(Date.now());
+  const plan = BATCH_PLANS.get(id);
+  if (!plan) return { ok: false, status: 404, reply: "That batch is unknown or has expired. Nothing was run." };
+
+  if (plan.actor !== actor) {
+    console.error(`ERROR agent: batch plan ${id} raised by ${plan.actor} but submitted by ${actor}; refused`);
+    return { ok: false, status: 403, reply: "That batch belongs to a different person." };
+  }
+
+  const idx = plan.rows.findIndex((r) => r.rowNumber === row);
+  if (idx === -1) {
+    return { ok: false, status: 404, reply: "That row is unknown, already submitted, or was never part of this batch." };
+  }
+  /* Spent the moment it is picked up, whatever createRows goes on to do with
+     it — the same "single use" property PENDING's own approve() already
+     has, just per-row here instead of per-record. */
+  const [target] = plan.rows.splice(idx, 1);
+  plan.done = (plan.done ?? 0) + 1;
+  const total = plan.total;
+  if (plan.rows.length === 0) BATCH_PLANS.delete(id);
+
+  let result;
+  try {
+    result = await submitProductBatchRow(env, { actor, role, rate: plan.rate }, target);
+  } catch (err) {
+    console.error(`ERROR agent: batch plan ${id} row ${row} failed — ${err.message}`);
+    return { ok: false, status: 502, reply: `Row ${row} failed while running.`, done: plan.done, total };
+  }
+
+  return { ok: true, status: 200, ...result, done: plan.done, total };
 }

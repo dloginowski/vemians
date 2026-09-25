@@ -27,7 +27,7 @@
 
 import { notFoundPage } from "../../shared/view/html.js";
 import { explainRole, readAccessIdentity } from "./access.js";
-import { agentTurn, approve, roleFor, searchIntent, readBatchProgress } from "./agent.js";
+import { agentTurn, approve, roleFor, searchIntent, readBatchProgress, submitBatchPlanRow } from "./agent.js";
 import { approvePending, peekPending } from "./approvals.js";
 import { CAPS } from "./tools/caps.js";
 import { roleAtLeast } from "./tools/roles.js";
@@ -124,7 +124,7 @@ function servesOps(hostname, env) {
 
 /* Both agent endpoints answer JSON, so a refusal on them must be JSON too —
    the composer's fetch() has no use for a login page. */
-const AGENT_PATHS = new Set(["/agent", "/agent/approve", "/agent/batch-progress", "/media/upload"]);
+const AGENT_PATHS = new Set(["/agent", "/agent/approve", "/agent/batch-progress", "/agent/batch-submit-row", "/media/upload"]);
 
 /*
  * The other half of catalog.upload_image.
@@ -1754,6 +1754,38 @@ async function ops(request, env, path) {
     /* The id is the whole of what the client sends. The tool, its arguments and
        the approval token all come from the server side — see agent.js. */
     const out = await approve({ id, identity, env });
+    return json({ verified: identity.verified, ...out }, out.status);
+  }
+
+  /*
+   * POST /agent/batch-submit-row — one row of a planned product batch
+   * (agent.js's own BATCH_PLANS), actually created. "Have the agent check
+   * everything and fill everything out and then just do a straight
+   * submit... with the progress bar" — the owner's own words: the browser
+   * calls this once per checked row, sequentially, each its own request and
+   * its own fresh Cloudflare invocation, so no single call ever creates
+   * more than one product — the actual fix for a real "too many
+   * subrequests" report a single giant create-everything call used to hit.
+   * The id and row number are the whole of what the client sends, same as
+   * /agent/approve immediately above — which plan, which row, and whether
+   * this actor is the one who raised it all come from the server's own
+   * stashed record.
+   */
+  if (path === "/agent/batch-submit-row") {
+    if (request.method !== "POST") return json({ error: "POST only" }, 405);
+    let id = "";
+    let row = NaN;
+    try {
+      const parsed = await body(request);
+      id = String(parsed.id || "");
+      row = Number(parsed.row);
+    } catch (err) {
+      console.error(`ERROR ops/agent/batch-submit-row: unreadable body — ${err.message}`);
+      return json({ error: "Unreadable request body." }, 400);
+    }
+    if (!Number.isInteger(row)) return json({ error: "row must be a whole number." }, 400);
+
+    const out = await submitBatchPlanRow({ id, row, identity, env });
     return json({ verified: identity.verified, ...out }, out.status);
   }
 

@@ -959,6 +959,17 @@ ${TABLE_CARD_CSS}
 .gate dd { margin: 0; white-space: pre-wrap; word-break: break-word; }
 .gate .row { display: flex; gap: 8px; }
 .gate button[disabled] { color: var(--muted); border-color: var(--rule); cursor: default; }
+/* The product-batch checklist (checklistCard) — a scrollable list of
+   checkboxes, one per row planProductBatch already found genuinely ready,
+   pre-checked since everything shown already passed its own real gate
+   check; a person can still uncheck one before Submit. */
+.gate ul.checklist { list-style: none; margin: 8px 0; padding: 0; max-height: 240px; overflow-y: auto; }
+.gate ul.checklist li { padding: 6px 0; border-bottom: 1px solid var(--rule); }
+.gate ul.checklist li:last-child { border-bottom: none; }
+.gate ul.checklist label { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; }
+.gate ul.checklist input[disabled] { cursor: default; }
+.gate progress { width: 100%; margin: 8px 0; accent-color: var(--ink); }
+.gate .checklist-status { margin: 0; color: var(--muted); font-size: 13px; }
 /*
  * The composer bar — one rounded pill holding both attach icons, the input
  * and Send, the same shape a phone chat app's own composer takes: round
@@ -1475,6 +1486,116 @@ function card(p) {
   gate.appendChild(el);
 }
 
+/*
+ * The product-batch checklist — "have the agent check everything and fill
+ * everything out and then just do a straight submit... with the progress
+ * bar," the owner's own words, and the actual fix for a real "too many
+ * subrequests" report: every row here already cleared catalog.create_
+ * product's own gate at plan time (agent.js's own dispatchProductBatchPlan)
+ * — nothing shown was ever going to clash — so Submit creates them ONE ROW
+ * PER REQUEST, sequentially, each its own fresh Worker invocation and
+ * subrequest budget, rather than the one giant call that used to hit
+ * Cloudflare's own per-invocation ceiling. Reuses the same "gate" slot
+ * exactly like the T2 approval card (card(), above): only one of either is
+ * showing at a time, and Cancel leaves every row exactly as un-submitted as
+ * it already was — nothing here parks or creates anything until Submit.
+ */
+function checklistCard(c) {
+  gate.textContent = "";
+  const el = document.createElement("div");
+  el.className = "gate";
+  const noun = c.rows.length === 1 ? "product" : "products";
+  el.innerHTML =
+    "<h3></h3>" +
+    "<ul class='checklist'></ul>" +
+    "<div class='chat row'><button data-a=submit>Submit</button><button data-a=cancel>Cancel</button></div>" +
+    "<progress hidden max='100' value='0'></progress>" +
+    "<p class='checklist-status' hidden></p>";
+  el.querySelector("h3").textContent = "Ready to submit — " + c.rows.length + " " + noun;
+
+  const list = el.querySelector("ul.checklist");
+  c.rows.forEach((r) => {
+    const li = document.createElement("li");
+    const label = document.createElement("label");
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.checked = true;
+    box.dataset.row = String(r.row);
+    const text = document.createElement("span");
+    text.textContent = r.title + " — " + r.summary;
+    label.appendChild(box);
+    label.appendChild(text);
+    li.appendChild(label);
+    list.appendChild(li);
+  });
+
+  const buttons = el.querySelectorAll("button");
+  const bar = el.querySelector("progress");
+  const status = el.querySelector(".checklist-status");
+
+  el.querySelector("[data-a=cancel]").addEventListener("click", () => {
+    gate.textContent = "";
+    entry("tool", "Cancelled. Nothing was submitted.");
+  });
+
+  el.querySelector("[data-a=submit]").addEventListener("click", async () => {
+    const checked = [...list.querySelectorAll("input[type=checkbox]:checked")].map((b) => Number(b.dataset.row));
+    status.hidden = false;
+    if (!checked.length) {
+      status.textContent = "Nothing checked — nothing to submit.";
+      return;
+    }
+    buttons.forEach((b) => (b.disabled = true));
+    list.querySelectorAll("input[type=checkbox]").forEach((b) => (b.disabled = true));
+    bar.hidden = false;
+    bar.max = checked.length;
+    bar.value = 0;
+
+    let created = 0;
+    let parked = 0;
+    let skipped = 0;
+    const rows = [];
+    for (const row of checked) {
+      status.textContent = "Submitting " + (bar.value + 1) + " of " + checked.length + "…";
+      let result;
+      try {
+        const res = await fetch("/ops/agent/batch-submit-row", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ id: c.id, row }),
+        });
+        result = await res.json();
+      } catch (err) {
+        result = { ok: false, reply: "Request failed: " + err.message };
+      }
+      bar.value += 1;
+      if (result.ok && result.status === "created") {
+        created += 1;
+        rows.push([String(row), result.title, "created", result.summary]);
+      } else if (result.ok && result.status === "parked") {
+        parked += 1;
+        rows.push([String(row), result.title, "needs a person", (result.summary || "") + (result.url ? " — " + result.url : "")]);
+      } else if (result.ok) {
+        skipped += 1;
+        rows.push([String(row), result.title, "skipped", result.reason || ""]);
+      } else {
+        skipped += 1;
+        rows.push([String(row), "row " + row, "skipped", result.reply || "failed"]);
+      }
+    }
+
+    gate.textContent = "";
+    entry("agent", created + " created, " + parked + " need a person's decision, " + skipped + " skipped.");
+    tableCard({
+      title: "Products: " + created + " created, " + parked + " need a person's decision, " + skipped + " skipped",
+      columns: ["Row", "Title", "Status", "Detail"],
+      rows,
+    });
+  });
+
+  gate.appendChild(el);
+}
+
 /* ---- attachments ---------------------------------------------------------
  * One button, one file at a time — a photo or any other file, the agent
  * works out which. Neither the text box nor the attachment is required on
@@ -1647,6 +1768,7 @@ document.getElementById("chat").addEventListener("submit", async (e) => {
     const replyText = data.reply || data.error || ("Request failed: " + res.status);
     entry("agent", replyText);
     if (data.pending) card(data.pending);
+    if (data.checklist) checklistCard(data.checklist);
     /* Grow this tab's own memory of the conversation — see the "history"
        declaration above for why /ops/agent needs it resent every turn. */
     history.push({ role: "user", text: bubbleText }, { role: "assistant", text: replyText });
