@@ -7094,7 +7094,17 @@ check("test_PRD_P0_152_style_number_grouping__the_preview_says_a_blank_title_wil
  * interpreted the product list" — the owner's own words.
  * ───────────────────────────────────────────────────────────────────────── */
 
-check("test_PRD_P0_89_batch_preview_confirm__a_style_numbered_group_previews_as_one_collapsed_row_not_one_per_variant", async () => {
+check("test_PRD_P0_89_batch_preview_confirm__a_style_numbered_group_previews_size_color_price_sku_positionally", async () => {
+  /* REVISED — a real person reading this table flagged two things as
+     broken: "How can SKUs be not found?... it should never be not found.
+     That's a failure mode," and "if I see S/M/L, I should see
+     quantity/quantity/quantity... why do I see one/two and then S/M/L?"
+     Deduplicating price/quantity by distinct value silently dropped below
+     the variant count, breaking the positional correspondence with size;
+     and a group's own SKU is never actually unknowable -- every
+     style-numbered row already carries its own real one verbatim. Every
+     per-variant field is now a "|"-joined list, one entry per row, always
+     exactly `variants` long. */
   const { previewBatch } = await import("../src/batch.js");
   const csv =
     "Style #,Category,Description,Color,Size,Retail Price\n" +
@@ -7109,10 +7119,14 @@ check("test_PRD_P0_89_batch_preview_confirm__a_style_numbered_group_previews_as_
   assert.equal(row.style_id, "001-001-001", "the group's own shared, compressed style id -- not any one variant's own full number");
   assert.equal(row.title, "Black hand-painted blazer");
   assert.equal(row.variants, 3, "the plainest possible confirmation that grouping actually happened");
-  assert.equal(row.size, "S, M, L", "every distinct size the group's own rows carry, not just the first");
-  assert.equal(row.color, "Black", "one color shared by the whole group previews once, not repeated three times");
-  assert.equal(row.price, "165.00 / 180.00", "a real price difference between variants is shown, not hidden by only reading the first row");
-  assert.equal(row.sku, null, "a multi-variant group has no single SKU to show -- each variant keeps its own, unaffected in the real write");
+  assert.equal(row.size, "S | M | L", "one entry per variant, in order");
+  assert.equal(row.color, "Black | Black | Black", "repeated rather than collapsed, so it still lines up positionally with size");
+  assert.equal(row.price, "165.00 | 165.00 | 180.00", "a real price difference between variants is shown, positionally, not deduplicated");
+  assert.equal(
+    row.sku,
+    "001-001-001-BLK-S | 001-001-001-BLK-M | 001-001-001-BLK-L",
+    "every variant's own real, already-known SKU -- never \"not found\", a multi-variant group never made that unknowable",
+  );
 });
 
 check("test_PRD_P0_89_batch_preview_confirm__a_lone_variant_group_still_previews_its_own_real_sku_same_as_before", async () => {
@@ -7123,6 +7137,18 @@ check("test_PRD_P0_89_batch_preview_confirm__a_lone_variant_group_still_previews
   assert.equal(row.sku, "001-001-002-RED-M", "a group of exactly one variant still previews that row's own full style number as its real SKU");
   assert.equal(row.size, "M");
   assert.equal(row.color, "Red");
+});
+
+check("test_PRD_P0_89_batch_preview_confirm__a_standalone_products_own_sku_reads_as_auto_generated_not_not_found", async () => {
+  /* "How can SKUs be not found?... that's a failure mode" -- the owner's
+     own words. A truly standalone row's own real SKU genuinely cannot be
+     known at preview time (Square mints one, generateSku, only at the real
+     write) -- but that is an expected, named outcome, not a missing value,
+     so it reads as "(auto-generated)" rather than the generic, alarming
+     "(not found)" a value nobody supplied would read as. */
+  const { previewBatch } = await import("../src/batch.js");
+  const preview = previewBatch("title,category,price\nLoose Scarf,Accessories,35.00\n", "products");
+  assert.equal(preview.sampleRows[0].sku, "(auto-generated)");
 });
 
 check("test_PRD_P0_89_batch_preview_confirm__groups_and_standalone_rows_in_the_same_sheet_each_preview_correctly", async () => {
@@ -7138,9 +7164,10 @@ check("test_PRD_P0_89_batch_preview_confirm__groups_and_standalone_rows_in_the_s
   assert.equal(preview.sampleRows.length, 2, "the two-row group and the standalone row are two products, not three");
   const grouped = preview.sampleRows.find((r) => r.style_id === "001-001-003");
   assert.equal(grouped.variants, 2);
-  assert.equal(grouped.size, "S, M");
+  assert.equal(grouped.size, "S | M");
+  assert.equal(grouped.sku, "001-001-003-BLU-S | 001-001-003-BLU-M");
   const standalone = preview.sampleRows.find((r) => r.title === "Loose Scarf");
   assert.equal(standalone.style_id, null, "a standalone row has no style number to group by at all");
   assert.equal(standalone.variants, 1);
-  assert.equal(standalone.sku, null);
+  assert.equal(standalone.sku, "(auto-generated)");
 });
