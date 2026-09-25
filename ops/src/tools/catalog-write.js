@@ -855,16 +855,20 @@ export const catalogWriteTools = {
       "it entirely only when you genuinely have no idea, since omitting it leaves the variation at " +
       "zero until inventory.adjust (by variant_id, once this call returns one) sets a real count later. " +
       "This is a T2 write: it executes only after a human approves it. `custom_fields` is OURS, not " +
-      "Square's: any field name -> string value we track that Square has no concept of at all (unit " +
-      "cost, a spreadsheet column with no home elsewhere). It never reaches Square — it is written to " +
+      "Square's: any field name -> string value we track that Square has no concept of at all (a " +
+      "spreadsheet column with no home elsewhere). It never reaches Square — it is written to " +
       "our own mirror right after the item is created — and survives every future sync untouched. Edit " +
       "it later with catalog.set_custom_fields. `style_id`, `vendor`, `vendor_code`, `unit_cost_minor` " +
       "and `commission` MAY be set here at creation time, since this call already reaches Square for " +
       "the item itself — style_id/commission ARE Square's own Custom Attributes; vendor is a real " +
-      "Square Vendor entity (Retail Plus/Premium), reused by name or created; vendor_code/" +
-      "unit_cost_minor live on that same vendor association (see catalog.set_square_attributes for the " +
-      "full description of each). vendor_code/unit_cost_minor/commission all only make sense alongside " +
-      "a vendor and are refused without one. `commission` is NOT re-stated for every item from a " +
+      "Square Vendor entity (Retail Plus/Premium), reused by name or created; vendor_code lives on that " +
+      "same vendor association (see catalog.set_square_attributes for the full description of each) " +
+      "and is refused without one. `unit_cost_minor` — what this shop paid for the item — is NEVER " +
+      "refused for lack of a vendor: WITH one, it lives on that same vendor association (Square's own " +
+      "vendor_information, so a different vendor can quote a different cost for the identical item); " +
+      "WITHOUT one, it is its own Square Custom Attribute instead, \"the actual cost attribute that " +
+      "already exists for all items\" — never `custom_fields`, and never invented under a made-up " +
+      "vendor just to give it a home. `commission` is NOT re-stated for every item from a " +
       "vendor already known: a vendor's own rate is centralized (mirror_vendor.commission_pct, OURS, " +
       "not Square's — Square has no concept of a resale commission at all) and copied onto a new " +
       "product automatically whenever `vendor` is given with no `commission` of its own — refused only " +
@@ -882,8 +886,9 @@ export const catalogWriteTools = {
       "inventory.adjust if the real count differs. A row with no title is not blocked either: name it " +
       "\"<category name> <n>\", n being 1 past however many products already sit in that category, " +
       "counting up across the rest of the same batch as more title-less rows land in it — never ask a " +
-      "person to invent a name for a row that plainly has none. WITHOUT a vendor, unit_cost_minor is " +
-      "also required (this shop's own cost of goods); WITH a vendor, give " +
+      "person to invent a name for a row that plainly has none. Give `unit_cost_minor` whenever a row " +
+      "states one, with or without a vendor — it always has a real home now (above), never `custom_fields`. " +
+      "WITH a vendor, also give " +
       "commission only for that vendor's OWN FIRST row (or omit it entirely and let this tool refuse, " +
       "naming exactly which vendor still needs one) — do not ask a person to repeat a vendor's own " +
       "commission on every row, it is privileged information and this tool already carries it forward " +
@@ -914,7 +919,12 @@ export const catalogWriteTools = {
     },
     async check(args, t) {
       const problems = validateProposal(args);
-      const needsVendor = ["commission", "vendor_code", "unit_cost_minor"].filter((k) => args[k] !== undefined);
+      /* unit_cost_minor is deliberately NOT in this list any more —
+         "the actual cost attribute that already exists for all items,"
+         the owner's own words, refusing the earlier custom_fields
+         workaround for a vendor-less row. See catalog-writer.js's own
+         itemUnitCostMinor comment for where it actually lives without one. */
+      const needsVendor = ["commission", "vendor_code"].filter((k) => args[k] !== undefined);
       if (needsVendor.length && !args.vendor) {
         problems.push(
           `${needsVendor.join("/")} ${needsVendor.length > 1 ? "were" : "was"} given without a vendor — these are ` +
@@ -1900,21 +1910,28 @@ export const catalogWriteTools = {
       "category/subcategory pair instead, and the summary says so before anyone approves it. vendor is a plain name: an " +
       "existing Square Vendor with that name is reused, or a new one is created. vendor_code is the " +
       "VENDOR's own SKU/product code for this item (their invoice/catalog identifier — never Square's " +
-      "own `sku`, never this shop's `style_id`). unit_cost_minor is what this shop PAID the vendor, " +
-      "integer minor units like every other price in this codebase. commission is an integer 0-100 " +
-      "(a percentage) — the owner's own words: \"that's only for vendors — anything that has a vendor, " +
-      "it has a commission\" — so vendor_code/unit_cost_minor/commission all only make sense for a " +
-      "product that HAS a vendor, resolved from whatever this same call also sets, and are refused " +
-      "for one with none. `commission` is NOT re-stated for every item, though: a vendor's own rate " +
-      "is centralized (mirror_vendor.commission_pct, OURS, not Square's) and copied onto THIS product " +
-      "automatically whenever `vendor` is being (re)assigned here with no `commission` of its own — " +
-      "refused only when that vendor genuinely has nothing on file yet. An EXPLICIT `commission` given " +
-      "alongside a vendor becomes that vendor's own new central rate, applied the same way to every " +
-      "future item from it — reassigning a product to a DIFFERENT vendor with no fresh commission " +
-      "adopts THAT vendor's own on-file rate, never the product's previous vendor's own leftover value. " +
-      "Give any subset to leave the rest untouched. Give vendor to set it, or clear_vendor: true " +
-      "(not both) to remove the existing vendor association entirely — clearing it also clears " +
-      "vendor_code/unit_cost_minor/commission for this product, since none of those apply without one. " +
+      "own `sku`, never this shop's `style_id`), and only makes sense for a product that HAS a vendor " +
+      "— refused for one with none. unit_cost_minor is what this shop paid, integer minor units like " +
+      "every other price in this codebase — NEVER refused for lack of a vendor: WITH one, it lives on " +
+      "that same vendor association (Square's own vendor_information); WITHOUT one, it is its own " +
+      "Square Custom Attribute instead, \"the actual cost attribute that already exists for all " +
+      "items\" — never `custom_fields`, and never a reason to invent a vendor just to give it a home. " +
+      "commission is an integer 0-100 (a percentage) — the owner's own words: \"that's only for " +
+      "vendors — anything that has a vendor, it has a commission\" — so unlike unit_cost_minor, it " +
+      "genuinely only makes sense for a product that HAS one, resolved from whatever this same call " +
+      "also sets, and is refused for one with none. `commission` is NOT re-stated for every item, " +
+      "though: a vendor's own rate is centralized (mirror_vendor.commission_pct, OURS, not Square's) " +
+      "and copied onto THIS product automatically whenever `vendor` is being (re)assigned here with no " +
+      "`commission` of its own — refused only when that vendor genuinely has nothing on file yet. An " +
+      "EXPLICIT `commission` given alongside a vendor becomes that vendor's own new central rate, " +
+      "applied the same way to every future item from it — reassigning a product to a DIFFERENT vendor " +
+      "with no fresh commission adopts THAT vendor's own on-file rate, never the product's previous " +
+      "vendor's own leftover value. Give any subset to leave the rest untouched. Give vendor to set " +
+      "it, or clear_vendor: true (not both) to remove the existing vendor association entirely — " +
+      "clearing it also clears vendor_code/commission for this product (neither applies without a " +
+      "vendor); unit_cost_minor is UNAFFECTED by clear_vendor — give it again in the same call if this " +
+      "product's cost should move from the vendor's own record onto its own Custom Attribute instead, " +
+      "or it is simply left as whatever it already was. " +
       "NONE of these is the SKU on a variation: Square assigns that automatically and nothing in " +
       "this codebase ever sets it, reads it for anything but display, or treats it as this shop's " +
       "own nomenclature.",
@@ -1972,7 +1989,9 @@ export const catalogWriteTools = {
       });
 
       const resultingVendor = args.clear_vendor ? null : args.vendor !== undefined ? args.vendor : existing.vendor;
-      const needsVendor = ["commission", "vendor_code", "unit_cost_minor"].filter((k) => args[k] !== undefined);
+      /* unit_cost_minor deliberately excluded — see catalog.create_product's
+         own identical comment on its own needsVendor, above. */
+      const needsVendor = ["commission", "vendor_code"].filter((k) => args[k] !== undefined);
       if (needsVendor.length && !resultingVendor) {
         return {
           denied:
@@ -2020,14 +2039,21 @@ export const catalogWriteTools = {
          a variation with no vendor_information at all (mirror.js's own
          sync, `toStorableMinor(v.unitCost?.amountMinor ?? 0n, ...)`) reads
          back as 0, never null, so a genuinely vendor-less product's
-         existing.unit_cost_minor is already 0 too; clearing must resolve
-         to that same value or this no-op check below would never match. */
-      const resultingUnitCostMinor = args.unit_cost_minor !== undefined ? args.unit_cost_minor : args.clear_vendor ? 0 : existing.unit_cost_minor;
+         existing.unit_cost_minor (the VENDOR-tied column) is already 0
+         too; clearing must resolve to that same value or this no-op check
+         below would never match. Which column is "current" depends on
+         whether this product already has a vendor: `existing.vendor` means
+         cost so far came from vendor_information (v0.unit_cost_minor);
+         with none, it came from item_unit_cost_minor instead — "the actual
+         cost attribute that already exists for all items," never
+         `custom_fields`. */
+      const currentEffectiveUnitCostMinor = existing.vendor ? existing.unit_cost_minor : (existing.item_unit_cost_minor ?? 0);
+      const resultingUnitCostMinor = args.unit_cost_minor !== undefined ? args.unit_cost_minor : args.clear_vendor ? 0 : currentEffectiveUnitCostMinor;
       if (
         resultingStyleId === existing.style_id &&
         resultingVendor === existing.vendor &&
         resultingVendorCode === existing.vendor_code &&
-        resultingUnitCostMinor === existing.unit_cost_minor &&
+        resultingUnitCostMinor === currentEffectiveUnitCostMinor &&
         resultingCommission === existing.commission_pct
       ) {
         return { denied: `'${args.handle}' already has those values — nothing would change` };

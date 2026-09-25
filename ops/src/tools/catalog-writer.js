@@ -269,7 +269,7 @@ export async function nextStyleIdFor(db, catCode, subCode) {
  */
 const PRODUCT_WITH_VENDOR_COLUMNS = `
   p.id, p.handle, p.title, p.source_description, p.status, p.channel, p.custom_fields,
-  p.style_id, p.commission_pct, p.category_id,
+  p.style_id, p.commission_pct, p.item_unit_cost_minor, p.category_id,
   mv.name AS vendor, v0.vendor_code, v0.unit_cost_minor, v0.unit_cost_currency
 `;
 const PRODUCT_WITH_VENDOR_JOIN = `
@@ -383,7 +383,7 @@ export async function listAllProducts(db, { limit } = {}) {
      call that surfaces them, same as mirror.js's own archivedProducts(). */
   const products = await db
     .prepare(
-      `SELECT p.id, p.handle, p.title, p.source_description, p.status, p.channel, p.custom_fields, p.style_id, p.commission_pct, p.category_id, c.name AS category_name
+      `SELECT p.id, p.handle, p.title, p.source_description, p.status, p.channel, p.custom_fields, p.style_id, p.commission_pct, p.item_unit_cost_minor, p.category_id, c.name AS category_name
          FROM mirror_product p
          LEFT JOIN mirror_category_index c ON c.id = p.category_id
         ORDER BY p.title COLLATE NOCASE
@@ -457,8 +457,13 @@ export async function listAllProducts(db, { limit } = {}) {
       style_id: p.style_id ?? null,
       vendor: v0?.vendor_id ? (vendorNameById.get(v0.vendor_id) ?? null) : null,
       vendor_code: v0?.vendor_code ?? null,
-      unit_cost_minor: v0?.vendor_id ? (v0.unit_cost_minor ?? 0) : null,
-      unit_cost_currency: v0?.vendor_id ? (v0.unit_cost_currency ?? "USD") : null,
+      /* "The actual cost attribute that already exists for all items" — a
+         vendor's own cost (vendor_information, per-variation) still wins
+         whenever a real vendor exists; a vendor-less product falls back to
+         its own item_unit_cost_minor (a real Square Custom Attribute,
+         schema.sql's own comment) instead of reading as no cost at all. */
+      unit_cost_minor: v0?.vendor_id ? (v0.unit_cost_minor ?? 0) : (p.item_unit_cost_minor ?? 0),
+      unit_cost_currency: v0?.vendor_id ? (v0.unit_cost_currency ?? "USD") : "USD",
       commission_pct: p.commission_pct ?? null,
       variations,
       image_key: imageByProduct.get(p.id) ?? null,
@@ -848,7 +853,7 @@ export function createSquareCatalogWriter(env, opts = {}) {
   async function productRow(handle) {
     const row = await mirrorDb
       .prepare(
-        "SELECT id, external_ref, handle, title, source_description, source_version, category_id, style_id, commission_pct" +
+        "SELECT id, external_ref, handle, title, source_description, source_version, category_id, style_id, commission_pct, item_unit_cost_minor" +
           " FROM mirror_product_index WHERE handle = ?",
       )
       .bind(handle)
@@ -941,12 +946,22 @@ export function createSquareCatalogWriter(env, opts = {}) {
      customAttr() as ONE code path for style_id/commission alike — see
      customAttrInt's own comment there for why NUMBER was considered and
      set aside. vendor is NOT built here any more — see vendorInformationFor
-     above; it lives on each variation, not in custom_attribute_values. */
-  function customAttributeValues({ styleId, commissionPct } = {}) {
+     above; it lives on each variation, not in custom_attribute_values.
+     itemUnitCostMinor is the SAME idea a third time — "the actual cost
+     attribute that already exists for all items," the owner's own words,
+     never a raw custom_fields entry — but the caller (createProduct/
+     updateProduct, below) only ever passes it when there is genuinely no
+     vendor to attach a real vendor_information.unit_cost_money to; a
+     vendor-having product's own cost is untouched by this attribute at
+     all, so the two are never both set on the same product. */
+  function customAttributeValues({ styleId, commissionPct, itemUnitCostMinor } = {}) {
     const out = {};
     if (styleId) out.style_id = { key: "style_id", type: "STRING", string_value: styleId };
     if (commissionPct !== undefined && commissionPct !== null) {
       out.commission = { key: "commission", type: "STRING", string_value: String(commissionPct) };
+    }
+    if (itemUnitCostMinor !== undefined && itemUnitCostMinor !== null) {
+      out.unit_cost = { key: "unit_cost", type: "STRING", string_value: String(itemUnitCostMinor) };
     }
     return Object.keys(out).length ? out : undefined;
   }
@@ -1071,7 +1086,7 @@ export function createSquareCatalogWriter(env, opts = {}) {
 
   async function readBack(externalRef) {
     const row = await mirrorDb
-      .prepare("SELECT id, handle, title, status, style_id, commission_pct FROM mirror_product WHERE external_ref = ?")
+      .prepare("SELECT id, handle, title, status, style_id, commission_pct, item_unit_cost_minor FROM mirror_product WHERE external_ref = ?")
       .bind(externalRef)
       .first();
     if (!row) return null;
@@ -1085,8 +1100,11 @@ export function createSquareCatalogWriter(env, opts = {}) {
       commission_pct: row.commission_pct,
       vendor: vendorInfo.vendor_name,
       vendor_code: vendorInfo.vendor_code,
-      unit_cost_minor: vendorInfo.vendor_name ? vendorInfo.unit_cost_minor : null,
-      unit_cost_currency: vendorInfo.vendor_name ? vendorInfo.unit_cost_currency : null,
+      /* "The actual cost attribute that already exists for all items" —
+         same fallback as listAllProducts above: a real vendor's own cost
+         wins when one exists, else this product's own item_unit_cost_minor. */
+      unit_cost_minor: vendorInfo.vendor_name ? vendorInfo.unit_cost_minor : (row.item_unit_cost_minor ?? 0),
+      unit_cost_currency: vendorInfo.vendor_name ? vendorInfo.unit_cost_currency : "USD",
     };
   }
 
@@ -1473,6 +1491,13 @@ export function createSquareCatalogWriter(env, opts = {}) {
         unitCostMinor,
         unitCostCurrency,
       });
+      /* No vendor at all -- vendorInformationFor above already returned
+         undefined, so unitCostMinor would otherwise just vanish. "The
+         actual cost attribute that already exists for all items" is
+         customAttributeValues' own item_unit_cost_minor fallback below,
+         never a raw custom_fields entry. A vendor-having product's cost
+         still goes ONLY through vendor_information — never both. */
+      const itemUnitCostMinor = vref ? undefined : unitCostMinor;
       /* Every brand-new variation gets a real SKU, never left blank —
          skuFromStyleId's own comment, human-readable off this product's own
          styleId whenever one was given at creation time. The opaque
@@ -1514,7 +1539,7 @@ export function createSquareCatalogWriter(env, opts = {}) {
             variations: resolvedVariations,
             itemRef,
             imageIds,
-            customAttributeValues: customAttributeValues({ styleId, commissionPct }),
+            customAttributeValues: customAttributeValues({ styleId, commissionPct, itemUnitCostMinor }),
             /* A brand-new product has no per-variation history yet — every
                variation starts with the SAME vendor/cost, the one given at
                creation time; they only diverge later, through updateProduct. */
@@ -1684,6 +1709,18 @@ export function createSquareCatalogWriter(env, opts = {}) {
           unitCostCurrency: perUnitCostCurrency,
         });
       });
+      /* "The actual cost attribute that already exists for all items" —
+         the SAME item_unit_cost_minor fallback createProduct uses, for a
+         product with no vendor at all. "Resend the whole thing" like
+         style_id/commission just above: this call's own unitCostMinor when
+         it is actually about cost, else whatever the product already has
+         (row.item_unit_cost_minor) — never silently cleared by an edit
+         that was not about cost either. Never set alongside a real vendor:
+         resolvedVendorExternalRef existing means cost lives in
+         vendorInfos above instead, exactly like createProduct. */
+      const resolvedItemUnitCostMinor = resolvedVendorExternalRef
+        ? undefined
+        : (unitCostMinor !== undefined ? unitCostMinor : row.item_unit_cost_minor);
 
       const resolvedTitle = title ?? row.title;
       /* description has the same "resend or it may vanish" property as
@@ -1710,7 +1747,7 @@ export function createSquareCatalogWriter(env, opts = {}) {
           `catalog.update:${row.external_ref}:${row.source_version}:${resolvedTitle}:` +
             `${resolvedDescription ?? ""}:${cat?.external_ref ?? ""}:${JSON.stringify(keep)}:` +
             `${resolvedStyleId ?? ""}:${resolvedVendorExternalRef ?? ""}:${JSON.stringify(vendorInfos)}:` +
-            `${resolvedCommissionPct ?? ""}:${JSON.stringify(resolvedItemOptionExternalRefs)}:` +
+            `${resolvedCommissionPct ?? ""}:${resolvedItemUnitCostMinor ?? ""}:${JSON.stringify(resolvedItemOptionExternalRefs)}:` +
             `${JSON.stringify(variationOptionValueRefs)}`,
         ),
         object: {
@@ -1727,6 +1764,7 @@ export function createSquareCatalogWriter(env, opts = {}) {
             customAttributeValues: customAttributeValues({
               styleId: resolvedStyleId,
               commissionPct: resolvedCommissionPct,
+              itemUnitCostMinor: resolvedItemUnitCostMinor,
             }),
             vendorInfos,
             itemOptionRefs: resolvedItemOptionExternalRefs,

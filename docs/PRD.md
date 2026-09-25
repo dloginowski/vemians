@@ -5040,6 +5040,56 @@ that does not trace to one of these is a process failure (see §12).
     "Outerwears" does not exist yet and could not be created: "Outerwears" overlaps the existing
     category "Outerwear" (...)`, never a separate dead-end link to click through first.
 
+    **REVISED YET AGAIN — a vendor-less product's own unit cost is now its own real Square Custom
+    Attribute, never a `custom_fields` entry.** A real transcript: "you created a cost USD [custom
+    field] instead of putting it into the actual cost attribute that already exists for all items...
+    that's not the official place. We do not want to be creating a cost USD property. Also, we don't
+    need to have a USD... property either — everything is in USD... we also don't need to have a
+    margin... we don't need that." This entry's own earlier decision — "cost-of-goods for a product
+    with no vendor... stays put in the pre-existing `custom_fields` entry" (schema.sql's own comment,
+    at the time) — turned out to be the wrong call once a real batch import made a vendor-less
+    product common rather than hypothetical, and `catalog.create_product`'s own description had
+    quietly said the opposite the whole time ("WITHOUT a vendor, unit_cost_minor is also required")
+    while its actual `check()` refused exactly that, a real, pre-existing contradiction this entry
+    also resolves.
+
+    `item_unit_cost_minor` (`mirror_product`, NOT NULL DEFAULT 0 — the same convention every other
+    `_minor` column already follows, Test-PRD-P0-15-money_minor_units) is style_id/commission's own
+    mechanism a THIRD time: a plain Square Custom Attribute, key `"unit_cost"`, STRING-typed exactly
+    like commission (a minor-units integer, stored as a string) — never Square's own `vendor_
+    information.unit_cost_money`, which genuinely requires a vendor to attach to and still does.
+    `catalog-writer.js`'s `customAttributeValues()` takes a third field, `itemUnitCostMinor`, set by
+    `createProduct`/`updateProduct` ONLY when there is no resolved vendor at all; a product that DOES
+    have one is completely unaffected — its own cost still lives on `vendor_information` exactly as
+    before, and the two mechanisms are never both set on the same product. Reading a product back
+    (`listAllProducts`, `readBack`) prefers the vendor's own cost when a vendor exists, falling back
+    to `item_unit_cost_minor` otherwise — always `"USD"` either way, never a separate currency
+    property: "everything is in USD," the owner's own words, so there is nothing to ask again.
+
+    `catalog.create_product` and `catalog.set_square_attributes` both drop `unit_cost_minor` from
+    their own `needsVendor` refusal — it is NEVER refused for lack of a vendor any more, unlike
+    `vendor_code`/`commission`, which genuinely still are (those remain real facts ABOUT a vendor
+    relationship; cost is not). `batch.js`'s own `unitCostRaw` parsing (`draftGroupedProduct` and
+    `draftNamedCategoryProduct` alike) drops its own `vendor &&` gate the same way — a recognized
+    cost column (`UNIT_COST_KEYS`) that parses becomes a real `unit_cost_minor` argument regardless
+    of whether the row also names a vendor; only a value that genuinely fails to parse still falls
+    through to `custom_fields`, verbatim, so nothing is silently lost.
+
+    **Margin is the one deliberate exception to "preserve all fields" (P0-70) that this codebase now
+    has.** A new `IGNORED_KEYS` list (`batch.js`: "margin", "margin %", "margin pct", "gross margin",
+    "profit margin") is folded into `knownKeys` alongside `PRODUCT_KNOWN_KEYS`, so a margin column is
+    treated as already-handled and never captured anywhere at all — not redirected to a real
+    attribute the way cost now is, not preserved as a custom field either, simply dropped: a derived
+    number (price minus cost, both already real fields in their own right) with nowhere useful to go
+    and nothing this shop asked to keep.
+
+    Retroactively fixing a product already carrying the old "Cost (USD)"/"Margin" custom fields needs
+    no new tooling: the Items admin panel's own existing Vendor row (`views.js`, posting to
+    `/items/<handle>/square-attributes`) already sends `unit_cost` with no vendor required once this
+    ships, and its own existing custom-fields editor already clears a stray field by blanking it —
+    both were already real, working surfaces, only the tool-level refusal beneath the first one ever
+    stood in the way.
+
 72. **`Test-PRD-P0-137-item_active_toggle`** — The owner's own words, in the same request that moved
     Web and the newly-added Active checkbox beside the item's own name: "move the web and the active
     buttons... make them the same style as the rest of the fields... have the same style like

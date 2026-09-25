@@ -1283,7 +1283,15 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_no_vendo
   assert.equal(JSON.parse(row.custom_fields)["import notes"], undefined, "nothing was actually wrong here, just absent -- no note needed");
 });
 
-check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_a_style_id_and_unit_cost_but_no_vendor_is_parked", async () => {
+check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_a_style_id_and_unit_cost_but_no_vendor_gets_the_real_attribute", async () => {
+  /* REVISED — "you created a cost USD [custom field] instead of putting it
+     into the actual cost attribute that already exists for all items...
+     that's not the official place," the owner's own words, on seeing
+     exactly this row's own real result. A vendor-less row's own cost no
+     longer falls through to custom_fields at all: it lands on the
+     product's own item_unit_cost_minor — a real Square Custom Attribute,
+     the same mechanism style_id/commission already use — never a raw
+     "cost" text field. */
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   const csv = "title,category,price,style id,cost\n" + `Wool Coat,${outerwear.name},450.00,01-04-001,210.00\n`;
@@ -1299,9 +1307,10 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_a_style_
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
   assert.equal(result.created.length, 1);
 
-  const row = f.mirror("SELECT id, style_id, custom_fields FROM mirror_product WHERE title = 'Wool Coat'")[0];
+  const row = f.mirror("SELECT id, style_id, custom_fields, item_unit_cost_minor FROM mirror_product WHERE title = 'Wool Coat'")[0];
   assert.equal(row.style_id, "01-04-001");
-  assert.deepEqual(JSON.parse(row.custom_fields), { cost: "210.00" });
+  assert.deepEqual(JSON.parse(row.custom_fields), {}, "cost must not land in custom_fields any more");
+  assert.equal(row.item_unit_cost_minor, 21000, "cost must land in the real, vendor-independent Custom Attribute instead");
   const variant = f.mirror(`SELECT vendor_id FROM mirror_variant WHERE product_id = '${row.id}'`)[0];
   assert.equal(variant.vendor_id, null, "no vendor column was given — nothing to resolve");
 });
@@ -1334,7 +1343,12 @@ check("test_PRD_P0_70_flexible_spreadsheet_columns__an_unrecognised_column_is_ke
      Vendor is deliberately NOT used as the example column here any more —
      it is its own recognized field now (Test-PRD-P0-136-square_custom_
      attributes), with its own vendor-needs-a-commission rule, covered
-     separately below. "Fabric Note" is a genuinely unknown column. */
+     separately below. "Fabric Note" is a genuinely unknown column.
+     REVISED — "Unit Cost" is no longer an example of a preserved custom
+     field either: it now lands on the product's own real, vendor-
+     independent Custom Attribute (item_unit_cost_minor) instead, the same
+     as any OTHER row with a cost column and no vendor. "Fabric Note" alone
+     is what actually has nowhere else to go. */
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   const csv =
@@ -1353,11 +1367,41 @@ check("test_PRD_P0_70_flexible_spreadsheet_columns__an_unrecognised_column_is_ke
   assert.equal(result.created.length, 1);
 
   /* csvRecords() already trims and lowercases every header before this file
-     ever sees it — "Unit Cost" and "Fabric Note" arrive here as "unit cost"
-     and "fabric note", still readable, just not the exact original
-     capitalization. */
-  const row = f.mirror("SELECT custom_fields FROM mirror_product WHERE title = 'Wool Coat'")[0];
-  assert.deepEqual(JSON.parse(row.custom_fields), { "unit cost": "210.00", "fabric note": "Boiled wool" });
+     ever sees it — "Fabric Note" arrives here as "fabric note", still
+     readable, just not the exact original capitalization. */
+  const row = f.mirror("SELECT custom_fields, item_unit_cost_minor FROM mirror_product WHERE title = 'Wool Coat'")[0];
+  assert.deepEqual(JSON.parse(row.custom_fields), { "fabric note": "Boiled wool" });
+  assert.equal(row.item_unit_cost_minor, 21000);
+});
+
+check("test_PRD_P0_70_flexible_spreadsheet_columns__a_margin_column_is_dropped_entirely_not_preserved", async () => {
+  /* The one deliberate exception to "preserve all fields" — the owner's
+     own words, looking at a real product's own stray "Margin" custom
+     field: "we don't need to have a margin... we don't need that." A
+     derived number (price minus cost, both already real fields in their
+     own right) with nowhere useful to go is genuinely dropped, unlike a
+     real cost column (the check right above this one), which still gets a
+     real home — never redirected into custom_fields either. */
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const csv =
+    "title,category,price,style id,cost,Margin,Fabric Note\n" +
+    `Wool Coat,${outerwear.name},450.00,01-04-001,210.00,53%,Boiled wool\n`;
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.created.length, 1);
+
+  const row = f.mirror("SELECT custom_fields, item_unit_cost_minor FROM mirror_product WHERE title = 'Wool Coat'")[0];
+  assert.deepEqual(JSON.parse(row.custom_fields), { "fabric note": "Boiled wool" }, "margin must not appear anywhere, not even as a custom field");
+  assert.equal(row.item_unit_cost_minor, 21000, "the real cost column right next to it must still land on the real attribute");
 });
 
 check("test_PRD_P0_70_flexible_spreadsheet_columns__a_cost_column_is_no_longer_misread_as_the_sale_price", async () => {
@@ -1365,7 +1409,8 @@ check("test_PRD_P0_70_flexible_spreadsheet_columns__a_cost_column_is_no_longer_m
      two different numbers. "cost" used to be a PRICE synonym, so a sheet
      with its own "Cost" column (what we paid) was silently read as the
      price (what a customer pays) instead of the real "price" column right
-     next to it. */
+     next to it. REVISED — "cost" is preserved as the real, vendor-
+     independent unit cost attribute now, never a custom field. */
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   const csv = "title,category,price,style id,cost\n" + `Wool Coat,${outerwear.name},450.00,01-04-001,210.00\n`;
@@ -1385,8 +1430,9 @@ check("test_PRD_P0_70_flexible_spreadsheet_columns__a_cost_column_is_no_longer_m
   )[0];
   assert.equal(variant.price_minor, 45000, "the real 'price' column must still win, not 'cost'");
 
-  const row = f.mirror("SELECT custom_fields FROM mirror_product WHERE title = 'Wool Coat'")[0];
-  assert.deepEqual(JSON.parse(row.custom_fields), { cost: "210.00" }, "the 'cost' column must be preserved, not discarded");
+  const row = f.mirror("SELECT custom_fields, item_unit_cost_minor FROM mirror_product WHERE title = 'Wool Coat'")[0];
+  assert.deepEqual(JSON.parse(row.custom_fields), {}, "the 'cost' column must not be discarded into a custom field");
+  assert.equal(row.item_unit_cost_minor, 21000, "the 'cost' column must be preserved as the real cost attribute");
 });
 
 check("test_PRD_P0_70_flexible_spreadsheet_columns__the_preview_shows_extra_columns_the_same_way_it_shows_known_ones", async () => {
@@ -3378,10 +3424,11 @@ check("test_PRD_P0_136_square_custom_attributes__commission_alongside_a_vendor_i
   assert.equal(row.commission_pct, 20);
 });
 
-check("test_PRD_P0_136_square_custom_attributes__vendor_code_and_unit_cost_require_a_vendor_too", async () => {
-  /* vendor_code and unit_cost_minor live on the SAME real Square Vendor
-     association as vendor (Retail Plus/Premium, revised) — they make no
-     sense without one, the same rule commission already gets. */
+check("test_PRD_P0_136_square_custom_attributes__vendor_code_still_requires_a_vendor", async () => {
+  /* vendor_code lives on the SAME real Square Vendor association as vendor
+     (Retail Plus/Premium, revised) — it makes no sense without one, the
+     same rule commission already gets. unit_cost_minor is DIFFERENT now —
+     see the next check. */
   const f = await fixture();
   const codeRes = await runTool(
     "catalog.set_square_attributes",
@@ -3390,15 +3437,30 @@ check("test_PRD_P0_136_square_custom_attributes__vendor_code_and_unit_cost_requi
   );
   assert.equal(codeRes.ok, false);
   assert.match(codeRes.error, /no vendor/);
+  assert.deepEqual(f.calls(), [], "the refusal never reaches Square");
+});
 
-  const costRes = await runTool(
-    "catalog.set_square_attributes",
-    { handle: COAT_HANDLE, unit_cost_minor: 4200 },
-    f.ctx,
-  );
-  assert.equal(costRes.ok, false);
-  assert.match(costRes.error, /no vendor/);
-  assert.deepEqual(f.calls(), [], "neither refusal reaches Square");
+check("test_PRD_P0_136_square_custom_attributes__unit_cost_no_longer_requires_a_vendor", async () => {
+  /* REVISED — "you created a cost USD [custom field] instead of putting it
+     into the actual cost attribute that already exists for all items,"
+     the owner's own words. unit_cost_minor is no longer refused for lack
+     of a vendor: it lands on the product's own item_unit_cost_minor, a
+     real, vendor-independent Square Custom Attribute, instead of Square's
+     vendor-tied vendor_information. */
+  const f = await fixture();
+  const res = await approvedCall(f, "catalog.set_square_attributes", { handle: COAT_HANDLE, unit_cost_minor: 4200 });
+  assert.equal(res.ok, true, res.error);
+
+  const upsert = f.calls().find((c) => c.path === "/v2/catalog/object" && c.upsert === "ITEM");
+  assert.deepEqual(upsert.body.object.item_data.custom_attribute_values.unit_cost, {
+    key: "unit_cost",
+    type: "STRING",
+    string_value: "4200",
+  });
+  assert.equal(upsert.body.object.item_data.variations[0].item_variation_data.vendor_information, undefined, "still no real vendor association");
+
+  const row = f.mirror(`SELECT item_unit_cost_minor FROM mirror_product WHERE handle = '${COAT_HANDLE}'`)[0];
+  assert.equal(row.item_unit_cost_minor, 4200);
 });
 
 check("test_PRD_P0_136_square_custom_attributes__vendor_code_and_unit_cost_alongside_a_vendor_are_set_on_the_variation", async () => {
@@ -3452,7 +3514,13 @@ check("test_PRD_P0_136_square_custom_attributes__clear_vendor_removes_the_vendor
   assert.equal(res.ok, true, res.error);
   assert.equal(res.data.vendor, null);
   assert.equal(res.data.vendor_code, null);
-  assert.equal(res.data.unit_cost_minor, null);
+  /* REVISED — 0, not null: item_unit_cost_minor (the vendor-independent
+     fallback a vendor-less product's own cost now reads from) is NOT NULL
+     DEFAULT 0, the same convention every other `_minor` column already
+     follows (Test-PRD-P0-15-money_minor_units) — this coat never had one
+     set, so clearing its vendor leaves it at that same real, meaningful
+     zero, never a fake "unknown" null. */
+  assert.equal(res.data.unit_cost_minor, 0);
   assert.equal(res.data.commission, null);
 
   /* Square's own UpsertCatalogObject is full-replacement — clearing must
