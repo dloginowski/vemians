@@ -428,10 +428,26 @@ function parseStyleNumber(raw) {
   return { base: trimmed, color: undefined, size: undefined };
 }
 
-/** Case- and whitespace-insensitive; the closed set's real names, never guessed. */
+/* Enough English to fold a category name onto its own plural, and no more —
+   the identical rule catalog-write.js's own suggestCategory() already uses
+   for the same reason (kept as its own small copy here rather than an
+   export, since matchCategory's own closed-set exact-match semantics are
+   deliberately unrelated to that function's fuzzy suggestion scoring).
+   "Accessories" -> accessory, "Coats" -> coat, "Dresses" -> dress. */
+function singularCategoryWord(t) {
+  if (t.length > 4 && t.endsWith("ies")) return `${t.slice(0, -3)}y`;
+  if (t.length > 4 && /(?:s|x|z|ch|sh)es$/.test(t)) return t.slice(0, -2);
+  if (t.length > 3 && t.endsWith("s") && !t.endsWith("ss")) return t.slice(0, -1);
+  return t;
+}
+
+/* Case- and whitespace-insensitive, and plural/singular-insensitive too —
+   "when matching categories and subcategories... either plural or singular
+   should match" — the owner's own words. The closed set's real names, never
+   guessed at beyond that fold. */
 function matchCategory(name, categories) {
-  const key = name.trim().toLowerCase();
-  return categories.find((c) => c.name.trim().toLowerCase() === key) ?? null;
+  const key = singularCategoryWord(name.trim().toLowerCase());
+  return categories.find((c) => singularCategoryWord(c.name.trim().toLowerCase()) === key) ?? null;
 }
 
 /* "Categories/subcategories should be made if missing. And ids assigned
@@ -752,35 +768,167 @@ function autoTitler(existingCounts) {
  * rule.
  *
  * REVISED — a blank style-id cell used to take a separate STANDALONE path:
- * one row, one product, category/subcategory resolved by NAME. The owner's
- * own words, having actually seen what that path let through: "Why are you
- * including the totals with a bunch of not found?... if you don't have the
- * qualifying, like the style ID, just don't include that row at all... why
- * would you show that to me?" A real inventory sheet's own totals/notes
- * line has no style number either, and used to preview (and draft) as a
- * near-empty "product" — every real product in this shop's own sheets
- * already carries a style number, so a row with none is not a different
- * KIND of real product, it is the same "not a data row" case a garbage
- * style number already was. There is no more standalone path at all: a
- * blank style-id cell is dropped by the exact same `STYLE_NUMBER_BASE`
- * check as a non-blank garbage one, silently, matching how that case was
- * always handled.
+ * one row, one product, category/subcategory resolved by NAME (creating
+ * either if missing). The owner's own words, having actually seen what that
+ * path let through: "Why are you including the totals with a bunch of not
+ * found?... if you don't have the qualifying, like the style ID, just don't
+ * include that row at all... why would you show that to me?" A real
+ * inventory sheet's own totals/notes line has no style number either, and
+ * used to preview (and draft) as a near-empty "product." That whole
+ * standalone path is gone.
+ *
+ * REVISED AGAIN — a blank style-id row is not ALWAYS a totals/notes line,
+ * though: "we already have categories and subcategories with their
+ * corresponding IDs defined in our database... if we were to add a
+ * spreadsheet that did not have a style ID, but we did provide matching
+ * categories and subcategories, the agent should be able to generate an ID
+ * automatically... as long as it finds the matching category and
+ * subcategory." A row naming BOTH an existing, already-numbered top-level
+ * category AND an existing, already-numbered subcategory under it (by
+ * NAME, never a number) is a genuine, identifiable product — it joins
+ * `namedRecords` instead of being dropped, and `draftProductBatch`/
+ * `previewBatch` resolve those names and let `catalog.create_product`'s own
+ * `resolveStyleId` mint the real style_id (category/subcategory's own NN-NN
+ * plus the next free index — "the index is just something that it
+ * generates on the fly using the next available slot," the owner's own
+ * words). Confirmed directly: a name that matches NOTHING (or matches an
+ * unnumbered category) is dropped exactly like a totals row always was —
+ * this file never creates a category on this path, only looks one up. A
+ * category name alone, with no subcategory given or matched, is also
+ * dropped — confirmed directly that both are required, matching the "add
+ * the product" bar this file already holds real style numbers to.
  */
 function splitProductRecords(records) {
   const groups = new Map();
   const groupOrder = [];
+  const namedRecords = [];
   for (const [i, record] of records.entries()) {
     const rowNumber = i + 2; /* +1 for the header, +1 for 1-based rows */
     const styleIdRaw = pick(record, STYLE_ID_KEYS);
     const { base, color, size } = parseStyleNumber(styleIdRaw);
-    if (!STYLE_NUMBER_BASE.test(base)) continue;
-    if (!groups.has(base)) {
-      groups.set(base, []);
-      groupOrder.push(base);
+    if (STYLE_NUMBER_BASE.test(base)) {
+      if (!groups.has(base)) {
+        groups.set(base, []);
+        groupOrder.push(base);
+      }
+      groups.get(base).push({ record, rowNumber, color, size, styleIdRaw });
+      continue;
     }
-    groups.get(base).push({ record, rowNumber, color, size, styleIdRaw });
+    if (pick(record, CATEGORY_KEYS) && pick(record, SUBCATEGORY_KEYS)) {
+      namedRecords.push({ record, rowNumber });
+    }
   }
-  return { groups, groupOrder };
+  return { groups, groupOrder, namedRecords };
+}
+
+/*
+ * A row with no style number, but naming BOTH an existing, already-numbered
+ * top-level category AND an existing, already-numbered subcategory under
+ * it — matched by NAME, never a number, and never created if missing (that
+ * would be inventing a decision only a person should make; the row is
+ * dropped instead, `null`, the same as any other row this file cannot
+ * safely attempt). Plural/singular is never a real distinction here
+ * (matchCategory's own fold) — "Jacket"/"Jackets" name the same category.
+ *
+ * Nothing here computes a style_id — `catalog.create_product`'s own
+ * `resolveStyleId` (catalog-write.js) already builds one automatically from
+ * a given `category_id`'s own NN-NN pair, plus the next free index, the
+ * moment that category_id belongs to a real, numbered subcategory. Handing
+ * it the matched subcategory's own id with no `style_id` argument at all is
+ * everything this needs.
+ */
+function matchNamedCategory(categories, record) {
+  const categoryName = pick(record, CATEGORY_KEYS);
+  const subcategoryName = pick(record, SUBCATEGORY_KEYS);
+  if (!categoryName || !subcategoryName) return null;
+  const topCategory = matchCategory(categoryName, categories.filter((c) => !c.parent_id));
+  if (!topCategory?.numeric_id) return null;
+  const subcategory = matchCategory(subcategoryName, categories.filter((c) => c.parent_id === topCategory.id));
+  if (!subcategory?.numeric_id) return null;
+  return subcategory;
+}
+
+/*
+ * Builds the one row/variation a name-matched record becomes -- the same
+ * field-by-field defaulting the (now-removed) standalone loop always used
+ * (a malformed optional value is noted, automatic; only an unparseable
+ * price is a genuine clash), minus everything about resolving OR CREATING a
+ * category by name, since `subcategory` here is already a real, matched,
+ * numbered one and nothing here ever creates one.
+ */
+function draftNamedCategoryProduct(subcategory, nextAutoTitle, record, rowNumber) {
+  const rawTitle = pick(record, TITLE_KEYS).slice(0, 200);
+  const priceRaw = pick(record, PRICE_KEYS);
+  const currency = (pick(record, CURRENCY_KEYS) || "USD").toUpperCase();
+  const notes = [];
+  const rowClashes = [];
+
+  const title = rawTitle || nextAutoTitle(subcategory);
+  const priceMinor = parsePriceToMinor(priceRaw);
+  if (priceMinor === null) rowClashes.push(`price "${priceRaw}" is not a plain number like 45.00`);
+
+  const quantityRaw = pick(record, QUANTITY_KEYS);
+  let quantity = 1;
+  if (quantityRaw) {
+    const parsedQuantity = parseQuantity(quantityRaw);
+    if (parsedQuantity === null) notes.push(`quantity "${quantityRaw}" is not a plain whole number like 5 -- defaulted to 1`);
+    else quantity = parsedQuantity;
+  }
+
+  const vendor = pick(record, VENDOR_KEYS);
+  const commissionRaw = pick(record, COMMISSION_KEYS);
+  let commission;
+  if (commissionRaw) {
+    commission = parseCommission(commissionRaw);
+    if (commission === null) {
+      notes.push(`commission "${commissionRaw}" is not a plain whole number like 20 -- left unset`);
+      commission = undefined;
+    }
+  }
+  const unitCostRaw = pick(record, UNIT_COST_KEYS);
+  let unitCostMinor;
+  if (vendor && unitCostRaw) {
+    unitCostMinor = parsePriceToMinor(unitCostRaw);
+    if (unitCostMinor === null) {
+      notes.push(`unit cost "${unitCostRaw}" is not a plain number like 45.00 -- left unset`);
+      unitCostMinor = undefined;
+    }
+  }
+  const vendorCode = pick(record, VENDOR_CODE_KEYS);
+  if (vendorCode && !vendor) notes.push(`vendor code "${vendorCode}" was given without a vendor -- left unset`);
+
+  const description = pick(record, DESCRIPTION_KEYS);
+  const knownKeys = unitCostMinor !== undefined ? [...PRODUCT_KNOWN_KEYS, ...UNIT_COST_KEYS] : PRODUCT_KNOWN_KEYS;
+  const customFields = extraFields(record, knownKeys);
+  if (notes.length) customFields["import notes"] = notes.join("; ").slice(0, CAPS.CATALOG_CUSTOM_FIELD_VALUE_MAX);
+
+  const optValues = Object.fromEntries(Object.entries(optionValues(record)).filter(([, value]) => value.trim().toUpperCase() !== "TBD"));
+
+  /* No `style_id` given at all -- catalog.create_product's own
+     resolveStyleId mints one from `category_id`'s own NN-NN pair the
+     moment it belongs to a real, numbered subcategory, exactly like this. */
+  const args = {
+    title,
+    ...(description ? { description } : {}),
+    category_id: subcategory.id,
+    ...(vendor ? { vendor } : {}),
+    ...(vendorCode && vendor ? { vendor_code: vendorCode } : {}),
+    ...(unitCostMinor !== undefined ? { unit_cost_minor: unitCostMinor } : {}),
+    ...(commission !== undefined ? { commission } : {}),
+    variations: [
+      {
+        title,
+        ...(priceMinor !== null ? { price_minor: priceMinor } : {}),
+        currency,
+        quantity,
+        ...(Object.keys(optValues).length ? { option_values: optValues } : {}),
+      },
+    ],
+    ...(Object.keys(customFields).length ? { custom_fields: customFields } : {}),
+  };
+
+  if (rowClashes.length) return { clash: { row: rowNumber, title, args, reason: rowClashes.join("; ") } };
+  return { row: { rowNumber, title, args } };
 }
 
 async function draftGroupedProduct(env, ctx, base, groupRows) {
@@ -1101,12 +1249,20 @@ export async function draftProductBatch(env, { text, actor, role }) {
   const reservedNumericIds = new Set();
   const reservedSubcategoryNumericIds = new Set();
 
-  const { groups, groupOrder } = splitProductRecords(records);
+  const { groups, groupOrder, namedRecords } = splitProductRecords(records);
 
   const clashes = [];
 
   for (const base of groupOrder) {
     const outcome = await draftGroupedProduct(env, { actor, role, categories, reservedNumericIds, reservedSubcategoryNumericIds, categoryCache, nextAutoTitle }, base, groups.get(base));
+    if (outcome.clash) clashes.push(outcome.clash);
+    else rows.push(outcome.row);
+  }
+
+  for (const { record, rowNumber } of namedRecords) {
+    const subcategory = matchNamedCategory(categories, record);
+    if (!subcategory) continue; /* names nothing this shop already has, both required -- dropped, never invented */
+    const outcome = draftNamedCategoryProduct(subcategory, nextAutoTitle, record, rowNumber);
     if (outcome.clash) clashes.push(outcome.clash);
     else rows.push(outcome.row);
   }
@@ -1358,11 +1514,17 @@ function mapProductGroup(base, groupRows) {
      no SKU_KEYS). EVERY style-numbered row's own full style number is
      already its real SKU verbatim (draftGroupedProduct's own variation
      loop) — known at preview time, one per variant, whether the group has
-     one row or several. REVISED: `mapProductGroup` is only ever reached by
-     a real style-numbered group now (splitProductRecords drops anything
-     else outright — see its own header comment) — `sku`/`style_id` are
-     always real values, never a placeholder for an unknowable one. */
-  const sku = groupRows.map(({ styleIdRaw }) => styleIdRaw).join(" | ");
+     one row or several. `mapProductGroup` is reached by a real
+     style-numbered group (`base` a real "NN-NN-NNN") OR by a single
+     name-matched row with no style number at all (`base === ""`,
+     `previewBatch`'s own call for a `namedRecords` match) — that second
+     case has no real style_id yet at preview time either (the same reason
+     a truly standalone row once needed this, before this shop's own
+     matching category/subcategory made it a real, identifiable product
+     instead of a dropped one) — an EXPECTED, named outcome, not a missing
+     value, so it reads "(auto-generated)" rather than the generic,
+     alarming "(not found)" a value nobody supplied would read as. */
+  const sku = base ? groupRows.map(({ styleIdRaw }) => styleIdRaw).join(" | ") : "(auto-generated)";
   return {
     title,
     category: categoryName || null,
@@ -1371,7 +1533,7 @@ function mapProductGroup(base, groupRows) {
     currency: (pick(first, CURRENCY_KEYS) || "USD").toUpperCase(),
     description: titleCol ? descriptionCol || null : null,
     sku,
-    style_id: base,
+    style_id: base || "(auto-generated)",
     variants: groupRows.length,
     vendor: pick(first, VENDOR_KEYS) || null,
     vendor_code: pick(first, VENDOR_CODE_KEYS) || null,
@@ -1395,7 +1557,7 @@ function mapCustomerRow(record) {
   };
 }
 
-export function previewBatch(text, kind) {
+export function previewBatch(text, kind, categories = []) {
   const records = csvRecords(parseCsv(text));
   if (!records.length) return { headers: [], rowCount: 0, sampleRows: [] };
 
@@ -1404,8 +1566,23 @@ export function previewBatch(text, kind) {
   if (kind === "customers") {
     mapped = records.map(mapCustomerRow);
   } else {
-    const { groups, groupOrder } = splitProductRecords(records);
-    mapped = groupOrder.map((base) => mapProductGroup(base, groups.get(base)));
+    const { groups, groupOrder, namedRecords } = splitProductRecords(records);
+    /* `categories`, when the caller has them (dispatchBatchPreview passes
+       the SAME listCategories() result draftProductBatch itself would use),
+       is what lets a name-matched row preview as the real product it will
+       become, rather than silently disappearing the way an unmatched or
+       ineligible one still does — "how the agent interpreted everything"
+       (P0-89's own standing goal) has to include this path too, or the
+       preview would understate what the real ingest actually does. Kept a
+       plain array parameter, never fetched here, so previewBatch itself
+       stays the same side-effect-free, DB-free function it has always
+       been — a caller with no categories handy (or none at all) simply
+       gets the old behavior: an ineligible-looking row drops silently. */
+    const namedRows = namedRecords
+      .map(({ record, rowNumber }) => ({ record, rowNumber, subcategory: matchNamedCategory(categories, record) }))
+      .filter(({ subcategory }) => subcategory)
+      .map(({ record, rowNumber }) => mapProductGroup("", [{ record, rowNumber, color: undefined, size: undefined, styleIdRaw: undefined }]));
+    mapped = [...groupOrder.map((base) => mapProductGroup(base, groups.get(base))), ...namedRows];
   }
 
   /* mapProductGroup's extra (custom) fields are per-group: a sheet's own
