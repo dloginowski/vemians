@@ -42,6 +42,7 @@ import { listCategories, categoryProductCounts } from "./tools/catalog-writer.js
 import { nearestCategory } from "./tools/catalog-write.js";
 import { parkForApproval } from "./approvals.js";
 import { csvRecords, parseCsv } from "./tools/csv.js";
+import { createRateLimiter } from "./tools/rate.js";
 import { CAPS } from "./tools/caps.js";
 
 /* Letters and digits only, so "Item Name", "item_name", "Item-Name:" and
@@ -68,11 +69,11 @@ function pick(record, keys) {
  * args}]. Shared because parking is parking regardless of what the tool is —
  * only how a row becomes `args` differs between kinds.
  */
-async function parkRows(env, { actor, role, toolName }, rows) {
+async function parkRows(env, { actor, role, toolName, rate }, rows) {
   const parked = [];
   const skipped = [];
   for (const { rowNumber, title, args } of rows) {
-    const gate = await runTool(toolName, args, { actor, role, env });
+    const gate = await runTool(toolName, args, { actor, role, env, rate });
     if (!gate?.needsApproval) {
       skipped.push({ row: rowNumber, title, reason: gate?.error || "could not be validated" });
       continue;
@@ -113,7 +114,7 @@ async function parkRows(env, { actor, role, toolName }, rows) {
  */
 const NOT_ROW_FIXABLE = /requires the .* role|^rate cap:|no tool '|cannot be passed as an argument|^bad_arguments/i;
 
-async function createRows(env, { actor, role, toolName }, rows) {
+async function createRows(env, { actor, role, toolName, rate }, rows) {
   const created = [];
   const parked = [];
   const skipped = [];
@@ -126,12 +127,12 @@ async function createRows(env, { actor, role, toolName }, rows) {
     parked.push({ row: rowNumber, title, url, summary: reason });
   };
   for (const { rowNumber, title, args } of rows) {
-    const gate = await runTool(toolName, args, { actor, role, env });
+    const gate = await runTool(toolName, args, { actor, role, env, rate });
     if (!gate?.needsApproval) {
       await settle(rowNumber, title, args, gate?.error || "could not be validated");
       continue;
     }
-    const result = await runTool(toolName, args, { actor, role, env, approvalToken: gate.data.approval.token });
+    const result = await runTool(toolName, args, { actor, role, env, rate, approvalToken: gate.data.approval.token });
     if (result?.error || result?.denied) {
       await settle(rowNumber, title, args, result.error || result.denied || "was refused");
       continue;
@@ -505,15 +506,15 @@ function nextSubcategoryNumericId(categories, reserved) {
  * `categories` array already holds), so the one real number is visible to
  * every row after it in this same batch, not just the one that assigned it.
  */
-async function ensureNumbered(env, { actor, role, reserved }, category, numericId) {
+async function ensureNumbered(env, { actor, role, reserved, rate }, category, numericId) {
   if (category.numeric_id != null && category.numeric_id !== "") return { category };
   if (reserved.has(numericId)) {
     return { error: `numeric_id "${numericId}" was already claimed earlier in this same upload` };
   }
-  const gate = await runTool("catalog.set_category_number", { category_id: category.id, numeric_id: numericId }, { actor, role, env });
+  const gate = await runTool("catalog.set_category_number", { category_id: category.id, numeric_id: numericId }, { actor, role, env, rate });
   if (!gate?.needsApproval) return { error: gate?.error || "could not be numbered" };
   const result = await runTool("catalog.set_category_number", { category_id: category.id, numeric_id: numericId }, {
-    actor, role, env, approvalToken: gate.data.approval.token,
+    actor, role, env, rate, approvalToken: gate.data.approval.token,
   });
   if (result?.error || result?.denied) return { error: result.error || result.denied || "could not be numbered" };
   reserved.add(numericId);
@@ -562,7 +563,7 @@ async function ensureNumbered(env, { actor, role, reserved }, category, numericI
    by THIS function never goes out with no numeric_id, full stop; a pool
    with no free code left (all 100 of 00-99 already in use) is now a real
    error, never a silent unnumbered create. */
-async function resolveOrCreateCategory(env, { actor, role, categories, reserved, cache, parentId = null }, name) {
+async function resolveOrCreateCategory(env, { actor, role, categories, reserved, cache, parentId = null, rate }, name) {
   const key = `${parentId ?? ""}::${name.trim().toLowerCase()}`;
   if (cache.has(key)) return cache.get(key);
 
@@ -584,7 +585,7 @@ async function resolveOrCreateCategory(env, { actor, role, categories, reserved,
       cache.set(key, outcome);
       return outcome;
     }
-    const outcome = await ensureNumbered(env, { actor, role, reserved }, near, assignId);
+    const outcome = await ensureNumbered(env, { actor, role, reserved, rate }, near, assignId);
     cache.set(key, outcome);
     return outcome;
   }
@@ -602,14 +603,14 @@ async function resolveOrCreateCategory(env, { actor, role, categories, reserved,
     ...(parentId ? { parent_id: parentId } : {}),
     numeric_id: numericId,
   };
-  const gate = await runTool("catalog.create_category", args, { actor, role, env });
+  const gate = await runTool("catalog.create_category", args, { actor, role, env, rate });
   if (!gate?.needsApproval) {
     const outcome = { error: gate?.error || "could not be validated" };
     cache.set(key, outcome);
     return outcome;
   }
   const result = await runTool("catalog.create_category", args, {
-    actor, role, env, approvalToken: gate.data.approval.token,
+    actor, role, env, rate, approvalToken: gate.data.approval.token,
   });
   if (result?.error || result?.denied) {
     const outcome = { error: result.error || result.denied || "was refused" };
@@ -689,7 +690,7 @@ const STYLE_NUMBER_BASE = /^\d+-\d+-\d+$/;
  * ID-resolved row and a name-resolved one in the same upload can never pick
  * the same code for two different categories.
  */
-async function resolveCategoryByCode(env, { actor, role, categories, reserved, cache }, code, name) {
+async function resolveCategoryByCode(env, { actor, role, categories, reserved, cache, rate }, code, name) {
   const numeric = Number(code);
   if (!Number.isInteger(numeric) || numeric < 0 || numeric > 99) {
     return { error: `"${code}" is not a plain 0-99 number this shop's own numbering can use` };
@@ -725,7 +726,7 @@ async function resolveCategoryByCode(env, { actor, role, categories, reserved, c
     }
     const key = `assign::${matched.id}`;
     if (cache.has(key)) return cache.get(key);
-    const outcome = await ensureNumbered(env, { actor, role, reserved }, matched, padded);
+    const outcome = await ensureNumbered(env, { actor, role, reserved, rate }, matched, padded);
     cache.set(key, outcome);
     return outcome;
   }
@@ -748,13 +749,13 @@ async function resolveCategoryByCode(env, { actor, role, categories, reserved, c
     reason: "auto-created while importing a spreadsheet",
     numeric_id: padded,
   };
-  const gate = await runTool("catalog.create_category", args, { actor, role, env });
+  const gate = await runTool("catalog.create_category", args, { actor, role, env, rate });
   if (!gate?.needsApproval) {
     const outcome = { error: gate?.error || "could not be validated" };
     cache.set(key, outcome);
     return outcome;
   }
-  const result = await runTool("catalog.create_category", args, { actor, role, env, approvalToken: gate.data.approval.token });
+  const result = await runTool("catalog.create_category", args, { actor, role, env, rate, approvalToken: gate.data.approval.token });
   if (result?.error || result?.denied) {
     const outcome = { error: result.error || result.denied || "was refused" };
     cache.set(key, outcome);
@@ -922,16 +923,16 @@ async function resolveNamedCategory(env, ctx, record) {
   const categoryName = pick(record, CATEGORY_KEYS);
   const subcategoryName = pick(record, SUBCATEGORY_KEYS);
   if (!categoryName || !subcategoryName) return { category: null };
-  const { actor, role, categories, reservedNumericIds, reservedSubcategoryNumericIds, categoryCache } = ctx;
+  const { actor, role, categories, reservedNumericIds, reservedSubcategoryNumericIds, categoryCache, rate } = ctx;
   const topOutcome = await resolveOrCreateCategory(
     env,
-    { actor, role, categories, reserved: reservedNumericIds, cache: categoryCache, parentId: null },
+    { actor, role, categories, reserved: reservedNumericIds, cache: categoryCache, parentId: null, rate },
     categoryName,
   );
   if (topOutcome.error) return topOutcome;
   return resolveOrCreateCategory(
     env,
-    { actor, role, categories, reserved: reservedSubcategoryNumericIds, cache: categoryCache, parentId: topOutcome.category.id },
+    { actor, role, categories, reserved: reservedSubcategoryNumericIds, cache: categoryCache, parentId: topOutcome.category.id, rate },
     subcategoryName,
   );
 }
@@ -1025,7 +1026,7 @@ function draftNamedCategoryProduct(category, resolutionError, nextAutoTitle, rec
 }
 
 async function draftGroupedProduct(env, ctx, base, groupRows) {
-  const { actor, role, categories, reservedNumericIds, reservedSubcategoryNumericIds, categoryCache, nextAutoTitle } = ctx;
+  const { actor, role, categories, reservedNumericIds, reservedSubcategoryNumericIds, categoryCache, nextAutoTitle, rate } = ctx;
   const first = groupRows[0].record;
   const firstRow = groupRows[0].rowNumber;
   const [catCode, subCode, indexCode] = base.split("-");
@@ -1041,7 +1042,7 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
 
   const catOutcome = await resolveCategoryByCode(
     env,
-    { actor, role, categories, reserved: reservedNumericIds, cache: categoryCache },
+    { actor, role, categories, reserved: reservedNumericIds, cache: categoryCache, rate },
     catCode,
     categoryNameCol,
   );
@@ -1094,7 +1095,7 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
     if (!subcategory) {
       const outcome = await resolveOrCreateCategory(
         env,
-        { actor, role, categories, reserved: reservedSubcategoryNumericIds, cache: categoryCache, parentId: topCategory.id },
+        { actor, role, categories, reserved: reservedSubcategoryNumericIds, cache: categoryCache, parentId: topCategory.id, rate },
         subcategoryNameCol,
       );
       if (outcome.error) {
@@ -1341,6 +1342,23 @@ export async function draftProductBatch(env, { text, actor, role }) {
   const categories = await listCategories(env.CATALOG_MIRROR);
   const nextAutoTitle = autoTitler(await categoryProductCounts(env.CATALOG_MIRROR));
 
+  /* A real 16-row batch reported "some categories and subcategories did get
+     created, but only like two items got added" — traced to every runTool
+     call this whole function makes (category/subcategory resolution AND
+     every row's own catalog.create_product) sharing the SAME per-Access-
+     identity budget (rate.js's own default limiter) as that person's
+     ordinary chat activity — sized for "an agent in a retry loop," never for
+     one bounded, already human-confirmed pass over up to BATCH_MAX_ROWS
+     rows. Category/subcategory resolution runs for every row FIRST, then
+     every row's own create runs SECOND, so a shared budget merely close to
+     exhausted already reliably starves the SECOND phase first — exactly
+     "some categories, almost no products." A batch run cannot loop the way
+     the shared cap defends against (at most two runTool calls per row,
+     once, ever), so it gets its OWN limiter instead, fresh for this one
+     call and sized for the real worst case (CAPS.BATCH_CALLS_PER_MINUTE's
+     own header comment) rather than anti-abuse. */
+  const rate = createRateLimiter({ max: CAPS.BATCH_CALLS_PER_MINUTE });
+
   const rows = [];
   const skipped = [];
   /* resolveOrCreateCategory's/resolveCategoryByCode's own shared,
@@ -1362,7 +1380,7 @@ export async function draftProductBatch(env, { text, actor, role }) {
   const clashes = [];
 
   for (const base of groupOrder) {
-    const outcome = await draftGroupedProduct(env, { actor, role, categories, reservedNumericIds, reservedSubcategoryNumericIds, categoryCache, nextAutoTitle }, base, groups.get(base));
+    const outcome = await draftGroupedProduct(env, { actor, role, categories, reservedNumericIds, reservedSubcategoryNumericIds, categoryCache, nextAutoTitle, rate }, base, groups.get(base));
     if (outcome.clash) clashes.push(outcome.clash);
     else rows.push(outcome.row);
   }
@@ -1370,7 +1388,7 @@ export async function draftProductBatch(env, { text, actor, role }) {
   for (const { record, rowNumber } of namedRecords) {
     const resolved = await resolveNamedCategory(
       env,
-      { actor, role, categories, reservedNumericIds, reservedSubcategoryNumericIds, categoryCache },
+      { actor, role, categories, reservedNumericIds, reservedSubcategoryNumericIds, categoryCache, rate },
       record,
     );
     if (!resolved.category && !resolved.error) continue; /* neither name was even given -- nothing to build from */
@@ -1381,7 +1399,7 @@ export async function draftProductBatch(env, { text, actor, role }) {
 
   const { created: madeRows, parked: parkedFromDenials, skipped: refused } = await createRows(
     env,
-    { actor, role, toolName: "catalog.create_product" },
+    { actor, role, toolName: "catalog.create_product", rate },
     rows,
   );
   const { parked: parkedFromClashes, skipped: refusedClashes } = await parkClashRows(
@@ -1427,6 +1445,11 @@ export async function draftCustomerBatch(env, { text, actor, role }) {
   if (records.length > CAPS.BATCH_MAX_ROWS) {
     return { ready: [], skipped: [], tooMany: records.length };
   }
+  /* Same reasoning as draftProductBatch's own identical line — a batch run
+     gets its own rate budget, fresh per call, rather than competing with
+     this actor's ordinary chat activity for the shared, anti-abuse-sized
+     default (CAPS.BATCH_CALLS_PER_MINUTE's own header comment). */
+  const rate = createRateLimiter({ max: CAPS.BATCH_CALLS_PER_MINUTE });
 
   const rows = records.map((record, i) => {
     const rowNumber = i + 2;
@@ -1451,7 +1474,7 @@ export async function draftCustomerBatch(env, { text, actor, role }) {
     };
   });
 
-  const { parked, skipped } = await parkRows(env, { actor, role, toolName: "customer.create" }, rows);
+  const { parked, skipped } = await parkRows(env, { actor, role, toolName: "customer.create", rate }, rows);
   return { ready: parked, skipped: skipped.sort((a, b) => a.row - b.row) };
 }
 

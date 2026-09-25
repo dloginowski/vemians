@@ -57,7 +57,7 @@ import { register } from "node:module";
 
 import { runTool, TOOLS, STORE_BINDINGS, RESOURCES, describeTools } from "../src/tools/index.js";
 import { createApprovalStore } from "../src/tools/approval.js";
-import { createRateLimiter } from "../src/tools/rate.js";
+import { createRateLimiter, rateLimiter as sharedRateLimiter } from "../src/tools/rate.js";
 import { CAPS } from "../src/tools/caps.js";
 import { createSquareCatalogWriter, effectiveCategoryItemOptionIds } from "../src/tools/catalog-writer.js";
 import {
@@ -6920,6 +6920,42 @@ check("test_PRD_P0_152_style_number_grouping__a_subcategory_pool_with_no_free_nu
   assert.equal(result.ready.length, 1);
   assert.match(result.ready[0].summary, /no free subcategory number available/);
   assert.equal(f.categories().filter((c) => c.name === "Brand New Subcategory").length, 0, "never silently created unnumbered");
+});
+
+check("test_PRD_P0_152_style_number_grouping__a_batch_import_is_not_starved_by_this_actors_own_unrelated_rate_usage", async () => {
+  /* A real transcript: "some of the categories did get created and
+     subcategories, but only like two items got added." Traced to every
+     runTool call a batch makes sharing the SAME per-Access-identity budget
+     (rate.js's own default limiter, CAPS.CALLS_PER_MINUTE) as that same
+     person's own ordinary, unrelated chat activity -- category/subcategory
+     resolution runs for every row FIRST, then every row's own
+     catalog.create_product runs SECOND, so a budget already nearly spent on
+     something else entirely starves the SECOND phase first. Proven
+     directly: exhaust this actor's own SHARED rate budget completely first
+     (the same singleton runTool defaults to when no explicit `rate` rides
+     in its own context), then confirm the batch still creates the row --
+     draftProductBatch now spends its own, dedicated budget instead
+     (CAPS.BATCH_CALLS_PER_MINUTE's own header comment), never the shared
+     one. A fresh, otherwise-unused actor here on purpose: this test
+     deliberately exhausts a real actor's own SHARED budget, which would
+     otherwise break any other test reusing that same actor afterward. */
+  const actor = "zara@vemians.com";
+  for (let i = 0; i < CAPS.CALLS_PER_MINUTE; i++) sharedRateLimiter.take(actor);
+
+  const f = await fixture({ actor, role: "manager" });
+  const csv = "Style #,Category,Subcategory,Description,Price\n60-01-001,Brand New Top,Brand New Sub,A coat,165.00\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor, role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.ready.length, 0, `expected no clashes, got: ${JSON.stringify(result.ready)}`);
+  assert.equal(result.created.length, 1, "created despite this actor's shared rate budget already being fully spent");
 });
 
 check("test_PRD_P0_152_style_number_grouping__a_named_category_with_no_subcategory_given_is_dropped_too", async () => {

@@ -126,6 +126,28 @@ export const CAPS = Object.freeze({
   /* Generous for 400 short rows and nowhere near ORIGINAL_IMAGE_MAX_BYTES —
      a file this size holding fewer rows than the cap above is not a CSV. */
   BATCH_MAX_BYTES: 2 * 1024 * 1024,
+  /*
+   * A real 16-row batch reported "some categories and subcategories did get
+   * created, but only like two items got added" -- traced to every row of a
+   * batch sharing the SAME per-Access-identity CALLS_PER_MINUTE budget
+   * (rate.js) as that person's own ordinary chat activity, sized for "an
+   * agent in a retry loop," never for a single, bounded, already
+   * human-confirmed pass over up to BATCH_MAX_ROWS rows. Category/
+   * subcategory resolution runs FIRST for every row (draftProductBatch's own
+   * two-phase loop), then every row's own catalog.create_product call runs
+   * SECOND — so the shared budget being merely close to exhausted already
+   * (this same actor's own earlier chat turns, or an earlier attempt at this
+   * same import) reliably starves the LATER phase first, the exact "some
+   * categories, almost no products" shape this was. A batch run structurally
+   * cannot loop the way the shared cap defends against — it makes at most
+   * two runTool calls per row, once, ever — so its own dedicated limiter
+   * (created fresh per draftProductBatch/draftCustomerBatch call, batch.js)
+   * is sized for the worst case instead of anti-abuse: every one of
+   * BATCH_MAX_ROWS rows naming its own distinct new category AND
+   * subcategory (2 calls each) plus its own create (2 calls) is 6 ×
+   * BATCH_MAX_ROWS; rounded up with real headroom.
+   */
+  BATCH_CALLS_PER_MINUTE: 3000,
 
   /*
    * Category near-duplicate refusal. Two names whose normalised token sets

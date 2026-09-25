@@ -7297,6 +7297,31 @@ that does not trace to one of these is a process failure (see §12).
     exactly as given, `style_id`/`sku` reading `"(auto-generated)"` same as always, and category creation
     itself — a real write — is still never attempted from this side-effect-free, DB-free function.
 
+    **REVISED YET AGAIN — a batch's own product-creation calls no longer compete with this same
+    person's ordinary chat activity for one shared, anti-abuse-sized call budget.** A real import, the
+    owner's own words: "some of the categories did get created and subcategories, but only like two
+    items got added." Traced to `draftProductBatch`'s own two-phase shape sharing the SAME per-Access-
+    identity `CALLS_PER_MINUTE` budget (`rate.js`) as every other tool call that actor makes, including
+    their own ordinary chat turns — category/subcategory resolution runs for every row FIRST (the whole
+    `groupOrder` loop, above), then every row's own `catalog.create_product` runs SECOND, in one single
+    `createRows` call, only once the first phase is entirely done. A budget merely close to spent
+    already (this same actor's own earlier turns in the same session, or an earlier attempt at the same
+    upload) is spent further by the first phase's own category calls, then starves the second phase
+    first — categories and subcategories exist, almost no products do, exactly the shape reported. This
+    was never the retry-loop abuse `CALLS_PER_MINUTE` exists to catch (its own comment: "an agent in a
+    retry loop is the ordinary case") — a batch is a single, bounded (`BATCH_MAX_ROWS`) pass a person
+    already confirmed, making at most two `runTool` calls per row, once, ever, and `BATCH_MAX_ROWS`
+    (400) was never actually reachable inside the shared 120-per-minute window to begin with.
+    `draftProductBatch` and `draftCustomerBatch` now each construct their own fresh, dedicated rate
+    limiter (`createRateLimiter({max: CAPS.BATCH_CALLS_PER_MINUTE})`, sized for the real worst case —
+    `CAPS.BATCH_CALLS_PER_MINUTE`'s own comment) and thread it, as `rate`, through every nested call
+    that reaches `runTool` on that same pass — `parkRows`, `createRows`, `ensureNumbered`,
+    `resolveOrCreateCategory`, `resolveCategoryByCode`, `resolveNamedCategory`, `draftGroupedProduct` —
+    so a batch's own volume is isolated from the shared, per-actor default every other caller still
+    uses unchanged (`runTool`'s own `ctx.rate ?? defaultRateLimiter` fallback, `tools/index.js`).
+    Proven directly: exhausting an actor's real SHARED budget completely first, then confirming a batch
+    for that same actor still creates its row.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
