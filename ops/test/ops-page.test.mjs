@@ -614,16 +614,29 @@ check("test_PRD_P0_117_batch_preview_one_row_fits_without_scrolling__revised_the
      the chat preview and expand and see the entire column... scroll up and
      down and just review the entire contents" — the owner's own words,
      correcting the assumption behind the old rule: the collapsed default
-     was always meant to stay small, only the data behind it grew. There is
-     no dedicated .table-card.preview height rule any more — it falls back
-     to the ordinary, capped, scrolling .table-card rule every other table
-     already uses, and "Full screen" (.table-card.full, unconditional on
-     .preview) is what now actually delivers "scroll up and down and review
-     the entire contents." */
+     was always meant to stay small, only the data behind it grew. For a
+     while there was no dedicated .table-card.preview height rule at all —
+     it fell back to the ordinary, capped, scrolling .table-card rule every
+     other table already uses (a dedicated one was added back later, see
+     the sibling P0-89 check below) — and "Full screen" (.table-card.full,
+     unconditional on .preview) is what now actually delivers "scroll up
+     and down and review the entire contents." */
   const { body } = await frontPage(OWNER);
   assert.doesNotMatch(body, /\.table-card\.preview\s*\{[^}]*max-height:\s*none/s, "the preview card must no longer waive the height cap now that it can carry every interpreted row, not one sample");
   assert.match(body, /\.table-card\.full\s*\{[^}]*max-height:\s*none/s, "Full screen must still remove the cap entirely, .preview or not");
   assert.match(body, /className = t\.compact \? "table-card preview" : "table-card"/, "tableCard() still adds the modifier for compact table data, now just for its cell-crop styling rather than an uncapped height");
+});
+
+check("test_PRD_P0_89_batch_preview_confirm__the_collapsed_preview_card_is_three_times_taller_than_the_ordinary_cap", async () => {
+  /* "Make the preview card like three times taller than it currently is" —
+     the owner's own words. A dedicated .table-card.preview height, scoped
+     to the preview only — batchDraftTable()'s own plain .table-card
+     ready/skipped result keeps the ordinary 86px, since nothing asked for
+     that one to grow. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.table-card\.preview\s*\{[^}]*max-height:\s*258px/s, "three times the ordinary 86px cap");
+  assert.match(body, /\.table-card\s*\{[^}]*max-height:\s*86px/s, "the ordinary, non-preview cap must be unchanged");
+  assert.match(body, /\.table-card\.full\s*\{[^}]*max-height:\s*none/s, "Full screen must still remove the cap entirely, .preview or not");
 });
 
 check("test_PRD_P0_89_batch_preview_confirm__the_table_is_as_space_efficient_as_possible", async () => {
