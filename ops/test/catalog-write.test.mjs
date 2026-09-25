@@ -6685,6 +6685,35 @@ check("test_PRD_P0_152_style_number_grouping__a_real_title_column_still_keeps_it
   assert.equal(product.source_description, "A hand-painted piece");
 });
 
+check("test_PRD_P0_152_style_number_grouping__the_preview_shows_the_same_title_fallback_the_real_draft_already_uses", async () => {
+  /* "It should assume title is description by default and not expect a
+     description at all from these ingests" — the owner's own words,
+     reported back after the chat agent saw the PREVIEW's own title come
+     back null on a real sheet with no title column (only Description) and
+     asked a person which column was meant to be the title, instead of
+     trusting the ingest -- draftGroupedProduct/the standalone loop already
+     resolve this exact case automatically. previewBatch's own
+     mapProductRow just never mirrored that same fallback, so it showed a
+     misleadingly empty title for a row the real draft handles perfectly
+     fine, prompting a question nobody needed to ask. */
+  const { previewBatch } = await import("../src/batch.js");
+  const noTitleColumn = previewBatch(
+    "Style #,Category,Subcategory,Description,Color,Size,Cost (USD),Retail Price\n" +
+      "001-001-001-BLK-S,Jacket,Blazer,Black hand-painted blazer,Black,S,30,165\n",
+    "products",
+  );
+  assert.equal(noTitleColumn.sampleRows[0].title, "Black hand-painted blazer", "the description stands in for the missing title, same as the real draft");
+  assert.equal(noTitleColumn.sampleRows[0].description, null, "never shown as a SEPARATE description too -- it already became the title");
+
+  const withTitleColumn = previewBatch(
+    "Style #,Title,Category,Subcategory,Description,Color,Size,Cost (USD),Retail Price\n" +
+      "001-001-001-BLK-S,Bomber Blazer,Jacket,Blazer,A hand-painted piece,Black,S,30,165\n",
+    "products",
+  );
+  assert.equal(withTitleColumn.sampleRows[0].title, "Bomber Blazer", "a real title column still wins outright");
+  assert.equal(withTitleColumn.sampleRows[0].description, "A hand-painted piece", "and keeps its own separate description, unaffected");
+});
+
 check("test_PRD_P0_152_style_number_grouping__with_no_sku_column_the_rows_own_full_style_number_becomes_its_sku", async () => {
   /* "For our full SKU number, we can go with the shorter names... the SKU
      is basically what we gave you in the first column. That's the SKU" --

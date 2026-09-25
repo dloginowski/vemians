@@ -6683,6 +6683,19 @@ that does not trace to one of these is a process failure (see §12).
     title AND a separate description keeps sending both, exactly as before — this only changes the "no
     title column at all" case.
 
+    **REVISED — `catalog_preview_product_batch` showed this exact case wrong, prompting the chat agent
+    to ask a person a question the real ingest already answers on its own.** The owner's own words,
+    reported back after seeing it happen on a real sheet: "it should assume title is description by
+    default and not expect a description at all from these ingests." `previewBatch`'s own
+    `mapProductRow` built its `title`/`description` fields straight from `TITLE_KEYS`/`DESCRIPTION_KEYS`
+    with no fallback at all — a sheet with no title column previewed as `title: null`, and the agent,
+    seeing a null title it was told to show a person before drafting, reasonably asked which column was
+    meant to be the title instead of just calling `catalog_draft_product_batch` and trusting the SAME
+    fallback above. `mapProductRow` now applies the identical rule the real draft already used —
+    `DESCRIPTION_KEYS` stands in for `title` when no title column exists, and is never ALSO shown as a
+    separate `description` when it does — so the preview and the real draft agree, and this exact
+    question no longer has a reason to come up.
+
     **With no SKU column, a variation's own SKU is the row's own full style number, verbatim.** The
     owner's own words: "for our full SKU number, we can go with the shorter names... the SKU is
     basically what we gave you in the first column. That's the SKU." Two different rows in the same
