@@ -739,6 +739,39 @@ function autoTitler(existingCounts) {
  *
  * @returns { clash: {row, title, args, reason} } | { row: {rowNumber, title, args} }
  */
+/*
+ * Split first: every record with a style number whose own first three
+ * segments are all-digit joins a GROUP; a blank cell goes to the standalone
+ * path unchanged; anything else non-blank (garbage, a totals row) is
+ * dropped right here, never reported at all -- it was never a data row to
+ * begin with. Shared between draftProductBatch (the real write) and
+ * previewBatch (below) so a preview groups a sheet into products EXACTLY
+ * the way the real draft will -- the whole point of a preview being able to
+ * show "the agent interpreted N rows as this one product," not a second,
+ * possibly-drifting guess at the same rule.
+ */
+function splitProductRecords(records) {
+  const groups = new Map();
+  const groupOrder = [];
+  const standaloneRecords = [];
+  for (const [i, record] of records.entries()) {
+    const rowNumber = i + 2; /* +1 for the header, +1 for 1-based rows */
+    const styleIdRaw = pick(record, STYLE_ID_KEYS);
+    if (!styleIdRaw) {
+      standaloneRecords.push({ record, rowNumber });
+      continue;
+    }
+    const { base, color, size } = parseStyleNumber(styleIdRaw);
+    if (!STYLE_NUMBER_BASE.test(base)) continue;
+    if (!groups.has(base)) {
+      groups.set(base, []);
+      groupOrder.push(base);
+    }
+    groups.get(base).push({ record, rowNumber, color, size, styleIdRaw });
+  }
+  return { groups, groupOrder, standaloneRecords };
+}
+
 async function draftGroupedProduct(env, ctx, base, groupRows) {
   const { actor, role, categories, reservedNumericIds, reservedSubcategoryNumericIds, categoryCache, nextAutoTitle } = ctx;
   const first = groupRows[0].record;
@@ -1061,29 +1094,7 @@ export async function draftProductBatch(env, { text, actor, role }) {
   const reservedNumericIds = new Set();
   const reservedSubcategoryNumericIds = new Set();
 
-  /* Split first: every record with a style number whose own first three
-     segments are all-digit joins a GROUP; a blank cell goes to the
-     standalone path unchanged; anything else non-blank (garbage, a
-     totals row) is dropped right here, never reported at all -- it was
-     never a data row to begin with. */
-  const groups = new Map();
-  const groupOrder = [];
-  const standaloneRecords = [];
-  for (const [i, record] of records.entries()) {
-    const rowNumber = i + 2; /* +1 for the header, +1 for 1-based rows */
-    const styleIdRaw = pick(record, STYLE_ID_KEYS);
-    if (!styleIdRaw) {
-      standaloneRecords.push({ record, rowNumber });
-      continue;
-    }
-    const { base, color, size } = parseStyleNumber(styleIdRaw);
-    if (!STYLE_NUMBER_BASE.test(base)) continue;
-    if (!groups.has(base)) {
-      groups.set(base, []);
-      groupOrder.push(base);
-    }
-    groups.get(base).push({ record, rowNumber, color, size, styleIdRaw });
-  }
+  const { groups, groupOrder, standaloneRecords } = splitProductRecords(records);
 
   const clashes = [];
 
@@ -1379,53 +1390,96 @@ export async function draftCustomerBatch(env, { text, actor, role }) {
  * "Don't need to see it all. Just top 2 or 3 rows to see the headings," and
  * later, once the chat card still didn't fit even that: "I already need to
  * really see just one — two rows, one for the headings and one row of
- * data. I don't need to see three of them." One sample row plus its own
- * header is enough to confirm the column mapping; PREVIEW_SAMPLE_ROWS at 1
- * also lets the chat card itself grow to fit the whole thing without an
- * inner scrollbar (views.js's own TABLE_CARD_CSS, .table-card.preview).
- * Neither draftProductBatch nor draftCustomerBatch is safe to call
- * speculatively. REVISED: draftProductBatch now creates real products the
- * moment a row resolves cleanly (createRows) — no approval link left to
- * even click through or cancel any more, which makes this preview step
- * MORE important than it ever was, not less: a wrong column match now
- * means 400 real, wrong products in Square rather than 400 links sitting
- * unclicked. This reads the same columns the same way (same key lists,
- * same `pick`), on the first row only, and mints nothing: no listCategories
- * call, no runTool, no parkForApproval, no write of any kind.
+ * data. I don't need to see three of them." Neither draftProductBatch nor
+ * draftCustomerBatch is safe to call speculatively. REVISED: draftProductBatch
+ * now creates real products the moment a row resolves cleanly (createRows) —
+ * no approval link left to even click through or cancel any more, which
+ * makes this preview step MORE important than it ever was, not less: a
+ * wrong column match now means 400 real, wrong products in Square rather
+ * than 400 links sitting unclicked. This reads the same columns the same
+ * way (same key lists, same `pick`), on every row, and mints nothing: no
+ * listCategories call, no runTool, no parkForApproval, no write of any kind.
+ *
+ * REVISED AGAIN — "my initial instructions was never followed... I always
+ * wanted to be able to click on the chat preview and expand and see the
+ * entire column, entire like a table... scroll up and down and just review
+ * the entire contents to verify that everything is included." The 1-sample-
+ * row cap above was about keeping the CHAT CARD's collapsed default small,
+ * never about the DATA this function computes — those were the same number
+ * only because nothing yet separated "how much to compute" from "how much
+ * to show collapsed." They are separate now: every row is mapped (`sampleRows`
+ * carries the WHOLE interpreted sheet), and the client's own "Full screen"
+ * toggle (views.js's tableCard(), TABLE_CARD_CSS's own .table-card.full) is
+ * what lets a person actually scroll it end to end — the small, collapsed
+ * default view (`compact: true`, unchanged) is a CSS presentation choice
+ * now, not a smaller dataset. `formatBatchPreview` (agent.js) still narrates
+ * only the first one or two as plain text, for the same reason a markdown
+ * table restating the same data is banned elsewhere (NO_TEXT_TABLE_NOTE) —
+ * the structured table is the one source of truth for "everything," text is
+ * only ever a quick orientation.
+ *
+ * REVISED YET AGAIN — "make sure that my preview table lists actual...
+ * compressed style ID for each product, and its sizes listed and its
+ * options listed. It should be collapsed. I don't want to see all the
+ * variants... just to show that the agent has properly interpreted the
+ * product list." One row per CSV line was never the same thing as one row
+ * per PRODUCT — a style-numbered sheet's own several size/color rows are
+ * one product with several variations (P0-152's own grouping rule), and a
+ * preview built one raw CSV row at a time could never show that grouping
+ * had actually happened, only repeat the same style_id/title N times in a
+ * row. `previewBatch` now runs its product rows through the exact same
+ * `splitProductRecords` grouping draftProductBatch itself uses, and
+ * `mapProductGroup` (below) collapses each group into ONE row: its shared
+ * style_id, title and category, plus every size and color the group's own
+ * rows actually carry, aggregated rather than repeated — "how the agent
+ * interpreted everything," at a glance, not the raw variant list a person
+ * would have to reconstruct the grouping from by hand. A row-group of
+ * exactly one variant (including every standalone, non-style-numbered
+ * product, which is always a "group" of one) previews identically to
+ * before this change.
  *
  * @returns { headers: string[], rowCount: number, sampleRows: object[] }
- *   sampleRows has at most PREVIEW_SAMPLE_ROWS entries (fewer if the sheet
- *   itself has fewer data rows), each mapped the same way one draft row is.
+ *   `rowCount` is the number of raw CSV data rows read; `sampleRows` has one
+ *   entry per PRODUCT (products) or per CUSTOMER (customers) the sheet was
+ *   interpreted as — the whole sheet, not a sample of it despite the name,
+ *   kept for backward compatibility with every caller already reading it.
  */
-const PREVIEW_SAMPLE_ROWS = 1;
 
-/* Extra columns are spread in AFTER the known ones, so the preview table
-   shows exactly what draftProductBatch will actually keep as custom_fields
-   — "preserve all fields" means visible before confirming, not just kept
-   silently in the background. */
-function mapProductRow(record) {
-  const categoryName = pick(record, CATEGORY_KEYS);
-  const styleIdRaw = pick(record, STYLE_ID_KEYS);
-  /* Same parse (parseStyleNumber, above) — the preview must show exactly
-     the style_id base/color/size a real upload would actually read, not
-     the raw, unsplit cell. It shows the parsed BASE as given, never this
-     shop's own normalized two-digit form -- draftProductBatch's own
-     grouping/resolveCategoryByCode is a real DB round trip this
-     side-effect-free, single-sample preview deliberately never makes. */
-  const { base: styleBase, color: styleColor, size: styleSize } = styleIdRaw
-    ? parseStyleNumber(styleIdRaw)
-    : { base: "", color: undefined, size: undefined };
+/* A group's own price/quantity can genuinely vary row to row (a jacket in
+   three sizes at three different prices is real, not a mistake) — every
+   DISTINCT value actually present is shown, never just the first one
+   silently standing in for rows that disagree with it. */
+function summarizeVariantField(groupRows, keys) {
+  const values = [...new Set(groupRows.map(({ record }) => pick(record, keys)).filter(Boolean))];
+  return values.length ? values.join(" / ") : null;
+}
+
+/* One collapsed row per PRODUCT — a style-numbered group of several
+   size/color variations, or a lone standalone row, previewed the identical
+   way (`base` empty, one entry in `groupRows`). Extra columns are spread in
+   AFTER the known ones, from the group's own FIRST row only (product-level
+   facts, draftGroupedProduct's own comment on vendor/commission/unit cost
+   applies here too) — "preserve all fields" means visible before
+   confirming, not just kept silently in the background. */
+function mapProductGroup(base, groupRows) {
+  const first = groupRows[0].record;
+  const categoryName = pick(first, CATEGORY_KEYS);
   /* "Any time you see TBD, just use like a default or no option... it
-     doesn't need an option" — the owner's own words. Filtered here the
-     same way draftGroupedProduct's own variation loop already filters it,
-     so a "TBD" color/size previews as genuinely absent, matching what the
-     real product will actually end up with, rather than showing a value
-     that will never become a real Color/Size in Square. */
-  const optValues = Object.fromEntries(
-    Object.entries({ ...(styleColor ? { Color: styleColor } : {}), ...(styleSize ? { Size: styleSize } : {}), ...optionValues(record) }).filter(
-      ([, value]) => value.trim().toUpperCase() !== "TBD",
-    ),
-  );
+     doesn't need an option" — the owner's own words. Filtered the same way
+     draftGroupedProduct's own variation loop filters it, and merged the
+     same way too (explicit Color/Size column wins over the style number's
+     own trailing segment) — every DISTINCT value across the whole group,
+     not just its first row's, so "sizes listed" actually means every size
+     this product will actually end up with. */
+  const optionSets = Object.fromEntries(Object.keys(OPTION_KEYS).map((name) => [name, new Set()]));
+  for (const { record, color, size } of groupRows) {
+    const merged = Object.fromEntries(
+      Object.entries({ ...(color ? { Color: color } : {}), ...(size ? { Size: size } : {}), ...optionValues(record) }).filter(
+        ([, value]) => value.trim().toUpperCase() !== "TBD",
+      ),
+    );
+    for (const [name, value] of Object.entries(merged)) optionSets[name].add(value);
+  }
   /* "It should assume title is description by default and not expect a
      description at all from these ingests" — the owner's own words,
      reported back after the chat agent saw this preview's own title come
@@ -1442,34 +1496,38 @@ function mapProductRow(record) {
      it "<category> N") — a DB round trip this side-effect-free preview
      cannot reproduce exactly, so it says so in words instead of showing a
      misleading "(not found)". */
-  const titleCol = pick(record, TITLE_KEYS);
-  const descriptionCol = pick(record, DESCRIPTION_KEYS);
+  const titleCol = pick(first, TITLE_KEYS);
+  const descriptionCol = pick(first, DESCRIPTION_KEYS);
   const title = titleCol || descriptionCol || "(auto-generated from its category)";
   /* "It should never be looking, expecting an SKU in our spreadsheets,
      because the SKU is something that is generated automatically" — the
-     owner's own words; no column is ever read as an explicit SKU (there
-     is no SKU_KEYS). A style-numbered row's own full style number becomes
-     its real SKU verbatim (draftGroupedProduct's own variation loop),
-     previewed the same way. A row with no style number at all still gets
-     a real, auto-generated SKU in Square (generateSku) — same
-     DB-dependent case as style_id's own auto-generation just below,
-     genuinely unpreviewable, left as "not found". */
-  const sku = styleIdRaw || null;
+     owner's own words; no column is ever read as an explicit SKU (there is
+     no SKU_KEYS). A LONE row's own full style number becomes its real SKU
+     verbatim (draftGroupedProduct's own variation loop), previewed the same
+     way. A GROUP of several variations has no single SKU to show at all —
+     each variation's own row keeps its own full style number as ITS real
+     SKU, and this collapsed row already tells that story through
+     `style_id`/`sizes`/`colors` instead of repeating every variant's own
+     full number here. A row with no style number at all still gets a real,
+     auto-generated SKU in Square (generateSku) — genuinely unpreviewable,
+     left as "not found", same as before. */
+  const sku = groupRows.length === 1 ? groupRows[0].styleIdRaw || null : null;
   return {
     title,
     category: categoryName || null,
-    subcategory: pick(record, SUBCATEGORY_KEYS) || null,
-    price: pick(record, PRICE_KEYS) || null,
-    currency: (pick(record, CURRENCY_KEYS) || "USD").toUpperCase(),
+    subcategory: pick(first, SUBCATEGORY_KEYS) || null,
+    price: summarizeVariantField(groupRows, PRICE_KEYS),
+    currency: (pick(first, CURRENCY_KEYS) || "USD").toUpperCase(),
     description: titleCol ? descriptionCol || null : null,
     sku,
-    style_id: styleBase || null,
-    vendor: pick(record, VENDOR_KEYS) || null,
-    vendor_code: pick(record, VENDOR_CODE_KEYS) || null,
-    commission: pick(record, COMMISSION_KEYS) || null,
-    quantity: pick(record, QUANTITY_KEYS) || "1 (default)",
-    ...Object.fromEntries(Object.keys(OPTION_KEYS).map((name) => [name.toLowerCase(), optValues[name] ?? null])),
-    ...extraFields(record, PRODUCT_KNOWN_KEYS),
+    style_id: base || null,
+    variants: groupRows.length,
+    vendor: pick(first, VENDOR_KEYS) || null,
+    vendor_code: pick(first, VENDOR_CODE_KEYS) || null,
+    commission: pick(first, COMMISSION_KEYS) || null,
+    quantity: summarizeVariantField(groupRows, QUANTITY_KEYS) || "1 (default)",
+    ...Object.fromEntries(Object.keys(OPTION_KEYS).map((name) => [name.toLowerCase(), optionSets[name].size ? [...optionSets[name]].join(", ") : null])),
+    ...extraFields(first, PRODUCT_KNOWN_KEYS),
   };
 }
 
@@ -1487,13 +1545,21 @@ export function previewBatch(text, kind) {
   if (!records.length) return { headers: [], rowCount: 0, sampleRows: [] };
 
   const headers = Object.keys(records[0]);
-  const mapRow = kind === "customers" ? mapCustomerRow : mapProductRow;
-  const mapped = records.slice(0, PREVIEW_SAMPLE_ROWS).map(mapRow);
+  let mapped;
+  if (kind === "customers") {
+    mapped = records.map(mapCustomerRow);
+  } else {
+    const { groups, groupOrder, standaloneRecords } = splitProductRecords(records);
+    mapped = [
+      ...groupOrder.map((base) => mapProductGroup(base, groups.get(base))),
+      ...standaloneRecords.map(({ record, rowNumber }) => mapProductGroup("", [{ record, rowNumber, color: undefined, size: undefined, styleIdRaw: undefined }])),
+    ];
+  }
 
-  /* mapProductRow's extra (custom) fields are per-row: a sheet's own extra
-     columns are normally consistent, but one row missing a value nobody
-     else left blank must not shift what column N means in the table.
-     Every sampled row gets the SAME keys, in the SAME order, so
+  /* mapProductGroup's extra (custom) fields are per-group: a sheet's own
+     extra columns are normally consistent, but one group missing a value
+     nobody else left blank must not shift what column N means in the
+     table. Every mapped row gets the SAME keys, in the SAME order, so
      previewTable()'s columns (this file's own first row's keys) describe
      every row correctly — a key a later row lacks reads "(not found)",
      the same as a known field that was left blank, not a raw "undefined". */

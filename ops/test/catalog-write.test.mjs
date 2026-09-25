@@ -5850,16 +5850,19 @@ check("test_PRD_P0_89_batch_preview_confirm__previews_the_first_rows_and_heading
   assert.doesNotMatch(outcome.block.content, /https?:\/\/\S+\/approvals\//, "a preview must mint no approval link");
   assert.deepEqual(f.calls(), [], "a preview must not touch Square at all");
 
-  /* The structured table is what the client renders — real headings as
-     columns, one row per sample record, so it reads like a normal
-     spreadsheet snippet rather than a field-by-field list. Just the one
-     sample row now (PREVIEW_SAMPLE_ROWS, batch.js) — "just... one, two
-     rows, one for the headings and one row of data" — even though the
-     sheet itself has two. */
-  assert.deepEqual(outcome.table.columns, ["title", "category", "subcategory", "price", "currency", "description", "sku", "style_id", "vendor", "vendor_code", "commission", "quantity", "size", "color"]);
-  assert.equal(outcome.table.rows.length, 1, "only the first row is sampled");
+  /* REVISED — "I always wanted to be able to click on the chat preview and
+     expand and see the entire column... scroll up and down and just review
+     the entire contents" — the owner's own words, correcting the earlier
+     one-sample-row reading of "just... one, two rows." The structured table
+     now carries every row the sheet was interpreted as (one per product,
+     neither of these two rows shares a style number so neither groups with
+     the other) — the small, collapsed default view is a CSS choice
+     (`compact: true`, checked separately below), not a smaller dataset. */
+  assert.deepEqual(outcome.table.columns, ["title", "category", "subcategory", "price", "currency", "description", "sku", "style_id", "variants", "vendor", "vendor_code", "commission", "quantity", "size", "color"]);
+  assert.equal(outcome.table.rows.length, 2, "the whole sheet is interpreted, not just a sample of it");
   const titleCol = outcome.table.columns.indexOf("title");
   assert.equal(outcome.table.rows[0][titleCol], "Wool Coat");
+  assert.equal(outcome.table.rows[1][titleCol], "Another Coat");
 });
 
 check("test_PRD_P0_117_batch_preview_one_row_fits_without_scrolling__the_preview_table_is_marked_compact", async () => {
@@ -5881,12 +5884,16 @@ check("test_PRD_P0_117_batch_preview_one_row_fits_without_scrolling__the_preview
   assert.equal(outcome.table.compact, true);
 });
 
-check("test_PRD_P0_89_batch_preview_confirm__only_shows_the_top_row_not_the_whole_sheet", async () => {
-  /* "I already need to really see just one — two rows, one for the
-     headings and one row of data. I don't need to see three of them," the
-     owner's own words, superseding P0-89's original "top 2 or 3 rows."
-     A sheet with far more rows than that must still preview as a single
-     sample row, with the true total named separately. */
+check("test_PRD_P0_89_batch_preview_confirm__shows_every_interpreted_row_not_just_the_top_one", async () => {
+  /* REVISED — "I already need to really see just one — two rows, one for
+     the headings and one row of data. I don't need to see three of them,"
+     superseded again by "my initial instructions was never followed... I
+     always wanted to be able to click on the chat preview and expand and
+     see the entire column... scroll up and down and just review the
+     entire contents to verify that everything is included" — the owner's
+     own words. A sheet with far more rows than fit collapsed must still
+     carry every one of them in the structured table (collapsed by CSS,
+     not by a smaller dataset) — only the plain-text summary stays short. */
   const rows = Array.from({ length: 20 }, (_, i) => `Item ${i},Outerwear,${10 + i}.00`).join("\n");
   const csv = `title,category,price\n${rows}\n`;
   const outcome = await dispatch(
@@ -5901,7 +5908,7 @@ check("test_PRD_P0_89_batch_preview_confirm__only_shows_the_top_row_not_the_whol
   );
   assert.equal(outcome.block.is_error, false);
   assert.match(outcome.block.content, /20 rows detected/);
-  assert.equal(outcome.table.rows.length, 1, "sampled, not the full 20 rows");
+  assert.equal(outcome.table.rows.length, 20, "the complete, expandable table carries every interpreted row");
 });
 
 check("test_PRD_P0_89_batch_preview_confirm__customers_preview_maps_the_square_field_names", async () => {
@@ -5936,6 +5943,29 @@ check("test_PRD_P0_89_batch_preview_confirm__an_empty_spreadsheet_previews_as_no
   );
   assert.equal(outcome.block.is_error, false);
   assert.match(outcome.block.content, /no rows to preview/i);
+  assert.equal(outcome.table, null);
+});
+
+check("test_PRD_P0_89_batch_preview_confirm__rows_that_all_fail_to_group_preview_as_nothing_interpreted_not_a_crash", async () => {
+  /* Grouping (splitProductRecords, batch.js) can drop a row outright -- a
+     non-blank style-id cell that never parses as one at all -- "if they
+     don't have that style ID pattern, then just ignore that." Every raw
+     row detected but none of them a real product to interpret is genuinely
+     different from an empty sheet (rowCount is still 1 here), and must
+     still preview as a plain message rather than crash reading a table
+     with nothing in it. */
+  const outcome = await dispatch(
+    "catalog_preview_product_batch",
+    { asset_id: "ast_1" },
+    {
+      actor: "mara@vemians.com",
+      role: "manager",
+      env: { ASSETS: await assetsFixtureWithRow({ extracted_text: "title,category,price,style id\n,Outerwear,10.00,not-a-style-number\n" }) },
+      allowed: new Set(["catalog_preview_product_batch"]),
+    },
+  );
+  assert.equal(outcome.block.is_error, false);
+  assert.match(outcome.block.content, /1 row detected, but none of them could be read as a product/i);
   assert.equal(outcome.table, null);
 });
 
@@ -7053,4 +7083,64 @@ check("test_PRD_P0_152_style_number_grouping__the_preview_says_a_blank_title_wil
   const { previewBatch } = await import("../src/batch.js");
   const preview = previewBatch("category,price\nOuterwear,45.00\n", "products");
   assert.equal(preview.sampleRows[0].title, "(auto-generated from its category)");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-89 (REVISED YET AGAIN) — the preview collapses a style-numbered
+ * GROUP into one row, the same way the real draft turns it into one
+ * product with several variations, rather than repeating the group's own
+ * title/style_id once per raw CSV line. "It should be collapsed. I don't
+ * want to see all the variants... just to show that the agent has properly
+ * interpreted the product list" — the owner's own words.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_89_batch_preview_confirm__a_style_numbered_group_previews_as_one_collapsed_row_not_one_per_variant", async () => {
+  const { previewBatch } = await import("../src/batch.js");
+  const csv =
+    "Style #,Category,Description,Color,Size,Retail Price\n" +
+    "001-001-001-BLK-S,Jacket,Black hand-painted blazer,Black,S,165.00\n" +
+    "001-001-001-BLK-M,Jacket,Black hand-painted blazer,Black,M,165.00\n" +
+    "001-001-001-BLK-L,Jacket,Black hand-painted blazer,Black,L,180.00\n";
+  const preview = previewBatch(csv, "products");
+
+  assert.equal(preview.rowCount, 3, "three raw CSV rows were read");
+  assert.equal(preview.sampleRows.length, 1, "all three variants collapse into the one product they actually are");
+  const row = preview.sampleRows[0];
+  assert.equal(row.style_id, "001-001-001", "the group's own shared, compressed style id -- not any one variant's own full number");
+  assert.equal(row.title, "Black hand-painted blazer");
+  assert.equal(row.variants, 3, "the plainest possible confirmation that grouping actually happened");
+  assert.equal(row.size, "S, M, L", "every distinct size the group's own rows carry, not just the first");
+  assert.equal(row.color, "Black", "one color shared by the whole group previews once, not repeated three times");
+  assert.equal(row.price, "165.00 / 180.00", "a real price difference between variants is shown, not hidden by only reading the first row");
+  assert.equal(row.sku, null, "a multi-variant group has no single SKU to show -- each variant keeps its own, unaffected in the real write");
+});
+
+check("test_PRD_P0_89_batch_preview_confirm__a_lone_variant_group_still_previews_its_own_real_sku_same_as_before", async () => {
+  const { previewBatch } = await import("../src/batch.js");
+  const preview = previewBatch("Style #,Category,Description,Color,Size,Retail Price\n001-001-002-RED-M,Jacket,Red Blazer,Red,M,150.00\n", "products");
+  const row = preview.sampleRows[0];
+  assert.equal(row.variants, 1);
+  assert.equal(row.sku, "001-001-002-RED-M", "a group of exactly one variant still previews that row's own full style number as its real SKU");
+  assert.equal(row.size, "M");
+  assert.equal(row.color, "Red");
+});
+
+check("test_PRD_P0_89_batch_preview_confirm__groups_and_standalone_rows_in_the_same_sheet_each_preview_correctly", async () => {
+  const { previewBatch } = await import("../src/batch.js");
+  const csv =
+    "title,Style #,Category,Color,Size,Retail Price\n" +
+    ",001-001-003-BLU-S,Jacket,Blue,S,140.00\n" +
+    ",001-001-003-BLU-M,Jacket,Blue,M,140.00\n" +
+    "Loose Scarf,,Accessories,,,35.00\n";
+  const preview = previewBatch(csv, "products");
+
+  assert.equal(preview.rowCount, 3);
+  assert.equal(preview.sampleRows.length, 2, "the two-row group and the standalone row are two products, not three");
+  const grouped = preview.sampleRows.find((r) => r.style_id === "001-001-003");
+  assert.equal(grouped.variants, 2);
+  assert.equal(grouped.size, "S, M");
+  const standalone = preview.sampleRows.find((r) => r.title === "Loose Scarf");
+  assert.equal(standalone.style_id, null, "a standalone row has no style number to group by at all");
+  assert.equal(standalone.variants, 1);
+  assert.equal(standalone.sku, null);
 });

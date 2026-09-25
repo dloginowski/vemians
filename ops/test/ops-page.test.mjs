@@ -603,23 +603,27 @@ check("test_PRD_P0_119_table_headers_never_wrap__the_compact_card_height_is_reco
   assert.match(body, /\.table-card\.full\s*\{[^}]*max-height:\s*none/s, "full screen must remove the height cap entirely");
 });
 
-check("test_PRD_P0_117_batch_preview_one_row_fits_without_scrolling__the_preview_card_drops_the_height_cap_entirely", async () => {
-  /* The fixed 58px guess above still clipped a real preview once a wrapped
-     multi-line cell pushed it past that number — the owner's own words:
-     "the preview in chat still doesn't expand vertically to show the
-     entire table... make sure that in the preview, in chat preview, the
-     height fits all the data." Rather than re-guess a bigger fixed number,
-     the preview card (now provably one header row plus one data row,
-     PREVIEW_SAMPLE_ROWS in batch.js) drops the cap entirely via its own
-     .preview modifier class — tableCard() in views.js adds it whenever the
-     table data carries compact: true. batchDraftTable()'s own full result
-     table is untouched: still plain .table-card, still capped (at
-     whatever height Test-PRD-P0-119-table_headers_never_wrap's own font
-     bump later recomputed that to) and scrolling, since that one can
-     carry hundreds of rows. */
+check("test_PRD_P0_117_batch_preview_one_row_fits_without_scrolling__revised_the_preview_card_scrolls_and_expands_like_any_other_now", async () => {
+  /* REVISED — the preview card used to drop its height cap entirely, back
+     when a preview was provably one header row plus one data row
+     (PREVIEW_SAMPLE_ROWS in batch.js): "the preview in chat still doesn't
+     expand vertically to show the entire table... make sure that in the
+     preview, in chat preview, the height fits all the data." A preview now
+     carries EVERY interpreted product/customer (batch.js's own
+     previewBatch, REVISED again) — "I always wanted to be able to click on
+     the chat preview and expand and see the entire column... scroll up and
+     down and just review the entire contents" — the owner's own words,
+     correcting the assumption behind the old rule: the collapsed default
+     was always meant to stay small, only the data behind it grew. There is
+     no dedicated .table-card.preview height rule any more — it falls back
+     to the ordinary, capped, scrolling .table-card rule every other table
+     already uses, and "Full screen" (.table-card.full, unconditional on
+     .preview) is what now actually delivers "scroll up and down and review
+     the entire contents." */
   const { body } = await frontPage(OWNER);
-  assert.match(body, /\.table-card\.preview\s*\{[^}]*max-height:\s*none/s, "the preview card must have no height cap at all");
-  assert.match(body, /className = t\.compact \? "table-card preview" : "table-card"/, "tableCard() must add the modifier only for compact table data");
+  assert.doesNotMatch(body, /\.table-card\.preview\s*\{[^}]*max-height:\s*none/s, "the preview card must no longer waive the height cap now that it can carry every interpreted row, not one sample");
+  assert.match(body, /\.table-card\.full\s*\{[^}]*max-height:\s*none/s, "Full screen must still remove the cap entirely, .preview or not");
+  assert.match(body, /className = t\.compact \? "table-card preview" : "table-card"/, "tableCard() still adds the modifier for compact table data, now just for its cell-crop styling rather than an uncapped height");
 });
 
 check("test_PRD_P0_89_batch_preview_confirm__the_table_is_as_space_efficient_as_possible", async () => {
