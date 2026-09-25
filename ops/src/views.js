@@ -104,13 +104,21 @@ a:hover { opacity: 0.82; }
    from the top as the agent page's "Hi Dimitri" — caught live once the
    two were put side by side: "you need to match the agent exactly...
    that exact place, that exact font." Moved here so every ops page gets
-   it, not just the one that happened to declare it first. Bottom is 76px
-   here — enough to clear .input-bar alone (its own ~42px height + 8px
-   offset + a little breathing room) — the correct default for a page
-   with no OTHER floating row above the bar (every ops page today,
-   opsPage() included, once its own quick-action chips were removed —
-   see OPS_CSS's own comment). */
-.ops { max-width: 64rem; padding: 12px 8px 76px; }
+   it, not just the one that happened to declare it first.
+   REVISED — bottom used to be a flat 76px, "enough to clear .input-bar
+   alone" plus what the original comment called "a little breathing
+   room." That breathing room was never measured against the bar's own
+   real footprint: .input-bar is 8px off the screen's own bottom edge
+   plus ~45px of its own rendered height (min-height: 42px plus its
+   border), 53px total — so 76px was leaving roughly 23px of pure dead
+   air between the last thing on the page and the bar sitting above it
+   on EVERY .ops page, not just Items. Caught on the Items grid, the
+   owner's own words: "there is also like a 15 to 20 pixels of dead
+   space above the search bar... you didn't fully extend it and are not
+   using all available space." 64px keeps a real, deliberate gap (~11px,
+   close to this same padding's own 12px top) rather than a stale
+   leftover guess. */
+.ops { max-width: 64rem; padding: 12px 8px 64px; }
 `;
 
 /*
@@ -1939,6 +1947,19 @@ ${INPUT_BAR_CSS}
   display: grid; grid-template-columns: repeat(2, 1fr);
   gap: 10px; align-items: start;
   overflow-y: auto;
+  /* Now that the grid's OWN box is sized to fill exactly what's left
+     (flex: 1 1 auto below), its rows still only take up as much of that
+     box as the tiles themselves need — the grid's default align-content
+     (start) packs every row against the TOP and leaves whatever is left
+     over as blank space below the LAST row, inside the grid's own box,
+     which is exactly the gap still visible above the search bar on a
+     catalog whose row count doesn't happen to divide the available
+     height evenly. space-between spends that same leftover space as
+     extra room BETWEEN rows instead, so the last row's own bottom edge
+     always meets the grid box's bottom edge — no distortion, since this
+     only repositions whole rows, it never stretches an individual tile
+     off its own aspect-ratio: 1 square. */
+  align-content: space-between;
 }
 /* The flex column that makes .items-grid's own sizing above real: .greet
    (the status line) takes exactly its own content height, .items-grid

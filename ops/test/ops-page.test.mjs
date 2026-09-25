@@ -1167,17 +1167,18 @@ check("test_PRD_P0_94_mobile_edge_to_edge__the_page_containers_side_padding_matc
   const { body } = await frontPage(OWNER);
   /* Top is untouched; sides match .chat-top's own already-tightened 8px,
      so the page edge and the widget edge read as one margin rather than
-     two stacked ones. Bottom is 76px — enough to clear #chat's own fixed
-     composer alone. Bottom briefly grew further, to 108px, once .menu
-     (the quick-action chips) also became position: fixed, floating above
-     .input-bar — removed by Test-PRD-P0-113-quick_actions_removed once
-     the Dashboard gave those same three actions an actual place to
-     happen, so this page needs no wider bottom padding than any other
-     ops page any more. Test-PRD-P0-109-status_line_matches_greeting
-     moved the base 12px/8px/76px shorthand into the shared .ops rule
-     every ops page gets (OPS_DARK_CSS) — this page no longer overrides
-     any part of it. */
-  assert.match(body, /\.ops\s*\{[^}]*max-width:\s*64rem;\s*padding:\s*12px 8px 76px/s, "the shared base (top/sides/76px bottom) must still be present");
+     two stacked ones. Bottom is 64px — enough to clear #chat's own fixed
+     composer alone, plus a real (not stale-guessed) breathing gap; see
+     Test-PRD-P0-157's own comment on .ops for the 76px -> 64px revision.
+     Bottom briefly grew further, to 108px, once .menu (the quick-action
+     chips) also became position: fixed, floating above .input-bar —
+     removed by Test-PRD-P0-113-quick_actions_removed once the Dashboard
+     gave those same three actions an actual place to happen, so this
+     page needs no wider bottom padding than any other ops page any
+     more. Test-PRD-P0-109-status_line_matches_greeting moved the base
+     12px/8px shorthand into the shared .ops rule every ops page gets
+     (OPS_DARK_CSS) — this page no longer overrides any part of it. */
+  assert.match(body, /\.ops\s*\{[^}]*max-width:\s*64rem;\s*padding:\s*12px 8px 64px/s, "the shared base (top/sides/64px bottom) must still be present");
   assert.doesNotMatch(body, /\.ops\s*\{[^}]*padding-bottom:\s*108px/s, "the extra bottom clearance for the now-removed .menu row must be gone");
   assert.doesNotMatch(body, /\.ops\s*\{[^}]*padding:\s*12px 24px/s, "the old roomier side padding must not still be set");
 });
