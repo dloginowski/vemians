@@ -2997,6 +2997,41 @@ check("test_PRD_P0_138_nested_categories__admin_opening_the_add_form_auto_fills_
   );
 });
 
+check("test_PRD_P0_138_nested_categories__admin_add_toggle_queues_another_row_instead_of_hiding_the_one_already_open", async () => {
+  /* "When I click add subcategory under a new category, it's just
+     toggling the row... it should be adding another one so I can add
+     multiples," followed up with "if I add a subcategory, one after the
+     other, it's just toggling up and down... I should be able to add
+     multiples before I hit save." A click on `.admin-category-add-toggle`
+     must no longer just flip `.hidden` on the one form the server
+     renders -- the owner needs several unsaved subcategories (or several
+     unsaved top-level categories) queued up at once. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  assert.doesNotMatch(
+    body,
+    /form\.hidden = !form\.hidden;/,
+    "a second click must never hide the row already open -- that is the reported bug",
+  );
+  assert.match(
+    body,
+    /const rows = \[\.\.\.\(container\?\.querySelectorAll\(selector\) \?\? \[\]\)\];/,
+    "every existing add-form for this node/section must be read as a growing list, not a single element",
+  );
+  assert.match(
+    body,
+    /const form = rows\.find\(\(f\) => f\.hidden\) \?\? rows\[rows\.length - 1\]\?\.cloneNode\(true\);/,
+    "the first click still reveals the server's own row; every click after that clones the last one instead of toggling it",
+  );
+  assert.match(
+    body,
+    /if \(!form\.isConnected\) \{\s*\n\s*form\.querySelector\("\.admin-category-new-name"\)\.value = "";\s*\n\s*form\.querySelector\("\.admin-category-new-numeric-id"\)\.value = "";\s*\n\s*rows\[rows\.length - 1\]\.insertAdjacentElement\("afterend", form\);/,
+    "a freshly cloned row must start blank (never a copy of whatever the row before it already has typed in) and land right after the last one",
+  );
+});
+
 check("test_PRD_P0_138_nested_categories__admin_backfills_every_blank_numeric_id_on_load_not_just_the_add_form", async () => {
   /* REVISED: "you should never have any categories without an ID at all
      assigned to it... if you have one and there is a default, just

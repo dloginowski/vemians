@@ -5829,6 +5829,29 @@ that does not trace to one of these is a process failure (see §12).
     and, since this row IS top-level and a saved top-level category always keeps a real "+" of its own,
     a disabled "+" placeholder as well, the one placeholder the subcategory add-form correctly omits.
 
+    **REVISED: clicking "Add a subcategory" (or "Add a category") a second time now queues ANOTHER
+    blank row instead of hiding the one already open.** The owner's own words: "when I click add
+    subcategory under a new category, it's just toggling the row... it should be adding another one
+    so I can add multiples," followed up with "before I hit save... if I add a subcategory, one after
+    the other, it's just toggling up and down... I should be able to add multiples before I hit save."
+    The click handler for `.admin-category-add-toggle` used to do exactly one thing regardless of how
+    many times it was clicked: `form.hidden = !form.hidden` on the ONE add-form the server renders per
+    node — so a second click on an already-open row only closed it again, with no way to have two
+    pending, unsaved subcategories (or two pending top-level categories) typed in at once. It now
+    reveals that first server-rendered row same as before, but every click after that clones the last
+    row in the list instead of toggling it away, and inserts the clone right after it — so any number
+    of new rows can be queued up, each with its own name/numeric_id, before the page's one global Save
+    All is ever clicked. A clone starts genuinely blank (its own name/numeric_id inputs are cleared
+    right after cloning, since `cloneNode` on an `<input>` carries over whatever was already typed into
+    the row it copied, per the HTML cloning steps) while its hidden `parent_id` is left completely
+    untouched, since blanking THAT one field would turn the clone into a top-level category instead of
+    a subcategory. Save All still just submits every `form[data-dirty='1']` it finds, unchanged — it
+    was already written generically enough to not care how many add-forms exist. Two queued rows that
+    land on the same auto-suggested numeric_id (the auto-fill only looks at already-SAVED siblings, not
+    at other still-pending rows in the same batch) are still refused, just at Save rather than before
+    it — the same "you cannot save that" duplicate-ID refusal this tree already enforces everywhere
+    else, not a new failure mode.
+
 74. **`Test-PRD-P0-139-honest_write_failures`** — A Square write refused with a plain `Square POST
     /v2/catalog/object failed with 400` and nothing else — the owner's own words, pasting exactly that
     line after an edit silently went nowhere: "just make sure all of the fields work... with this post

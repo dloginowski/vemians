@@ -4529,22 +4529,44 @@ document.body.addEventListener("click", (e) => {
   }
   const addToggle = e.target.closest(".admin-category-add-toggle");
   if (addToggle) {
-    const form = addToggle.dataset.parentId
-      ? addToggle.closest(".admin-category-node")?.querySelector(":scope > .admin-category-add-form")
-      : addToggle.closest(".admin-section")?.querySelector(":scope > .admin-section-body > .admin-category-add-form");
-    if (form) {
-      form.hidden = !form.hidden;
-      if (!form.hidden) {
-        const idInput = form.querySelector(".admin-category-new-numeric-id");
-        if (idInput && !idInput.value) {
-          const siblings = addToggle.dataset.parentId
-            ? addToggle.closest(".admin-category-node")?.querySelectorAll(":scope > .admin-category-children > .admin-category-node") ?? []
-            : addToggle.closest(".admin-section")?.querySelectorAll(":scope > .admin-section-body > .admin-category-node") ?? [];
-          idInput.value = nextNumericId(siblings);
-        }
-        form.querySelector(".admin-category-new-name")?.focus();
-      }
+    const container = addToggle.dataset.parentId
+      ? addToggle.closest(".admin-category-node")
+      : addToggle.closest(".admin-section");
+    const selector = addToggle.dataset.parentId
+      ? ":scope > .admin-category-add-form"
+      : ":scope > .admin-section-body > .admin-category-add-form";
+    const rows = [...(container?.querySelectorAll(selector) ?? [])];
+    /* "If I add a subcategory, right, one after the other, it's just
+       toggling up and down... it should be adding another one so I can
+       add multiples" — the owner's own words. The very first click still
+       reveals the ONE form the server already renders (so a freshly
+       loaded page still ships exactly one hidden add-form per node); every
+       click after that clones the last row instead of hiding it, so
+       several subcategories — or several new top-level categories — can
+       be queued up before Save All is ever clicked. A cloned row starts
+       genuinely blank, never a copy of whatever the row before it already
+       has typed into it, and keeps its own hidden parent_id untouched (the
+       one field cloneNode must NOT blank, or the clone would create a
+       top-level category instead of a subcategory). Two queued rows that
+       land on the same auto-filled ID are still caught — just server-side,
+       at Save, the same "you cannot save that" refusal a duplicate ID
+       already gets anywhere else in this tree. */
+    const form = rows.find((f) => f.hidden) ?? rows[rows.length - 1]?.cloneNode(true);
+    if (!form) return;
+    if (!form.isConnected) {
+      form.querySelector(".admin-category-new-name").value = "";
+      form.querySelector(".admin-category-new-numeric-id").value = "";
+      rows[rows.length - 1].insertAdjacentElement("afterend", form);
     }
+    form.hidden = false;
+    const idInput = form.querySelector(".admin-category-new-numeric-id");
+    if (idInput && !idInput.value) {
+      const siblings = addToggle.dataset.parentId
+        ? addToggle.closest(".admin-category-node")?.querySelectorAll(":scope > .admin-category-children > .admin-category-node") ?? []
+        : addToggle.closest(".admin-section")?.querySelectorAll(":scope > .admin-section-body > .admin-category-node") ?? [];
+      idInput.value = nextNumericId(siblings);
+    }
+    form.querySelector(".admin-category-new-name")?.focus();
     return;
   }
   const optionsToggle = e.target.closest(".admin-category-options-toggle");
