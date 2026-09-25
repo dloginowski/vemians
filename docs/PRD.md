@@ -2283,6 +2283,36 @@ that does not trace to one of these is a process failure (see §12).
     approved (`batchDraftTable`'s own uncapped result, P0-89's original text above), and building
     both would mean maintaining two different "here is what this file means" views of the same data.
 
+    **REVISED ONE MORE TIME — the entry right above got `sku` and the price/quantity summary wrong,
+    caught immediately by a real person actually reading the result.** The owner's own words: "How
+    can SKUs be not found? There should be a unique SKU generated for all items... it should never be
+    not found. That's a failure mode." And, in the same breath: "for quantities, if I see S/M/L, I
+    should see quantity/quantity/quantity, right?... otherwise, why do I see one/two and then S/M/L?
+    What does that mean?" Both came from the identical mistake: summarizing `price`/`quantity` by
+    DISTINCT VALUE (a `Set`), which silently drops below the variant count the moment two variants
+    happen to agree — three sizes but two distinct prices reads as a mismatch, not a summary, next to
+    `size`'s own three-entry list. And `sku` was never actually unknowable for a multi-variant group
+    the way the entry above claimed: every style-numbered row already carries its own real SKU
+    verbatim (its own full style number cell) — known with no DB round trip at all, whether the group
+    has one row or five; collapsing several of them into one preview row never made that information
+    disappear, it just had nowhere to go in a single scalar.
+
+    `size`/`color`/`price`/`quantity`/`sku` (`mapProductGroup`, `batch.js`) are now all POSITIONAL
+    lists via a shared `positionalField()` helper — one entry per row in the group's own order,
+    joined with `" | "`, always exactly `variants` long, so column N of one field always names the
+    SAME variant as column N of any other. A field with nothing to show for one particular variant
+    (no color axis on that row specifically, in a group where some other row has one) reads as `"—"`
+    rather than silently shortening the list and breaking the alignment. `quantity` never shows a
+    placeholder at all — a blank cell has a real, already-known answer ("when quantity not specified
+    use 1," P0-70), so it always resolves to a real number per variant, never "not found." `sku` is
+    the row's own real style number for every style-numbered group, one or many variants alike — the
+    one case left showing anything but a real value is a genuinely STANDALONE row (no style number
+    column used at all), whose real SKU is minted only at the actual write (`generateSku`) and
+    therefore genuinely cannot be known yet; that one case now reads `"(auto-generated)"`, the same
+    pattern `title`'s own auto-generation already uses, rather than the generic, alarming
+    `"(not found)"` a value nobody supplied at all would read as — the distinction the owner's own
+    "failure mode" complaint was actually about.
+
 34a''''''''''''''''''''. **`Test-PRD-P0-90-daylight_contrast`** — The owner's own words: "Bump up
     the contrast of the dimmer elements on ops page. Its a little hard to see on a mobile device
     in broad daylight." Direct sun washes out exactly the mid-tones a "dim, secondary" colour is

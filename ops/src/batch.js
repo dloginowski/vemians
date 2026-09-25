@@ -1438,6 +1438,24 @@ export async function draftCustomerBatch(env, { text, actor, role }) {
  * product, which is always a "group" of one) previews identically to
  * before this change.
  *
+ * REVISED ONE MORE TIME — the first version of the collapsing above got two
+ * things wrong, both caught by a real person actually reading the result:
+ * "How can SKUs be not found? There should be a unique SKU generated for
+ * all items... it should never be not found. That's a failure mode," and
+ * "for quantities, if I see S/M/L, I should see quantity/quantity/quantity,
+ * right?... why do I see one/two and then S/M/L? What does that mean?" Both
+ * came from summarizing a group's own price/quantity by DISTINCT VALUE (a
+ * `Set`), which silently drops below the variant count the moment two
+ * variants agree on a value — the exact mismatch that read as nonsense next
+ * to `size`'s own one-entry-per-variant list. And a group's own SKU was
+ * treated as unknowable, when in fact every style-numbered row already
+ * carries its own real SKU verbatim; collapsing several of them into one
+ * preview row never made that information disappear. `size`/`color`/
+ * `price`/`quantity`/`sku` are now all POSITIONAL lists (`positionalField`,
+ * below) — one entry per row in the group's own order, always exactly
+ * `variants` long, so column N of one always names the same variant as
+ * column N of any other.
+ *
  * @returns { headers: string[], rowCount: number, sampleRows: object[] }
  *   `rowCount` is the number of raw CSV data rows read; `sampleRows` has one
  *   entry per PRODUCT (products) or per CUSTOMER (customers) the sheet was
@@ -1445,13 +1463,36 @@ export async function draftCustomerBatch(env, { text, actor, role }) {
  *   kept for backward compatibility with every caller already reading it.
  */
 
-/* A group's own price/quantity can genuinely vary row to row (a jacket in
-   three sizes at three different prices is real, not a mistake) — every
-   DISTINCT value actually present is shown, never just the first one
-   silently standing in for rows that disagree with it. */
-function summarizeVariantField(groupRows, keys) {
-  const values = [...new Set(groupRows.map(({ record }) => pick(record, keys)).filter(Boolean))];
-  return values.length ? values.join(" / ") : null;
+/*
+ * REVISED — a real user, actually reading this table, immediately flagged
+ * two things as broken: "How can SKUs be not found? There should be a
+ * unique SKU generated for all items... that's a failure mode." and "for
+ * quantities, if I see S/M/L, I should see quantity/quantity/quantity...
+ * otherwise, why do I see one/two and then S/M/L? What does that mean?"
+ * Both came from the SAME mistake: summarizing a group's own per-variant
+ * fields by DISTINCT VALUE (a `Set`) instead of by POSITION. Deduplicating
+ * price/quantity broke the one-to-one correspondence with `size`/`color`
+ * the moment two variants happened to agree on a value — three sizes but
+ * only two distinct quantities reads as a mismatch, not a summary, to
+ * anyone trying to line the two lists up by eye. And a lone group's own
+ * SKU is not, in fact, unknowable the way a truly standalone row's
+ * auto-generated one is — every STYLE-NUMBERED row already carries its own
+ * real SKU verbatim (its own full style number cell), known at preview
+ * time with no DB round trip needed at all; collapsing several of them
+ * into one row never made that information disappear, it just had nowhere
+ * to go in a single scalar field.
+ *
+ * `size`/`color`/`price`/`quantity`/`sku` are now all POSITIONAL lists, one
+ * entry per row in `groupRows`' own order, every one of them exactly
+ * `variants` long — column position N in one of these fields always
+ * describes the SAME variant as column position N in any other. A field
+ * with nothing to show for a given variant (no color axis on that specific
+ * row, in a group where some other row has one) reads as "—", never a
+ * silently shorter list.
+ */
+function positionalField(values) {
+  if (!values.some((v) => v !== null)) return null;
+  return values.map((v) => (v === null ? "—" : v)).join(" | ");
 }
 
 /* One collapsed row per PRODUCT — a style-numbered group of several
@@ -1468,18 +1509,15 @@ function mapProductGroup(base, groupRows) {
      doesn't need an option" — the owner's own words. Filtered the same way
      draftGroupedProduct's own variation loop filters it, and merged the
      same way too (explicit Color/Size column wins over the style number's
-     own trailing segment) — every DISTINCT value across the whole group,
-     not just its first row's, so "sizes listed" actually means every size
-     this product will actually end up with. */
-  const optionSets = Object.fromEntries(Object.keys(OPTION_KEYS).map((name) => [name, new Set()]));
-  for (const { record, color, size } of groupRows) {
-    const merged = Object.fromEntries(
+     own trailing segment) — one entry per ROW, not deduplicated (see this
+     function's own header comment for why). */
+  const perRowOptions = groupRows.map(({ record, color, size }) =>
+    Object.fromEntries(
       Object.entries({ ...(color ? { Color: color } : {}), ...(size ? { Size: size } : {}), ...optionValues(record) }).filter(
         ([, value]) => value.trim().toUpperCase() !== "TBD",
       ),
-    );
-    for (const [name, value] of Object.entries(merged)) optionSets[name].add(value);
-  }
+    ),
+  );
   /* "It should assume title is description by default and not expect a
      description at all from these ingests" — the owner's own words,
      reported back after the chat agent saw this preview's own title come
@@ -1502,21 +1540,21 @@ function mapProductGroup(base, groupRows) {
   /* "It should never be looking, expecting an SKU in our spreadsheets,
      because the SKU is something that is generated automatically" — the
      owner's own words; no column is ever read as an explicit SKU (there is
-     no SKU_KEYS). A LONE row's own full style number becomes its real SKU
-     verbatim (draftGroupedProduct's own variation loop), previewed the same
-     way. A GROUP of several variations has no single SKU to show at all —
-     each variation's own row keeps its own full style number as ITS real
-     SKU, and this collapsed row already tells that story through
-     `style_id`/`sizes`/`colors` instead of repeating every variant's own
-     full number here. A row with no style number at all still gets a real,
-     auto-generated SKU in Square (generateSku) — genuinely unpreviewable,
-     left as "not found", same as before. */
-  const sku = groupRows.length === 1 ? groupRows[0].styleIdRaw || null : null;
+     no SKU_KEYS). EVERY style-numbered row's own full style number is
+     already its real SKU verbatim (draftGroupedProduct's own variation
+     loop) — known at preview time, one per variant, whether the group has
+     one row or several; "never not found" for exactly this case, since it
+     never actually is. Only a genuinely STANDALONE row (no style number
+     column used at all) has a real SKU this preview cannot know yet — an
+     auto-generated one, minted only once the real write actually happens
+     (generateSku) — shown as "(auto-generated)" rather than the generic,
+     alarming "(not found)" a truly missing value would read as. */
+  const sku = groupRows[0].styleIdRaw ? groupRows.map(({ styleIdRaw }) => styleIdRaw).join(" | ") : "(auto-generated)";
   return {
     title,
     category: categoryName || null,
     subcategory: pick(first, SUBCATEGORY_KEYS) || null,
-    price: summarizeVariantField(groupRows, PRICE_KEYS),
+    price: positionalField(groupRows.map(({ record }) => pick(record, PRICE_KEYS) || null)),
     currency: (pick(first, CURRENCY_KEYS) || "USD").toUpperCase(),
     description: titleCol ? descriptionCol || null : null,
     sku,
@@ -1525,8 +1563,12 @@ function mapProductGroup(base, groupRows) {
     vendor: pick(first, VENDOR_KEYS) || null,
     vendor_code: pick(first, VENDOR_CODE_KEYS) || null,
     commission: pick(first, COMMISSION_KEYS) || null,
-    quantity: summarizeVariantField(groupRows, QUANTITY_KEYS) || "1 (default)",
-    ...Object.fromEntries(Object.keys(OPTION_KEYS).map((name) => [name.toLowerCase(), optionSets[name].size ? [...optionSets[name]].join(", ") : null])),
+    /* Unlike price, a blank quantity cell has a real, known answer already
+       ("when quantity not specified use 1") -- never a placeholder. */
+    quantity: groupRows.map(({ record }) => pick(record, QUANTITY_KEYS) || "1").join(" | "),
+    ...Object.fromEntries(
+      Object.keys(OPTION_KEYS).map((name) => [name.toLowerCase(), positionalField(perRowOptions.map((o) => o[name] ?? null))]),
+    ),
     ...extraFields(first, PRODUCT_KNOWN_KEYS),
   };
 }
