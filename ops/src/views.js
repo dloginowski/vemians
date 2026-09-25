@@ -5546,8 +5546,11 @@ const BATCH_KINDS = Object.freeze({
        them. I don't want to sit here and approve them" — the owner's own
        words. Uploading IS the deliberate action now; the next page shows
        what was already created, not a batch of links still waiting on a
-       second click. */
-    uploadNotice: "Uploading creates every row that resolves cleanly, right away — no separate approval after this.",
+       second click — EXCEPT a genuine clash, REVISED: "the only time you
+       want to do an approval link is if there's a clash and it has to be
+       resolved by a person" — those still get one, editable, same as
+       ever. */
+    uploadNotice: "Uploading creates every row that resolves cleanly, right away — a row with a real clash gets an editable approval link instead, never a separate approval for anything else.",
   },
   customers: {
     noun: "customer",
@@ -5610,19 +5613,25 @@ export function batchReviewPage(result, kind = "products") {
     );
   }
   /* Products create immediately (no `.url` to link to — plain text in the
-     table's own Title column); customers still park an approval link,
-     unchanged. */
-  const immediate = kind === "products";
-  const made = immediate ? result.created : result.ready;
-  /* One table, not a <ol> of made/ready rows plus a separate <ul> of skip
-     reasons — the same Row/Title/Status/Detail shape the chat's own
+     table's own Title column) UNLESS a row hit a genuine CLASH, REVISED:
+     "the only time you want to do an approval link is if there's a clash
+     and it has to be resolved by a person" — parked the ordinary way
+     instead (`result.ready`), same as every row a customer batch parks
+     always has been. `result.created` is `undefined` for customers —
+     there is no immediate-creation bucket for that kind, so it is simply
+     empty throughout. */
+  const created = result.created ?? [];
+  const ready = result.ready ?? [];
+  /* One table, not a <ol> of created/ready rows plus a separate <ul> of
+     skip reasons — the same Row/Title/Status/Detail shape the chat's own
      tableCard() already uses for this exact data (agent.js's own
      batchDraftTable()), so a spreadsheet reviewed here reads the same
      way as one reviewed in chat. The owner's own words, having seen
      both: "I like how the table renders in our chat! Doesn't look like
      that on our website!" */
   const rows = [
-    ...made.map((r) => ({ row: r.row, title: r.title, status: immediate ? "created" : "ready", detail: r.summary, url: immediate ? null : r.url })),
+    ...created.map((r) => ({ row: r.row, title: r.title, status: "created", detail: r.summary, url: null })),
+    ...ready.map((r) => ({ row: r.row, title: r.title, status: "needs a person", detail: r.summary, url: r.url })),
     ...skipped.map((s) => ({ row: s.row, title: s.title, status: "skipped", detail: s.reason, url: null })),
   ].sort((a, b) => a.row - b.row);
 
@@ -5630,15 +5639,24 @@ export function batchReviewPage(result, kind = "products") {
     "Spreadsheet uploaded",
     `<main class="wrap">
        <p class="eyebrow">Spreadsheet uploaded</p>
-       <h1>${made.length} ${immediate ? "created" : "ready to review"}, ${skipped.length} not added</h1>
+       <h1>${created.length} created, ${ready.length} need a person's decision, ${skipped.length} not added</h1>
        ${
-         made.length
-           ? immediate
-             ? `<p class="fine">Every one of these is already live in Square — nothing further to approve. Find
-                   them from the <a href="/items">Items tab</a>.</p>`
-             : `<p class="fine">Each ready row is its own approval — nothing is created until you open it and
-                   say yes, the same as ${k.createVerb === "add" ? "adding" : "creating"} one ${k.noun} by hand.</p>`
-           : `<p>Nothing in this file was ${immediate ? "created" : "ready to add"}.</p>`
+         created.length
+           ? `<p class="fine">Every created row is already live in Square — nothing further to approve. Find
+                 them from the <a href="/items">Items tab</a>.</p>`
+           : ""
+       }
+       ${
+         ready.length
+           ? `<p class="fine">A row needing a person's decision is its own approval, editable before you say
+                 yes — nothing is created until you open it, fix anything that needs fixing, and approve, the
+                 same as ${k.createVerb === "add" ? "adding" : "creating"} one ${k.noun} by hand.</p>`
+           : ""
+       }
+       ${
+         !created.length && !ready.length
+           ? `<p>Nothing in this file resolved cleanly enough to create or review.</p>`
+           : ""
        }
        ${
          rows.length

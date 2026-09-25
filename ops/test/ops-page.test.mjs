@@ -545,6 +545,7 @@ check("test_PRD_P0_89_batch_preview_confirm__the_batch_review_page_uses_the_same
   const html = batchReviewPage(
     {
       created: [{ row: 2, title: "Wool Coat", summary: "add Wool Coat, $450.00" }],
+      ready: [{ row: 4, title: "Parka", url: "https://ops.vemians.com/approvals/abc", summary: "could not be created: overlaps the existing category" }],
       skipped: [{ row: 3, title: "Outerwear 2", reason: "no style ID column, or it was empty — every product needs a style ID" }],
     },
     "products",
@@ -552,6 +553,7 @@ check("test_PRD_P0_89_batch_preview_confirm__the_batch_review_page_uses_the_same
   assert.match(html, /class="table-card"/, "the review page must use the same .table-card wrapper the chat uses");
   assert.match(html, /<th>Row<\/th><th>Title<\/th><th>Status<\/th><th>Detail<\/th>/, "columns must match the chat's own Row/Title/Status/Detail shape");
   assert.match(html, /<td>Wool Coat<\/td>/, "a product row is created immediately -- plain text, no approval link");
+  assert.match(html, /<a href="https:\/\/ops\.vemians\.com\/approvals\/abc">Parka<\/a>/, "a genuine clash still links to its own editable approval");
   assert.match(html, /no style ID column, or it was empty/, "a skipped row's own reason must still be shown");
   assert.doesNotMatch(html, /<ol>/, "the old separate ready-list <ol> must be gone");
   assert.doesNotMatch(html, /<ul>/, "the old separate skipped-list <ul> must be gone");

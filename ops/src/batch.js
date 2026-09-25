@@ -7,21 +7,23 @@
  * catalog.create_product for merchandise, customer.create for customers —
  * so the closed category set, the price caps, "Square needs at least one of
  * these fields": none of that is re-checked here, because re-checking it
- * here is how the two checks eventually disagree. A row this cannot even
- * attempt (an unparsable price, a category that matches nothing) is
- * reported before runTool ever sees it, because runTool has no way to say
- * "not a number" — everything else is left to the tool's own check(), and its
- * refusal text becomes the row's skip reason verbatim.
+ * here is how the two checks eventually disagree.
  *
  * A PRODUCT row is created IMMEDIATELY (createRows) rather than parked as a
- * separate T2 approval for someone to click later — "you have all the
- * information to create all of them, so just make them. I don't want to sit
- * here and approve them" — the owner's own words. Uploading the spreadsheet
- * already IS the deliberate action; createRows' own header comment has the
- * full reasoning. A CUSTOMER row still parks the ordinary way (parkRows) —
- * this was only ever asked for merchandise, and a customer record has no
- * "major clash" of the kind this file already resolves inline (no category,
- * no numbering, nothing to recommend a fix for).
+ * separate T2 approval — "you have all the information to create all of
+ * them, so just make them. I don't want to sit here and approve them" — the
+ * owner's own words — UNLESS this row hit a genuine CLASH: two real facts
+ * disagreeing (a category name already numbered differently), a refusal
+ * neither this file nor a person typing faster could have avoided (Square's
+ * own near-duplicate-name check, a SKU already used by a different
+ * product), or a value this file has no safe number to invent (an
+ * unparsable price). "The only time you want to do an approval link is if
+ * there's a clash and it has to be resolved by a person" — the owner's own
+ * words. A clash parks an ordinary, EDITABLE T2 approval (createRows' own
+ * header comment, and parkClashRows', have the full reasoning) — never a
+ * bare skip, and never silently guessed at either. A CUSTOMER row still
+ * parks the ordinary way (parkRows) for every T2 write, clash or not — this
+ * finer created/clash/skip split was only ever asked for merchandise.
  *
  * ONE RECORD PER ROW, MOSTLY — a customer always is, and so is a product
  * with no style number at all (a sheet that names its column just "style
@@ -97,31 +99,76 @@ async function parkRows(env, { actor, role, toolName }, rows) {
  * here exactly as before, just spent in the same request instead of
  * waiting on a second human click.
  *
- * A row that fails EITHER call (a genuine business-rule refusal — a bad
- * category, a price outside the caps, whatever check()/run() itself
- * refuses) is reported as a skip with that real reason, precisely how a
- * refused row already was under parkRows — "if there is a major clash
- * that prevents [a row] from being ingested, it should stop and explain
- * what needs to be fixed" is exactly this skip reason, not a blocked
- * upload: every OTHER row still goes through.
+ * REVISED: "the only time you want to do an approval link is if there's a
+ * clash and it has to be resolved by a person" — the owner's own words. A
+ * refusal ONLY the tool's own check() could discover this late (a SKU
+ * already used by a different product, a vendor with no commission on
+ * file) is exactly such a clash — parked instead of skipped, via the same
+ * parkForApproval every other T2 write already uses, so a person can open
+ * it, fix what needs fixing, and say yes. A refusal that is NOT about this
+ * row's own data at all (the actor's role, a rate cap, a malformed
+ * argument this file itself built wrong) has nothing a person editing
+ * THIS row could fix — those stay a plain skip, unchanged.
  */
+const NOT_ROW_FIXABLE = /requires the .* role|^rate cap:|no tool '|cannot be passed as an argument|^bad_arguments/i;
+
 async function createRows(env, { actor, role, toolName }, rows) {
   const created = [];
+  const parked = [];
   const skipped = [];
+  const settle = async (rowNumber, title, args, reason) => {
+    if (NOT_ROW_FIXABLE.test(reason)) {
+      skipped.push({ row: rowNumber, title, reason });
+      return;
+    }
+    const { url } = await parkForApproval(env, { name: toolName, args, actor, role, tier: "T2", summary: reason });
+    parked.push({ row: rowNumber, title, url, summary: reason });
+  };
   for (const { rowNumber, title, args } of rows) {
     const gate = await runTool(toolName, args, { actor, role, env });
     if (!gate?.needsApproval) {
-      skipped.push({ row: rowNumber, title, reason: gate?.error || "could not be validated" });
+      await settle(rowNumber, title, args, gate?.error || "could not be validated");
       continue;
     }
     const result = await runTool(toolName, args, { actor, role, env, approvalToken: gate.data.approval.token });
     if (result?.error || result?.denied) {
-      skipped.push({ row: rowNumber, title, reason: result.error || result.denied || "was refused" });
+      await settle(rowNumber, title, args, result.error || result.denied || "was refused");
       continue;
     }
     created.push({ row: rowNumber, title, handle: result.data?.product?.handle, summary: gate.data.would });
   }
-  return { created, skipped };
+  return { created, parked, skipped };
+}
+
+/*
+ * A CLASH batch.js itself already found, before ever reaching the tool (an
+ * unresolvable category/subcategory, a price that will not parse) — parked
+ * directly, with the reason this file already worked out as the summary,
+ * rather than running it through runTool's own check() first (which would
+ * only fail the exact same way, having nothing new to add). The person who
+ * opens this link sees the same editable form every other approval already
+ * gives, args and all, ready to fix and approve.
+ *
+ * A row's OWN category/subcategory resolution can still surface a
+ * NOT_ROW_FIXABLE reason too (resolveCategoryByCode/resolveOrCreateCategory
+ * both call runTool themselves, on this same actor/role) — a staff actor's
+ * own category lookup is refused by role exactly like its product creation
+ * would be. That is not a clash a person editing THIS row could resolve
+ * either, so it is skipped, the same discriminator createRows' own
+ * settle() already applies.
+ */
+async function parkClashRows(env, { actor, role, toolName }, rows) {
+  const parked = [];
+  const skipped = [];
+  for (const { row, title, args, reason } of rows) {
+    if (NOT_ROW_FIXABLE.test(reason)) {
+      skipped.push({ row, title, reason });
+      continue;
+    }
+    const { url } = await parkForApproval(env, { name: toolName, args, actor, role, tier: "T2", summary: reason });
+    parked.push({ row, title, url, summary: reason });
+  }
+  return { parked, skipped };
 }
 
 /* ── merchandise ──────────────────────────────────────────────────────── */
@@ -521,15 +568,14 @@ const STYLE_NUMBER_BASE = /^\d+-\d+-\d+$/;
  *      than creating a confusing near-duplicate beside it — one existing
  *      category already correctly matches, "Outerwear" style, from before
  *      this sheet's own numbering convention existed at all. Already
- *      carrying a DIFFERENT real number is a genuine mismatch — REVISED,
- *      "the only hard rule... is a unique SKU... if that's true, then add
- *      the product": this shop's own already-established number wins
- *      outright over this row's own conflicting claim, the exact same
- *      "existing real data over a mismatched spreadsheet column" rule
- *      already applied the other way (an existing NUMBER match ignores a
- *      mismatched NAME column, below in draftGroupedProduct) — never
- *      reassigned, never refused, this row simply lands on the category
- *      that name already, really is.
+ *      carrying a DIFFERENT real number is a genuine mismatch — REVISED
+ *      AGAIN: "the only time you want to do an approval link is if there's
+ *      a clash and it has to be resolved by a person" — the owner's own
+ *      words. This IS exactly such a clash (two real, on-file facts
+ *      disagree; nothing here can safely guess which one is right), so it
+ *      is reported as an `{error}` — its caller (draftGroupedProduct) turns
+ *      that into a parked approval a person reviews and fixes, never a
+ *      silent pick either way and never a bare skip.
  *   3. Neither matches anything — a brand-new category, named from `name`
  *      and given `code`, normalized to this shop's own two-digit
  *      convention, as its numeric_id. With no `name` either, returns
@@ -556,10 +602,12 @@ async function resolveCategoryByCode(env, { actor, role, categories, reserved, c
   const byName = name ? pool.find((c) => c.name.trim().toLowerCase() === name.trim().toLowerCase()) : null;
   if (byName) {
     /* Already numbered, just not the way this row's own style number
-       claims -- the existing, real number wins outright. See this
-       function's own header comment for why. */
+       claims -- a genuine clash, not something to silently pick a side
+       on. See this function's own header comment for why. */
     if (byName.numeric_id != null && byName.numeric_id !== "") {
-      return { category: byName };
+      return {
+        error: `"${name}" already exists numbered "${byName.numeric_id}", not "${code}" as this row's own style number says — check for a mismatch`,
+      };
     }
     const key = `assign::${byName.id}`;
     if (cache.has(key)) return cache.get(key);
@@ -664,27 +712,29 @@ function autoTitler(existingCounts) {
  * why — a real sheet's own subcategory digit turned out to be incompatible
  * with this shop's tree-wide-unique subcategory pool).
  *
- * REVISED: "the only hard rule here is that we must have a unique SKU
- * number or ID for each item... if that's true, then add the product" —
- * the owner's own words, walking back the earlier "a failure at any step
- * skips the whole group" rule for everything EXCEPT a genuinely
- * unparseable price. A category/subcategory this shop cannot resolve or
- * create lands the product UNASSIGNED instead of skipping it (exactly the
- * fallback catalog.create_product already tolerates on its own for a row
- * naming no category at all); a malformed or policy-incomplete vendor/
- * commission/unit-cost/vendor-code/quantity value is simply left out of
- * the write rather than blocking it. Every one of these is noted in the
- * product's own custom_fields (via `notes`, below) so nothing a person
- * typed is silently thrown away, even when this file could not act on it.
- * Only a row's own price is still a hard, unavoidable requirement — Square
- * has no way to sell an item for an amount nobody gave it — and only a
- * REAL SKU collision (catalog.create_product's own check(), now checking
- * every explicit SKU against the whole shop, not just this one call) still
- * refuses the row outright. No title column exists on a sheet like this,
- * so the first row's own Description stands in for it — "Black hand-painted
- * blazer" reads exactly like a product name already.
+ * REVISED, then REVISED AGAIN: "the only hard rule here is that we must
+ * have a unique SKU number or ID for each item... if that's true, then add
+ * the product," followed by "the only time you want to do an approval link
+ * is if there's a clash and it has to be resolved by a person" — the
+ * owner's own words, in that order. Together they draw the actual line:
+ * something this file can safely default (a missing vendor/unit cost, a
+ * malformed commission/vendor-code/quantity, a category code matching
+ * NOTHING with no name to create one from) is simply left out of the write
+ * and noted — no approval, no clash, nothing to decide. Something this
+ * file found a REAL, CONFLICTING answer for and cannot safely pick a side
+ * on (a category name already numbered differently than this row's own
+ * claim, a category/subcategory Square genuinely refused to create, a
+ * price that will not parse, or — surfacing only once catalog.
+ * create_product's own check() actually runs — a SKU already used by a
+ * different product, or a vendor with no commission on file) is a real
+ * CLASH: parked as an ordinary approval link, exactly the same
+ * check-then-a-person-decides gate every other T2 write already uses, a
+ * person free to edit the prefilled form before saying yes. No title
+ * column exists on a sheet like this, so the first row's own Description
+ * stands in for it — "Black hand-painted blazer" reads exactly like a
+ * product name already.
  *
- * @returns { skip: {row, title, reason} } | { row: {rowNumber, title, args} }
+ * @returns { clash: {row, title, args, reason} } | { row: {rowNumber, title, args} }
  */
 async function draftGroupedProduct(env, ctx, base, groupRows) {
   const { actor, role, categories, reservedNumericIds, reservedSubcategoryNumericIds, categoryCache, nextAutoTitle } = ctx;
@@ -693,10 +743,13 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
   const [catCode, subCode, indexCode] = base.split("-");
   const categoryNameCol = pick(first, CATEGORY_KEYS);
   const subcategoryNameCol = pick(first, SUBCATEGORY_KEYS);
-  /* Everything this function could not resolve or use is noted here in
-     plain text, rather than skipping the row over it — "the only hard
-     rule... is a unique SKU... if that's true, then add the product." */
+  /* Something this file could safely default is noted here, in plain
+     text, on the product itself. Something it could NOT safely decide for
+     itself goes in `clashes` instead -- the whole row still gets built (so
+     a person reviewing the parked approval sees a complete, editable
+     proposal), but it is parked rather than created outright. */
   const notes = [];
+  const clashes = [];
 
   const catOutcome = await resolveCategoryByCode(
     env,
@@ -706,8 +759,11 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
   );
   let topCategory = null;
   if (catOutcome.error) {
-    notes.push(`style number "${base}": category ${catCode}: ${catOutcome.error}`);
+    clashes.push(`style number "${base}": category ${catCode}: ${catOutcome.error}`);
   } else if (!catOutcome.category) {
+    /* Nothing to decide -- just plain absence, not a clash: no code
+       matched anything, and no name was even given to try creating one
+       from. Automatic, unassigned, noted. */
     notes.push(`style number "${base}": category ${catCode} matches no existing category, and no Category name column was given to create one from`);
   } else {
     topCategory = catOutcome.category;
@@ -716,8 +772,9 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
   /* SUBCATEGORY: two different rules, picked by whether a Subcategory
      NAME column exists at all -- only even attempted once a real
      top-level category exists to nest under; a subcategory named beside
-     an unresolved top-level category has nowhere to go, and is simply
-     noted below rather than resolved.
+     an unresolved top-level category has nowhere to go, and rides along
+     with whatever `clashes`/`notes` the category resolution above already
+     recorded, rather than reporting its own second, redundant problem.
      WITH a name column (the owner's own actual sample sheet) — resolves
      by NAME, NOT by number, REVISED against that real file: this shop's
      own subcategory numeric_id pool is TREE-WIDE unique (P0-138's own
@@ -730,9 +787,8 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
      Subcategory column already uses, auto-assigning THIS shop's own
      real, tree-wide-unique numeric_id (nextSubcategoryNumericId) rather
      than the sheet's own locally-scoped one. A CREATE failure (a real
-     Square refusal, a rate cap) no longer skips the row either — it
-     simply leaves the product at the TOP-level category instead, already
-     resolved and already in scope, rather than nested one level deeper.
+     Square refusal, a rate cap) IS a clash -- parked, same as the
+     top-level category's own.
      WITH NO name column (a bare style_id, from before that column
      existed) — resolves by NUMBER instead, tree-wide, MATCH ONLY, never
      creating: the exact deriveCategoryIdForStyleId lookup this shop's
@@ -742,8 +798,7 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
      number from a per-parent-scoped digit; a number that matches nothing
      yet simply leaves this row at the top-level category, its own raw
      digit still riding into the constructed style_id verbatim (padded)
-     — the same "no automatic skip either way" tolerance a bare style_id
-     has always gotten. */
+     — not a clash either, nothing here disagreed with anything. */
   let category = topCategory;
   let subCodeNormalized = topCategory ? String(Number(subCode)).padStart(2, "0") : null;
   if (topCategory && subcategoryNameCol) {
@@ -755,7 +810,7 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
         subcategoryNameCol,
       );
       if (outcome.error) {
-        notes.push(`subcategory "${subcategoryNameCol}" does not exist yet under "${topCategory.name}" and could not be created: ${outcome.error} -- filed under "${topCategory.name}" itself instead`);
+        clashes.push(`subcategory "${subcategoryNameCol}" does not exist yet under "${topCategory.name}" and could not be created: ${outcome.error}`);
       } else {
         subcategory = outcome.category;
       }
@@ -774,6 +829,8 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
       subCodeNormalized = match.numeric_id;
     }
   } else if (subcategoryNameCol) {
+    /* Nowhere to nest -- but nothing DISAGREES either, there is simply no
+       category to check the subcategory against. Automatic, noted. */
     notes.push(`subcategory "${subcategoryNameCol}" was given without a resolvable category to nest it under`);
   }
 
@@ -830,17 +887,21 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
   }
 
   /* One variation per row, in the sheet's own order. A bad price on any
-     ONE row still skips the WHOLE group -- Square has no way to sell an
-     item for an amount nobody gave it, the one thing here that genuinely
-     cannot be left blank or defaulted. A bad quantity, unlike a bad
-     price, now just defaults to 1 (noted) rather than blocking the row —
-     the same tolerance a genuinely blank quantity cell already gets. */
+     ONE row is a genuine clash -- Square has no way to sell an item for an
+     amount nobody gave it, and this file has no safe number to guess, so
+     the WHOLE group is parked for a person to fill it in via the same
+     editable approval form every other clash uses; it still keeps
+     building every other row's own real variation, so that form shows a
+     complete, almost-right proposal rather than an empty one. A bad
+     quantity, unlike a bad price, is not a clash at all -- it just
+     defaults to 1 (noted), the same tolerance a blank quantity cell
+     already gets. */
   const variations = [];
   for (const { record, rowNumber, color, size, styleIdRaw } of groupRows) {
     const priceRaw = pick(record, PRICE_KEYS);
     const priceMinor = parsePriceToMinor(priceRaw);
     if (priceMinor === null) {
-      return { skip: { row: rowNumber, title, reason: `price "${priceRaw}" is not a plain number like 45.00` } };
+      clashes.push(`row ${rowNumber}: price "${priceRaw}" is not a plain number like 45.00`);
     }
     const currency = (pick(record, CURRENCY_KEYS) || "USD").toUpperCase();
     const quantityRaw = pick(record, QUANTITY_KEYS);
@@ -879,12 +940,13 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
        "The only hard rule here is that we must have a unique SKU number
        or ID for each item... if that's true, then add the product" —
        catalog.create_product's own check() now refuses a SKU it finds
-       already in use by any OTHER product in the shop, relayed as this
-       row's own skip reason exactly like a bad price is. */
+       already in use by any OTHER product in the shop; that refusal is a
+       clash only the tool itself can discover, so it is caught and parked
+       one level up, in createRows, once it actually tries the write. */
     const sku = pick(record, SKU_KEYS) || styleIdRaw;
     variations.push({
       title: variationTitle,
-      price_minor: priceMinor,
+      ...(priceMinor !== null ? { price_minor: priceMinor } : {}),
       currency,
       quantity,
       ...(sku ? { sku } : {}),
@@ -912,24 +974,28 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
      verbatim above in `notes` instead. */
   const styleId = topCategory ? `${topCategory.numeric_id}-${subCodeNormalized}-${String(Number(indexCode)).padStart(3, "0")}` : undefined;
 
-  return {
-    row: {
-      rowNumber: firstRow,
-      title,
-      args: {
-        title,
-        ...(description ? { description } : {}),
-        ...(category ? { category_id: category.id } : {}),
-        ...(styleId ? { style_id: styleId } : {}),
-        ...(vendor ? { vendor } : {}),
-        ...(vendorCode && vendor ? { vendor_code: vendorCode } : {}),
-        ...(unitCostMinor !== undefined ? { unit_cost_minor: unitCostMinor } : {}),
-        ...(commission !== undefined ? { commission } : {}),
-        variations,
-        ...(Object.keys(customFields).length ? { custom_fields: customFields } : {}),
-      },
-    },
+  const args = {
+    title,
+    ...(description ? { description } : {}),
+    ...(category ? { category_id: category.id } : {}),
+    ...(styleId ? { style_id: styleId } : {}),
+    ...(vendor ? { vendor } : {}),
+    ...(vendorCode && vendor ? { vendor_code: vendorCode } : {}),
+    ...(unitCostMinor !== undefined ? { unit_cost_minor: unitCostMinor } : {}),
+    ...(commission !== undefined ? { commission } : {}),
+    variations,
+    ...(Object.keys(customFields).length ? { custom_fields: customFields } : {}),
   };
+
+  /* A real clash parks the whole group for a person to review and fix,
+     exactly the same check-then-a-person-decides gate every other T2
+     write already uses -- never silently picked one way, never a bare
+     skip either. */
+  if (clashes.length) {
+    return { clash: { row: firstRow, title, args, reason: clashes.join("; ") } };
+  }
+
+  return { row: { rowNumber: firstRow, title, args } };
 }
 
 /**
@@ -964,12 +1030,12 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
  *
  * @param env   CATALOG_MIRROR, and whatever runTool's own resources need.
  * @param actor, role  the uploader's own verified Access identity.
- * @returns { created: [{row, title, handle, summary}], skipped: [{row, title, reason}], tooMany?: number }
+ * @returns { created: [{row, title, handle, summary}], ready: [{row, title, url, summary}], skipped: [{row, title, reason}], tooMany?: number }
  */
 export async function draftProductBatch(env, { text, actor, role }) {
   const records = csvRecords(parseCsv(text));
   if (records.length > CAPS.BATCH_MAX_ROWS) {
-    return { created: [], skipped: [], tooMany: records.length };
+    return { created: [], ready: [], skipped: [], tooMany: records.length };
   }
   const categories = await listCategories(env.CATALOG_MIRROR);
   const nextAutoTitle = autoTitler(await categoryProductCounts(env.CATALOG_MIRROR));
@@ -1014,9 +1080,11 @@ export async function draftProductBatch(env, { text, actor, role }) {
     groups.get(base).push({ record, rowNumber, color, size, styleIdRaw });
   }
 
+  const clashes = [];
+
   for (const base of groupOrder) {
     const outcome = await draftGroupedProduct(env, { actor, role, categories, reservedNumericIds, reservedSubcategoryNumericIds, categoryCache, nextAutoTitle }, base, groups.get(base));
-    if (outcome.skip) skipped.push(outcome.skip);
+    if (outcome.clash) clashes.push(outcome.clash);
     else rows.push(outcome.row);
   }
 
@@ -1026,13 +1094,18 @@ export async function draftProductBatch(env, { text, actor, role }) {
     const subcategoryName = pick(record, SUBCATEGORY_KEYS);
     const priceRaw = pick(record, PRICE_KEYS);
     const currency = (pick(record, CURRENCY_KEYS) || "USD").toUpperCase();
-    /* Everything below that used to skip the row over optional or
-       unresolvable data is now just noted instead — "the only hard rule
-       here is that we must have a unique SKU number or ID for each
-       item... if that's true, then add the product." Only a genuinely
-       unparseable PRICE still skips a row outright, below — nothing else
-       here is something Square actually requires. */
+    /* Something this row's own data leaves genuinely absent (no vendor, no
+       unit cost, a malformed optional value) is simply noted, automatic,
+       no approval needed. Something this row FOUND a real, conflicting
+       answer for and cannot safely pick a side on -- a category/
+       subcategory Square genuinely refused to create, or a price that
+       will not parse -- is a real CLASH instead: "the only time you want
+       to do an approval link is if there's a clash and it has to be
+       resolved by a person" -- the owner's own words. The row still gets
+       built all the way through either way, so a parked clash still shows
+       a complete, editable proposal. */
     const notes = [];
+    const rowClashes = [];
 
     /* "Categories/subcategories should be made if missing. And ids
        assigned auto bumped" — the owner's own words. REVISED: "we can
@@ -1041,12 +1114,11 @@ export async function draftProductBatch(env, { text, actor, role }) {
        above), the same "check, then re-run with the token" pattern the
        Admin panel's own category form already uses, rather than parking a
        separate approval and making the uploader come back. A real
-       creation failure (a near-duplicate name, say) no longer skips the
-       row either — it lands unassigned instead, its own intended
-       category name preserved in `notes`. A row naming NO category at
-       all is a genuinely different case, unaffected: no automatic skip
-       either way — it stays genuinely UNASSIGNED, exactly as catalog.
-       create_product already tolerates on its own. */
+       creation failure (a near-duplicate name, say) IS a clash, parked for
+       a person to resolve. A row naming NO category at all is a genuinely
+       different case, unaffected: no clash, no automatic skip either way
+       — it stays genuinely UNASSIGNED, exactly as catalog.create_product
+       already tolerates on its own. */
     let category = categoryName ? matchCategory(categoryName, categories) : null;
     if (categoryName && !category) {
       const outcome = await resolveOrCreateCategory(
@@ -1055,7 +1127,7 @@ export async function draftProductBatch(env, { text, actor, role }) {
         categoryName,
       );
       if (outcome.error) {
-        notes.push(`category "${categoryName}" does not exist yet and could not be created: ${outcome.error}`);
+        rowClashes.push(`category "${categoryName}" does not exist yet and could not be created: ${outcome.error}`);
       } else {
         category = outcome.category;
       }
@@ -1066,9 +1138,9 @@ export async function draftProductBatch(env, { text, actor, role }) {
        this row's own category — the same "the subcategory is the
        authoritative, more specific level" rule this file already applies
        when a style ID's own digits resolve to one instead. Given with no
-       category at all to nest under, or a create failure of its own, this
-       is simply noted now — the row still lands wherever `category`
-       already resolved to (unassigned, or the top-level category alone). */
+       category at all to nest under, there is nothing to disagree with —
+       simply noted, automatic. A real CREATE failure of its own, though,
+       is a genuine clash, same as the top-level category's own. */
     if (subcategoryName) {
       if (!category) {
         notes.push(`subcategory "${subcategoryName}" was given without a category to nest it under`);
@@ -1081,7 +1153,7 @@ export async function draftProductBatch(env, { text, actor, role }) {
             subcategoryName,
           );
           if (outcome.error) {
-            notes.push(`subcategory "${subcategoryName}" does not exist yet under "${category.name}" and could not be created: ${outcome.error} -- filed under "${category.name}" itself instead`);
+            rowClashes.push(`subcategory "${subcategoryName}" does not exist yet under "${category.name}" and could not be created: ${outcome.error}`);
           } else {
             subcategory = outcome.category;
           }
@@ -1096,8 +1168,7 @@ export async function draftProductBatch(env, { text, actor, role }) {
     const title = rawTitle || nextAutoTitle(category);
     const priceMinor = parsePriceToMinor(priceRaw);
     if (priceMinor === null) {
-      skipped.push({ row: rowNumber, title, reason: `price "${priceRaw}" is not a plain number like 45.00` });
-      continue;
+      rowClashes.push(`price "${priceRaw}" is not a plain number like 45.00`);
     }
 
     /* Never given here at all: this loop is ONLY reached by a row with a
@@ -1110,8 +1181,9 @@ export async function draftProductBatch(env, { text, actor, role }) {
 
     /* "When quantity not specified use 1" — the owner's own words. Blank
        defaults rather than blocks; a value that IS given but does not
-       parse now simply defaults the same way, noted rather than reported
-       as a skip. */
+       parse now simply defaults the same way, noted rather than treated
+       as a clash — nothing here disagrees with anything, it just is not
+       usable as given. */
     const quantityRaw = pick(record, QUANTITY_KEYS);
     let quantity = 1;
     if (quantityRaw) {
@@ -1140,7 +1212,9 @@ export async function draftProductBatch(env, { text, actor, role }) {
        Neither a vendor nor a unit cost is something catalog.create_product
        itself has ever actually required (confirmed by its own check()) —
        a row with a real price and nothing else about its cost simply goes
-       through with neither now. */
+       through with neither now. A vendor with no commission ON FILE is
+       still a real clash, but only the tool's own check() can discover
+       it — caught and parked one level up, in createRows. */
     const unitCostRaw = pick(record, UNIT_COST_KEYS);
     /* WITH a vendor, "unit cost" is Square's own real unit_cost_minor now
        (Retail Plus/Premium) — the same UNIT_COST_KEYS synonyms, but parsed
@@ -1175,36 +1249,51 @@ export async function draftProductBatch(env, { text, actor, role }) {
        is blank-style-id rows only) -- an explicit Size/Color column
        (OPTION_KEYS) is the only source. */
     const optValues = optionValues(record);
-    rows.push({
-      rowNumber,
+    const args = {
       title,
-      args: {
-        title,
-        ...(description ? { description } : {}),
-        ...(category ? { category_id: category.id } : {}),
-        ...(styleId ? { style_id: styleId } : {}),
-        ...(vendor ? { vendor } : {}),
-        ...(vendorCode && vendor ? { vendor_code: vendorCode } : {}),
-        ...(unitCostMinor !== undefined ? { unit_cost_minor: unitCostMinor } : {}),
-        ...(commission !== undefined ? { commission } : {}),
-        variations: [
-          {
-            title,
-            price_minor: priceMinor,
-            currency,
-            quantity,
-            ...(pick(record, SKU_KEYS) ? { sku: pick(record, SKU_KEYS) } : {}),
-            ...(Object.keys(optValues).length ? { option_values: optValues } : {}),
-          },
-        ],
-        ...(Object.keys(customFields).length ? { custom_fields: customFields } : {}),
-      },
-    });
+      ...(description ? { description } : {}),
+      ...(category ? { category_id: category.id } : {}),
+      ...(styleId ? { style_id: styleId } : {}),
+      ...(vendor ? { vendor } : {}),
+      ...(vendorCode && vendor ? { vendor_code: vendorCode } : {}),
+      ...(unitCostMinor !== undefined ? { unit_cost_minor: unitCostMinor } : {}),
+      ...(commission !== undefined ? { commission } : {}),
+      variations: [
+        {
+          title,
+          ...(priceMinor !== null ? { price_minor: priceMinor } : {}),
+          currency,
+          quantity,
+          ...(pick(record, SKU_KEYS) ? { sku: pick(record, SKU_KEYS) } : {}),
+          ...(Object.keys(optValues).length ? { option_values: optValues } : {}),
+        },
+      ],
+      ...(Object.keys(customFields).length ? { custom_fields: customFields } : {}),
+    };
+
+    if (rowClashes.length) {
+      clashes.push({ row: rowNumber, title, args, reason: rowClashes.join("; ") });
+    } else {
+      rows.push({ rowNumber, title, args });
+    }
   }
 
-  const { created: madeRows, skipped: refused } = await createRows(env, { actor, role, toolName: "catalog.create_product" }, rows);
+  const { created: madeRows, parked: parkedFromDenials, skipped: refused } = await createRows(
+    env,
+    { actor, role, toolName: "catalog.create_product" },
+    rows,
+  );
+  const { parked: parkedFromClashes, skipped: refusedClashes } = await parkClashRows(
+    env,
+    { actor, role, toolName: "catalog.create_product" },
+    clashes,
+  );
 
-  return { created: madeRows, skipped: [...skipped, ...refused].sort((a, b) => a.row - b.row) };
+  return {
+    created: madeRows,
+    ready: [...parkedFromClashes, ...parkedFromDenials].sort((a, b) => a.row - b.row),
+    skipped: [...skipped, ...refused, ...refusedClashes].sort((a, b) => a.row - b.row),
+  };
 }
 
 /* ── customers ────────────────────────────────────────────────────────── */

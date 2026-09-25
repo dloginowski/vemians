@@ -339,6 +339,15 @@ const PREVIEW_TOOL_DEFS = [
       "chance to catch a wrong column mapping before it becomes real, wrong products — show the person the " +
       "mapping, and only call catalog_draft_product_batch once they confirm it looks right." +
       NO_TEXT_TABLE_NOTE,
+    /* A row that resolves cleanly still creates immediately, unaffected;
+       a row with a real CLASH (a category name already numbered
+       differently, a SKU already used elsewhere, an unparseable price)
+       parks an ordinary, editable approval link instead of skipping —
+       "the only time you want to do an approval link is if there's a
+       clash and it has to be resolved by a person" — the owner's own
+       words. This preview cannot catch a clash ahead of time (most only
+       surface once real resolution runs), but it still catches the
+       wrong-mapping case this note above is about. */
     input_schema: {
       type: "object",
       properties: { asset_id: { type: "string", description: "The asset id named in the attachment note." } },
@@ -362,14 +371,18 @@ const BATCH_TOOL_DEFS = [
     description:
       "Parse an attached spreadsheet (already uploaded — pass the asset id from the attachment note) " +
       "into products: matches column headings (title/name/item/style, category, price, description, sku " +
-      "— any reasonable spelling) the same way /products/batch does, validates each row against the " +
-      "closed category set and the price format, and CREATES every row that resolves cleanly RIGHT NOW — " +
-      "no approval link, no second click, the upload itself is the deliberate action. Reports the rest " +
-      "with a plain reason (a genuine problem — a bad price, a category mismatch — never blocks any OTHER " +
-      "row from still going through). Call catalog_preview_product_batch on the same asset first and get " +
-      "the person's confirmation on the column mapping before calling this, since there is no undo-by-" +
-      "not-approving any more — this is the same deterministic logic the dedicated upload page uses, just " +
-      "reached from chat." +
+      "— any reasonable spelling) the same way /products/batch does, and CREATES every row that resolves " +
+      "cleanly RIGHT NOW — no approval link, no second click, the upload itself is the deliberate action. " +
+      "A row with a genuine CLASH instead (a category name already numbered differently, a SKU already used " +
+      "by a different product, a price that will not parse) mints an ordinary, EDITABLE T2 approval link " +
+      "for a person to open, fix, and approve — never silently guessed at, never a bare skip either, since " +
+      "\"the only time you want to do an approval link is if there's a clash and it has to be resolved by a " +
+      "person\" is the owner's own rule. Every other genuinely bad row (nothing to salvage — a rate cap, " +
+      "the actor's own role) is still reported as a plain skip with its real reason, never blocking any " +
+      "OTHER row. Call catalog_preview_product_batch on the same asset first and get the person's " +
+      "confirmation on the column mapping before calling this, since a clean row is no longer undoable by " +
+      "not approving — this is the same deterministic logic the dedicated upload page uses, just reached " +
+      "from chat." +
       NO_TEXT_TABLE_NOTE,
     input_schema: {
       type: "object",
@@ -421,32 +434,39 @@ async function readAssetText(env, assetId) {
    re-deriving prose from a JSON blob — the same reason describeTool exists
    for a single-item proposal. `table` is the same information shaped for
    the client's own compact review table, not for the model at all. */
-/* Products create immediately (createRows, batch.js) — REVISED, "I don't
-   want to sit here and approve them" — the owner's own words; customers
-   still park an approval link (parkRows, unchanged). */
+/* Products create immediately (createRows, batch.js) — "I don't want to
+   sit here and approve them" — the owner's own words — UNLESS a row hit a
+   genuine CLASH, REVISED: "the only time you want to do an approval link
+   is if there's a clash and it has to be resolved by a person" — parked
+   the ordinary way instead (`result.ready`), same as every row a customer
+   batch parks (parkRows, unchanged) always has been. `result.created` is
+   `undefined` for customers — there is no immediate-creation bucket for
+   that kind at all, so it is simply treated as empty throughout. */
 function formatBatchDraft(kind, result) {
   if (result.tooMany !== undefined) {
     return `The spreadsheet has ${result.tooMany} rows, past the ${CAPS.BATCH_MAX_ROWS}-row cap for one upload. Split it and try again.`;
   }
-  const immediate = kind === "products";
-  const made = immediate ? result.created : result.ready;
-  const lines = [`${made.length} ${kind} ${immediate ? "created" : "ready"}, ${result.skipped.length} skipped.`];
-  for (const r of made) lines.push(immediate ? `- Row ${r.row} "${r.title}": created — ${r.summary}` : `- Row ${r.row} "${r.title}": ${r.summary} — ${r.url}`);
+  const created = result.created ?? [];
+  const ready = result.ready ?? [];
+  const lines = [`${created.length} ${kind} created, ${ready.length} need a person's decision, ${result.skipped.length} skipped.`];
+  for (const r of created) lines.push(`- Row ${r.row} "${r.title}": created — ${r.summary}`);
+  for (const r of ready) lines.push(`- Row ${r.row} "${r.title}": ${r.summary} — ${r.url}`);
   for (const s of result.skipped) lines.push(`- Row ${s.row} "${s.title}": skipped — ${s.reason}`);
   return lines.join("\n");
 }
 
 function batchDraftTable(kind, result) {
   if (result.tooMany !== undefined) return null;
-  const immediate = kind === "products";
-  const made = immediate ? result.created : result.ready;
+  const created = result.created ?? [];
+  const ready = result.ready ?? [];
   const rows = [
-    ...made.map((r) => [String(r.row), r.title, immediate ? "created" : "ready", immediate ? r.summary : `${r.summary} — ${r.url}`]),
+    ...created.map((r) => [String(r.row), r.title, "created", r.summary]),
+    ...ready.map((r) => [String(r.row), r.title, "needs a person", `${r.summary} — ${r.url}`]),
     ...result.skipped.map((s) => [String(s.row), s.title, "skipped", s.reason]),
   ];
   rows.sort((a, b) => Number(a[0]) - Number(b[0]));
   return {
-    title: `${kind[0].toUpperCase()}${kind.slice(1)}: ${made.length} ${immediate ? "created" : "ready"}, ${result.skipped.length} skipped`,
+    title: `${kind[0].toUpperCase()}${kind.slice(1)}: ${created.length} created, ${ready.length} need a person's decision, ${result.skipped.length} skipped`,
     columns: ["Row", "Title", "Status", "Detail"],
     rows,
   };

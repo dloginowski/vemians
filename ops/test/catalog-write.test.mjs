@@ -580,6 +580,12 @@ check("test_PRD_P0_60_spreadsheet_products__a_clean_row_is_created_immediately",
 });
 
 check("test_PRD_P0_60_spreadsheet_products__a_bad_row_is_reported_with_why_not_silently_dropped", async () => {
+  /* REVISED: "the only time you want to do an approval link is if there's
+     a clash and it has to be resolved by a person" — the owner's own
+     words. A price this file has no safe number to guess is exactly such
+     a clash: parked as an ordinary, editable approval (`ready`) with the
+     real reason as its own summary, never silently dropped and never a
+     bare skip either. */
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
   const csv = "title,category,price\n" + "Silk Scarf,Outerwear,free\n" + "Wool Coat,Outerwear,also-not-a-number\n";
 
@@ -592,17 +598,14 @@ check("test_PRD_P0_60_spreadsheet_products__a_bad_row_is_reported_with_why_not_s
     globalThis.fetch = realFetch;
   }
   assert.equal(result.created.length, 0);
-  assert.equal(result.skipped.length, 2);
-  /* A real price is the one thing this file still cannot default or leave
-     out -- REVISED, "the only hard rule here is that we must have a
-     unique SKU number or ID for each item... if that's true, then add
-     the product" — everything else (a missing category, vendor,
-     commission, unit cost, quantity) now lands the product anyway. */
-  assert.match(result.skipped[0].reason, /"free" is not a plain number/);
-  assert.match(result.skipped[1].reason, /"also-not-a-number" is not a plain number/);
+  assert.equal(result.skipped.length, 0);
+  assert.equal(result.ready.length, 2);
+  assert.match(result.ready[0].summary, /"free" is not a plain number/);
+  assert.match(result.ready[1].summary, /"also-not-a-number" is not a plain number/);
+  assert.ok(result.ready[0].url && result.ready[1].url, "each clash is a real, openable approval link");
   /* Rows are 1-based and counted past the header, so a person can find row 2
      in the spreadsheet they actually uploaded. */
-  assert.deepEqual(result.skipped.map((s) => s.row), [2, 3]);
+  assert.deepEqual(result.ready.map((s) => s.row), [2, 3]);
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -676,14 +679,13 @@ check("test_PRD_P0_136_square_custom_attributes__two_distinct_missing_categories
   assert.notEqual(millinery.numeric_id, handbags.numeric_id, "two distinct new categories in one upload must never land on the same number");
 });
 
-check("test_PRD_P0_136_square_custom_attributes__a_category_that_fails_to_create_leaves_the_row_unassigned_instead_of_blocking_it", async () => {
+check("test_PRD_P0_136_square_custom_attributes__a_category_that_fails_to_create_is_a_clash_parked_for_a_person", async () => {
   /* "Outerwear" already exists; a near-identical spelling is refused by
-     catalog.create_category's own near-duplicate check. REVISED: "the
-     only hard rule here is that we must have a unique SKU number or ID
-     for each item... if that's true, then add the product" -- a category
-     this file cannot create no longer blocks the row either; the product
-     is still created, unassigned, the real refusal preserved in its own
-     custom_fields rather than silently dropped. */
+     catalog.create_category's own near-duplicate check. REVISED AGAIN:
+     "the only time you want to do an approval link is if there's a clash
+     and it has to be resolved by a person" -- this genuinely is one (is
+     "Outerwears" a typo, or a real new category?), so it is parked rather
+     than either skipped or silently filed unassigned. */
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   const csv = `title,category,price,cost\nParka,${outerwear.name}s,60.00,30.00\n`;
@@ -698,13 +700,15 @@ check("test_PRD_P0_136_square_custom_attributes__a_category_that_fails_to_create
   }
 
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.equal(result.created.length, 1);
+  assert.equal(result.created.length, 0);
+  assert.equal(result.ready.length, 1);
+  assert.equal(result.ready[0].title, "Parka");
+  assert.match(result.ready[0].summary, /could not be created/);
+  assert.match(result.ready[0].summary, /overlaps the existing/);
+  assert.ok(result.ready[0].url, "a real, openable approval link");
 
-  const row = f.mirror("SELECT category_id, custom_fields FROM mirror_product WHERE title = 'Parka'")[0];
-  assert.equal(row.category_id, null, "unassigned -- there was nowhere real to file it");
-  const notes = JSON.parse(row.custom_fields)["import notes"];
-  assert.match(notes, /could not be created/);
-  assert.match(notes, /overlaps the existing/);
+  const row = f.mirror("SELECT id FROM mirror_product WHERE title = 'Parka'")[0];
+  assert.equal(row, undefined, "nothing is created until the parked approval is actually approved");
 });
 
 check("test_PRD_P0_145_auto_generated_title__a_blank_title_is_auto_generated_from_category_and_position", async () => {
@@ -909,8 +913,9 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_vendor_with_nothi
 
   const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
   assert.equal(result.created.length, 0);
-  assert.equal(result.skipped.length, 1);
-  assert.match(result.skipped[0].reason, /vendor 'Acme Mills' has no commission on file yet — give one now/);
+  assert.equal(result.skipped.length, 0);
+  assert.equal(result.ready.length, 1, "a vendor with no commission on file is a real clash, parked for a person, not silently skipped");
+  assert.match(result.ready[0].summary, /vendor 'Acme Mills' has no commission on file yet — give one now/);
 });
 
 check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_brand_new_vendor_with_no_commission_is_flagged", async () => {
@@ -924,8 +929,9 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_brand_new_vendor_
 
   const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
   assert.equal(result.created.length, 0);
-  assert.equal(result.skipped.length, 1);
-  assert.match(result.skipped[0].reason, /vendor 'Acme Mills' has no commission on file yet — give one now/);
+  assert.equal(result.skipped.length, 0);
+  assert.equal(result.ready.length, 1, "a vendor with no commission on file is a real clash, parked for a person, not silently skipped");
+  assert.match(result.ready[0].summary, /vendor 'Acme Mills' has no commission on file yet — give one now/);
 });
 
 check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_vendor_and_commission_is_parked_and_sets_both", async () => {
@@ -1007,8 +1013,9 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_commission_that_i
     globalThis.fetch = realFetch;
   }
   assert.equal(result.created.length, 0);
-  assert.equal(result.skipped.length, 1);
-  assert.match(result.skipped[0].reason, /vendor 'Acme Mills' has no commission on file yet/);
+  assert.equal(result.skipped.length, 0);
+  assert.equal(result.ready.length, 1, "the vendor's own real commission clash is parked for a person, not silently skipped");
+  assert.match(result.ready[0].summary, /vendor 'Acme Mills' has no commission on file yet/);
 });
 
 check("test_PRD_P0_136_square_custom_attributes__a_malformed_commission_still_lets_the_row_through_when_the_vendor_already_has_one_on_file", async () => {
@@ -5693,9 +5700,9 @@ check("test_PRD_P0_88_spreadsheet_via_chat__a_real_csv_drafts_through_the_same_p
     globalThis.fetch = realFetch;
   }
   assert.equal(outcome.block.is_error, false);
-  assert.match(outcome.block.content, /1 products created, 1 skipped/);
+  assert.match(outcome.block.content, /1 products created, 1 need a person's decision, 0 skipped/);
   assert.match(outcome.block.content, /Wool Coat/);
-  assert.match(outcome.block.content, /"free" is not a plain number/i, "the skipped row's own reason must be relayed");
+  assert.match(outcome.block.content, /"free" is not a plain number/i, "the clashed row's own reason must be relayed");
 });
 
 check("test_PRD_P0_136_square_custom_attributes__a_missing_category_via_chat_is_created_immediately_too", async () => {
@@ -5716,7 +5723,7 @@ check("test_PRD_P0_136_square_custom_attributes__a_missing_category_via_chat_is_
     globalThis.fetch = realFetch;
   }
   assert.equal(outcome.block.is_error, false);
-  assert.match(outcome.block.content, /1 products created, 0 skipped/);
+  assert.match(outcome.block.content, /1 products created, 0 need a person's decision, 0 skipped/);
   assert.match(outcome.block.content, /Sun Hat/);
   assert.equal(outcome.table.rows[0][2], "created", "the row itself is created, in the same upload, once its missing category is created");
   assert.ok(f.categories().find((c) => c.name === "Millinery"), "the category must actually have been created");
@@ -5888,8 +5895,8 @@ check("test_PRD_P0_89_batch_preview_confirm__the_draft_tools_carry_a_structured_
   assert.equal(outcome.table.rows.length, 2);
   const created = outcome.table.rows.find((r) => r[2] === "created");
   assert.equal(created[1], "Wool Coat");
-  const skipped = outcome.table.rows.find((r) => r[2] === "skipped");
-  assert.match(skipped[3], /"free" is not a plain number/i);
+  const needsPerson = outcome.table.rows.find((r) => r[2] === "needs a person");
+  assert.match(needsPerson[3], /"free" is not a plain number/i);
 });
 
 check("test_PRD_P0_89_batch_preview_confirm__too_many_rows_carries_no_table_only_the_cap_message", async () => {
@@ -6410,33 +6417,63 @@ check("test_PRD_P0_152_style_number_grouping__an_existing_category_matched_by_na
   assert.equal(f.categories().find((c) => c.name === "Outerwear").numeric_id, "01");
 });
 
-check("test_PRD_P0_152_style_number_grouping__a_name_that_already_has_a_different_number_wins_over_the_rows_own_mismatched_claim", async () => {
-  /* REVISED: "the only hard rule here is that we must have a unique SKU
-     number or ID for each item... if that's true, then add the product"
-     -- a name already numbered differently is no longer a reported
-     mismatch; this shop's own already-established number wins outright,
-     the exact same "existing real data over a mismatched spreadsheet
-     column" rule already applied the other way (an existing NUMBER match
-     ignores a mismatched NAME column, tested below). */
+check("test_PRD_P0_152_style_number_grouping__a_name_that_already_has_a_different_number_is_a_clash_parked_for_a_person", async () => {
+  /* REVISED AGAIN: "the only time you want to do an approval link is if
+     there's a clash and it has to be resolved by a person" -- a name
+     already numbered differently than this row's own style-number claim
+     is exactly such a clash: two real, on-file facts disagree, and this
+     file has no safe way to guess which one is right, so it is parked
+     rather than silently picking a side either way. */
   const f = await fixture({ actor: "priya@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   await approvedCall(f, "catalog.set_category_number", { category_id: outerwear.id, numeric_id: "05" });
 
   const csv = "Style #,Category,Description,Color,Size,Cost (USD),Retail Price\n" + "01-99-001-BLK-M,Outerwear,A coat,Black,M,30,165\n";
+  const result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" });
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.created.length, 0);
+  assert.equal(result.ready.length, 1);
+  assert.equal(result.ready[0].title, "A coat");
+  assert.match(result.ready[0].summary, /already exists numbered "05", not "01"/);
+  assert.equal(f.categories().filter((c) => c.name === "Outerwear").length, 1, "no duplicate category created over the mismatch");
+});
+
+check("test_PRD_P0_152_style_number_grouping__a_subcategory_that_fails_to_create_is_a_clash_parked_for_a_person", async () => {
+  /* "Blazer" already exists under "Jacket"; a near-identical spelling for
+     a SECOND, different top-level index is refused by catalog.
+     create_category's own near-duplicate check, scoped to siblings under
+     the same parent. Exactly the same kind of clash a top-level category
+     name conflict already is -- parked, not silently filed under
+     "Jacket" alone and not skipped either. */
+  const f = await fixture({ actor: "sana@vemians.com", role: "manager" });
+  const csv =
+    "Style #,Category,Subcategory,Description,Color,Size,Cost (USD),Retail Price\n" +
+    "001-001-001-BLK-S,Jacket,Blazer,Black hand-painted blazer,Black,S,30,165\n" +
+    "001-001-002-WHT-S,Jacket,Blazers,White blazer,White,S,30,175\n";
+
   const realFetch = globalThis.fetch;
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "sana@vemians.com", role: "manager" });
   } finally {
     globalThis.fetch = realFetch;
   }
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
   assert.equal(result.created.length, 1);
-  assert.equal(f.categories().filter((c) => c.name === "Outerwear").length, 1, "no duplicate category created over the mismatch");
+  assert.equal(result.created[0].title, "Black hand-painted blazer");
+  assert.equal(result.ready.length, 1);
+  assert.equal(result.ready[0].title, "White blazer");
+  assert.match(result.ready[0].summary, /could not be created/);
+  assert.match(result.ready[0].summary, /overlaps the existing/);
+  assert.ok(result.ready[0].url, "a real, openable approval link");
 
-  const row = f.mirror("SELECT style_id FROM mirror_product WHERE title = 'A coat'")[0];
-  assert.match(row.style_id, /^05-/, "the existing, real number (05) wins, never the row's own conflicting claim (01)");
+  const products = f.mirror("SELECT title FROM mirror_product WHERE title LIKE '%blazer%' COLLATE NOCASE");
+  assert.deepEqual(
+    products.map((p) => p.title),
+    ["Black hand-painted blazer"],
+    "the parked row must never have been created until its own approval is",
+  );
 });
 
 check("test_PRD_P0_152_style_number_grouping__a_style_number_that_does_not_match_the_pattern_is_ignored_outright", async () => {
@@ -6490,8 +6527,9 @@ check("test_PRD_P0_152_style_number_grouping__a_totals_rows_blank_style_number_s
     globalThis.fetch = realFetch;
   }
   assert.equal(result.created.length, 1);
-  assert.equal(result.skipped.length, 1);
-  assert.match(result.skipped[0].reason, /price ".*" is not a plain number/);
+  assert.equal(result.skipped.length, 0);
+  assert.equal(result.ready.length, 1, "an unparseable price is a clash, parked for a person, not silently skipped");
+  assert.match(result.ready[0].summary, /price ".*" is not a plain number/);
 });
 
 check("test_PRD_P0_152_style_number_grouping__a_bad_price_on_any_one_row_skips_the_whole_group", async () => {
@@ -6510,8 +6548,9 @@ check("test_PRD_P0_152_style_number_grouping__a_bad_price_on_any_one_row_skips_t
     globalThis.fetch = realFetch;
   }
   assert.equal(result.created.length, 0, "a product missing one of its own sizes is worse than not creating it yet");
-  assert.equal(result.skipped.length, 1);
-  assert.match(result.skipped[0].reason, /price "not-a-price"/);
+  assert.equal(result.skipped.length, 0);
+  assert.equal(result.ready.length, 1, "the whole group is parked for a person, not silently skipped");
+  assert.match(result.ready[0].summary, /price "not-a-price"/);
 });
 
 check("test_PRD_P0_152_style_number_grouping__the_actual_sample_sheet_drafts_sixteen_products_from_twenty_eight_rows", async () => {
@@ -6741,7 +6780,12 @@ check("test_PRD_P0_152_style_number_grouping__a_tbd_color_or_size_is_dropped_as_
  * (catalog.create_product's own check(), extended with variantBySku).
  * ───────────────────────────────────────────────────────────────────────── */
 
-check("test_PRD_P0_152_style_number_grouping__a_sku_already_used_by_a_different_product_refuses_the_row", async () => {
+check("test_PRD_P0_152_style_number_grouping__a_sku_already_used_by_a_different_product_is_a_clash_parked_for_a_person", async () => {
+  /* REVISED AGAIN: "the only time you want to do an approval link is if
+     there's a clash and it has to be resolved by a person" -- a SKU
+     collision only surfaces once catalog.create_product's own check()
+     actually runs, and it is exactly this kind of clash: parked, not
+     silently skipped, so a person can rename the SKU and approve. */
   const f = await fixture({ actor: "sana@vemians.com", role: "manager" });
   const csv =
     "Style #,Category,Description,Cost (USD),Retail Price,SKU\n" +
@@ -6758,14 +6802,17 @@ check("test_PRD_P0_152_style_number_grouping__a_sku_already_used_by_a_different_
   }
   assert.equal(result.created.length, 1);
   assert.equal(result.created[0].title, "Blazer One");
-  assert.equal(result.skipped.length, 1);
-  assert.match(result.skipped[0].reason, /SKU 'DUPE-1' is already used by 'Blazer One'/);
+  assert.equal(result.skipped.length, 0);
+  assert.equal(result.ready.length, 1);
+  assert.equal(result.ready[0].title, "Blazer Two");
+  assert.match(result.ready[0].summary, /SKU 'DUPE-1' is already used by 'Blazer One'/);
+  assert.ok(result.ready[0].url, "a real, openable approval link, so the SKU can be fixed and approved");
 
   const products = f.mirror("SELECT title FROM mirror_product WHERE title LIKE 'Blazer%'");
   assert.deepEqual(
     products.map((p) => p.title),
     ["Blazer One"],
-    "the second, colliding row must never have been created at all",
+    "the second, colliding row must never have been created until its own approval is",
   );
 });
 
