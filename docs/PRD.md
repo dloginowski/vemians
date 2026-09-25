@@ -7642,6 +7642,32 @@ that does not trace to one of these is a process failure (see §12).
     cannot tell a leftover import artifact from a genuinely custom field someone actually named "cost" on
     purpose, so its own description says to ask first if that might be the case, rather than guessing.
 
+89. **`Test-PRD-P0-156-ask_what_it_can_do`** — "Did you add a way for me to check with the agent which
+    commands are available? I should be able to have the agent automatically give me a list of all the
+    tools that I can click on." Investigated against this surface's own recorded history first, rather
+    than built straight away: P0-113 (above) already removed exactly this kind of clickable
+    quick-action chip as clutter, and the front page's own header comment records an even more direct
+    quote — "No dev. No examples. No mcp. Just chat and common actions" — the reasoning for removing a
+    technical reference section (the roster, the tier contract, the sample data) in favour of "the
+    assistant itself... explains in conversation when asked." Surfaced back to the owner directly: build
+    the full 50-tool technical list as clickable buttons (a real reversal of that recorded philosophy),
+    or something smaller? Answer: **something smaller** — "let's do something smaller instead... make
+    the assistant's existing conversational... answer easier to trigger, without a technical button
+    list."
+
+    **One button, one fixed question, the ordinary chat path.** A new `#help-btn` (`views.js`'s own
+    `HELP_ICON`, matching the existing `.icon-btn` style already shared by `#attach-btn`/`#mic-btn`) sits
+    in the chat composer's own bar. Clicking it sets the composer's value to "What can you do?" and calls
+    `document.getElementById("chat").requestSubmit()` — the EXACT same `/ops/agent` path a typed question
+    already takes, not a second code path or a client-rendered list. Deliberately NOT the P0-113 `.menu`/
+    `.choices`/`data-prompt` shape that entry's own test already asserts is gone: this is one fixed
+    question a button asks FOR you, never a set of canned prompts to choose from. `systemPrompt()`
+    (`agent.js`) gained one line so the answer is consistent regardless of when it's asked: "what can you
+    do" no longer belongs only to the first message's own "More Options" branch — asked at any point, the
+    model answers the same short, plain way (common tasks in plain language) and is told explicitly to
+    never list tool names, domains, tiers or schemas, so the technical reference material stays gone
+    everywhere, not just off the page's own markup.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

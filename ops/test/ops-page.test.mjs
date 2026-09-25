@@ -429,6 +429,28 @@ check("test_PRD_P0_113_quick_actions_removed__the_one_click_chips_are_gone_but_t
   assert.match(script, /Submit Expenses/);
 });
 
+check("test_PRD_P0_156_ask_what_it_can_do__a_dedicated_button_sends_the_question_as_plain_chat", async () => {
+  /* A real transcript: "I should be able to have the agent automatically
+     give me a list of all the tools that I can click on" — walked back
+     once P0-113's own history came up (the owner's own words there: "no
+     dev, no examples, no mcp, just chat and common actions"). Settled on
+     the smaller version: one button, no rendered list — it just sends the
+     same question a person could type themselves, through the ordinary
+     #chat form, and gets back whatever the model would say to that
+     question anyway. Deliberately NOT the P0-113 "menu"/"choices"/
+     data-prompt shape that test already asserts is gone: this is a single
+     fixed question, not a set of canned prompts. */
+  const { body } = await frontPage(OWNER);
+  const main = body.slice(body.indexOf("<main"), body.indexOf("<script"));
+  assert.match(main, /id="help-btn"/, "the help button must be in the chat bar");
+  assert.match(main, /aria-label="What can you do\?"/);
+  assert.doesNotMatch(main, /class="menu"|class="choices"/, "this must not resurrect the removed quick-action chips");
+  assert.doesNotMatch(body, /data-prompt=/, "a single fixed question is not a set of canned chip prompts");
+
+  assert.match(body, /qInput\.value = "What can you do\?"/, "the click handler must send exactly this question");
+  assert.match(body, /getElementById\("chat"\)\.requestSubmit\(\)/, "clicking it must submit through the ordinary chat form, not a second code path");
+});
+
 check("test_PRD_P0_69_one_click_welcome_menu__the_built_in_chat_is_open_at_rest_not_a_folded_afterthought", async () => {
   /* The chat box used to live in a closed <details> captioned "your own
      assistant is the one worth using" — actively steering away from the one
