@@ -7055,6 +7055,56 @@ that does not trace to one of these is a process failure (see §12).
     standalone row's own not-yet-minted SKU used to need (a separate, still more recent "REVISED" round
     fixing "How can SKUs be not found?... that's a failure mode") no longer has a case left to apply to.
 
+    **REVISED YET AGAIN — a blank style-id row is not always a totals/notes line, and this shop's own
+    already-numbered categories are exactly what makes that distinguishable.** The owner's own words,
+    clarifying the exact rule right after the paragraph above shipped: "A style ID [is] three numbers
+    that define a style, like a category, a subcategory, and an index within that category. Now, we
+    already have categories and subcategories with their corresponding IDs defined in our database, in
+    our website. These are accessible to the agent... So if we were to add a spreadsheet that did not
+    have a style ID, but we did provide matching categories and subcategories, the agent should be able
+    to generate an ID automatically... because the index is just something that it generates on the fly
+    using the next available slot." A row naming BOTH an existing, already-numbered top-level category
+    AND an existing, already-numbered subcategory under it — by NAME, confirmed directly that BOTH are
+    required, a category alone is not enough — is a genuine, identifiable product, not a totals line:
+    `splitProductRecords` now collects it into a THIRD bucket, `namedRecords`, instead of dropping it.
+    `matchNamedCategory` (`batch.js`) does the actual lookup (top-level by name, then its subcategory by
+    name under it, both requiring a real `numeric_id` already on file) — confirmed directly that a name
+    matching NOTHING is still dropped exactly as before, and this path never CREATES a category or
+    subcategory on its own behalf, only looks one up; inventing one would be a decision only a person
+    should make. Nothing here computes a style_id by hand, either: `catalog.create_product`'s own
+    `resolveStyleId` (catalog-write.js, P0-136) already mints one automatically from a given
+    `category_id`'s own NN-NN pair plus the next free index the moment that id belongs to a real,
+    numbered subcategory — `draftNamedCategoryProduct` (batch.js, the field-by-field rebuild of the
+    deleted standalone loop's own defaulting, minus its category-creation half) simply hands it the
+    matched subcategory's own id with no `style_id` argument at all, and gets "the next available slot"
+    for free, the identical mechanism a real style number's own index conflict already relies on. Two
+    rows naming the same category/subcategory with no style number to share a group base with become
+    TWO separate products, each its own auto-generated index, never variants of one.
+
+    **Matching is plural/singular-insensitive too.** The owner's own words, given in the same round:
+    "when matching categories and subcategories... either plural or singular should match." `matchCategory`
+    (`batch.js`, already shared with `draftGroupedProduct`'s own subcategory-by-name resolution) now folds
+    a trailing plural before comparing — the identical small rule `catalog-write.js`'s own
+    `suggestCategory()` already uses for its own fuzzy scoring, kept as its own copy here since the two
+    functions' matching semantics (a closed-set exact lookup vs. a fuzzy suggestion) are deliberately
+    unrelated. "Jacket"/"Jackets" and "Accessory"/"Accessories" name the same category either way, in
+    every place `matchCategory` is used, not only the new named-category path.
+
+    **The preview reflects this new path too, without previewBatch ever touching a database.** A
+    name-matched row previewing as absent, when the real ingest would actually create it, is exactly the
+    preview-vs-draft mismatch this file has fought before (P0-88's own earlier "REVISED AGAIN" entry).
+    `previewBatch` gains an optional third parameter, `categories` (default `[]`) — a plain array, never
+    fetched by `previewBatch` itself, so it stays the same side-effect-free, DB-free function it has
+    always been. `dispatchBatchPreview` (`agent.js`) is the one caller that actually has a database
+    connection; it now calls the SAME `listCategories()` `draftProductBatch` itself would use and hands
+    the result through, so preview and the real draft can never resolve a name differently. A
+    name-matched row previews through `mapProductGroup` exactly like a real style-numbered group of one
+    variant, except `style_id`/`sku` read `"(auto-generated)"` — the exact-same, expected-outcome
+    wording the standalone path's own not-yet-minted SKU used before this entry deleted it — since the
+    real index genuinely is not known until the write happens. No `CATALOG_MIRROR` binding at all (never
+    true in production, but a minimal test env) degrades to the pre-existing behavior — an unmatched-
+    looking row simply drops from the preview — rather than a crash.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

@@ -6583,12 +6583,18 @@ check("test_PRD_P0_152_style_number_grouping__a_subcategory_that_fails_to_create
      create_category's own near-duplicate check, scoped to siblings under
      the same parent. Exactly the same kind of clash a top-level category
      name conflict already is -- parked, not silently filed under
-     "Jacket" alone and not skipped either. */
+     "Jacket" alone and not skipped either.
+     REVISED: "Blazers" (a plain plural) no longer reaches this check at
+     all -- matchCategory itself now folds plural/singular ("either plural
+     or singular should match," the owner's own words), so it resolves
+     straight to the existing "Blazer" without ever attempting a create. A
+     genuinely different but overlapping name ("Casual Blazer") is what
+     still reaches catalog.create_category's own near-duplicate check. */
   const f = await fixture({ actor: "sana@vemians.com", role: "manager" });
   const csv =
     "Style #,Category,Subcategory,Description,Color,Size,Cost (USD),Retail Price\n" +
     "001-001-001-BLK-S,Jacket,Blazer,Black hand-painted blazer,Black,S,30,165\n" +
-    "001-001-002-WHT-S,Jacket,Blazers,White blazer,White,S,30,175\n";
+    "001-001-002-WHT-S,Jacket,Casual Blazer,White blazer,White,S,30,175\n";
 
   const realFetch = globalThis.fetch;
   globalThis.fetch = f.square;
@@ -6615,17 +6621,221 @@ check("test_PRD_P0_152_style_number_grouping__a_subcategory_that_fails_to_create
   );
 });
 
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-152 (REVISED) — a row with no style number, but naming an EXISTING,
+ * already-numbered category and subcategory BY NAME, still becomes a real
+ * product: catalog.create_product's own resolveStyleId mints a real
+ * style_id from those categories' own real numeric codes, plus the next
+ * free index. "We already have categories and subcategories with their
+ * corresponding IDs defined in our database... as long as it finds the
+ * matching category and subcategory, [it] should be able to generate an ID
+ * automatically... the index is just something that it generates on the
+ * fly using the next available slot" — the owner's own words.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_152_style_number_grouping__a_row_naming_an_existing_category_and_subcategory_gets_a_real_auto_generated_style_id", async () => {
+  /* A dedicated actor ("keiko") this file uses nowhere else -- draftProductBatch's
+     own runTool calls share the module-level rate limiter across every test in this
+     file (never reset between them), and a heavily-reused actor (mara/priya) is
+     already close enough to its own 120-call/60s cap that this test's own extra
+     calls would tip other, unrelated tests over it. */
+  const f = await fixture({ actor: "keiko@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let seed, result;
+  try {
+    /* Seed a real, numbered "Jacket"/"Blazer" pair the ordinary
+       style-numbered way first — this new path never creates a category,
+       only looks one up. A Subcategory NAME column resolves by name, not
+       by the style number's own raw digit (draftGroupedProduct's own
+       comment on that) — the first subcategory ever created in this fresh
+       fixture gets numeric_id "00", the first free code in that pool. */
+    seed = await draftProductBatch(f.env, {
+      text: "Style #,Category,Subcategory,Description,Price\n70-01-001,Jacket,Blazer,Black Blazer,165.00\n",
+      actor: "keiko@vemians.com",
+      role: "manager",
+    });
+    assert.equal(seed.created.length, 1, `seed row failed: ${JSON.stringify(seed)}`);
+
+    result = await draftProductBatch(f.env, {
+      text: "title,category,subcategory,price\nWhite Blazer,Jacket,Blazer,175.00\n",
+      actor: "keiko@vemians.com",
+      role: "manager",
+    });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.ready.length, 0);
+  assert.equal(result.created.length, 1, "no style number given at all, but the category/subcategory matched by name");
+
+  const row = f.mirror("SELECT style_id FROM mirror_product WHERE title = 'White Blazer'")[0];
+  assert.equal(row.style_id, "70-00-002", "the real category/subcategory codes, plus the next free index after the seed row's own 001");
+});
+
+check("test_PRD_P0_152_style_number_grouping__matching_a_named_category_folds_plural_and_singular", async () => {
+  /* "When matching categories and subcategories... either plural or
+     singular should match" -- the owner's own words. */
+  const f = await fixture({ actor: "keiko@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let seed, result;
+  try {
+    seed = await draftProductBatch(f.env, {
+      text: "Style #,Category,Subcategory,Description,Price\n71-01-001,Jacket,Blazer,Black Blazer,165.00\n",
+      actor: "keiko@vemians.com",
+      role: "manager",
+    });
+    assert.equal(seed.created.length, 1);
+
+    result = await draftProductBatch(f.env, {
+      text: "title,category,subcategory,price\nWhite Blazer,Jackets,Blazers,175.00\n",
+      actor: "keiko@vemians.com",
+      role: "manager",
+    });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.created.length, 1, "the plural spellings still match the singular categories already on file");
+  const row = f.mirror("SELECT style_id FROM mirror_product WHERE title = 'White Blazer'")[0];
+  assert.equal(row.style_id, "71-00-002");
+});
+
+check("test_PRD_P0_152_style_number_grouping__a_named_category_or_subcategory_matching_nothing_is_dropped_never_created", async () => {
+  /* Confirmed directly: no match at all means dropped, same as a totals
+     row -- this path never CREATES a category or subcategory, only looks
+     one up. */
+  const f = await fixture({ actor: "keiko@vemians.com", role: "manager" });
+  const result = await draftProductBatch(f.env, {
+    text: "title,category,subcategory,price\nMystery Item,Nonexistent Category,Nonexistent Sub,50.00\n",
+    actor: "keiko@vemians.com",
+    role: "manager",
+  });
+  assert.equal(result.created.length, 0);
+  assert.equal(result.ready.length, 0);
+  assert.equal(result.skipped.length, 0, "no match at all -- dropped silently, never auto-created either");
+});
+
+check("test_PRD_P0_152_style_number_grouping__a_named_category_with_no_subcategory_given_is_dropped_too", async () => {
+  /* Confirmed directly: both a category AND a subcategory name are
+     required to qualify -- a category-only row is dropped even when that
+     category is real and already numbered. */
+  const f = await fixture({ actor: "keiko@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let seed, result;
+  try {
+    seed = await draftProductBatch(f.env, {
+      text: "Style #,Category,Subcategory,Description,Price\n72-01-001,Jacket,Blazer,Black Blazer,165.00\n",
+      actor: "keiko@vemians.com",
+      role: "manager",
+    });
+    assert.equal(seed.created.length, 1);
+
+    result = await draftProductBatch(f.env, {
+      text: "title,category,price\nSome Coat,Jacket,50.00\n",
+      actor: "keiko@vemians.com",
+      role: "manager",
+    });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.created.length, 0, "category alone is not enough, even though 'Jacket' is real and already numbered");
+  assert.equal(result.ready.length, 0);
+  assert.equal(result.skipped.length, 0);
+});
+
+check("test_PRD_P0_152_style_number_grouping__two_named_rows_matching_the_same_category_become_two_separate_products", async () => {
+  /* No style number to share a group base with -- each row is its own
+     product, its own auto-generated index, never treated as variants of
+     one. */
+  const f = await fixture({ actor: "keiko@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let seed, result;
+  try {
+    seed = await draftProductBatch(f.env, {
+      text: "Style #,Category,Subcategory,Description,Price\n73-01-001,Jacket,Blazer,Black Blazer,165.00\n",
+      actor: "keiko@vemians.com",
+      role: "manager",
+    });
+    assert.equal(seed.created.length, 1);
+
+    result = await draftProductBatch(f.env, {
+      text: "title,category,subcategory,price\nWhite Blazer,Jacket,Blazer,175.00\nGrey Blazer,Jacket,Blazer,180.00\n",
+      actor: "keiko@vemians.com",
+      role: "manager",
+    });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.created.length, 2, "two genuinely separate products, not variants of one");
+  const styleIds = f
+    .mirror("SELECT style_id FROM mirror_product WHERE title IN ('White Blazer', 'Grey Blazer') ORDER BY style_id")
+    .map((r) => r.style_id);
+  assert.deepEqual(styleIds, ["73-00-002", "73-00-003"], "each gets its own auto-generated index, never colliding");
+});
+
+check("test_PRD_P0_89_batch_preview_confirm__a_named_category_row_previews_with_auto_generated_style_id_and_sku", async () => {
+  const { previewBatch } = await import("../src/batch.js");
+  const categories = [
+    { id: "cat_jacket", name: "Jacket", parent_id: null, numeric_id: "70" },
+    { id: "cat_blazer", name: "Blazer", parent_id: "cat_jacket", numeric_id: "01" },
+  ];
+  const preview = previewBatch("title,category,subcategory,price\nWhite Blazer,Jacket,Blazer,175.00\n", "products", categories);
+  assert.equal(preview.sampleRows.length, 1, "matches a real, numbered category/subcategory -- not dropped");
+  const row = preview.sampleRows[0];
+  assert.equal(row.title, "White Blazer");
+  assert.equal(row.style_id, "(auto-generated)");
+  assert.equal(row.sku, "(auto-generated)");
+  assert.equal(row.variants, 1);
+});
+
+check("test_PRD_P0_89_batch_preview_confirm__a_named_category_row_with_nothing_to_match_still_drops_from_preview", async () => {
+  /* previewBatch's own `categories` param defaults to []; with nothing to
+     match against, this behaves exactly as it did before this feature. */
+  const { previewBatch } = await import("../src/batch.js");
+  const preview = previewBatch("title,category,subcategory,price\nWhite Blazer,Jacket,Blazer,175.00\n", "products");
+  assert.equal(preview.sampleRows.length, 0);
+});
+
+check("test_PRD_P0_89_batch_preview_confirm__the_chat_preview_tool_actually_fetches_real_categories_to_match_against", async () => {
+  const f = await fixture({ actor: "keiko@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let seed;
+  try {
+    seed = await draftProductBatch(f.env, {
+      text: "Style #,Category,Subcategory,Description,Price\n74-01-001,Jacket,Blazer,Black Blazer,165.00\n",
+      actor: "keiko@vemians.com",
+      role: "manager",
+    });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(seed.created.length, 1);
+
+  const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: "title,category,subcategory,price\nWhite Blazer,Jacket,Blazer,175.00\n" }) };
+  const outcome = await dispatch(
+    "catalog_preview_product_batch",
+    { asset_id: "ast_1" },
+    { actor: "keiko@vemians.com", role: "manager", env, allowed: new Set(["catalog_preview_product_batch"]) },
+  );
+  assert.equal(outcome.block.is_error, false);
+  assert.equal(outcome.table.rows.length, 1, "the chat preview tool fetched real categories and matched this row against them");
+  const titleCol = outcome.table.columns.indexOf("title");
+  assert.equal(outcome.table.rows[0][titleCol], "White Blazer");
+});
+
 check("test_PRD_P0_152_style_number_grouping__a_style_number_that_does_not_match_the_pattern_is_ignored_outright", async () => {
   /* "Ignore any rows that do not match our style ID nomenclature... if
      they don't have that style ID pattern, then just ignore that" -- the
      owner's own words, describing exactly a real sheet's own trailing
      footnote (a whole sentence sitting in the Style # cell, no dashes at
-     all). A genuinely BLANK style-id cell (a totals row, say) is a
-     DIFFERENT case -- it still goes through the pre-existing standalone
-     path and is reported the normal way once it fails on something else
-     (a blank price, here) -- this test is only about a NON-blank cell
-     that was clearly an attempt at something, but not this shop's own
-     style number shape. */
+     all, and no Category/Subcategory columns filled in either -- not
+     eligible for the named-category path below, so dropped outright the
+     same as any other row with nothing to build a product from). */
   const f = await fixture({ actor: "priya@vemians.com", role: "manager" });
   const csv =
     "Style #,Category,Subcategory,Description,Color,Size,Qty,Cost (USD),Retail Price\n" +
