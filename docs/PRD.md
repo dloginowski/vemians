@@ -2393,6 +2393,38 @@ that does not trace to one of these is a process failure (see §12).
     its own outer click was never a redundant second yes on the same decision the way the product one
     was; it is still the only place a customer batch is approved at all.
 
+    **REVISED THE ASSET-ID FIX ITSELF — the `[asset id: ...]` tag never reached the one place it needed
+    to.** A SECOND real transcript proved the previous paragraph's own fix incomplete: previewed, replied
+    "Yes," and the model gave up again — "I hit an error trying to pull up the file reference on my end
+    and can't confirm the asset safely. Could you re-attach the spreadsheet" — the identical failure,
+    unchanged. The tag was tucked into `formatBatchPreview`'s own return value, which is a `tool_result`
+    the MODEL reads on the turn it is produced — never a chat bubble the person sees, and never what the
+    client stores into `history` for a later turn. Only the model's OWN subsequent reply text becomes
+    that history, and `NO_TEXT_TABLE_NOTE` already told it to keep that reply short and table-free,
+    giving it every reason to leave a raw id tag out of what it actually said. The tag could not survive
+    a turn boundary it was never actually inside.
+
+    **The fix that finally holds needs nothing from the model at all.** `formatBatchPreview` drops the
+    tag entirely; a new server-side record, `LAST_PREVIEW` (`agent.js`) — the identical in-memory,
+    per-isolate, TTL'd shape `PENDING` already uses for approvals, with the identical accepted
+    limitation (a cold isolate loses it, and that fails closed into the same honest "please re-attach it"
+    outcome, never a wrong file) — remembers which asset THIS actor most recently, successfully previewed,
+    keyed by actor and by kind (products/customers). `dispatch()`'s own handling of both
+    `catalog_draft_product_batch` and `customer_draft_customer_batch` now prefers that record over
+    whatever `asset_id` argument the model's own call happens to carry, falling back to the model's copy
+    only when no record exists. This is sound, not a guess: both tools' own descriptions already require
+    preview to be called on the very same asset immediately before draft, so "the actor's own most recent
+    preview of this kind" and "the asset this draft call means" are the same fact by construction. For
+    `customer_draft_customer_batch` specifically, whose real draft only ever runs later, off a separate
+    Approve click (`approve()`, `agent.js`) — the resolved id is threaded all the way into the PENDING
+    record stashed for that click, not just used for the immediate pre-check, so the approval a person
+    actually clicks and the draft it later runs both agree on the same, correct file. Every tool
+    description and `attachmentNote()`'s own spreadsheet pointer now say plainly that the asset id is
+    tracked automatically and that `assets.list` is never the right way to relocate a file — this is the
+    THIRD time this exact failure shape has been diagnosed (see `precheckBatchDraft`'s own comment,
+    `agent.js`, for the first, narrower fix, which only ever covered the approval click itself needing no
+    model memory, never the model successfully making that first call at all).
+
 34a''''''''''''''''''''. **`Test-PRD-P0-90-daylight_contrast`** — The owner's own words: "Bump up
     the contrast of the dimmer elements on ops page. Its a little hard to see on a mobile device
     in broad daylight." Direct sun washes out exactly the mid-tones a "dim, secondary" colour is

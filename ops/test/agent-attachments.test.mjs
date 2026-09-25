@@ -371,25 +371,30 @@ check("test_PRD_P0_89_batch_preview_confirm__the_note_points_at_the_preview_tool
   assert.ok(content.indexOf("catalog_preview_product_batch") < content.indexOf("catalog_draft_product_batch"));
 });
 
-check("test_PRD_P0_89_batch_preview_confirm__the_note_says_to_read_the_asset_id_back_off_the_preview_tag", () => {
-  /* REVISED — a real chat transcript showed the actual failure this
-     guards against: the person replied "Yes" to a preview in plain chat,
-     and the very next turn -- with no memory of anything but its own
-     stripped-down text history (sanitizeHistory, agent.js, keeps only
-     plain rendered text, never a tool call or its arguments) -- came back
-     "refused assets.list", "refused catalog_draft_product_batch", twice
-     each, then "I can't find its asset id right now, so I can't create
-     the batch yet." The fix keeps the real, deliberate confirmation in
-     chat (a later reply is still expected and still waited for -- see the
-     sibling check just above) but stops asking the model to recall the
-     asset id from memory across that turn boundary: formatBatchPreview's
-     own reply text tags the exact id it was given, and this note tells
-     the model to read that tag back rather than guess or call
-     assets.list, which is what actually failed in the transcript. */
+check("test_PRD_P0_89_batch_preview_confirm__the_note_says_the_asset_id_is_tracked_automatically", () => {
+  /* REVISED, THEN REVISED AGAIN — TWO real chat transcripts showed why a
+     tag-in-the-reply fix (this check's own earlier form) still was not
+     enough: the person replied "Yes" to a preview in plain chat, and the
+     very next turn -- with no memory of anything but its own stripped-down
+     text history (sanitizeHistory, agent.js, keeps only the client's own
+     rendered chat bubbles) -- came back "refused assets.list", "refused
+     catalog_draft_product_batch" in the first transcript, and in the
+     SECOND, after the tag fix shipped, the model instead just gave up and
+     asked the person to re-attach the file. Tagging formatBatchPreview's
+     own TOOL RESULT text was never going to survive either way: that text
+     is what the MODEL reads on the same turn, never a chat bubble the
+     person sees or the client stores into history -- only the model's OWN
+     subsequent reply text does that, and nothing forces the model to copy
+     a tag into it. The fix that actually holds needs nothing from the
+     model at all: this app now tracks, server-side, which asset each actor
+     most recently previewed (LAST_PREVIEW, agent.js), and the draft tools
+     use that automatically regardless of what asset_id argument the model
+     supplies. This note says so plainly, so the model stops trying to
+     recall or re-derive the id itself. */
   const content = buildUserContent("", CSV_ATTACHMENT, "manager");
   assert.match(content, /confirm it looks right/i, "still waits for the person's own real confirmation in chat");
-  assert.match(content, /asset id.*tag/i, "points the model at the preview reply's own tag to recover the id");
-  assert.match(content, /never call assets\.list/i, "explicitly rules out the fallback that actually failed in the transcript");
+  assert.match(content, /automatically/i, "tells the model the app tracks the asset id on its own");
+  assert.match(content, /never call assets\.list/i, "explicitly rules out the fallback that actually failed in both transcripts");
 });
 
 test("test_PRD_P0_30_prd_traceability__every_label_used_here_exists_in_the_prd", async () => {

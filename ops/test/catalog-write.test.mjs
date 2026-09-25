@@ -5950,31 +5950,55 @@ check("test_PRD_P0_89_batch_preview_confirm__previews_the_first_rows_and_heading
   assert.doesNotMatch(outcome.block.content + JSON.stringify(outcome.table), /not found/i, "the wordier, more alarming phrase must be gone entirely");
 });
 
-check("test_PRD_P0_89_batch_preview_confirm__the_preview_reply_carries_the_asset_id_forward_in_plain_text", async () => {
-  /* A real chat transcript showed the actual failure this guards against:
-     previewed, the person replied "Yes" in plain chat, and the NEXT turn --
-     with nothing but its own stripped-down text history (sanitizeHistory,
-     agent.js) -- could no longer find the asset id at all ("refused
+check("test_PRD_P0_89_batch_preview_confirm__the_draft_tool_uses_the_actors_own_most_recently_previewed_asset", async () => {
+  /* TWO real chat transcripts showed the model itself cannot be trusted to
+     carry the asset id across the turn boundary between a preview and its
+     own later confirmation reply -- once by losing it entirely ("refused
      assets.list", "refused catalog_draft_product_batch", twice each, then
-     "I can't find its asset id right now"). The primary fix is behavioral
-     (the model now calls the draft tool immediately, in the SAME turn, per
-     PREVIEW_TOOL_DEFS'/attachmentNote's own updated instructions) -- but a
-     genuinely ambiguous sheet can still make the model pause and ask a real
-     clarifying question first, and that reply arrives in a turn just as
-     stripped-down. This is the backup: the asset id rides along in the
-     preview's own visible reply text, the one thing `history` actually
-     preserves, so even that slower path can still recover it. */
-  const f = await fixture();
-  const csv = "title,category,price,style id\nWool Coat,Outerwear,450.00,01-04-001\n";
+     "I can't find its asset id right now"), and once more after a first
+     attempted fix (tagging the preview's own tool-result text with the id)
+     that never actually reached the model's own VISIBLE reply -- that text
+     is what the model reads on the same turn, never a chat bubble the
+     person sees or `history` stores -- so the model still had nothing to
+     read back and gave up again, asking the person to re-attach the file.
+     The asset id now survives regardless of what the model itself does
+     with it: LAST_PREVIEW (agent.js) records, server-side, which asset THIS
+     actor most recently previewed, and the draft tools use THAT rather than
+     trusting the model's own asset_id argument. Proven directly: preview
+     the real file, then call the draft tool with a deliberately WRONG
+     asset_id -- it must still draft the real, previewed file, not fail
+     looking up one that was never real. */
+  /* A dedicated actor this file uses nowhere else -- dispatch()'s own
+     runTool calls share the module-level rate limiter across every test in
+     this file (never reset between them), and a heavily-reused actor
+     (mara/priya) is already close enough to its own 120-call/60s cap that
+     this test's own extra calls would tip other, unrelated tests over it. */
+  const f = await fixture({ actor: "yuki@vemians.com", role: "manager" });
+  const csv = "title,category,price,style id,cost\nWool Coat,Outerwear,450.00,01-04-001,210.00\n";
   const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
+  const ctx = { actor: "yuki@vemians.com", role: "manager", env };
 
-  const outcome = await dispatch(
+  const preview = await dispatch(
     "catalog_preview_product_batch",
     { asset_id: "ast_1" },
-    { actor: "mara@vemians.com", role: "manager", env, allowed: new Set(["catalog_preview_product_batch"]) },
+    { ...ctx, allowed: new Set(["catalog_preview_product_batch"]) },
   );
-  assert.equal(outcome.block.is_error, false);
-  assert.match(outcome.block.content, /asset id: ast_1/, "the exact id this call was given rides along in the visible reply");
+  assert.equal(preview.block.is_error, false);
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let outcome;
+  try {
+    outcome = await dispatch(
+      "catalog_draft_product_batch",
+      { asset_id: "ast_does_not_exist" },
+      { ...ctx, allowed: new Set(["catalog_draft_product_batch"]) },
+    );
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(outcome.block.is_error, false, outcome.block.content);
+  assert.match(outcome.block.content, /1 products created/, "drafted from the actually-previewed file, ignoring the wrong id the call itself carried");
 });
 
 check("test_PRD_P0_117_batch_preview_one_row_fits_without_scrolling__the_preview_table_is_marked_compact", async () => {
