@@ -7397,6 +7397,29 @@ that does not trace to one of these is a process failure (see §12).
     plain DB write per row, never a Square call, so it was never the subrequest risk this entry fixes),
     and still has no other way to show progress while that one call runs.
 
+    **REVISED — the checklist's own title is a real, editable field, not plain text.** The owner's own
+    words, describing exactly the checklist the previous entry shipped: "the beauty of this workflow is
+    that also the user gets to confirm and maybe modify selections or choices made by the agent... I think
+    really the only thing that the user might want to tweak is the title." Everything else a checklist row
+    shows (category, price, variation count) already cleared `catalog.create_product`'s own real gate at
+    plan time and is exactly what would be created; the title is the one field worth a second look — a
+    typo, an auto-generated placeholder (`nextAutoTitle`, P0-145), a name a person would rather use —
+    without cancelling and re-uploading the whole sheet over it.
+    `submitProductBatchRow` (batch.js) now takes an optional `editedTitle`, replacing both the product's
+    own `args.title` and the row's own bookkeeping `title` (what the result table shows afterward)
+    together, so the two can never disagree; a variation's own title (a color/size label, or the product's
+    original title as its own fallback — `draftGroupedProduct`'s own comment) is untouched, since a
+    variation label was never what "the title" meant. `submitBatchPlanRow` (agent.js) trims and
+    length-caps whatever arrives (`CATALOG_TITLE_MAX`) before handing it down — not a second validation,
+    just never handing an unbounded string further than any other input would go — and a BLANK edit (an
+    empty or whitespace-only string) is treated as no edit at all, falling back to the row's own planned
+    title, never an attempt to create a product with no name. Threaded through as a plain `title` field on
+    `POST /agent/batch-submit-row`, defaulting to absent (submit the planned title unchanged) exactly as
+    it always did before this existed. `views.js`'s checklist row is now a real text input pre-filled with
+    the planned title, sent back verbatim on Submit — still has to clear `catalog.create_product`'s own
+    real checks exactly like any other title would; nothing here trusts it any more than the sheet's own
+    original guess was trusted.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

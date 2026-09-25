@@ -1588,7 +1588,7 @@ export async function approve({ id, identity, env }) {
  * authorization PENDING/approve() already enforce — the plan belongs to
  * the actor asking to spend it, and one submitted row is spent once.
  */
-export async function submitBatchPlanRow({ id, row, identity, env }) {
+export async function submitBatchPlanRow({ id, row, title, identity, env }) {
   const actor = identity.email;
   const role = await roleFor(identity, env);
 
@@ -1613,9 +1613,18 @@ export async function submitBatchPlanRow({ id, row, identity, env }) {
   const total = plan.total;
   if (plan.rows.length === 0) BATCH_PLANS.delete(id);
 
+  /* "The only thing the user might want to tweak is the title" — the
+     owner's own words, reviewing the checklist. Trimmed and length-capped
+     here only so an absurd paste cannot ride further than it would from
+     any other input; catalog.create_product's own real check (below) is
+     what actually enforces CATALOG_TITLE_MAX and refuses/parks accordingly
+     — this is not a second validation, just not handing it a string with
+     no ceiling at all. */
+  const editedTitle = typeof title === "string" && title.trim() ? title.trim().slice(0, CAPS.CATALOG_TITLE_MAX) : null;
+
   let result;
   try {
-    result = await submitProductBatchRow(env, { actor, role, rate: plan.rate }, target);
+    result = await submitProductBatchRow(env, { actor, role, rate: plan.rate }, target, editedTitle);
   } catch (err) {
     console.error(`ERROR agent: batch plan ${id} row ${row} failed — ${err.message}`);
     return { ok: false, status: 502, reply: `Row ${row} failed while running.`, done: plan.done, total };
