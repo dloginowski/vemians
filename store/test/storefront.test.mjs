@@ -1456,3 +1456,77 @@ labeled("test_PRD_P0_24_binding_scoped_tools__the_storefront_reads_only_the_mirr
   for (const t of tables) assert.match(t, /_index$/, `the storefront reads the base table ${t}, not its index view`);
   assert.doesNotMatch(sql[1], /\bmirror_inventory_change\b/, "stock history is not the shop's to read");
 });
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Test-PRD-P0-153-storefront_column_boundary
+   Cost, commission, margin, the internal style number and any free-text
+   import note are ops-only. `mirror_product_index` carries all of them —
+   `custom_fields`, `style_id`, `commission_pct`, `item_unit_cost_minor` — as
+   real, selectable columns, so "the UI just doesn't show them today" is not
+   a guarantee. The owner's own words: "we never want the customers to see
+   that... we need only specific columns." Enforced two ways: the read
+   itself names no ops-only column (so there is nothing to accidentally
+   thread through), and — belt and braces — a product actually carrying
+   sensitive values in every one of those columns is proven to leave none of
+   it in what loadCatalog/loadProduct return or in the rendered page.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+const OPS_ONLY_COLUMNS = ["custom_fields", "style_id", "commission_pct", "item_unit_cost_minor"];
+
+labeled("test_PRD_P0_153_storefront_column_boundary__the_grid_read_names_no_ops_only_column", () => {
+  const src = read("store", "src", "catalog.js");
+  const sql = /const MIRROR_SQL = `([\s\S]*?)`;/.exec(src);
+  assert.ok(sql, "the grid read is not where this check expects it");
+  for (const col of OPS_ONLY_COLUMNS) {
+    assert.doesNotMatch(sql[1], new RegExp(`\\b${col}\\b`), `MIRROR_SQL names the ops-only column ${col}`);
+  }
+  assert.doesNotMatch(sql[1], /vendor/i, "MIRROR_SQL must not read vendor data either");
+});
+
+labeled("test_PRD_P0_153_storefront_column_boundary__the_product_page_read_names_no_ops_only_column_either", () => {
+  const src = read("store", "src", "catalog.js");
+  const sql = /const PRODUCT_SQL = `([\s\S]*?)`;/.exec(src);
+  assert.ok(sql, "the product-detail read is not where this check expects it");
+  for (const col of OPS_ONLY_COLUMNS) {
+    assert.doesNotMatch(sql[1], new RegExp(`\\b${col}\\b`), `PRODUCT_SQL names the ops-only column ${col}`);
+  }
+  assert.doesNotMatch(sql[1], /vendor/i, "PRODUCT_SQL must not read vendor data either");
+});
+
+labeled(
+  "test_PRD_P0_153_storefront_column_boundary__a_product_carrying_cost_commission_and_notes_leaks_none_of_it",
+  async () => {
+    /* Belt and braces: even if a future column read a wildcard or a careless
+       JOIN, the served product itself must still carry none of this — so the
+       row here is seeded with real-looking sensitive data in every one of the
+       ops-only columns, not left at the schema default. */
+    const db = mirrorWith(SQUARE_STOCK);
+    const handle = SQUARE_STOCK[0].handle;
+    db._raw
+      .prepare(
+        "UPDATE mirror_product SET custom_fields = ?, style_id = ?, commission_pct = ?, item_unit_cost_minor = ? WHERE handle = ?",
+      )
+      .run(JSON.stringify({ "import notes": "vendor Acme Trading, margin 340%" }), "07-14-002", 3500, 1250, handle);
+
+    /* Two distinct checks, deliberately: a served OBJECT that simply has no
+       property by these names (the strong claim), and — since a rendered page
+       is text, not an object — its own bytes free of the seeded row's actual
+       VALUES. "margin" itself is not one of those values: it is also a real
+       CSS property name the page legitimately renders, so asserting its
+       absence from HTML would be a false positive, not a real check. */
+    const { products: served } = (await saying(() => loadCatalog({ CATALOG_MIRROR: db }))).value;
+    const servedRow = served.find((p) => p.handle === handle);
+    assert.ok(servedRow, "the seeded product must still be served");
+    for (const col of OPS_ONLY_COLUMNS) {
+      assert.ok(!(col in servedRow), `loadCatalog's own product object must not carry ${col}`);
+    }
+
+    const found = await loadProduct({ CATALOG_MIRROR: db }, handle);
+    for (const col of OPS_ONLY_COLUMNS) {
+      assert.ok(!(col in found.product), `loadProduct's own product object must not carry ${col}`);
+    }
+
+    const html = productPage([], {}, found.product, found.source);
+    assert.doesNotMatch(html, /07-14-002|Acme Trading|340%/, "the rendered product page must not leak the seeded row's own values");
+  },
+);
