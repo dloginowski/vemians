@@ -741,6 +741,22 @@ check("test_PRD_P0_120_preview_data_ellipsis_not_wrap__full_screen_is_the_escape
   assert.match(body, /\.table-card\.preview\.full td\s*\{[^}]*overflow-wrap:\s*anywhere/s, "full screen must restore the ability to wrap a spaceless value like a URL");
 });
 
+check("test_PRD_P0_120_preview_data_ellipsis_not_wrap__full_screen_restores_a_width_floor_so_columns_cannot_collapse_to_nothing", async () => {
+  /* "Full screen is completely unusable. You've collapsed all the rows to
+     be super tall and super thin, which makes them unreadable" — the
+     owner's own words. .table-card.preview td sets min-width: 0 (needed
+     there only to let the ellipsis crop bite at all); the rule above lifts
+     the crop back to ordinary wrapping but never restored a width floor
+     to go with it, so a wide preview (many columns, a real spreadsheet)
+     let the browser's own table-layout: auto squeeze every column down to
+     its narrowest unbreakable unit -- one character, once overflow-wrap:
+     anywhere is back in play -- instead of a readable width. Full screen
+     must read like the ordinary, non-preview .table-card (min-width:
+     6em), not a narrower one. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.table-card\.preview\.full td\s*\{[^}]*min-width:\s*6em/s, "full screen must restore a real width floor, not the collapsed state's own 0");
+});
+
 check("test_PRD_P0_89_batch_preview_confirm__the_table_renders_right_under_its_own_tool_step_not_after_the_reply", async () => {
   /* The owner's own words: "Insert table right under 'ran
      catalog_preview_product_batch' text." Before this, the table was
