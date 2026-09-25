@@ -200,6 +200,36 @@ function singular(t) {
   return t;
 }
 
+/* "I want to have all categories and subcategories to be plurals... never
+   singular" -- the owner's own words. catalog.create_category folds every
+   new name through this before ever creating it. Case-preserving (singular(),
+   immediately above, only ever runs on an already-lowercased token for
+   fuzzy matching; this runs directly on a real category name) and, like
+   singular(), "enough English, and no more": first folds to a canonical
+   singular form -- via the SAME three rules as singular(), just kept
+   case-preserving here -- so an already-plural name (or one that folds to
+   itself) round-trips unchanged instead of getting a second "s" tacked on,
+   then re-pluralizes deterministically. A trailing double-s, sh, ch, x or z
+   takes "es" ("Dress" -> "Dresses", "Watch" -> "Watches", "Box" -> "Boxes");
+   a trailing consonant + "y" becomes "ies" ("Accessory" -> "Accessories");
+   anything else just takes a plain "s" ("Jacket" -> "Jackets", "Pant" ->
+   "Pants"). Not a real English pluralizer -- a genuinely uncountable name
+   ("Millinery") still gets mechanically pluralized the same as any other,
+   the identical "enough, not exhaustive" tradeoff singular() already makes
+   for the reverse direction. */
+function pluralize(name) {
+  const lower = name.toLowerCase();
+  let base = name;
+  if (name.length > 4 && lower.endsWith("ies")) base = `${name.slice(0, -3)}y`;
+  else if (name.length > 4 && /(?:s|x|z|ch|sh)es$/.test(lower)) base = name.slice(0, -2);
+  else if (name.length > 3 && lower.endsWith("s") && !lower.endsWith("ss")) base = name.slice(0, -1);
+
+  const baseLower = base.toLowerCase();
+  if (/(?:ss|sh|ch|x|z)$/.test(baseLower)) return `${base}es`;
+  if (base.length > 1 && baseLower.endsWith("y") && !/[aeiou]y$/.test(baseLower)) return `${base.slice(0, -1)}ies`;
+  return `${base}s`;
+}
+
 function jaccard(a, b) {
   if (a.size === 0 || b.size === 0) return 0;
   let inter = 0;
@@ -1256,7 +1286,9 @@ export const catalogWriteTools = {
       "digits match this brand-new numeric_id: an item ingested before its category existed yet is not " +
       "stuck unassigned forever, it is picked up the moment a matching category or subcategory finally " +
       "is created. Use it when the shop genuinely starts selling something it has never sold before, " +
-      "or is organizing its own tree further.",
+      "or is organizing its own tree further. `name` is folded to its plural form before anything else " +
+      "happens — every category and subcategory in this shop is named as a plural (\"Jackets\", not " +
+      "\"Jacket\"); a singular name is silently corrected, never refused.",
     undo: "withdraw the category in Square; the mirror archives it and keeps the row",
     schema: {
       name: { type: "string", required: true, maxLength: 60 },
@@ -1273,8 +1305,15 @@ export const catalogWriteTools = {
       },
     },
     async check(args, t) {
-      const name = args.name.trim();
-      if (!name) return { denied: "a category needs a name" };
+      const rawName = args.name.trim();
+      if (!rawName) return { denied: "a category needs a name" };
+      /* "I want to have all categories and subcategories to be plurals...
+         never singular" -- the owner's own words, given directly. Folded
+         here, the single choke point every creation path already shares
+         (the Admin panel's own /admin/categories/create, and both of
+         batch.js's own spreadsheet-import auto-create paths), rather than
+         duplicated in each caller. */
+      const name = pluralize(rawName);
 
       const categories = await listCategories(t.db.catalog_mirror);
       let parent = null;

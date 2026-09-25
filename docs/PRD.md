@@ -265,6 +265,23 @@ that does not trace to one of these is a process failure (see §12).
     original is ours in R2 and the provider gets a copy, so losing the provider loses a
     thumbnail and not our photography.
 
+    **REVISED — every new category and subcategory name is folded to its plural, silently.**
+    The owner's own words, given directly: "I want to have all categories and subcategories to
+    be plurals... instead of dress, be dresses, or pants... jackets... never singular."
+    `catalog.create_category`'s own `check()` folds `name` through a new `pluralize()` (the
+    inverse of the existing `singular()` this same file already uses for its own fuzzy matching)
+    before anything else happens — before the exact-duplicate check, the near-duplicate check, and
+    the create call itself — so a person typing "Dress" into the Admin panel, or a spreadsheet
+    import naming "Jacket" (both `resolveOrCreateCategory` and `resolveCategoryByCode`'s own
+    genuinely-new branches, `batch.js`, ultimately call this same tool), both land on "Dresses"
+    and "Jackets" without ever being refused or asked to retype it. **Going forward only**: an
+    existing singular category already on file (a legacy name, or a genuinely uncountable one like
+    "Outerwear"/"Knitwear") is never renamed or touched — this only changes what a NEW name folds
+    to at the moment of creation. Not a real English pluralizer, the identical "enough, not
+    exhaustive" tradeoff `singular()`'s own header comment already admits for the reverse
+    direction — a genuinely uncountable new name still gets mechanically pluralized the same as
+    any other ("Millinery" becomes "Millineries").
+
 ### 3.4 People and scheduling
 
 21. **`Test-PRD-P0-18-no_double_booking`** — An employee cannot hold two overlapping active
