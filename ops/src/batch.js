@@ -1,17 +1,27 @@
 /*
- * "Add products/customers from a spreadsheet" — one CSV row in, one T2
- * approval out.
+ * "Add products/customers from a spreadsheet" — one CSV row in, one real
+ * write out.
  *
- * DELIBERATELY NOT A NEW WRITE PATH, for either kind. Every row this mints an
- * approval for goes through the exact same tool a chat agent's own draft
- * would — catalog.create_product for merchandise, customer.create for
- * customers — so the closed category set, the price caps, "Square needs at
- * least one of these fields": none of that is re-checked here, because
- * re-checking it here is how the two checks eventually disagree. A row this
- * cannot even attempt (an unparsable price, a category that matches nothing)
- * is reported before runTool ever sees it, because runTool has no way to say
+ * DELIBERATELY NOT A NEW WRITE PATH, for either kind. Every row this writes
+ * goes through the exact same tool a chat agent's own draft would —
+ * catalog.create_product for merchandise, customer.create for customers —
+ * so the closed category set, the price caps, "Square needs at least one of
+ * these fields": none of that is re-checked here, because re-checking it
+ * here is how the two checks eventually disagree. A row this cannot even
+ * attempt (an unparsable price, a category that matches nothing) is
+ * reported before runTool ever sees it, because runTool has no way to say
  * "not a number" — everything else is left to the tool's own check(), and its
  * refusal text becomes the row's skip reason verbatim.
+ *
+ * A PRODUCT row is created IMMEDIATELY (createRows) rather than parked as a
+ * separate T2 approval for someone to click later — "you have all the
+ * information to create all of them, so just make them. I don't want to sit
+ * here and approve them" — the owner's own words. Uploading the spreadsheet
+ * already IS the deliberate action; createRows' own header comment has the
+ * full reasoning. A CUSTOMER row still parks the ordinary way (parkRows) —
+ * this was only ever asked for merchandise, and a customer record has no
+ * "major clash" of the kind this file already resolves inline (no category,
+ * no numbering, nothing to recommend a fix for).
  *
  * ONE RECORD PER ROW, MOSTLY — a customer always is, and so is a product
  * with no style number at all (a sheet that names its column just "style
@@ -68,6 +78,50 @@ async function parkRows(env, { actor, role, toolName }, rows) {
     parked.push({ row: rowNumber, title, url, summary: gate.data.would });
   }
   return { parked, skipped };
+}
+
+/*
+ * The PRODUCT equivalent of parkRows, above — creates immediately instead
+ * of parking an approval link for later. "I expect you to create all of
+ * the options and variations as needed. This should not be a separate
+ * process or approval. You have all the information to create all of
+ * them, so just make them. I don't want to sit here and approve them" —
+ * the owner's own words. Uploading the spreadsheet already IS the
+ * deliberate action a manager's own click would otherwise stand for — the
+ * identical "check, then immediately re-run with the resulting token"
+ * two-call dance every other inline write in this codebase already uses
+ * (resolveOrCreateCategory/resolveCategoryByCode, above; the Admin panel's
+ * own /admin/categories/create; /items/resync) — never a NEW write path,
+ * never a weaker check: the same catalog.create_product tier, role gate
+ * and business-rule refusals a chat agent's own draft would hit apply
+ * here exactly as before, just spent in the same request instead of
+ * waiting on a second human click.
+ *
+ * A row that fails EITHER call (a genuine business-rule refusal — a bad
+ * category, a price outside the caps, whatever check()/run() itself
+ * refuses) is reported as a skip with that real reason, precisely how a
+ * refused row already was under parkRows — "if there is a major clash
+ * that prevents [a row] from being ingested, it should stop and explain
+ * what needs to be fixed" is exactly this skip reason, not a blocked
+ * upload: every OTHER row still goes through.
+ */
+async function createRows(env, { actor, role, toolName }, rows) {
+  const created = [];
+  const skipped = [];
+  for (const { rowNumber, title, args } of rows) {
+    const gate = await runTool(toolName, args, { actor, role, env });
+    if (!gate?.needsApproval) {
+      skipped.push({ row: rowNumber, title, reason: gate?.error || "could not be validated" });
+      continue;
+    }
+    const result = await runTool(toolName, args, { actor, role, env, approvalToken: gate.data.approval.token });
+    if (result?.error || result?.denied) {
+      skipped.push({ row: rowNumber, title, reason: result.error || result.denied || "was refused" });
+      continue;
+    }
+    created.push({ row: rowNumber, title, handle: result.data?.product?.handle, summary: gate.data.would });
+  }
+  return { created, skipped };
 }
 
 /* ── merchandise ──────────────────────────────────────────────────────── */
@@ -382,8 +436,9 @@ function nextSubcategoryNumericId(categories, reserved) {
    separate approval page in between. Uploading a spreadsheet is just as
    deliberate an action, so a missing category is now created the exact
    same way, right here, inside this SAME draftProductBatch call — the row
-   that needed it then mints its own product approval immediately after,
-   no re-upload required.
+   that needed it then creates its own product immediately after (REVISED,
+   createRows — no approval link at all any more, product or category
+   alike), no re-upload required.
    `cache` is this one batch run's own memory (dedup by lowercased,
    trimmed name), so several rows naming the same missing category only
    create it once; `categories`/`reserved` grow the moment a new one lands
@@ -852,19 +907,19 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
  * A row naming a category that does not exist yet gets it created
  * immediately, inline — via the same "check, then immediately re-run with
  * the resulting token" pattern the Admin panel's own
- * /admin/categories/create already uses; the row then proceeds to mint its
- * own product approval in this SAME call, no separate approval page and no
+ * /admin/categories/create already uses; the row then proceeds to create its
+ * own product in this SAME call (createRows, above) — no approval link, no
  * re-upload ever needed. Several rows naming the same missing category
  * only create it once.
  *
  * @param env   CATALOG_MIRROR, and whatever runTool's own resources need.
  * @param actor, role  the uploader's own verified Access identity.
- * @returns { ready: [{row, title, url, summary}], skipped: [{row, title, reason}], tooMany?: number }
+ * @returns { created: [{row, title, handle, summary}], skipped: [{row, title, reason}], tooMany?: number }
  */
 export async function draftProductBatch(env, { text, actor, role }) {
   const records = csvRecords(parseCsv(text));
   if (records.length > CAPS.BATCH_MAX_ROWS) {
-    return { ready: [], skipped: [], tooMany: records.length };
+    return { created: [], skipped: [], tooMany: records.length };
   }
   const categories = await listCategories(env.CATALOG_MIRROR);
   const nextAutoTitle = autoTitler(await categoryProductCounts(env.CATALOG_MIRROR));
@@ -1116,9 +1171,9 @@ export async function draftProductBatch(env, { text, actor, role }) {
     });
   }
 
-  const { parked, skipped: refused } = await parkRows(env, { actor, role, toolName: "catalog.create_product" }, rows);
+  const { created: madeRows, skipped: refused } = await createRows(env, { actor, role, toolName: "catalog.create_product" }, rows);
 
-  return { ready: parked, skipped: [...skipped, ...refused].sort((a, b) => a.row - b.row) };
+  return { created: madeRows, skipped: [...skipped, ...refused].sort((a, b) => a.row - b.row) };
 }
 
 /* ── customers ────────────────────────────────────────────────────────── */
@@ -1192,12 +1247,14 @@ export async function draftCustomerBatch(env, { text, actor, role }) {
  * also lets the chat card itself grow to fit the whole thing without an
  * inner scrollbar (views.js's own TABLE_CARD_CSS, .table-card.preview).
  * Neither draftProductBatch nor draftCustomerBatch is safe to call
- * speculatively — both mint real T2 approval links the moment a row
- * resolves cleanly. This reads the same columns the same way (same key
- * lists, same `pick`), on the first row only, and mints nothing: no
- * listCategories call, no runTool, no parkForApproval. A wrong column match
- * is corrected here, before it becomes 400 approval links to click through
- * or cancel one at a time.
+ * speculatively. REVISED: draftProductBatch now creates real products the
+ * moment a row resolves cleanly (createRows) — no approval link left to
+ * even click through or cancel any more, which makes this preview step
+ * MORE important than it ever was, not less: a wrong column match now
+ * means 400 real, wrong products in Square rather than 400 links sitting
+ * unclicked. This reads the same columns the same way (same key lists,
+ * same `pick`), on the first row only, and mints nothing: no listCategories
+ * call, no runTool, no parkForApproval, no write of any kind.
  *
  * @returns { headers: string[], rowCount: number, sampleRows: object[] }
  *   sampleRows has at most PREVIEW_SAMPLE_ROWS entries (fewer if the sheet

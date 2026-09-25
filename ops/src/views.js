@@ -5542,6 +5542,12 @@ const BATCH_KINDS = Object.freeze({
       "<strong>description</strong> and <strong>sku</strong> — optional. Category must be spelled " +
       "exactly like one that already exists.",
     createVerb: "create",
+    /* "You have all the information to create all of them, so just make
+       them. I don't want to sit here and approve them" — the owner's own
+       words. Uploading IS the deliberate action now; the next page shows
+       what was already created, not a batch of links still waiting on a
+       second click. */
+    uploadNotice: "Uploading creates every row that resolves cleanly, right away — no separate approval after this.",
   },
   customers: {
     noun: "customer",
@@ -5553,6 +5559,7 @@ const BATCH_KINDS = Object.freeze({
       "<strong>reference_id</strong>. Every column is optional, but each row needs at least a name, " +
       "an email, or a phone number.",
     createVerb: "add",
+    uploadNotice: "Nothing is added yet. The next page shows what you are about to add, one at a time, before anything reaches Square.",
   },
 });
 
@@ -5568,8 +5575,7 @@ export function batchUploadPage(kind = "products") {
          <input type="file" name="file" accept=".csv,text/csv" required>
          <p><button type="submit">Upload</button></p>
        </form>
-       <p class="fine">Nothing is added yet. The next page shows what you are about to
-          ${k.createVerb}, one at a time, before anything reaches Square.</p>
+       <p class="fine">${k.uploadNotice}</p>
        <p><a href="/">Back to ops</a></p>
      </main>`,
     APPROVAL_CSS,
@@ -5577,13 +5583,19 @@ export function batchUploadPage(kind = "products") {
 }
 
 /*
- * The result of one upload: a link to review per row that resolved cleanly,
- * and a plain reason for every row that did not. Each link is a normal
- * /approvals/ page — the same prefilled confirmation screen a single chat
- * draft produces, so there is one approval screen in this codebase, not two.
+ * The result of one upload. REVISED for products: "you have all the
+ * information to create all of them, so just make them. I don't want to sit
+ * here and approve them" — the owner's own words. A product row that
+ * resolved cleanly is already live in Square by the time this page renders
+ * (draftProductBatch's own createRows) — no link left to open, nothing left
+ * to say yes to. A customer row still parks the ordinary way (draftCustomer
+ * Batch's own parkRows, unchanged) — each link is a normal /approvals/
+ * page, the same prefilled confirmation screen a single chat draft
+ * produces, so there is one approval screen in this codebase, not two.
  */
-export function batchReviewPage({ ready, skipped, tooMany }, kind = "products") {
+export function batchReviewPage(result, kind = "products") {
   const k = BATCH_KINDS[kind];
+  const { skipped, tooMany } = result;
   if (tooMany) {
     return page(
       "Too many rows",
@@ -5597,7 +5609,12 @@ export function batchReviewPage({ ready, skipped, tooMany }, kind = "products") 
       APPROVAL_CSS,
     );
   }
-  /* One table, not a <ol> of ready links plus a separate <ul> of skip
+  /* Products create immediately (no `.url` to link to — plain text in the
+     table's own Title column); customers still park an approval link,
+     unchanged. */
+  const immediate = kind === "products";
+  const made = immediate ? result.created : result.ready;
+  /* One table, not a <ol> of made/ready rows plus a separate <ul> of skip
      reasons — the same Row/Title/Status/Detail shape the chat's own
      tableCard() already uses for this exact data (agent.js's own
      batchDraftTable()), so a spreadsheet reviewed here reads the same
@@ -5605,7 +5622,7 @@ export function batchReviewPage({ ready, skipped, tooMany }, kind = "products") 
      both: "I like how the table renders in our chat! Doesn't look like
      that on our website!" */
   const rows = [
-    ...ready.map((r) => ({ row: r.row, title: r.title, status: "ready", detail: r.summary, url: r.url })),
+    ...made.map((r) => ({ row: r.row, title: r.title, status: immediate ? "created" : "ready", detail: r.summary, url: immediate ? null : r.url })),
     ...skipped.map((s) => ({ row: s.row, title: s.title, status: "skipped", detail: s.reason, url: null })),
   ].sort((a, b) => a.row - b.row);
 
@@ -5613,12 +5630,15 @@ export function batchReviewPage({ ready, skipped, tooMany }, kind = "products") 
     "Spreadsheet uploaded",
     `<main class="wrap">
        <p class="eyebrow">Spreadsheet uploaded</p>
-       <h1>${ready.length} ready to review, ${skipped.length} not added</h1>
+       <h1>${made.length} ${immediate ? "created" : "ready to review"}, ${skipped.length} not added</h1>
        ${
-         ready.length
-           ? `<p class="fine">Each ready row is its own approval — nothing is created until you open it and
-                 say yes, the same as ${k.createVerb === "add" ? "adding" : "creating"} one ${k.noun} by hand.</p>`
-           : "<p>Nothing in this file was ready to add.</p>"
+         made.length
+           ? immediate
+             ? `<p class="fine">Every one of these is already live in Square — nothing further to approve. Find
+                   them from the <a href="/items">Items tab</a>.</p>`
+             : `<p class="fine">Each ready row is its own approval — nothing is created until you open it and
+                   say yes, the same as ${k.createVerb === "add" ? "adding" : "creating"} one ${k.noun} by hand.</p>`
+           : `<p>Nothing in this file was ${immediate ? "created" : "ready to add"}.</p>`
        }
        ${
          rows.length

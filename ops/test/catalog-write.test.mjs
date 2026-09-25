@@ -549,42 +549,64 @@ check("test_PRD_P0_35_approval_never_in_band__a_role_that_cannot_use_the_tool_ca
  * P0-60 — a spreadsheet mints one approval per row, never a write
  * ───────────────────────────────────────────────────────────────────────── */
 
-check("test_PRD_P0_60_spreadsheet_products__a_clean_row_becomes_one_ready_to_review_approval", async () => {
+check("test_PRD_P0_60_spreadsheet_products__a_clean_row_is_created_immediately", async () => {
+  /* REVISED: "I expect you to create all of the options and variations as
+     needed. This should not be a separate process or approval. You have
+     all the information to create all of them, so just make them. I
+     don't want to sit here and approve them" — the owner's own words.
+     Uploading the spreadsheet IS the deliberate action now. */
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   const csv =
     "title,description,category,price,sku,style id,cost\n" +
     `Wool Coat,Warm and heavy,${outerwear.name},450.00,VEM-100,01-04-001,210.00\n`;
 
-  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.equal(result.ready.length, 1);
-  assert.equal(result.ready[0].title, "Wool Coat");
-  assert.match(result.ready[0].url, /\/approvals\//);
-  assert.match(result.ready[0].summary, /Wool Coat/);
+  assert.equal(result.created.length, 1);
+  assert.equal(result.created[0].title, "Wool Coat");
+  assert.match(result.created[0].summary, /Wool Coat/);
 
-  /* Uploading is not approving: nothing reaches Square until someone opens
-     that link and says yes. */
-  assert.deepEqual(f.calls(), []);
+  /* No approval link left to click -- the product already exists. */
+  const product = f.mirror("SELECT title FROM mirror_product WHERE title = 'Wool Coat'");
+  assert.equal(product.length, 1);
 });
 
 check("test_PRD_P0_60_spreadsheet_products__a_bad_row_is_reported_with_why_not_silently_dropped", async () => {
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
   const csv =
     "title,category,price\n" +
     ",Outerwear,45.00\n" +
-    "Sun Hat,Millinery,20.00\n" +
+    `Sun Hat,${outerwear.name}s,20.00\n` +
     "Silk Scarf,Outerwear,free\n";
 
-  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
-  assert.equal(result.ready.length, 0);
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.created.length, 0);
   assert.equal(result.skipped.length, 3);
   /* A blank title is no longer the reason this row is skipped — it now
      gets an auto-generated one and fails on the next real gap instead
      (no vendor and no unit cost anywhere in this sheet; style ID is no
-     longer required at all, REVISED — see P0-31's own entry). */
+     longer required at all, REVISED — see P0-31's own entry). Row 2's own
+     near-identical spelling ("Outerwears") is refused by catalog.create_
+     category's own near-duplicate check, immediately, now that creating a
+     missing category no longer waits on a separate approval either. */
   assert.match(result.skipped[0].reason, /no vendor and no unit cost/i);
-  assert.match(result.skipped[1].reason, /"Millinery" does not exist/);
+  assert.match(result.skipped[1].reason, /could not be created/);
   assert.match(result.skipped[2].reason, /"free" is not a plain number/);
   /* Rows are 1-based and counted past the header, so a person can find row 2
      in the spreadsheet they actually uploaded. */
@@ -615,8 +637,7 @@ check("test_PRD_P0_136_square_custom_attributes__a_missing_category_is_created_i
   }
 
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.equal(result.ready.length, 1, "the row itself proceeds in the SAME upload, no re-upload needed");
-  assert.match(result.ready[0].url, /\/approvals\//);
+  assert.equal(result.created.length, 1, "the row itself proceeds in the SAME upload, no re-upload needed");
 
   const created = f.categories().find((c) => c.name === "Millinery");
   assert.ok(created, "the missing category must actually have been created, not just proposed");
@@ -638,7 +659,7 @@ check("test_PRD_P0_136_square_custom_attributes__several_rows_naming_the_same_mi
   }
 
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.equal(result.ready.length, 3, "all three rows proceed against the one category created for them");
+  assert.equal(result.created.length, 3, "all three rows proceed against the one category created for them");
   assert.equal(f.categories().filter((c) => c.name === "Millinery").length, 1, "created only once, not three times");
 });
 
@@ -656,7 +677,7 @@ check("test_PRD_P0_136_square_custom_attributes__two_distinct_missing_categories
   }
 
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.equal(result.ready.length, 2);
+  assert.equal(result.created.length, 2);
   const millinery = f.categories().find((c) => c.name === "Millinery");
   const handbags = f.categories().find((c) => c.name === "Handbags");
   assert.ok(millinery && handbags);
@@ -680,7 +701,7 @@ check("test_PRD_P0_136_square_custom_attributes__a_category_that_fails_to_create
     globalThis.fetch = realFetch;
   }
 
-  assert.equal(result.ready.length, 0);
+  assert.equal(result.created.length, 0);
   assert.equal(result.skipped.length, 1);
   assert.match(result.skipped[0].reason, /could not be created/);
   assert.match(result.skipped[0].reason, /overlaps the existing/);
@@ -694,14 +715,21 @@ check("test_PRD_P0_145_auto_generated_title__a_blank_title_is_auto_generated_fro
     `,${outerwear.name},45.00,01-04-001,20.00\n` +
     `,${outerwear.name},55.00,01-04-002,25.00\n`;
 
-  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.equal(result.ready.length, 2);
+  assert.equal(result.created.length, 2);
   /* The seeded catalog already has one product in Outerwear (fixtures'
      own "Shearling-trimmed wool-blend coat"), so these two title-less
      rows pick up where it left off rather than starting back at 1. */
-  assert.equal(result.ready[0].title, "Outerwear 2");
-  assert.equal(result.ready[1].title, "Outerwear 3");
+  assert.equal(result.created[0].title, "Outerwear 2");
+  assert.equal(result.created[1].title, "Outerwear 3");
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -718,9 +746,16 @@ check("test_PRD_P0_31_inventory_ledger__a_spreadsheet_row_with_no_quantity_colum
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   const csv = "title,category,price,style id,cost\n" + `Wool Coat,${outerwear.name},450.00,01-04-001,210.00\n`;
 
-  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.match(result.ready[0].summary, /Wool Coat: 1 in stock/, "no quantity column at all -- defaults to 1, never left blank");
+  assert.match(result.created[0].summary, /Wool Coat: 1 in stock/, "no quantity column at all -- defaults to 1, never left blank");
 });
 
 check("test_PRD_P0_31_inventory_ledger__a_spreadsheet_quantity_column_is_honored_when_given", async () => {
@@ -728,9 +763,16 @@ check("test_PRD_P0_31_inventory_ledger__a_spreadsheet_quantity_column_is_honored
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   const csv = "title,category,price,style id,cost,quantity\n" + `Wool Coat,${outerwear.name},450.00,01-04-001,210.00,12\n`;
 
-  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.match(result.ready[0].summary, /Wool Coat: 12 in stock/);
+  assert.match(result.created[0].summary, /Wool Coat: 12 in stock/);
 });
 
 check("test_PRD_P0_31_inventory_ledger__a_spreadsheet_quantity_that_does_not_parse_is_flagged", async () => {
@@ -739,7 +781,7 @@ check("test_PRD_P0_31_inventory_ledger__a_spreadsheet_quantity_that_does_not_par
   const csv = "title,category,price,style id,cost,quantity\n" + `Wool Coat,${outerwear.name},450.00,01-04-001,210.00,a dozen\n`;
 
   const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
-  assert.equal(result.ready.length, 0);
+  assert.equal(result.created.length, 0);
   assert.match(result.skipped[0].reason, /quantity "a dozen" is not a plain whole number/);
 });
 
@@ -754,9 +796,16 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_derives_its_c
   /* No category column at all -- only a style ID, resolving to Casual the
      same way an edit's own style_id already does. */
   const csv = "title,price,style id,cost\n" + "Bomber Jacket,300.00,01-04-001,150.00\n";
-  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.match(result.ready[0].summary, /in Casual/, "the category came from the style ID alone, no category column given");
+  assert.match(result.created[0].summary, /in Casual/, "the category came from the style ID alone, no category column given");
 });
 
 check("test_PRD_P0_136_square_custom_attributes__a_style_number_column_is_never_read_as_the_products_title", async () => {
@@ -769,23 +818,18 @@ check("test_PRD_P0_136_square_custom_attributes__a_style_number_column_is_never_
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   const csv = `title,category,price,style #,cost\n,${outerwear.name},450.00,01-04-001,210.00\n`;
 
-  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
-  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.equal(result.ready.length, 1);
-  assert.notEqual(result.ready[0].title, "01-04-001", "the style number must never become the title");
-  assert.equal(result.ready[0].title, "Outerwear 2", "a blank title still falls through to the auto-generated name");
-
-  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
-  const id = new URL(result.ready[0].url).pathname.split("/").pop();
   const realFetch = globalThis.fetch;
   globalThis.fetch = f.square;
-  let approved;
+  let result;
   try {
-    approved = await approvePending(f.env, id, approver);
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
   } finally {
     globalThis.fetch = realFetch;
   }
-  assert.equal(approved.ok, true, approved.error);
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.created.length, 1);
+  assert.notEqual(result.created[0].title, "01-04-001", "the style number must never become the title");
+  assert.equal(result.created[0].title, "Outerwear 2", "a blank title still falls through to the auto-generated name");
 
   const row = f.mirror("SELECT style_id FROM mirror_product WHERE title = 'Outerwear 2'")[0];
   assert.equal(row.style_id, "01-04-001", "the style number column must land as style_id, not be dropped");
@@ -794,10 +838,17 @@ check("test_PRD_P0_136_square_custom_attributes__a_style_number_column_is_never_
 check("test_PRD_P0_145_auto_generated_title__a_row_with_neither_category_nor_style_id_is_still_created_unassigned", async () => {
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
   const csv = "title,price,cost\n" + ",300.00,150.00\n";
-  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.equal(result.ready[0].title, "Item 1", "no category and no derivable style ID -- a generic, still-numbered title");
-  assert.match(result.ready[0].summary, /with no category/);
+  assert.equal(result.created[0].title, "Item 1", "no category and no derivable style ID -- a generic, still-numbered title");
+  assert.match(result.created[0].summary, /with no category/);
 });
 
 check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_vendor_with_no_commission_is_parked_when_the_vendor_already_has_one_on_file", async () => {
@@ -816,10 +867,17 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_vendor_with_no_co
     .run();
   const csv = "title,category,price,style id,vendor\n" + `Wool Coat,${outerwear.name},450.00,01-04-001,Acme Mills\n`;
 
-  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.equal(result.ready.length, 1);
-  assert.equal(result.ready[0].title, "Wool Coat");
+  assert.equal(result.created.length, 1);
+  assert.equal(result.created[0].title, "Wool Coat");
 });
 
 check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_vendor_with_nothing_on_file_yet_is_flagged_even_though_it_already_exists", async () => {
@@ -835,7 +893,7 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_vendor_with_nothi
   const csv = "title,category,price,style id,vendor\n" + `Wool Coat,${outerwear.name},450.00,01-04-001,Acme Mills\n`;
 
   const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
-  assert.equal(result.ready.length, 0);
+  assert.equal(result.created.length, 0);
   assert.equal(result.skipped.length, 1);
   assert.match(result.skipped[0].reason, /vendor 'Acme Mills' has no commission on file yet — give one now/);
 });
@@ -850,7 +908,7 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_brand_new_vendor_
   const csv = "title,category,price,style id,vendor\n" + `Wool Coat,${outerwear.name},450.00,01-04-001,Acme Mills\n`;
 
   const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
-  assert.equal(result.ready.length, 0);
+  assert.equal(result.created.length, 0);
   assert.equal(result.skipped.length, 1);
   assert.match(result.skipped[0].reason, /vendor 'Acme Mills' has no commission on file yet — give one now/);
 });
@@ -862,21 +920,16 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_vendor_a
     "title,category,price,style id,vendor,commission\n" +
     `Wool Coat,${outerwear.name},450.00,01-04-001,Acme Mills,20\n`;
 
-  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
-  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.equal(result.ready.length, 1);
-
-  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
-  const id = new URL(result.ready[0].url).pathname.split("/").pop();
   const realFetch = globalThis.fetch;
   globalThis.fetch = f.square;
-  let approved;
+  let result;
   try {
-    approved = await approvePending(f.env, id, approver);
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
   } finally {
     globalThis.fetch = realFetch;
   }
-  assert.equal(approved.ok, true, approved.error);
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.created.length, 1);
 
   const product = f.mirror("SELECT id, commission_pct FROM mirror_product WHERE title = 'Wool Coat'")[0];
   assert.equal(product.commission_pct, 20);
@@ -896,21 +949,16 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_vendor_rows_cost_
     "title,category,price,style id,vendor,commission,cost,vendor code\n" +
     `Wool Coat,${outerwear.name},450.00,01-04-001,Acme Mills,20,210.00,ACME-4471\n`;
 
-  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
-  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.equal(result.ready.length, 1);
-
-  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
-  const id = new URL(result.ready[0].url).pathname.split("/").pop();
   const realFetch = globalThis.fetch;
   globalThis.fetch = f.square;
-  let approved;
+  let result;
   try {
-    approved = await approvePending(f.env, id, approver);
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
   } finally {
     globalThis.fetch = realFetch;
   }
-  assert.equal(approved.ok, true, approved.error);
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.created.length, 1);
 
   const product = f.mirror("SELECT id, custom_fields FROM mirror_product WHERE title = 'Wool Coat'")[0];
   assert.deepEqual(JSON.parse(product.custom_fields), {}, "cost/vendor code are real arguments now, not custom_fields text");
@@ -929,7 +977,7 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_commission_that_i
     `Wool Coat,${outerwear.name},450.00,01-04-001,Acme Mills,twenty\n`;
 
   const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
-  assert.equal(result.ready.length, 0);
+  assert.equal(result.created.length, 0);
   assert.match(result.skipped[0].reason, /commission "twenty" is not a plain whole number/);
 });
 
@@ -944,9 +992,16 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_no_style
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   const csv = "title,category,price,cost\n" + `Wool Coat,${outerwear.name},450.00,210.00\n`;
 
-  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.equal(result.ready.length, 1);
+  assert.equal(result.created.length, 1);
 });
 
 check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_no_vendor_and_no_unit_cost_is_flagged", async () => {
@@ -959,7 +1014,7 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_no_vendo
   const csv = "title,category,price,style id\n" + `Wool Coat,${outerwear.name},450.00,01-04-001\n`;
 
   const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
-  assert.equal(result.ready.length, 0);
+  assert.equal(result.created.length, 0);
   assert.match(result.skipped[0].reason, /no vendor and no unit cost/);
 });
 
@@ -968,21 +1023,16 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_a_style_
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   const csv = "title,category,price,style id,cost\n" + `Wool Coat,${outerwear.name},450.00,01-04-001,210.00\n`;
 
-  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
-  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.equal(result.ready.length, 1);
-
-  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
-  const id = new URL(result.ready[0].url).pathname.split("/").pop();
   const realFetch = globalThis.fetch;
   globalThis.fetch = f.square;
-  let approved;
+  let result;
   try {
-    approved = await approvePending(f.env, id, approver);
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
   } finally {
     globalThis.fetch = realFetch;
   }
-  assert.equal(approved.ok, true, approved.error);
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.created.length, 1);
 
   const row = f.mirror("SELECT id, style_id, custom_fields FROM mirror_product WHERE title = 'Wool Coat'")[0];
   assert.equal(row.style_id, "01-04-001");
@@ -1000,10 +1050,17 @@ check("test_PRD_P0_70_flexible_spreadsheet_columns__a_real_world_header_row_stil
     "Item Name,Product_Type,Retail Price,Style ID,Cost\n" +
     "Wool Coat,Outerwear,245.00,01-04-001,110.00\n";
 
-  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.equal(result.ready.length, 1);
-  assert.equal(result.ready[0].title, "Wool Coat");
+  assert.equal(result.created.length, 1);
+  assert.equal(result.created[0].title, "Wool Coat");
 });
 
 check("test_PRD_P0_70_flexible_spreadsheet_columns__an_unrecognised_column_is_kept_as_a_custom_field_not_dropped", async () => {
@@ -1019,21 +1076,16 @@ check("test_PRD_P0_70_flexible_spreadsheet_columns__an_unrecognised_column_is_ke
     "title,category,price,Style ID,Unit Cost,Fabric Note\n" +
     `Wool Coat,${outerwear.name},450.00,01-04-001,210.00,Boiled wool\n`;
 
-  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
-  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.equal(result.ready.length, 1);
-
-  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
-  const id = new URL(result.ready[0].url).pathname.split("/").pop();
   const realFetch = globalThis.fetch;
   globalThis.fetch = f.square;
-  let approved;
+  let result;
   try {
-    approved = await approvePending(f.env, id, approver);
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
   } finally {
     globalThis.fetch = realFetch;
   }
-  assert.equal(approved.ok, true, approved.error);
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.created.length, 1);
 
   /* csvRecords() already trims and lowercases every header before this file
      ever sees it — "Unit Cost" and "Fabric Note" arrive here as "unit cost"
@@ -1053,18 +1105,15 @@ check("test_PRD_P0_70_flexible_spreadsheet_columns__a_cost_column_is_no_longer_m
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   const csv = "title,category,price,style id,cost\n" + `Wool Coat,${outerwear.name},450.00,01-04-001,210.00\n`;
 
-  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
-  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-
-  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
-  const id = new URL(result.ready[0].url).pathname.split("/").pop();
   const realFetch = globalThis.fetch;
   globalThis.fetch = f.square;
+  let result;
   try {
-    await approvePending(f.env, id, approver);
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
   } finally {
     globalThis.fetch = realFetch;
   }
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
 
   const variant = f.mirror(
     "SELECT price_minor FROM mirror_variant WHERE product_id = (SELECT id FROM mirror_product WHERE title = 'Wool Coat')",
@@ -1099,7 +1148,7 @@ check("test_PRD_P0_60_spreadsheet_products__catalog_create_product_still_gates_o
   const csv = `title,category,price,style id,cost\nWool Coat,${outerwear.name},450.00,01-04-001,210.00\n`;
 
   const result = await draftProductBatch(f.env, { text: csv, actor: "ana@vemians.com", role: "staff" });
-  assert.equal(result.ready.length, 0);
+  assert.equal(result.created.length, 0);
   assert.equal(result.skipped.length, 1);
   assert.match(result.skipped[0].reason, /requires the manager role/);
 });
@@ -1111,7 +1160,7 @@ check("test_PRD_P0_60_spreadsheet_products__more_rows_than_the_cap_is_refused_be
 
   const result = await draftProductBatch(f.env, { text: csv, actor: f.ctx.actor, role: f.ctx.role });
   assert.equal(result.tooMany, tooMany);
-  assert.deepEqual(result.ready, []);
+  assert.deepEqual(result.created, []);
   assert.deepEqual(result.skipped, []);
 });
 
@@ -5562,15 +5611,21 @@ check("test_PRD_P0_88_spreadsheet_via_chat__a_real_csv_drafts_through_the_same_p
   const csv = "title,category,price,style id,cost\nWool Coat,Outerwear,450.00,01-04-001,210.00\n,Outerwear,10,,\n";
   const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
 
-  const outcome = await dispatch(
-    "catalog_draft_product_batch",
-    { asset_id: "ast_1" },
-    { actor: "mara@vemians.com", role: "manager", env, allowed: new Set(["catalog_draft_product_batch"]) },
-  );
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let outcome;
+  try {
+    outcome = await dispatch(
+      "catalog_draft_product_batch",
+      { asset_id: "ast_1" },
+      { actor: "mara@vemians.com", role: "manager", env, allowed: new Set(["catalog_draft_product_batch"]) },
+    );
+  } finally {
+    globalThis.fetch = realFetch;
+  }
   assert.equal(outcome.block.is_error, false);
-  assert.match(outcome.block.content, /1 products ready, 1 skipped/);
+  assert.match(outcome.block.content, /1 products created, 1 skipped/);
   assert.match(outcome.block.content, /Wool Coat/);
-  assert.match(outcome.block.content, /https?:\/\/\S+\/approvals\//, "a real approval link, not a placeholder");
   assert.match(outcome.block.content, /no vendor and no unit cost/i, "the skipped row's own reason must be relayed");
 });
 
@@ -5592,10 +5647,9 @@ check("test_PRD_P0_136_square_custom_attributes__a_missing_category_via_chat_is_
     globalThis.fetch = realFetch;
   }
   assert.equal(outcome.block.is_error, false);
-  assert.match(outcome.block.content, /1 products ready, 0 skipped/);
+  assert.match(outcome.block.content, /1 products created, 0 skipped/);
   assert.match(outcome.block.content, /Sun Hat/);
-  assert.match(outcome.block.content, /https?:\/\/\S+\/approvals\//);
-  assert.equal(outcome.table.rows[0][2], "ready", "the row itself is ready, in the same upload, once its missing category is created");
+  assert.equal(outcome.table.rows[0][2], "created", "the row itself is created, in the same upload, once its missing category is created");
   assert.ok(f.categories().find((c) => c.name === "Millinery"), "the category must actually have been created");
 });
 
@@ -5749,15 +5803,22 @@ check("test_PRD_P0_89_batch_preview_confirm__the_draft_tools_carry_a_structured_
   const csv = "title,category,price,style id,cost\nWool Coat,Outerwear,450.00,01-04-001,210.00\n,Outerwear,10,,\n";
   const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
 
-  const outcome = await dispatch(
-    "catalog_draft_product_batch",
-    { asset_id: "ast_1" },
-    { actor: "mara@vemians.com", role: "manager", env, allowed: new Set(["catalog_draft_product_batch"]) },
-  );
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let outcome;
+  try {
+    outcome = await dispatch(
+      "catalog_draft_product_batch",
+      { asset_id: "ast_1" },
+      { actor: "mara@vemians.com", role: "manager", env, allowed: new Set(["catalog_draft_product_batch"]) },
+    );
+  } finally {
+    globalThis.fetch = realFetch;
+  }
   assert.equal(outcome.table.columns.length, 4);
   assert.equal(outcome.table.rows.length, 2);
-  const ready = outcome.table.rows.find((r) => r[2] === "ready");
-  assert.equal(ready[1], "Wool Coat");
+  const created = outcome.table.rows.find((r) => r[2] === "created");
+  assert.equal(created[1], "Wool Coat");
   const skipped = outcome.table.rows.find((r) => r[2] === "skipped");
   assert.match(skipped[3], /no vendor and no unit cost/i);
 });
@@ -5902,26 +5963,22 @@ check("test_PRD_P0_146_dynamic_option_values__an_existing_value_is_reused_case_i
 });
 
 check("test_PRD_P0_146_dynamic_option_values__a_csv_size_or_color_column_reaches_create_product", async () => {
-  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const f = await fixture({ actor: "noor@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   const csv =
     "title,category,price,style id,cost,size,color\n" +
     `Wool Coat,${outerwear.name},450.00,01-04-001,210.00,XL,Red\n`;
 
-  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
-  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.equal(result.ready.length, 1);
-
-  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
   const realFetch = globalThis.fetch;
   globalThis.fetch = f.square;
-  let approved;
+  let result;
   try {
-    approved = await approvePending(f.env, result.ready[0].url.split("/").pop(), approver);
+    result = await draftProductBatch(f.env, { text: csv, actor: "noor@vemians.com", role: "manager" });
   } finally {
     globalThis.fetch = realFetch;
   }
-  assert.equal(approved.ok, true, approved.error);
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.created.length, 1);
 
   const optionWrites = f.calls().filter((c) => c.upsert === "ITEM_OPTION");
   assert.equal(optionWrites.length, 2, "both Size and Color are brand new options this shop has never used");
@@ -5942,24 +5999,20 @@ check("test_PRD_P0_146_dynamic_option_values__a_csv_size_or_color_column_reaches
  * ───────────────────────────────────────────────────────────────────────── */
 
 check("test_PRD_P0_146_dynamic_option_values__a_full_style_number_supplies_color_and_size_too", async () => {
-  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const f = await fixture({ actor: "noor@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   const csv = "title,category,price,style id,cost\n" + `Wool Coat,${outerwear.name},450.00,01-04-001-BLK-M,210.00\n`;
 
-  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
-  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.equal(result.ready.length, 1);
-
-  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
   const realFetch = globalThis.fetch;
   globalThis.fetch = f.square;
-  let approved;
+  let result;
   try {
-    approved = await approvePending(f.env, result.ready[0].url.split("/").pop(), approver);
+    result = await draftProductBatch(f.env, { text: csv, actor: "noor@vemians.com", role: "manager" });
   } finally {
     globalThis.fetch = realFetch;
   }
-  assert.equal(approved.ok, true, approved.error);
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.created.length, 1);
 
   const colorObj = [...f.square.objects.values()].find((o) => o.type === "ITEM_OPTION" && o.item_option_data?.name === "Color");
   const sizeObj = [...f.square.objects.values()].find((o) => o.type === "ITEM_OPTION" && o.item_option_data?.name === "Size");
@@ -5978,23 +6031,19 @@ check("test_PRD_P0_146_dynamic_option_values__a_lone_trailing_segment_is_always_
      given, "OS" reserved for one with no real size axis either -- so a
      style number with only ONE segment after its base style_id is never
      mistaken for a color standing in alone. */
-  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const f = await fixture({ actor: "noor@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   const csv = "title,category,price,style id,cost\n" + `Silk Scarf,${outerwear.name},90.00,01-04-001-OS,40.00\n`;
 
-  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
-  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-
-  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
   const realFetch = globalThis.fetch;
   globalThis.fetch = f.square;
-  let approved;
+  let result;
   try {
-    approved = await approvePending(f.env, result.ready[0].url.split("/").pop(), approver);
+    result = await draftProductBatch(f.env, { text: csv, actor: "noor@vemians.com", role: "manager" });
   } finally {
     globalThis.fetch = realFetch;
   }
-  assert.equal(approved.ok, true, approved.error);
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
 
   const colorObj = [...f.square.objects.values()].find((o) => o.type === "ITEM_OPTION" && o.item_option_data?.name === "Color");
   const sizeObj = [...f.square.objects.values()].find((o) => o.type === "ITEM_OPTION" && o.item_option_data?.name === "Size");
@@ -6007,24 +6056,20 @@ check("test_PRD_P0_146_dynamic_option_values__a_lone_trailing_segment_is_always_
 });
 
 check("test_PRD_P0_146_dynamic_option_values__an_explicit_size_or_color_column_wins_over_the_full_style_numbers_own", async () => {
-  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const f = await fixture({ actor: "noor@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   const csv =
     "title,category,price,style id,cost,size,color\n" + `Wool Coat,${outerwear.name},450.00,01-04-001-BLK-M,210.00,XL,Red\n`;
 
-  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
-  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-
-  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
   const realFetch = globalThis.fetch;
   globalThis.fetch = f.square;
-  let approved;
+  let result;
   try {
-    approved = await approvePending(f.env, result.ready[0].url.split("/").pop(), approver);
+    result = await draftProductBatch(f.env, { text: csv, actor: "noor@vemians.com", role: "manager" });
   } finally {
     globalThis.fetch = realFetch;
   }
-  assert.equal(approved.ok, true, approved.error);
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
 
   const colorObj = [...f.square.objects.values()].find((o) => o.type === "ITEM_OPTION" && o.item_option_data?.name === "Color");
   const sizeObj = [...f.square.objects.values()].find((o) => o.type === "ITEM_OPTION" && o.item_option_data?.name === "Size");
@@ -6063,7 +6108,7 @@ check("test_PRD_P0_146_dynamic_option_values__a_bare_style_id_with_no_suffix_sti
  * ───────────────────────────────────────────────────────────────────────── */
 
 check("test_PRD_P0_146_dynamic_option_values__separate_category_and_subcategory_columns_nest_a_new_subcategory", async () => {
-  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const f = await fixture({ actor: "noor@vemians.com", role: "manager" });
   const csv =
     "title,category,subcategory,price,style id,cost,color,size\n" +
     "Black Blazer,Jacket,Blazer,165.00,001-001-001-BLK-S,30.00,Black,S\n";
@@ -6072,28 +6117,18 @@ check("test_PRD_P0_146_dynamic_option_values__separate_category_and_subcategory_
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "noor@vemians.com", role: "manager" });
   } finally {
     globalThis.fetch = realFetch;
   }
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.equal(result.ready.length, 1);
+  assert.equal(result.created.length, 1);
 
   const categories = f.categories();
   const jacket = categories.find((c) => c.name === "Jacket");
   const blazer = categories.find((c) => c.name === "Blazer");
   assert.ok(jacket && !jacket.parent_id, "Jacket must be created as a new TOP-LEVEL category");
   assert.ok(blazer && blazer.parent_id === jacket.id, "Blazer must be created NESTED under Jacket");
-
-  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
-  globalThis.fetch = f.square;
-  let approved;
-  try {
-    approved = await approvePending(f.env, result.ready[0].url.split("/").pop(), approver);
-  } finally {
-    globalThis.fetch = realFetch;
-  }
-  assert.equal(approved.ok, true, approved.error);
 
   const row = f.mirror("SELECT category_id, style_id FROM mirror_product WHERE title = 'Black Blazer'")[0];
   assert.equal(row.category_id, blazer.id, "the product must land on the SUBcategory, the more specific level");
@@ -6108,11 +6143,11 @@ check("test_PRD_P0_146_dynamic_option_values__separate_category_and_subcategory_
 });
 
 check("test_PRD_P0_146_dynamic_option_values__a_subcategory_given_with_no_category_is_refused", async () => {
-  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const f = await fixture({ actor: "noor@vemians.com", role: "manager" });
   const csv = "title,subcategory,price,cost\n" + "Black Blazer,Blazer,165.00,30.00\n";
 
-  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
-  assert.equal(result.ready.length, 0);
+  const result = await draftProductBatch(f.env, { text: csv, actor: "noor@vemians.com", role: "manager" });
+  assert.equal(result.created.length, 0);
   assert.equal(result.skipped.length, 1);
   assert.match(result.skipped[0].reason, /subcategory "Blazer" was given without a category to nest it under/);
 });
@@ -6122,7 +6157,7 @@ check("test_PRD_P0_146_dynamic_option_values__the_same_subcategory_name_under_tw
      a different parent]. The ID cannot." Two rows naming the SAME
      subcategory NAME under two DIFFERENT categories must create two
      genuinely separate rows, never collide on one shared cache entry. */
-  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const f = await fixture({ actor: "noor@vemians.com", role: "manager" });
   const csv =
     "title,category,subcategory,price,cost\n" +
     "Black Blazer,Jacket,Casual,165.00,30.00\n" +
@@ -6132,12 +6167,12 @@ check("test_PRD_P0_146_dynamic_option_values__the_same_subcategory_name_under_tw
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "noor@vemians.com", role: "manager" });
   } finally {
     globalThis.fetch = realFetch;
   }
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.equal(result.ready.length, 2);
+  assert.equal(result.created.length, 2);
 
   const categories = f.categories();
   const jacket = categories.find((c) => c.name === "Jacket");
@@ -6149,7 +6184,7 @@ check("test_PRD_P0_146_dynamic_option_values__the_same_subcategory_name_under_tw
 });
 
 check("test_PRD_P0_146_dynamic_option_values__several_rows_naming_the_same_category_and_subcategory_only_create_them_once", async () => {
-  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const f = await fixture({ actor: "noor@vemians.com", role: "manager" });
   const csv =
     "title,category,subcategory,price,cost\n" +
     "Black Blazer,Jacket,Blazer,165.00,30.00\n" +
@@ -6159,12 +6194,12 @@ check("test_PRD_P0_146_dynamic_option_values__several_rows_naming_the_same_categ
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "noor@vemians.com", role: "manager" });
   } finally {
     globalThis.fetch = realFetch;
   }
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.equal(result.ready.length, 2);
+  assert.equal(result.created.length, 2);
 
   const categories = f.categories();
   assert.equal(categories.filter((c) => c.name === "Jacket").length, 1);
@@ -6202,18 +6237,8 @@ check("test_PRD_P0_152_style_number_grouping__rows_sharing_a_style_base_become_o
     globalThis.fetch = realFetch;
   }
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.equal(result.ready.length, 1, "three rows sharing one style base -- ONE product");
-  assert.equal(result.ready[0].title, "Black hand-painted blazer", "no title column -- the Description stands in for it");
-
-  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
-  globalThis.fetch = f.square;
-  let approved;
-  try {
-    approved = await approvePending(f.env, result.ready[0].url.split("/").pop(), approver);
-  } finally {
-    globalThis.fetch = realFetch;
-  }
-  assert.equal(approved.ok, true, approved.error);
+  assert.equal(result.created.length, 1, "three rows sharing one style base -- ONE product");
+  assert.equal(result.created[0].title, "Black hand-painted blazer", "no title column -- the Description stands in for it");
 
   const product = f.mirror("SELECT id, style_id FROM mirror_product WHERE title = 'Black hand-painted blazer'")[0];
   assert.ok(product, "the product must actually exist");
@@ -6247,7 +6272,7 @@ check("test_PRD_P0_152_style_number_grouping__category_and_subcategory_resolve_b
     globalThis.fetch = realFetch;
   }
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.equal(result.ready.length, 1);
+  assert.equal(result.created.length, 1);
   assert.equal(f.categories().filter((c) => c.name === "Outerwear").length, 1, "no duplicate category created just because the sheet's own name column disagreed");
   assert.equal(f.categories().some((c) => c.name === "Not Outerwear At All"), false, "the mismatched name column is never used when the number already resolves to something real");
 });
@@ -6265,7 +6290,7 @@ check("test_PRD_P0_152_style_number_grouping__a_number_with_no_match_creates_a_n
     globalThis.fetch = realFetch;
   }
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.equal(result.ready.length, 1);
+  assert.equal(result.created.length, 1);
 
   const coat = f.categories().find((c) => c.name === "Coat");
   const winterCoat = f.categories().find((c) => c.name === "Winter Coat");
@@ -6296,7 +6321,7 @@ check("test_PRD_P0_152_style_number_grouping__an_existing_category_matched_by_na
     globalThis.fetch = realFetch;
   }
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.equal(result.ready.length, 1);
+  assert.equal(result.created.length, 1);
   assert.equal(f.categories().filter((c) => c.name === "Outerwear").length, 1, "still just the one Outerwear -- now numbered, not duplicated");
   assert.equal(f.categories().find((c) => c.name === "Outerwear").numeric_id, "01");
 });
@@ -6315,7 +6340,7 @@ check("test_PRD_P0_152_style_number_grouping__a_name_that_already_has_a_differen
   } finally {
     globalThis.fetch = realFetch;
   }
-  assert.equal(result.ready.length, 0);
+  assert.equal(result.created.length, 0);
   assert.equal(result.skipped.length, 1);
   assert.match(result.skipped[0].reason, /already exists numbered "05", not "01"/);
 });
@@ -6345,7 +6370,7 @@ check("test_PRD_P0_152_style_number_grouping__a_style_number_that_does_not_match
   } finally {
     globalThis.fetch = realFetch;
   }
-  assert.equal(result.ready.length, 1, "the one real row still goes through");
+  assert.equal(result.created.length, 1, "the one real row still goes through");
   assert.equal(result.skipped.length, 0, "the footnote is dropped outright, never reported as a problem");
 });
 
@@ -6370,7 +6395,7 @@ check("test_PRD_P0_152_style_number_grouping__a_totals_rows_blank_style_number_s
   } finally {
     globalThis.fetch = realFetch;
   }
-  assert.equal(result.ready.length, 1);
+  assert.equal(result.created.length, 1);
   assert.equal(result.skipped.length, 1);
   assert.match(result.skipped[0].reason, /price ".*" is not a plain number/);
 });
@@ -6390,7 +6415,7 @@ check("test_PRD_P0_152_style_number_grouping__a_bad_price_on_any_one_row_skips_t
   } finally {
     globalThis.fetch = realFetch;
   }
-  assert.equal(result.ready.length, 0, "a product missing one of its own sizes is worse than not creating it yet");
+  assert.equal(result.created.length, 0, "a product missing one of its own sizes is worse than not creating it yet");
   assert.equal(result.skipped.length, 1);
   assert.match(result.skipped[0].reason, /price "not-a-price"/);
 });
@@ -6442,7 +6467,7 @@ check("test_PRD_P0_152_style_number_grouping__the_actual_sample_sheet_drafts_six
     globalThis.fetch = realFetch;
   }
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.equal(result.ready.length, 16, "28 rows, 16 distinct products once grouped by style base");
+  assert.equal(result.created.length, 16, "28 rows, 16 distinct products once grouped by style base");
 
   const jacket = f.categories().find((c) => c.name === "Jacket");
   const pants = f.categories().find((c) => c.name === "Pants");
@@ -6462,21 +6487,12 @@ check("test_PRD_P0_152_style_number_grouping__the_actual_sample_sheet_drafts_six
   assert.notEqual(blazer.numeric_id, vest.numeric_id);
   assert.notEqual(blazer.numeric_id, denim.numeric_id);
 
-  /* Approve every one of the 16 and confirm the mirror actually ends up
-     with 16 NEW products (on top of whatever the base fixture's own seed
-     catalog already carried), each with a real, correctly-shaped
-     style_id -- the one thing the pre-existing seed product does NOT
-     have, so filtering on it isolates exactly the newly-created ones. */
-  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
-  globalThis.fetch = f.square;
-  try {
-    for (const ready of result.ready) {
-      const approved = await approvePending(f.env, ready.url.split("/").pop(), approver);
-      assert.equal(approved.ok, true, approved.error);
-    }
-  } finally {
-    globalThis.fetch = realFetch;
-  }
+  /* Every one of the 16 was created immediately, in the same call above --
+     confirm the mirror actually ends up with 16 NEW products (on top of
+     whatever the base fixture's own seed catalog already carried), each
+     with a real, correctly-shaped style_id -- the one thing the
+     pre-existing seed product does NOT have, so filtering on it isolates
+     exactly the newly-created ones. */
   const products = f.mirror("SELECT title, style_id FROM mirror_product WHERE style_id IS NOT NULL");
   assert.equal(products.length, 16, `titles: ${JSON.stringify(products.map((p) => p.title))}`);
   for (const p of products) assert.match(p.style_id, /^\d{2}-\d{2}-\d{3}$/, `${p.title}'s own style_id must be this shop's real shape`);
@@ -6506,17 +6522,7 @@ check("test_PRD_P0_152_style_number_grouping__a_description_column_standing_in_f
     globalThis.fetch = realFetch;
   }
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.equal(result.ready[0].title, "Black hand-painted blazer");
-
-  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
-  globalThis.fetch = f.square;
-  let approved;
-  try {
-    approved = await approvePending(f.env, result.ready[0].url.split("/").pop(), approver);
-  } finally {
-    globalThis.fetch = realFetch;
-  }
-  assert.equal(approved.ok, true, approved.error);
+  assert.equal(result.created[0].title, "Black hand-painted blazer");
 
   const product = f.mirror("SELECT source_description FROM mirror_product WHERE title = 'Black hand-painted blazer'")[0];
   assert.ok(!product.source_description, "no description at all -- the title stand-in is never duplicated into it");
@@ -6540,17 +6546,7 @@ check("test_PRD_P0_152_style_number_grouping__a_real_title_column_still_keeps_it
     globalThis.fetch = realFetch;
   }
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.equal(result.ready[0].title, "Bomber Blazer");
-
-  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
-  globalThis.fetch = f.square;
-  let approved;
-  try {
-    approved = await approvePending(f.env, result.ready[0].url.split("/").pop(), approver);
-  } finally {
-    globalThis.fetch = realFetch;
-  }
-  assert.equal(approved.ok, true, approved.error);
+  assert.equal(result.created[0].title, "Bomber Blazer");
 
   const product = f.mirror("SELECT source_description FROM mirror_product WHERE title = 'Bomber Blazer'")[0];
   assert.equal(product.source_description, "A hand-painted piece");
@@ -6576,16 +6572,6 @@ check("test_PRD_P0_152_style_number_grouping__with_no_sku_column_the_rows_own_fu
   }
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
 
-  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
-  globalThis.fetch = f.square;
-  let approved;
-  try {
-    approved = await approvePending(f.env, result.ready[0].url.split("/").pop(), approver);
-  } finally {
-    globalThis.fetch = realFetch;
-  }
-  assert.equal(approved.ok, true, approved.error);
-
   const product = f.mirror("SELECT id FROM mirror_product WHERE title = 'Black hand-painted blazer'")[0];
   const skus = f
     .mirror("SELECT sku FROM mirror_variant WHERE product_id = ?", product.id)
@@ -6609,16 +6595,6 @@ check("test_PRD_P0_152_style_number_grouping__an_explicit_sku_column_still_wins_
     globalThis.fetch = realFetch;
   }
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-
-  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
-  globalThis.fetch = f.square;
-  let approved;
-  try {
-    approved = await approvePending(f.env, result.ready[0].url.split("/").pop(), approver);
-  } finally {
-    globalThis.fetch = realFetch;
-  }
-  assert.equal(approved.ok, true, approved.error);
 
   const product = f.mirror("SELECT id FROM mirror_product WHERE title = 'Black hand-painted blazer'")[0];
   const variant = f.mirror("SELECT sku FROM mirror_variant WHERE product_id = ?", product.id)[0];
@@ -6646,16 +6622,6 @@ check("test_PRD_P0_152_style_number_grouping__a_tbd_color_or_size_is_dropped_as_
     globalThis.fetch = realFetch;
   }
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-
-  const approver = { email: "owner@vemians.com", role: "owner", verified: true };
-  globalThis.fetch = f.square;
-  let approved;
-  try {
-    approved = await approvePending(f.env, result.ready[0].url.split("/").pop(), approver);
-  } finally {
-    globalThis.fetch = realFetch;
-  }
-  assert.equal(approved.ok, true, approved.error);
 
   const colorObj = [...f.square.objects.values()].find((o) => o.type === "ITEM_OPTION" && o.item_option_data?.name === "Color");
   const sizeObj = [...f.square.objects.values()].find((o) => o.type === "ITEM_OPTION" && o.item_option_data?.name === "Size");
