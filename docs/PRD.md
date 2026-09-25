@@ -6591,6 +6591,103 @@ that does not trace to one of these is a process failure (see §12).
     shown, a correction lands where it was meant to, and "I just sent it" has a chance of
     meaning something rather than tripping a blind `assets.list` lookup.
 
+85. **`Test-PRD-P0-152-style_number_grouping`** — The owner's own words, walking through an actual
+    sample sheet: "it's not one product, one line... I gave you variations. So it's not one
+    product... it's one variation per row." "The numbers will provide you with everything you need
+    to know... look at the style number. Look at the first number. That's the category number...
+    whatever we have configured, you assign to that category using its ID. The second number is a
+    subcategory... The third one is an index. It must be a unique number... if there is a mismatch,
+    you're going to just find the next one." "If you find that we do not have an ID that matches
+    what we are supplying you, then you will use the columns for the appropriate category and
+    subcategory name and create a new one." "Ignore any rows that do not match our style ID
+    nomenclature... if they don't have that style ID pattern, then just ignore that."
+
+    **Row-grouping, the one genuinely new shape of data this importer accepts.** `ONE RECORD PER
+    ROW` (this file's own header comment) held until now for a real reason — a spreadsheet cell
+    cannot describe three sizes at three prices without a schema of its own. A style number that
+    already carries a color and/or a size (P0-146, above) turns out to BE that schema: several rows
+    sharing the identical first three segments (category-subcategory-index) are the SAME garment in
+    different sizes/colors, not three different garments. `draftProductBatch` now splits every row
+    with a style number into a GROUP keyed by that exact base BEFORE any resolution happens
+    (`draftGroupedProduct`) — one `catalog.create_product` call per group, one variation per row, in
+    the sheet's own order. A row with a genuinely BLANK style-id cell keeps the ENTIRELY UNCHANGED,
+    original single-row/single-variation path (name-driven category resolution, P0-146's own
+    Subcategory column) — this is additive, not a replacement.
+
+    **The TOP-LEVEL CATEGORY resolves by NUMBER first, REVISED from P0-146's own "resolve by name,
+    only use the number if it happens to already match this shop's own format."** `resolveCategoryByCode`
+    reads the segment as a plain INTEGER — "it's just a number... if we use two digits internally and
+    you're providing three-digit padded, it's still the same number" — the owner's own words, so
+    "001" and "01" name the exact same category regardless of how a sheet pads its own codes. Three
+    outcomes, tried in order: (1) an EXISTING top-level category whose own numeric_id, read the same
+    way, already equals the code — used exactly as it is, its own name never even consulted; (2) no
+    numeric match, but an EXISTING one already carries the sheet's own name VERBATIM — the same real
+    category, simply never numbered yet (an "Outerwear" predating this sheet's own numbering
+    convention entirely) — given this number now (`catalog.set_category_number`) rather than minting
+    a confusing near-duplicate beside it, the ONE case a name column is still consulted even under
+    "you don't have to think about the names"; already carrying a DIFFERENT real number is a genuine
+    mismatch, reported rather than silently reassigned; (3) neither matches anything — a brand-new
+    category, named from the sheet's own column and given the code (normalized to this shop's own
+    two-digit convention) as its numeric_id, refused if no name column exists either to create one
+    from.
+
+    **The SUBCATEGORY does NOT resolve by number, REVISED AGAIN against the owner's own actual sample
+    sheet.** The two-pool rule (P0-138) makes every subcategory anywhere in the tree share ONE numeric
+    pool, but the real sheet's own middle segment restarts at 1 for every new top-level category —
+    "Blazer" under Jacket and "Dress Pants" under Pants were both, quite legitimately on the sheet's
+    own terms, "001." Trying to honor both at once is not a matter of choosing an interpretation; the
+    two conventions are mutually incompatible, one of them a real database constraint. So a
+    subcategory resolves by NAME instead, exactly the mechanism P0-146's own Subcategory column
+    already uses — matched (or created) under whichever category the row's own top-level number
+    resolved to, auto-assigning THIS shop's own real, tree-wide-unique numeric_id
+    (`nextSubcategoryNumericId`) rather than the sheet's own locally-scoped one. The one case this
+    does NOT apply: a row with a style number but NO Subcategory column at all (a bare style_id, from
+    before that column existed, `Test-PRD-P0-136-...__a_spreadsheet_row_derives_its_category_from_a_
+    given_style_id_alone`) keeps resolving its subcategory by NUMBER, tree-wide, MATCH ONLY, never
+    creating — the original `deriveCategoryIdForStyleId` lookup this shop's style_id nomenclature has
+    always used when there is nothing else to go on; safe precisely because it never CREATES from a
+    per-parent-scoped digit, so the cross-category collision above can never arise from it. Neither
+    path resolving anything at all is the one SOFT, non-fatal case — the product simply files under
+    the top-level category alone, the sheet's own digit still riding into the constructed style_id
+    verbatim; the CATEGORY segment has nowhere left to fall back to, so the identical "no match, no
+    name" outcome is fatal there instead.
+
+    **The item index's own conflict handling needed no new code at all.** "It must be a unique
+    number... if there is a mismatch, you just increment it, find the next index that fits" is
+    already exactly what `catalog.create_product`'s own `resolveStyleId` does for any GIVEN
+    style_id that collides with one already on file (P0-136) — `draftGroupedProduct` simply builds
+    the style_id from the category/subcategory actually resolved (always real, always two digits)
+    plus the sheet's own index segment (padded to three), and hands it through as `style_id` like
+    any other row already does.
+
+    **A row whose style number does not look like one at all is dropped outright, never reported.**
+    STYLE_NUMBER_BASE (three all-digit, dash-separated segments) gates entry into a group; a
+    NON-BLANK cell that fails this shape (a footnote sentence, sitting in the Style # column of a
+    real sheet's own trailing note) is silently skipped, matching "just ignore that" rather than
+    surfacing a skip reason for something that was never a data row. A genuinely BLANK style-id cell
+    (a totals row) is a different case, unaffected: it takes the pre-existing standalone path and is
+    reported the ordinary way once something else about it fails (its own blank price, typically) —
+    "ignore" was never asked for the case that already resolves cleanly on its own.
+
+    **No title column exists on a sheet like this — `Description` stands in for it.** `rawTitle` now
+    tries `TITLE_KEYS` first (a sheet that does have one still wins) and falls through to
+    `DESCRIPTION_KEYS` only when it does not — "Black hand-painted blazer" reads exactly like a
+    product's own name already, and this is a WEAKER rule than the one this file already enforces
+    the other way (bare "style"/"style #" must never become the title, `Test-PRD-P0-136-...__a_style_
+    number_column_is_never_read_as_the_products_title`): DESCRIPTION_KEYS is a distinct, deliberately
+    named column, not the same collision. `description` itself is unaffected — the same text simply
+    appears twice on a row that has no separate title, never suppressed to avoid the duplication.
+
+    **Deliberately NOT built yet, flagged rather than guessed at: auto-configuring a CATEGORY's own
+    Option Sets from what a batch of its own items actually uses, when it has none configured.** The
+    owner's own words: "if I don't have any option sets assigned to a category, you're just going to
+    apply them based on a spreadsheet." The natural moment for this is AFTER a parked
+    `catalog.create_product` approval is actually approved and its variations' own Color/Size options
+    genuinely exist in Square (`ensureItemOptionValue` mints them only as a side effect of that real
+    write) — never at `draftProductBatch`'s own drafting time, before any approval exists at all. That
+    makes this a change to the APPROVAL-EXECUTION path, not the importer, and needs its own design
+    pass; nothing here assigns a category's own Option Sets automatically yet.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
