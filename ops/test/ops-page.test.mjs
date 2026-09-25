@@ -724,21 +724,25 @@ check("test_PRD_P0_120_preview_data_ellipsis_not_wrap__the_preview_cards_own_dat
 });
 
 check("test_PRD_P0_120_preview_data_ellipsis_not_wrap__full_screen_is_the_escape_hatch_back_to_reading_a_cropped_value_in_full", async () => {
-  /* The owner's own words: "we should never have to scroll it
-     vertically" — satisfied structurally: with data cells single-line
-     (white-space: nowrap, no wrapping) and the preview card's own
-     max-height already dropped entirely (Test-PRD-P0-117-batch_preview_one_row_fits_without_scrolling),
-     a header-plus-one-row preview never has more than two short lines
-     to show, so there is nothing left to scroll to vertically. "Full
-     screen" still exists as the one way to read a cropped value in
-     full: .table-card.preview.full td lifts the crop back to ordinary
-     wrapping, the same as every other .table-card's own cells already
-     read, rather than a value being permanently hidden. */
+  /* REVISED — "Full screen is completely unusable. You've collapsed all
+     the rows to be super tall and super thin, which makes them
+     unreadable... What would you do?" — the owner's own words, said after
+     an earlier fix (restoring min-width) turned out not to be enough: a
+     real min-width no longer collapsing to zero still let a long
+     positional list value (P0-89's own "|"-joined size/color/price/
+     quantity/sku fields) wrap across a dozen short lines. Wrapping AT ALL
+     was the actual problem once cells hold values this long — "Full
+     screen" now removes the crop AND stops wrapping entirely
+     (white-space: nowrap), the same trade this app already makes for
+     headers: every column sizes to its own longest single-line value,
+     never squeezed narrow and never wrapped tall, with the card's own
+     pre-existing horizontal scroll (untouched) as the escape hatch for a
+     table too wide to fit the full-screen overlay at once. */
   const { body } = await frontPage(OWNER);
-  assert.match(body, /\.table-card\.preview\.full td\s*\{[^}]*white-space:\s*normal/s, "full screen must restore normal wrapping");
+  assert.match(body, /\.table-card\.preview\.full td\s*\{[^}]*white-space:\s*nowrap/s, "full screen must never wrap a cell onto more than one line");
   assert.match(body, /\.table-card\.preview\.full td\s*\{[^}]*overflow:\s*visible/s, "full screen must un-clip the cell");
   assert.match(body, /\.table-card\.preview\.full td\s*\{[^}]*max-width:\s*none/s, "full screen must remove the width cap the ellipsis crop depended on");
-  assert.match(body, /\.table-card\.preview\.full td\s*\{[^}]*overflow-wrap:\s*anywhere/s, "full screen must restore the ability to wrap a spaceless value like a URL");
+  assert.match(body, /\.table-card\.preview\.full td\s*\{[^}]*min-width:\s*6em/s, "full screen must still carry a real width floor for a short or empty value");
 });
 
 check("test_PRD_P0_120_preview_data_ellipsis_not_wrap__full_screen_restores_a_width_floor_so_columns_cannot_collapse_to_nothing", async () => {

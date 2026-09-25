@@ -508,23 +508,40 @@ const TABLE_CARD_CSS = `
   overflow-wrap: normal; word-break: normal; min-width: 0; max-width: 10em;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-/* REVISED — "Full screen is completely unusable. You've collapsed all the
-   rows to be super tall and super thin, which makes them unreadable" — the
-   owner's own words. This rule restored wrapping and dropped the collapsed
-   state's own max-width, but never restored its min-width, left at the
-   collapsed card's own "0" (needed there only to let the ellipsis crop bite
-   at all). With table-layout: auto and no floor, the browser is free to
-   squeeze a column down to whatever its narrowest unbreakable unit is —
-   with overflow-wrap: anywhere lifted back in the same rule, that unit can
-   be a single character, so a wide table with many columns (a real
-   spreadsheet preview) rendered every column at almost no width and every
-   cell's text wrapping one character per line: tall and thin, the exact
-   opposite of readable. Restoring the same "6em" floor the ordinary,
-   non-preview .table-card td already carries is what actually fixes it —
-   full screen was always meant to read like that card, not a narrower one. */
+/* REVISED, THEN REVISED AGAIN — "Full screen is completely unusable. You've
+   collapsed all the rows to be super tall and super thin, which makes them
+   unreadable" — the owner's own words, said TWICE, about two different
+   causes of the identical symptom. First pass: this rule restored wrapping
+   and dropped the collapsed state's own max-width, but never restored its
+   min-width (left at the collapsed state's own "0"), so a wide preview
+   (many columns) let the browser squeeze a column down to its narrowest
+   unbreakable unit — one character, once overflow-wrap: anywhere was back
+   in play. Restoring "min-width: 6em" fixed THAT case, but the owner still
+   saw the same complaint: "I mean, the columns are super, super narrow and
+   super tall. What would you do?" — because 6em is nowhere near enough
+   room for this preview's own newer fields (P0-89's own positional
+   size/color/price/quantity/sku lists, "|"-joined, easily 40-60+
+   characters for a multi-variant product) to fit more than a word or two
+   per line — a real min-width no longer collapsing to zero still wrapped a
+   long value across a dozen short lines, still "super tall."
+   overflow-wrap/word-break: normal alone was never going to be enough
+   while white-space: normal still let a value wrap onto a new line at
+   all. The actual fix: DON'T WRAP full-screen cells at all
+   (white-space: nowrap) — the same trade this codebase already makes
+   for headers, and for the identical reason: "if we need to scroll it
+   horizontally, that's okay, we should never have to scroll it vertically
+   though" (P0-89's own words, for the collapsed card; the same principle
+   generalizes to full screen once the request is "read every value in
+   full," not "fit everything in the viewport"). Every column now sizes to
+   its own longest single-line value — never artificially narrow, never
+   wrapped into unreadable height — and a spreadsheet with enough columns
+   or values wide enough to exceed the full-screen overlay's own width
+   scrolls sideways to reach them (the card's own pre-existing
+   overflow: auto, untouched), exactly the trade-off this app has made
+   everywhere else a table could get wide. */
 .table-card.preview.full td {
-  overflow-wrap: anywhere; word-break: break-word; max-width: none; min-width: 6em;
-  white-space: normal; overflow: visible; text-overflow: clip;
+  overflow-wrap: normal; word-break: normal; max-width: none; min-width: 6em;
+  white-space: nowrap; overflow: visible; text-overflow: clip;
 }
 `;
 
