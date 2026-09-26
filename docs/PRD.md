@@ -8245,6 +8245,35 @@ that does not trace to one of these is a process failure (see §12).
     measuring both gaps in the same real render (4px and 3.875px — a sub-pixel rounding
     difference, not a visible one).
 
+109. **`Test-PRD-P0-176-style_id_display_only`** — REVISES the editable `style_id` field
+    P0-135/P0-136 established (a form field in `.category-title-row`, with its own auto-dash-
+    as-you-type formatting and red-until-complete `:invalid` styling). The owner's own words:
+    "changing that style ID doesn't make sense any more. It's just a display value. It's not an
+    editable field, because changing its category or subcategory is the same thing as changing
+    the style ID number." (`deriveCategoryIdForStyleId`/`NN-NN-NNN`'s own comments in
+    catalog-writer.js already establish that a style_id's own first four digits ARE its category
+    path — editing the field directly let a person disagree with the category the product is
+    actually filed under, with nothing reconciling the two.)
+
+    The editable `<input name="style_id">` (and its own CSS, and the client-side
+    `formatStyleId`/`reformatStyleIdInput` auto-formatter — dead code with the field gone) are
+    removed outright, for every role — there is no fallback read-only row to keep either, since
+    that only ever existed for staff, who lose nothing here since managers never had a real edit
+    surface for it in the first place. In its place: "let's just put the style ID as an
+    indicator, as a balloon on the top left area, right opposite of the option balloon name" — a
+    new `.item-photo-style-pill`, the exact mirror of `.item-photo-variant-pill` (P0-173): same
+    size, same background, same `top: 36px` clearance below `.item-top`, just `left: 8px` instead
+    of `right: 8px`. Unlike the variant pill, it is static, not scroll-driven — style_id belongs
+    to the product, not to whichever photo is currently showing — and shown to every role, since
+    it is genuinely read-only for everyone now. `/items/<handle>/square-attributes`'s own route
+    needed no change at all: with no `style_id` field ever submitted, `form.get("style_id")`
+    reads `null`, the same "leave it as it is" path an intentionally-blank field already took.
+
+    Eight pre-existing tests referencing the retired field (P0-130's and P0-131's own collapsed-
+    tile assertions, P0-135's own accordion/header checks, P0-136's own edit-form and auto-format
+    checks) were updated in the same change, per this repository's own rule that a behavior
+    change and its test move together — never left describing a field that no longer exists.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
