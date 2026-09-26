@@ -8123,6 +8123,25 @@ that does not trace to one of these is a process failure (see §12).
     to drive. Confirmed live: the same four-item catalog that split 38px/573px before now packs at
     38px/223px, a plain 10px gap between rows, matching every other spacing in the grid.
 
+105. **`Test-PRD-P0-172-dashboard_tile_spacing`** — A real transcript (paired with the P0-171
+    report above, both read together as the same complaint about padding): "use consistent
+    vertical padding in the dashboard between items to kind of match the same padding that you use
+    everywhere else because right now they're just too stuck together." Measured live: three tasks
+    assigned to the same viewer, all landing in one `dashboardGroup()` "mine" bucket, rendered with
+    bounding rects touching edge to edge (`bottom: 134` immediately followed by `top: 134`) — a real
+    zero-pixel gap, not merely a small one. `.ticket-list { gap: 8px }` is a flex-column gap on
+    `.ticket-list` itself, whose only direct children are the `.dash-mine` wrapper, the `<hr
+    class="dash-mine-sep">` separator, and the `.dash-rest` wrapper — CSS `gap` only ever separates
+    direct children, so it spaces those three blocks from each other but never reaches the
+    `.ticket-tile` elements nested a level deeper inside `.dash-mine`/`.dash-rest`, which had no
+    `gap` or `margin` of their own. **Fix:** `.dash-mine, .dash-rest { display: flex; flex-direction:
+    column; gap: 8px; }` — reusing `.ticket-list`'s own existing 8px rather than introducing a new
+    value, since the bug was structural (the gap declared one DOM level too high) and not a wrong
+    pixel choice. Confirmed live: the same three tiles now render with a real 8px gap between each
+    (`bottom: 133.5` / `top: 141.5`), matching the spacing already used at the group-boundary level,
+    with no change to `.items-grid`'s own already-consistent 10px gap (re-verified separately at
+    both a 375px and a 1200px viewport, ruling that half of the report out as already correct).
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

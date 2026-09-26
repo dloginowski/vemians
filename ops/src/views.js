@@ -5455,6 +5455,7 @@ const TICKETS_CSS = `
 ${OPS_DARK_CSS}
 ${INPUT_BAR_CSS}
 .ticket-list { display: flex; flex-direction: column; gap: 8px; }
+.dash-mine, .dash-rest { display: flex; flex-direction: column; gap: 8px; }
 .ticket-tile {
   display: block; text-decoration: none; color: inherit;
   border: 1px solid var(--rule); border-radius: 8px;
