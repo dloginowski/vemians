@@ -2456,6 +2456,13 @@ that does not trace to one of these is a process failure (see §12).
     `agent.js`, for the first, narrower fix, which only ever covered the approval click itself needing no
     model memory, never the model successfully making that first call at all).
 
+    **REVISED by `Test-PRD-P0-177-fluid_style_id`**: `sku` no longer has any relationship to a row's
+    own style number, ever — SKU is now a permanent, opaque, system-generated code with nothing to do
+    with style_id or category, so both the `sku` and `style_id` preview columns (`mapProductGroup`,
+    `batch.js`) always read `"(auto-generated)"` unconditionally, for every group, whether or not the
+    row carried a style number. `size`/`color`/`price`/`quantity`'s own positional-list behavior is
+    unaffected.
+
 34a''''''''''''''''''''. **`Test-PRD-P0-90-daylight_contrast`** — The owner's own words: "Bump up
     the contrast of the dimmer elements on ops page. Its a little hard to see on a mobile device
     in broad daylight." Direct sun washes out exactly the mid-tones a "dim, secondary" colour is
@@ -5124,6 +5131,12 @@ that does not trace to one of these is a process failure (see §12).
     both were already real, working surfaces, only the tool-level refusal beneath the first one ever
     stood in the way.
 
+    **REVISED by `Test-PRD-P0-177-fluid_style_id`**: style_id is no longer a hand-given field on this
+    tool (or on `catalog.create_product`) at all — no format check, no "conflict bumps to the next
+    free index." It is now computed automatically FROM a product's own category, and never drives
+    category assignment the other way. commission/vendor/vendor_code/unit_cost_minor, everything else
+    this entry describes, are unaffected.
+
 72. **`Test-PRD-P0-137-item_active_toggle`** — The owner's own words, in the same request that moved
     Web and the newly-added Active checkbox beside the item's own name: "move the web and the active
     buttons... make them the same style as the rest of the fields... have the same style like
@@ -6259,6 +6272,17 @@ that does not trace to one of these is a process failure (see §12).
     Save changes nothing about how each one is created — every one of them starts inheriting, and only
     stops the moment someone explicitly sets its own option sets or names it directly.
 
+    **REVISED by `Test-PRD-P0-177-fluid_style_id`**: every mechanism in this entry that derives a
+    product's CATEGORY from its own style_id (`deriveCategoryIdForStyleId`) or retroactively resorts/
+    reassigns products by matching style_id digits against a category's numeric_id
+    (`resortProductsByStyleId`, and `catalog.create_category`'s own "claims products that arrived
+    before it existed" behavior) is gone. style_id is never hand-given any more, so a product can
+    never carry one pointing at a category that does not exist yet — the direction runs the other way
+    now, category to style_id, only ever from a category the product is actually already in.
+    `catalog.set_category_number`'s own numeric_id assignment (the two-pool rule this entry
+    establishes) is otherwise unchanged; only what happens to AFFECTED PRODUCTS' style_ids afterward
+    changed (`resyncStyleIdPrefixes`, a prefix-only correction, never a category reassignment).
+
 74. **`Test-PRD-P0-139-honest_write_failures`** — A Square write refused with a plain `Square POST
     /v2/catalog/object failed with 400` and nothing else — the owner's own words, pasting exactly that
     line after an edit silently went nowhere: "just make sure all of the fields work... with this post
@@ -6648,6 +6672,13 @@ that does not trace to one of these is a process failure (see §12).
     category at all is unaffected either way — its own `base` still rides through verbatim, and a
     genuinely malformed one is still reported as such, exactly as before this.
 
+    **REVISED by `Test-PRD-P0-177-fluid_style_id`**: `style_id` is no longer sent to
+    `catalog.create_product` at all, ever — not the parsed `base`, not anything derived from it, and
+    `STYLE_ID_FORMAT`/`deriveCategoryIdForStyleId` no longer exist. The style number's parsed `base`
+    (and its own trailing color/size extraction, unaffected) is used ONLY to group CSV rows into one
+    product and to resolve which category/subcategory a row belongs to; style_id itself is always
+    auto-assigned from that category afterward, never a literal value this file constructs or sends.
+
 81. **`Test-PRD-P0-147-variants_grid`** — The owner's own words: "I want to see those properties also
     listed in the variants dropdown for each item... a whole grid of available size and color
     variations so that I can set their quantities directly out of that variants dropdown." An item
@@ -6862,6 +6893,13 @@ that does not trace to one of these is a process failure (see §12).
     common case (a variation predating Option Sets almost always already has a real, physical SKU) is
     never touched, exactly as `retagByTitle`'s own "never touching price/sku/anything else" rule already
     promises for everything else about it.
+
+    **REVISED by `Test-PRD-P0-177-fluid_style_id` — `skuFromStyleId` is gone.** The owner's own later
+    words, reversing "REVISED A FOURTH TIME" above: a SKU baked from a style_id that can later change
+    (a category correction, a re-filing) goes stale and misleading in a way a barcode already printed on
+    a physical ticket cannot un-print. SKU is now ALWAYS the opaque `generateSku` hash, unconditionally
+    — never the style_id-embedding shape, whether or not the product has a style_id on file. The retag
+    path's own "mint one when missing" behavior is unchanged, just always via `generateSku` now.
 
 83. **`Test-PRD-P0-149-category_options_inherit_toggle`** — The owner's own words, right after P0-148
     shipped: "I think there needs to be a separate option called Inherit for every category. It should
@@ -7520,6 +7558,18 @@ that does not trace to one of these is a process failure (see §12).
     adds the class whenever either flag is set, independently, so a table can carry `.preview`, `.tall`,
     both, or neither. "Full screen" (`.table-card.full`) still removes the cap entirely regardless, exactly
     as it always has.
+
+    **REVISED by `Test-PRD-P0-177-fluid_style_id` — the row's own style number is no longer, ever, its
+    real SKU.** Everything in this entry describing a style-numbered row's own full text (abbreviations
+    and all) becoming its real SKU verbatim, the cross-product SKU-collision refusal (`variantBySku`,
+    "a SKU already used by a different product is a clash"), and rebuilding a row's own SKU from a
+    corrected `style_id` on a category conform, is gone: SKU is now always the opaque `generateSku` hash,
+    with no relationship to the style number, so there is nothing left for it to collide with or need
+    rebuilding from. `style_id` itself is no longer sent to `catalog.create_product` from a batch row
+    either (P0-146's own REVISED note, above, has the detail) — both `sku` and `style_id` now always
+    preview as `"(auto-generated)"`, unconditionally. The style number's own GROUPING and
+    category-resolution role — which rows are one product, which category a row belongs to — is
+    completely unaffected.
 
 86. **`Test-PRD-P0-153-storefront_column_boundary`** — The owner's own words, after confirming the
     vendor-independent cost attribute above: "cost USD is the actual cost, and then we have margins
@@ -8273,6 +8323,119 @@ that does not trace to one of these is a process failure (see §12).
     tile assertions, P0-135's own accordion/header checks, P0-136's own edit-form and auto-format
     checks) were updated in the same change, per this repository's own rule that a behavior
     change and its test move together — never left describing a field that no longer exists.
+
+    **REVISED by `Test-PRD-P0-177-fluid_style_id`**: `deriveCategoryIdForStyleId` no longer exists —
+    a style_id's own digits never drove category assignment even before this entry shipped in
+    practice, and now cannot even in principle, since style_id is computed FROM category, never the
+    reverse. `.item-photo-style-pill` itself is unchanged and still exactly this display-only, but
+    the VALUE behind it is no longer a static, one-time stamp — it changes automatically whenever the
+    product's own category does.
+
+110. **`Test-PRD-P0-177-fluid_style_id`** — The owner's own words, on seeing a category correction
+    threaten to leave a printed SKU ticket permanently wrong: "I don't like this. I think that style
+    IDs need to be fluid. They need to be always shown and updated based on the categorizing of
+    items... if something ever changes the system of categorizing them and their IDs, that should
+    affect the style IDs, and that should not affect the SKUs. I think there should be two separate
+    things... The SKUs need to be just a unique hash across the whole items, and it should live
+    completely separately from the style ID." A category change is not just a re-filing — "changing
+    a category of an item doesn't just move it to a different category, it actually changes its
+    style ID" — but that must never reach the shop's own ticket-printing system.
+
+    **Two facts, made structurally independent, never one deriving the other:**
+
+    - **`sku`** is now ALWAYS `generateSku`'s own opaque, permanent, deterministic hash — never
+      `skuFromStyleId`'s style_id-embedding shape (`01-04-001-WHITE-M`, P0-148's own REVISED A
+      FOURTH TIME), which is deleted outright, along with its own `skuWordFrom` helper. No caller —
+      `catalog.create_product`, `catalog.update_product`, `catalog.draft_product`, the CSV batch
+      import (`batch.js`), the create-product approval form (`approval-forms.js`) — accepts a `sku`
+      argument any more; the `sku` field is removed from the shared `VARIATION`/`VARIATION_WITH_ID`/
+      `VARIATION_WITH_OPTIONS` schema entirely (`catalog-write.js`), a closed-schema "unknown
+      argument" refusal for anyone who still tries. `validateProposal`'s own duplicate-SKU-in-one-
+      call check, and `catalog.create_product`'s own cross-product SKU-collision check
+      (`variantBySku`), are both deleted — nothing supplies a SKU by hand any more, so nothing can
+      collide. A SKU, once minted, NEVER changes for any reason, including a category move.
+
+    - **`style_id`** is now a LIVE REFLECTION of a product's CURRENT category — computed FROM
+      category, by `resolveStyleId` (`catalog-write.js`, unifying what `catalog.create_product` and
+      `catalog.update_product` both need), NEVER given by hand, NEVER driving category assignment the
+      other way. `deriveCategoryIdForStyleId` (the old style_id-to-category lookup) is deleted
+      outright — its whole reason for existing (a hand-typed style_id whose digits happened to name a
+      real category) cannot occur any more, since style_id is never hand-typed. The `style_id`
+      argument, and its old `STYLE_ID_FORMAT` validation, are removed from `catalog.create_product`'s
+      and `catalog.set_square_attributes`'s schemas the same way `sku` was — `catalog.
+      set_square_attributes` becomes purely vendor/vendor_code/unit_cost_minor/commission now. Kept
+      pushed to Square as a Custom Attribute, same as before (P0-136) — the owner's own explicit
+      choice, weighing "ours, not Square's" against not maintaining a second, ops-only copy of a fact
+      Square already has a home for: "keep pushing it to Square."
+
+    **Two distinct trigger mechanisms, not one, because a category's own number changing and a
+    product actually MOVING to a different category are different events:**
+
+    - **A category's own `numeric_id` changes** (`catalog.set_category_number`, unchanged
+      mechanism otherwise) — every product ALREADY sitting in that category or subcategory gets its
+      style_id's PREFIX corrected to match, via a new `resyncStyleIdPrefixes()` (`catalog-writer.js`,
+      replacing the deleted `resortProductsByStyleId`). Each product keeps its own SEQUENCE NUMBER
+      exactly as it was — a pure prefix swap, collision-free by construction (no ledger lookup
+      needed, nothing else could already hold that exact combination) — pushed to Square as a real
+      write per affected product. `catalog.set_category_number`'s own result fields are renamed to
+      match (`style_ids_updated`/`style_id_errors`, was `products_resorted`/`resort_errors`). A
+      category CLEARING its own numeric_id leaves affected products' style_ids untouched rather than
+      blanking them — nothing safe to fall back to once the prefix is gone. `catalog.create_category`
+      no longer does any retroactive reassignment at all (the old "a product with a style_id
+      matching a brand-new category's numeric_id gets claimed by it" mechanism, from P0-138) — that
+      case is now IMPOSSIBLE by construction: a product can never carry a style_id pointing at a
+      category that does not exist yet, since style_id only ever comes from a category the product is
+      already, actually filed in.
+
+    - **A product itself moves to a DIFFERENT category** (`catalog.update_product`, given a
+      `category_id` that differs from the one already on file) — a FRESH style_id is minted for it,
+      via the same `nextStyleIdFor`/`mirror_style_id_ledger` ledger scoped to the DESTINATION
+      category's own NN-NN prefix, exactly as if it were a brand-new product. Re-sending the SAME
+      `category_id` a product already has leaves its style_id completely untouched — no accidental
+      re-roll from an unrelated edit. Moving to a category with no `numeric_id` of its own yet clears
+      style_id explicitly (pushed as an actual Square Custom Attribute removal, not left stale
+      describing the OLD category). `catalog.create_product` uses the identical `resolveStyleId` at
+      creation time, given a real `category_id`.
+
+    **The append-only ledger (`mirror_style_id_ledger`, unchanged schema) is what makes both safe
+    without a live uniqueness scan**: once a style_id string has ever been assigned to any product,
+    it is reserved forever, even after that product moves off it — a category renumbered back to an
+    old value, or a product moving back into a category it once left, can never collide with a
+    sequence number some other, unrelated product used to hold.
+
+    **No migration, no backfill, and no schema change at all — a deliberate simplification from an
+    earlier, over-engineered plan.** The first draft of this design considered a brand-new,
+    globally-permanent sequence-number column, specifically so a category move would never need to
+    touch it — the owner's own correction: "it's not really permanent, right? Because if I change a
+    category of an item... it may have to change its sequence index to something that fits in the new
+    category. So it's only permanent in that subcategory. It's not permanent always." That correction
+    is what let this ship as a pure code change: `mirror_style_id_ledger` and `mirror_product.
+    style_id` are structurally unchanged, and every EXISTING product's style_id is left exactly as it
+    already was at rollout — nothing here needed to touch a single existing row, because the ledger's
+    own scoped-uniqueness guarantee was already exactly what a fluid, per-category sequence number
+    needs.
+
+    **The Variants view now shows a label on the left, since one is finally worth looking at.** "I
+    want to have the SKU number on the left, and then the add and remove quantity for each size to
+    be on the far right... a single row per size" — the owner's own words, given together with this
+    whole redesign. `variantsGroupedAccordionHtml`'s own two-axis grouped view (`views.js`) goes back
+    from a wrapping `.variant-size-grid` of small tiles to one full-width `.row` per size — a new
+    `.variation-sku-label` on the left, the existing size label, then the stock stepper pushed to the
+    far right by the same `flex: 1 1 auto` trick the flat single-dimension list already relies on for
+    the identical effect.
+
+    **REVISED, immediately after seeing the real, permanent, opaque `sku` sitting there**: "I don't
+    think we need to see this [hash]... it's completely irrelevant to the user. This is what gets
+    printed on the ticket, and that's that... I wanted our old style-ID-based SKU on the left side. So
+    it's going to be the style ID, dash, then the option abbreviation, dash, then the size." The real,
+    permanent `sku` still is what reaches Square and prints on a ticket — nothing about that changes,
+    and it is not reconsidered here. `.variation-sku-label` shows a DISPLAY-ONLY computed string
+    instead, never stored and never sent anywhere: `styleIdVariantLabel` (`views.js`) rebuilds the
+    exact shape the old, removed `skuFromStyleId` used to actually mint as the real SKU — style_id,
+    then this row's own Color/Size values, uppercased and dash-joined (`01-04-001-RED-S`) — falling
+    back to the real `sku` only for a product with no style_id yet (nothing readable to build from).
+    Confirmed live (a real `worker.fetch` render, Playwright-driven): the label sits flush left, the
+    stepper flush right, one row per size, inside each expanded color group.
 
 ## 4. P1 features
 

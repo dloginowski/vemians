@@ -730,13 +730,17 @@ async function ops(request, env, path) {
       args = { handle, fields };
       summaryNoun = "custom fields";
     } else if (suffix === "/square-attributes") {
-      /* style_id/vendor/vendor_code/unit_cost/commission — Square's own
-         Custom Attributes and Vendor entity (P0-136), not ours. A blank
-         input means "leave this one as it is," not "clear it": only a
-         field the person actually typed something into is sent at all, so
+      /* vendor/vendor_code/unit_cost/commission — Square's own Custom
+         Attribute and Vendor entity (P0-136), not ours. style_id is NOT
+         one of these any more (Test-PRD-P0-177-fluid_style_id): it is a
+         live reflection of a product's own category, never typed by hand
+         — moving a product between categories (the /category route below)
+         is the only thing that ever changes it. A blank input means
+         "leave this one as it is," not "clear it": only a field the
+         person actually typed something into is sent at all, so
          catalog.set_square_attributes' own undefined-means-unchanged
          handling applies the same way it would to a call that only ever
-         meant to touch one of the five. vendor is the one exception — its
+         meant to touch one of the four. vendor is the one exception — its
          own picker toggles a selection off rather than typing it away, so
          a blank vendor arrives with an explicit clear_vendor marker (see
          above) precisely when that toggle is what fired, translated into
@@ -752,7 +756,6 @@ async function ops(request, env, path) {
          still just takes a plain integer minor-units argument either way.
          A malformed or out-of-range commission is still left for the
          tool's own check() to refuse, rather than silently dropped. */
-      const styleId = String(form.get("style_id") ?? "").trim();
       const vendor = String(form.get("vendor") ?? "").trim();
       /* The vendor picker's own toggle-to-clear (views.js submitEditForm)
          sends clear_vendor=1 alongside a blank vendor when the picker
@@ -770,19 +773,18 @@ async function ops(request, env, path) {
       toolName = "catalog.set_square_attributes";
       args = {
         handle,
-        ...(styleId ? { style_id: styleId } : {}),
         ...(clearVendor ? { clear_vendor: true } : vendor ? { vendor } : {}),
         ...(vendorCode ? { vendor_code: vendorCode } : {}),
         ...(unitCostMinor !== undefined ? { unit_cost_minor: unitCostMinor } : {}),
         ...(commission !== undefined ? { commission } : {}),
       };
-      summaryNoun = "style ID, vendor, vendor code, unit cost or commission";
+      summaryNoun = "vendor, vendor code, unit cost or commission";
     } else if (suffix === "/details") {
       /* "Where's the item label and where is the description fields?
          Shouldn't we be able to change that?" — title/description, sent
          exactly as typed: a blank title is not "leave it as it is" the way
-         a blank style_id or vendor already means (both were only ever
-         placeholders for something that might not exist yet); this field
+         a blank vendor field already means (a placeholder for something
+         that might not exist yet); this field
          always carries the product's CURRENT title, so blank here means
          someone actually deleted it, and catalog.update_product's own
          check() refuses that with a clear reason ("title is empty") the
@@ -892,8 +894,8 @@ async function ops(request, env, path) {
 
        A REFUSAL is JSON, not a refusalPage — the owner's own words: "I
        don't want these errors to send me to a new page. They need to
-       validate input like the style ID." A check() refusal (a malformed
-       style_id, a vendor with no commission, unit_cost with no vendor —
+       validate input like the style ID." A check() refusal (a vendor with
+       no commission on file, unit_cost with no vendor —
        none of it knowable purely from a client-side <input pattern>, since
        several of these rules depend on the PRODUCT's current state or
        another vendor's own name already in the mirror) can only be found
