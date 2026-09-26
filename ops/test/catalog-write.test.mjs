@@ -7842,75 +7842,6 @@ check("test_PRD_P0_152_style_number_grouping__the_preview_shows_the_same_title_f
   assert.equal(withTitleColumn.sampleRows[0].description, "A hand-painted piece", "and keeps its own separate description, unaffected");
 });
 
-check("test_PRD_P0_152_style_number_grouping__with_no_sku_column_the_rows_own_full_style_number_becomes_its_sku", async () => {
-  /* "For our full SKU number, we can go with the shorter names... the SKU
-     is basically what we gave you in the first column. That's the SKU" --
-     the owner's own words. REVISED AGAIN: only the trailing color/size
-     suffix rides in verbatim now -- the leading base is always the REAL,
-     resolved category/subcategory codes, never the sheet's own possibly
-     locally-scoped digits. "Blazer" is a brand-new subcategory in this
-     fresh fixture, so it gets "00", the first free code in the tree-wide
-     pool -- not the sheet's own "001" (a real sheet's own middle segment
-     restarts at 1 for every new top-level category, incompatible with this
-     shop's own tree-wide-unique pool). */
-  const f = await fixture({ actor: "priya@vemians.com", role: "manager" });
-  const csv =
-    "Style #,Category,Subcategory,Description,Color,Size,Cost (USD),Retail Price\n" +
-    "001-001-001-BLK-S,Jacket,Blazer,Black hand-painted blazer,Black,S,30,165\n" +
-    "001-001-001-BLK-M,Jacket,Blazer,Black hand-painted blazer,Black,M,30,165\n";
-
-  const realFetch = globalThis.fetch;
-  globalThis.fetch = f.square;
-  let result;
-  try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" });
-  } finally {
-    globalThis.fetch = realFetch;
-  }
-  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-
-  const product = f.mirror("SELECT id, style_id FROM mirror_product WHERE title = 'Black hand-painted blazer'")[0];
-  assert.equal(product.style_id, "01-00-001", "Jacket's own claimed '01' plus Blazer's real, auto-assigned '00'");
-  const skus = f
-    .mirror("SELECT sku FROM mirror_variant WHERE product_id = ?", product.id)
-    .map((v) => v.sku)
-    .sort();
-  assert.deepEqual(
-    skus,
-    ["01-00-001-BLK-M", "01-00-001-BLK-S"],
-    "the leading base is rebuilt to match the real style_id, the trailing color/size suffix kept verbatim",
-  );
-});
-
-check("test_PRD_P0_152_style_number_grouping__a_sku_column_is_ignored_entirely_the_style_number_is_always_the_real_sku", async () => {
-  /* REVISED: "it should never be looking, expecting an SKU in our
-     spreadsheets, because the SKU is something that is generated
-     automatically" -- the owner's own words, the real sample sheet (no
-     SKU column at all) taken as the benchmark going forward. A column
-     literally named "SKU" is no longer read as one at all -- it falls
-     through to custom_fields like any other unrecognized column, and the
-     row's own real, resolved style number is always the real SKU. */
-  const f = await fixture({ actor: "priya@vemians.com", role: "manager" });
-  const csv =
-    "Style #,Category,Subcategory,Description,Color,Size,SKU,Cost (USD),Retail Price\n" +
-    "001-001-001-BLK-S,Jacket,Blazer,Black hand-painted blazer,Black,S,VEM-100,30,165\n";
-
-  const realFetch = globalThis.fetch;
-  globalThis.fetch = f.square;
-  let result;
-  try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" });
-  } finally {
-    globalThis.fetch = realFetch;
-  }
-  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-
-  const product = f.mirror("SELECT id, custom_fields, style_id FROM mirror_product WHERE title = 'Black hand-painted blazer'")[0];
-  const variant = f.mirror("SELECT sku FROM mirror_variant WHERE product_id = ?", product.id)[0];
-  assert.equal(variant.sku, "01-00-001-BLK-S", "the row's own real, resolved style number is always the real SKU, regardless of an SKU column");
-  assert.equal(JSON.parse(product.custom_fields).sku, "VEM-100", "the SKU column's own value is preserved as an ordinary custom field, not lost");
-});
-
 check("test_PRD_P0_152_style_number_grouping__a_tbd_color_or_size_is_dropped_as_a_real_option_entirely", async () => {
   /* "Any time you see TBD, just use like a default or no option... it's
      just one of a kind, it's just one off. It doesn't need an option.
@@ -8044,19 +7975,20 @@ check("test_PRD_P0_146_dynamic_option_values__revised_a_row_with_no_style_id_is_
 });
 
 check("test_PRD_P0_152_style_number_grouping__the_preview_shows_the_same_sku_fallback_the_real_draft_already_uses", async () => {
-  /* "The SKU is basically what we gave you in the first column. That's
-     the SKU" — the owner's own words. With no explicit SKU column, a
-     style-numbered row's own full style number becomes its real SKU
-     (draftGroupedProduct's own variation loop) -- the preview used to
-     show this as a plain missing "sku: null" instead of mirroring that
-     same fallback. */
+  /* REVISED (Test-PRD-P0-177-fluid_style_id): SKU is now always a real,
+     opaque, system-generated code, with no relationship to the sheet's own
+     style number at all -- the preview's own sku (and style_id) columns
+     read the literal "(auto-generated)", unconditionally, matching the
+     real draft's own generateSku/resolveStyleId, never the row's own raw
+     text. */
   const { previewBatch } = await import("../src/batch.js");
   const preview = previewBatch(
     "Style #,Category,Subcategory,Description,Color,Size,Cost (USD),Retail Price\n" +
       "001-001-001-BLK-S,Jacket,Blazer,Black hand-painted blazer,Black,S,30,165\n",
     "products",
   );
-  assert.equal(preview.sampleRows[0].sku, "001-001-001-BLK-S", "the row's own full style number, same as the real draft's own SKU");
+  assert.equal(preview.sampleRows[0].sku, "(auto-generated)");
+  assert.equal(preview.sampleRows[0].style_id, "(auto-generated)");
 });
 
 check("test_PRD_P0_152_style_number_grouping__the_preview_drops_a_tbd_color_or_size_the_same_way_the_real_draft_does", async () => {
@@ -8117,17 +8049,18 @@ check("test_PRD_P0_89_batch_preview_confirm__a_style_numbered_group_previews_siz
   assert.equal(preview.rowCount, 3, "three raw CSV rows were read");
   assert.equal(preview.sampleRows.length, 1, "all three variants collapse into the one product they actually are");
   const row = preview.sampleRows[0];
-  assert.equal(row.style_id, "001-001-001", "the group's own shared, compressed style id -- not any one variant's own full number");
+  /* REVISED (Test-PRD-P0-177-fluid_style_id): sku/style_id are now always
+     the literal "(auto-generated)", unconditionally -- neither one is ever
+     a real, already-known value at preview time any more, so the old
+     "never not found" guarantee is moot: there is no per-variant sku list
+     to show at all. */
+  assert.equal(row.style_id, "(auto-generated)");
+  assert.equal(row.sku, "(auto-generated)");
   assert.equal(row.title, "Black hand-painted blazer");
   assert.equal(row.variants, 3, "the plainest possible confirmation that grouping actually happened");
   assert.equal(row.size, "S | M | L", "one entry per variant, in order");
   assert.equal(row.color, "Black | Black | Black", "repeated rather than collapsed, so it still lines up positionally with size");
   assert.equal(row.price, "165.00 | 165.00 | 180.00", "a real price difference between variants is shown, positionally, not deduplicated");
-  assert.equal(
-    row.sku,
-    "001-001-001-BLK-S | 001-001-001-BLK-M | 001-001-001-BLK-L",
-    "every variant's own real, already-known SKU -- never \"not found\", a multi-variant group never made that unknowable",
-  );
 });
 
 check("test_PRD_P0_89_batch_preview_confirm__a_lone_variant_group_still_previews_its_own_real_sku_same_as_before", async () => {
@@ -8135,7 +8068,7 @@ check("test_PRD_P0_89_batch_preview_confirm__a_lone_variant_group_still_previews
   const preview = previewBatch("Style #,Category,Description,Color,Size,Retail Price\n001-001-002-RED-M,Jacket,Red Blazer,Red,M,150.00\n", "products");
   const row = preview.sampleRows[0];
   assert.equal(row.variants, 1);
-  assert.equal(row.sku, "001-001-002-RED-M", "a group of exactly one variant still previews that row's own full style number as its real SKU");
+  assert.equal(row.sku, "(auto-generated)", "a group of exactly one variant previews the same literal fallback as any other -- never a real value");
   assert.equal(row.size, "M");
   assert.equal(row.color, "Red");
 });
@@ -8172,9 +8105,14 @@ check("test_PRD_P0_89_batch_preview_confirm__a_style_id_less_row_in_a_mixed_shee
 
   assert.equal(preview.rowCount, 3);
   assert.equal(preview.sampleRows.length, 1, "only the real, style-numbered group previews -- the style-id-less row is dropped outright");
-  const grouped = preview.sampleRows.find((r) => r.style_id === "001-001-003");
+  /* REVISED (Test-PRD-P0-177-fluid_style_id): style_id is always the
+     literal "(auto-generated)" now, so the ONE surviving group is found by
+     its own real, distinguishing field (color) instead. */
+  const grouped = preview.sampleRows.find((r) => r.color === "Blue | Blue");
+  assert.ok(grouped, "the style-numbered group must still be there");
+  assert.equal(grouped.style_id, "(auto-generated)");
   assert.equal(grouped.variants, 2);
   assert.equal(grouped.size, "S | M");
-  assert.equal(grouped.sku, "001-001-003-BLU-S | 001-001-003-BLU-M");
+  assert.equal(grouped.sku, "(auto-generated)");
   assert.equal(preview.sampleRows.find((r) => r.title === "Loose Scarf"), undefined, "the style-id-less row never appears in the preview at all");
 });
