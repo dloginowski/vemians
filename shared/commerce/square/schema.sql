@@ -81,16 +81,6 @@ CREATE TABLE mirror_category (
   name                 TEXT NOT NULL,
   parent_id            TEXT REFERENCES mirror_category(id), -- NULL = top-level
   numeric_id           TEXT,                          -- ours; "00".."99", NULL until assigned
-  -- ours; when a subcategory INHERITS its parent's own option sets rather
-  -- than naming its own (Test-PRD-P0-142-category_item_options' own REVISED
-  -- entry: "all subcategories inherit the sets unless I specify different
-  -- selections"). NULL means "never explicitly set here, keep inheriting";
-  -- set the moment catalog.set_category_item_options is ever called for
-  -- this category, EVEN to an empty list — an empty EXPLICIT set (opting
-  -- out of everything the parent offers) is not the same fact as "never
-  -- touched, still inheriting," and mirror_category_item_option's own rows
-  -- alone cannot tell the two apart (both look like zero active rows).
-  item_options_set_at  TEXT,
   archived_at          TEXT,                          -- rolled off the working set, never deleted
   synced_at            TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -108,7 +98,7 @@ CREATE UNIQUE INDEX idx_mirror_category_sub_numeric_id
   WHERE parent_id IS NOT NULL AND numeric_id IS NOT NULL AND archived_at IS NULL;
 
 CREATE VIEW mirror_category_index AS
-SELECT id, external_ref, name, parent_id, numeric_id, item_options_set_at, synced_at
+SELECT id, external_ref, name, parent_id, numeric_id, synced_at
 FROM mirror_category WHERE archived_at IS NULL;
 
 -- ── item options  ("Option Sets" in the dashboard, "variant sets" in the ──
@@ -156,29 +146,17 @@ CREATE VIEW mirror_item_option_value_index AS
 SELECT id, external_ref, item_option_id, name, ordinal, synced_at
 FROM mirror_item_option_value WHERE archived_at IS NULL;
 
--- Which option sets a category offers, so a product filed under it will one
--- day know which variation dropdowns to show ("I don't want to be adding
--- the same option sets to every single category, because certain categories
--- might not have the same option sets" — the owner's own words). Purely
--- OURS, like mirror_custom_field_name above: Square has no category-level
--- default/inheritance mechanism for item options at all, so this link exists
--- nowhere but here. Unassigning is an UPDATE setting archived_at, never a
--- literal DELETE — this codebase's own tool layer refuses to contain that
--- statement AT ALL (Test-PRD-P0-25-write_approval_gate), not only against
--- Square-sourced tables, so a plain many-to-many join still follows the
--- same archive-only shape every mirror_* table uses, even though nothing
--- here is a mirror of anything Square holds.
-CREATE TABLE mirror_category_item_option (
-  category_id     TEXT NOT NULL REFERENCES mirror_category(id),
-  item_option_id  TEXT NOT NULL REFERENCES mirror_item_option(id),
-  archived_at     TEXT,
-  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-  PRIMARY KEY (category_id, item_option_id)
-);
-
-CREATE VIEW mirror_category_item_option_index AS
-SELECT category_id, item_option_id, created_at
-FROM mirror_category_item_option WHERE archived_at IS NULL;
+-- REMOVED (Test-PRD-P0-178-remove_category_item_options): category-level
+-- Option Set ASSIGNMENT (mirror_category_item_option, the "Sets"/"Inherit"
+-- admin dropdowns and their bulk "apply to items" tool) used to live here.
+-- The owner's own words, once CSV/agent ingestion had proven it already
+-- auto-creates whichever Size/Color an item actually needs, on the fly:
+-- "I don't think we need to have this idea of option sets with dropdowns in
+-- our admin panel... this whole thing is completely unnecessary." Removed
+-- by ops/migrations/catalog_mirror/0012_remove_category_item_options.sql.
+-- mirror_item_option/mirror_item_option_value above (the shop-wide Option
+-- Set catalog) and mirror_product_item_option below (a real Square fact)
+-- are both untouched — see that migration's own comment for exactly why.
 
 -- ── vendors  (Square's own Vendor object, Vendors API — NOT the Catalog API) ─
 --
@@ -359,10 +337,15 @@ FROM mirror_product WHERE archived_at IS NULL;
 -- mirrored the same way variations/media are: replaced wholesale on every
 -- full sync of this product, never invented by us. Separate from
 -- mirror_variant.options (a VARIATION's own resolved name->value display
--- blob) and from mirror_category_item_option (which option sets a
--- CATEGORY offers, ours alone, with its own inherit-vs-explicit rule) —
--- this table is what "which option sets does this ITEM currently support"
--- actually means on Square's side, one row per item/option-set pair.
+-- blob) — this table is what "which option sets does this ITEM currently
+-- support" actually means on Square's side, one row per item/option-set
+-- pair. NOT retired alongside category-level assignment
+-- (Test-PRD-P0-178-remove_category_item_options): catalog.update_product's
+-- own "resend the whole thing or it vanishes" fallback for item_options
+-- reads this table unconditionally, for ANY product with real
+-- item_option_values on its variations — dropping it would silently wipe
+-- an ordinary CSV-created product's own Option Set declaration the next
+-- time someone edited its title or price.
 CREATE TABLE mirror_product_item_option (
   product_id      TEXT NOT NULL REFERENCES mirror_product(id),
   item_option_id  TEXT NOT NULL REFERENCES mirror_item_option(id),
