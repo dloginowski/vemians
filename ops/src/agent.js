@@ -401,8 +401,10 @@ const PREVIEW_TOOL_DEFS = [
       NO_TEXT_TABLE_NOTE,
     /* A row that resolves cleanly still creates immediately, unaffected;
        a row with a real CLASH (a category name already numbered
-       differently, a SKU already used elsewhere, an unparseable price)
-       parks an ordinary, editable approval link instead of skipping —
+       differently, an unparseable price) parks an ordinary, editable
+       approval link instead of skipping — SKU is never a clash any more
+       (Test-PRD-P0-177-fluid_style_id): it is always a fresh, permanent,
+       system-generated code, never given by a row, so nothing to collide —
        "the only time you want to do an approval link is if there's a
        clash and it has to be resolved by a person" — the owner's own
        words. This preview cannot catch a clash ahead of time (most only
@@ -434,7 +436,7 @@ const BATCH_TOOL_DEFS = [
       "— any reasonable spelling) the same way /products/batch does, and CREATES every row that resolves " +
       "cleanly RIGHT NOW — no approval link, no second click, the person's own chat confirmation IS the " +
       "deliberate action. A row with a genuine CLASH instead (a category name already numbered differently, " +
-      "a SKU already used by a different product, a price that will not parse) mints its OWN separate, " +
+      "a price that will not parse) mints its OWN separate, " +
       "EDITABLE T2 approval link for a person to open, fix, and approve — never silently guessed at, never " +
       "a bare skip either, since \"the only time you want to do an approval link is if there's a clash and " +
       "it has to be resolved by a person\" is the owner's own rule. Every other genuinely bad row (nothing " +

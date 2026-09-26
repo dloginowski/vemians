@@ -2753,7 +2753,7 @@ ${INPUT_BAR_CSS}
    REVISED: "tighten all of the paddings on all of the chevrons and the
    indentation" — this and the header's own horizontal padding came down
    together, still matched to each other for the same reason. */
-.variations-body .row { display: flex; gap: 6px; align-items: center; padding: 3px 4px 3px 0; }
+.variations-body .row, .variant-group-body .row { display: flex; gap: 6px; align-items: center; padding: 3px 4px 3px 0; }
 /* The one thing left in a variation row besides its stock stepper — a
    plain, read-only name, styled like the muted labels in .item-variants/
    .item-fields rather than an input, since there is nothing left here to
@@ -2900,15 +2900,15 @@ ${INPUT_BAR_CSS}
 
    REVISED: "grid layout, use horizontal space more efficiently... a
    row of sizes... accordion style, only one open at a time... I don't
-   want to see variations dropdown that's nested." Three changes from
-   the first version, all the owner's own words: (1) .variant-groups
+   want to see variations dropdown that's nested." Changes from the
+   first version, all the owner's own words: (1) .variant-groups
    (itemTile's own wrapper) replaces the outer "Variations" accordion
    entirely for this shape — a color header is the FIRST and only
    level now, so its own background/border reads as a normal top-level
-   row, not nested a level deeper inside a bordered outer box; (2)
-   .variant-size-grid tiles its own cells left-to-right and wraps,
-   several sizes sharing one screen row instead of each stacking on its
-   own full-width line; (3) toggleVariantGroupExclusive (the script,
+   row, not nested a level deeper inside a bordered outer box; (2) sizes
+   tiled left-to-right in a wrapping grid instead of one full-width row
+   each (REVISED YET AGAIN below: back to one full-width row per size,
+   now with sku on it); (3) toggleVariantGroupExclusive (the script,
    below) closes every other group before opening one, so at most one
    color's own sizes ever show at once.
 
@@ -2935,16 +2935,22 @@ ${INPUT_BAR_CSS}
 .variant-group-label { flex: 0 0 auto; font-size: 11px; color: var(--muted); }
 .variant-group-body { display: none; margin-top: 4px; }
 .variant-group.expanded .variant-group-body { display: block; }
-/* A GRID, not a vertical list: every size for the open color shares
-   screen rows with its siblings, wrapping only once the tile's own
-   width runs out, so a five-size color reads as one or two compact
-   rows instead of five tall ones. */
-.variant-size-grid { display: flex; flex-wrap: wrap; gap: 6px; }
-.variant-size-cell {
-  display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 56px;
-  padding: 4px 6px; border-radius: 6px; background: var(--ground);
-}
-.variant-size-cell .variation-title-label { flex: 0 0 auto; white-space: nowrap; }
+/* REVISED YET AGAIN: "I want to have the SKU number on the left, and then
+   the add and remove quantity for each size to be on the far right...
+   a single row per size" — the owner's own words, going back from the
+   wrapping grid above to one full-width row per size, same shape
+   .variations-body's own flat .row already uses (the shared
+   .variations-body .row, .variant-group-body .row rule above), so the
+   stepper reads identically in both places. .variation-title-label's
+   own flex: 1 1 auto (its shared rule, above) is what pushes the stepper
+   to the far right — nothing extra needed here for that. */
+.variant-size-rows { display: flex; flex-direction: column; }
+/* A permanent, opaque, system-generated code (Test-PRD-P0-177-
+   fluid_style_id) — never derived from size/color, so it earns its own
+   label rather than reusing .variation-title-label's, which still shows
+   the size name right beside it. flex: 0 0 auto: never grows or shrinks,
+   same as any other fixed left-hand label in this file. */
+.variation-sku-label { flex: 0 0 auto; font-size: 10px; color: var(--muted); font-family: monospace; }
 .variation-stock-step:hover { background: var(--image-ground); }
 .variation-stock-step:disabled { opacity: 0.5; cursor: default; }
 /* "An upload button on the right side" — the owner's own words. margin-left:
@@ -2972,7 +2978,7 @@ ${INPUT_BAR_CSS}
    instead of the same border-color change every text/select field gets. */
 .item-tile input.field-dirty, .item-tile select.field-dirty, .item-tile textarea.field-dirty { border-color: var(--accent); }
 .item-tile input.field-dirty[type="checkbox"] { outline: 1.5px solid var(--accent); outline-offset: 1px; }
-/* A check() refusal (a malformed style_id, a vendor with no commission, a
+/* A check() refusal (a vendor with no commission on file, a
    unit cost with no vendor) shows up right here, next to the form that was
    refused — not on a separate page. The owner's own words: "I don't want
    these errors to send me to a new page." REVISED: a Square rejection can
@@ -3336,10 +3342,10 @@ function renderVendorPickerOptions(vendors, selectedName) {
 }
 
 /* A small read-only field and two +/- buttons — one stock stepper, shared
-   between the flat variation list's own `.row` and each populated
-   `.variant-size-cell` of the Variants grid below. stepStock() walks up
-   to whichever of the two wraps it (button.closest(".row, .variant-size-cell"))
-   to find its own count field and sibling buttons, so a stepper works
+   between the flat variation list's own `.row` and each populated size
+   row of the grouped Variants view below (also a `.row`, same shape).
+   stepStock() walks up to that shared `.row` (button.closest(".row")) to
+   find its own count field and sibling buttons, so a stepper works
    identically wherever it is placed. */
 function stockStepper(v) {
   return (
@@ -3407,14 +3413,22 @@ function variantsGridAxes(variations, itemOptions) {
    REVISED AGAIN: "grid layout, use horizontal space more efficiently,
    not a vertical expander... a row of sizes... I don't want to see
    variations dropdown that's nested" — the owner's own words. Two
-   changes from the first version: (1) colsName's own values now tile
-   left-to-right in a wrapping grid (.variant-size-grid, below) instead
-   of one full-width row per value, several sizes sharing a screen row
-   instead of stacking the tile tall; (2) this no longer nests inside
-   the outer "Variations" accordion at all — itemTile's own caller wraps
-   this directly in .variant-groups with no further header/toggle of its
-   own, so a color header is the FIRST and only level, never a second
-   dropdown inside a first one. */
+   changes from the first version: (1) colsName's own values tiled
+   left-to-right in a wrapping grid instead of one full-width row per
+   value; (2) this no longer nests inside the outer "Variations"
+   accordion at all — itemTile's own caller wraps this directly in
+   .variant-groups with no further header/toggle of its own, so a color
+   header is the FIRST and only level, never a second dropdown nested
+   inside a first one.
+
+   REVISED YET AGAIN: "I want to have the SKU number on the left, and
+   then the add and remove quantity for each size to be on the far
+   right... a single row per size" — the owner's own words, going back
+   from the wrapping grid to one full-width row per size (.variant-size-
+   rows, below) now that sku is a real, permanent, worth-seeing value
+   (Test-PRD-P0-177-fluid_style_id) rather than a Square-assigned string
+   nobody looked at — the same reason the flat single-dimension list
+   never needed a grid at all. */
 function variantsGroupedAccordionHtml(variations, axes) {
   const { rowsName, colsName, rowValues, colValues } = axes;
   const byKey = new Map(
@@ -3431,11 +3445,13 @@ function variantsGroupedAccordionHtml(variations, axes) {
          variantLabelById resolves that variant's row-axis VALUE ("Red"),
          not its full title ("Red / M"), back out of it for display. */
       let anchorVariant = null;
-      const cells = colValues
+      const rows = colValues
         .map((c) => {
           const v = byKey.get(`${r}\u0000${c}`);
           if (v && !anchorVariant) anchorVariant = v;
-          return v ? `<div class="variant-size-cell"><span class="variation-title-label">${esc(c)}</span>${stockStepper(v)}</div>` : "";
+          return v
+            ? `<div class="row"><span class="variation-sku-label">${esc(v.sku ?? "")}</span><span class="variation-title-label">${esc(c)}</span>${stockStepper(v)}</div>`
+            : "";
         })
         .join("");
       const photoUpload = anchorVariant
@@ -3447,7 +3463,7 @@ function variantsGroupedAccordionHtml(variations, axes) {
           <span class="variant-group-label">${esc(r)}</span>
           ${photoUpload}
         </div>
-        <div class="variant-group-body">${cells ? `<div class="variant-size-grid">${cells}</div>` : `<p class="item-empty">No ${esc(colsName)} yet.</p>`}</div>
+        <div class="variant-group-body">${rows ? `<div class="variant-size-rows">${rows}</div>` : `<p class="item-empty">No ${esc(colsName)} yet.</p>`}</div>
       </div>`;
     })
     .join("");
@@ -4575,7 +4591,7 @@ document.getElementById("items-grid").addEventListener("submit", async (e) => {
   await saveTile(tile);
 });
 
-/* A check() refusal (a malformed style_id, a vendor with no commission, a
+/* A check() refusal (a vendor with no commission on file, a
    unit cost with no vendor, a vendor with no commission when it is being
    created) is a rule the SERVER has to check — nothing a client-side
    <input pattern> alone can know. The owner's own words: "I don't want
@@ -4693,7 +4709,7 @@ async function saveTile(tile) {
    rapid repeat clicks, and reloading the whole page after every one of
    them would make receiving ten units one at a time unusable. */
 async function stepStock(button) {
-  const row = button.closest(".row, .variant-size-cell");
+  const row = button.closest(".row");
   const existingError = row.nextElementSibling;
   if (existingError?.classList.contains("item-edit-error")) existingError.remove();
   const countField = row.querySelector(".variation-stock-count");

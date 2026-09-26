@@ -47,7 +47,6 @@ export function editableFieldsFor(tool, args, categories = []) {
         kind: "text",
         value: typeof variation.price_minor === "number" ? (variation.price_minor / 100).toFixed(2) : "",
       },
-      { name: "sku", label: "SKU", kind: "text", value: variation.sku ?? "" },
     ];
   }
   if (tool === CUSTOMER_CREATE) {
@@ -81,9 +80,12 @@ export function applyFormEdits(tool, args, form) {
     const title = trim(form.get("title")) || a.title;
     const description = trim(form.get("description"));
     const categoryId = trim(form.get("category_id")) || a.category_id;
-    const sku = trim(form.get("sku"));
     const priceRaw = form.get("price");
-    const existingVariation = a.variations?.[0] ?? {};
+    /* sku dropped, not carried over: no caller ever supplies one any more
+       (Test-PRD-P0-177-fluid_style_id) — a stray sku on an already-parked
+       proposal (drafted before this rule existed) must not resurrect
+       itself here, since the schema no longer even has the field. */
+    const { sku: _droppedSku, ...existingVariation } = a.variations?.[0] ?? {};
 
     let priceMinor = existingVariation.price_minor;
     if (priceRaw !== null && trim(priceRaw) !== "") {
@@ -101,7 +103,7 @@ export function applyFormEdits(tool, args, form) {
         title,
         ...(description ? { description } : {}),
         category_id: categoryId,
-        variations: [{ ...existingVariation, title, price_minor: priceMinor, ...(sku ? { sku } : {}) }],
+        variations: [{ ...existingVariation, title, price_minor: priceMinor }],
       },
     };
   }

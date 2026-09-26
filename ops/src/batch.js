@@ -219,41 +219,39 @@ const SUBCATEGORY_KEYS = ["subcategory", "subcategory name", "sub category", "su
    misinterpreted. */
 const PRICE_KEYS = ["price", "price (usd)", "retail price", "unit price", "sale price", "msrp"];
 const CURRENCY_KEYS = ["currency"];
-/* REVISED: "it should never be looking, expecting an SKU in our
-   spreadsheets, because the SKU is something that is generated
-   automatically" — the owner's own words, confirmed against the owner's
-   own real sample sheet (Style #/Category/Subcategory/Description/Color/
-   Size/Qty/Cost/Retail Price — no SKU column of any kind) taken as the
-   benchmark for what an upload actually looks like going forward. There is
-   no SKU_KEYS any more, and no column is ever read as one: a style-numbered
-   row's own full style number (styleIdRaw) becomes its real SKU verbatim,
-   the same as it already did when no explicit column existed; a row with
-   no style number at all sends no `sku` argument, and catalog-writer.js's
-   own generateSku() mints one — "SKU should be auto generated when adding
-   variants or options — Square does that," the owner's own words, on
-   discovering Square only does this for a Dashboard/POS-created item,
-   never one this codebase creates through the Catalog API. A column
-   literally named "SKU" (or "item number", "product code") is no longer
-   claimed at all — it falls through to custom_fields like any other
-   unrecognized column, "preserve all fields" applying here too. */
-/* style_id, vendor and commission are Square's own Custom Attributes now
+/* REVISED, and REVISED AGAIN (Test-PRD-P0-177-fluid_style_id): "it should
+   never be looking, expecting an SKU in our spreadsheets, because the SKU
+   is something that is generated automatically" — the owner's own words —
+   turned out to still be only half-applied: a style-numbered row's own
+   full style number USED to become its real SKU verbatim. No longer. SKU
+   is now a permanent, opaque, system-generated code with NO relationship
+   to the sheet's own style number, or to style_id, or to category, ever —
+   "just a hash... completely separately from the style ID," the owner's
+   own words. Every row, style-numbered or not, sends no `sku` argument at
+   all; catalog-writer.js's own generateSku() mints one, every time — "SKU
+   should be auto generated when adding variants or options — Square does
+   that," the owner's own words, on discovering Square only does this for a
+   Dashboard/POS-created item, never one this codebase creates through the
+   Catalog API. A column literally named "SKU" (or "item number", "product
+   code") is not claimed at all — it falls through to custom_fields like
+   any other unrecognized column, "preserve all fields" applying here too. */
+/* vendor and commission are Square's own Custom Attribute/Vendor entity
    (Test-PRD-P0-136-square_custom_attributes), not a custom_fields example —
    recognized here so a sheet carrying them reaches catalog.create_product as
-   real arguments rather than inert text. style_id itself is no longer
-   required at all, REVISED: "category and subcategory is style id and vice
-   versa" — the owner's own words. A row giving one keeps it verbatim,
-   subject to catalog.create_product's own format/conflict checks (a
-   conflict auto-bumps now, never a refusal); a row giving NONE at all
-   still resolves a category from it when it CAN (a style ID whose digits
-   match a real category/subcategory, the same lookup an edit already
-   uses), and either way create_product's own resolveStyleId builds a
-   style_id automatically from whatever category the row lands on, when
-   that category has a numeric_id of its own — see this file's own
-   draftProductBatch for the actual resolution order. Separately, a vendor
-   NAME with no commission on file yet (mirror_vendor.commission_pct —
-   brand new to this shop, or a vendor Square already knew about that was
-   never given a rate) needs one given in the same row. REVISED: "let's not
-   force vendor's commission to be
+   real arguments rather than inert text. style_id is NOT one of these any
+   more, REVISED (Test-PRD-P0-177-fluid_style_id): "changing a category of
+   an item... actually changes its style ID" — the owner's own words —
+   means style_id is never given by hand, from a sheet or anywhere else. A
+   row's own style number (STYLE_ID_KEYS, below) still resolves WHICH
+   category/subcategory the row belongs to (by matching numeric_id, or by a
+   separate Category/Subcategory name column) — draftGroupedProduct's own
+   comment has the full resolution order — but the literal digits are never
+   sent as `style_id`; catalog.create_product's own resolveStyleId mints the
+   real one automatically from whatever category_id the row actually lands
+   on. Separately, a vendor NAME with no commission on file yet
+   (mirror_vendor.commission_pct — brand new to this shop, or a vendor
+   Square already knew about that was never given a rate) needs one given
+   in the same row. REVISED: "let's not force vendor's commission to be
    stated out loud [on every row]... we store it in essential locations
    per vendor so their commission is recorded in a central location and
    automatically applied" — a vendor with a rate already on file needs
@@ -699,9 +697,10 @@ const STYLE_NUMBER_BASE = /^\d+-\d+-\d+$/;
  *      database... they do not provide the source of truth. We have the
  *      source of truth, and we must map the incoming spreadsheets to match
  *      ours" — the owner's own words. The existing, real number wins
- *      outright; `draftGroupedProduct`'s own variation loop rebuilds this
- *      row's own style_id/sku from it, never keeping the row's own (wrong)
- *      claimed code verbatim.
+ *      outright; `draftGroupedProduct` resolves this row's own category_id
+ *      from it, never the row's own (wrong) claimed code verbatim --
+ *      style_id itself is computed FROM that category, one layer up, in
+ *      catalog.create_product.
  *   3. Neither matches anything, not even a near-duplicate spelling — a
  *      brand-new category, named from `name` and given `code`, normalized
  *      to this shop's own two-digit convention, as its numeric_id — "if
@@ -748,9 +747,10 @@ async function resolveCategoryByCode(env, { actor, role, categories, reserved, c
        in our database... they do not provide the source of truth. We have
        the source of truth, and we must map the incoming spreadsheets to
        match ours" -- the owner's own words. The existing, real number wins
-       outright; draftGroupedProduct's own variation loop rebuilds this
-       row's own style_id/sku from it, rather than keeping the row's own
-       (wrong) claimed code verbatim. */
+       outright; draftGroupedProduct resolves this row's own category_id
+       from it, rather than keeping the row's own (wrong) claimed code
+       verbatim -- style_id itself is computed FROM that category, one
+       layer up, in catalog.create_product. */
     if (matched.numeric_id != null && matched.numeric_id !== "") {
       return { category: matched };
     }
@@ -1067,7 +1067,7 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
   const { actor, role, categories, reservedNumericIds, reservedSubcategoryNumericIds, categoryCache, nextAutoTitle, rate } = ctx;
   const first = groupRows[0].record;
   const firstRow = groupRows[0].rowNumber;
-  const [catCode, subCode, indexCode] = base.split("-");
+  const [catCode, subCode] = base.split("-");
   const categoryNameCol = pick(first, CATEGORY_KEYS);
   const subcategoryNameCol = pick(first, SUBCATEGORY_KEYS);
   /* Something this file could safely default is noted here, in plain
@@ -1116,18 +1116,16 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
      than the sheet's own locally-scoped one. A CREATE failure (a real
      Square refusal, a rate cap) IS a clash -- parked, same as the
      top-level category's own.
-     WITH NO name column (a bare style_id, from before that column
+     WITH NO name column (a bare style number, from before that column
      existed) — resolves by NUMBER instead, tree-wide, MATCH ONLY, never
-     creating: the exact deriveCategoryIdForStyleId lookup this shop's
-     style_id nomenclature has always used for a style_id with nothing
-     else to go on. This never risks the same cross-category collision a
-     name-less CREATE would, since nothing here ever assigns a new
-     number from a per-parent-scoped digit; a number that matches nothing
-     yet simply leaves this row at the top-level category, its own raw
-     digit still riding into the constructed style_id verbatim (padded)
-     — not a clash either, nothing here disagreed with anything. */
+     creating: a subcategory whose own numeric_id equals the sheet's own
+     middle segment, with nothing else to go on. This never risks the
+     same cross-category collision a name-less CREATE would, since
+     nothing here ever assigns a new number from a per-parent-scoped
+     digit; a number that matches nothing yet simply leaves this row at
+     the top-level category — not a clash either, nothing here disagreed
+     with anything. */
   let category = topCategory;
-  let subCodeNormalized = topCategory ? String(Number(subCode)).padStart(2, "0") : null;
   if (topCategory && subcategoryNameCol) {
     let subcategory = matchCategory(subcategoryNameCol, categories.filter((c) => c.parent_id === topCategory.id));
     if (!subcategory) {
@@ -1144,7 +1142,6 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
     }
     if (subcategory) {
       category = subcategory;
-      subCodeNormalized = subcategory.numeric_id;
     }
   } else if (topCategory) {
     const subNumeric = Number(subCode);
@@ -1153,7 +1150,6 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
     );
     if (match) {
       category = match;
-      subCodeNormalized = match.numeric_id;
     }
   } else if (subcategoryNameCol) {
     /* Nowhere to nest -- but nothing DISAGREES either, there is simply no
@@ -1161,24 +1157,16 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
     notes.push(`subcategory "${subcategoryNameCol}" was given without a resolvable category to nest it under`);
   }
 
-  /* This shop's own style_id, built from the category/subcategory actually
-     resolved above (always real, always two digits by now — never the
-     sheet's own wider padding) plus the group's own item index, padded to
-     this shop's own three digits the same way. Computed here, BEFORE the
-     variations loop below, because each row's own SKU must be rebuilt from
-     this SAME corrected value, not the sheet's own possibly-stale one --
-     "we have the source of truth, and we must map the incoming spreadsheets
-     to match ours," the owner's own words, apply just as much to a row's
-     SKU as to its style_id: a category/subcategory that got silently
-     conformed to an existing, differently-numbered match above must not
-     leave its old, wrong numbers riding into the SKU verbatim. A conflict
-     with an already-used style_id is still resolveStyleId's own job
-     (catalog.create_product) — bumped to the next free index, never
-     refused, exactly as it already works everywhere else. With no real
-     category at all to build it from, style_id is left out entirely — the
-     product lands unassigned, its own intended style number preserved
-     verbatim above in `notes` instead. */
-  const styleId = topCategory ? `${topCategory.numeric_id}-${subCodeNormalized}-${String(Number(indexCode)).padStart(3, "0")}` : undefined;
+  /* The sheet's own style number is only ever a LOCAL grouping key now
+     (splitProductRecords' own `base`, above) — never sent to Square as a
+     literal value. style_id is a live reflection of a product's own
+     category (Test-PRD-P0-177-fluid_style_id): `category_id` alone,
+     already resolved above, is everything catalog.create_product's own
+     resolveStyleId needs to mint the real one, sequence number and all —
+     the sheet's own trailing index digit (`indexCode`, unused from here
+     on) never picks that sequence number itself, "the index is just
+     something that it generates on the fly using the next available
+     slot" (resolveNamedCategory's own identical comment, above). */
 
   /* "You are getting the title of the items, the title, right? Not the
      descriptions. The descriptions will generate automatically later" —
@@ -1247,7 +1235,7 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
      defaults to 1 (noted), the same tolerance a blank quantity cell
      already gets. */
   const variations = [];
-  for (const { record, rowNumber, color, size, styleIdRaw } of groupRows) {
+  for (const { record, rowNumber, color, size } of groupRows) {
     const priceRaw = pick(record, PRICE_KEYS);
     const priceMinor = parsePriceToMinor(priceRaw);
     if (priceMinor === null) {
@@ -1281,35 +1269,19 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
       ),
     );
     const variationTitle = [optValues.Color, optValues.Size].filter(Boolean).join(", ") || title;
-    /* "For our full SKU number, we can go with the shorter names... the
-       SKU is basically what we gave you in the first column. That's the
-       SKU" — the owner's own words. "It should never be looking, expecting
-       an SKU in our spreadsheets, because the SKU is something that is
-       generated automatically" — REVISED: no column is ever read as an
-       explicit SKU any more (there is no SKU_KEYS); the row's own full
-       style number — abbreviations and all, verbatim — always becomes
-       this variation's own real, already-unique SKU. REVISED AGAIN: only
-       the row's own trailing color/size suffix rides in verbatim now --
-       the LEADING base (category-subcategory-index) is always rebuilt from
-       `styleId`, the same corrected value the product's own style_id above
-       was built from, so a row whose category/subcategory got silently
-       conformed to an existing, differently-numbered match does not leave
-       its SKU quietly disagreeing with its own style_id. With no real
-       category resolved at all, `styleId` is undefined and the row's own
-       raw text rides in completely unchanged, exactly as before. "The only
-       hard rule here is that we must have a unique SKU number or ID for
-       each item... if that's true, then add the product" — catalog.
-       create_product's own check() still refuses a SKU it finds already
-       in use by any OTHER product in the shop; that refusal is a clash
-       only the tool itself can discover, so it is caught and parked one
-       level up, in createRows, once it actually tries the write. */
-    const sku = styleId ? `${styleId}${styleIdRaw.slice(base.length)}` : styleIdRaw;
+    /* "It should never be looking, expecting an SKU in our spreadsheets,
+       because the SKU is something that is generated automatically" — the
+       owner's own words, and REVISED FURTHER since (Test-PRD-P0-177-
+       fluid_style_id): SKU is now a permanent, opaque, system-generated
+       code with NO relationship to the sheet's own style number at all —
+       not even the row's own trailing color/size suffix. No `sku` is ever
+       sent; catalog.create_product's own generateSku mints one, the same
+       as it does for every other product this shop creates. */
     variations.push({
       title: variationTitle,
       ...(priceMinor !== null ? { price_minor: priceMinor } : {}),
       currency,
       quantity,
-      ...(sku ? { sku } : {}),
       ...(Object.keys(optValues).length ? { option_values: optValues } : {}),
     });
   }
@@ -1327,7 +1299,6 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
     title,
     ...(description ? { description } : {}),
     ...(category ? { category_id: category.id } : {}),
-    ...(styleId ? { style_id: styleId } : {}),
     ...(vendor ? { vendor } : {}),
     ...(vendorCode && vendor ? { vendor_code: vendorCode } : {}),
     ...(unitCostMinor !== undefined ? { unit_cost_minor: unitCostMinor } : {}),
@@ -1771,13 +1742,13 @@ function positionalField(values) {
 }
 
 /* One collapsed row per PRODUCT — a style-numbered group of several
-   size/color variations, or a lone standalone row, previewed the identical
-   way (`base` empty, one entry in `groupRows`). Extra columns are spread in
+   size/color variations, or a lone name-matched row, previewed the
+   identical way (one entry in `groupRows`). Extra columns are spread in
    AFTER the known ones, from the group's own FIRST row only (product-level
    facts, draftGroupedProduct's own comment on vendor/commission/unit cost
    applies here too) — "preserve all fields" means visible before
    confirming, not just kept silently in the background. */
-function mapProductGroup(base, groupRows) {
+function mapProductGroup(groupRows) {
   const first = groupRows[0].record;
   const categoryName = pick(first, CATEGORY_KEYS);
   /* "Any time you see TBD, just use like a default or no option... it
@@ -1815,20 +1786,19 @@ function mapProductGroup(base, groupRows) {
   /* "It should never be looking, expecting an SKU in our spreadsheets,
      because the SKU is something that is generated automatically" — the
      owner's own words; no column is ever read as an explicit SKU (there is
-     no SKU_KEYS). EVERY style-numbered row's own full style number is
-     already its real SKU verbatim (draftGroupedProduct's own variation
-     loop) — known at preview time, one per variant, whether the group has
-     one row or several. `mapProductGroup` is reached by a real
-     style-numbered group (`base` a real "NN-NN-NNN") OR by a single
-     name-matched row with no style number at all (`base === ""`,
-     `previewBatch`'s own call for a `namedRecords` match) — that second
-     case has no real style_id yet at preview time either (the same reason
-     a truly standalone row once needed this, before this shop's own
-     matching category/subcategory made it a real, identifiable product
-     instead of a dropped one) — an EXPECTED, named outcome, not a missing
-     value, so it reads "(auto-generated)" rather than the generic,
-     alarming "(not found)" a value nobody supplied would read as. */
-  const sku = base ? groupRows.map(({ styleIdRaw }) => styleIdRaw).join(" | ") : "(auto-generated)";
+     no SKU_KEYS), and REVISED FURTHER since (Test-PRD-P0-177-
+     fluid_style_id): SKU is now a permanent, opaque, system-generated code
+     with NO relationship to the sheet's own style number at all, so it is
+     ALWAYS "(auto-generated)" here, whether or not the row carries a style
+     number. style_id is the same story, one layer removed: it is a live
+     reflection of whatever category the row resolves to, minted by
+     catalog.create_product itself, never the sheet's own literal text — so
+     it, too, always reads "(auto-generated)". The sheet's own style number
+     (`base`) still matters for GROUPING rows into one product and for
+     resolving which category/subcategory a row belongs to
+     (draftGroupedProduct) — it is simply never shown as if it WERE the
+     resulting sku/style_id, since neither one is a promise this preview
+     can actually keep. */
   return {
     title,
     category: categoryName || null,
@@ -1836,8 +1806,8 @@ function mapProductGroup(base, groupRows) {
     price: positionalField(groupRows.map(({ record }) => pick(record, PRICE_KEYS) || null)),
     currency: (pick(first, CURRENCY_KEYS) || "USD").toUpperCase(),
     description: titleCol ? descriptionCol || null : null,
-    sku,
-    style_id: base || "(auto-generated)",
+    sku: "(auto-generated)",
+    style_id: "(auto-generated)",
     variants: groupRows.length,
     vendor: pick(first, VENDOR_KEYS) || null,
     vendor_code: pick(first, VENDOR_CODE_KEYS) || null,
@@ -1886,9 +1856,9 @@ export function previewBatch(text, kind) {
        group), leaving what the real create/conform will resolve to for the
        real draft to actually do. */
     const namedRows = namedRecords.map(({ record, rowNumber }) =>
-      mapProductGroup("", [{ record, rowNumber, color: undefined, size: undefined, styleIdRaw: undefined }]),
+      mapProductGroup([{ record, rowNumber, color: undefined, size: undefined }]),
     );
-    mapped = [...groupOrder.map((base) => mapProductGroup(base, groups.get(base))), ...namedRows];
+    mapped = [...groupOrder.map((base) => mapProductGroup(groups.get(base))), ...namedRows];
   }
 
   /* mapProductGroup's extra (custom) fields are per-group: a sheet's own

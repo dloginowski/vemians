@@ -196,38 +196,16 @@ export async function listCustomFieldNames(db) {
   return (res.results ?? []).map((r) => r.name);
 }
 
-/* NN-NN-NNN -> the category this style_id sorts to, or null if neither
-   segment matches anything yet. The second (subcategory) segment is
-   authoritative when it matches — subcategory numeric_ids are globally
-   unique across the WHOLE tree regardless of depth (the owner's own
-   words: "it doesn't matter how deep the levels are... once an ID is used
-   by any subcategory, it stops being available"), so the deepest matching
-   node is exactly the right one to file the product under; the first
-   (top-level category) segment is only a fallback for a style_id whose
-   subcategory segment does not (yet) match anything real. */
-export async function deriveCategoryIdForStyleId(db, styleId) {
-  const m = /^(\d{2})-(\d{2})-\d{3}$/.exec(styleId ?? "");
-  if (!m) return null;
-  const [, catCode, subCode] = m;
-  const subcategory = await db
-    .prepare("SELECT id FROM mirror_category_index WHERE parent_id IS NOT NULL AND numeric_id = ?")
-    .bind(subCode)
-    .first();
-  if (subcategory) return subcategory.id;
-  const category = await db
-    .prepare("SELECT id FROM mirror_category_index WHERE parent_id IS NULL AND numeric_id = ?")
-    .bind(catCode)
-    .first();
-  return category?.id ?? null;
-}
-
-/* The reverse of deriveCategoryIdForStyleId, above: a SUBCATEGORY's own
-   NN-NN pair — its own numeric_id as the second half, its PARENT's as the
-   first — or null when either half has no numeric_id yet, since there is
-   nothing real to build a style_id out of. Only ever a subcategory: this
-   shop's own NN-NN-NNN nomenclature needs both halves, and a bare
-   top-level category has no second number of its own to give — a product
-   filed directly there still needs a style_id given by hand. */
+/* A product's own style_id, computed FROM its category, never the other
+   way — "changing its category or subcategory is the same thing as
+   changing the style ID number," the owner's own words. This is the one
+   place that reads a category's own NN-NN pair: its own numeric_id as
+   the second half, its PARENT's as the first — or null when either half
+   has no numeric_id yet, since there is nothing real to build a style_id
+   out of. Only ever a subcategory: this shop's own NN-NN-NNN nomenclature
+   needs both halves, and a bare top-level category has no second number
+   of its own to give — a product filed directly there simply has no
+   style_id yet, same as one with no category at all. */
 export async function styleIdCodesFor(db, categoryId) {
   const cat = await db.prepare("SELECT parent_id, numeric_id FROM mirror_category_index WHERE id = ?").bind(categoryId).first();
   if (!cat?.parent_id || !cat.numeric_id) return null;
@@ -238,11 +216,12 @@ export async function styleIdCodesFor(db, categoryId) {
 
 /* NN-NN, plus the next unused NNN under it — "an index that auto
    increments... takes the next available index if one conflicts," the
-   owner's own words. Scans mirror_style_id_ledger, not mirror_product's
-   own current style_id column: a style_id a product has since moved away
-   from is still reserved forever (the ledger's own append-only
-   contract — schema.sql's own comment on it), so it must still count as
-   used here, exactly as the conflict check above already treats it. */
+   owner's own words. Called both at creation time and whenever a product
+   MOVES to a different category (catalog.update_product's own check()) —
+   scans mirror_style_id_ledger, not mirror_product's own current style_id
+   column: a style_id a product has since moved away from is still
+   reserved forever (the ledger's own append-only contract — schema.sql's
+   own comment on it), so it must still count as used here. */
 export async function nextStyleIdFor(db, catCode, subCode) {
   const prefix = `${catCode}-${subCode}-`;
   const res = await db
@@ -356,7 +335,7 @@ export async function productByHandleAny(db, handle) {
 export async function variantById(db, id) {
   return db
     .prepare(
-      `SELECT v.id, v.external_ref, v.sku, v.title AS variant_title, v.options, p.handle, p.title AS product_title, p.style_id
+      `SELECT v.id, v.external_ref, v.sku, v.title AS variant_title, v.options, p.handle, p.title AS product_title
          FROM mirror_variant_index v JOIN mirror_product_index p ON p.id = v.product_id
         WHERE v.id = ?`,
     )
@@ -606,13 +585,9 @@ export async function listAllProducts(db, { limit } = {}) {
  * the withdraw path, and it is not this tool.
  *
  * Pure, and shared by the write and by the preflight that validates the
- * RESULT of the edit rather than the patch. `styleId`, when given, is this
- * product's own current one (updateProduct's own `resolvedStyleId`) — used
- * only to build a human-readable SKU (skuFromStyleId, above) for a
- * brand-new variation added with none of its own; omit it and a new
- * variation with no SKU falls back to the opaque generateSku().
+ * RESULT of the edit rather than the patch.
  */
-export function mergeVariations(current, patch, { styleId } = {}) {
+export function mergeVariations(current, patch) {
   /* option_values rides along on BOTH sides now — an EXISTING variation's
      own already-mirrored `options` (P0-143's own JSON blob, name -> value)
      renamed here to the same `option_values` shape a NEW entry's own
@@ -640,7 +615,7 @@ export function mergeVariations(current, patch, { styleId } = {}) {
       added.push({
         id: null,
         title: p.title,
-        sku: p.sku ?? skuFor(styleId, p.option_values, p.title, skuSeed),
+        sku: generateSku(skuSeed),
         price_minor: p.price_minor,
         currency: p.currency,
         /* A brand-new row added through this same patch has no existing
@@ -737,67 +712,29 @@ function fnv1aHash(str) {
   return h >>> 0;
 }
 
-/* "SKU should be auto generated when adding variants or options — Square
-   does that" — the owner's own words. Verified live it does NOT, for a
-   variation created through the Catalog API this file calls: every one of
-   the missing Size/Color combinations this file itself auto-generated for
-   the Black Dress (catalog.apply_category_item_options_to_products, below)
-   came back from Square with no SKU at all. "Automatically generate SKUs"
-   is real, but a Dashboard/POS-side feature — it never fires for an object
-   this file creates through UpsertCatalogObject. A plain 12-digit numeric
-   code, the same shape a UPC-A barcode label already takes, so it prints
-   and scans in Square exactly like a real one would; it is simply never
-   registered outside this shop's own account, same as any other home-grown
-   SKU. `seed` should be whatever already distinguishes this variation from
-   every other one reached by the SAME write (a stable product identifier
-   plus the variation's own title/option_values), so two different variations
-   never collide and the same variation never gets a second code on retry. */
+/* "I think the SKUs need to be just a hash, a unique hash across the whole
+   items... it should live completely separately from the style ID because
+   the style ID tells us a lot about an item and that can change in the
+   future" — the owner's own words, retiring an earlier design that
+   embedded style_id in a human-readable SKU. A permanent, opaque SKU
+   plain 12-digit numeric code, the same shape a UPC-A barcode label
+   already takes, so it prints and scans in Square exactly like a real one
+   would (Code128, since it's simply never a REGISTERED code outside this
+   shop's own account — same as any other home-grown SKU); "Automatically
+   generate SKUs" is a real Square feature, but Dashboard/POS-side only —
+   verified live it never fires for a variation created through the
+   Catalog API this file calls, so this file has always had to mint one
+   itself. `seed` should be whatever already distinguishes this variation
+   from every other one reached by the SAME write (a stable product
+   identifier plus the variation's own title/option_values), so two
+   different variations never collide and the same variation never gets a
+   second code on retry — this is also what keeps a SKU permanent: nothing
+   here ever re-derives one from a category or style_id, so nothing about
+   an item's own categorization can ever change what its SKU already is. */
 function generateSku(seed) {
   const a = fnv1aHash(seed);
   const b = fnv1aHash(`${seed}#2`);
   return `${a}${b}`.slice(0, 12).padStart(12, "0");
-}
-
-function skuWordFrom(text) {
-  return String(text ?? "")
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
-/* "Maybe generate it from the style id? Add option and size to the end?" —
-   the owner's own words, preferring a code a person can actually read (this
-   shop's own style_id, e.g. "01-04-001") over the opaque generateSku()
-   fallback above. `01-04-001-WHITE-M` for the Black Dress's own White/M,
-   say — Square's own auto-generated codes carry no such meaning at all,
-   since Square has no concept of this shop's own style numbering.
-   Collision-free BY CONSTRUCTION, no live uniqueness check needed: style_id
-   is already refused when another product has it (catalog-write.js's own
-   check()), and Square itself already refuses two variations of the SAME
-   item sharing the same option_values combination — so style_id + this
-   variation's own distinguishing suffix can never match another SKU. The
-   suffix falls back to the variation's own title when it carries no
-   option_values at all (a product with more than one variation and no
-   Option Sets assigned yet), so two such variations on the same product
-   still cannot collide as long as their titles differ, same as Square
-   itself already requires to tell them apart. "Will the barcode work with
-   it?" — yes, as Code128 (alphanumeric, unlike UPC/EAN's numeric-only), the
-   same as Square already prints for any SKU that is not itself a valid
-   UPC/EAN; it is simply never a REGISTERED code outside this shop's own
-   account, same as generateSku()'s own plain numeric one. */
-function skuFromStyleId(styleId, optionValues, title) {
-  const fromOptions = Object.values(optionValues ?? {}).map(skuWordFrom).filter(Boolean).join("-");
-  const suffix = fromOptions || skuWordFrom(title);
-  return suffix ? `${styleId}-${suffix}` : styleId;
-}
-
-/* Whichever of the two above actually applies here — the human-readable
-   one whenever this product has a style_id on file, the opaque
-   deterministic fallback only for the rarer product with none at all
-   (no category, and none given by hand). `seed` is only ever consulted in
-   that fallback case. */
-function skuFor(styleId, optionValues, title, seed) {
-  return styleId ? skuFromStyleId(styleId, optionValues, title) : generateSku(seed);
 }
 
 /* Square answers an upsert with id_mappings from our `#temp` ids to real ones. */
@@ -1380,13 +1317,7 @@ export function createSquareCatalogWriter(env, opts = {}) {
       const v = await variantById(mirrorDb, variantId);
       if (!v) return null;
       if (v.sku) return v.sku;
-      let optionValues = {};
-      try {
-        optionValues = JSON.parse(v.options || "{}");
-      } catch {
-        optionValues = {};
-      }
-      const sku = skuFor(v.style_id, optionValues, v.variant_title, `${v.external_ref}|inventory`);
+      const sku = generateSku(`${v.external_ref}|inventory`);
       /* updateProduct never returns an {error} shape of its own — a real
          failure throws, and that's exactly what should happen here too:
          inventory.adjust's own run() has nothing sensible left to do if
@@ -1415,39 +1346,57 @@ export function createSquareCatalogWriter(env, opts = {}) {
     },
 
     /**
-     * Retroactive re-sort (the owner's own explicit choice, over "only
-     * apply going forward"): every unarchived product whose style_id's own
-     * subcategory/category segment now matches a numeric_id that did not
-     * exist (or pointed elsewhere) before gets a REAL Square write, via
-     * this.updateProduct — category is Square's own concept
-     * (reporting_category), not ours, so poking mirror_product.category_id
-     * directly here would just be overwritten back by the very next full
-     * sync, which still reads it from Square. A product whose style_id
-     * matches nothing (yet) keeps whatever category_id it already had —
-     * this never CLEARS an assignment, only ever improves one. One write
-     * per affected product, sequentially (this codebase has no batch
-     * upsert) — fine at the boutique catalog scale this whole feature is
-     * built for; a much larger catalog would need real batching.
+     * "Style IDs need to be fluid. They need to be always shown and
+     * updated based on the categorizing of items. If something ever
+     * changes the system of categorizing them and their IDs, that should
+     * affect the style IDs" — the owner's own words. Called whenever a
+     * category's OWN numeric_id (or its parent's) changes
+     * (catalog.set_category_number, and catalog.create_category when a
+     * bare category finally gets numbered) — every product currently
+     * filed in ANY category updates ITS OWN style_id's PREFIX to match,
+     * via a REAL Square write (this.updateProduct — style_id is Square's
+     * own Custom Attribute, ADR-009), keeping each product's own sequence
+     * number (the last three digits) exactly as it was: a prefix swap
+     * applied uniformly can never collide with anything, since every
+     * product under the old prefix moves to the identical new one
+     * together — there is nothing here for the ledger to re-arbitrate.
+     * A product whose category has no numeric_id (or no parent) yet keeps
+     * its last valid style_id rather than losing it — this never CLEARS
+     * an assignment, only ever corrects one. One write per AFFECTED
+     * product only (never one whose prefix already matches), sequentially
+     * (this codebase has no batch upsert) — fine at the boutique catalog
+     * scale this whole feature is built for.
+     *
+     * This is NOT how a product's style_id changes when IT ITSELF moves to
+     * a different category — that needs a freshly ALLOCATED sequence
+     * number (the destination category may already use the number this
+     * product had elsewhere), handled by catalog.update_product's own
+     * check()/nextStyleIdFor, not here.
      */
-    async resortProductsByStyleId() {
+    async resyncStyleIdPrefixes() {
       const products = await mirrorDb
-        .prepare("SELECT handle, style_id, category_id FROM mirror_product_index WHERE style_id IS NOT NULL")
+        .prepare("SELECT handle, style_id, category_id FROM mirror_product_index WHERE style_id IS NOT NULL AND category_id IS NOT NULL")
         .bind()
         .all();
-      let resorted = 0;
+      let updated = 0;
       const errors = [];
       for (const p of products.results ?? []) {
-        const derived = await deriveCategoryIdForStyleId(mirrorDb, p.style_id);
-        if (!derived || derived === p.category_id) continue;
+        const m = /^(\d{2}-\d{2})-(\d{3})$/.exec(p.style_id);
+        if (!m) continue;
+        const [, , seq] = m;
+        const codes = await styleIdCodesFor(mirrorDb, p.category_id);
+        if (!codes) continue;
+        const correct = `${codes.catCode}-${codes.subCode}-${seq}`;
+        if (correct === p.style_id) continue;
         try {
-          await this.updateProduct({ handle: p.handle, categoryId: derived });
-          resorted += 1;
+          await this.updateProduct({ handle: p.handle, styleId: correct });
+          updated += 1;
         } catch (err) {
-          console.error(`ERROR catalog-writer: resort failed for ${p.handle} — ${err.message}`);
+          console.error(`ERROR catalog-writer: style_id prefix resync failed for ${p.handle} — ${err.message}`);
           errors.push({ handle: p.handle, error: err.message });
         }
       }
-      return { resorted, errors };
+      return { updated, errors };
     },
 
     /* "When I apply the groups to a category, it means... you're going to
@@ -1456,7 +1405,7 @@ export function createSquareCatalogWriter(env, opts = {}) {
        manually per item" — the owner's own words, and explicit go-ahead
        for a SEPARATE, explicit action over an automatic cascade on every
        category save. One real Square write per product, the same
-       resortProductsByStyleId's own shape just above uses for its own
+       resyncStyleIdPrefixes' own shape just above uses for its own
        bulk write.
        REVISED: "I expect the black dress to have these variations
        auto-assigned because I assigned the sets to its parent category"
@@ -1513,7 +1462,7 @@ export function createSquareCatalogWriter(env, opts = {}) {
 
       const placeholders = subtreeIds.map(() => "?").join(",");
       const products = await mirrorDb
-        .prepare(`SELECT id, handle, title, category_id, style_id FROM mirror_product_index WHERE category_id IN (${placeholders})`)
+        .prepare(`SELECT id, handle, title, category_id FROM mirror_product_index WHERE category_id IN (${placeholders})`)
         .bind(...subtreeIds)
         .all();
       let applied = 0;
@@ -1545,7 +1494,7 @@ export function createSquareCatalogWriter(env, opts = {}) {
               retagPatches.push({
                 variant_id: v.id,
                 option_values: retagged,
-                sku: v.sku || skuFor(p.style_id, retagged, v.title, `${v.external_ref ?? v.id}|retag`),
+                sku: v.sku || generateSku(`${v.external_ref ?? v.id}|retag`),
               });
               existingSignatures.add(comboSignature(retagged));
             } else {
@@ -1684,16 +1633,14 @@ export function createSquareCatalogWriter(env, opts = {}) {
         unitCostMinor,
         unitCostCurrency,
       });
-      /* Every brand-new variation gets a real SKU, never left blank —
-         skuFromStyleId's own comment, human-readable off this product's own
-         styleId whenever one was given at creation time. The opaque
-         generateSku() fallback (no styleId at all) is seeded on this ITEM's
-         own title (no external_ref exists yet for a product that does not
-         exist yet) plus each variation's own title/option_values, so two
-         variations on the same new item never collide with each other. */
+      /* Every brand-new variation gets a real, permanent, opaque SKU —
+         generateSku()'s own comment. Seeded on this ITEM's own title (no
+         external_ref exists yet for a product that does not exist yet)
+         plus each variation's own title/option_values, so two variations
+         on the same new item never collide with each other. */
       const resolvedVariations = variations.map((v) => ({
         ...v,
-        sku: v.sku ?? skuFor(styleId, v.option_values, v.title, `${title}|${v.title}|${JSON.stringify(v.option_values ?? {})}`),
+        sku: generateSku(`${title}|${v.title}|${JSON.stringify(v.option_values ?? {})}`),
       }));
       /* A variation naming a Size/Color (etc.) it wants is resolved to
          Square's own refs here, minting whichever half (the option
@@ -1820,12 +1767,8 @@ export function createSquareCatalogWriter(env, opts = {}) {
         }
         return { ...v, options };
       });
-      /* Resolved BEFORE the merge now, not after — mergeVariations' own
-         `styleId` param (its own comment, above) needs this product's
-         CURRENT style_id to build a human-readable SKU for any brand-new
-         variation this same call happens to add. */
       const resolvedStyleId = styleId !== undefined ? styleId : row.style_id;
-      const merged = mergeVariations(currentVariations, variations, { styleId: resolvedStyleId });
+      const merged = mergeVariations(currentVariations, variations);
       if (merged.error) throw new Error(`${merged.error} ('${handle}')`);
       const keep = merged.variations;
 
@@ -1857,13 +1800,13 @@ export function createSquareCatalogWriter(env, opts = {}) {
          resolved to whatever the mirror already has, the same "resend the
          whole thing, not just the diff" reasoning `keep` above already
          exists for (style_id resolves the identical way, just earlier now
-         — above, before the merge). Neither is EVER generated here:
-         style_id is validated and conflict-checked one layer up, in
-         catalog-write.js's own tool, and an EXISTING variation's own `sku`
-         a few lines above (mergeVariations' own UPDATE branch) is Square's,
-         read back verbatim, never invented here — only a BRAND-NEW
-         variation with none given gets one minted, inside mergeVariations
-         itself (skuFromStyleId/generateSku's own comments, above). */
+         — above, before the merge). style_id itself is resolved one layer
+         up, in catalog-write.js's own tool (either kept as-is, or freshly
+         allocated when a product moves category); an EXISTING variation's
+         own `sku` a few lines above (mergeVariations' own UPDATE branch) is
+         Square's, read back verbatim, never invented here — only a
+         BRAND-NEW variation with none given gets one minted, inside
+         mergeVariations itself (generateSku's own comment, above). */
       const resolvedCommissionPct = commissionPct !== undefined ? commissionPct : row.commission_pct;
 
       /* vendor/vendorCode resolve the SAME way as style_id/commission above

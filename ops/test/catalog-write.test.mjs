@@ -593,8 +593,8 @@ const COAT = {
   title: "Belted gabardine trench coat",
   description: "Cotton gabardine, storm shield, horn buttons.",
   variations: [
-    { title: "IT 38", sku: "VEM-0009-38", price_minor: 189000, currency: "USD" },
-    { title: "IT 42", sku: "VEM-0009-42", price_minor: 189000, currency: "USD" },
+    { title: "IT 38", price_minor: 189000, currency: "USD" },
+    { title: "IT 42", price_minor: 189000, currency: "USD" },
   ],
 };
 
@@ -931,9 +931,16 @@ check("test_PRD_P0_136_square_custom_attributes__a_misspelled_named_category_sil
      The sheet's own claimed code ("60") disagrees with Outerwear's real
      number ("01") -- REVISED YET AGAIN, this is no longer a clash either:
      "we already have categories... they do not provide the source of
-     truth. We have the source of truth" -- the owner's own words. Both the
-     product's own style_id AND its SKU are rebuilt from Outerwear's real
-     "01", never the sheet's own wrong "60". */
+     truth. We have the source of truth" -- the owner's own words. The
+     product lands under Outerwear's own real category, never a new
+     duplicate for the sheet's own wrong "60" -- but with no Subcategory
+     name column, and no EXISTING subcategory tree-wide already numbered
+     "05" to match, there is no real subcategory to file it under, so it
+     stays directly in the (top-level) Outerwear, same as a bare category
+     with no numeric_id of its own: no style_id at all, never one built
+     from the sheet's own unmatched digit (Test-PRD-P0-177-fluid_style_id).
+     SKU is unrelated to either: always a real, opaque, auto-generated
+     code. */
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   await approvedCall(f, "catalog.set_category_number", { category_id: outerwear.id, numeric_id: "01" });
@@ -955,11 +962,11 @@ check("test_PRD_P0_136_square_custom_attributes__a_misspelled_named_category_sil
 
   const row = f.mirror("SELECT category_id, style_id FROM mirror_product WHERE title = 'Parka'")[0];
   assert.equal(row.category_id, outerwear.id, "filed under the real, existing Outerwear, not a new duplicate");
-  assert.equal(row.style_id, "01-05-001", "style_id rebuilt from Outerwear's own real number, not the sheet's wrong '60'");
+  assert.equal(row.style_id, null, "Outerwear itself is top-level -- no matching subcategory exists, so there is nothing to build a style_id from");
   const sku = f.mirror(
     "SELECT sku FROM mirror_variant WHERE product_id = (SELECT id FROM mirror_product WHERE title = 'Parka')",
   )[0];
-  assert.equal(sku.sku, "01-05-001", "the SKU is rebuilt right alongside the style_id, never left disagreeing with it");
+  assert.match(sku.sku, /^\d{12}$/, "SKU is always a real, opaque, auto-generated code -- never style_id text");
 });
 
 check("test_PRD_P0_145_auto_generated_title__a_blank_title_is_auto_generated_from_category_and_position", async () => {
@@ -1083,7 +1090,16 @@ check("test_PRD_P0_136_square_custom_attributes__a_style_number_column_is_never_
      normalizeKey strips the "#", landing on the exact same bare "style" key
      TITLE_KEYS used to also claim, so the style number ("001-001") showed up
      as the product's own name and style_id went unrecognized. "You are
-     mistaking style id with title" -- the owner's own words. */
+     mistaking style id with title" -- the owner's own words. REVISED
+     (Test-PRD-P0-177-fluid_style_id): the style number column is read to
+     figure out which category the row belongs to, and to number that
+     category ("Outerwear" gets numeric_id "01" from it) -- but the row's
+     own style_id is still whatever catalog.create_product's own
+     resolveStyleId computes from the resulting category_id, never the
+     column's own literal text; with no Subcategory column and no
+     subcategory already numbered "04" to match, the product lands
+     directly in the (now-numbered, but still top-level) Outerwear, with
+     no style_id at all. */
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   const csv = `title,category,price,style #,cost\n,${outerwear.name},450.00,01-04-001,210.00\n`;
@@ -1101,8 +1117,11 @@ check("test_PRD_P0_136_square_custom_attributes__a_style_number_column_is_never_
   assert.notEqual(result.created[0].title, "01-04-001", "the style number must never become the title");
   assert.equal(result.created[0].title, "Outerwear 2", "a blank title still falls through to the auto-generated name");
 
+  const numbered = f.categories().find((c) => c.name === "Outerwear");
+  assert.equal(numbered.numeric_id, "01", "the style number column's own leading segment must still number the category");
+
   const row = f.mirror("SELECT style_id FROM mirror_product WHERE title = 'Outerwear 2'")[0];
-  assert.equal(row.style_id, "01-04-001", "the style number column must land as style_id, not be dropped");
+  assert.equal(row.style_id, null, "Outerwear is top-level with no matching subcategory -- nothing to build a style_id from");
 });
 
 check("test_PRD_P0_145_auto_generated_title__revised_a_row_with_no_style_id_at_all_is_dropped_not_created_unassigned", async () => {
@@ -1383,7 +1402,12 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_a_style_
   assert.equal(result.created.length, 1);
 
   const row = f.mirror("SELECT id, style_id, custom_fields FROM mirror_product WHERE title = 'Wool Coat'")[0];
-  assert.equal(row.style_id, "01-04-001");
+  /* The style number's own leading "01" still numbers Outerwear -- but with
+     no Subcategory column and no subcategory already numbered "04" to
+     match, the product lands directly in the (top-level) Outerwear, with
+     no style_id at all (Test-PRD-P0-177-fluid_style_id). Unrelated to the
+     vendor/cost behaviour this test actually checks below. */
+  assert.equal(row.style_id, null);
   assert.deepEqual(JSON.parse(row.custom_fields), {}, "cost must not land in custom_fields any more");
   const variant = f.mirror(
     "SELECT v.unit_cost_minor, mv.name AS vendor FROM mirror_variant v JOIN mirror_vendor mv ON mv.id = v.vendor_id WHERE v.product_id = ?",
@@ -1682,7 +1706,6 @@ check("test_PRD_P0_63_editable_approval__submitting_unchanged_actually_creates_t
       description: COAT.description,
       category_id: outerwear.id,
       price: (COAT.variations[0].price_minor / 100).toFixed(2),
-      sku: COAT.variations[0].sku,
     });
   } finally {
     globalThis.fetch = realFetch;
@@ -1736,7 +1759,6 @@ check("test_PRD_P0_63_editable_approval__an_edited_price_is_what_actually_gets_c
       title: "Belted gabardine trench coat — sample",
       category_id: outerwear.id,
       price: "225.00",
-      sku: COAT.variations[0].sku,
     });
   } finally {
     globalThis.fetch = realFetch;
@@ -1768,7 +1790,6 @@ check("test_PRD_P0_63_editable_approval__an_edit_that_will_not_parse_is_refused_
     title: COAT.title,
     category_id: outerwear.id,
     price: "not a number",
-    sku: COAT.variations[0].sku,
   });
   assert.equal(res.status, 400);
   assert.match(await res.text(), /not a plain number/);
@@ -2193,33 +2214,51 @@ check("test_PRD_P0_138_nested_categories__clearing_a_numeric_id_frees_it_for_reu
 });
 
 check("test_PRD_P0_138_nested_categories__assigning_a_numeric_id_retroactively_resorts_matching_products", async () => {
-  /* The owner's own choice: retroactive, not "only going forward" — and a
-     REAL Square write per product, since reporting_category is Square's
-     own fact (ADR-009), not something poking the mirror directly would
-     keep straight against the next full sync. The fixture's own coat
-     starts in Outerwear (its own seeded reporting_category) — style_id
-     targets Knitwear's future numeric_id instead, so the resort has an
-     actual mismatch to fix, not a no-op match already in place. */
+  /* REVISED (Test-PRD-P0-177-fluid_style_id): the mechanism is no longer
+     catalog.create_category's own retroactive product REASSIGNMENT (style_id
+     never drives category any more) -- it is catalog.set_category_number's
+     own resyncStyleIdPrefixes: renumbering a category corrects the style_id
+     PREFIX of every product already sitting in it, a real Square write per
+     product, keeping each one's own sequence number exactly as it was. */
   const f = await fixture();
-  const knitwear = f.categories().find((c) => c.name === "Knitwear");
-  await approvedCall(f, "catalog.set_square_attributes", { handle: COAT_HANDLE, style_id: "02-05-001" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  await approvedCall(f, "catalog.set_category_number", { category_id: outerwear.id, numeric_id: "01" });
+  const casual = (
+    await approvedCall(f, "catalog.create_category", { name: "Casual", parent_id: outerwear.id, reason: "test" })
+  ).data.category;
+  await approvedCall(f, "catalog.set_category_number", { category_id: casual.id, numeric_id: "05" });
 
-  const assigned = await approvedCall(f, "catalog.set_category_number", { category_id: knitwear.id, numeric_id: "02" });
-  assert.equal(assigned.ok, true, assigned.error);
-  assert.equal(assigned.data.products_resorted, 1);
+  const created = await approvedCall(f, "catalog.create_product", { ...COAT, category_id: casual.id });
+  assert.equal(created.ok, true, created.error);
+  assert.equal(created.data.product.style_id, "01-05-001", "sanity: auto-assigned from Casual's own NN-NN pair");
 
-  /* .pop(), not .find() — the LATEST ITEM upsert is the resort's own; an
-     earlier one (the style_id call above, before "02" existed) legitimately
-     still shows the OLD category. */
-  const itemUpsert = f.calls().filter((c) => c.path === "/v2/catalog/object" && c.upsert === "ITEM").pop();
-  assert.ok(itemUpsert, "the resort must actually write to Square, not just the mirror");
-  assert.equal(itemUpsert.body.object.item_data.reporting_category.id, "CAT_KNITWEAR");
+  const resorted = await approvedCall(f, "catalog.set_category_number", { category_id: casual.id, numeric_id: "02" });
+  assert.equal(resorted.ok, true, resorted.error);
+  assert.equal(resorted.data.style_ids_updated, 1);
+  assert.deepEqual(resorted.data.style_id_errors, []);
 
-  const product = f.mirror(`SELECT category_id FROM mirror_product WHERE handle = '${COAT_HANDLE}'`)[0];
-  assert.equal(product.category_id, knitwear.id);
+  /* A real Square write, not just a mirror update. */
+  const itemUpsert = f
+    .calls()
+    .filter((c) => c.path === "/v2/catalog/object" && c.upsert === "ITEM" && c.body.object.item_data.name === COAT.title)
+    .pop();
+  assert.ok(itemUpsert, "the prefix resync must actually write to Square, not just the mirror");
+  const styleIdAttr = itemUpsert.body.object.item_data.custom_attribute_values?.style_id;
+  assert.equal(styleIdAttr?.string_value, "01-02-001", "the prefix moves to Casual's new '02', the sequence number '001' kept exactly as it was");
+
+  const product = f.mirror(`SELECT style_id, category_id FROM mirror_product WHERE handle = '${created.data.product.handle}'`)[0];
+  assert.equal(product.style_id, "01-02-001");
+  assert.equal(product.category_id, casual.id, "the resync never moves a product to a different category");
 });
 
 check("test_PRD_P0_138_nested_categories__a_subcategory_match_wins_over_a_top_level_match", async () => {
+  /* REVISED (Test-PRD-P0-177-fluid_style_id): style_id never drives category
+     assignment any more, so this is now about styleIdCodesFor's own
+     preference during AUTO-ASSIGNMENT -- a product actually filed IN a
+     numbered subcategory gets its style_id built from that subcategory's
+     own NN-NN pair, never treated as if it were sitting in the top-level
+     parent instead, even though the parent's own numeric_id is the same
+     first segment either way. */
   const f = await fixture();
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   const casual = await approvedCall(f, "catalog.create_category", {
@@ -2228,97 +2267,14 @@ check("test_PRD_P0_138_nested_categories__a_subcategory_match_wins_over_a_top_le
     reason: "test",
   });
   await approvedCall(f, "catalog.set_category_number", { category_id: outerwear.id, numeric_id: "01" });
-  await approvedCall(f, "catalog.set_square_attributes", { handle: COAT_HANDLE, style_id: "01-05-001" });
-
-  /* Only the top-level "01" matches so far — the product sorts there. */
-  let product = f.mirror(`SELECT category_id FROM mirror_product WHERE handle = '${COAT_HANDLE}'`)[0];
-  assert.equal(product.category_id, outerwear.id);
-
-  /* Once "05" is given to the subcategory, the SAME style_id's own
-     subcategory segment now matches something more specific, and wins. */
-  const resort = await approvedCall(f, "catalog.set_category_number", {
-    category_id: casual.data.category.id,
-    numeric_id: "05",
-  });
-  assert.equal(resort.data.products_resorted, 1);
-  product = f.mirror(`SELECT category_id FROM mirror_product WHERE handle = '${COAT_HANDLE}'`)[0];
-  assert.equal(product.category_id, casual.data.category.id);
-});
-
-check("test_PRD_P0_138_nested_categories__setting_a_style_id_auto_derives_the_products_own_category", async () => {
-  /* The owner's own words: "anytime we submit items with a style ID, those
-     style IDs will actually be driving which categories and subcategories
-     these items automatically get sorted to." No separate resort call
-     needed here — set_square_attributes' own run() derives it inline. */
-  const f = await fixture();
-  const outerwear = f.categories().find((c) => c.name === "Outerwear");
-  const casual = await approvedCall(f, "catalog.create_category", {
-    name: "Casual",
-    parent_id: outerwear.id,
-    reason: "test",
-  });
   await approvedCall(f, "catalog.set_category_number", { category_id: casual.data.category.id, numeric_id: "05" });
 
-  const res = await approvedCall(f, "catalog.set_square_attributes", { handle: COAT_HANDLE, style_id: "01-05-001" });
-  assert.equal(res.ok, true, res.error);
-
-  const casualExternalRef = f.mirror(`SELECT external_ref FROM mirror_category WHERE id = '${casual.data.category.id}'`)[0].external_ref;
-  const itemUpsert = f.calls().find((c) => c.path === "/v2/catalog/object" && c.upsert === "ITEM");
-  assert.equal(itemUpsert.body.object.item_data.reporting_category.id, casualExternalRef);
-});
-
-check("test_PRD_P0_138_nested_categories__creating_a_product_with_a_style_id_but_no_category_id_derives_one", async () => {
-  /* The owner's own words, describing the ingestion process: "each item
-     needs to have a style ID... all of the items need to be assigned to
-     their respective categories." category_id is no longer required at
-     all on catalog.create_product -- style_id's own digits, looked up
-     the exact same way catalog.set_square_attributes already does for
-     an edit, are enough. */
-  const f = await fixture();
-  const outerwear = f.categories().find((c) => c.name === "Outerwear");
-  await approvedCall(f, "catalog.set_category_number", { category_id: outerwear.id, numeric_id: "01" });
-
-  const res = await approvedCall(f, "catalog.create_product", { ...COAT, style_id: "01-99-001" });
-  assert.equal(res.ok, true, res.error);
-  const product = f.mirror(`SELECT category_id FROM mirror_product WHERE handle = '${res.data.product.handle}'`)[0];
-  assert.equal(product.category_id, outerwear.id, "the top-level '01' segment matched with no subcategory numbered yet");
-});
-
-check("test_PRD_P0_138_nested_categories__creating_a_product_whose_style_id_matches_nothing_yet_leaves_it_unassigned_not_refused", async () => {
-  /* "If categories do not exist, then they will not get assigned to a
-     category, they'll stay unassigned" -- the owner's own words. No
-     category exists with numeric_id '77' anywhere in this fixture. */
-  const f = await fixture();
-  const res = await approvedCall(f, "catalog.create_product", { ...COAT, style_id: "77-88-001" });
-  assert.equal(res.ok, true, res.error);
-  const product = f.mirror(`SELECT category_id FROM mirror_product WHERE handle = '${res.data.product.handle}'`)[0];
-  assert.equal(product.category_id, null);
-});
-
-check("test_PRD_P0_138_nested_categories__creating_a_category_with_a_numeric_id_retroactively_assigns_products_left_unassigned", async () => {
-  /* "If that category is then later created with the matching ID, then...
-     these assets should be auto assigned to that category" -- the
-     owner's own words. A product ingested before its own category ever
-     existed must not be stuck unassigned forever: the moment a category
-     is CREATED with a matching numeric_id (not just re-numbered later),
-     the same retroactive resort catalog.set_category_number already
-     triggers must run here too. */
-  const f = await fixture();
-  const orphan = await approvedCall(f, "catalog.create_product", { ...COAT, style_id: "42-01-001" });
-  assert.equal(orphan.ok, true, orphan.error);
-  let product = f.mirror(`SELECT category_id FROM mirror_product WHERE handle = '${orphan.data.product.handle}'`)[0];
-  assert.equal(product.category_id, null, "nothing has numeric_id '42' yet");
-
-  const created = await approvedCall(f, "catalog.create_category", {
-    name: "Loungewear",
-    numeric_id: "42",
-    reason: "test",
-  });
+  const created = await approvedCall(f, "catalog.create_product", { ...COAT, category_id: casual.data.category.id });
   assert.equal(created.ok, true, created.error);
-  assert.equal(created.data.products_resorted, 1, "the orphaned product must be picked up in the same call that creates its category");
+  assert.equal(created.data.product.style_id, "01-05-001", "built from the SUBCATEGORY's own pair, not just the top-level '01' alone");
 
-  product = f.mirror(`SELECT category_id FROM mirror_product WHERE handle = '${orphan.data.product.handle}'`)[0];
-  assert.equal(product.category_id, created.data.category.id);
+  const product = f.mirror(`SELECT category_id FROM mirror_product WHERE handle = '${created.data.product.handle}'`)[0];
+  assert.equal(product.category_id, casual.data.category.id, "filed in the subcategory actually given, never the top-level parent");
 });
 
 check("test_PRD_P0_138_nested_categories__resync_from_square_is_manager_only", async () => {
@@ -2890,7 +2846,8 @@ check("test_PRD_P0_37_mirror_is_ours__an_approved_create_writes_square_first_and
   const variants = f.mirror(`SELECT * FROM mirror_variant WHERE product_id = '${product[0].id}' ORDER BY ordinal`);
   assert.equal(variants.length, 2);
   assert.deepEqual(variants.map((v) => v.price_minor), [189000, 189000]);
-  assert.deepEqual(variants.map((v) => v.sku), ["VEM-0009-38", "VEM-0009-42"]);
+  for (const v of variants) assert.match(v.sku, /^\d{12}$/, "every variation gets a real, opaque, auto-generated sku");
+  assert.notEqual(variants[0].sku, variants[1].sku);
 
   /* The mirror recorded that a sync ran, which is the receipt the next
      incremental sweep reads its cursor from. */
@@ -3119,7 +3076,7 @@ check("test_PRD_P0_37_mirror_is_ours__an_edit_goes_to_square_and_the_mirror_foll
   const one = variants[0];
   const repriced = await approvedCall(f, "catalog.update_product", {
     handle: "shearling-trimmed-wool-blend-coat",
-    variations: [{ variant_id: one.id, title: one.title, sku: one.sku, price_minor: 499000, currency: "USD" }],
+    variations: [{ variant_id: one.id, title: one.title, price_minor: 499000, currency: "USD" }],
   });
   assert.equal(repriced.ok, true, repriced.error);
 
@@ -4837,6 +4794,9 @@ check("test_PRD_P0_31_inventory_ledger__a_negative_or_fractional_quantity_is_ref
 });
 
 check("test_PRD_P0_148_auto_generate_variations__catalog_create_product_generates_a_sku_when_none_is_given_and_keeps_an_explicit_one_verbatim", async () => {
+  /* REVISED: sku is never given by hand any more, anywhere -- every
+     variation always gets a real, opaque, auto-generated sku, unconditionally
+     (Test-PRD-P0-177-fluid_style_id). */
   const f = await fixture();
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
 
@@ -4845,7 +4805,7 @@ check("test_PRD_P0_148_auto_generate_variations__catalog_create_product_generate
     category_id: outerwear.id,
     variations: [
       { title: "S", price_minor: 6000, currency: "USD" },
-      { title: "M", price_minor: 6000, currency: "USD", sku: "VEM-ROBE-M" },
+      { title: "M", price_minor: 6000, currency: "USD" },
     ],
   });
   assert.equal(created.ok, true, created.error);
@@ -4858,37 +4818,8 @@ check("test_PRD_P0_148_auto_generate_variations__catalog_create_product_generate
   const s = variations.find((v) => v.item_variation_data.name === "S");
   const m = variations.find((v) => v.item_variation_data.name === "M");
   assert.match(s.item_variation_data.sku, /^\d{12}$/, "a variation given no sku at all must still get a real one on creation");
-  assert.equal(m.item_variation_data.sku, "VEM-ROBE-M", "an explicitly given sku must never be overwritten");
+  assert.match(m.item_variation_data.sku, /^\d{12}$/, "every variation always gets a real, auto-generated sku");
   assert.notEqual(s.item_variation_data.sku, m.item_variation_data.sku);
-});
-
-check("test_PRD_P0_148_auto_generate_variations__a_style_id_makes_the_sku_human_readable_instead_of_the_opaque_fallback", async () => {
-  /* "Maybe generate it from the style id? Add option and size to the end?"
-     -- the owner's own words, on hearing the first version was a plain
-     opaque 12-digit code. */
-  const f = await fixture();
-  const outerwear = f.categories().find((c) => c.name === "Outerwear");
-
-  const created = await approvedCall(f, "catalog.create_product", {
-    title: "Cotton Robe",
-    category_id: outerwear.id,
-    style_id: "01-99-002",
-    variations: [
-      { title: "White, M", price_minor: 6000, currency: "USD", option_values: { Color: "White", Size: "M" } },
-      { title: "One size", price_minor: 6000, currency: "USD" },
-    ],
-  });
-  assert.equal(created.ok, true, created.error);
-
-  const itemUpsert = f
-    .calls()
-    .filter((c) => c.path === "/v2/catalog/object" && c.upsert === "ITEM" && c.body.object.item_data.name === "Cotton Robe")
-    .pop();
-  const variations = itemUpsert.body.object.item_data.variations;
-  const tagged = variations.find((v) => v.item_variation_data.name === "White, M");
-  const untagged = variations.find((v) => v.item_variation_data.name === "One size");
-  assert.equal(tagged.item_variation_data.sku, "01-99-002-WHITE-M", "human-readable: style_id plus this variation's own option values");
-  assert.equal(untagged.item_variation_data.sku, "01-99-002-ONE-SIZE", "no option_values at all -- falls back to the variation's own title instead");
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -8060,50 +7991,6 @@ check("test_PRD_P0_152_style_number_grouping__a_tbd_color_or_size_is_dropped_as_
  * must be unique across the WHOLE shop, not just within one call
  * (catalog.create_product's own check(), extended with variantBySku).
  * ───────────────────────────────────────────────────────────────────────── */
-
-check("test_PRD_P0_152_style_number_grouping__a_sku_already_used_by_a_different_product_is_a_clash_parked_for_a_person", async () => {
-  /* REVISED AGAIN: "the only time you want to do an approval link is if
-     there's a clash and it has to be resolved by a person" -- a SKU
-     collision only surfaces once catalog.create_product's own check()
-     actually runs, and it is exactly this kind of clash: parked, not
-     silently skipped, so a person can rename the SKU and approve.
-     REVISED YET AGAIN: SKU is never read from a spreadsheet column any
-     more -- it is always the row's own full style number, verbatim -- so
-     the only way a real collision can still arise from a CSV upload is
-     against a product ALREADY on file (created directly, or from an
-     earlier upload) whose own SKU happens to equal this row's own full
-     style number exactly. */
-  const f = await fixture({ actor: "sana@vemians.com", role: "manager" });
-  const realFetch = globalThis.fetch;
-  globalThis.fetch = f.square;
-  let result;
-  try {
-    const jacket = (await approvedCall(f, "catalog.create_category", { name: "Jacket", numeric_id: "01", reason: "test" })).data.category;
-    await approvedCall(f, "catalog.create_product", {
-      title: "Blazer One",
-      category_id: jacket.id,
-      variations: [{ title: "Blazer One", price_minor: 15000, currency: "USD", sku: "01-02-001" }],
-    });
-
-    const csv = "Style #,Category,Description,Cost (USD),Retail Price\n" + "01-02-001,Jacket,Blazer Two,30,150\n";
-    result = await draftProductBatch(f.env, { text: csv, actor: "sana@vemians.com", role: "manager" });
-  } finally {
-    globalThis.fetch = realFetch;
-  }
-  assert.equal(result.created.length, 0);
-  assert.equal(result.skipped.length, 0);
-  assert.equal(result.ready.length, 1);
-  assert.equal(result.ready[0].title, "Blazer Two");
-  assert.match(result.ready[0].summary, /SKU '01-02-001' is already used by 'Blazer One'/);
-  assert.ok(result.ready[0].url, "a real, openable approval link, so the SKU can be fixed and approved");
-
-  const products = f.mirror("SELECT title FROM mirror_product WHERE title LIKE 'Blazer%'");
-  assert.deepEqual(
-    products.map((p) => p.title),
-    ["Blazer One"],
-    "the second, colliding row must never have been created until its own approval is",
-  );
-});
 
 check("test_PRD_P0_152_style_number_grouping__a_vendor_code_given_without_a_vendor_no_longer_blocks_the_row", async () => {
   const f = await fixture({ actor: "sana@vemians.com", role: "manager" });

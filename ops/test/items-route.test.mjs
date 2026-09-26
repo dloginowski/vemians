@@ -1871,7 +1871,11 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_header_spacer_is_the_l
   const body = await res.text();
   assert.match(body, /<span class="variations-header-spacer"><\/span>/, "an invisible spacer absorbs the header's own leftover width, the same way each row's own title does");
   assert.match(body, /\.variations-header-spacer\s*\{\s*flex: 1 1 auto;\s*\}/);
-  assert.match(body, /\.variations-body \.row\s*\{[^}]*padding: 3px 4px 3px 0/, "a right inset matches the header's own right padding");
+  assert.match(
+    body,
+    /\.variations-body \.row, \.variant-group-body \.row\s*\{[^}]*padding: 3px 4px 3px 0/,
+    "a right inset matches the header's own right padding, shared with the grouped Variants view's own rows",
+  );
   /* "Get rid of the whole variants setup... we'll do variations from
      Square" — Cost/MSRP, briefly at the end of the vendor row, are gone
      from the page entirely now; nothing follows the header's own spacer
@@ -2211,6 +2215,12 @@ check("test_PRD_P0_147_variants_grid__each_color_header_keeps_the_same_one_pixel
 });
 
 check("test_PRD_P0_147_variants_grid__sizes_render_as_a_wrapping_grid_of_cells_not_one_row_each", async () => {
+  /* REVISED YET AGAIN (views.js's own comment on .variant-size-rows): "I
+     want to have the SKU number on the left, and then the add and remove
+     quantity for each size to be on the far right... a single row per
+     size" — the owner's own words, going back from the wrapping grid to
+     one full-width row per size, now that sku is a real, permanent,
+     worth-seeing value (Test-PRD-P0-177-fluid_style_id). */
   const mirror = mirrorDb();
   seedGridProduct(mirror);
   const body = await (await get("/items", MANAGER, env(mirror))).text();
@@ -2220,9 +2230,8 @@ check("test_PRD_P0_147_variants_grid__sizes_render_as_a_wrapping_grid_of_cells_n
   const nextGroupStart = body.indexOf('<div class="variant-group">', redGroupStart + 1);
   const redGroup = body.slice(redGroupStart, nextGroupStart > 0 ? nextGroupStart : redGroupStart + 2000);
 
-  assert.match(redGroup, /<div class="variant-size-grid">/, "sizes under an open color must sit inside a wrapping grid, not stacked rows");
-  assert.match(redGroup, /<div class="variant-size-cell"><span class="variation-title-label">S<\/span>/, "each size is its own compact cell, label then stepper");
-  assert.doesNotMatch(redGroup, /class="row"/, "the old one-row-per-size markup must be gone from the grouped view");
+  assert.match(redGroup, /<div class="variant-size-rows">/, "sizes under an open color must sit inside one column of full-width rows");
+  assert.match(redGroup, /<div class="row"><span class="variation-sku-label">[^<]*<\/span><span class="variation-title-label">S<\/span>/, "each size is its own row, sku then title then stepper");
 });
 
 check("test_PRD_P0_147_variants_grid__opening_one_color_group_closes_every_other_one", async () => {
@@ -2235,19 +2244,17 @@ check("test_PRD_P0_147_variants_grid__opening_one_color_group_closes_every_other
 });
 
 check("test_PRD_P0_147_variants_grid__the_plus_and_minus_steppers_still_work_inside_a_grid_cell", async () => {
-  /* "I'm clicking the add product button and nothing is happening. It's
-     not controlling the inventory." — caught live: the grid redesign
-     (above) moved each size's stepper out of a `.row` and into its own
-     `.variant-size-cell`, but stepStock() still only ever walked up to
-     `.closest(".row")` to find its own count field and sibling buttons.
-     Inside a grid cell that search came back null, so `row.nextElementSibling`
-     threw immediately and the click silently did nothing at all —
-     never posted the inventory delta, never showed an error either. */
+  /* REVISED YET AGAIN: the grid-of-cells design (and its own `.closest(".row,
+     .variant-size-cell")` workaround) is gone -- the grouped Variants view's
+     own sizes are back to one full-width `.row` each, the exact same shape
+     the flat single-dimension list already uses, so stepStock() needs only
+     the one, shared `.closest(".row")` to find its own count field and
+     sibling buttons, wherever it is placed. */
   const body = await (await get("/items", MANAGER, env(mirrorDb()))).text();
   assert.match(
     body,
-    /const row = button\.closest\(".row, \.variant-size-cell"\);/,
-    "stepStock must walk up to either a flat .row or a grid .variant-size-cell, never just the first",
+    /const row = button\.closest\(".row"\);/,
+    "stepStock must walk up to the shared .row, identical in the flat list and the grouped view",
   );
 });
 
