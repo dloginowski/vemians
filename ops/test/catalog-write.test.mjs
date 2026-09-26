@@ -691,6 +691,82 @@ check("test_PRD_P0_35_approval_never_in_band__a_role_that_cannot_use_the_tool_ca
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
+ * P0-166 — the chat Approve button must spend the SAME token the gate issued
+ *
+ * "I hit approve and got this: catalog.strip_legacy_cost_fields needs your
+ * approval before it runs... did not accept the approval" — looping, for
+ * EVERY T2 tool proposed in chat, because approve() (agent.js) invented a
+ * fresh crypto.randomUUID() instead of sending back the real token
+ * tools/approval.js's own gate had already issued on the model's proposing
+ * call. Driven through agentTurn()/approve() exactly the way a real chat
+ * click does — never runTool() or the PENDING map directly — because that
+ * is precisely the layer the P0-35 bug above (the same shape, on the OTHER,
+ * out-of-band approval path) already proved a belief-not-measurement mistake
+ * can hide behind.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_166_chat_approve_spends_the_real_token__clicking_approve_actually_creates_the_product", async () => {
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const args = { ...COAT, category_id: outerwear.id };
+  const identity = { email: "mara@vemians.com", groups: ["vemians-manager"] };
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (url, init) => {
+    const href = typeof url === "string" ? url : url.url;
+    return href.startsWith("http://127.0.0.1") ? realFetch(url, init) : f.square(url, init);
+  };
+
+  let pendingId;
+  try {
+    await withFakeAnthropic(
+      () => {
+        if (!pendingId) {
+          return {
+            status: 200,
+            response: {
+              content: [{ type: "tool_use", id: "toolu_1", name: "catalog.create_product", input: args }],
+              stop_reason: "tool_use",
+            },
+          };
+        }
+        return { status: 200, response: { content: [{ type: "text", text: "ok" }], stop_reason: "end_turn" } };
+      },
+      async (base) => {
+        const out = await agentTurn({
+          q: "please add this coat",
+          identity,
+          env: { ...f.env, ANTHROPIC_API_KEY: "test-key", ANTHROPIC_BASE_URL: base },
+        });
+        assert.ok(out.pending, "a T2 tool proposed in chat must stop for a real approval, not run it");
+        assert.equal(out.pending.tool, "catalog.create_product");
+        pendingId = out.pending.id;
+      },
+    );
+
+    const approveEnv = { ...f.env, ANTHROPIC_API_KEY: "test-key" };
+    const result = await approve({ id: pendingId, identity, env: approveEnv });
+
+    /* THE BUG: this used to come back needsApproval again, forever — a
+       random UUID that tools/approval.js's own store never issued could
+       never be consumed, so runTool()'s gate just re-issued a new pending
+       approval instead of running anything. Fixed: one real click actually
+       runs the write. */
+    assert.equal(result.ok, true, `approve() must actually run the write, got: ${JSON.stringify(result)}`);
+    assert.notEqual(result.needsApproval, true, "a click that already carries the real token must not loop");
+    assert.ok(f.calls().some((c) => c.path === "/v2/catalog/object"), "Square must have seen a real write");
+
+    /* Single use, the same guarantee the OTHER approval path (P0-35) already
+       has: a second approve() against the same, now-spent id must not
+       silently re-run the write. */
+    const second = await approve({ id: pendingId, identity, env: approveEnv });
+    assert.notEqual(second.ok, true, "a spent approval id must not run the write twice");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
  * P0-60 — a spreadsheet mints one approval per row, never a write
  * ───────────────────────────────────────────────────────────────────────── */
 

@@ -7883,6 +7883,46 @@ that does not trace to one of these is a process failure (see §12).
     clicks succeeded. Also confirmed unaffected: the common case (no pending approval, the P0-164 gap
     unchanged at 10.75px), the CSV preview (P0-160/P0-162), and scrolling a long conversation to its own
     first message (P0-163).
+99. **`Test-PRD-P0-166-chat_approve_spends_the_real_token`** — A real transcript, the very next thing
+    the owner tried once P0-165 let them actually reach the button: "I hit approve and got this:
+    catalog.strip_legacy_cost_fields needs your approval before it runs. catalog.strip_legacy_cost_fields
+    did not accept the approval." — repeating in a loop, one "needs approval" for every click. Not
+    specific to that tool: **every** T2 tool proposed through chat was affected, because the chat
+    Approve button had never actually been wired to the one mechanism P0-25's own gate accepts.
+
+    Two approval systems exist in this codebase and, until this fix, never spoke to each other.
+    `tools/approval.js` is the REAL gate inside `runTool()`: a T2 call with no token mints one
+    (`apr_<uuid>`, bound to `fingerprint(tool, actor, args)`, 10-minute TTL, single-use) and returns
+    it, unconsumed, as `pending_approval`; a second call only proceeds if it presents that exact
+    token back. `agent.js`'s own `PENDING` map is the human-facing half — what `stashPending()`
+    records when a chat turn stops for approval, and what `approve()` reads back when the person
+    clicks the button. The first call, `dispatch()`'s own proposing call, deliberately never carries
+    an `approvalToken` (P0-25's own structural invariant: nothing in that call site can ever forge
+    one), so `runTool()`'s gate mints a real one and hands it back on `outcome.out.data.approval.token`.
+    `stashPending()` was only ever given `{actor, role, tool, args}` — that real token was read,
+    then discarded, never stored. `approve()` then had nothing legitimate to send on the person's
+    behalf, so it invented `approvalToken: crypto.randomUUID()` — a value `tools/approval.js`'s own
+    store had never issued and could never recognise. `approvals.consume()` failed
+    `unknown_or_used_token` every single time, `runTool()`'s gate re-issued a fresh pending approval
+    right back instead of running anything, and no click, however many times repeated, could ever
+    get past it. This is the same bug shape `Test-PRD-P0-35-approval_never_in_band`'s own regression
+    check already named and fixed once, for the *other*, out-of-band `/approvals/<id>` link path
+    (`approvals.js`'s `parkForApproval`/`approvePending`) — it recurred here because the in-band chat
+    path is a separate code path with its own `PENDING` map, and nothing exercised it end to end
+    through the real `tools/approval.js` store the way that fix's own test does for the other path.
+
+    **Fixed** by carrying the real token the whole way: the `PENDING` record stashed when a chat turn
+    stops for approval now also holds `approvalToken: outcome.out?.data?.approval?.token`, and
+    `approve()` spends `rec.approvalToken` — the token `tools/approval.js` actually issued — instead
+    of a freshly invented one. `customer_draft_customer_batch`'s own synthetic approval (a plain
+    `{tier: "T2"}`, no `.data`, built by `dispatch()` itself rather than by `runTool()`'s gate) is
+    unaffected: `approve()` special-cases that meta-tool, and the batch-draft tools, before this field
+    is ever read. Proven by driving a real T2 tool (`catalog.create_product`) through a scripted
+    model tool-use turn exactly the way a chat click does — `agentTurn()` stops with a real `pending`
+    record, `approve()` against that record's own id actually reaches Square and the mirror, and a
+    second `approve()` against the same, now-spent id is refused rather than silently re-running the
+    write — never by calling `runTool()` or the `PENDING` map's internals directly, which is
+    precisely the layer a belief-not-measurement mistake would hide behind again.
 
 ## 4. P1 features
 
