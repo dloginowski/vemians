@@ -1463,7 +1463,28 @@ export async function agentTurn({ q, identity, env, attachment = null, history =
            asset id regardless of what the model itself supplied. */
         const tool = TOOLS[name];
         const args = outcome.args || use.input;
-        const id = stashPending({ actor, role, tool: name, args });
+        /* THE REAL BUG, found live: "I hit approve and got this:
+           catalog.strip_legacy_cost_fields did not accept the approval" —
+           and every T2 tool, not just that one, since this call site never
+           carried the one thing that could ever make an approval succeed.
+           runTool()'s own internal T2 gate (tools/approval.js) mints a REAL
+           token on this first, model-initiated call (outcome.out.data.
+           approval.token) — a value tied to this exact tool+actor+args
+           fingerprint, checked by approvals.consume() on the SECOND call.
+           This record used to keep only {actor, role, tool, args}, discarding
+           that real token completely; approve() (below) then had nothing
+           legitimate to send back and minted a throwaway crypto.randomUUID()
+           instead — a value tools/approval.js's own store never issued and
+           could therefore never recognize, so consume() failed every single
+           time, runTool() re-issued a fresh pending_approval right back, and
+           the human's own click could never do anything but loop forever.
+           Carried here now so approve() has the one real token that can
+           ever actually satisfy the gate it is answering. Absent for the
+           customer_draft_customer_batch meta-tool's own synthetic approval
+           (outcome.out is a plain { tier: "T2" }, no .data at all) —
+           harmless, since approve() special-cases that tool before this
+           field is ever read. */
+        const id = stashPending({ actor, role, tool: name, args, approvalToken: outcome.out?.data?.approval?.token });
         return {
           mode: "model",
           actor,
@@ -1611,9 +1632,21 @@ export async function approve({ id, identity, env }) {
     return { ok: false, status: 403, reply: `Your role may not run ${rec.tool}.` };
   }
 
+  /* THE REAL BUG, found live: "I hit approve and got this: ...did not
+     accept the approval" — for every T2 tool, always, since this line
+     used to invent a fresh crypto.randomUUID() rather than send back the
+     one token tools/approval.js's own store actually issued for this
+     exact call (rec.approvalToken, carried here from the moment the
+     approval was first proposed — see the PENDING record's own comment
+     above, where dispatch()'s outcome.out.data.approval.token is stashed).
+     A random UUID was never a value approvals.consume() could ever
+     recognize as valid, so it failed the token check every single time,
+     runTool()'s own T2 gate re-issued a brand new pending approval right
+     back instead of running anything, and a person clicking Approve could
+     never get past this line no matter how many times they clicked it. */
   let out;
   try {
-    out = await runTool(rec.tool, rec.args, { actor, role, env, approvalToken: crypto.randomUUID() });
+    out = await runTool(rec.tool, rec.args, { actor, role, env, approvalToken: rec.approvalToken });
   } catch (err) {
     console.error(`ERROR agent: approved tool ${rec.tool} failed — ${err.message}`);
     return { ok: false, status: 502, reply: `${rec.tool} failed while running.` };
