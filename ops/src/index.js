@@ -48,6 +48,7 @@ import {
   effectiveCategoryItemOptionIds,
   categoryExplicitIds,
   insertVariantImage,
+  archiveImage,
 } from "./tools/catalog-writer.js";
 import { applyFormEdits } from "./approval-forms.js";
 import { syncFromSquare, SYNC_CRON, FREQUENT_CRON } from "./sync.js";
@@ -1012,6 +1013,42 @@ async function ops(request, env, path) {
     }
     const inserted = await insertVariantImage(env.CATALOG_MIRROR, { productId: product.id, variantId, mediaKey: key });
     return json({ id: inserted.id, media_key: key, variant_id: variantId, ordinal: inserted.ordinal, url: `${MEDIA_BASE_URL}/${key}` });
+  }
+
+  /*
+   * /items/<handle>/photo/<id>/delete — "add a delete button on the bottom
+   * right corner so that I can delete the images as well" — the owner's own
+   * words. archiveImage() itself is where the real refusal lives (a Square-
+   * sourced photo is never ours to permanently remove, per its own comment)
+   * — this route is just the same manager-gated, per-user-identity shape
+   * every other direct photo/inventory route on this tile already uses.
+   */
+  {
+    const photoDeleteMatch = path.match(/^\/items\/([^/]+)\/photo\/([^/]+)\/delete$/);
+    if (photoDeleteMatch) {
+      const [, handle, imageId] = photoDeleteMatch;
+      const email = identity.claims?.email;
+      if (typeof email !== "string" || !email.includes("@")) {
+        return json({ error: "This route requires a per-user Access identity." }, 403);
+      }
+      const role = await roleFor(identity, env);
+      if (!role) {
+        return json({ error: "Your Access identity is in no group this application maps to a role." }, 403);
+      }
+      if (!roleAtLeast(role, "manager")) {
+        return json({ error: "Deleting a photo needs the manager role." }, 403);
+      }
+      if (request.method !== "POST") {
+        return json({ error: "POST to this URL to delete the photo." }, 405);
+      }
+      const product = await productByHandle(env.CATALOG_MIRROR, handle);
+      if (!product) {
+        return json({ error: `no product with handle '${handle}' in the mirror` }, 400);
+      }
+      const result = await archiveImage(env.CATALOG_MIRROR, { productId: product.id, imageId });
+      if (result.error) return json({ error: result.error }, 400);
+      return json({ ok: true });
+    }
   }
 
   /*

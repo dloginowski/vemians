@@ -556,13 +556,13 @@ check("test_PRD_P0_169_item_breadcrumb__clicking_a_segment_in_the_full_view_clos
 /* A photograph inserted directly, the same shape insertVariantImage()
    (catalog-writer.js) writes — never through Square, per that function's
    own comment. */
-function seedImage(mirror, { id, productId = "p1", variantId = null, mediaKey, ordinal = 0 }) {
+function seedImage(mirror, { id, productId = "p1", variantId = null, mediaKey, ordinal = 0, externalRef }) {
   mirror.db
     .prepare(
       `INSERT INTO mirror_image (id, external_ref, product_id, variant_id, source_url, caption, ordinal, media_key)
        VALUES (?, ?, ?, ?, '', '', ?, ?)`,
     )
-    .run(id, `sqimg-${id}`, productId, variantId, ordinal, mediaKey);
+    .run(id, externalRef ?? `sqimg-${id}`, productId, variantId, ordinal, mediaKey);
 }
 
 check("test_PRD_P0_173_variant_photo_upload__grouped_view_upload_button_carries_an_anchor_variant_id", async () => {
@@ -716,6 +716,66 @@ check("test_PRD_P0_173_variant_photo_upload__no_file_is_refused", async () => {
     env(mirror, undefined, { MEDIA: fakeBucket() }),
   );
   assert.equal(res.status, 400);
+});
+
+function postDelete(path, claims, e) {
+  return worker.fetch(new Request(`http://localhost${path}`, { method: "POST", headers: { "Cf-Access-Jwt-Assertion": assertion(claims) } }), e);
+}
+
+check("test_PRD_P0_174_variant_photo_delete__an_ops_uploaded_photo_is_archived_and_disappears_from_the_gallery", async () => {
+  /* "Add a delete button on the bottom right corner so that I can delete
+     the images as well" — the owner's own words. Archive-only, like every
+     mirror table (never a literal SQL DELETE) — confirmed both ways: the
+     row survives with archived_at set, and mirror_image_index (what the
+     gallery itself reads) excludes it. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedImage(mirror, { id: "img1", mediaKey: "catalog/originals/2026/01/one.jpg", ordinal: 0, externalRef: "ops-upload:abc" });
+  const res = await postDelete("/items/wool-coat/photo/img1/delete", MANAGER, env(mirror));
+  assert.equal(res.status, 200);
+  const row = mirror.db.prepare("SELECT archived_at FROM mirror_image WHERE id = 'img1'").get();
+  assert.ok(row.archived_at, "archived, never a literal DELETE (mirror_image_no_delete would refuse one anyway)");
+  assert.equal(mirror.db.prepare("SELECT * FROM mirror_image_index WHERE id = 'img1'").get(), undefined);
+});
+
+check("test_PRD_P0_174_variant_photo_delete__a_square_sourced_photo_is_refused_not_silently_archived", async () => {
+  /* mirror.js's own sync upserts by external_ref on every pass and sets
+     archived_at from SQUARE's own current withdrawn state -- archiving a
+     Square-sourced row here would just be silently undone the next time
+     this item syncs. Refused outright instead, with a reason, rather than
+     pretending to succeed. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedImage(mirror, { id: "img1", mediaKey: "catalog/originals/2026/01/one.jpg", ordinal: 0 }); // real Square external_ref, seedImage's own default
+  const res = await postDelete("/items/wool-coat/photo/img1/delete", MANAGER, env(mirror));
+  assert.equal(res.status, 400);
+  const data = await res.json();
+  assert.match(data.error, /came from Square/);
+  assert.equal(mirror.db.prepare("SELECT archived_at FROM mirror_image WHERE id = 'img1'").get().archived_at, null, "never archived on a refusal");
+});
+
+check("test_PRD_P0_174_variant_photo_delete__staff_role_is_refused", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedImage(mirror, { id: "img1", mediaKey: "catalog/originals/2026/01/one.jpg", ordinal: 0, externalRef: "ops-upload:abc" });
+  const res = await postDelete("/items/wool-coat/photo/img1/delete", STAFF, env(mirror));
+  assert.equal(res.status, 403);
+  assert.equal(mirror.db.prepare("SELECT archived_at FROM mirror_image WHERE id = 'img1'").get().archived_at, null);
+});
+
+check("test_PRD_P0_174_variant_photo_delete__an_image_id_from_another_product_is_refused", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedImage(mirror, { id: "img1", mediaKey: "catalog/originals/2026/01/one.jpg", ordinal: 0, externalRef: "ops-upload:abc" });
+  mirror.db.exec(
+    "INSERT INTO mirror_product (id, external_ref, handle, title, source_description, status, channel, custom_fields, category_id)" +
+      " VALUES ('p2', 'sqitem2', 'other-item', 'Other Item', '', 'active', 'direct_link', '{}', 'cat1')",
+  );
+  const res = await postDelete("/items/other-item/photo/img1/delete", MANAGER, env(mirror));
+  assert.equal(res.status, 400);
+  const data = await res.json();
+  assert.match(data.error, /no such photo/);
+  assert.equal(mirror.db.prepare("SELECT archived_at FROM mirror_image WHERE id = 'img1'").get().archived_at, null);
 });
 
 check("test_PRD_P0_71_items_tab__a_tile_expands_to_the_full_screen_instead_of_cramming_data_into_a_cell", async () => {

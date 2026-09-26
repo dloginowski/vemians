@@ -413,6 +413,10 @@ export async function variantsOf(db, productId) {
   return res.results ?? [];
 }
 
+/* Marks a mirror_image row as ours, never Square's — shared by the insert
+   and the delete below so the two never quietly disagree on the shape. */
+const OPS_IMAGE_REF_PREFIX = "ops-upload:";
+
 /*
  * A photograph added directly from the Items tab (POST /items/<handle>/photo,
  * index.js) — "upload an image specifically for that option, for, like, for
@@ -420,9 +424,9 @@ export async function variantsOf(db, productId) {
  * Square, and never will be reconciled away by a later sync (schema.sql's own
  * comment on mirror_image.variant_id has the full reasoning why that is
  * safe). external_ref only exists to satisfy mirror_image's own UNIQUE
- * constraint — synthesized here, in a shape ("ops-upload:") no real Square
- * IMAGE id could ever collide with. Always appended (MAX(ordinal)+1): a
- * Square-synced general photo, if this product has one, keeps its own
+ * constraint — synthesized here, in a shape (OPS_IMAGE_REF_PREFIX) no real
+ * Square IMAGE id could ever collide with. Always appended (MAX(ordinal)+1):
+ * a Square-synced general photo, if this product has one, keeps its own
  * ordinal 0 and stays first in the gallery.
  */
 export async function insertVariantImage(db, { productId, variantId, mediaKey }) {
@@ -437,9 +441,34 @@ export async function insertVariantImage(db, { productId, variantId, mediaKey })
       `INSERT INTO mirror_image (id, external_ref, product_id, variant_id, source_url, caption, ordinal, media_key, archived_at, synced_at)
        VALUES (?, ?, ?, ?, '', '', ?, ?, NULL, datetime('now'))`,
     )
-    .bind(id, `ops-upload:${crypto.randomUUID()}`, productId, variantId ?? null, ordinal, mediaKey)
+    .bind(id, `${OPS_IMAGE_REF_PREFIX}${crypto.randomUUID()}`, productId, variantId ?? null, ordinal, mediaKey)
     .run();
   return { id, ordinal };
+}
+
+/*
+ * "Add a delete button... so I can delete the images as well" — the owner's
+ * own words. Archive-only, like every mirror table (mirror_image_no_delete
+ * refuses a literal DELETE outright) — but ALSO scoped to a row this app
+ * added itself. A Square-sourced photo (a real Square IMAGE id) is refused
+ * outright rather than silently archived: mirror.js's own sync upserts by
+ * external_ref on every pass and sets archived_at from Square's own current
+ * withdrawn state, so archiving a Square-sourced row here would just be
+ * silently undone the next time this item syncs — a "delete" that quietly
+ * comes back is worse than one that never worked, so this refuses with a
+ * reason instead of pretending to succeed.
+ */
+export async function archiveImage(db, { productId, imageId }) {
+  const row = await db
+    .prepare("SELECT external_ref FROM mirror_image WHERE id = ? AND product_id = ? AND archived_at IS NULL")
+    .bind(imageId, productId)
+    .first();
+  if (!row) return { error: "no such photo on this item" };
+  if (!row.external_ref.startsWith(OPS_IMAGE_REF_PREFIX)) {
+    return { error: "this photo came from Square — remove it there, not here" };
+  }
+  await db.prepare("UPDATE mirror_image SET archived_at = datetime('now') WHERE id = ?").bind(imageId).run();
+  return { ok: true };
 }
 
 /*
@@ -520,13 +549,13 @@ export async function listAllProducts(db, { limit } = {}) {
      Square-synced general photo first (ordinal 0..N) and a locally-added
      variant photo after it (insertVariantImage, below, always appends). */
   const allImages = await db
-    .prepare("SELECT product_id, variant_id, media_key, ordinal FROM mirror_image_index WHERE media_key IS NOT NULL ORDER BY product_id, ordinal")
+    .prepare("SELECT id, product_id, variant_id, media_key, ordinal FROM mirror_image_index WHERE media_key IS NOT NULL ORDER BY product_id, ordinal")
     .bind()
     .all();
   const imagesByProduct = new Map();
   for (const i of allImages.results ?? []) {
     if (!imagesByProduct.has(i.product_id)) imagesByProduct.set(i.product_id, []);
-    imagesByProduct.get(i.product_id).push({ media_key: i.media_key, variant_id: i.variant_id ?? null });
+    imagesByProduct.get(i.product_id).push({ id: i.id, media_key: i.media_key, variant_id: i.variant_id ?? null });
   }
 
   return (products.results ?? []).map((p) => {

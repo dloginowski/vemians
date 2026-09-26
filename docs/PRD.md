@@ -8193,6 +8193,47 @@ that does not trace to one of these is a process failure (see §12).
     refuses staff. Regression tests confirmed to fail against the pre-fix code (no route, no
     button, no track).
 
+107. **`Test-PRD-P0-174-variant_photo_delete`** — The owner's own words, immediately after
+    P0-173 shipped: "add a delete button on the bottom right corner so that I can delete the
+    images as well." A new `POST /items/<handle>/photo/<id>/delete` route, same manager-gated,
+    per-user-identity shape as the upload route beside it.
+
+    **Archive-only, and only ever ours.** `mirror_image_no_delete` already refuses a literal SQL
+    DELETE outright — `archiveImage()` (catalog-writer.js) sets `archived_at` instead, the same
+    convention every other mirror table follows. But a Square-sourced photo (a real Square IMAGE
+    id, not one of this app's own `ops-upload:`-prefixed rows) is refused outright rather than
+    archived: `mirror.js`'s own sync upserts by `external_ref` on every pass and sets
+    `archived_at` from Square's OWN current withdrawn state, so archiving a Square-sourced row
+    here would just be silently undone the next time this item syncs — a "delete" that quietly
+    comes back is worse than one that never worked. Removing a Square-sourced photo for real
+    still has to happen in Square's own dashboard.
+
+    **A real bug in the just-shipped P0-173 gallery, found and fixed while building this**:
+    `addPhotoSlide()` always assumed a tile already had a real "first" photo to promote into a
+    two-slide track — for a brand-new, genuinely zero-photo product uploading its very first
+    photo, `.item-photo`'s own `style.backgroundImage` reads as `""`, and the old code would have
+    built a phantom first slide with an empty background instead of recognizing there was nothing
+    real to promote. Fixed by checking for a real prior photo (`hadPhoto`) before ever creating a
+    track; confirmed live that uploading a first-ever photo now goes straight to the ordinary
+    single-photo shape, not a bogus two-slide gallery with an invisible first frame.
+
+    **The client-side icon problem.** A freshly-deleted-down-to-one or freshly-uploaded-from-zero
+    tile needs to create a NEW `.item-photo-delete` button entirely in JS, with no guarantee an
+    existing one is already on the page to clone from. `TRASH_ICON`'s own SVG markup is carried
+    into the client script as `` const TRASH_ICON_HTML = ${JSON.stringify(TRASH_ICON)}; `` —
+    `JSON.stringify`, not a raw interpolation or a hand-picked delimiter, the same lesson P0-169's
+    own NUL-byte incident already taught: this whole page is one server-side template literal, so
+    anything meant for the BROWSER to read as text must survive being evaluated by NODE first.
+
+    Verified live (a real `worker.fetch` render, driven with Playwright, plus direct route
+    tests): the button sits cleanly above `.item-bottom`'s own tallest case (a breadcrumb-carrying
+    bar) with no overlap, measured rather than guessed; deleting one of two photos correctly
+    demotes the tile back to a plain single photo, carrying that photo's own delete button along
+    with it; deleting the last photo clears back to the empty placeholder with no button left;
+    the route archives an ops-uploaded photo (confirmed excluded from `mirror_image_index`
+    afterward, and never a literal DELETE), refuses a Square-sourced one with a clear reason,
+    refuses staff, and refuses an id belonging to another product.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

@@ -2964,6 +2964,15 @@ check("test_PRD_P0_37_mirror_is_ours__no_authoring_tool_writes_a_square_fact_to_
    * only ever attaches to an ITEM) — a variant-tagged photo has nowhere on
    * Square's side to diverge FROM. schema.sql's own comment on
    * mirror_image.variant_id has the full reasoning.
+   *
+   * A NINTH, the same shape as the eighth: catalog-writer.js's own
+   * archiveImage() `UPDATE mirror_image SET archived_at = ...`, behind POST
+   * /items/<handle>/photo/<id>/delete (index.js) — also a direct, human-only
+   * route, not an agent tool. archiveImage() itself refuses outright (never
+   * writes at all) unless the row's own external_ref already carries the
+   * eighth exception's own "ops-upload:" prefix, so this UPDATE can only
+   * ever land on a row the SAME file's own insertVariantImage() created —
+   * never a row mirror.js's sync would also touch.
    */
   const offenders = [];
   for (const file of fs.readdirSync(TOOLS_DIR).filter((n) => n.endsWith(".js"))) {
@@ -2976,6 +2985,7 @@ check("test_PRD_P0_37_mirror_is_ours__no_authoring_tool_writes_a_square_fact_to_
       if (file === "catalog-write.js" && /^INSERT\s+INTO\s+mirror_category_item_option$/i.test(m[0])) continue;
       if (file === "catalog-write.js" && /^UPDATE\s+mirror_category_item_option$/i.test(m[0])) continue;
       if (file === "catalog-writer.js" && /^INSERT\s+INTO\s+mirror_image$/i.test(m[0])) continue;
+      if (file === "catalog-writer.js" && /^UPDATE\s+mirror_image$/i.test(m[0])) continue;
       offenders.push(`${file}: ${m[0]}`);
     }
   }

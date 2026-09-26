@@ -2476,7 +2476,22 @@ ${INPUT_BAR_CSS}
   position: absolute; inset: 0; display: flex; overflow-x: auto; overflow-y: hidden;
   scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch;
 }
-.item-photo-slide { flex: 0 0 100%; scroll-snap-align: start; background-size: cover; background-position: center; }
+.item-photo-slide { position: relative; flex: 0 0 100%; scroll-snap-align: start; background-size: cover; background-position: center; }
+/* "Add a delete button on the bottom right corner so that I can delete the
+   images as well" — the owner's own words. Same circular icon-on-dark-photo
+   treatment .item-share/.item-close already use, just anchored to the
+   opposite corner and (for a real gallery) to its own slide rather than the
+   whole photo — .item-photo-slide's own position: relative, just above,
+   is what makes that anchoring per-slide instead of per-tile. Sits above
+   .item-bottom's own bar (bottom: 46px clears its tallest case, a
+   breadcrumb-carrying two-line bar — measured live, not guessed). */
+.item-photo-delete {
+  display: none; position: absolute; bottom: 46px; right: 8px; z-index: 2;
+  width: 22px; height: 22px; padding: 0; align-items: center; justify-content: center;
+  border: none; border-radius: 50%; cursor: pointer; background: rgba(25, 24, 23, 0.75); color: #fff;
+}
+.item-tile.full .item-photo-delete { display: inline-flex; }
+.item-photo-delete:hover { background: rgba(25, 24, 23, 0.9); }
 /* "A little pill that indicates to me if this series of images belong to a
    specific option or variant" — the owner's own words. Blank (a general
    product photo, or a tile with nothing to swipe between at all) shows no
@@ -3833,19 +3848,30 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
     product.variations.map((v) => [v.id, groupAxes ? (v.options?.[groupAxes.rowsName] ?? v.title) : v.title]),
   );
   const gallery = product.images ?? [];
+  /* "Add a delete button on the bottom right corner so that I can delete the
+     images as well" — the owner's own words. One per photo: inside its own
+     slide for a real gallery, or directly on .item-photo for the single-
+     photo case (no slide to put it in). Never for staff — canEdit-gated,
+     the same rule the upload button right above it already follows. */
+  const deleteButton = (imageId) =>
+    canEdit
+      ? `<button type="button" class="item-photo-delete" data-image-id="${esc(imageId)}" aria-label="Delete this photo" title="Delete this photo">${TRASH_ICON}</button>`
+      : "";
   const photoTrackHtml =
     gallery.length > 1
       ? `<div class="item-photo-track">${gallery
           .map(
             (img) =>
-              `<div class="item-photo-slide" style="background-image:url('${MEDIA_BASE_URL}/${esc(img.media_key)}')" data-variant-label="${esc(img.variant_id ? variantLabelById.get(img.variant_id) ?? "" : "")}"></div>`,
+              `<div class="item-photo-slide" style="background-image:url('${MEDIA_BASE_URL}/${esc(img.media_key)}')" data-variant-label="${esc(img.variant_id ? variantLabelById.get(img.variant_id) ?? "" : "")}">${deleteButton(img.id)}</div>`,
           )
           .join("")}</div>`
       : "";
+  const soloDeleteHtml = gallery.length === 1 ? deleteButton(gallery[0].id) : "";
 
   return `<article class="item-tile" data-search="${esc(searchText)}" data-category="${esc(product.category_name || "")}" data-category-chain="${esc(categoryChain)}" data-status="${isActive ? "active" : "inactive"}" data-channel="${esc(product.channel)}" data-handle="${esc(product.handle)}" data-sku="${esc(primarySku)}">
     <div class="item-photo"${photoStyle}>
       ${photoTrackHtml}
+      ${soloDeleteHtml}
       <div class="item-top"><h3>${esc(product.title)}</h3>
         <div class="item-top-right">
           <span class="item-price">${esc(priceText)}</span>
@@ -4423,6 +4449,11 @@ document.getElementById("items-grid").addEventListener("click", async (e) => {
     triggerVariantPhotoUpload(photoUploadBtn);
     return;
   }
+  const photoDeleteBtn = e.target.closest(".item-photo-delete");
+  if (photoDeleteBtn) {
+    await deletePhoto(photoDeleteBtn);
+    return;
+  }
   const closeBtn = e.target.closest(".item-close");
   if (closeBtn) {
     const tile = closeBtn.closest(".item-tile");
@@ -4770,7 +4801,7 @@ async function uploadVariantPhoto(input) {
       alert(data.error || "That photo could not be uploaded.");
       return;
     }
-    addPhotoSlide(tile, data.url, variantId ? label : "");
+    addPhotoSlide(tile, data.url, variantId ? label : "", data.id);
   } catch {
     alert("Could not reach the server — try again.");
   } finally {
@@ -4779,32 +4810,67 @@ async function uploadVariantPhoto(input) {
   }
 }
 
+/* The server's own TRASH_ICON, carried into the client script as data —
+   JSON.stringify, not a hand-picked delimiter or a raw interpolation:
+   P0-169's own NUL-byte incident (views.js's own comment on that fix) is
+   exactly what happens when something meant for a browser to read is
+   instead written as a literal escape sequence in this same outer
+   template literal, which NODE evaluates immediately, not the browser
+   later. A newly-created delete button (addPhotoSlide, below) needs this
+   markup client-side — nothing already on the page is guaranteed to have
+   one to clone from (a product with zero photos, uploading its first). */
+const TRASH_ICON_HTML = ${JSON.stringify(TRASH_ICON)};
+
+function makeDeleteButton(imageId) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "item-photo-delete";
+  btn.dataset.imageId = imageId;
+  btn.setAttribute("aria-label", "Delete this photo");
+  btn.title = "Delete this photo";
+  btn.innerHTML = TRASH_ICON_HTML;
+  return btn;
+}
+
 /* Patches the new photograph straight into the DOM — no page reload, the
    same "answer with JSON, update the tile in place" convention stepStock
-   above already follows. The first photo a tile ever gets a SECOND one for
-   promotes it from a plain background-image into a real, swipeable track
-   (.item-photo-track/.item-photo-slide, CSS below) on the fly, since a
-   tile with exactly one photo never rendered a track at all (itemTile(),
-   views.js) — there was nothing yet worth swiping between. */
-function addPhotoSlide(tile, url, label) {
+   above already follows. A tile that ALREADY shows a real photo (hadPhoto)
+   gets promoted from a plain background-image into a real, swipeable
+   track (.item-photo-track/.item-photo-slide, CSS below) on the fly, since
+   a tile with exactly one photo never rendered a track at all (itemTile(),
+   views.js) — carrying that existing photo's own delete button along with
+   it into its new slide, rather than leaving it stranded as a floating
+   sibling of the track. A tile with NO photo yet (a brand new product) has
+   no "first" slide to invent — this is simply its first photo, solo, the
+   same shape itemTile() itself would have rendered for one photo. */
+function addPhotoSlide(tile, url, label, imageId) {
   const photo = tile.querySelector(".item-photo");
   let track = photo.querySelector(".item-photo-track");
-  if (!track) {
+  const hadPhoto = Boolean(photo.style.backgroundImage);
+  if (!track && hadPhoto) {
     track = document.createElement("div");
     track.className = "item-photo-track";
     const first = document.createElement("div");
     first.className = "item-photo-slide";
     first.style.backgroundImage = photo.style.backgroundImage;
+    const existingDelete = photo.querySelector(".item-photo-delete");
+    if (existingDelete) first.appendChild(existingDelete);
     track.appendChild(first);
     photo.insertBefore(track, photo.firstChild);
   }
-  const slide = document.createElement("div");
-  slide.className = "item-photo-slide";
-  slide.style.backgroundImage = "url('" + url + "')";
-  slide.dataset.variantLabel = label;
-  track.appendChild(slide);
-  slide.scrollIntoView({ behavior: "smooth", inline: "start", block: "nearest" });
-  updateVariantPill(track);
+  if (track) {
+    const slide = document.createElement("div");
+    slide.className = "item-photo-slide";
+    slide.style.backgroundImage = "url('" + url + "')";
+    slide.dataset.variantLabel = label;
+    slide.appendChild(makeDeleteButton(imageId));
+    track.appendChild(slide);
+    slide.scrollIntoView({ behavior: "smooth", inline: "start", block: "nearest" });
+    updateVariantPill(track);
+  } else {
+    photo.style.backgroundImage = "url('" + url + "')";
+    photo.insertBefore(makeDeleteButton(imageId), photo.firstChild);
+  }
 }
 
 /* The little pill on the right — "a pill that indicates to me if this
@@ -4820,6 +4886,64 @@ function updateVariantPill(track) {
   const label = track.children[index]?.dataset.variantLabel || "";
   pill.textContent = label;
   pill.classList.toggle("visible", Boolean(label));
+}
+
+/* "Add a delete button... so I can delete the images as well" — the
+   owner's own words. Mirrors addPhotoSlide's own three shapes in reverse:
+   a track that still has 2+ photos left just loses that one slide; a
+   track down to its last photo is demoted back to a plain solo photo
+   (carrying that photo's own delete button back out with it, the exact
+   inverse of the promotion above); a solo photo with nothing left after
+   it just clears back to the empty placeholder .item-photo's own CSS
+   already shows for a product with no photo at all. */
+function removePhotoSlide(tile, imageId) {
+  const photo = tile.querySelector(".item-photo");
+  const track = photo.querySelector(".item-photo-track");
+  if (!track) {
+    photo.style.backgroundImage = "";
+    photo.querySelector(".item-photo-delete")?.remove();
+    return;
+  }
+  track.querySelector('.item-photo-delete[data-image-id="' + CSS.escape(imageId) + '"]')?.closest(".item-photo-slide")?.remove();
+  const remaining = [...track.children];
+  if (remaining.length === 0) {
+    track.remove();
+    photo.style.backgroundImage = "";
+  } else if (remaining.length === 1) {
+    const only = remaining[0];
+    photo.style.backgroundImage = only.style.backgroundImage;
+    const del = only.querySelector(".item-photo-delete");
+    track.remove();
+    if (del) photo.insertBefore(del, photo.firstChild);
+    const pill = photo.querySelector(".item-photo-variant-pill");
+    if (pill) {
+      pill.textContent = "";
+      pill.classList.remove("visible");
+    }
+  } else {
+    track.scrollLeft = 0;
+    updateVariantPill(track);
+  }
+}
+
+async function deletePhoto(button) {
+  if (!confirm("Delete this photo? This cannot be undone.")) return;
+  const tile = button.closest(".item-tile");
+  const imageId = button.dataset.imageId;
+  button.disabled = true;
+  try {
+    const res = await fetch("/items/" + tile.dataset.handle + "/photo/" + encodeURIComponent(imageId) + "/delete", { method: "POST" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(data.error || "That photo could not be deleted.");
+      return;
+    }
+    removePhotoSlide(tile, imageId);
+  } catch {
+    alert("Could not reach the server — try again.");
+  } finally {
+    button.disabled = false;
+  }
 }
 /* Every tile that already starts with more than one photo (a page reload
    after photos were added in an earlier visit) needs its own pill set
