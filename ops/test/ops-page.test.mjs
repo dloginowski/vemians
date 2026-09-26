@@ -1593,6 +1593,34 @@ check("test_PRD_P0_161_chat_window_flush_to_bar__the_log_fills_whatever_space_is
   assert.doesNotMatch(body, /\.chat-top\s*\{[^}]*margin-bottom/s, "stale clearance-before-the-bar margin must be gone now that .chat-top itself flex-grows to fill the real available space");
 });
 
+check("test_PRD_P0_163_chat_log_anchored_to_bar__a_short_conversation_sits_above_the_composer_not_stranded_at_the_top", async () => {
+  /* Reacting to P0-161 above, a real transcript: "there is still a 15 to
+     20 pixel dead space above the chat box, just like it was in the
+     items view... why aren't you doing this on all these tabs?" Once
+     .log's own box correctly grew to fill the real available space, a
+     SHORT conversation still stacked every message at the box's own TOP
+     (flex's default start alignment) and dumped the box's entire unused
+     height as one gap below the LAST message — confirmed live, a real
+     four-message conversation left 354px of dead space before the bar,
+     not 15-20px, the same class of bug .items-grid's own align-content
+     already fixed, just far more visible here since a chat log usually
+     holds much less content than a full grid does.
+
+     justify-content: flex-end was the obvious first fix and is WRONG: on
+     an overflowing flex container, end-alignment lets the browser clip
+     the overflow at the START instead of the end — confirmed live,
+     scrollHeight collapsed to equal clientHeight the moment content
+     actually overflowed, making every earlier message permanently
+     unreachable, not merely scrolled out of view. margin-top: auto on
+     the first child is the safe alternative used here instead: it only
+     ever absorbs POSITIVE leftover space and collapses to 0 the moment
+     content overflows, so .log's own default alignment and its
+     overflow-y scrolling are never disturbed. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.log > :first-child\s*\{[^}]*margin-top:\s*auto/s, "a short conversation must be pushed down to the bar, not stranded at the top with dead space below it");
+  assert.doesNotMatch(body, /\.log\s*\{[^}]*justify-content:\s*flex-end/s, "flex-end on the scrolling container itself is the unsafe fix that breaks scrolling to earlier messages once content overflows");
+});
+
 check("test_PRD_P0_78_chat_widget__the_inline_client_script_is_valid_javascript", async () => {
   /* A live regression this suite had zero coverage for: `\"` inside the
      OUTER server-side template literal that builds this whole page is not
