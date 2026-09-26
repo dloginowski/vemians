@@ -8060,6 +8060,45 @@ that does not trace to one of these is a process failure (see §12).
     hand-picked delimiter. Also confirmed safe against an adversarial category name containing
     quotes, a literal `</script>`, and HTML tags: rendered as inert plain text, no script-tag
     count change, no page errors.
+103. **`Test-PRD-P0-170-primary_variant_ordinal`** — A real transcript: "I ran assigned
+    vendors, and yes, I see the vendor created, but not all items have it automatically
+    assigned. They have no vendor still assigned to them." Root cause, found by syncing a real,
+    minimal fake Square item through the REAL adapter rather than assuming from the code: every
+    place this codebase read or wrote "the product's own vendor/cost" filtered for the LITERAL
+    value `ordinal = 0` on a product's variation — but Square's own `CatalogItemVariation.ordinal`
+    field is whatever Square itself assigned when the variation was created, not a value this
+    codebase controls or one Square documents as zero-based. A product whose real first (often
+    only) variation carries a nonzero ordinal matched NOTHING under that filter — not "found the
+    wrong variation," found none at all — so `catalog.assign_inhouse_vendor` silently skipped it
+    on every single pass, no matter how many times it ran. `listAllProducts` (the same file) had
+    already avoided this: it sorts a product's variants by ordinal and takes the first one,
+    rather than filtering for a specific number, which is why the Items tab's own display was
+    never affected — only the write/backfill and two other read paths that had NOT been given the
+    same treatment were.
+
+    **Two other call sites carried the identical bug, one of them with real data-loss potential,
+    not just a display gap.** `productByHandle` (`PRODUCT_WITH_VENDOR_JOIN`) reads a single
+    product's vendor/cost the same broken way. `currentVendorInfo` — read by `updateProduct`'s own
+    "resend the whole thing" fallback, the one that decides what to keep UNCHANGED when a caller's
+    edit does not mention vendor at all — could read a false "no vendor on file" for a product
+    that actually had a real one, and then resend that null as part of an ordinary, unrelated edit
+    (a title or price change), silently clearing a real Square vendor relationship as an
+    unannounced side effect of a call that was never about vendor at all.
+
+    **Fixed with one shared definition, `PRIMARY_VARIANT_ORDINAL`** (`catalog-writer.js`, exported
+    for `catalog-write.js`'s own preflight query) — `ordinal = (SELECT MIN(ordinal) FROM
+    mirror_variant_index WHERE product_id = p.id)` in place of a hardcoded `0`, at all three sites
+    (`PRODUCT_WITH_VENDOR_JOIN`, `currentVendorInfo`, `assignInHouseVendorToVendorlessProducts`)
+    plus the matching preflight `check()` in `catalog.assign_inhouse_vendor`. The one remaining
+    `ordinal = 0` filter in this file (the tile's own primary PHOTO) was checked and left alone —
+    unlike variation ordinal, image ordinal is always assigned locally as a plain array index
+    during normalisation (`catalog.js`), never trusted from Square, so it is guaranteed to start
+    at zero and was never vulnerable to this. Verified live: reproduced with a real fake Square
+    item whose only variation carries `ordinal: 1`, synced through the real adapter (never a
+    hand-inserted mirror row); `assign_inhouse_vendor` skipped it under the old query and
+    correctly reassigns it under the fixed one, confirmed by a regression test built the same
+    way — a real Square-shaped seed object, not a database row bypassing the sync it exists to
+    prove.
 
 ## 4. P1 features
 
