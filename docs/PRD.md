@@ -7923,20 +7923,33 @@ that does not trace to one of these is a process failure (see §12).
     second `approve()` against the same, now-spent id is refused rather than silently re-running the
     write — never by calling `runTool()` or the `PENDING` map's internals directly, which is
     precisely the layer a belief-not-measurement mistake would hide behind again.
-100. **`Test-PRD-P0-167-gate_heading_matches_chat_type_size`** — A real transcript, right after
+100. **`Test-PRD-P0-167-gate_matches_the_real_bubble_size`** — A real transcript, right after
     P0-166 above: "why is the font in the T2 approval so different from the rest of the font?"
-    Not a font-family mismatch — `.gate`'s own heading already inherited the same body face
-    (`--face`) as everything else in the chat. It was a font-SIZE one: every other `h3` in this
-    file sets its own explicit `font-size` (`.item-tile h3`, `.ticket-tile h3`) — `.gate h3`, the
-    "Approval required — tier N" title shared by the T2 approval card and the batch checklist's
-    own "Ready to submit — N products", was the one left at the browser's own unreset default.
-    Measured live in a real browser rather than assumed from the CSS: 18.72px/700 against the
-    chat log's own 16px/400 everywhere around it — confirmed with a minimal static repro of the
-    exact shipped CSS, not a guess about what an unstyled `<h3>` "usually" renders as. **Fixed**
-    by giving `.gate h3` an explicit `font-size: var(--type)`, the same size as the rest of the
-    chat; `font-weight: 700` is kept so it still reads as a heading, just not a differently-sized
-    one. `dt`/`dd` content (the tool name, the JSON arguments) was already correctly sized —
-    confirmed by the same repro — so nothing there needed to change.
+    Not a font-family mismatch — `.gate`'s own text already inherited the same body face
+    (`--face`) as everything else in the chat. It was a font-SIZE one, and the FIRST fix here
+    got the reference wrong: it compared `.gate h3` only against body's own `--type` (16px),
+    found the JSON arguments and tool name already rendering at 16px, and assumed that meant
+    the card already matched the chat — but body's `--type` was never what a real message
+    bubble renders at. `.log p`, the actual bubbles this card floats above, carries its own
+    `font-size: 14px`, two sizes down from body. So `dt`/`dd`/the Approve and Cancel buttons
+    (`font: inherit` from `theme.css`'s own `.chat button` rule) were ALL rendering 2px larger
+    than the bubbles around them the entire time — never actually checked against `.log p`,
+    only against `--type` — and the first fix's own `h3` change made the heading match the
+    wrong reference too. A real transcript caught it: "the fonts are still not matching
+    anything in the chat box... it's too big."
+
+    **Fixed** by setting `font-size: 14px` once, on `.gate` itself, so `h3`/`dl`/`dt`/`dd` and
+    the buttons all inherit the SAME size `.log p` already uses, rather than each needing its
+    own matching rule that could drift again. `h3` still needed its OWN explicit rule even so —
+    caught only by re-measuring in a real browser after the first change, not by reading the
+    CSS and trusting inheritance: the browser's own default `h3` rule is `font-size: 1.17em`, a
+    MULTIPLIER on whatever size it inherits, not a fixed value, so simply removing `h3`'s old
+    override re-multiplied that default against the new 14px base and rendered at 16.38px —
+    visually almost the same bug again, from the opposite direction. `font-size: inherit`
+    cancels the multiplier outright. Measured live end to end, against the app's own real
+    served page (`worker.fetch` driving the actual route, not a hand-copied CSS excerpt) with
+    the real `card()`-built DOM injected into it: `h3`, `dt`, `dd` and the Approve/Cancel
+    buttons all render at exactly 14px now, matching `.log p` precisely.
 
 ## 4. P1 features
 

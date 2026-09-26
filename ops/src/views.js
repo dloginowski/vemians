@@ -1139,19 +1139,34 @@ ${TABLE_CARD_CSS}
    its own would show whatever .log content sits underneath it right
    through, unreadably — .category-menu's own image-ground fill,
    matched here for the same "solid floating panel" reason. */
+/* "The fonts are still not matching anything in the chat box... it's too
+   big" — a real transcript, reacting to the FIRST fix below, which turned
+   out to be measured against the wrong reference. That fix compared .gate
+   h3 only against body's own --type (16px) and found the JSON args/tool
+   name already matched it, so it stopped there — but --type is not what a
+   real chat bubble renders at. .log p (the actual message bubbles this
+   card sits among) has its own font-size: 14px, two sizes down from body.
+   So EVERY text node in .gate — not just h3 — was rendering 2px larger
+   than the bubbles around it: h3 at 18.72px pre-fix/16px post-fix, and dt/
+   dd/the Approve/Cancel buttons at 16px the whole time, never actually
+   checked against .log p's own real size. font-size set once here, on the
+   container, so h3/dl/dt/dd and the buttons (font: inherit, theme.css's
+   own .chat button rule) all inherit the SAME 14px .log p already uses,
+   rather than each needing its own matching rule that could drift again.
+   h3 still needs its OWN font-size set explicitly, though, and not just
+   removed: the browser's own default h3 rule is 1.17em, a MULTIPLIER on
+   whatever size it inherits, not a fixed one — dropping .gate h3's own
+   font-size here re-multiplied that default against the new 14px base and
+   rendered at 16.38px, caught by re-measuring rather than assuming
+   "inherit" was enough. font-size: inherit cancels the multiplier outright,
+   the same way font: inherit already does for the buttons below it. */
 .gate {
   border: 1px solid var(--ink); padding: 12px; border-radius: 10px;
   position: fixed; left: 8px; right: 8px; bottom: 58px; z-index: 21;
   max-width: calc(64rem - 16px); max-height: 50vh; overflow-y: auto;
-  background: var(--image-ground);
+  background: var(--image-ground); font-size: 14px;
 }
-/* "Why is the font in the T2 approval so different from the rest of the
-   font?" — measured live: every other h3 in this file sets its own
-   font-size (.item-tile h3, .ticket-tile h3), and this was the one left at
-   the browser's own unreset default (18.72px/700 against the chat's own
-   16px/400 everywhere else) — a real, measured mismatch, not the JSON args
-   below it, which already inherit the body face and size correctly. */
-.gate h3 { margin: 0 0 8px; font-size: var(--type); font-weight: 700; }
+.gate h3 { margin: 0 0 8px; font-weight: 700; font-size: inherit; }
 .gate dl { margin: 0; }
 .gate dt { font-weight: 700; margin-top: 8px; }
 .gate dd { margin: 0; white-space: pre-wrap; word-break: break-word; }

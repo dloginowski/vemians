@@ -1685,19 +1685,30 @@ check("test_PRD_P0_165_approval_card_never_hidden_behind_the_bar__gate_floats_ab
   assert.doesNotMatch(body, /\.ops\.chat-page #gate/s, "#gate must carry no special layout CSS of its own any more — a position: fixed child needs none from its parent");
 });
 
-check("test_PRD_P0_167_gate_heading_matches_chat_type_size__the_approval_title_is_not_left_at_the_browser_default", async () => {
-  /* "Why is the font in the T2 approval so different from the rest of the
-     font?" — the owner's own words. Measured live in a real browser: every
-     OTHER h3 in this file sets its own font-size (.item-tile h3, .ticket-
-     tile h3) — .gate h3 ("Approval required — tier N" / "Ready to submit —
-     N products", shared by both the T2 approval card and the batch
-     checklist) was the one left at the browser's own unreset default,
-     18.72px/700 against the chat log's own 16px/400 everywhere else. Not a
-     font-FAMILY mismatch — that was already correct, inherited from body
-     in both places — a font-SIZE one, only visible by actually rendering
-     it rather than reading the CSS and assuming inheritance covered it. */
+check("test_PRD_P0_167_gate_matches_the_real_bubble_size__every_text_node_in_the_card_is_14px_not_just_the_heading", async () => {
+  /* "The fonts are still not matching anything in the chat box... it's too
+     big" — a real transcript, reacting to the FIRST fix here, which was
+     itself measured against the wrong reference: it compared .gate h3
+     only to body's own --type (16px) and, finding the JSON args and tool
+     name already at 16px, assumed the rest of the card already matched.
+     It didn't — a real chat bubble (.log p) is 14px, not 16px, so h3, dt,
+     dd and the Approve/Cancel buttons (font: inherit from theme.css's own
+     .chat button rule) were ALL two sizes too big, not just the heading.
+
+     Fixed by setting font-size: 14px once, on .gate itself, so everything
+     inside inherits the SAME size .log p already uses. h3 STILL needed its
+     own explicit rule even so — caught only by re-measuring in a real
+     browser rather than trusting the CSS on paper: the browser's own
+     default h3 rule is font-size: 1.17em, a MULTIPLIER on whatever it
+     inherits, not a fixed value, so simply removing h3's old override re-
+     multiplied that default against the new 14px base and rendered at
+     16.38px — visually almost the same bug again. font-size: inherit
+     cancels the multiplier outright. Measured live end to end: h3, dt, dd
+     and the button all render at exactly 14px now, matching .log p. */
   const { body } = await frontPage(OWNER);
-  assert.match(body, /\.gate h3\s*\{[^}]*font-size:\s*var\(--type\)/s, "the approval card's own heading must match the chat's own type size, not the browser's unreset h3 default");
+  assert.match(body, /\.gate\s*\{[^}]*font-size:\s*14px/s, "the whole approval card must share the chat bubble's own 14px, not body's own larger --type");
+  assert.match(body, /\.gate h3\s*\{[^}]*font-size:\s*inherit/s, "h3 needs an explicit override — the browser's own default h3 rule is a 1.17em MULTIPLIER, not a value that inheriting the container's size cancels on its own");
+  assert.doesNotMatch(body, /\.gate h3\s*\{[^}]*font-size:\s*var\(--type\)/s, "the superseded fix compared against the wrong reference (body's 16px, not the chat bubble's 14px) and must not still be set");
 });
 
 check("test_PRD_P0_78_chat_widget__the_inline_client_script_is_valid_javascript", async () => {
