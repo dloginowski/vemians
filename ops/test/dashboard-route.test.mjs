@@ -587,6 +587,23 @@ check("test_PRD_P0_114_dashboard_default_mode__the_accordion_chrome_only_shows_i
   assert.match(filterFn, /summary\.hidden = false/);
 });
 
+check("test_PRD_P0_172_dashboard_tile_spacing__mine_and_rest_groups_carry_their_own_vertical_gap", async () => {
+  /* The owner's own words: "use consistent vertical padding in the
+     dashboard between items to kind of match the same padding that you
+     use everywhere else because right now they're just too stuck
+     together." .ticket-list's own gap only separates .dash-mine, the
+     <hr> separator, and .dash-rest as whole blocks from each other —
+     it does not reach the .ticket-tile elements nested inside those
+     wrapper divs, which had no gap of their own, so consecutive tiles
+     within the same group rendered edge-to-edge. Uses P0_129_STAFF (not
+     STAFF) since this check lands early enough in the file to push a
+     later STAFF-keyed check over this file's shared rate-limit budget
+     otherwise — see that identity's own comment above. */
+  const res = await get("/dashboard", P0_129_STAFF, env({ finance: null, assets: null }));
+  const body = await res.text();
+  assert.match(body, /\.dash-mine,\s*\.dash-rest\s*\{\s*display:\s*flex;\s*flex-direction:\s*column;\s*gap:\s*8px;\s*\}/);
+});
+
 check("test_PRD_P0_112_dashboard_status_filter__closed_tickets_carry_their_own_data_status", async () => {
   const tickets = sqliteDb("tickets");
   seedTicket(tickets, "tik_1", { title: "Open one", status: "open" });
