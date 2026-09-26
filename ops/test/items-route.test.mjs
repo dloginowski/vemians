@@ -88,11 +88,22 @@ function seedProduct(mirror, overrides = {}) {
   mirror.db.exec(
     "INSERT INTO mirror_category (id, external_ref, name) VALUES ('cat1', 'sqcat1', 'Outerwear')",
   );
+  /* Nested category, opt-in only — every existing caller keeps assigning
+     the product straight to the top-level 'cat1' ("Outerwear") it always
+     has; passing subcategoryName files it one level deeper instead, for
+     Test-PRD-P0-169's own breadcrumb checks (below). */
+  let productCategoryId = "cat1";
+  if (overrides.subcategoryName) {
+    mirror.db
+      .prepare("INSERT INTO mirror_category (id, external_ref, name, parent_id) VALUES ('cat1-sub', 'sqcat1-sub', ?, 'cat1')")
+      .run(overrides.subcategoryName);
+    productCategoryId = "cat1-sub";
+  }
   const custom = JSON.stringify(overrides.custom_fields ?? { "unit cost": "210.00" });
   mirror.db
     .prepare(
       `INSERT INTO mirror_product (id, external_ref, handle, title, source_description, status, channel, custom_fields, style_id, commission_pct, category_id)
-       VALUES ('p1', 'sqitem1', 'wool-coat', 'Wool Coat', ?, ?, ?, ?, ?, ?, 'cat1')`,
+       VALUES ('p1', 'sqitem1', 'wool-coat', 'Wool Coat', ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       overrides.description ?? "",
@@ -101,6 +112,7 @@ function seedProduct(mirror, overrides = {}) {
       custom,
       overrides.style_id ?? null,
       overrides.commission_pct ?? null,
+      productCategoryId,
     );
   /* vendor moved off mirror_product entirely (Test-PRD-P0-136-square_
      custom_attributes, revised for Retail Plus) — a real mirror_vendor row,
@@ -388,6 +400,83 @@ check("test_PRD_P0_168_items_grid_row_collapse__tiles_never_overlap_regardless_o
   assert.match(body, /updateItemsGridFit/, "the short/overflowing decision must be measured live (scrollHeight vs clientHeight), not guessed from CSS alone");
 });
 
+check("test_PRD_P0_169_item_breadcrumb__every_category_level_renders_as_its_own_clickable_segment", async () => {
+  /* "I want to see their category, their subcategory name on the bottom
+     of each of those thumbnails... when that item is expanded into its
+     full item view, then I want to see the full breadcrumb... and I
+     should be able to click on them to browse through them" — the
+     owner's own words. ONE breadcrumb (item-breadcrumb), rendered once
+     inside .item-bottom, shown in both the collapsed and the expanded
+     state since .item-bottom overlays the same photo in both (P0-71's
+     own .item-tile.full .item-photo). Every level is its own <button>,
+     not one plain unclickable label — categoryPath's own joined string
+     already existed (the category picker's hover title) but a joined
+     string cannot be clicked one segment at a time. */
+  const mirror = mirrorDb();
+  seedProduct(mirror, { subcategoryName: "Coats" });
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.match(
+    body,
+    /<nav class="item-breadcrumb" aria-label="Category"><button type="button" class="item-breadcrumb-seg" data-category="Outerwear">Outerwear<\/button><span class="item-breadcrumb-sep">\/<\/span><button type="button" class="item-breadcrumb-seg" data-category="Coats">Coats<\/button><\/nav>/,
+    "both levels must render, each as its own clickable segment carrying its own plain name",
+  );
+});
+
+check("test_PRD_P0_169_item_breadcrumb__the_chain_attribute_lets_an_ancestor_level_match_a_subcategorized_product", async () => {
+  /* The existing top-of-page category menu only ever offers LEAF names
+     (flat, built from product.category_name) — clicking "Outerwear" on a
+     product actually filed under Outerwear > Coats would never have
+     matched it under the OLD leaf-only check (selectedCategories.has(
+     el.dataset.category) alone). data-category-chain — every level's own
+     name — is what lets filterItems() recognize a click on an ANCESTOR
+     level, not only the product's own immediate leaf.
+
+     REVISED, caught live: the first version of this attribute joined the
+     names with "\u0000". This whole page is ONE server-side template
+     literal, so that escape sequence is evaluated by NODE the moment the
+     literal itself is built — landing in the served HTML as a real NUL
+     byte, not surviving as literal text for the BROWSER to interpret
+     later. A raw NUL in an HTML document is silently replaced by the
+     parser (U+FFFD) wherever it appears; rendering the real page in a
+     real browser and reading the attribute back showed exactly that
+     corruption. It "worked" anyway, purely by coincidence — the split
+     call's own delimiter went through the identical corruption, so both
+     sides still matched — which is not something to ship. JSON.stringify/
+     JSON.parse, asserted here, replaced the hand-picked delimiter. */
+  const mirror = mirrorDb();
+  seedProduct(mirror, { subcategoryName: "Coats" });
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.match(body, /data-category-chain="\[&quot;Outerwear&quot;,&quot;Coats&quot;\]"/, "the chain must be valid, escaped JSON naming every level, top to leaf");
+  assert.doesNotMatch(body, /data-category-chain="[^"]*\\u0000/, "a literal escape sequence in this template literal is evaluated server-side, not preserved as text for the browser");
+  const matchFn = body.slice(body.indexOf("function matchesCategoryFilter"), body.indexOf("function matchesCategoryFilter") + 300);
+  assert.match(matchFn, /JSON\.parse\(el\.dataset\.categoryChain\)/, "the chain must be parsed as JSON, not split on a hand-picked delimiter that cannot survive this file's own template-literal evaluation");
+});
+
+check("test_PRD_P0_169_item_breadcrumb__clicking_a_segment_in_the_full_view_closes_it_and_filters", async () => {
+  /* "I should be able to click on them to kind of see, uh, basically
+     browse through them" — clicking a breadcrumb segment while the tile
+     is expanded must not just filter invisibly behind the still-open
+     full view; it must return the person to a grid they can actually
+     see the result in, the same unsaved-changes guard .item-close
+     already uses so a real edit is never silently discarded. Checked
+     against the served script's own source (this file's established
+     convention for the inline client script, matching every other check
+     here) rather than a rendered browser, but the underlying behavior —
+     tile.classList.remove("full") before browseCategory() runs — was
+     verified live in a real browser first. */
+  const mirror = mirrorDb();
+  seedProduct(mirror, { subcategoryName: "Coats" });
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  const handlerAt = body.indexOf('e.target.closest(".item-breadcrumb-seg")');
+  assert.ok(handlerAt > -1, "the breadcrumb click must be its own delegated handler");
+  const handler = body.slice(handlerAt, handlerAt + 400);
+  assert.match(handler, /classList\.remove\("full"\)/, "an expanded tile must close before browsing away from it");
+  assert.match(handler, /browseCategory\(breadcrumbSeg\.dataset\.category\)/, "the click must filter by the clicked segment's own name");
+});
+
 check("test_PRD_P0_71_items_tab__a_tile_expands_to_the_full_screen_instead_of_cramming_data_into_a_cell", async () => {
   /* The owner's own words: "when I click on the item, it's gonna
      expand to my entire phone screen, and I should see all of that
@@ -640,7 +729,7 @@ check("test_PRD_P0_106_search_plan_has_a_category_and_keywords__the_filter_combi
   const body = await res.text();
   assert.match(body, /data-category="Outerwear"/, "each tile needs its own clean category attribute, not only inside the combined search blob");
   const filterFn = body.slice(body.indexOf("function filterItems"), body.indexOf("function filterItems") + 400);
-  assert.match(filterFn, /selectedCategories\.has\(el\.dataset\.category\)/);
+  assert.match(filterFn, /matchesCategoryFilter\(el\)/, "category and free text must still combine as AND, category via its own dedicated check");
   assert.match(filterFn, /el\.dataset\.search\.includes\(q\)/);
 });
 
@@ -2352,7 +2441,7 @@ check("test_PRD_P0_131_item_status_filter__the_collapsed_tile_shows_title_price_
      all. */
   assert.match(
     body,
-    /<div class="item-bottom"><span class="item-style-id">01-04-001<\/span><div class="item-tags"><\/div><\/div>/,
+    /<div class="item-bottom">\s*<div class="item-bottom-row"><span class="item-style-id">01-04-001<\/span><div class="item-tags"><\/div><\/div>/,
   );
   assert.doesNotMatch(body, /<span class="item-tag">Outerwear<\/span>/, "the category no longer earns a tag on the thumbnail at all");
 });
@@ -2398,7 +2487,7 @@ check("test_PRD_P0_130_item_tile_photo__only_a_website_item_gets_a_channel_tag",
   const body = await res.text();
   assert.match(
     body,
-    /<div class="item-bottom"><span class="item-style-id"><\/span><div class="item-tags"><span class="item-tag channel-website">Web<\/span><\/div><\/div>/,
+    /<div class="item-bottom">\s*<div class="item-bottom-row"><span class="item-style-id"><\/span><div class="item-tags"><span class="item-tag channel-website">Web<\/span><\/div><\/div>/,
   );
   assert.doesNotMatch(body, /<span class="item-tag">Outerwear<\/span>/, "the category no longer earns a tag on the thumbnail at all");
   assert.doesNotMatch(body, />In store</, "In store is never rendered as a tag any more");
@@ -2489,7 +2578,7 @@ check("test_PRD_P0_131_item_status_filter__an_inactive_products_tile_carries_dat
   assert.match(body, /data-status="inactive" data-channel="website"/);
   assert.match(
     body,
-    /<div class="item-bottom"><span class="item-style-id"><\/span><div class="item-tags"><span class="item-tag item-tag-inactive">Inactive<\/span><\/div><\/div>/,
+    /<div class="item-bottom">\s*<div class="item-bottom-row"><span class="item-style-id"><\/span><div class="item-tags"><span class="item-tag item-tag-inactive">Inactive<\/span><\/div><\/div>/,
     "an inactive tile must show only the Inactive tag, not its channel or category",
   );
 });
