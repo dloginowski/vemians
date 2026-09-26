@@ -2948,6 +2948,22 @@ check("test_PRD_P0_37_mirror_is_ours__no_authoring_tool_writes_a_square_fact_to_
    * numeric_id's own entry. Also OURS-only, same reasoning as numeric_id
    * — Square has no concept of "this subcategory stopped inheriting its
    * parent's option sets" at all.
+   *
+   * An EIGHTH, a different shape from the rest: catalog-writer.js's own
+   * insertVariantImage() `INSERT INTO mirror_image`, behind POST /items/
+   * <handle>/photo (index.js) — not an agent tool at all, a direct, human-
+   * only route, the same shape as the stock stepper's own /inventory.
+   * mirror_image AS A TABLE does have Square-sourced rows (attachImages,
+   * above, pushes to Square and lets syncAfterWrite's own incremental pull
+   * fill the mirror, same as every other Square-sourced fact) — but THIS
+   * insert's own row can never collide with one of those: its external_ref
+   * is always synthesized ("ops-upload:<uuid>"), and mirror.js's own sync
+   * only ever touches a row by Square's own external_ref (ON CONFLICT(
+   * external_ref) DO UPDATE). Square's own catalog-image API has no
+   * ITEM_VARIATION-level image at all in this codebase's adapter (images.js
+   * only ever attaches to an ITEM) — a variant-tagged photo has nowhere on
+   * Square's side to diverge FROM. schema.sql's own comment on
+   * mirror_image.variant_id has the full reasoning.
    */
   const offenders = [];
   for (const file of fs.readdirSync(TOOLS_DIR).filter((n) => n.endsWith(".js"))) {
@@ -2959,6 +2975,7 @@ check("test_PRD_P0_37_mirror_is_ours__no_authoring_tool_writes_a_square_fact_to_
       if (file === "catalog-write.js" && /^INSERT\s+INTO\s+mirror_custom_field_name$/i.test(m[0])) continue;
       if (file === "catalog-write.js" && /^INSERT\s+INTO\s+mirror_category_item_option$/i.test(m[0])) continue;
       if (file === "catalog-write.js" && /^UPDATE\s+mirror_category_item_option$/i.test(m[0])) continue;
+      if (file === "catalog-writer.js" && /^INSERT\s+INTO\s+mirror_image$/i.test(m[0])) continue;
       offenders.push(`${file}: ${m[0]}`);
     }
   }

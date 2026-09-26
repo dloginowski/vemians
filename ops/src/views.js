@@ -1255,6 +1255,14 @@ const TRASH_ICON = `<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden=
   `fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>` +
   `<path d="M4.5 4.5l.6 8a1 1 0 0 0 1 .9h3.8a1 1 0 0 0 1-.9l.6-8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
+/* "An upload button... so I can click on it and just upload an image
+   specifically for that option" — the owner's own words. A plain camera
+   glyph (body + lens), same stroke-only style as every other icon here. */
+const CAMERA_ICON = `<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">` +
+  `<path d="M2 5.5A1 1 0 0 1 3 4.5h1.5l.6-1.1A1 1 0 0 1 6 3h4a1 1 0 0 1 .9.6l.6 1h1.5a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-6z" ` +
+  `fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>` +
+  `<circle cx="8" cy="8.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>`;
+
 /* .category-picker-toggle/.category-picker-toggle-spacer's own rendered
    width (see the shared CSS below) — the category tree's own per-depth
    indent (both the picker's own tree here, and the Admin page's own
@@ -2454,6 +2462,32 @@ ${INPUT_BAR_CSS}
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
 }
 .item-tile.full .item-photo { position: relative; inset: auto; aspect-ratio: 4 / 3; max-height: 40vh; flex: 0 0 auto; }
+/* "Right and left swipe on the image in the full image view to go between
+   the images" — the owner's own words. scroll-snap, not a JS carousel
+   library: a plain horizontally-scrolling flex row where every slide is
+   exactly one track-width wide already IS a swipeable carousel on touch,
+   with no drag-tracking code of this file's own to get wrong. Hidden
+   outside .full on purpose (never rendered at all when a tile has one
+   photo or fewer — itemTile(), views.js): a collapsed tile's own swipe
+   gesture is "tap to expand," never "flip through hidden photos," and a
+   scrollable track sitting underneath that tap target would fight it. */
+.item-photo-track { display: none; }
+.item-tile.full .item-photo-track {
+  position: absolute; inset: 0; display: flex; overflow-x: auto; overflow-y: hidden;
+  scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch;
+}
+.item-photo-slide { flex: 0 0 100%; scroll-snap-align: start; background-size: cover; background-position: center; }
+/* "A little pill that indicates to me if this series of images belong to a
+   specific option or variant" — the owner's own words. Blank (a general
+   product photo, or a tile with nothing to swipe between at all) shows no
+   pill at all, same "nothing to say" convention every other optional badge
+   on this tile already follows, rather than an empty one. */
+.item-photo-variant-pill {
+  display: none; position: absolute; top: 36px; right: 8px;
+  font-size: 10px; color: #fff; background: rgba(25, 24, 23, 0.75);
+  border-radius: 999px; padding: 3px 8px; pointer-events: none;
+}
+.item-tile.full .item-photo-variant-pill.visible { display: inline-block; }
 .item-tile.full .item-detail { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px 12px; font-size: 12px; }
 .item-detail { display: none; }
 .item-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
@@ -2898,6 +2932,23 @@ ${INPUT_BAR_CSS}
 .variant-size-cell .variation-title-label { flex: 0 0 auto; white-space: nowrap; }
 .variation-stock-step:hover { background: var(--image-ground); }
 .variation-stock-step:disabled { opacity: 0.5; cursor: default; }
+/* "An upload button on the right side" — the owner's own words. margin-left:
+   auto pushes it to the far end of whichever flex row it sits in: a color
+   group's own header (.variant-group-label is flex: 0 0 auto there, so
+   nothing else already does this) or a flat variation row (where
+   .variation-title-label's own flex: 1 1 auto already would, but the
+   margin costs nothing extra and keeps this one rule correct in both
+   places rather than two slightly different ones). Same small-icon-button
+   shape .variation-stock-step's own buttons already use, not .icon-btn's
+   chat-composer treatment — this sits on a plain light row, not a dark
+   floating bar. */
+.variant-photo-upload {
+  flex: 0 0 auto; margin-left: auto; width: 22px; height: 22px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--muted); cursor: pointer;
+}
+.variant-photo-upload:hover { background: var(--image-ground); }
+.variant-photo-upload:disabled { opacity: 0.5; cursor: default; }
 /* "Any changed fields should be marked with an orange highlight" — added
    to the specific field that changed (onItemsGridChange, below), not just
    the form it lives in. Specific enough (element + class, twice over) to
@@ -2945,7 +2996,7 @@ const CHANNEL_LABEL = { website: "Web" };
    it, since a storefront Worker and this ops Worker have no other reason to
    import from one another; this file follows that same established
    precedent rather than introducing the first cross-package import for it. */
-const MEDIA_BASE_URL = "https://media.vemians.com";
+export const MEDIA_BASE_URL = "https://media.vemians.com";
 
 /* The categories/subcategories tree (P0-138), rendered on the global
    /admin page (adminPage, below) — "similar to how we do the variants...
@@ -3356,16 +3407,30 @@ function variantsGroupedAccordionHtml(variations, axes) {
   );
   return rowValues
     .map((r) => {
+      /* The photo for this whole color/row-axis group is anchored to ONE of
+         its own variations — never a group concept of its own, so no new
+         column is needed on mirror_variant to name one — the FIRST one
+         that actually exists (lowest ordinal among colValues, EXISTING
+         SKUS ONLY same as everywhere else in this function), since Square
+         orders col/size values by ordinal already. itemTile()'s own
+         variantLabelById resolves that variant's row-axis VALUE ("Red"),
+         not its full title ("Red / M"), back out of it for display. */
+      let anchorVariant = null;
       const cells = colValues
         .map((c) => {
           const v = byKey.get(`${r}\u0000${c}`);
+          if (v && !anchorVariant) anchorVariant = v;
           return v ? `<div class="variant-size-cell"><span class="variation-title-label">${esc(c)}</span>${stockStepper(v)}</div>` : "";
         })
         .join("");
+      const photoUpload = anchorVariant
+        ? `<button type="button" class="variant-photo-upload" data-variant-id="${esc(anchorVariant.id)}" aria-label="Add a photo for ${esc(r)}" title="Add a photo for ${esc(r)}">${CAMERA_ICON}</button>`
+        : "";
       return `<div class="variant-group">
         <div class="variant-group-header">
           <button type="button" class="variant-group-toggle" aria-label="Show ${esc(colsName)} for ${esc(r)}" title="Show ${esc(colsName)} for ${esc(r)}">${CARET_ICON}</button>
           <span class="variant-group-label">${esc(r)}</span>
+          ${photoUpload}
         </div>
         <div class="variant-group-body">${cells ? `<div class="variant-size-grid">${cells}</div>` : `<p class="item-empty">No ${esc(colsName)} yet.</p>`}</div>
       </div>`;
@@ -3507,7 +3572,11 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
      posts its own immediate /inventory delta (stepStock, below) the
      moment it's clicked, exactly as it always has. */
   const variationRows = product.variations
-    .map((v) => `<div class="row"><span class="variation-title-label">${esc(v.title)}</span>${stockStepper(v)}</div>`)
+    .map(
+      (v) =>
+        `<div class="row"><span class="variation-title-label">${esc(v.title)}</span>${stockStepper(v)}` +
+        `<button type="button" class="variant-photo-upload" data-variant-id="${esc(v.id)}" aria-label="Add a photo for ${esc(v.title)}" title="Add a photo for ${esc(v.title)}">${CAMERA_ICON}</button></div>`,
+    )
     .join("");
   /* "Two headers, expandable, one for each color... I don't want to see
      variations dropdown that's nested" — the owner's own words. A
@@ -3747,8 +3816,36 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
 
   const photoStyle = product.image_key ? ` style="background-image:url('${MEDIA_BASE_URL}/${esc(product.image_key)}')"` : "";
 
+  /* "Right and left swipe on the image in the full image view to go between
+     the images... a pill that indicates to me if this series of images
+     belong to a specific option or variant" — the owner's own words. A
+     label is resolved once per variant here (not stored on mirror_image
+     itself — schema.sql's own comment on variant_id explains why a photo
+     only ever carries an id, never a redundant copy of the name it points
+     at): groupAxes' own row-axis VALUE ("Red") for a 2-axis grouped
+     product, matching what its own group header already shows a person
+     (variantsGroupedAccordionHtml's own anchor-variant comment, above) —
+     the variant's own TITLE otherwise, same as every other read-only label
+     on this tile already uses. NULL (a general product photo) resolves to
+     "", the same "no pill" state a photo with no images.length > 1 already
+     has by simply never rendering a track at all. */
+  const variantLabelById = new Map(
+    product.variations.map((v) => [v.id, groupAxes ? (v.options?.[groupAxes.rowsName] ?? v.title) : v.title]),
+  );
+  const gallery = product.images ?? [];
+  const photoTrackHtml =
+    gallery.length > 1
+      ? `<div class="item-photo-track">${gallery
+          .map(
+            (img) =>
+              `<div class="item-photo-slide" style="background-image:url('${MEDIA_BASE_URL}/${esc(img.media_key)}')" data-variant-label="${esc(img.variant_id ? variantLabelById.get(img.variant_id) ?? "" : "")}"></div>`,
+          )
+          .join("")}</div>`
+      : "";
+
   return `<article class="item-tile" data-search="${esc(searchText)}" data-category="${esc(product.category_name || "")}" data-category-chain="${esc(categoryChain)}" data-status="${isActive ? "active" : "inactive"}" data-channel="${esc(product.channel)}" data-handle="${esc(product.handle)}" data-sku="${esc(primarySku)}">
     <div class="item-photo"${photoStyle}>
+      ${photoTrackHtml}
       <div class="item-top"><h3>${esc(product.title)}</h3>
         <div class="item-top-right">
           <span class="item-price">${esc(priceText)}</span>
@@ -3756,6 +3853,7 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
           <button type="button" class="item-close" aria-label="Close" title="Close">${CANCEL_ICON}</button>
         </div>
       </div>
+      <span class="item-photo-variant-pill"></span>
       <div class="item-bottom">
         <div class="item-bottom-row"><span class="item-style-id">${esc(product.style_id ?? "")}</span><div class="item-tags">${tags}</div></div>
         ${breadcrumbHtml}
@@ -3773,6 +3871,7 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
       ${attrRows ? `<div class="item-fields">${attrRows}</div>` : ""}
       ${fieldRows ? `<div class="item-fields">${fieldRows}</div>` : ""}
       ${customFieldsForm}
+      ${canEdit ? `<input type="file" class="variant-photo-input" accept="image/*" hidden>` : ""}
     </div>
   </article>`;
 }
@@ -4319,6 +4418,11 @@ document.getElementById("items-grid").addEventListener("click", async (e) => {
     await stepStock(stepBtn);
     return;
   }
+  const photoUploadBtn = e.target.closest(".variant-photo-upload");
+  if (photoUploadBtn) {
+    triggerVariantPhotoUpload(photoUploadBtn);
+    return;
+  }
   const closeBtn = e.target.closest(".item-close");
   if (closeBtn) {
     const tile = closeBtn.closest(".item-tile");
@@ -4623,6 +4727,116 @@ async function stepStock(button) {
     steppers.forEach((b) => (b.disabled = false));
   }
 }
+
+/* "Upload an image specifically for that option... upload from my camera or
+   to take a picture" — the owner's own words. ONE hidden <input type="file">
+   per tile (itemTile(), views.js), reused for every variant's own upload
+   button rather than one input per row: accept="image/*" with no capture
+   attribute (unlike the receipt scanner's own forced camera) leaves the
+   browser's own native chooser to offer BOTH a photo library and the
+   camera, which is the choice actually asked for. The clicked button's own
+   variant id and its own already-rendered label (a color group's own
+   label, or a flat row's own variation title) are stashed on the input
+   itself so the input's own change handler, below, has everything it
+   needs without re-deriving either one — no server round trip resolves a
+   label; the button the person already clicked already carries it. */
+function triggerVariantPhotoUpload(button) {
+  const tile = button.closest(".item-tile");
+  const input = tile?.querySelector(".variant-photo-input");
+  if (!input) return;
+  input.dataset.variantId = button.dataset.variantId || "";
+  const label =
+    button.closest(".variant-group-header")?.querySelector(".variant-group-label")?.textContent ??
+    button.closest(".row")?.querySelector(".variation-title-label")?.textContent ??
+    "";
+  input.dataset.variantLabel = label.trim();
+  input.click();
+}
+
+async function uploadVariantPhoto(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const tile = input.closest(".item-tile");
+  const variantId = input.dataset.variantId || "";
+  const label = input.dataset.variantLabel || "";
+  input.disabled = true;
+  try {
+    const body = new FormData();
+    body.set("file", file);
+    if (variantId) body.set("variant_id", variantId);
+    const res = await fetch("/items/" + tile.dataset.handle + "/photo", { method: "POST", body });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(data.error || "That photo could not be uploaded.");
+      return;
+    }
+    addPhotoSlide(tile, data.url, variantId ? label : "");
+  } catch {
+    alert("Could not reach the server — try again.");
+  } finally {
+    input.value = "";
+    input.disabled = false;
+  }
+}
+
+/* Patches the new photograph straight into the DOM — no page reload, the
+   same "answer with JSON, update the tile in place" convention stepStock
+   above already follows. The first photo a tile ever gets a SECOND one for
+   promotes it from a plain background-image into a real, swipeable track
+   (.item-photo-track/.item-photo-slide, CSS below) on the fly, since a
+   tile with exactly one photo never rendered a track at all (itemTile(),
+   views.js) — there was nothing yet worth swiping between. */
+function addPhotoSlide(tile, url, label) {
+  const photo = tile.querySelector(".item-photo");
+  let track = photo.querySelector(".item-photo-track");
+  if (!track) {
+    track = document.createElement("div");
+    track.className = "item-photo-track";
+    const first = document.createElement("div");
+    first.className = "item-photo-slide";
+    first.style.backgroundImage = photo.style.backgroundImage;
+    track.appendChild(first);
+    photo.insertBefore(track, photo.firstChild);
+  }
+  const slide = document.createElement("div");
+  slide.className = "item-photo-slide";
+  slide.style.backgroundImage = "url('" + url + "')";
+  slide.dataset.variantLabel = label;
+  track.appendChild(slide);
+  slide.scrollIntoView({ behavior: "smooth", inline: "start", block: "nearest" });
+  updateVariantPill(track);
+}
+
+/* The little pill on the right — "a pill that indicates to me if this
+   series of images belong to a specific option or variant." Tracks
+   scrollLeft rather than an IntersectionObserver: exactly one slide is
+   ever the full width of its own track (scroll-snap-align: start, CSS
+   below), so its own index is just scrollLeft/clientWidth, rounded. */
+function updateVariantPill(track) {
+  const photo = track.closest(".item-photo");
+  const pill = photo?.querySelector(".item-photo-variant-pill");
+  if (!pill) return;
+  const index = Math.round(track.scrollLeft / (track.clientWidth || 1));
+  const label = track.children[index]?.dataset.variantLabel || "";
+  pill.textContent = label;
+  pill.classList.toggle("visible", Boolean(label));
+}
+/* Every tile that already starts with more than one photo (a page reload
+   after photos were added in an earlier visit) needs its own pill set
+   once up front — scroll only fires again once a person actually swipes. */
+document.querySelectorAll(".item-photo-track").forEach(updateVariantPill);
+document.getElementById("items-grid").addEventListener(
+  "scroll",
+  (e) => {
+    const track = e.target.closest?.(".item-photo-track");
+    if (track) updateVariantPill(track);
+  },
+  true,
+);
+document.getElementById("items-grid").addEventListener("change", async (e) => {
+  const input = e.target.closest(".variant-photo-input");
+  if (input) await uploadVariantPhoto(input);
+});
 
 /* "I need to have a button somewhere, maybe top right, when I expand the
    product. I want to get a deep link into that expanded view so I can
