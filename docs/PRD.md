@@ -7923,6 +7923,20 @@ that does not trace to one of these is a process failure (see §12).
     second `approve()` against the same, now-spent id is refused rather than silently re-running the
     write — never by calling `runTool()` or the `PENDING` map's internals directly, which is
     precisely the layer a belief-not-measurement mistake would hide behind again.
+100. **`Test-PRD-P0-167-gate_heading_matches_chat_type_size`** — A real transcript, right after
+    P0-166 above: "why is the font in the T2 approval so different from the rest of the font?"
+    Not a font-family mismatch — `.gate`'s own heading already inherited the same body face
+    (`--face`) as everything else in the chat. It was a font-SIZE one: every other `h3` in this
+    file sets its own explicit `font-size` (`.item-tile h3`, `.ticket-tile h3`) — `.gate h3`, the
+    "Approval required — tier N" title shared by the T2 approval card and the batch checklist's
+    own "Ready to submit — N products", was the one left at the browser's own unreset default.
+    Measured live in a real browser rather than assumed from the CSS: 18.72px/700 against the
+    chat log's own 16px/400 everywhere around it — confirmed with a minimal static repro of the
+    exact shipped CSS, not a guess about what an unstyled `<h3>` "usually" renders as. **Fixed**
+    by giving `.gate h3` an explicit `font-size: var(--type)`, the same size as the rest of the
+    chat; `font-weight: 700` is kept so it still reads as a heading, just not a differently-sized
+    one. `dt`/`dd` content (the tool name, the JSON arguments) was already correctly sized —
+    confirmed by the same repro — so nothing there needed to change.
 
 ## 4. P1 features
 

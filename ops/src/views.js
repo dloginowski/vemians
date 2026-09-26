@@ -1145,7 +1145,13 @@ ${TABLE_CARD_CSS}
   max-width: calc(64rem - 16px); max-height: 50vh; overflow-y: auto;
   background: var(--image-ground);
 }
-.gate h3 { margin: 0 0 8px; }
+/* "Why is the font in the T2 approval so different from the rest of the
+   font?" — measured live: every other h3 in this file sets its own
+   font-size (.item-tile h3, .ticket-tile h3), and this was the one left at
+   the browser's own unreset default (18.72px/700 against the chat's own
+   16px/400 everywhere else) — a real, measured mismatch, not the JSON args
+   below it, which already inherit the body face and size correctly. */
+.gate h3 { margin: 0 0 8px; font-size: var(--type); font-weight: 700; }
 .gate dl { margin: 0; }
 .gate dt { font-weight: 700; margin-top: 8px; }
 .gate dd { margin: 0; white-space: pre-wrap; word-break: break-word; }

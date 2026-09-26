@@ -1685,6 +1685,21 @@ check("test_PRD_P0_165_approval_card_never_hidden_behind_the_bar__gate_floats_ab
   assert.doesNotMatch(body, /\.ops\.chat-page #gate/s, "#gate must carry no special layout CSS of its own any more — a position: fixed child needs none from its parent");
 });
 
+check("test_PRD_P0_167_gate_heading_matches_chat_type_size__the_approval_title_is_not_left_at_the_browser_default", async () => {
+  /* "Why is the font in the T2 approval so different from the rest of the
+     font?" — the owner's own words. Measured live in a real browser: every
+     OTHER h3 in this file sets its own font-size (.item-tile h3, .ticket-
+     tile h3) — .gate h3 ("Approval required — tier N" / "Ready to submit —
+     N products", shared by both the T2 approval card and the batch
+     checklist) was the one left at the browser's own unreset default,
+     18.72px/700 against the chat log's own 16px/400 everywhere else. Not a
+     font-FAMILY mismatch — that was already correct, inherited from body
+     in both places — a font-SIZE one, only visible by actually rendering
+     it rather than reading the CSS and assuming inheritance covered it. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.gate h3\s*\{[^}]*font-size:\s*var\(--type\)/s, "the approval card's own heading must match the chat's own type size, not the browser's unreset h3 default");
+});
+
 check("test_PRD_P0_78_chat_widget__the_inline_client_script_is_valid_javascript", async () => {
   /* A live regression this suite had zero coverage for: `\"` inside the
      OUTER server-side template literal that builds this whole page is not
