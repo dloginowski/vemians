@@ -414,6 +414,35 @@ export async function variantsOf(db, productId) {
 }
 
 /*
+ * A photograph added directly from the Items tab (POST /items/<handle>/photo,
+ * index.js) — "upload an image specifically for that option, for, like, for
+ * that variant." OUR row from the start, never Square's: this never calls
+ * Square, and never will be reconciled away by a later sync (schema.sql's own
+ * comment on mirror_image.variant_id has the full reasoning why that is
+ * safe). external_ref only exists to satisfy mirror_image's own UNIQUE
+ * constraint — synthesized here, in a shape ("ops-upload:") no real Square
+ * IMAGE id could ever collide with. Always appended (MAX(ordinal)+1): a
+ * Square-synced general photo, if this product has one, keeps its own
+ * ordinal 0 and stays first in the gallery.
+ */
+export async function insertVariantImage(db, { productId, variantId, mediaKey }) {
+  const row = await db
+    .prepare("SELECT COALESCE(MAX(ordinal), -1) AS max_ordinal FROM mirror_image WHERE product_id = ?")
+    .bind(productId)
+    .first();
+  const ordinal = Number(row?.max_ordinal ?? -1) + 1;
+  const id = crypto.randomUUID();
+  await db
+    .prepare(
+      `INSERT INTO mirror_image (id, external_ref, product_id, variant_id, source_url, caption, ordinal, media_key, archived_at, synced_at)
+       VALUES (?, ?, ?, ?, '', '', ?, ?, NULL, datetime('now'))`,
+    )
+    .bind(id, `ops-upload:${crypto.randomUUID()}`, productId, variantId ?? null, ordinal, mediaKey)
+    .run();
+  return { id, ordinal };
+}
+
+/*
  * The read path for the ops Items tab (a server-rendered page, not an agent
  * tool call) — every mirrored product, its category name, every variation,
  * and custom_fields already parsed rather than left as a JSON string for
@@ -484,6 +513,22 @@ export async function listAllProducts(db, { limit } = {}) {
     if (i.media_key) imageByProduct.set(i.product_id, i.media_key);
   }
 
+  /* EVERY mirrored photograph, not just ordinal 0 — the full-view gallery
+     (itemTile(), views.js) swipes across every one of a product's own
+     images, general or variant-tagged alike (schema.sql's own comment on
+     mirror_image.variant_id has the full reasoning). Ordinal order keeps a
+     Square-synced general photo first (ordinal 0..N) and a locally-added
+     variant photo after it (insertVariantImage, below, always appends). */
+  const allImages = await db
+    .prepare("SELECT product_id, variant_id, media_key, ordinal FROM mirror_image_index WHERE media_key IS NOT NULL ORDER BY product_id, ordinal")
+    .bind()
+    .all();
+  const imagesByProduct = new Map();
+  for (const i of allImages.results ?? []) {
+    if (!imagesByProduct.has(i.product_id)) imagesByProduct.set(i.product_id, []);
+    imagesByProduct.get(i.product_id).push({ media_key: i.media_key, variant_id: i.variant_id ?? null });
+  }
+
   return (products.results ?? []).map((p) => {
     let custom_fields = {};
     try {
@@ -516,6 +561,7 @@ export async function listAllProducts(db, { limit } = {}) {
       commission_pct: p.commission_pct ?? null,
       variations,
       image_key: imageByProduct.get(p.id) ?? null,
+      images: imagesByProduct.get(p.id) ?? [],
     };
   });
 }

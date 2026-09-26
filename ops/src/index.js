@@ -47,6 +47,7 @@ import {
   categoryProductCounts,
   effectiveCategoryItemOptionIds,
   categoryExplicitIds,
+  insertVariantImage,
 } from "./tools/catalog-writer.js";
 import { applyFormEdits } from "./approval-forms.js";
 import { syncFromSquare, SYNC_CRON, FREQUENT_CRON } from "./sync.js";
@@ -74,6 +75,7 @@ import {
   ticketPage,
   ticketsPage,
   whoamiPage,
+  MEDIA_BASE_URL,
 } from "./views.js";
 import { draftCustomerBatch, draftProductBatch, parsePriceToMinor } from "./batch.js";
 
@@ -921,6 +923,95 @@ async function ops(request, env, path) {
       return json({ on_hand: result.data.on_hand });
     }
     return new Response(null, { status: 303, headers: { Location: "/items" } });
+  }
+
+  /*
+   * /items/<handle>/photo — "I want to add an upload image button... so I
+   * can click on it and just upload an image specifically for that option,
+   * for, like, for that variant" — the owner's own words. Deliberately NOT
+   * folded into the runTool-dispatch block above: every route there posts
+   * plain form FIELDS through one catalog.* tool; this one posts actual
+   * photograph BYTES, the same "browser -> Worker -> store, never through a
+   * model or a Square write" shape /media/upload already uses (media.js's
+   * own comment has the full reasoning), just without that route's signed-
+   * ticket dance — this form is already inside the same authenticated
+   * Items-tab page a manager is looking at, so there is no separate person
+   * or context to bind a ticket against. catalog_mirror.js's own comment on
+   * mirror_image.variant_id has the reasoning for why this never touches
+   * Square: the bytes land in R2 (or Square-as-store, whichever this
+   * deployment uses) and the mirror row is inserted directly, exactly like
+   * every other direct, human-only utility on this tile (the stock
+   * stepper's own /inventory route is the closest existing shape, immediate
+   * and JSON-answered rather than the resend-everything form dance above).
+   */
+  if (path.startsWith("/items/") && path.endsWith("/photo")) {
+    const email = identity.claims?.email;
+    if (typeof email !== "string" || !email.includes("@")) {
+      return json({ error: "This route requires a per-user Access identity." }, 403);
+    }
+    const role = await roleFor(identity, env);
+    if (!role) {
+      return json({ error: "Your Access identity is in no group this application maps to a role." }, 403);
+    }
+    if (!roleAtLeast(role, "manager")) {
+      return json({ error: "Adding a photo needs the manager role." }, 403);
+    }
+    if (request.method !== "POST") {
+      return json({ error: "POST a photo to this URL." }, 405);
+    }
+    const handle = path.slice("/items/".length, path.length - "/photo".length);
+    const product = await productByHandle(env.CATALOG_MIRROR, handle);
+    if (!product) {
+      return json({ error: `no product with handle '${handle}' in the mirror` }, 400);
+    }
+
+    let form;
+    try {
+      form = await request.formData();
+    } catch (err) {
+      return json({ error: `Unreadable upload — ${err.message}` }, 400);
+    }
+    const file = form.get("file");
+    if (!(file instanceof File) || file.size === 0) {
+      return json({ error: "No file was attached." }, 400);
+    }
+
+    /* Blank means "a general photo of the product" (mirror_image.variant_id
+       NULL, same as ordinal 0 always meant) — never guessed at, and always
+       checked against THIS product's own variations, so a stale or tampered
+       id from another item can never tag a photo onto a variant it does
+       not belong to. */
+    const variantIdRaw = String(form.get("variant_id") ?? "").trim();
+    let variantId = null;
+    if (variantIdRaw) {
+      const variants = await variantsOf(env.CATALOG_MIRROR, product.id);
+      if (!variants.some((v) => v.id === variantIdRaw)) {
+        return json({ error: "that variation does not belong to this item" }, 400);
+      }
+      variantId = variantIdRaw;
+    }
+
+    const contentType = contentTypeFor(file.name, file.type);
+    if (!contentType) return json({ error: "unrecognised image type" }, 415);
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    if (bytes.byteLength > CAPS.ORIGINAL_IMAGE_MAX_BYTES) {
+      return json({ error: `larger than the ${CAPS.ORIGINAL_IMAGE_MAX_BYTES}-byte limit for an original` }, 413);
+    }
+
+    let media;
+    try {
+      media = mediaStoreFor(env);
+    } catch (err) {
+      return json({ error: "media storage is not configured on this deployment" }, 503);
+    }
+    const key = mediaKey(contentType);
+    try {
+      await media.put(key, bytes, { contentType, actor: email });
+    } catch (err) {
+      return json({ error: err.message }, 409);
+    }
+    const inserted = await insertVariantImage(env.CATALOG_MIRROR, { productId: product.id, variantId, mediaKey: key });
+    return json({ id: inserted.id, media_key: key, variant_id: variantId, ordinal: inserted.ordinal, url: `${MEDIA_BASE_URL}/${key}` });
   }
 
   /*

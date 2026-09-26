@@ -490,11 +490,28 @@ FROM mirror_variant WHERE archived_at IS NULL;
 -- The URL is Square's CDN. We hold the reference so the mirror is complete;
 -- the originals we serve are ours in R2 (Test-PRD-P0-28-image_contract), and
 -- `media_key` is where the R2 key lands once the fetch-and-store job runs.
-
+--
+-- variant_id: "upload an image specifically for that option, for, like, for
+-- that variant" -- the owner's own words. Square's own catalog-image API
+-- (and this codebase's own adapter, images.js) only ever attaches an image
+-- to an ITEM, never to an ITEM_VARIATION, so a variant-tagged photo is never
+-- one Square itself sent us -- it is added directly here, by a person, from
+-- the Items tab (POST /items/<handle>/photo), and NEVER pushed to Square.
+-- That is safe: mirror.js's own incremental sync only ever seenVariants-
+-- style reconciles variants/item-options, never images (grep confirms no
+-- seenImages set anywhere), and there is no periodic full-sweep archive
+-- pass over mirror_image either -- a row this table did not get from Square
+-- is never touched, let alone archived, by any sync this codebase runs.
+-- Its own external_ref is synthesized locally ("ops-upload:<uuid>", never a
+-- real Square IMAGE id) purely to satisfy the UNIQUE constraint above,
+-- which every Square-sourced row also carries. NULL means "a general photo
+-- of the product as a whole," same meaning ordinal 0 already carried before
+-- this column existed.
 CREATE TABLE mirror_image (
   id           TEXT PRIMARY KEY,
-  external_ref TEXT NOT NULL UNIQUE,          -- Square IMAGE id
+  external_ref TEXT NOT NULL UNIQUE,          -- Square IMAGE id, or ours
   product_id   TEXT NOT NULL REFERENCES mirror_product(id),
+  variant_id   TEXT REFERENCES mirror_variant(id),
   source_url   TEXT NOT NULL,
   caption      TEXT NOT NULL DEFAULT '',
   ordinal      INTEGER NOT NULL DEFAULT 0,
@@ -503,9 +520,10 @@ CREATE TABLE mirror_image (
   synced_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX idx_mirror_image_product ON mirror_image (product_id, ordinal);
+CREATE INDEX idx_mirror_image_variant ON mirror_image (variant_id);
 
 CREATE VIEW mirror_image_index AS
-SELECT id, external_ref, product_id, source_url, caption, ordinal, media_key, synced_at
+SELECT id, external_ref, product_id, variant_id, source_url, caption, ordinal, media_key, synced_at
 FROM mirror_image WHERE archived_at IS NULL;
 
 -- ── the inventory-change ledger mirror ─────────────────────────────────────

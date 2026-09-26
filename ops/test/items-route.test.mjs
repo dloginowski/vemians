@@ -205,7 +205,7 @@ function auditDb() {
   return { prepare: wrap, _raw: db };
 }
 
-function env(mirror, commerce) {
+function env(mirror, commerce, extra) {
   return {
     SURFACE: "ops",
     MANAGER_POLICY_ID: MANAGER_POLICY,
@@ -213,6 +213,7 @@ function env(mirror, commerce) {
     CATALOG_MIRROR: mirror,
     AUDIT: auditDb(),
     ...(commerce ? { COMMERCE: commerce } : {}),
+    ...(extra ?? {}),
   };
 }
 
@@ -259,6 +260,43 @@ function postForm(path, claims, e, fields) {
     }),
     e,
   );
+}
+
+/* /items/<handle>/photo posts actual bytes, not form fields — a real
+   File in a real FormData, the same shape agent-attachments.test.mjs's own
+   postAttachment already drives its own photo route with. */
+function postPhoto(path, claims, e, { variantId, filename = "coat.png", bytes = PNG_BYTES, type = "image/png" } = {}) {
+  const form = new FormData();
+  form.set("file", new File([bytes], filename, { type }));
+  if (variantId !== undefined) form.set("variant_id", variantId);
+  return worker.fetch(
+    new Request(`http://localhost${path}`, {
+      method: "POST",
+      headers: { "Cf-Access-Jwt-Assertion": assertion(claims) },
+      body: form,
+    }),
+    e,
+  );
+}
+const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4, 5, 6, 7, 8]);
+
+/* Same fake bucket agent-attachments.test.mjs already uses for MEDIA. */
+function fakeBucket() {
+  const store = new Map();
+  return {
+    async put(key, body, opts = {}) {
+      store.set(key, { body, httpMetadata: opts.httpMetadata ?? {} });
+    },
+    async head(key) {
+      const o = store.get(key);
+      return o ? { size: o.body.byteLength, httpMetadata: o.httpMetadata, uploaded: new Date() } : null;
+    },
+    async get(key) {
+      const o = store.get(key);
+      return o ? { httpMetadata: o.httpMetadata, async arrayBuffer() { return o.body.buffer; } } : null;
+    },
+    _store: store,
+  };
 }
 
 /* Capture console output so a check can assert WHAT WAS SAID -- the same
@@ -513,6 +551,171 @@ check("test_PRD_P0_169_item_breadcrumb__clicking_a_segment_in_the_full_view_clos
   const handler = body.slice(handlerAt, handlerAt + 400);
   assert.match(handler, /classList\.remove\("full"\)/, "an expanded tile must close before browsing away from it");
   assert.match(handler, /browseCategory\(breadcrumbSeg\.dataset\.category\)/, "the click must filter by the clicked segment's own name");
+});
+
+/* A photograph inserted directly, the same shape insertVariantImage()
+   (catalog-writer.js) writes — never through Square, per that function's
+   own comment. */
+function seedImage(mirror, { id, productId = "p1", variantId = null, mediaKey, ordinal = 0 }) {
+  mirror.db
+    .prepare(
+      `INSERT INTO mirror_image (id, external_ref, product_id, variant_id, source_url, caption, ordinal, media_key)
+       VALUES (?, ?, ?, ?, '', '', ?, ?)`,
+    )
+    .run(id, `sqimg-${id}`, productId, variantId, ordinal, mediaKey);
+}
+
+check("test_PRD_P0_173_variant_photo_upload__grouped_view_upload_button_carries_an_anchor_variant_id", async () => {
+  /* "Each one of these variants, headers, the expandable header that has
+     the sizes, I want inside of that header to have an upload button on
+     the right side... upload an image specifically for that option, for,
+     like, for that variant" — the owner's own words. A 2-axis grouped
+     product's own color header (variantsGroupedAccordionHtml, views.js)
+     has no variant of its own to tag a photo with — it groups several —
+     so the button is anchored to the FIRST variant that actually exists
+     for that row (EXISTING SKUS ONLY, same rule the grid itself already
+     follows), letting the route validate a real variant id without a new
+     "photo belongs to a group" concept of its own. */
+  const mirror = mirrorDb();
+  seedGridProduct(mirror);
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.match(
+    body,
+    /<span class="variant-group-label">Red<\/span>\s*<button type="button" class="variant-photo-upload" data-variant-id="v1" aria-label="Add a photo for Red"/,
+    "the Red group's own upload button must point at v1 (S\\/Red), the first variation that row actually has",
+  );
+  assert.match(
+    body,
+    /<span class="variant-group-label">Blue<\/span>\s*<button type="button" class="variant-photo-upload" data-variant-id="v2" aria-label="Add a photo for Blue"/,
+    "the Blue group's own upload button must point at v2 (M\\/Blue), the only variation that row has",
+  );
+});
+
+check("test_PRD_P0_173_variant_photo_upload__flat_list_upload_button_carries_its_own_variant_id", async () => {
+  /* A single-dimension (or dimensionless) product has no group to anchor
+     to at all — each flat row already IS one whole variant, so its own
+     upload button points directly at it, no anchor-picking needed. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.match(
+    body,
+    /<span class="variation-title-label">One size<\/span>[^<]*<span class="variation-stock-stepper">.*?<button type="button" class="variant-photo-upload" data-variant-id="v1" aria-label="Add a photo for One size"/s,
+    "the flat row's own upload button must carry that row's own variant id",
+  );
+});
+
+check("test_PRD_P0_173_variant_photo_upload__staff_never_sees_an_upload_button", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.doesNotMatch(body, /class="variant-photo-upload"/, "staff gets the read-only .item-variants list, never the editable accordion this button lives in");
+});
+
+check("test_PRD_P0_173_variant_photo_upload__a_gallery_track_only_renders_with_more_than_one_photo", async () => {
+  /* "Right and left swipe on the image in the full image view to go
+     between the images" — swiping only means something once there is a
+     second photo to swipe TO. A single photo keeps rendering exactly as
+     before (P0-71's own plain background-image), no track markup at all. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedImage(mirror, { id: "img1", mediaKey: "catalog/originals/2026/01/one.jpg", ordinal: 0 });
+  const oneRes = await get("/items", MANAGER, env(mirror));
+  assert.doesNotMatch(await oneRes.text(), /<div class="item-photo-track">/, "one photo is not a gallery");
+
+  seedImage(mirror, { id: "img2", variantId: "v1", mediaKey: "catalog/originals/2026/01/two.jpg", ordinal: 1 });
+  const twoRes = await get("/items", MANAGER, env(mirror));
+  const body = await twoRes.text();
+  assert.match(body, /<div class="item-photo-track">/, "a second photo promotes the tile into a real gallery");
+  const trackAt = body.indexOf('<div class="item-photo-track">');
+  const track = body.slice(trackAt, body.indexOf("</div>", body.indexOf("item-photo-slide", body.indexOf("item-photo-slide", trackAt) + 1)) + 6);
+  assert.match(track, /background-image:url\('https:\/\/media\.vemians\.com\/catalog\/originals\/2026\/01\/one\.jpg'\)" data-variant-label=""/, "the general photo (no variant) carries no label");
+  assert.match(track, /background-image:url\('https:\/\/media\.vemians\.com\/catalog\/originals\/2026\/01\/two\.jpg'\)" data-variant-label="One size"/, "the variant-tagged photo carries that variant's own title");
+});
+
+check("test_PRD_P0_173_variant_photo_upload__the_pill_label_is_the_row_axis_value_for_a_grouped_product", async () => {
+  /* "A pill that indicates to me if this series of images belong to a
+     specific option or variant" — the owner's own words. For a 2-axis
+     grouped product the label is the row-axis VALUE ("Red"), matching
+     what the group's own header already shows a person — not the
+     variant's own full title ("S / Red"), which names a size nobody
+     asked the pill to call out. */
+  const mirror = mirrorDb();
+  seedGridProduct(mirror);
+  seedImage(mirror, { id: "img1", mediaKey: "catalog/originals/2026/01/gen.jpg", ordinal: 0 });
+  seedImage(mirror, { id: "img2", variantId: "v1", mediaKey: "catalog/originals/2026/01/red.jpg", ordinal: 1 });
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.match(body, /catalog\/originals\/2026\/01\/red\.jpg'\)" data-variant-label="Red"/, "v1 is S\\/Red -- the pill must show the row-axis value, Red, not the full 'S / Red' title");
+});
+
+check("test_PRD_P0_173_variant_photo_upload__the_route_stores_bytes_and_records_a_general_photo", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const bucket = fakeBucket();
+  const res = await postPhoto("/items/wool-coat/photo", MANAGER, env(mirror, undefined, { MEDIA: bucket }), {});
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(bucket._store.size, 1, "the bytes must actually land in the bucket");
+  assert.equal(data.variant_id, null, "no variant_id posted means a general product photo");
+  const row = mirror.db.prepare("SELECT product_id, variant_id, media_key, ordinal, external_ref FROM mirror_image WHERE id = ?").get(data.id);
+  assert.equal(row.product_id, "p1");
+  assert.equal(row.variant_id, null);
+  assert.equal(row.media_key, data.media_key);
+  assert.equal(row.ordinal, 0, "the first photo this product gets starts the gallery at ordinal 0");
+  assert.match(row.external_ref, /^ops-upload:/, "never a real Square IMAGE id -- this photo was never sent to Square");
+});
+
+check("test_PRD_P0_173_variant_photo_upload__tagging_a_variant_appends_after_the_existing_photo", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedImage(mirror, { id: "img1", mediaKey: "catalog/originals/2026/01/one.jpg", ordinal: 0 });
+  const res = await postPhoto("/items/wool-coat/photo", MANAGER, env(mirror, undefined, { MEDIA: fakeBucket() }), { variantId: "v1" });
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.variant_id, "v1");
+  assert.equal(data.ordinal, 1, "always appended, never inserted ahead of a photo Square itself sent");
+});
+
+check("test_PRD_P0_173_variant_photo_upload__a_variant_id_from_another_product_is_refused", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  mirror.db.exec(
+    "INSERT INTO mirror_product (id, external_ref, handle, title, source_description, status, channel, custom_fields, category_id)" +
+      " VALUES ('p2', 'sqitem2', 'other-item', 'Other Item', '', 'active', 'direct_link', '{}', 'cat1')",
+  );
+  mirror.db.exec(
+    "INSERT INTO mirror_variant (id, external_ref, product_id, sku, title, price_minor, currency) VALUES ('v-other', 'sqvar-other', 'p2', 'VEM-200', 'One size', 3000, 'USD')",
+  );
+  const res = await postPhoto("/items/wool-coat/photo", MANAGER, env(mirror, undefined, { MEDIA: fakeBucket() }), { variantId: "v-other" });
+  assert.equal(res.status, 400);
+  const data = await res.json();
+  assert.match(data.error, /does not belong to this item/);
+});
+
+check("test_PRD_P0_173_variant_photo_upload__staff_role_is_refused", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await postPhoto("/items/wool-coat/photo", STAFF, env(mirror, undefined, { MEDIA: fakeBucket() }), {});
+  assert.equal(res.status, 403);
+});
+
+check("test_PRD_P0_173_variant_photo_upload__no_file_is_refused", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const form = new FormData();
+  const res = await worker.fetch(
+    new Request("http://localhost/items/wool-coat/photo", {
+      method: "POST",
+      headers: { "Cf-Access-Jwt-Assertion": assertion(MANAGER) },
+      body: form,
+    }),
+    env(mirror, undefined, { MEDIA: fakeBucket() }),
+  );
+  assert.equal(res.status, 400);
 });
 
 check("test_PRD_P0_71_items_tab__a_tile_expands_to_the_full_screen_instead_of_cramming_data_into_a_cell", async () => {

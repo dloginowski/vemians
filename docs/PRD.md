@@ -8142,6 +8142,57 @@ that does not trace to one of these is a process failure (see §12).
     with no change to `.items-grid`'s own already-consistent 10px gap (re-verified separately at
     both a 375px and a 1200px viewport, ruling that half of the report out as already correct).
 
+106. **`Test-PRD-P0-173-variant_photo_upload`** — The owner's own words: "I want to add an upload
+    image button... on a product... I see its full view. Each one of these variants, headers, the
+    expandable header that has the sizes, I want inside of that header to have an upload button on
+    the right side so I can click on it and just upload an image specifically for that option, for,
+    like, for that variant. And I want them to appear as... I should be able then to right and left
+    swipe on the image in the full image view to go between the images. And I should have a little...
+    pill that indicates to me if this series of images belong to a specific option or variant."
+
+    **Never sent to Square.** Square's own catalog-image API (and this codebase's own adapter,
+    `images.js`) only ever attaches an image to an ITEM, never to an ITEM_VARIATION — a variant-
+    tagged photo has nowhere to go on Square's side even if this codebase wanted to send it. A new
+    nullable `mirror_image.variant_id` (migration `0011_variant_photos.sql`) records the tag purely
+    in our own mirror instead, written directly by a new `POST /items/<handle>/photo` route (a
+    direct, human-only utility — the closest existing shape is the stock stepper's own immediate
+    `/inventory` route, not the resend-everything form dance the rest of the tile uses) that stores
+    the bytes (R2 or Square-as-store, whichever this deployment uses, via the same `mediaStoreFor`
+    every other upload already shares) and inserts the `mirror_image` row itself, with a locally
+    synthesized `external_ref` ("ops-upload:\<uuid\>", never a real Square id). This is safe from
+    the periodic catalog sync: confirmed by reading `mirror.js`'s own incremental sync (which only
+    ever `seenVariants`-style reconciles variants and item-options, never images) and `sync.js`'s
+    own full-sweep pass (which never touches `mirror_image` at all) — a row this table did not get
+    from Square is never touched, let alone archived, by anything this codebase runs.
+
+    **Placement of the button.** A 2-axis grouped product's own color header
+    (`variantsGroupedAccordionHtml`) is "the expandable header that has the sizes" — it has no
+    variant of its own to tag a photo with, so its own button is anchored to the FIRST variation
+    that row actually has (EXISTING SKUS ONLY, the same rule the grid itself already follows). A
+    flat, single-dimension product has no such group — each row already IS one whole variant, so
+    its own button (added next to that row's own stock stepper) points directly at it.
+
+    **The gallery.** `itemTile()`'s own single `background-image` (P0-71) is untouched for a
+    product with one photo or none — a swipeable `.item-photo-track`/`.item-photo-slide` pair only
+    renders at all once a product has MORE than one (`listAllProducts`' own new `images` array,
+    ordinal-ordered, general photos from Square first since a variant upload always appends), and
+    only engages (`.item-tile.full .item-photo-track`) once the tile is expanded — a collapsed
+    thumbnail's own swipe gesture stays "tap to expand," never "flip through hidden photos." Plain
+    CSS scroll-snap, not a JS drag library. The pill's own label is resolved once per variant
+    (`variantLabelById`, `itemTile()`) — the row-axis VALUE ("Red") for a 2-axis grouped product,
+    matching what its own group header already shows; that variant's own TITLE otherwise; blank
+    (no pill at all) for a general, untagged photo.
+
+    Verified live (`worker.fetch` driving the real route, a real fake-bucket store, and the real
+    served page read back): the grouped view's own "Red"/"Blue" headers each carry a button pointed
+    at the correct anchor variant; a flat row's own button carries that row's own variant id; a
+    product with one photo renders no track at all, a second photo promotes it into one with the
+    general photo unlabeled and the variant-tagged one carrying that variant's own row-axis value;
+    the route stores bytes, inserts a `mirror_image` row with the right `product_id`/`variant_id`/
+    `ordinal`/synthesized `external_ref`, refuses a variant id belonging to another product, and
+    refuses staff. Regression tests confirmed to fail against the pre-fix code (no route, no
+    button, no track).
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
