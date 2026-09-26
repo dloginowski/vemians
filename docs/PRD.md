@@ -8099,6 +8099,29 @@ that does not trace to one of these is a process failure (see §12).
     correctly reassigns it under the fixed one, confirmed by a regression test built the same
     way — a real Square-shaped seed object, not a database row bypassing the sync it exists to
     prove.
+104. **`Test-PRD-P0-171-items_grid_packs_at_top`** — A real transcript, filtering to a four-item
+    subcategory: "I'm seeing two are stuck on the bottom and two are on top... they should all be
+    on top... it's a weird split." `.items-grid.short` (`Test-PRD-P0-157-items_grid_flush_to_bar`'s
+    own fix, made conditional by `Test-PRD-P0-168-items_grid_row_collapse` after `align-content:
+    space-between` turned out unsafe unconditionally) opted a catalog into `space-between` whenever
+    its visible content measured shorter than the grid's own box — built and only ever measured
+    against a NEARLY full catalog with a small, ~10px residual gap. The identical mechanism applies
+    to any short content, filtered or not: four items in a box sized for a full, unfiltered
+    catalog measured live at two rows with a 335px gap stranded between them — the exact "weird
+    split" reported. Category filtering (`Test-PRD-P0-169-item_breadcrumb`) is what turned this
+    from a rare edge case into the ordinary one: filtering to a small subcategory is now a normal,
+    expected action, not a corner nobody actually hits.
+
+    **Retired the conditional opt-in outright rather than tuning its threshold.** No amount of
+    tuning "how short is too short to spread" fixes the underlying disagreement — spreading rows
+    apart with a gap is not what "no dead space below the last row" was ever asking for once the
+    gap is large enough to read as two disconnected groups instead of one tidy list. `align-content`
+    on `.items-grid` is plain `start`, unconditionally, with no class ever changing it: every row
+    packs at the top, and whatever space is left over sits as blank space below the last row,
+    never between rows. `updateItemsGridFit()` (the `scrollHeight`-vs-`clientHeight` measurement
+    that decided when to opt in) is gone along with it — there is no longer a decision left for it
+    to drive. Confirmed live: the same four-item catalog that split 38px/573px before now packs at
+    38px/223px, a plain 10px gap between rows, matching every other spacing in the grid.
 
 ## 4. P1 features
 

@@ -2235,21 +2235,28 @@ ${INPUT_BAR_CSS}
      grid-auto-rows fix above — align-content: safe space-between is the
      CSS spec's own named answer to exactly this, but CSS.supports(
      "align-content", "safe space-between") measured false in this app's
-     own real Chromium (141), so decided with JS instead: align-content
-     stays plain start here (packs rows at their own natural size, no
-     stretch, never negative) and .items-grid.short (below, toggled by
-     updateItemsGridFit() after every filter change and on resize, by
-     comparing scrollHeight to clientHeight) opts into space-between
-     only on the measured turns a real, positive amount of leftover
-     space actually exists to distribute. Confirmed live in both shapes:
-     a 16-item catalog too tall for a 667px phone viewport lays out as
-     plain non-overlapping rows 10px apart (.short never applied), and a
-     short catalog that fits with room to spare gets space-between's own
-     real behavior once .short is applied — full-height distribution, no
-     dead gap stranded below the last row. */
+     own real Chromium (141).
+
+     REVISED AGAIN — a real transcript, filtering to a subcategory with
+     four items: "I'm seeing two are stuck on the bottom and two are on
+     top... they should all be on top... it's a weird split." The
+     .items-grid.short opt-in this file used to carry (space-between,
+     toggled on whenever the visible content measured shorter than the
+     box) was built to close a small, ~10px residual gap on a NEARLY
+     full catalog — but the identical mechanism applies to ANY short
+     content, including four items in a box sized for a full, unfiltered
+     catalog: measured live, two items at the top and two stranded
+     335px below them, exactly the "weird split" reported. A gap that
+     small below the last row of a nearly-full page reads as tidy
+     alignment; the same mechanism on a heavily filtered category reads
+     as broken. Category filtering (P0-169) made the short case the
+     ORDINARY one, not the rare edge it was tuned for. align-content is
+     plain start, unconditionally, now — every row packs at the top,
+     whatever is left over sits as blank space below the last row, and
+     that is the whole of the intended behavior; nothing here should
+     ever spend leftover space as a gap BETWEEN rows again. */
   align-content: start;
 }
-.items-grid.short { align-content: space-between; }
 /* The flex column that makes .items-grid's own sizing above real: .greet
    (the status line) takes exactly its own content height, .items-grid
    takes exactly what's left, and .input-bar stays position: fixed,
@@ -3922,20 +3929,6 @@ function matchesStatusFilter(el) {
   if (el.dataset.status === "inactive") return false;
   return statusFilter === "web" ? el.dataset.channel === "website" : true;
 }
-/* .items-grid's own CSS (above) starts plain (align-content: start) --
-   safe under overflow by construction -- and opts into space-between,
-   via this class alone, only on the turns actually measured to fit
-   without it. Re-run after every filter change (the visible tile count,
-   and so whether the grid overflows, can change on every keystroke) and
-   on resize (the same catalog can gain or lose overflow purely from the
-   viewport's own height changing, e.g. a phone's rotating or its on-
-   screen keyboard opening/closing). */
-const itemsGrid = document.getElementById("items-grid");
-function updateItemsGridFit() {
-  itemsGrid.classList.toggle("short", itemsGrid.scrollHeight <= itemsGrid.clientHeight);
-}
-window.addEventListener("resize", updateItemsGridFit);
-
 /* The existing top-of-page category menu only ever offers LEAF names
    (categories, above — flat, built from product.category_name), so
    selectedCategories.has(el.dataset.category) alone was always enough
@@ -3959,7 +3952,6 @@ function filterItems() {
     const matchesSearch = !q || el.dataset.search.includes(q);
     el.hidden = !matchesCategoryFilter(el) || !matchesSearch || !matchesStatusFilter(el);
   });
-  updateItemsGridFit();
 }
 itemSearch.addEventListener("input", filterItems);
 const itemStatusFilterEl = document.getElementById("item-status-filter");

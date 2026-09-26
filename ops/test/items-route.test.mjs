@@ -356,15 +356,27 @@ check("test_PRD_P0_157_items_grid_flush_to_bar__the_shared_bottom_padding_and_th
 
      REVISED — plain align-content: space-between on the base rule (as
      shipped here originally) turned out to be unsafe on an OVERFLOWING
-     catalog: see Test-PRD-P0-168-items_grid_row_collapse below for the
-     full live-measured story of why it now only applies conditionally,
-     via .items-grid.short. */
+     catalog (Test-PRD-P0-168-items_grid_row_collapse), so it was made
+     conditional instead, via .items-grid.short.
+
+     REVISED AGAIN, that conditional opt-in retired outright — a real
+     transcript, filtering to a four-item subcategory: "I'm seeing two
+     are stuck on the bottom and two are on top... they should all be on
+     top... it's a weird split." .items-grid.short applied space-between
+     to ANY short content, not only a nearly-full catalog with a small
+     residual — the exact same mechanism that closed a tidy ~10px gap on
+     a full catalog stretched a 4-item filtered view across the WHOLE
+     box, stranding two items 335px below the other two. Category
+     filtering (P0-169) made the short case the ordinary one, not the
+     rare edge this rule was tuned for. See Test-PRD-P0-171-items_grid_
+     packs_at_top for the corrected, unconditional behavior — this
+     check's own remaining assertion is only the bottom-padding half of
+     the original fix, still real and unrelated to row alignment. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const res = await get("/items", STAFF, env(mirror));
   const body = await res.text();
   assert.match(body, /\.ops\s*\{[^}]*max-width:\s*64rem;\s*padding:\s*12px 8px 64px/s, "the shared .ops bottom padding must be tightened, not the stale 76px");
-  assert.match(body, /\.items-grid\.short\s*\{\s*align-content:\s*space-between/s, "leftover row space must be spent BETWEEN rows on a catalog measured to fit, not left below the last one");
 });
 
 check("test_PRD_P0_168_items_grid_row_collapse__tiles_never_overlap_regardless_of_catalog_length", async () => {
@@ -397,7 +409,33 @@ check("test_PRD_P0_168_items_grid_row_collapse__tiles_never_overlap_regardless_o
   assert.match(body, /\.items-grid\s*\{[^}]*grid-auto-rows:\s*min-content/s, "auto row sizing is exactly what collapses under overflow: hidden + aspect-ratio; min-content sidesteps it");
   assert.match(body, /\.items-grid\s*\{[^}]*align-content:\s*start/s, "the base rule must never be unconditional space-between, which goes negative and overlaps rows once a catalog overflows the box");
   assert.doesNotMatch(body, /\.items-grid\s*\{[^}]*align-content:\s*(normal|space-between)/s, "neither the browser's own default (normal, which computes to stretch for grid and reintroduces the row collapse) nor unconditional space-between belongs on the base rule");
-  assert.match(body, /updateItemsGridFit/, "the short/overflowing decision must be measured live (scrollHeight vs clientHeight), not guessed from CSS alone");
+});
+
+check("test_PRD_P0_171_items_grid_packs_at_top__a_short_or_filtered_catalog_never_splits_into_a_gapped_pair_of_rows", async () => {
+  /* A real transcript, filtering to a four-item subcategory: "I'm seeing
+     two are stuck on the bottom and two are on top... they should all
+     be on top... it's a weird split." .items-grid used to opt into
+     align-content: space-between (a .short class, toggled by measuring
+     scrollHeight against clientHeight) whenever the visible content
+     measured shorter than the box — built for a NEARLY full catalog's
+     own small residual gap (Test-PRD-P0-157), but the identical
+     mechanism applies to any short content. Measured live: four items
+     in a box sized for a full, unfiltered catalog rendered as two rows
+     with a 335px gap stranded between them — the exact "weird split"
+     reported, and category filtering (P0-169) made this the ORDINARY
+     case a person actually hits, not a rare edge. Fixed by retiring the
+     opt-in outright: align-content is plain start, unconditionally, no
+     class ever changes it, and there is no live measurement (scrollHeight
+     vs clientHeight) left to drive one. Every row packs at the top;
+     whatever space is left over sits below the last row, never between
+     rows. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.doesNotMatch(body, /\.items-grid\.short\s*\{/, "the short-catalog opt-in must be gone outright, not just unused");
+  assert.doesNotMatch(body, /\bupdateItemsGridFit\b/, "no live scrollHeight/clientHeight measurement should remain once nothing branches on it");
+  assert.doesNotMatch(body, /align-content:\s*space-between/, "space-between must not appear anywhere in this page's own CSS any more");
 });
 
 check("test_PRD_P0_169_item_breadcrumb__every_category_level_renders_as_its_own_clickable_segment", async () => {
