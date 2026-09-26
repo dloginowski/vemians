@@ -7776,6 +7776,27 @@ that does not trace to one of these is a process failure (see §12).
     that was the identical stale-spacing mistake `.items-grid`'s own former `max-height` already turned
     out to be. Verified live: the log's own real content height grew by exactly the removed 16px.
 
+95. **`Test-PRD-P0-162-table_card_never_flex_shrunk`** — Reacting to P0-160 above, a real transcript: "I
+    just entered some more chats into the chat view... and then I tried to upload some... a CSV file.
+    And again, the preview is collapsed vertically. Like I told you before, you did not fix the issue."
+    Removing `.table-card`'s own `max-height` turned out not to be enough. `.log` is a column flexbox,
+    and this card is the ONE child of it that also carries its own `overflow: auto` (for the real,
+    orthogonal, sideways-scroll case a wide table can need) — per the CSS Flexbox spec, a flex item whose
+    own `overflow` is anything but `visible` gets an AUTOMATIC MINIMUM SIZE of 0 on the flex axis, rather
+    than one based on its own content. Combined with `flex-shrink`'s own default of 1, that made this
+    card — and only this card among `.log`'s children — the one thing flexbox was free to squeeze
+    smaller than its own content once `.log`'s other messages had already claimed most of the real
+    available space, reintroducing the identical "vertically collapsed, its own inner scrollbar" symptom
+    through a completely different mechanism than the max-height P0-160 already removed. This is why the
+    first round's own live verification (a preview as the very first message in an empty log) looked
+    complete and wasn't: with nothing else in `.log` yet, there was no shrink pressure to trigger it.
+    `flex-shrink: 0` makes this card behave the way an ordinary `.log p` bubble already implicitly does —
+    it sets no `overflow` at all, so its own automatic minimum size was always content-based, and it was
+    never eligible for this squeeze in the first place. Confirmed live, matching the real transcript's own
+    repro order exactly (several ordinary turns, THEN a CSV upload): the same preview that rendered at
+    283px as the first message in an empty log rendered at 149px — squeezed, not sized to content —
+    appended after prior conversation, and at its full natural height again once this fix landed.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

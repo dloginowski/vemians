@@ -693,6 +693,32 @@ check("test_PRD_P0_160_table_card_never_vertically_capped__no_table_card_of_any_
   assert.match(body, /\.table-card\.full\s*\{[^}]*max-height:\s*none/s, "Full screen may still say so explicitly, even though it is no longer the only uncapped state");
 });
 
+check("test_PRD_P0_162_table_card_never_flex_shrunk__the_card_never_gets_squeezed_below_its_own_content", async () => {
+  /* Removing max-height (P0-160) turned out not to be enough — a real
+     transcript, uploading a CSV into a chat that already had a few turns
+     in it: "again, the preview is collapsed vertically. Like I told you
+     before, you did not fix the issue." .log is a column flexbox, and
+     this card is the one child of it with its own "overflow: auto" set
+     (for the orthogonal, real, sideways-scroll case) — CSS Flexbox gives
+     a flex item with non-visible overflow an AUTOMATIC MINIMUM SIZE of 0
+     rather than one based on its own content, so once .log's other
+     messages had already claimed most of the real available space,
+     flex-shrink's own default of 1 let the browser squeeze this card
+     down and clip it with its own inner scrollbar — the identical
+     "vertically collapsed" symptom, through a completely different
+     mechanism than the max-height already removed. Confirmed live: the
+     exact same preview rendered at its full natural height as the FIRST
+     message in an empty log, but was squeezed to roughly half that once
+     several ordinary chat turns preceded it — which is why the first
+     round's fix looked complete and wasn't. flex-shrink: 0 makes this
+     card behave the way an ordinary .log p bubble already implicitly
+     does (no overflow set, so never eligible to shrink below content),
+     so .log's own overflow-y is what accommodates a tall table now,
+     exactly like it already does for a tall message. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.table-card\s*\{[^}]*flex-shrink:\s*0/s, "the card must never shrink below its own content inside .log's column flexbox");
+});
+
 check("test_PRD_P0_89_batch_preview_confirm__the_table_is_as_space_efficient_as_possible", async () => {
   /* The owner's own words, that round: "Make padding half and font size
      to 9" — the padding half of that stayed exactly this tight even
