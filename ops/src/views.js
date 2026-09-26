@@ -1062,7 +1062,33 @@ ${INPUT_BAR_CSS}
 .ops.chat-page .greet { flex: 0 0 auto; }
 .ops.chat-page .chat-top { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .ops.chat-page .log { flex: 1 1 auto; min-height: 0; }
-.ops.chat-page #gate { flex: 0 0 auto; }
+/* REVISED — a real transcript: "I can't click approval for tier two
+   action because it is underneath my chat box and I cannot click on
+   it." #gate's own flex: 0 0 auto NEVER shrinks and has no scroll of its
+   own, so once a real approval card's own content (a tool name, a JSON
+   argument dump, an effect sentence, Stores) plus whatever .log already
+   holds together outgrow .chat-top's own bounded box, the card simply
+   overflows PAST that box — .chat-top itself has no overflow handling
+   either — running straight underneath the fixed .input-bar (z-index:
+   20, opaque), which then paints over the Approve/Cancel row and
+   intercepts the click before it ever reaches the button. Confirmed
+   live: a realistic catalog.create_product approval (title, price,
+   category, vendor, style_id, description) rendered a 543px card inside
+   a 584px budget shared with two prior messages — the button pair
+   landed 8-40px into the bar's own territory depending on how much
+   prior conversation existed, document.elementFromPoint at the
+   button's own coordinates returning the fixed bar instead of the
+   button for the part that overlapped.
+   flex: 0 1 auto (shrink allowed, grow still 0 — an approval card never
+   NEEDS to grow past its own content) plus min-height: 0 and its own
+   overflow-y: auto give #gate the identical bounded-and-internally-
+   scrollable contract .log already has: whatever combination of prior
+   messages and card content exists, the two now share .chat-top's real
+   available height by shrinking together rather than one of them simply
+   running off the bottom of the page. A tall card scrolls inside its
+   own border now, exactly like a real dialog, with Approve/Cancel always
+   reachable inside it — never hidden behind the composer. */
+.ops.chat-page #gate { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
 .log:empty { display: none; }
 .log p {
   margin: 0; padding: 8px 12px; border-radius: 14px;
