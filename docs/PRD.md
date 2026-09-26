@@ -7858,19 +7858,31 @@ that does not trace to one of these is a process failure (see §12).
     584px budget shared with two prior messages, `document.elementFromPoint` at the button's own
     coordinates returning the fixed bar instead of the button for the part that overlapped.
 
-    `flex: 0 1 auto` (still never grows past its own content — an approval card never needs to claim
-    space `.log` isn't using) plus `min-height: 0` and its own `overflow-y: auto` give `#gate` the
-    identical bounded-and-internally-scrollable contract `.log` already has: whatever combination of
-    prior messages and card content exists, the two now share `.chat-top`'s real available height by
-    shrinking together, rather than one of them running off the bottom of the page. A tall card scrolls
-    inside its own border now, exactly like a real dialog, with Approve/Cancel always reachable inside
-    it — never hidden behind the composer. Confirmed live, post-fix: scrolling `#gate` to its own bottom
-    makes the Approve button fully visible (`document.elementFromPoint` returns the button itself, not
-    the bar), and a real `.click()` on it fires the ordinary handler. Also confirmed unaffected: the
-    common case (no pending approval, `#gate` empty, the P0-164 gap unchanged at 10.75px), the batch
-    checklist card (`checklistCard()`, sharing the same `#gate`/`.gate` mechanism), the CSV preview
-    (P0-160/P0-162), and scrolling a long conversation to its own first message (P0-163) — none of these
-    regressed.
+    **First fix, superseded within the same round:** `flex: 0 1 auto` plus `min-height: 0` and
+    `overflow-y: auto` gave `#gate` the same bounded-and-internally-scrollable contract `.log` already
+    had, sharing `.chat-top`'s real available height by shrinking together. Technically reachable by
+    scrolling, and confirmed working live — but the owner's own words, immediately on seeing it described:
+    "nothing should ever be underneath my chat box. It should be in a separate div on the bottom... why
+    would you ever be in a situation where you want to have anything underneath the chat box?" A card
+    that could still end up sharing space with `.log`, even scrollably, was the wrong shape of fix for
+    that principle.
+
+    **What actually shipped:** `.gate` no longer participates in `.chat-top`'s own flex layout at all —
+    it is `position: fixed` now, the identical floating-panel technique `.category-menu` already uses to
+    sit above this exact composer (`left: 8px; right: 8px; bottom: 58px; z-index: 21`, the same numbers,
+    the same reasoning: 8px matches `.ops`'s own side inset, 58px clears `.input-bar`'s own 8px offset +
+    ~42px height + 8px gap). A `position: fixed` element is removed from its parent's flex formatting
+    context entirely, by spec, so it can never again be "underneath" the log's own content or dependent
+    on how much of it exists — it either isn't in the DOM at all (the common case, no pending approval),
+    or it floats strictly above the bar, with its own `max-height` and `overflow-y: auto` for a card too
+    tall to fit above it, and a new `background: var(--image-ground)` so `.log`'s own content behind it
+    doesn't show through unreadably. `#gate` itself needs no special CSS any more at all. Confirmed live
+    with Playwright's own real, actionability-checked `locator.click()` (never a programmatic `.click()`,
+    which bypasses hit-testing entirely) on both the approval card's own Approve button and the batch
+    checklist's own Submit button (`checklistCard()`, sharing the same `.gate` mechanism) — both real
+    clicks succeeded. Also confirmed unaffected: the common case (no pending approval, the P0-164 gap
+    unchanged at 10.75px), the CSV preview (P0-160/P0-162), and scrolling a long conversation to its own
+    first message (P0-163).
 
 ## 4. P1 features
 

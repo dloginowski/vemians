@@ -1650,33 +1650,39 @@ check("test_PRD_P0_164_chat_bar_clearance_not_stacked_twice__the_gap_before_the_
   assert.doesNotMatch(body, /\.chat-top\s*\{[^}]*padding:\s*14px 0;/s, "the old symmetric 14px top/bottom pair must not still be set");
 });
 
-check("test_PRD_P0_165_approval_card_never_hidden_behind_the_bar__gate_shrinks_and_scrolls_like_log_already_does", async () => {
+check("test_PRD_P0_165_approval_card_never_hidden_behind_the_bar__gate_floats_above_the_composer_like_category_menu_already_does", async () => {
   /* A real transcript: "I can't click approval for tier two action
      because it is underneath my chat box and I cannot click on it."
-     #gate's own flex: 0 0 auto never shrank and had no scroll of its
-     own, so once a real approval card's content (tool name, a JSON
-     argument dump, an effect sentence, Stores) plus whatever .log
-     already held together outgrew .chat-top's own bounded box, the card
-     simply overflowed PAST it — .chat-top itself has no overflow
-     handling either — running straight underneath the fixed .input-bar
-     (z-index: 20, opaque), which painted over the Approve/Cancel row and
-     intercepted the click before it ever reached the button. Confirmed
-     live: a realistic catalog.create_product approval rendered a 543px
-     card inside a 584px budget shared with two prior messages;
-     document.elementFromPoint at the button's own coordinates returned
-     the fixed bar, not the button, for the part that overlapped.
-     flex: 0 1 auto (still never grows past its own content) plus
-     min-height: 0 and overflow-y: auto give #gate the identical
-     bounded-and-internally-scrollable contract .log already has —
-     confirmed live, post-fix, that scrolling #gate to its own bottom
-     makes the Approve button fully visible and clickable
-     (document.elementFromPoint returns the button itself), and a real
-     .click() on it fires the ordinary handler (the button disables, the
-     same as any other click). */
+     First fix (superseded): keep #gate a normal-flow sibling of .log,
+     just make it shrink and scroll (flex: 0 1 auto; min-height: 0;
+     overflow-y: auto) the same way .log already does — technically
+     reachable, but still fundamentally a thing that COULD end up
+     underneath the composer depending on how much .log content existed.
+     The owner's own words, immediately after: "nothing should ever be
+     underneath my chat box. It should be in a separate div on the
+     bottom... why would you ever be in a situation where you want to
+     have anything underneath the chat box?"
+     .gate no longer shares .chat-top's own flex layout with .log at
+     all — it is position: fixed now, the identical floating-panel
+     technique .category-menu already uses to sit above this exact same
+     composer (same left/bottom/z-index numbers). A position: fixed
+     element is removed from its parent's flex formatting context
+     entirely, by spec, so it can never again be "underneath" the log's
+     own content or dependent on how much of it exists — it either isn't
+     in the DOM (the common case), or it floats strictly above the bar,
+     with its own bounded max-height and overflow-y: auto for a card too
+     tall to fit above it. Confirmed live with Playwright's own real,
+     actionability-checked locator.click() (not a programmatic .click(),
+     which bypasses hit-testing entirely) on both the approval card's
+     own Approve button and the batch checklist's own Submit button —
+     both real clicks succeeded and fired their ordinary handlers. */
   const { body } = await frontPage(OWNER);
-  assert.match(body, /\.ops\.chat-page #gate\s*\{[^}]*flex:\s*0 1 auto/s, "gate must be allowed to shrink when a card is too tall for the real available space");
-  assert.match(body, /\.ops\.chat-page #gate\s*\{[^}]*min-height:\s*0/s, "without this a non-visible-overflow flex item cannot shrink below its own content at all");
-  assert.match(body, /\.ops\.chat-page #gate\s*\{[^}]*overflow-y:\s*auto/s, "a tall card must scroll inside its own box, never spill past it into the fixed bar's own territory");
+  assert.match(body, /\.gate\s*\{[^}]*position:\s*fixed/s, "the card must float above the page, not live inside .chat-top's own shared flex layout");
+  assert.match(body, /\.gate\s*\{[^}]*bottom:\s*58px/s, "it must clear .input-bar by the same margin .category-menu already does, not overlap it");
+  assert.match(body, /\.gate\s*\{[^}]*z-index:\s*21/s, "it must paint above ordinary .log content, matching .category-menu's own stacking");
+  assert.match(body, /\.gate\s*\{[^}]*overflow-y:\s*auto/s, "a card taller than the space above the bar must scroll inside its own panel");
+  assert.match(body, /\.gate\s*\{[^}]*background:\s*var\(--image-ground\)/s, "a floating panel needs its own solid fill or .log content behind it shows through unreadably");
+  assert.doesNotMatch(body, /\.ops\.chat-page #gate/s, "#gate must carry no special layout CSS of its own any more — a position: fixed child needs none from its parent");
 });
 
 check("test_PRD_P0_78_chat_widget__the_inline_client_script_is_valid_javascript", async () => {

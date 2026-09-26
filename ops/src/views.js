@@ -1062,33 +1062,29 @@ ${INPUT_BAR_CSS}
 .ops.chat-page .greet { flex: 0 0 auto; }
 .ops.chat-page .chat-top { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .ops.chat-page .log { flex: 1 1 auto; min-height: 0; }
-/* REVISED — a real transcript: "I can't click approval for tier two
-   action because it is underneath my chat box and I cannot click on
-   it." #gate's own flex: 0 0 auto NEVER shrinks and has no scroll of its
-   own, so once a real approval card's own content (a tool name, a JSON
-   argument dump, an effect sentence, Stores) plus whatever .log already
-   holds together outgrow .chat-top's own bounded box, the card simply
-   overflows PAST that box — .chat-top itself has no overflow handling
-   either — running straight underneath the fixed .input-bar (z-index:
-   20, opaque), which then paints over the Approve/Cancel row and
-   intercepts the click before it ever reaches the button. Confirmed
-   live: a realistic catalog.create_product approval (title, price,
-   category, vendor, style_id, description) rendered a 543px card inside
-   a 584px budget shared with two prior messages — the button pair
-   landed 8-40px into the bar's own territory depending on how much
-   prior conversation existed, document.elementFromPoint at the
-   button's own coordinates returning the fixed bar instead of the
-   button for the part that overlapped.
-   flex: 0 1 auto (shrink allowed, grow still 0 — an approval card never
-   NEEDS to grow past its own content) plus min-height: 0 and its own
-   overflow-y: auto give #gate the identical bounded-and-internally-
-   scrollable contract .log already has: whatever combination of prior
-   messages and card content exists, the two now share .chat-top's real
-   available height by shrinking together rather than one of them simply
-   running off the bottom of the page. A tall card scrolls inside its
-   own border now, exactly like a real dialog, with Approve/Cancel always
-   reachable inside it — never hidden behind the composer. */
-.ops.chat-page #gate { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
+/* REVISED, THEN REVISED AGAIN — a real transcript: "I can't click
+   approval for tier two action because it is underneath my chat box and
+   I cannot click on it." The first fix kept #gate as a normal-flow
+   sibling of .log inside .chat-top, just made it shrink and scroll the
+   same way .log already does (flex: 0 1 auto; min-height: 0; overflow-y:
+   auto) — technically reachable by scrolling, but still fundamentally a
+   thing that could END UP underneath the composer depending on how much
+   .log content existed above it. The owner's own words, immediately
+   after: "nothing should ever be underneath my chat box. It should be
+   in a separate div on the bottom... why would you ever be in a
+   situation where you want to have anything underneath the chat box?"
+   #gate no longer participates in .chat-top's own flex layout AT ALL —
+   .gate (below) is position: fixed now, the identical floating-panel
+   technique .category-menu already uses to sit above this same composer
+   (same left/bottom/z-index numbers, same reasoning: 8px matches .ops's
+   own side inset, 58px clears .input-bar's own 8px offset + ~42px
+   height + 8px gap). A position: fixed element is removed from its
+   parent's flex formatting context entirely, by spec — #gate itself
+   needs no CSS of its own any more, and can never be "underneath"
+   anything again: it either isn't in the DOM at all (the common case,
+   no pending approval), or it floats as its own layer strictly above
+   the composer, with its own bounded height and scroll for a card too
+   tall to fit above it. */
 .log:empty { display: none; }
 .log p {
   margin: 0; padding: 8px 12px; border-radius: 14px;
@@ -1124,7 +1120,31 @@ ${INPUT_BAR_CSS}
 }
 .suggestion-pill:hover, .suggestion-pill:focus-visible { background: rgba(217, 119, 87, 0.14); }
 ${TABLE_CARD_CSS}
-.gate { border: 1px solid var(--ink); padding: 12px; margin: 12px 0; border-radius: 10px; }
+/* "Nothing should ever be underneath my chat box. It should be in a
+   separate div on the bottom... why would you ever be in a situation
+   where you want to have anything underneath the chat box?" — the
+   owner's own words. .gate is now a floating panel above .input-bar,
+   never a normal-flow sibling inside .chat-top competing with .log for
+   shared space — the exact same technique .category-menu already uses
+   to float above this same composer (identical left/bottom/z-index:
+   8px matches .ops's own side inset, 58px clears .input-bar's own 8px
+   offset + ~42px height + 8px gap, so the two never overlap by
+   construction rather than by careful height accounting). max-height
+   plus overflow-y: auto give a genuinely tall card (a real tool call's
+   full JSON arguments, or a checklist with many rows) its own internal
+   scroll, exactly like a real dialog — Approve/Cancel or Submit/Cancel
+   always reachable inside it, never dependent on how much conversation
+   already exists in .log, which no longer has to shrink for this at
+   all. background is new too: a position: fixed panel with no fill of
+   its own would show whatever .log content sits underneath it right
+   through, unreadably — .category-menu's own image-ground fill,
+   matched here for the same "solid floating panel" reason. */
+.gate {
+  border: 1px solid var(--ink); padding: 12px; border-radius: 10px;
+  position: fixed; left: 8px; right: 8px; bottom: 58px; z-index: 21;
+  max-width: calc(64rem - 16px); max-height: 50vh; overflow-y: auto;
+  background: var(--image-ground);
+}
 .gate h3 { margin: 0 0 8px; }
 .gate dl { margin: 0; }
 .gate dt { font-weight: 700; margin-top: 8px; }
