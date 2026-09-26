@@ -5110,65 +5110,6 @@ ${OPS_DARK_CSS}
 }
 .admin-category-new-name { flex: 1 1 auto; min-width: 0; }
 .admin-category-new-numeric-id { flex: 0 0 2ch; width: 2ch; box-sizing: content-box; text-align: center; }
-/* "Associate a category with option sets" — a text toggle rather than an
-   icon, since there is no established glyph for this yet; orange once
-   anything is actually assigned, the same "reflects real state, not just
-   hover" rule every other control on this page already follows.
-   REVISED: "make the Sets button the same height as the rest of the UI
-   elements... everything needs to flow." The fixed height/font-size below
-   made it noticeably SHORTER than its own row's rename/numeric_id inputs
-   (admin-category-name/admin-category-numeric-id, both sized off a 13px
-   font and 4px vertical padding, no explicit height at all) — this now
-   matches those two exactly instead, so the row's own height comes from
-   one consistent metric, not the tallest of several different ones.
-   "Use all capitals for Sets" — the same text-transform this page's own
-   section labels (admin-section-label, above) already use, over
-   hand-typing "SETS" in the markup. */
-/* REVISED: a floating dropdown menu, not a block that pushes the row
-   below it down and out of alignment — the same position: relative
-   wrapper + position: absolute menu shape .vendor-picker/.vendor-picker-
-   menu already establish (Items tab, a separate script, but the
-   identical convention). */
-.admin-category-options { position: relative; flex: 0 0 auto; }
-.admin-category-options-toggle {
-  flex: 0 0 auto; padding: 4px 8px; font: inherit; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em;
-  border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--muted); cursor: pointer;
-}
-/* "When I click Apply to items, it stays orange... orange indicates
-   dirty" — the owner's own words. This border used --accent (the SAME
-   orange .field-dirty's own outline uses for a genuinely unsaved
-   change) just to mean "this category has option sets assigned" — a
-   persistent fact, never a pending-save one, so it read as permanently
-   dirty and never actually cleared. The same fix PR #238 already gave
-   Web/Active: a bright --muted border/text instead, a real but
-   non-alarming "this is active" signal — --accent stays reserved for
-   .field-dirty alone. */
-.admin-category-options-toggle-active { border-color: var(--muted); color: var(--ink); }
-.admin-category-options-menu[hidden] { display: none; }
-/* REVISED: "don't open it off screen. Open it to the left because the
-   current position of the button is to the right center. Open it to
-   the left." The toggle sits well over toward the right of its own row
-   (after name/numeric_id, before remove/+), so a menu anchored to its
-   LEFT edge and growing rightward (the .vendor-picker-menu convention
-   this shape was copied from, where the toggle sits at the LEFT of its
-   own row instead) ran past the right edge of the screen. Anchored to
-   the toggle's own RIGHT edge and growing leftward instead keeps it on
-   screen regardless of how close to the right edge the button sits. */
-.admin-category-options-menu {
-  position: absolute; top: 100%; right: 0; z-index: 15; margin-top: 4px; min-width: 12em; max-height: 16em;
-  overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding: 6px 10px;
-  border: 1px solid var(--muted); border-radius: 8px; background: var(--ground); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-}
-.admin-category-options-item { display: flex; align-items: center; gap: 6px; font-size: 12px; padding: 3px 2px; cursor: pointer; }
-.admin-category-options-item input.field-dirty[type="checkbox"] { outline: 1.5px solid var(--accent); outline-offset: 1px; }
-/* "There needs to be a separate option called Inherit... set by default
-   to inherit... once inherit is checked, I don't see any options —
-   they're grayed out and disabled" — the owner's own words. Its own
-   bottom border sets it apart from the plain option checkboxes below.
-   A disabled sibling checkbox already reads as grayed out on its own
-   (the browser's own default styling); nothing extra needed here for
-   that half. */
-.admin-category-options-inherit { margin-bottom: 4px; padding-bottom: 6px; border-bottom: 1px solid var(--rule); font-style: italic; }
 .admin-vendor-row { display: flex; align-items: center; gap: 6px; padding: 4px 0; }
 .admin-vendor-row-name { flex: 1 1 auto; min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
 .admin-vendor-commission-form { display: contents; }
@@ -5318,23 +5259,6 @@ function refreshDirtyState(field) {
 }
 document.body.addEventListener("input", (e) => {
   if (e.target.matches("input")) refreshDirtyState(e.target);
-});
-
-/* "Once the inherit is checked... they're grayed out and disabled. But
-   if I disable inherit, I can now adjust" — the owner's own words. The
-   server already renders the correct initial disabled state from
-   categoryExplicitIdsSet; this just keeps the sibling Option Set
-   checkboxes in sync live as the Inherit checkbox itself is toggled in
-   the browser, with no page reload. A disabled checkbox is excluded from
-   FormData automatically, so this is also what keeps a still-inheriting
-   category from ever submitting stale item_option_ids. */
-document.body.addEventListener("change", (e) => {
-  if (!e.target.matches(".admin-category-options-inherit input")) return;
-  const menu = e.target.closest(".admin-category-options-menu");
-  const willInherit = e.target.checked;
-  menu?.querySelectorAll(".admin-category-options-item:not(.admin-category-options-inherit) input").forEach((cb) => {
-    cb.disabled = willInherit;
-  });
 });
 
 /* "As soon as I enter that ID... it should immediately in my browser
@@ -5580,15 +5504,7 @@ document.body.addEventListener("click", (e) => {
     return;
   }
   const row = e.target.closest(".admin-category-row");
-  /* "Every time I toggle a set on and off, it expands and collapses the
-     header" — the owner's own words. Each checkbox is wrapped in its own
-     <label> (so clicking the option's NAME toggles it too, not just the
-     tiny box) — a click there lands on the label, not the <input> itself,
-     so "input, button" alone let it fall through and toggle the row.
-     .admin-category-options covers the whole Sets control (button AND
-     its open menu), the same exclusion the outside-click-to-close
-     listener below already uses for the identical reason. */
-  if (row && !e.target.closest("input, button, .admin-category-options")) {
+  if (row && !e.target.closest("input, button")) {
     row.closest(".admin-category-node")?.classList.toggle("expanded");
     return;
   }
@@ -5663,34 +5579,6 @@ document.body.addEventListener("click", (e) => {
     form.querySelector(".admin-category-new-name")?.focus();
     return;
   }
-  const optionsToggle = e.target.closest(".admin-category-options-toggle");
-  if (optionsToggle) {
-    const menu = optionsToggle.closest(".admin-category-options")?.querySelector(":scope > .admin-category-options-menu");
-    if (!menu) return;
-    const wasHidden = menu.hidden;
-    closeAllOptionsMenus();
-    menu.hidden = !wasHidden;
-  }
-});
-/* "A menu with checkboxes... I want to select multiple checkboxes,
-   toggle them" — a checkbox click inside the menu never reaches here
-   (e.target.closest(".admin-category-options") matches it, same as it
-   matches the toggle button itself), so any number of them stay
-   tickable in one sitting; only an outside click, Escape, or the toggle
-   button closes it. Same outside-click/Escape convention
-   closeAllCategoryPickers already establishes on the Items tab's own
-   script, reimplemented here rather than shared since the two pages
-   share no script module of their own. */
-function closeAllOptionsMenus() {
-  document.querySelectorAll(".admin-category-options-menu").forEach((m) => (m.hidden = true));
-}
-document.addEventListener("click", (e) => {
-  if (e.target.closest(".admin-category-options")) return;
-  closeAllOptionsMenus();
-});
-document.addEventListener("keydown", (e) => {
-  if (e.key !== "Escape") return;
-  closeAllOptionsMenus();
 });
 </script>`,
     ADMIN_CSS,
