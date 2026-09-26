@@ -1069,10 +1069,14 @@ check("test_PRD_P0_93_nested_chat_frame__the_outer_frame_padding_is_the_same_on_
      Superseded in part, first by Test-PRD-P0-118-chat_top_side_padding_halved
      (sides halved to 7px) and then by Test-PRD-P0-121-chat_matches_items_flush_padding
      (sides dropped to 0 entirely, matching the Items grid's own flush
-     layout): sides and top/bottom no longer match on purpose. Top/bottom
-     keep the 14px this test was originally about; only the sides moved. */
+     layout): sides and top/bottom no longer match on purpose.
+     REVISED AGAIN — top and bottom no longer match EACH OTHER either
+     now (Test-PRD-P0-164): bottom dropped to 0 once it stopped meaning
+     anything but a second, stacked clearance before the fixed bar; top
+     keeps the 14px this test was originally about, since it still does
+     real work (.greet to the first message) nothing else duplicates. */
   const { body } = await frontPage(OWNER);
-  assert.match(body, /\.chat-top\s*\{[^}]*padding:\s*14px 0;/s, "top/bottom stay the generous 14px; sides are now flush at 0");
+  assert.match(body, /\.chat-top\s*\{[^}]*padding:\s*14px 0 0;/s, "top keeps the generous 14px; sides are flush at 0 and bottom is now 0 too");
 });
 
 check("test_PRD_P0_118_chat_top_side_padding_halved__the_shell_tabs_stay_aligned_with_the_new_edge", async () => {
@@ -1106,7 +1110,7 @@ check("test_PRD_P0_121_chat_matches_items_flush_padding__the_chat_body_sits_exac
      background exactly the way an item-tile does, so an outer frame
      serves no purpose the Items grid doesn't already do without one. */
   const { body } = await frontPage(OWNER);
-  assert.match(body, /\.chat-top\s*\{[^}]*padding:\s*14px 0;/s, "chat-top's own side padding must be dropped to 0, matching .items-grid's own lack of padding");
+  assert.match(body, /\.chat-top\s*\{[^}]*padding:\s*14px 0 0;/s, "chat-top's own side padding must be dropped to 0, matching .items-grid's own lack of padding");
   assert.match(body, /\.log\s*\{[^}]*padding:\s*0;/s, "log's own padding must be dropped to 0 too, so nothing sits between .chat-top's edge and a bubble");
   assert.doesNotMatch(body, /\.chat-top\s*\{[^}]*padding:\s*14px 7px/s, "the intermediate 7px round must be gone");
   assert.doesNotMatch(body, /\.log\s*\{[^}]*padding:\s*2px/s, "the old uniform 2px round must be gone");
@@ -1621,6 +1625,31 @@ check("test_PRD_P0_163_chat_log_anchored_to_bar__a_short_conversation_sits_above
   assert.doesNotMatch(body, /\.log\s*\{[^}]*justify-content:\s*flex-end/s, "flex-end on the scrolling container itself is the unsafe fix that breaks scrolling to earlier messages once content overflows");
 });
 
+check("test_PRD_P0_164_chat_bar_clearance_not_stacked_twice__the_gap_before_the_bar_matches_items_exactly", async () => {
+  /* Reacting to P0-163 above, a real transcript, once told the residual
+     gap was fine: "It's closer to 30 pixels." Measured live at 32.75px,
+     three things stacking: .log's own unconditional 8px trailing margin
+     (redundant — #gate is empty on almost every turn, and .gate's own
+     dynamically-inserted card already carries its own margin: 12px 0 for
+     the rare turn it isn't, so this margin would have DOUBLED to 20px
+     rather than filled a real gap), .chat-top's own 14px bottom padding
+     (a leftover from when the composer nested inside this frame's own
+     bottom edge — it moved out to a fixed-position sibling long before
+     this round, so bottom padding here stopped meaning "inside my own
+     frame" and started meaning a second clearance stacked on the one
+     .ops's own padding-bottom already provides), and that one real,
+     shared clearance itself (10.75px, Test-PRD-P0-157). Removing the
+     first two brought the live-measured gap to exactly 10.75px — the
+     same residual Items' own grid carries before its search bar, down
+     from the reported ~30px. Top padding on .chat-top is UNCHANGED at
+     14px: it does real, distinct work (.greet to the first message)
+     neither removed rule duplicated. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.chat-top\s*\{[^}]*padding:\s*14px 0 0;/s, "bottom padding must be dropped to 0; top stays 14px for its own, still-real reason");
+  assert.match(body, /\.log\s*\{[^}]*margin:\s*0;/s, "the log's own trailing margin must be gone, not just reduced");
+  assert.doesNotMatch(body, /\.chat-top\s*\{[^}]*padding:\s*14px 0;/s, "the old symmetric 14px top/bottom pair must not still be set");
+});
+
 check("test_PRD_P0_78_chat_widget__the_inline_client_script_is_valid_javascript", async () => {
   /* A live regression this suite had zero coverage for: `\"` inside the
      OUTER server-side template literal that builds this whole page is not
@@ -1665,9 +1694,14 @@ check("test_PRD_P0_78_chat_widget__the_first_bubble_sits_the_same_distance_from_
      either way: 0 still matches on every edge, it just also happens to
      be the value that lines the bubble up with .ops's own 8px, same as
      an item-tile. */
+  /* REVISED — the bottom margin this test once checked for is gone too
+     now (Test-PRD-P0-164): it was redundant with .gate's own top margin
+     whenever an approval card actually appears, and pure dead air the
+     rest of the time. margin is uniform 0 on every edge now, the same
+     "uniform either way" reasoning this comment already gave for padding. */
   const { body } = await frontPage(OWNER);
   assert.match(body, /\.log\s*\{[^}]*padding:\s*0;/s, "padding must be uniform (0), matching the side value on every edge");
-  assert.match(body, /\.log\s*\{[^}]*margin:\s*0 0 8px;/s, "margin must carry only the bottom gap, none on top");
+  assert.match(body, /\.log\s*\{[^}]*margin:\s*0;/s, "margin must be uniform (0) too now, none on any edge");
   assert.doesNotMatch(body, /\.log\s*\{[^}]*margin:\s*8px 0/s, "the old top-heavy margin must not still be set");
 });
 

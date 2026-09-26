@@ -894,9 +894,24 @@ ${INPUT_BAR_CSS}
  * former max-height already turned out to be: a number nobody re-measured
  * once the layout underneath it changed. .items-grid carries no trailing
  * margin of its own for the same reason — one source of "how much
- * clearance before the bar," not two stacked. */
+ * clearance before the bar," not two stacked.
+ *
+ * padding-bottom is 0 now too, superseding "Top/bottom stay 14px" above
+ * — a real transcript, after two rounds of this same gap: "it's closer
+ * to 30 pixels." That 14px was decided back when the composer nested
+ * INSIDE this frame's own bottom edge, so a symmetric top/bottom pair
+ * read as one coherent box; the composer moved OUT to a fixed-position
+ * sibling long before this round (see the border/radius removal above),
+ * and once it did, bottom padding here stopped meaning "space inside my
+ * own frame" and started meaning "a second, separate clearance before
+ * the bar," stacked on top of the one clearance .ops's own padding-bottom
+ * (Test-PRD-P0-157) already provides — the identical stale-spacing
+ * pattern .items-grid's own former max-height and .log's own former
+ * trailing margin (just above) both already turned out to be. Top stays
+ * 14px: it still does real, distinct work no bottom padding here
+ * duplicates — separating .greet's own heading from the first message. */
 .chat-top {
-  padding: 14px 0;
+  padding: 14px 0 0;
 }
 /* The composer <form> carries class="chat" deliberately (so the
    approval gate's own button row further down inherits from it too),
@@ -988,11 +1003,22 @@ ${INPUT_BAR_CSS}
    own at all; .log's own 2px would still leave the bubbles 2px further in
    than an item-tile, so it drops to 0 too — each bubble's own padding
    (.log p, below) is exactly what an item-tile's own padding already is,
-   the only spacing either one needs. */
+   the only spacing either one needs.
+
+   REVISED — margin-bottom (8px) is gone too. A real transcript, after
+   Test-PRD-P0-163's own fix: "it's closer to 30 pixels" — this margin
+   was one of three things stacking into that residual gap (the others:
+   .chat-top's own bottom padding, and the shared breathing room .ops's
+   own padding-bottom already carries). It was never pulling real weight:
+   #gate is empty on almost every turn, so this margin was pure dead air
+   in the common case, and on the rare turn a real approval card DOES
+   land in #gate, that card (.gate, below) already carries its own
+   margin: 12px 0 — this would have doubled to 20px of combined space
+   between the last message and the card, more than either alone. */
 .log {
   display: flex; flex-direction: column; gap: 6px;
   overflow-y: auto;
-  margin: 0 0 8px; padding: 0;
+  margin: 0; padding: 0;
 }
 /* REVISED — a real transcript: "there is still a 15 to 20 pixel dead
    space above the chat box, just like it was in the items view." Once

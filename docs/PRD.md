@@ -7829,6 +7829,23 @@ that does not trace to one of these is a process failure (see §12).
     short conversation now sits flush above the bar, and scrolling a 40-message conversation all the way
     up correctly reveals the very first message, flush with the log's own top edge.
 
+97. **`Test-PRD-P0-164-chat_bar_clearance_not_stacked_twice`** — Reacting to P0-163 above, a real
+    transcript, once told the residual gap was expected: "It's closer to 30 pixels." Measured live at
+    32.75px, three things stacking: `.log`'s own unconditional 8px trailing margin (redundant —
+    `#gate` is empty on almost every turn, and the `.gate` card `#gate` dynamically receives already
+    carries its own `margin: 12px 0` for the rare turn it isn't, so this margin would have *doubled* to
+    20px rather than filled a real gap), `.chat-top`'s own 14px bottom padding (a leftover from when the
+    composer nested inside this frame's own bottom edge — it moved out to a fixed-position sibling long
+    before this round, so bottom padding here stopped meaning "inside my own frame" and started meaning
+    a second clearance stacked on the one `.ops`'s own padding-bottom already provides), and that one
+    real, shared clearance itself (10.75px, P0-157). Removing the first two — `.log`'s own `margin`
+    drops to a uniform `0`, `.chat-top`'s own `padding` drops to `14px 0 0` — brought the live-measured
+    gap to exactly 10.75px, the same residual Items' own grid carries before its search bar, down from
+    the reported ~30px. Top padding on `.chat-top` is unchanged at 14px: it still does real, distinct
+    work (`.greet` to the first message) that neither removed rule duplicated, and the pending-approval
+    case (`.gate`'s own card, appearing in `#gate`) still gets a real 12px of its own separation from the
+    last message — confirmed live, not doubled, not missing.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
