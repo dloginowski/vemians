@@ -812,7 +812,8 @@ export function systemPrompt(actor, role, defs, claims) {
       `If you are unsure of a domain's own rules — the category list, price/publish gates, an upload flow — call skills_read on "<domain>-skills" (skills_list names them). This is for when you are genuinely unsure, not a ritual to run before every call: try the most likely correct action first.`,
       "Answer from tool results, not from memory. If a tool refuses, say what it refused and stop. Be brief and plain.",
       "Never restate a tool result's own rows or columns in your reply — not as a markdown table, an ASCII grid, a pipe-delimited list, nor a bulleted or arrow-style field-by-field mapping (\"- **Title** ← ...\"). When a tool's own description says a table is already shown to the person, it means exactly that, in any format: your job is a short prose summary and a judgment call, not a second copy of the data in different clothes.",
-      "\"What can you do?\" (or a plain-language equivalent) can arrive at ANY point in the conversation, not only as one of the first message's own menu choices below — a dedicated button sends this exact question, so treat it as a real, common question rather than a one-time menu branch. Answer every time in that same short, plain style: common tasks in plain language. Never list tool names, domains, tiers or schemas — that reference material was deliberately removed from this surface once (the owner's own words: \"No dev. No examples. No mcp. Just chat and common actions\"), and answering with it here would quietly bring it back through the chat instead.",
+      "The owner's own words: \"I want you to give me balloon pop-ups, you know, those little pill, like full width... instead of like the text, I don't like that text stuff.\" Whenever you offer a short set of distinct next actions to choose from — a menu, a fork in the conversation, a handful of common tasks in a \"what can you do?\" answer — do NOT write them out as a numbered or lettered list in your prose (\"1) ... 2) ...\"). End your reply with one line per option instead, each on its own line, in exactly this form: \"CHOICE: <label>\" (a few words, e.g. \"CHOICE: Add Merchandise\") — the app turns these into tappable buttons, and the CHOICE lines themselves never reach the person as visible text. A short lead-in sentence above them is still expected (\"Hi Dimitri — what would you like to do?\"); do not ALSO restate the same options as numbered prose above the CHOICE lines, the same \"structured data lives in its own slot, not restated in words\" rule the table note above already follows. Up to 6 CHOICE lines, each a few tappable words, never a full sentence, and never one naming an action this role's own tools cannot actually do.",
+      "\"What can you do?\" (or a plain-language equivalent) can arrive at ANY point in the conversation, not only as one of the first message's own menu choices below — a dedicated button sends this exact question, so treat it as a real, common question rather than a one-time menu branch. Answer every time in that same short, plain style: common tasks in plain language, offered as CHOICE lines (above) rather than a paragraph when they form a short, concrete set. Never list tool names, domains, tiers or schemas — that reference material was deliberately removed from this surface once (the owner's own words: \"No dev. No examples. No mcp. Just chat and common actions\"), and answering with it here would quietly bring it back through the chat instead.",
       `The RUNDOWN ITSELF still scales with what ${role} can actually reach here — it is not one fixed script for everyone. You have exactly the ${defs.length} tool${defs.length === 1 ? "" : "s"} listed above and nothing else, so a staff rundown naturally stays to the everyday basics (looking up an item, submitting an expense) — say only what is actually true for this person, never pad it out with something this role cannot do. A manager or owner's own rundown should say so too: mention the fuller, more advanced set actually reachable at this role (bulk imports, vendor and pricing management, approvals, and the like) rather than flattening it down to sound the same as a staff answer — the owner's own words: "for an advanced user... this help chip would mention the more advanced tools that the user can do." Never invent or hint at a capability outside the tools actually listed above, in either direction — the visible menu already IS the honest boundary of this role's own reach (P0-24), so the rundown's job is to describe that boundary accurately, not to guess past it or hide inside it.`,
     ].join("\n\n") + "\n\n" + greetingScript(firstName).trim()
   );
@@ -1051,6 +1052,46 @@ function textOf(message) {
     .map((b) => b.text)
     .join("\n")
     .trim();
+}
+
+/*
+ * "I want you to give me balloon pop-ups, you know, those little pill,
+ * like full width... instead of like the text. I don't like that text
+ * stuff." — a real transcript, reacting to the greeting's own numbered
+ * menu ("1) Add Merchandise  2) Add Customers ...") and the "what can you
+ * do?" rundown alike: both were plain prose the person had to retype by
+ * hand, never something to tap. This DOES reopen ground covered before in
+ * this same surface's history (P0-113 removed clickable quick-action
+ * chips as clutter, on record then as "there don't need to be an actual
+ * button that you click on") — recorded here rather than silently
+ * reversed, since the two decisions genuinely disagree and a future
+ * change needs to know that, not just this one's own reasoning.
+ *
+ * CHOICE_LINE is a plain, deliberately boring marker rather than a second
+ * tool call: systemPrompt() below teaches the model to end a reply with
+ * one "CHOICE: <label>" line per option instead of writing a numbered or
+ * lettered list into the prose — no extra round trip to Anthropic, no
+ * JSON the model has to get exactly right, just a line shape trivial to
+ * scan for and strip. Whatever the model still writes above those lines
+ * (a short lead-in sentence) stays the visible chat bubble; the CHOICE
+ * lines themselves never reach the bubble text at all, only `suggestions`
+ * below — the pills ARE the menu now, not a second copy of it in prose,
+ * matching NO_TEXT_TABLE_NOTE's own "structured data lives in the
+ * structured slot, not restated in words" rule elsewhere in this file.
+ */
+const CHOICE_LINE = /^CHOICE:\s*(.+)$/;
+const MAX_SUGGESTIONS = 6;
+const MAX_SUGGESTION_LEN = 80;
+
+function extractSuggestions(text) {
+  const kept = [];
+  const suggestions = [];
+  for (const line of (text || "").split("\n")) {
+    const m = CHOICE_LINE.exec(line.trim());
+    if (m && suggestions.length < MAX_SUGGESTIONS) suggestions.push(m[1].trim().slice(0, MAX_SUGGESTION_LEN));
+    else if (!m) kept.push(line);
+  }
+  return { reply: kept.join("\n").replace(/\n{3,}/g, "\n\n").trim(), suggestions };
 }
 
 /* ---- tool dispatch ----------------------------------------------------- */
@@ -1372,7 +1413,12 @@ export async function agentTurn({ q, identity, env, attachment = null, history =
 
     const uses = (message.content || []).filter((b) => b.type === "tool_use");
     if (!uses.length) {
-      return { mode: "model", actor, role, steps, pending: null, reply: textOf(message) || "(no reply)", table: lastTable };
+      const { reply, suggestions } = extractSuggestions(textOf(message));
+      return {
+        mode: "model", actor, role, steps, pending: null,
+        reply: reply || "(no reply)", table: lastTable,
+        suggestions: suggestions.length ? suggestions : undefined,
+      };
     }
 
     if (round >= MAX_ROUND_TRIPS) {
