@@ -8415,16 +8415,27 @@ that does not trace to one of these is a process failure (see §12).
     own scoped-uniqueness guarantee was already exactly what a fluid, per-category sequence number
     needs.
 
-    **The Variants view now shows sku, since it is finally worth looking at.** "I want to have the
-    SKU number on the left, and then the add and remove quantity for each size to be on the far
-    right... a single row per size" — the owner's own words, given together with this whole
-    redesign specifically because a permanent, human-meaningful SKU makes it worth seeing at a
-    glance. `variantsGroupedAccordionHtml`'s own two-axis grouped view (`views.js`) goes back from a
-    wrapping `.variant-size-grid` of small tiles to one full-width `.row` per size — a new
+    **The Variants view now shows a label on the left, since one is finally worth looking at.** "I
+    want to have the SKU number on the left, and then the add and remove quantity for each size to
+    be on the far right... a single row per size" — the owner's own words, given together with this
+    whole redesign. `variantsGroupedAccordionHtml`'s own two-axis grouped view (`views.js`) goes back
+    from a wrapping `.variant-size-grid` of small tiles to one full-width `.row` per size — a new
     `.variation-sku-label` on the left, the existing size label, then the stock stepper pushed to the
     far right by the same `flex: 1 1 auto` trick the flat single-dimension list already relies on for
-    the identical effect. Confirmed live (a real `worker.fetch` render, Playwright-driven): the SKU
-    sits flush left, the stepper flush right, one row per size, inside each expanded color group.
+    the identical effect.
+
+    **REVISED, immediately after seeing the real, permanent, opaque `sku` sitting there**: "I don't
+    think we need to see this [hash]... it's completely irrelevant to the user. This is what gets
+    printed on the ticket, and that's that... I wanted our old style-ID-based SKU on the left side. So
+    it's going to be the style ID, dash, then the option abbreviation, dash, then the size." The real,
+    permanent `sku` still is what reaches Square and prints on a ticket — nothing about that changes,
+    and it is not reconsidered here. `.variation-sku-label` shows a DISPLAY-ONLY computed string
+    instead, never stored and never sent anywhere: `styleIdVariantLabel` (`views.js`) rebuilds the
+    exact shape the old, removed `skuFromStyleId` used to actually mint as the real SKU — style_id,
+    then this row's own Color/Size values, uppercased and dash-joined (`01-04-001-RED-S`) — falling
+    back to the real `sku` only for a product with no style_id yet (nothing readable to build from).
+    Confirmed live (a real `worker.fetch` render, Playwright-driven): the label sits flush left, the
+    stepper flush right, one row per size, inside each expanded color group.
 
 ## 4. P1 features
 

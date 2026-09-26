@@ -2945,11 +2945,12 @@ ${INPUT_BAR_CSS}
    own flex: 1 1 auto (its shared rule, above) is what pushes the stepper
    to the far right — nothing extra needed here for that. */
 .variant-size-rows { display: flex; flex-direction: column; }
-/* A permanent, opaque, system-generated code (Test-PRD-P0-177-
-   fluid_style_id) — never derived from size/color, so it earns its own
-   label rather than reusing .variation-title-label's, which still shows
-   the size name right beside it. flex: 0 0 auto: never grows or shrinks,
-   same as any other fixed left-hand label in this file. */
+/* A computed, human-readable DISPLAY label (styleIdVariantLabel, below —
+   "our old style-ID-based SKU," the owner's own words, not the real,
+   permanent, opaque sku) — it earns its own left-hand label rather than
+   reusing .variation-title-label's, which still shows the size name right
+   beside it. flex: 0 0 auto: never grows or shrinks, same as any other
+   fixed left-hand label in this file. */
 .variation-sku-label { flex: 0 0 auto; font-size: 10px; color: var(--muted); font-family: monospace; }
 .variation-stock-step:hover { background: var(--image-ground); }
 .variation-stock-step:disabled { opacity: 0.5; cursor: default; }
@@ -3428,8 +3429,31 @@ function variantsGridAxes(variations, itemOptions) {
    rows, below) now that sku is a real, permanent, worth-seeing value
    (Test-PRD-P0-177-fluid_style_id) rather than a Square-assigned string
    nobody looked at — the same reason the flat single-dimension list
-   never needed a grid at all. */
-function variantsGroupedAccordionHtml(variations, axes) {
+   never needed a grid at all.
+
+   REVISED ONCE MORE: "I don't think we need to see this [hash]... it's
+   completely irrelevant to the user. This is what gets printed on the
+   ticket, and that's that... I wanted our old style-ID-based SKU on the
+   left side" — the owner's own words, immediately after seeing the real,
+   permanent, opaque `sku` there instead of the human-readable shape this
+   codebase used to actually mint as the real one (`skuFromStyleId`,
+   removed by this same P0-177). The real, permanent `sku` still IS what
+   reaches Square and prints on a ticket — nothing about THAT changes —
+   this is purely a DISPLAY label, computed fresh every render by
+   `styleIdVariantLabel` (below), never stored and never sent anywhere:
+   style_id, then this row's own Color/Size values, uppercased and
+   dash-joined, the exact shape `skuFromStyleId` used to build. */
+function styleIdVariantLabel(styleId, values) {
+  const word = (text) =>
+    String(text ?? "")
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+  if (!styleId) return null;
+  const suffix = values.map(word).filter(Boolean).join("-");
+  return suffix ? `${styleId}-${suffix}` : styleId;
+}
+function variantsGroupedAccordionHtml(variations, axes, styleId) {
   const { rowsName, colsName, rowValues, colValues } = axes;
   const byKey = new Map(
     variations.filter((v) => v.options?.[rowsName] && v.options?.[colsName]).map((v) => [`${v.options[rowsName]}\u0000${v.options[colsName]}`, v]),
@@ -3449,8 +3473,9 @@ function variantsGroupedAccordionHtml(variations, axes) {
         .map((c) => {
           const v = byKey.get(`${r}\u0000${c}`);
           if (v && !anchorVariant) anchorVariant = v;
+          const label = styleIdVariantLabel(styleId, [r, c]) ?? v?.sku ?? "";
           return v
-            ? `<div class="row"><span class="variation-sku-label">${esc(v.sku ?? "")}</span><span class="variation-title-label">${esc(c)}</span>${stockStepper(v)}</div>`
+            ? `<div class="row"><span class="variation-sku-label">${esc(label)}</span><span class="variation-title-label">${esc(c)}</span>${stockStepper(v)}</div>`
             : "";
         })
         .join("");
@@ -3622,7 +3647,7 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
   const groupAxes = variantsGridAxes(product.variations, allItemOptions);
   const variationsAccordion = canEdit
     ? groupAxes
-      ? `<div class="variant-groups">${variantsGroupedAccordionHtml(product.variations, groupAxes)}</div>`
+      ? `<div class="variant-groups">${variantsGroupedAccordionHtml(product.variations, groupAxes, product.style_id)}</div>`
       : `<div class="variations-accordion">
            <div class="variations-header">
              <button type="button" class="variations-toggle" aria-label="Show every variation" title="Show every variation">${CARET_ICON}</button>
