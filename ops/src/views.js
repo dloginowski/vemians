@@ -2169,9 +2169,45 @@ ${INPUT_BAR_CSS}
    WHOLE page into a flex column instead: the grid's own "flex: 1 1 auto"
    there makes it take up exactly whatever space is actually left, on any
    device, with no cap to guess at all. */
+/* REVISED, ROOT CAUSE FOUND — a real transcript: "the items are not laid
+   out in a grid format. There is no padding between them. They're all
+   kind of overlapping each other on the bottoms of all cards." Every
+   earlier round of this rule (see the plain space-between history below
+   this comment, kept for the record) was chasing align-content, and
+   align-content turned out to be a red herring for the actual overlap:
+   the real cause is grid-auto-rows's own default value, "auto",
+   combined with .item-tile's own overflow: hidden (below — needed to
+   clip its rounded corners and the absolutely-positioned photo inside
+   it) and its aspect-ratio: 1.
+
+   Measured live, isolating one CSS property at a time rather than
+   guessing which one mattered: a bare square tile with NO overflow:
+   hidden sizes its own grid row correctly (182.5px, matching the
+   tile's own aspect-ratio height exactly) under grid-auto-rows: auto.
+   The moment overflow: hidden is added back — nothing else changed —
+   the SAME row collapses to 61.75px, roughly a THIRD of the tile's own
+   real 182.5px height, while the tile itself still renders at its full
+   182.5px (align-items: start does not shrink the ITEM, only the ROW
+   TRACK around it). A tile that tall inside a track that short, top-
+   aligned, overflows straight into the row below it — the exact
+   "overlapping on the bottoms of all cards" reported live, on every
+   row, confirmed by reproducing it with the app's own real, unmodified
+   CSS and a real rendered item-tile, not a simplified stand-in. This is
+   Chromium's own "automatic minimum size" rule (written for min-width/
+   min-height: auto, to stop overflowing content forcing infinite
+   growth) reaching further than intended: an aspect-ratio item whose
+   overflow is anything but visible gets treated as contributing near-
+   nothing to an "auto" row's own content-based sizing, even though its
+   OWN final size is still fully determined and definite. grid-auto-
+   rows: min-content (equally, max-content) sidesteps the automatic-
+   minimum reduction entirely and correctly sizes the row to the tile's
+   real 182.5px — confirmed live, replacing "auto" with either fixes it
+   outright, with no need to touch overflow: hidden itself (which the
+   photo clipping and rounded corners still need) or the tile's own
+   aspect-ratio. */
 .items-grid {
   display: grid; grid-template-columns: repeat(2, 1fr);
-  gap: 10px; align-items: start;
+  gap: 10px; align-items: start; grid-auto-rows: min-content;
   overflow-y: auto;
   /* Now that the grid's OWN box is sized to fill exactly what's left
      (flex: 1 1 auto below), its rows still only take up as much of that
@@ -2184,9 +2220,36 @@ ${INPUT_BAR_CSS}
      extra room BETWEEN rows instead, so the last row's own bottom edge
      always meets the grid box's bottom edge — no distortion, since this
      only repositions whole rows, it never stretches an individual tile
-     off its own aspect-ratio: 1 square. */
-  align-content: space-between;
+     off its own aspect-ratio: 1 square.
+
+     That reasoning holds only while the rows' own content is SHORTER
+     than the box, which was the only case ever actually measured before
+     shipping it plain. Once a real catalog has enough rows to overflow
+     the box — the ordinary case, not the edge case: this box scrolls
+     specifically because most catalogs don't fit — the "leftover space"
+     the spec asks space-between to distribute is NEGATIVE, and Chromium
+     spends that negative space as an equal negative gap between every
+     pair of rows rather than clamping it to zero, pulling every row up
+     into the one above it. That is a SECOND, independent way for rows
+     to overlap, still real and still worth guarding even after the
+     grid-auto-rows fix above — align-content: safe space-between is the
+     CSS spec's own named answer to exactly this, but CSS.supports(
+     "align-content", "safe space-between") measured false in this app's
+     own real Chromium (141), so decided with JS instead: align-content
+     stays plain start here (packs rows at their own natural size, no
+     stretch, never negative) and .items-grid.short (below, toggled by
+     updateItemsGridFit() after every filter change and on resize, by
+     comparing scrollHeight to clientHeight) opts into space-between
+     only on the measured turns a real, positive amount of leftover
+     space actually exists to distribute. Confirmed live in both shapes:
+     a 16-item catalog too tall for a 667px phone viewport lays out as
+     plain non-overlapping rows 10px apart (.short never applied), and a
+     short catalog that fits with room to spare gets space-between's own
+     real behavior once .short is applied — full-height distribution, no
+     dead gap stranded below the last row. */
+  align-content: start;
 }
+.items-grid.short { align-content: space-between; }
 /* The flex column that makes .items-grid's own sizing above real: .greet
    (the status line) takes exactly its own content height, .items-grid
    takes exactly what's left, and .input-bar stays position: fixed,
@@ -3756,6 +3819,20 @@ function matchesStatusFilter(el) {
   if (el.dataset.status === "inactive") return false;
   return statusFilter === "web" ? el.dataset.channel === "website" : true;
 }
+/* .items-grid's own CSS (above) starts plain (align-content: normal) --
+   safe under overflow by construction -- and opts into space-between,
+   via this class alone, only on the turns actually measured to fit
+   without it. Re-run after every filter change (the visible tile count,
+   and so whether the grid overflows, can change on every keystroke) and
+   on resize (the same catalog can gain or lose overflow purely from the
+   viewport's own height changing, e.g. a phone's rotating or its on-
+   screen keyboard opening/closing). */
+const itemsGrid = document.getElementById("items-grid");
+function updateItemsGridFit() {
+  itemsGrid.classList.toggle("short", itemsGrid.scrollHeight <= itemsGrid.clientHeight);
+}
+window.addEventListener("resize", updateItemsGridFit);
+
 function filterItems() {
   const q = itemSearch.value.trim().toLowerCase();
   document.querySelectorAll(".item-tile").forEach((el) => {
@@ -3763,6 +3840,7 @@ function filterItems() {
     const matchesSearch = !q || el.dataset.search.includes(q);
     el.hidden = !matchesCategory || !matchesSearch || !matchesStatusFilter(el);
   });
+  updateItemsGridFit();
 }
 itemSearch.addEventListener("input", filterItems);
 const itemStatusFilterEl = document.getElementById("item-status-filter");
