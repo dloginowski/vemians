@@ -7950,6 +7950,60 @@ that does not trace to one of these is a process failure (see §12).
     served page (`worker.fetch` driving the actual route, not a hand-copied CSS excerpt) with
     the real `card()`-built DOM injected into it: `h3`, `dt`, `dd` and the Approve/Cancel
     buttons all render at exactly 14px now, matching `.log p` precisely.
+101. **`Test-PRD-P0-168-items_grid_row_collapse`** — A real transcript: "the items are not laid
+    out in a grid format. There is no padding between them. They're all kind of overlapping
+    each other on the bottoms of all cards." `align-content` — the property `Test-PRD-P0-157-
+    items_grid_flush_to_bar` (above) had already set to `space-between` to close the dead gap
+    above the search bar on a short catalog — turned out to be a red herring for the actual
+    overlap, found only by rendering the app's own real page in a real browser and measuring
+    actual tile rectangles, never by reasoning about the CSS in isolation.
+
+    **The real cause: `grid-auto-rows`'s own default, `auto`, combined with `.item-tile`'s own
+    `overflow: hidden`** (needed to clip its rounded corners and the absolutely-positioned photo
+    inside it) **and its `aspect-ratio: 1`.** Isolated one CSS property at a time rather than
+    guessed: a bare square tile with no `overflow: hidden` sizes its own implicit grid row
+    correctly under `grid-auto-rows: auto` (182.5px, matching the tile's own aspect-ratio height
+    exactly); adding `overflow: hidden` back, nothing else changed, collapsed that SAME row to
+    61.75px — roughly a third of the tile's own real height — while the tile itself still
+    rendered at its full 182.5px (`align-items: start` only positions the ITEM, it does not
+    shrink it; only the ROW TRACK around it collapsed). A tile that tall inside a track that
+    short, top-aligned, overflows straight into the row below it: the exact "overlapping on the
+    bottoms of all cards" reported live, on every row of a real 16-item catalog rendered in a
+    375×667 viewport. This is Chromium's own "automatic minimum size" rule — written to stop an
+    overflowing child forcing infinite growth on `min-width`/`min-height: auto` — reaching an
+    `aspect-ratio` item further than intended: an item whose overflow is anything but `visible`
+    is treated as contributing almost nothing to an `auto` row's own content-based sizing, even
+    though the item's OWN final size is still fully definite. `grid-auto-rows: min-content`
+    (equally, `max-content`) sidesteps that reduction entirely — confirmed live, replacing `auto`
+    with either fixes the collapse outright, with no need to touch `overflow: hidden` itself (the
+    photo clipping and rounded corners still need it) or the tile's own `aspect-ratio`.
+
+    **`align-content: safe space-between` — the CSS spec's own named answer to `space-between`'s
+    own, SEPARATE negative-space problem — was tried first and is not a fix here.** Plain
+    `space-between` only has a well-defined meaning when the rows' own content is shorter than
+    the box; once a real catalog overflows it — the ordinary case, not the edge case: this box
+    scrolls specifically because most catalogs don't fit — the "leftover space" the spec asks it
+    to distribute is negative, and confirmed live, Chromium spends that negative space as an
+    equal negative gap between every pair of rows rather than clamping it to zero, a second,
+    independent way for rows to overlap. `safe` is the spec's own keyword for exactly this case,
+    but `CSS.supports("align-content", "safe space-between")` measured `false` in this app's own
+    real Chromium (141) — the value never parses, `align-content` silently falls back to its
+    initial `normal`, and (per the finding above) `normal` computes as an effective stretch for a
+    grid container's own `auto` rows, so the identical row-collapse overlap persisted completely
+    unrelated to which value was actually written in the stylesheet — a quieter, but equally
+    wrong, failure than trusting the unsupported keyword blind would have shipped.
+
+    **Fixed with JS, not a single CSS value, because "does this content overflow its own box" is
+    not knowable from CSS alone without a keyword this engine does not implement.** `align-content`
+    on the base `.items-grid` rule is plain `start` — packs rows at their own natural size against
+    the start edge, never stretches, never goes negative, safe under overflow by construction —
+    and `.items-grid.short`, toggled by `updateItemsGridFit()` after every filter change and on
+    resize by literally comparing `scrollHeight` to `clientHeight`, opts into `space-between` only
+    on the measured turns a real, positive amount of leftover space exists to distribute. Confirmed
+    live in both shapes: a 16-item catalog too tall for a 667px phone viewport lays out as plain
+    non-overlapping rows 10px apart (`.short` never applied), and a short, 2-row catalog that fits
+    with room to spare still reaches all the way down to the search bar once `.short` is applied —
+    the original `Test-PRD-P0-157` fix's own real behavior, preserved rather than regressed.
 
 ## 4. P1 features
 

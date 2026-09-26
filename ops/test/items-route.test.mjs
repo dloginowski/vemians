@@ -340,13 +340,52 @@ check("test_PRD_P0_157_items_grid_flush_to_bar__the_shared_bottom_padding_and_th
      rule's own bottom padding was a stale 76px, ~23px more than
      .input-bar's own real footprint needs; (2) .items-grid's own default
      align-content (start) left whatever didn't divide evenly into full
-     rows as blank space below the last one. */
+     rows as blank space below the last one.
+
+     REVISED — plain align-content: space-between on the base rule (as
+     shipped here originally) turned out to be unsafe on an OVERFLOWING
+     catalog: see Test-PRD-P0-168-items_grid_row_collapse below for the
+     full live-measured story of why it now only applies conditionally,
+     via .items-grid.short. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const res = await get("/items", STAFF, env(mirror));
   const body = await res.text();
   assert.match(body, /\.ops\s*\{[^}]*max-width:\s*64rem;\s*padding:\s*12px 8px 64px/s, "the shared .ops bottom padding must be tightened, not the stale 76px");
-  assert.match(body, /\.items-grid\s*\{[^}]*align-content:\s*space-between/s, "leftover row space must be spent BETWEEN rows, not left below the last one");
+  assert.match(body, /\.items-grid\.short\s*\{\s*align-content:\s*space-between/s, "leftover row space must be spent BETWEEN rows on a catalog measured to fit, not left below the last one");
+});
+
+check("test_PRD_P0_168_items_grid_row_collapse__tiles_never_overlap_regardless_of_catalog_length", async () => {
+  /* A real transcript: "the items are not laid out in a grid format.
+     There is no padding between them. They're all kind of overlapping
+     each other on the bottoms of all cards." Root cause, found by
+     rendering the real page in a real browser and measuring actual tile
+     rectangles rather than reasoning about the CSS: .item-tile's own
+     overflow: hidden (needed to clip its rounded corners and the
+     absolutely-positioned photo inside it), combined with its
+     aspect-ratio: 1, triggers Chromium's "automatic minimum size" rule
+     for grid-auto-rows: auto (the default) — a real, measured row
+     collapsed to ~1/3 of the tile's own actual height while the tile
+     itself still rendered at full size, overflowing into the row below.
+     align-content was never the cause — a red herring the earlier
+     P0-157 fix (and this bug's own first, superseded attempt, align-
+     content: safe space-between, unsupported in this app's own real
+     Chromium and silently ignored) both chased instead.
+     grid-auto-rows: min-content sidesteps the automatic-minimum
+     reduction outright and is the actual fix; align-content: start on
+     the base rule (never unconditional space-between, which goes
+     NEGATIVE and overlaps rows a second, independent way once a real
+     catalog overflows the box — the ordinary case, not the edge case)
+     is what makes the safe case the DEFAULT rather than something a
+     short catalog has to opt out of. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.match(body, /\.items-grid\s*\{[^}]*grid-auto-rows:\s*min-content/s, "auto row sizing is exactly what collapses under overflow: hidden + aspect-ratio; min-content sidesteps it");
+  assert.match(body, /\.items-grid\s*\{[^}]*align-content:\s*start/s, "the base rule must never be unconditional space-between, which goes negative and overlaps rows once a catalog overflows the box");
+  assert.doesNotMatch(body, /\.items-grid\s*\{[^}]*align-content:\s*(normal|space-between)/s, "neither the browser's own default (normal, which computes to stretch for grid and reintroduces the row collapse) nor unconditional space-between belongs on the base rule");
+  assert.match(body, /updateItemsGridFit/, "the short/overflowing decision must be measured live (scrollHeight vs clientHeight), not guessed from CSS alone");
 });
 
 check("test_PRD_P0_71_items_tab__a_tile_expands_to_the_full_screen_instead_of_cramming_data_into_a_cell", async () => {
