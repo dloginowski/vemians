@@ -970,6 +970,22 @@ ${INPUT_BAR_CSS}
   align-self: center; max-width: 100%; background: transparent;
   color: var(--muted); font-size: 12px; padding: 2px 8px; text-align: center;
 }
+/* "I want you to give me balloon pop-ups, you know, those little pill,
+   like full width... instead of like the text, I don't like that text
+   stuff." — a real transcript. One pill per CHOICE line the model ends a
+   reply with (agent.js's own systemPrompt instruction), full width rather
+   than sized to their own label — a numbered list read top to bottom, so
+   the buttons that replace it read the same way, not scattered across a
+   row fighting each other for width. A plain, real <button>, the same
+   .icon-btn/.send-btn convention every other tappable control in this
+   file already follows, never a link or a styled span. */
+.suggestions { display: flex; flex-direction: column; gap: 6px; align-self: stretch; margin: 0; }
+.suggestion-pill {
+  width: 100%; text-align: left; cursor: pointer;
+  padding: 10px 14px; border-radius: 20px; border: 1px solid var(--accent);
+  background: transparent; color: var(--accent); font: inherit; font-size: 14px;
+}
+.suggestion-pill:hover, .suggestion-pill:focus-visible { background: rgba(217, 119, 87, 0.14); }
 ${TABLE_CARD_CSS}
 .gate { border: 1px solid var(--ink); padding: 12px; margin: 12px 0; border-radius: 10px; }
 .gate h3 { margin: 0 0 8px; }
@@ -1382,6 +1398,37 @@ function entry(kind, text) {
   log.appendChild(p);
   log.scrollTo({ top: log.scrollHeight, behavior: "smooth" });
   return p;
+}
+
+/* "I want you to give me balloon pop-ups, you know, those little pill,
+   like full width... instead of like the text, I don't like that text
+   stuff." — a real transcript. agent.js's own systemPrompt teaches the
+   model to end a reply offering a short set of choices with "CHOICE:"
+   lines rather than a numbered list in prose; extractSuggestions (agent.js)
+   strips those lines out of the reply text server-side and hands them
+   back as this plain "suggestions" array instead, so they never appear as
+   text at all here, only as these full-width buttons right under the
+   bubble they belong to. Clicking one fills the composer and submits it
+   exactly the way #help-btn already does — a tap is a real chat message,
+   not a second, parallel way of talking to the agent. */
+function suggestionPills(list) {
+  const wrap = document.createElement("div");
+  wrap.className = "suggestions";
+  list.forEach((label) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "suggestion-pill";
+    btn.textContent = label;
+    btn.addEventListener("click", () => {
+      qInput.value = label;
+      updateSendState();
+      document.getElementById("chat").requestSubmit();
+    });
+    wrap.appendChild(btn);
+  });
+  log.appendChild(wrap);
+  log.scrollTo({ top: log.scrollHeight, behavior: "smooth" });
+  return wrap;
 }
 
 /* "I don't like how the agent goes silent without any progress reports as it
@@ -1857,6 +1904,7 @@ document.getElementById("chat").addEventListener("submit", async (e) => {
     if (data.table) tableCard(data.table);
     const replyText = data.reply || data.error || ("Request failed: " + res.status);
     entry("agent", replyText);
+    if (data.suggestions && data.suggestions.length) suggestionPills(data.suggestions);
     if (data.pending) card(data.pending);
     if (data.checklist) checklistCard(data.checklist);
     /* Grow this tab's own memory of the conversation — see the "history"

@@ -12,16 +12,25 @@ export function greetingScript(firstName) {
        reading an API. Greeting them with a wall of tool names is the
        opposite of the plain, short-choices experience the ops front page
        itself promises — say so here, once, so every connecting agent
-       opens the same way instead of each inventing its own tone. */
+       opens the same way instead of each inventing its own tone.
+       REVISED — the four choices used to be spelled out inline as prose
+       ("1) Add Merchandise  2) Add Customers..."), which is exactly the
+       "text stuff" a real transcript asked to have replaced: "I want you
+       to give me balloon pop-ups... instead of like the text." The lead-in
+       line now names the four choices only so this instruction stays
+       readable; the model's own reply says a short greeting line and then
+       each choice as its own CHOICE line (systemPrompt's own instruction
+       on that format, above this file's own import), never both at once. */
     ` FIRST MESSAGE: greet them BY THEIR ACTUAL FIRST NAME — ${firstName},` +
-    ` given above, not a guess of your own — and offer a short menu of what` +
-    ` you can help with right now — exactly these four choices, in this` +
-    ` order: "Hi ${firstName} — 1) Add Merchandise  2) Add Customers` +
-    ` 3) Submit Expenses  4) More Options" — then wait for their choice. Do` +
-    ` not explain tiers, tools or skills unless asked. If they pick "More` +
-    ` Options," say plainly what else you can do (look something up,` +
-    ` connect their own assistant, anything else this role reaches) rather` +
-    ` than a second rigid menu.` +
+    ` given above, not a guess of your own — with a short line such as` +
+    ` "Hi ${firstName} — what would you like to do?", then these exactly` +
+    ` four choices as CHOICE lines, in this order: Add Merchandise, Add` +
+    ` Customers, Submit Expenses, More Options. Do not also spell them out` +
+    ` as numbered prose in the same reply — the CHOICE lines are the menu.` +
+    ` Do not explain tiers, tools or skills unless asked. If they pick` +
+    ` "More Options," say plainly what else you can do (look something` +
+    ` up, connect their own assistant, anything else this role reaches)` +
+    ` rather than a second rigid menu.` +
     /* The front page's own quick-prompt chips send one of these four phrases
        as the person's actual first message — a click already IS the choice.
        Re-presenting the menu they just used is a wasted round-trip, exactly
@@ -44,8 +53,10 @@ export function greetingScript(firstName) {
        is no separate "batch" tool for the second path. Never approve on
        the person's behalf; each link still needs its own "yes". */
     ` SECOND MESSAGE, once they pick Merchandise or Customers: ask one more` +
-    ` short multiple-choice question before doing anything — "Do you have` +
-    ` a spreadsheet, or would you rather tell me about them here?" For a` +
+    ` short question before doing anything — "Do you have a spreadsheet,` +
+    ` or would you rather tell me about them here?" — as a lead-in line` +
+    ` followed by two CHOICE lines (Spreadsheet, Tell you here), the same` +
+    ` format as the first menu, never spelled out as prose instead. For a` +
     ` spreadsheet, point them at /products/batch or /customers/batch on` +
     ` ops.vemians.com. For a narrated list, draft and create one at a time` +
     ` as usual — there is no separate "batch" tool — then present every` +

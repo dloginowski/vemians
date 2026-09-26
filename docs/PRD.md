@@ -7710,6 +7710,37 @@ that does not trace to one of these is a process failure (see §12).
     this is about how MUCH capability the plain-language rundown admits to, never about naming the
     underlying tools themselves.
 
+92. **`Test-PRD-P0-159-choice_pills`** — A real transcript: "I want you to see those little balloon, the
+    pills, popping up in the chat so I can click on them. Give me like a click menu... so I can click on
+    what I want you to do... I want you to give me balloon pop-ups, you know, those little pill, like
+    full width... instead of like the text, I don't like that text stuff."
+
+    **This directly reopens P0-113 (above).** That entry removed clickable quick-action chips as
+    clutter, on the record then as the owner's own words: "there don't need to be an actual button that
+    you click on." Recorded here rather than silently reversed, since the two decisions genuinely
+    disagree — a numbered text menu the person has to retype by hand is exactly what this round asks to
+    stop doing, in the owner's own later words.
+
+    **No second tool-call round trip, no JSON the model has to get exactly right.** `systemPrompt()`
+    (`agent.js`) teaches the model that whenever it offers a short set of distinct next actions — the
+    greeting's own four-choice menu, the spreadsheet-or-narrate follow-up, a `"what can you do?"`
+    rundown that resolves to a concrete short list — it ends the reply with one `"CHOICE: <label>"` line
+    per option instead of writing a numbered or lettered list into the prose, up to 6, never a full
+    sentence. `extractSuggestions()` (`agent.js`) pulls every `CHOICE:` line out of the model's own final
+    text before it ever becomes the visible reply — those lines never reach the chat bubble as text at
+    all — and returns them as a plain `suggestions: string[]`, applied at agentTurn's own ordinary
+    end-of-turn return (not the approval/checklist branches, which are already their own decision
+    points, not a menu). `greetingScript()` (`greeting.js`) was rewritten the same way: the lead-in line
+    still names what the four choices ARE for this instruction's own sake, but the model's own reply
+    never writes "1) Add Merchandise 2) ..." itself.
+
+    **The client renders each suggestion as a full-width, tappable pill**, never scattered across a row
+    competing for width — a numbered list read top to bottom, so its replacement does too
+    (`views.js`'s own `suggestionPills()`, right under the bubble it belongs to). Clicking one fills the
+    composer and submits it through the exact same `/ops/agent` path a typed message already takes — the
+    same mechanism `#help-btn` (P0-156) already uses — never a second, parallel way of talking to the
+    agent.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

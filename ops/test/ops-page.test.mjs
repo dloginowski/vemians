@@ -451,6 +451,24 @@ check("test_PRD_P0_156_ask_what_it_can_do__a_dedicated_button_sends_the_question
   assert.match(body, /getElementById\("chat"\)\.requestSubmit\(\)/, "clicking it must submit through the ordinary chat form, not a second code path");
 });
 
+check("test_PRD_P0_159_choice_pills__suggestions_render_as_full_width_pills_that_send_themselves_on_click", async () => {
+  /* A real transcript: "I want you to give me balloon pop-ups, you know,
+     those little pill, like full width... instead of like the text, I
+     don't like that text stuff." agent.js's own extractSuggestions hands
+     the client a plain `suggestions` array on the /ops/agent response —
+     this asserts the client actually renders and wires them, the same
+     way it already renders `table`/`checklist`. Deliberately NOT the
+     P0-113 "menu"/"choices"/data-prompt shape that test already asserts
+     is gone: a suggestion pill only ever comes from the model's OWN live
+     reply, never a fixed, always-present client-side menu. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /function suggestionPills\(/, "pills need their own renderer, the same convention as tableCard/checklistCard");
+  assert.match(body, /data\.suggestions && data\.suggestions\.length/, "the submit handler must actually call it when the response carries suggestions");
+  assert.match(body, /btn\.className = "suggestion-pill"/);
+  assert.match(body, /qInput\.value = label;[\s\S]{0,80}requestSubmit\(\)/, "clicking a pill must fill the composer and submit through the ordinary chat form, the same mechanism #help-btn already uses");
+  assert.match(body, /\.suggestion-pill\s*\{[^}]*width:\s*100%/s, "a pill is full width, not sized to its own label");
+});
+
 check("test_PRD_P0_69_one_click_welcome_menu__the_built_in_chat_is_open_at_rest_not_a_folded_afterthought", async () => {
   /* The chat box used to live in a closed <details> captioned "your own
      assistant is the one worth using" — actively steering away from the one
