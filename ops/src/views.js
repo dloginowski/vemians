@@ -452,12 +452,36 @@ const TABLE_CARD_CSS = `
    with it (.log's own overflow-y, unchanged) rather than nesting a
    second, smaller scrollbar inside the first. overflow: auto stays for
    the orthogonal case this was never about — a table wide enough to
-   need its own sideways scroll, not tall enough to need a vertical one. */
+   need its own sideways scroll, not tall enough to need a vertical one.
+   REVISED AGAIN — the same complaint recurred a FOURTH time, only once
+   there was already a real conversation in .log before the upload:
+   "you did not fix the issue." Removing max-height was necessary but not
+   sufficient. .log is "display: flex; flex-direction: column", and a
+   flex item whose own "overflow" is anything but "visible" gets an
+   AUTOMATIC MINIMUM SIZE of 0 on the flex axis (CSS Flexbox — min-size:
+   auto resolves to 0 once overflow is non-visible) rather than a size
+   based on its own content. Combined with "flex-shrink"'s own default of
+   1, that makes THIS card — the one child of .log with overflow: auto
+   set, for the sideways-scroll reason above — the one thing flexbox is
+   free to squeeze smaller than its own content once .log's other
+   messages have already claimed most of the real available space,
+   reintroducing the identical "vertically collapsed, own inner
+   scrollbar" symptom through a completely different mechanism than the
+   max-height this round already removed. Confirmed live: a preview
+   appended after several ordinary chat turns rendered at 149px
+   (scrollHeight 281) — squeezed, not sized to content — while the exact
+   same preview as the FIRST message in an empty log rendered at its full
+   natural height, which is why this was missed the first time. .log p
+   (an ordinary bubble) never had this problem: it sets no "overflow" at
+   all, so its own automatic minimum size was always content-based.
+   flex-shrink: 0 makes this card behave the identical way — never
+   shrunk below its own content, so .log's own overflow-y is what
+   accommodates it, exactly like every other message already does. */
 .table-card {
   align-self: stretch; max-width: 100%; box-sizing: border-box;
   border: 1px solid var(--rule); border-radius: 0; padding: 2px;
   background: var(--image-ground); font-size: 12px;
-  overflow: auto;
+  overflow: auto; flex-shrink: 0;
 }
 .table-card h4 {
   margin: 0 0 2px; padding: 0; font-size: 12px; font-weight: 700;
