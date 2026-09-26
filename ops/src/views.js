@@ -2483,10 +2483,18 @@ ${INPUT_BAR_CSS}
    opposite corner and (for a real gallery) to its own slide rather than the
    whole photo — .item-photo-slide's own position: relative, just above,
    is what makes that anchoring per-slide instead of per-tile. Sits above
-   .item-bottom's own bar (bottom: 46px clears its tallest case, a
-   breadcrumb-carrying two-line bar — measured live, not guessed). */
+   .item-bottom's own bar, clearing its tallest case (a breadcrumb-carrying
+   two-line bar).
+   REVISED: "make sure the padding underneath the delete button is the
+   same as the top padding for the balloon that tells you the option
+   name" — the owner's own words. .item-photo-variant-pill sits a measured
+   4px below .item-top's own bottom edge (top: 36px against a 32px-tall
+   .item-top); this button now clears .item-bottom's own tallest case by
+   that identical 4px (was 46px, an ungauged number that actually left a
+   17px gap) — both corners read with the same breathing room now,
+   confirmed live by measuring both gaps in the same render. */
 .item-photo-delete {
-  display: none; position: absolute; bottom: 46px; right: 8px; z-index: 2;
+  display: none; position: absolute; bottom: 33px; right: 8px; z-index: 2;
   width: 22px; height: 22px; padding: 0; align-items: center; justify-content: center;
   border: none; border-radius: 50%; cursor: pointer; background: rgba(25, 24, 23, 0.75); color: #fff;
 }

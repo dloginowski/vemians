@@ -8234,6 +8234,17 @@ that does not trace to one of these is a process failure (see §12).
     afterward, and never a literal DELETE), refuses a Square-sourced one with a clear reason,
     refuses staff, and refuses an id belonging to another product.
 
+108. **`Test-PRD-P0-175-photo_delete_padding_matches_pill`** — The owner's own words, on seeing
+    P0-174 shipped: "make sure that the padding underneath the delete button is the same as the
+    top padding for the balloon that tells you the option name." Measured live rather than
+    compared by eye: `.item-photo-variant-pill` sits a real 4px below `.item-top`'s own bottom
+    edge; `.item-photo-delete`'s own `bottom: 46px` — never actually gauged against anything, just
+    a number large enough to clear `.item-bottom`'s tallest case — left a real 17px gap instead,
+    visibly more generous than the pill's own. Recomputed to `bottom: 33px`, giving the same ~4px
+    clearance above `.item-bottom` that the pill already has below `.item-top`, confirmed by
+    measuring both gaps in the same real render (4px and 3.875px — a sub-pixel rounding
+    difference, not a visible one).
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
