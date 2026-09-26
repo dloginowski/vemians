@@ -1536,19 +1536,35 @@ check("test_PRD_P0_71_items_tab__the_composer_is_fixed_to_the_bottom_of_the_scre
  * ───────────────────────────────────────────────────────────────────────── */
 
 check("test_PRD_P0_78_chat_widget__the_log_is_a_bounded_scrolling_container_not_a_growing_list", async () => {
+  /* REVISED — the bound used to be .log's own max-height; now it comes
+     from .ops.chat-page's flex column (Test-PRD-P0-161's own check,
+     below) instead — see that check's comment for why. This one keeps
+     asserting the still-true half: .log still scrolls internally rather
+     than growing the whole page. */
   const { body } = await frontPage(OWNER);
-  assert.match(body, /\.log\s*\{[^}]*max-height:/s, "the message log must be height-bounded, not free to grow the page");
-  assert.match(body, /\.log\s*\{[^}]*overflow-y:\s*auto/s, "and it must scroll internally rather than the whole page");
+  assert.match(body, /\.log\s*\{[^}]*overflow-y:\s*auto/s, "it must scroll internally rather than the whole page");
 });
 
-check("test_PRD_P0_78_chat_widget__the_logs_max_height_scales_with_the_viewport_not_a_flat_guess", async () => {
-  /* The owner's own words, seeing a real batch preview reply cropped on a
-     phone with most of the screen still empty below the widget: "I cant
-     really tell what is being shown." A flat 320px was sized before this
-     widget ever had to hold a long reply AND a table in the same column. */
+check("test_PRD_P0_161_chat_window_flush_to_bar__the_log_fills_whatever_space_is_actually_left_no_vh_guess", async () => {
+  /* Superseded from "the log's max-height scales with the viewport, not a
+     flat guess" (320px -> min(62vh, 560px)) — that whole premise, a
+     guessed number someone might raise again, is exactly what a real
+     transcript asked to stop, on this page specifically after it was
+     already fixed once on Items: "you're cutting off the chat window as
+     well on the bottom, the same way you were cutting off the items
+     view." The fix is the identical technique .ops.items-page already
+     uses: the whole page becomes a flex column, so .log's own height is
+     real available space, not a guessed vh fraction. */
   const { body } = await frontPage(OWNER);
-  assert.match(body, /\.log\s*\{[^}]*max-height:\s*min\(62vh, 560px\)/s, "the log must scale with the viewport, not a single guessed pixel value");
-  assert.doesNotMatch(body, /\.log\s*\{[^}]*max-height:\s*320px/s, "the old flat 320px cap must not still be set");
+  assert.match(body, /<main class="ops chat-page">/, "the flex-column sizing below is scoped to this page specifically");
+  assert.match(body, /\.ops\.chat-page\s*\{[^}]*display:\s*flex/s);
+  assert.match(body, /\.ops\.chat-page\s*\{[^}]*flex-direction:\s*column/s);
+  assert.match(body, /\.ops\.chat-page \.chat-top\s*\{[^}]*flex:\s*1 1 auto/s);
+  assert.match(body, /\.ops\.chat-page \.chat-top\s*\{[^}]*min-height:\s*0/s);
+  assert.match(body, /\.ops\.chat-page \.log\s*\{[^}]*flex:\s*1 1 auto/s);
+  assert.match(body, /\.ops\.chat-page \.log\s*\{[^}]*min-height:\s*0/s);
+  assert.doesNotMatch(body, /\.log\s*\{[^}]*max-height/s, "no more flat vh guess capping the log's own height");
+  assert.doesNotMatch(body, /\.chat-top\s*\{[^}]*margin-bottom/s, "stale clearance-before-the-bar margin must be gone now that .chat-top itself flex-grows to fill the real available space");
 });
 
 check("test_PRD_P0_78_chat_widget__the_inline_client_script_is_valid_javascript", async () => {
