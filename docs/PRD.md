@@ -7846,6 +7846,32 @@ that does not trace to one of these is a process failure (see §12).
     case (`.gate`'s own card, appearing in `#gate`) still gets a real 12px of its own separation from the
     last message — confirmed live, not doubled, not missing.
 
+98. **`Test-PRD-P0-165-approval_card_never_hidden_behind_the_bar`** — A real transcript: "I can't click
+    approval for tier two action because it is underneath my chat box and I cannot click on it."
+    `#gate`'s own `flex: 0 0 auto` never shrank and had no scroll of its own, so once a real approval
+    card's own content (a tool name, a JSON argument dump, an effect sentence, Stores) plus whatever
+    `.log` already held together outgrew `.chat-top`'s own bounded box, the card simply overflowed past
+    it — `.chat-top` itself has no overflow handling either — running straight underneath the fixed
+    `.input-bar` (`z-index: 20`, opaque), which painted over the Approve/Cancel row and intercepted the
+    click before it ever reached the button. Confirmed live: a realistic `catalog.create_product`
+    approval (title, price, category, vendor, style_id, description) rendered a 543px card inside a
+    584px budget shared with two prior messages, `document.elementFromPoint` at the button's own
+    coordinates returning the fixed bar instead of the button for the part that overlapped.
+
+    `flex: 0 1 auto` (still never grows past its own content — an approval card never needs to claim
+    space `.log` isn't using) plus `min-height: 0` and its own `overflow-y: auto` give `#gate` the
+    identical bounded-and-internally-scrollable contract `.log` already has: whatever combination of
+    prior messages and card content exists, the two now share `.chat-top`'s real available height by
+    shrinking together, rather than one of them running off the bottom of the page. A tall card scrolls
+    inside its own border now, exactly like a real dialog, with Approve/Cancel always reachable inside
+    it — never hidden behind the composer. Confirmed live, post-fix: scrolling `#gate` to its own bottom
+    makes the Approve button fully visible (`document.elementFromPoint` returns the button itself, not
+    the bar), and a real `.click()` on it fires the ordinary handler. Also confirmed unaffected: the
+    common case (no pending approval, `#gate` empty, the P0-164 gap unchanged at 10.75px), the batch
+    checklist card (`checklistCard()`, sharing the same `#gate`/`.gate` mechanism), the CSV preview
+    (P0-160/P0-162), and scrolling a long conversation to its own first message (P0-163) — none of these
+    regressed.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

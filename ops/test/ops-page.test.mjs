@@ -1650,6 +1650,35 @@ check("test_PRD_P0_164_chat_bar_clearance_not_stacked_twice__the_gap_before_the_
   assert.doesNotMatch(body, /\.chat-top\s*\{[^}]*padding:\s*14px 0;/s, "the old symmetric 14px top/bottom pair must not still be set");
 });
 
+check("test_PRD_P0_165_approval_card_never_hidden_behind_the_bar__gate_shrinks_and_scrolls_like_log_already_does", async () => {
+  /* A real transcript: "I can't click approval for tier two action
+     because it is underneath my chat box and I cannot click on it."
+     #gate's own flex: 0 0 auto never shrank and had no scroll of its
+     own, so once a real approval card's content (tool name, a JSON
+     argument dump, an effect sentence, Stores) plus whatever .log
+     already held together outgrew .chat-top's own bounded box, the card
+     simply overflowed PAST it — .chat-top itself has no overflow
+     handling either — running straight underneath the fixed .input-bar
+     (z-index: 20, opaque), which painted over the Approve/Cancel row and
+     intercepted the click before it ever reached the button. Confirmed
+     live: a realistic catalog.create_product approval rendered a 543px
+     card inside a 584px budget shared with two prior messages;
+     document.elementFromPoint at the button's own coordinates returned
+     the fixed bar, not the button, for the part that overlapped.
+     flex: 0 1 auto (still never grows past its own content) plus
+     min-height: 0 and overflow-y: auto give #gate the identical
+     bounded-and-internally-scrollable contract .log already has —
+     confirmed live, post-fix, that scrolling #gate to its own bottom
+     makes the Approve button fully visible and clickable
+     (document.elementFromPoint returns the button itself), and a real
+     .click() on it fires the ordinary handler (the button disables, the
+     same as any other click). */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.ops\.chat-page #gate\s*\{[^}]*flex:\s*0 1 auto/s, "gate must be allowed to shrink when a card is too tall for the real available space");
+  assert.match(body, /\.ops\.chat-page #gate\s*\{[^}]*min-height:\s*0/s, "without this a non-visible-overflow flex item cannot shrink below its own content at all");
+  assert.match(body, /\.ops\.chat-page #gate\s*\{[^}]*overflow-y:\s*auto/s, "a tall card must scroll inside its own box, never spill past it into the fixed bar's own territory");
+});
+
 check("test_PRD_P0_78_chat_widget__the_inline_client_script_is_valid_javascript", async () => {
   /* A live regression this suite had zero coverage for: `\"` inside the
      OUTER server-side template literal that builds this whole page is not
