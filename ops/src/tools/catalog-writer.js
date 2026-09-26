@@ -1426,9 +1426,8 @@ export function createSquareCatalogWriter(env, opts = {}) {
          one level up. An EXISTING variation's own values (carried
          through mergeVariations' own option_values, from this file's
          SELECT above) resolve back to their own external refs; a newly
-         added one (only ever from an option_values-bearing patch entry
-         — catalog.apply_category_item_options_to_products' own
-         auto-generated combinations) resolves the same way
+         added one (only ever from an option_values-bearing patch entry,
+         e.g. a CSV/agent-given Size/Color) resolves the same way
          createProduct's own loop does. Nothing here is EXPECTED to
          mint a brand-new value — every name/value reaching this call
          already exists — but ensureItemOptionValue's own tolerance for

@@ -3123,7 +3123,7 @@ function renderAdminCategoryNodes(categories, parentId, categoryProductCountsByI
                    trailing element than a top-level row — since
                    .admin-category-name is the only flex: 1 1 auto piece
                    in the row, it silently absorbed that missing width,
-                   shifting Sets/remove sideways relative to every
+                   shifting remove sideways relative to every
                    top-level row above it. The exact same width, held by
                    an inert spacer instead of a working button, cancels
                    that out. */
@@ -3137,15 +3137,13 @@ function renderAdminCategoryNodes(categories, parentId, categoryProductCountsByI
                  except they're blanked out... I want the adding of a
                  subcategory to be perfectly aligned with the existing
                  categories. Right now it's overflowing a little too much"
-                 — the owner's own words. Missing the Sets/remove buttons a
-                 real row would have left .admin-category-new-name (flex:
-                 1 1 auto, same as the real row's own name input) with no
+                 — the owner's own words. Missing the remove button a real
+                 row would have left .admin-category-new-name (flex: 1 1
+                 auto, same as the real row's own name input) with no
                  trailing width to share the row with, stretching it wider
-                 than every saved row beneath it. A disabled Sets button
-                 (only when one could ever show, same as a real row) and a
-                 disabled remove button reserve the exact same space real
-                 ones would, rather than an abstract spacer of a guessed
-                 width.
+                 than every saved row beneath it. A disabled remove button
+                 reserves the exact same space a real one would, rather
+                 than an abstract spacer of a guessed width.
                  REVISED: a real "+"-width spacer closes it out too now —
                  a subcategory never gets a real "+" of its own, but
                  leaving that width out entirely was its own, subtler
