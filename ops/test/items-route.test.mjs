@@ -1418,12 +1418,18 @@ check("test_PRD_P0_139_honest_write_failures__the_error_popover_floats_above_the
  * is even called.
  * ───────────────────────────────────────────────────────────────────────── */
 
-check("test_PRD_P0_136_square_custom_attributes__the_tile_shows_style_id_and_vendor_when_set", async () => {
+check("test_PRD_P0_176_style_id_display_only__the_tile_shows_style_id_as_a_photo_pill_and_vendor_in_its_own_row", async () => {
+  /* "It's just a display value... not an editable field, because changing
+     its category or subcategory is the same thing as changing the style
+     ID number" — the owner's own words. Shown to EVERY role now (STAFF
+     here, same as before), never gated behind canEdit the way the old
+     read-only fallback row was -- there is no edit surface left for it to
+     be a fallback FROM any more. */
   const mirror = mirrorDb();
   seedProduct(mirror, { style_id: "01-04-001", vendor: "Acme Mills" });
   const res = await get("/items", STAFF, env(mirror));
   const body = await res.text();
-  assert.match(body, /<span>Style ID<\/span><span>01-04-001<\/span>/);
+  assert.match(body, /<span class="item-photo-style-pill">01-04-001<\/span>/);
   assert.match(body, /<span>Vendor<\/span><span>Acme Mills<\/span>/);
 });
 
@@ -1444,19 +1450,17 @@ check("test_PRD_P0_136_square_custom_attributes__neither_row_renders_when_unset"
   seedProduct(mirror);
   const res = await get("/items", STAFF, env(mirror));
   const body = await res.text();
-  assert.doesNotMatch(body, /<span>Style ID<\/span>/);
+  assert.doesNotMatch(body, /<span class="item-photo-style-pill">/, "no pill at all for a product with no style_id yet");
   assert.doesNotMatch(body, /<span>Vendor<\/span>/);
 });
 
 check("test_PRD_P0_136_square_custom_attributes__the_edit_form_posts_to_square_attributes_prefilled_with_current_values", async () => {
-  /* Two separate forms now, both still square-attributes — style_id moved
-     into .category-title-row, to the left of the category dropdown
-     (REVISED: "I want to get rid of the style ID label and I want to take
-     the style ID input field and put it to the left of the category
-     dropdown in the category row"), vendor/vendor_code/commission stayed
-     where they were. unit_cost has no ops-side form field anywhere any
-     more ("get rid of the whole variants setup... we'll do variations
-     from Square") — only ever reachable through an API/agent
+  /* ONE square-attributes form now — style_id no longer has a form of its
+     own at all (Test-PRD-P0-176-style_id_display_only, its own comment has
+     the full reasoning); vendor/vendor_code/commission still post to the
+     same route they always did. unit_cost has no ops-side form field
+     anywhere any more ("get rid of the whole variants setup... we'll do
+     variations from Square") — only ever reachable through an API/agent
      catalog.set_square_attributes call now. */
   const mirror = mirrorDb();
   seedProduct(mirror, {
@@ -1469,13 +1473,9 @@ check("test_PRD_P0_136_square_custom_attributes__the_edit_form_posts_to_square_a
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
   const squareAttrForms = [...body.matchAll(/<form method="post" action="\/items\/wool-coat\/square-attributes"[^>]*>/g)];
-  assert.equal(squareAttrForms.length, 2, "style_id and vendor/vendor_code/commission are two separate forms now");
-  assert.doesNotMatch(body, /variations-header-label/, "no more Style ID label anywhere -- the placeholder is the only hint now");
-  const titleRowIdx = body.indexOf('<div class="category-title-row">');
-  const categoryFormIdx = body.indexOf('<form method="post" action="/items/wool-coat/category"', titleRowIdx);
-  const styleIdIdx = body.indexOf('<input name="style_id"', titleRowIdx);
-  assert.ok(styleIdIdx > titleRowIdx && styleIdIdx < categoryFormIdx, "style_id must render before the category dropdown, inside the category row");
-  assert.match(body, /<input name="style_id" value="01-04-001" placeholder="NN-NN-NNN" pattern="\\d\{2\}-\\d\{2\}-\\d\{3\}"/);
+  assert.equal(squareAttrForms.length, 1, "style_id no longer has a form of its own -- vendor/vendor_code/commission is the only one left");
+  assert.doesNotMatch(body, /name="style_id"/, "style_id is never a form field any more, anywhere on this tile");
+  assert.match(body, /<span class="item-photo-style-pill">01-04-001<\/span>/, "style_id still shows -- as the read-only photo pill, not a field");
   assert.match(body, /<input class="item-unit-cost" name="unit_cost" value="42" placeholder="Cost"/, "unit_cost lives on the vendor form, back on the row itself, as a whole dollar amount");
   /* "The same kind of drop down schema that we have for categories... we
      don't have to fill out any of these stuff per product." vendor is now
@@ -1703,32 +1703,24 @@ check("test_PRD_P0_136_square_custom_attributes__a_blank_vendor_with_no_clear_ma
   assert.match(await res.text(), /SQUARE_ACCESS_TOKEN is unset/, "an untouched vendor must not itself block reaching the tool layer");
 });
 
-check("test_PRD_P0_136_square_custom_attributes__style_id_auto_formats_with_dashes_and_reads_red_until_a_full_match", async () => {
-  /* "When I'm entering a style ID... I should just type it in, like type
-     in digits, say 010101, it should automatically insert dashes between
-     these numbers as I type... until I type out the full complete number,
-     the entry field border should be red to indicate that it's not
-     acceptable, only when it's fully acceptable should it be orange." No
-     JS validation state -- the field's own existing pattern already makes
-     an incomplete, non-empty value native :invalid, and an empty one
-     native :valid, since it is never required. */
+check("test_PRD_P0_176_style_id_display_only__no_input_or_formatting_code_for_style_id_remains_anywhere", async () => {
+  /* REVISED, superseding the auto-format-as-you-type field this same test
+     used to check: "changing its category or subcategory is the same
+     thing as changing the style ID number... let's just put the style ID
+     as an indicator, as a balloon" — the owner's own words. The typing
+     affordances (auto-dash formatting, the red-until-complete :invalid
+     styling) existed only to serve an editable field that no longer
+     exists — dead code once the field is gone, not a feature to keep
+     working with nothing left to attach it to. */
   const mirror = mirrorDb();
-  seedProduct(mirror);
+  seedProduct(mirror, { style_id: "01-04-001" });
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
-  assert.match(body, /--invalid:\s*#E5484D;/);
-  assert.match(body, /\.item-edit input\[name="style_id"\]:invalid\s*\{\s*border-color:\s*var\(--invalid\);\s*\}/);
-  assert.doesNotMatch(body, /<input name="style_id"[^>]*\brequired\b/, "empty must stay :valid -- no style_id yet is not an error");
-  assert.match(body, /function formatStyleId\(raw\)\s*\{/);
-  assert.match(body, /const digits = raw\.replace\(\/\\D\/g, ""\)\.slice\(0, 7\);/);
-  assert.match(body, /function reformatStyleIdInput\(input\)\s*\{/);
-  const gridChangeIdx = body.indexOf("function onItemsGridChange(e) {");
-  const reformatCallIdx = body.indexOf('reformatStyleIdInput(e.target);', gridChangeIdx);
-  const stockCountBranchIdx = body.indexOf('e.target.matches(".variation-stock-count")', gridChangeIdx);
-  assert.ok(
-    gridChangeIdx > -1 && reformatCallIdx > gridChangeIdx && reformatCallIdx < stockCountBranchIdx,
-    "the style_id reformat must run first, on every input/change event the grid already listens for",
-  );
+  assert.doesNotMatch(body, /name="style_id"/, "no input field, anywhere, for any role");
+  assert.doesNotMatch(body, /function formatStyleId\(/, "the auto-dash-formatter has nothing left to format");
+  assert.doesNotMatch(body, /function reformatStyleIdInput\(/);
+  assert.doesNotMatch(body, /\.item-edit input\[name="style_id"\]/, "no style_id-specific CSS left either");
+  assert.match(body, /<span class="item-photo-style-pill">01-04-001<\/span>/, "the value itself still shows -- read-only, as the photo pill");
 });
 
 check("test_PRD_P0_136_square_custom_attributes__cost_refuses_cents_before_touching_square", async () => {
@@ -1846,11 +1838,12 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_variations_accordion_h
   assert.doesNotMatch(body, /action="\/items\/wool-coat\/variations"/, "the variations accordion body posts nowhere any more");
   assert.match(body, /<span class="variation-title-label">One size<\/span>/, "the variation's own name is still shown, read-only");
   assert.match(body, /<input type="text" class="variation-stock-count" value="0" readonly aria-label="Current stock">/, "the stock stepper survives untouched");
-  /* REVISED: style_id no longer lives in the accordion's own header at
-     all -- it moved to .category-title-row, no label, just the format
-     hint placeholder. */
+  /* REVISED AGAIN: style_id has no form field anywhere at all any more --
+     Test-PRD-P0-176-style_id_display_only's own comment has the full
+     reasoning. Its own value still shows, as the read-only photo pill. */
   assert.doesNotMatch(body, /variations-header-label/);
-  assert.match(body, /<input name="style_id" value="01-04-001" placeholder="NN-NN-NNN"/, "just the format hint, no label at all");
+  assert.doesNotMatch(body, /name="style_id"/);
+  assert.match(body, /<span class="item-photo-style-pill">01-04-001<\/span>/);
   /* The direct-link deep link is the one place a SKU still matters — the
      owner's own words: "if you do a direct link, that makes sense...
      otherwise it's completely not our problem" — so data-sku must still
@@ -1871,20 +1864,11 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_accordion_header_is_de
   assert.match(body, /<span class="variations-label">Variations<\/span>/, "the header names the section it belongs to, next to the chevron");
 });
 
-check("test_PRD_P0_135_item_edit_applies_immediately__style_id_stays_centered_and_the_header_spacer_is_the_last_thing_in_it", async () => {
-  /* "Scale that [style_id] input field to only fit that exact amount of
-     characters" — 9 for NN-NN-NNN, still centered. */
+check("test_PRD_P0_135_item_edit_applies_immediately__the_header_spacer_is_the_last_thing_in_it", async () => {
   const mirror = mirrorDb();
   seedProduct(mirror, { vendor: "Acme Mills" });
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
-  /* REVISED: style_id no longer lives in the Variations header at all --
-     "I want to get rid of the style ID label and I want to take the
-     style ID input field and put it to the left of the category dropdown
-     in the category row." It kept its own width (6em, unchanged) and
-     centered text, now scoped to .item-edit since that is where it
-     actually renders. */
-  assert.match(body, /\.item-edit input\[name="style_id"\]\s*\{[^}]*width: 6em[^}]*text-align: center/);
   assert.match(body, /<span class="variations-header-spacer"><\/span>/, "an invisible spacer absorbs the header's own leftover width, the same way each row's own title does");
   assert.match(body, /\.variations-header-spacer\s*\{\s*flex: 1 1 auto;\s*\}/);
   assert.match(body, /\.variations-body \.row\s*\{[^}]*padding: 3px 4px 3px 0/, "a right inset matches the header's own right padding");
@@ -2737,28 +2721,25 @@ check("test_PRD_P0_130_item_tile_photo__no_synced_image_falls_back_to_the_plain_
   assert.match(body, /<div class="item-photo">/, "no image_key must render with no inline background-image style at all");
 });
 
-check("test_PRD_P0_131_item_status_filter__the_collapsed_tile_shows_title_price_style_id_and_short_tags", async () => {
-  /* The owner's own words: "title on top left, price top right, SKU
-     bottom left, and then a few of the tags, but shorten them." REVISED:
-     "these [SKUs] are generated automatically by Square and we should not
-     be editing them at all... we don't need to see them in our ops
-     dashboard" — style_id (this shop's own nomenclature) took that spot
-     instead. */
+check("test_PRD_P0_131_item_status_filter__the_collapsed_tile_shows_title_price_and_short_tags", async () => {
+  /* The owner's own words: "title on top left, price top right... and
+     then a few of the tags, but shorten them." REVISED AGAIN: style_id no
+     longer occupies the bottom-left spot at all — it is a photo pill now
+     (Test-PRD-P0-176-style_id_display_only), so .item-bottom-row carries
+     only the tags. */
   const mirror = mirrorDb();
   seedProduct(mirror, { style_id: "01-04-001" });
   const res = await get("/items", STAFF, env(mirror));
   const body = await res.text();
   assert.match(body, /<div class="item-top"><h3>Wool Coat<\/h3>\s*<div class="item-top-right">\s*<span class="item-price">\$ 450<\/span>/);
+  assert.match(body, /<span class="item-photo-style-pill">01-04-001<\/span>/);
   /* "I don't want to see the in-store tag... what's the in-store for?" —
      direct_link (the default, seeded here) gets no channel tag at all.
      REVISED: "remove the category pill from the bottom right of the
      image" — the category earns no tag here at all any more either, so
      an active, direct_link product with no vendor renders no tags at
      all. */
-  assert.match(
-    body,
-    /<div class="item-bottom">\s*<div class="item-bottom-row"><span class="item-style-id">01-04-001<\/span><div class="item-tags"><\/div><\/div>/,
-  );
+  assert.match(body, /<div class="item-bottom">\s*<div class="item-bottom-row"><div class="item-tags"><\/div><\/div>/);
   assert.doesNotMatch(body, /<span class="item-tag">Outerwear<\/span>/, "the category no longer earns a tag on the thumbnail at all");
 });
 
@@ -2803,7 +2784,7 @@ check("test_PRD_P0_130_item_tile_photo__only_a_website_item_gets_a_channel_tag",
   const body = await res.text();
   assert.match(
     body,
-    /<div class="item-bottom">\s*<div class="item-bottom-row"><span class="item-style-id"><\/span><div class="item-tags"><span class="item-tag channel-website">Web<\/span><\/div><\/div>/,
+    /<div class="item-bottom">\s*<div class="item-bottom-row"><div class="item-tags"><span class="item-tag channel-website">Web<\/span><\/div><\/div>/,
   );
   assert.doesNotMatch(body, /<span class="item-tag">Outerwear<\/span>/, "the category no longer earns a tag on the thumbnail at all");
   assert.doesNotMatch(body, />In store</, "In store is never rendered as a tag any more");
@@ -2894,7 +2875,7 @@ check("test_PRD_P0_131_item_status_filter__an_inactive_products_tile_carries_dat
   assert.match(body, /data-status="inactive" data-channel="website"/);
   assert.match(
     body,
-    /<div class="item-bottom">\s*<div class="item-bottom-row"><span class="item-style-id"><\/span><div class="item-tags"><span class="item-tag item-tag-inactive">Inactive<\/span><\/div><\/div>/,
+    /<div class="item-bottom">\s*<div class="item-bottom-row"><div class="item-tags"><span class="item-tag item-tag-inactive">Inactive<\/span><\/div><\/div>/,
     "an inactive tile must show only the Inactive tag, not its channel or category",
   );
 });

@@ -2338,7 +2338,7 @@ ${INPUT_BAR_CSS}
    exact same space-between layout it always had, unaffected by the new
    line stacked beneath it. */
 .item-bottom { bottom: 0; display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; }
-.item-bottom-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.item-bottom-row { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
 /* One clickable segment per category level — "I should be able to click
    on them to browse through them." font: inherit/no background/no
    border so a segment reads as text with an underline, not a button,
@@ -2418,10 +2418,6 @@ ${INPUT_BAR_CSS}
   cursor: pointer; margin-left: auto;
 }
 .item-save-all:disabled { border-color: var(--muted); background: transparent; color: var(--muted); cursor: not-allowed; }
-/* style_id took the SKU's old spot — the owner's own words: "these are
-   generated automatically by Square and we should not be editing them at
-   all... we don't need to see them in our ops dashboard." */
-.item-style-id { font-size: 11px; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* As short as the owner's own words ask: "shorten them, make them as
    short as possible" — CHANNEL_LABEL carries just "Web" now (direct_link
    gets no tag at all — see CHANNEL_LABEL's own comment), and the tag list
@@ -2511,6 +2507,25 @@ ${INPUT_BAR_CSS}
   border-radius: 999px; padding: 3px 8px; pointer-events: none;
 }
 .item-tile.full .item-photo-variant-pill.visible { display: inline-block; }
+/* "Let's just put the style ID as an indicator, as a balloon on the top
+   left area, right opposite of the option balloon name" — the owner's
+   own words, retiring the editable style_id field entirely ("it's just a
+   display value... not an editable field, because changing its category
+   or subcategory is the same thing as changing the style ID number").
+   Same pill treatment as .item-photo-variant-pill, mirrored to the
+   opposite corner — top: 36px is the identical, already-measured
+   clearance below .item-top; left: 8px matches that pill's own right: 8px
+   exactly. Static, unlike the variant pill (no scroll-driven visibility
+   toggle): style_id belongs to the PRODUCT, not to whichever photo
+   happens to be showing, so it never changes as the gallery is swiped —
+   shown for every role (it is read-only for everyone now, not just
+   staff), blank (no pill at all) for a product with no style_id yet. */
+.item-photo-style-pill {
+  display: none; position: absolute; top: 36px; left: 8px;
+  font-size: 10px; color: #fff; background: rgba(25, 24, 23, 0.75);
+  border-radius: 999px; padding: 3px 8px; pointer-events: none;
+}
+.item-tile.full .item-photo-style-pill { display: inline-block; }
 .item-tile.full .item-detail { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px 12px; font-size: 12px; }
 .item-detail { display: none; }
 .item-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
@@ -2840,29 +2855,6 @@ ${INPUT_BAR_CSS}
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
 }
 .item-edit textarea::placeholder { font-size: 10px; }
-/* REVISED: style_id no longer lives in the Variations header at all — the
-   owner's own words: "I want to get rid of the style ID label and I want
-   to take the style ID input field and put it to the left of the category
-   dropdown in the category row." It's the FIRST child of
-   .category-title-row now (the .item-edit .category-title-row form rule
-   above already gives it display: contents, the same as the category
-   picker and title forms beside it), with no label at all — the
-   placeholder (NN-NN-NNN) is the only hint, same as vendor/commission
-   already have no persistent label either. */
-.item-edit input[name="style_id"] { flex: 0 0 auto; width: 6em; text-align: center; }
-/* "As I'm typing it, until I type out the full complete number, the entry
-   field border should be red to indicate that it's not acceptable. Only
-   when it's fully acceptable should it be orange and ready to be saved."
-   The input's own existing pattern (NN-NN-NNN) already makes the browser
-   mark it :invalid the moment it is non-empty and does not fully match —
-   :valid on an EMPTY field, by the same native behavior, since this is
-   never required: a product with no style_id yet is not an error. No
-   JS validation needed, only a border color keyed off what the browser
-   already knows. Specificity (0,3,1) — .item-edit, [name=], :invalid,
-   plus the input type — beats .item-tile input.field-dirty's own
-   (0,2,1) outright, so an incomplete-but-changed value reads red, never
-   orange, until it is actually a complete, savable style_id. */
-.item-edit input[name="style_id"]:invalid { border-color: var(--invalid); }
 /* Absorbs the header's own leftover width so the toggle/label sit flush
    left, matching every other accordion header's own spacer on this
    page — nothing ever sits after it (style_id, Cost and MSRP have all
@@ -3477,18 +3469,16 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
     .join(" ")
     .toLowerCase();
 
-  /* The bottom row's own left side used to be the primary variation's SKU.
-     Not any more — the owner's own words: "these are generated
-     automatically by Square and we should not be editing them at all...
-     we don't need to see them in our ops dashboard" — style_id (this
-     shop's own nomenclature, never Square's) takes that spot instead. SKU
-     still exists, just never displayed: shareLink()'s own deep link is
-     still keyed on it (data-sku below, unchanged), because a direct link
-     is the one place the owner said a SKU still makes sense ("if you do a
-     direct link, that makes sense... otherwise it's completely not our
-     problem"). The top row keeps ONE price, the first variation's own,
-     matching how a multi-size garment is already priced "from" its
-     lowest-ordinal variation everywhere else in this codebase. */
+  /* The primary variation's SKU never displays here at all — the owner's
+     own words: "these are generated automatically by Square and we should
+     not be editing them at all... we don't need to see them in our ops
+     dashboard." It still exists, just never shown: shareLink()'s own deep
+     link is still keyed on it (data-sku below, unchanged), because a
+     direct link is the one place the owner said a SKU still makes sense
+     ("if you do a direct link, that makes sense... otherwise it's
+     completely not our problem"). The top row keeps ONE price, the first
+     variation's own, matching how a multi-size garment is already priced
+     "from" its lowest-ordinal variation everywhere else in this codebase. */
   const primaryVariant = product.variations[0];
   const primarySku = primaryVariant?.sku || primaryVariant?.title || "";
   const priceText = primaryVariant ? money(primaryVariant.price_minor, primaryVariant.currency) : "";
@@ -3536,22 +3526,25 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
     ? fieldEntries.map(([k, v]) => `<div><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join("")
     : "";
 
-  /* For someone who CAN edit, style_id has its own edit form below
-     (titleVendorForms' own style-id-form), so it is not repeated here;
-     unit cost has no ops-side edit surface at all any more ("get rid of
-     the whole variants setup... we'll do variations from Square"), only
-     ever set here through an API/agent catalog.set_square_attributes
-     call. Someone who cannot edit (staff) never sees those edit surfaces
-     either way (canEdit-gated, like everything else on this tile), so
-     both stay here, read-only, exactly as before — otherwise a staff
-     member would lose visibility of them entirely. vendor/vendor_code/
-     commission are unaffected either way: still their own Square Vendor
-     entity (Retail Plus/Premium, P0-136 revised), shown in their own
-     rows, blank rather than an empty-state paragraph when none is set
-     yet (an empty text field already says that, the same way the edit
-     form below will). */
+  /* style_id no longer has a row here at all, editable or read-only — "it's
+     just a display value... not an editable field, because changing its
+     category or subcategory is the same thing as changing the style ID
+     number" — the owner's own words. It now renders once, for every role,
+     as its own pill on the photo itself (item-photo-style-pill, below),
+     never a form field or a text row to keep in sync with the category
+     that actually determines it. Unit cost has no ops-side edit surface at
+     all any more ("get rid of the whole variants setup... we'll do
+     variations from Square"), only ever set here through an API/agent
+     catalog.set_square_attributes call. Someone who cannot edit (staff)
+     never sees that edit surface either way (canEdit-gated, like
+     everything else on this tile), so it stays here, read-only, exactly
+     as before — otherwise a staff member would lose visibility of it
+     entirely. vendor/vendor_code/commission are unaffected either way:
+     still their own Square Vendor entity (Retail Plus/Premium, P0-136
+     revised), shown in their own rows, blank rather than an empty-state
+     paragraph when none is set yet (an empty text field already says
+     that, the same way the edit form below will). */
   const attrRows =
-    (!canEdit && product.style_id ? `<div><span>Style ID</span><span>${esc(product.style_id)}</span></div>` : "") +
     (product.vendor ? `<div><span>Vendor</span><span>${esc(product.vendor)}</span></div>` : "") +
     (product.vendor_code ? `<div><span>Vendor code</span><span>${esc(product.vendor_code)}</span></div>` : "") +
     (!canEdit && product.unit_cost_minor
@@ -3785,9 +3778,6 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
   const titleVendorForms = canEdit
     ? `<div class="item-edit">
          <div class="category-title-row">
-           <form method="post" action="/items/${esc(product.handle)}/square-attributes" class="row style-id-form">
-             <input name="style_id" value="${esc(product.style_id ?? "")}" placeholder="NN-NN-NNN" pattern="\\d{2}-\\d{2}-\\d{3}" title="NN-NN-NNN — a 2-digit category, a 2-digit subcategory, a 3-digit item number, e.g. 01-04-001. Leave blank to keep it as it is.">
-           </form>
            ${categoryControl}
            <form method="post" action="/items/${esc(product.handle)}/details">
              <input class="item-title-input" name="title" value="${esc(product.title)}" placeholder="Title">
@@ -3875,11 +3865,13 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
           .join("")}</div>`
       : "";
   const soloDeleteHtml = gallery.length === 1 ? deleteButton(gallery[0].id) : "";
+  const stylePillHtml = product.style_id ? `<span class="item-photo-style-pill">${esc(product.style_id)}</span>` : "";
 
   return `<article class="item-tile" data-search="${esc(searchText)}" data-category="${esc(product.category_name || "")}" data-category-chain="${esc(categoryChain)}" data-status="${isActive ? "active" : "inactive"}" data-channel="${esc(product.channel)}" data-handle="${esc(product.handle)}" data-sku="${esc(primarySku)}">
     <div class="item-photo"${photoStyle}>
       ${photoTrackHtml}
       ${soloDeleteHtml}
+      ${stylePillHtml}
       <div class="item-top"><h3>${esc(product.title)}</h3>
         <div class="item-top-right">
           <span class="item-price">${esc(priceText)}</span>
@@ -3889,7 +3881,7 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
       </div>
       <span class="item-photo-variant-pill"></span>
       <div class="item-bottom">
-        <div class="item-bottom-row"><span class="item-style-id">${esc(product.style_id ?? "")}</span><div class="item-tags">${tags}</div></div>
+        <div class="item-bottom-row"><div class="item-tags">${tags}</div></div>
         ${breadcrumbHtml}
       </div>
     </div>
@@ -4557,42 +4549,7 @@ function refreshDirtyState(field) {
   const saveBtn = tile.querySelector(".item-save-all");
   if (saveBtn) saveBtn.disabled = !tileDirty;
 }
-/* "When I'm entering a style ID... I should just type in digits, say
-   010101. It should automatically insert dashes between these numbers
-   as I type. So it auto formats it." Strips anything that is not a
-   digit, caps at 7 (2+2+3, the NN-NN-NNN shape), and re-inserts the two
-   dashes at their fixed positions — never asks the person to type a
-   dash themselves, the same way a credit-card-number field works. */
-function formatStyleId(raw) {
-  const digits = raw.replace(/\\D/g, "").slice(0, 7);
-  return [digits.slice(0, 2), digits.slice(2, 4), digits.slice(4, 7)].filter(Boolean).join("-");
-}
-/* Reformatting on every keystroke would otherwise always snap the caret
-   to the very end (setting .value does that natively), making it
-   impossible to fix a digit in the middle without the cursor jumping
-   away first. Counts how many DIGITS (never dashes, which this function
-   itself inserts) sat before the caret, reformats, then walks the new
-   string back out to the position right after that same count of
-   digits — the caret lands in the same logical spot even though the
-   dashes around it may have shifted. */
-function reformatStyleIdInput(input) {
-  const digitsBeforeCaret = input.value.slice(0, input.selectionStart ?? input.value.length).replace(/\\D/g, "").length;
-  input.value = formatStyleId(input.value);
-  let seen = 0;
-  let caret = input.value.length;
-  for (let i = 0; i < input.value.length; i += 1) {
-    if (seen >= digitsBeforeCaret) {
-      caret = i;
-      break;
-    }
-    if (/\\d/.test(input.value[i])) seen += 1;
-  }
-  input.setSelectionRange(caret, caret);
-}
 function onItemsGridChange(e) {
-  if (e.target.matches('input[name="style_id"]')) {
-    reformatStyleIdInput(e.target);
-  }
   /* Stock's own read-only field lives beside the +/- stepper for layout
      only — it is never user-editable (so this never actually fires from a
      real click/keystroke) and must never mark any form or the tile's one
@@ -5148,10 +5105,9 @@ ${OPS_DARK_CSS}
    result in a red invalid box" — the browser's own native :invalid,
    driven by required/pattern for a blank or malformed value and by
    setCustomValidity (revalidateNumericIdPool, below) for a value shared
-   with another category — the same native-:invalid convention the Items
-   tab's own style_id field already established, over a JS-toggled class.
-   Specificity (0,2,0) beats .field-dirty's own (0,1,1), so a dirty AND
-   invalid field reads red, never orange. */
+   with another category, over a JS-toggled class. Specificity (0,2,0)
+   beats .field-dirty's own (0,1,1), so a dirty AND invalid field reads
+   red, never orange. */
 .admin-category-numeric-id:invalid { border-color: var(--invalid); }
 .admin-remove-btn, .admin-category-add-toggle {
   flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; padding: 0; font-size: 13px; line-height: 1;
@@ -5437,11 +5393,10 @@ document.body.addEventListener("input", (e) => {
    same ID temporarily so you can change their order, but you cannot save
    that" — the owner's own words. required (the input's own markup,
    above) plus its existing 2-digit pattern already make the browser mark
-   a blank or malformed field invalid on their own — the same native-
-   invalid convention the Items tab's own style_id field already
-   established, no JS needed for either case. setCustomValidity is the
-   one piece only JS can supply: TWO categories in the SAME pool sharing
-   one value is not something a single field's own pattern can see.
+   a blank or malformed field invalid on their own, no JS needed for
+   either case. setCustomValidity is the one piece only JS can supply:
+   TWO categories in the SAME pool sharing one value is not something a
+   single field's own pattern can see.
    "If I take number two and change it to one, it should automatically
    change the other one to two and reshuffle them" — rather than leaving
    that conflict on screen for the owner to resolve by hand, the one
