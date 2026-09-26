@@ -23,7 +23,6 @@ register("../../shared/test/text-modules.mjs", import.meta.url);
 
 const indexModule = await import("../src/index.js");
 const worker = indexModule.default;
-const { perProductApplyFailure } = indexModule;
 const { approvalResultPage } = await import("../src/views.js");
 
 const usedLabels = new Set();
@@ -3273,10 +3272,9 @@ check("test_PRD_P0_138_nested_categories__admin_clicking_the_caret_or_the_row_to
   );
   assert.match(
     body,
-    /const row = e\.target\.closest\("\.admin-category-row"\);[\s\S]*?if \(row && !e\.target\.closest\("input, button, \.admin-category-options"\)\) \{\s*\n\s*row\.closest\("\.admin-category-node"\)\?\.classList\.toggle\("expanded"\);/,
-    "clicking anywhere on the row (not just the caret) must also toggle it, but a click inside the Sets " +
-      "control (a checkbox's own <label>, not just the <input> itself) must not -- \"every time I toggle " +
-      "a set on and off, it expands and collapses the header,\" the owner's own words",
+    /const row = e\.target\.closest\("\.admin-category-row"\);[\s\S]*?if \(row && !e\.target\.closest\("input, button"\)\) \{\s*\n\s*row\.closest\("\.admin-category-node"\)\?\.classList\.toggle\("expanded"\);/,
+    "clicking anywhere on the row (not just the caret) must also toggle it, but a click on an input or " +
+      "button inside it (a rename/number field, a remove button) must not",
   );
 });
 
@@ -3308,11 +3306,10 @@ check("test_PRD_P0_138_nested_categories__admin_add_subcategory_form_reserves_th
   /* "Include all of the buttons that you normally would add... they
      should be available because I want the adding of a subcategory to
      be perfectly aligned with the existing categories. Right now it's
-     overflowing a little too much." Missing the Sets/remove buttons a
-     real saved subcategory row would have left the name input free to
-     stretch wider than every row beneath it -- a disabled Sets button
-     (when any option set exists at all) and a disabled remove button now
-     reserve that same trailing space.
+     overflowing a little too much." Missing the remove button a real
+     saved subcategory row would have left the name input free to
+     stretch wider than every row beneath it -- a disabled remove button
+     now reserves that same trailing space.
      REVISED: "make sure all add and delete buttons in the categories are
      vertically aligned... in one line, in a straight line." A working "+"
      button is still never given to a subcategory add-form -- one is
@@ -3322,12 +3319,10 @@ check("test_PRD_P0_138_nested_categories__admin_add_subcategory_form_reserves_th
   const mirror = mirrorDb();
   seedProduct(mirror);
   seedCategoryTree(mirror);
-  seedItemOption(mirror, { id: "opt1", externalRef: "sqopt1", name: "Size" });
   const body = await (await get("/admin", MANAGER, env(mirror))).text();
   const addFormStart = body.indexOf('action="/admin/categories/create" class="admin-category-add-form" hidden style="padding-left: 14px">');
   assert.ok(addFormStart > -1, "the subcategory add-form must exist");
   const addForm = body.slice(addFormStart, body.indexOf("</form>", addFormStart));
-  assert.match(addForm, /<button type="button" class="admin-category-options-toggle" disabled title="Save the new subcategory first">Sets<\/button>/);
   assert.match(addForm, /<button type="button" class="admin-remove-btn" disabled aria-label="Remove" title="Save the new subcategory first">/);
   assert.doesNotMatch(addForm, /admin-category-add-toggle/, "a subcategory add-form never reserves space for a working + toggle");
   assert.match(
@@ -3371,23 +3366,20 @@ check("test_PRD_P0_138_nested_categories__admin_a_real_subcategory_row_gets_a_pl
   );
 });
 
-check("test_PRD_P0_138_nested_categories__admin_top_level_add_form_also_reserves_sets_remove_and_plus", async () => {
+check("test_PRD_P0_138_nested_categories__admin_top_level_add_form_also_reserves_remove_and_plus", async () => {
   /* "Make sure that the main category add button also generates all of
      the proper fields so that it's perfectly aligned as well, just like
-     you did with the subcategories -- we need the Sets and then we have
-     the disabled delete button." This row is top-level (no left
+     you did with the subcategories." This row is top-level (no left
      indent), and a real top-level row keeps a working "+" of its own, so
-     all three placeholders join it: Sets, remove, AND a disabled "+" --
-     the one placeholder the subcategory add-form correctly omits, since
-     only a TOP-LEVEL category ever gets a real one. */
+     both placeholders join it: remove AND a disabled "+" -- the one
+     placeholder the subcategory add-form correctly omits, since only a
+     TOP-LEVEL category ever gets a real one. */
   const mirror = mirrorDb();
   seedProduct(mirror);
-  seedItemOption(mirror, { id: "opt1", externalRef: "sqopt1", name: "Size" });
   const body = await (await get("/admin", MANAGER, env(mirror))).text();
   const addFormStart = body.indexOf('<form method="post" action="/admin/categories/create" class="admin-category-add-form" hidden>');
   assert.ok(addFormStart > -1, "the top-level add-form must exist");
   const addForm = body.slice(addFormStart, body.indexOf("</form>", addFormStart));
-  assert.match(addForm, /<button type="button" class="admin-category-options-toggle" disabled title="Save the new category first">Sets<\/button>/);
   assert.match(addForm, /<button type="button" class="admin-remove-btn" disabled aria-label="Remove" title="Save the new category first">/);
   assert.match(addForm, /<button type="button" class="admin-category-add-toggle" disabled aria-label="Add a subcategory" title="Save the new category first">\+<\/button>/);
 });
@@ -3733,278 +3725,6 @@ check("test_PRD_P0_138_nested_categories__admin_a_category_with_products_assigne
   const cat4Idx = body.indexOf("Knitwear");
   const cat4Row = body.slice(cat4Idx, body.indexOf("admin-category-children", cat4Idx));
   assert.match(cat4Row, /<button type="button" class="admin-remove-btn" disabled[^>]*>/, "a leaf category with a product assigned keeps a visible, disabled remove button");
-});
-
-function seedItemOption(mirror, { id = "opt1", externalRef = "sqopt1", name = "Size" } = {}) {
-  mirror.db.exec(`INSERT INTO mirror_item_option (id, external_ref, name) VALUES ('${id}', '${externalRef}', '${name}')`);
-}
-
-check("test_PRD_P0_142_category_item_options__admin_renders_a_sets_toggle_with_a_checkbox_per_option_pre_checked", async () => {
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  seedCategoryTree(mirror);
-  seedItemOption(mirror, { id: "opt1", externalRef: "sqopt1", name: "Size" });
-  seedItemOption(mirror, { id: "opt2", externalRef: "sqopt2", name: "Color" });
-  mirror.db.exec("INSERT INTO mirror_category_item_option (category_id, item_option_id) VALUES ('cat1', 'opt1')");
-  mirror.db.exec("UPDATE mirror_category SET item_options_set_at = datetime('now') WHERE id = 'cat1'");
-
-  const body = await (await get("/admin", MANAGER, env(mirror))).text();
-  const cat1Idx = body.indexOf("Outerwear");
-  const cat1Row = body.slice(cat1Idx, body.indexOf("admin-category-children", cat1Idx));
-  assert.match(cat1Row, /<div class="admin-category-options">\s*\n\s*<button type="button" class="admin-category-options-toggle admin-category-options-toggle-active"[^>]*>Sets \(1\)<\/button>/);
-  assert.match(cat1Row, /<form method="post" action="\/admin\/categories\/item-options" class="admin-category-options-menu" hidden>/, "the checkbox list is a floating menu, not a block row");
-  assert.match(cat1Row, /<input type="checkbox" name="item_option_ids" value="opt1" checked> Size/);
-  assert.match(cat1Row, /<input type="checkbox" name="item_option_ids" value="opt2"> Color/);
-  assert.match(
-    cat1Row,
-    /<input type="checkbox" name="inherit" value="1"> Inherit/,
-    "an explicit set (item_options_set_at already stamped on cat1) shows Inherit unchecked, and its own checkboxes above stay enabled",
-  );
-});
-
-check("test_PRD_P0_142_category_item_options__admin_sets_menu_floats_over_the_tree_rather_than_pushing_it_down", async () => {
-  /* REVISED: "when clicking Sets, I want you to open a menu with
-     checkboxes, not a whole row that's not aligned to anything." A
-     position: relative wrapper around the toggle and its own
-     position: absolute menu -- the same shape .vendor-picker/
-     .vendor-picker-menu already establish on the Items tab -- rather
-     than a block sitting between the row and its own children,
-     widening/relayouting everything beneath it. */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  seedItemOption(mirror, { id: "opt1", externalRef: "sqopt1", name: "Size" });
-  const body = await (await get("/admin", MANAGER, env(mirror))).text();
-  assert.match(body, /\.admin-category-options \{ position: relative; flex: 0 0 auto; \}/);
-  assert.match(
-    body,
-    /\.admin-category-options-menu \{\s*\n\s*position: absolute; top: 100%; right: 0;/,
-    "the checkbox list must float below the toggle, anchored to its right edge so it opens leftward and stays on screen, not occupy its own row",
-  );
-});
-
-check("test_PRD_P0_142_category_item_options__admin_sets_menu_stays_open_across_multiple_checkbox_clicks_closes_on_outside_click_or_escape", async () => {
-  /* "I want to select multiple checkboxes, toggle them" -- a checkbox
-     click inside the menu must never close it (the same "closest" guard
-     the outside-click handler already uses for the toggle button
-     itself), only an outside click, Escape, or the toggle button. */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  seedItemOption(mirror, { id: "opt1", externalRef: "sqopt1", name: "Size" });
-  const body = await (await get("/admin", MANAGER, env(mirror))).text();
-  assert.match(
-    body,
-    /function closeAllOptionsMenus\(\) \{\s*\n\s*document\.querySelectorAll\("\.admin-category-options-menu"\)\.forEach\(\(m\) => \(m\.hidden = true\)\);\s*\n\s*\}/,
-  );
-  assert.match(
-    body,
-    /document\.addEventListener\("click", \(e\) => \{\s*\n\s*if \(e\.target\.closest\("\.admin-category-options"\)\) return;\s*\n\s*closeAllOptionsMenus\(\);\s*\n\s*\}\);/,
-    "a click anywhere inside the toggle+menu wrapper (a checkbox included) must be excluded from the outside-click close",
-  );
-  assert.match(
-    body,
-    /document\.addEventListener\("keydown", \(e\) => \{\s*\n\s*if \(e\.key !== "Escape"\) return;\s*\n\s*closeAllOptionsMenus\(\);\s*\n\s*\}\);/,
-  );
-});
-
-check("test_PRD_P0_142_category_item_options__admin_a_subcategory_with_no_explicit_set_shows_its_parents_as_checked", async () => {
-  /* "When I set sets for a category, all subcategories inherit the sets
-     unless I specify different selections for the subcategories" — the
-     owner's own words. cat2 (Coats, a subcategory of cat1/Outerwear)
-     never gets its own mirror_category_item_option row or its own
-     item_options_set_at here -- only cat1 does -- so its own menu must
-     still show Outerwear's own assignment as checked and its own Sets
-     badge must still read the inherited count. */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  seedCategoryTree(mirror);
-  seedItemOption(mirror, { id: "opt1", externalRef: "sqopt1", name: "Size" });
-  mirror.db.exec("INSERT INTO mirror_category_item_option (category_id, item_option_id) VALUES ('cat1', 'opt1')");
-  mirror.db.exec("UPDATE mirror_category SET item_options_set_at = datetime('now') WHERE id = 'cat1'");
-
-  const body = await (await get("/admin", MANAGER, env(mirror))).text();
-  const cat2Idx = body.indexOf("Coats");
-  const cat2Row = body.slice(cat2Idx, body.indexOf("admin-category-children", cat2Idx));
-  assert.match(cat2Row, /admin-category-options-toggle admin-category-options-toggle-active"[^>]*>Sets \(1\)<\/button>/, "the inherited count, not zero");
-  assert.match(
-    cat2Row,
-    /<input type="checkbox" name="item_option_ids" value="opt1" checked disabled> Size/,
-    "Outerwear's own assignment, shown as Coats' own current state, but disabled -- Coats has never been explicitly set itself",
-  );
-  assert.match(cat2Row, /<input type="checkbox" name="inherit" value="1" checked> Inherit/, "still inheriting -- Coats has no item_options_set_at of its own");
-});
-
-check("test_PRD_P0_142_category_item_options__admin_sets_toggle_matches_the_row_height_and_reads_all_caps", async () => {
-  /* REVISED: "make the Sets button the same height as the rest of the UI
-     elements... everything needs to flow... use all capitals for Sets."
-     No explicit height any more -- same font-size/padding as the
-     rename/numeric_id inputs beside it, so its own natural height
-     matches theirs, and text-transform: uppercase over hand-typed caps
-     in the markup (the text node itself stays "Sets (1)", matching the
-     button's own aria-label and the checkbox-list toggle logic keyed off
-     it). */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  seedItemOption(mirror, { id: "opt1", externalRef: "sqopt1", name: "Size" });
-  const body = await (await get("/admin", MANAGER, env(mirror))).text();
-  assert.match(
-    body,
-    /\.admin-category-options-toggle \{\s*\n\s*flex: 0 0 auto; padding: 4px 8px; font: inherit; font-size: 13px; text-transform: uppercase; letter-spacing: 0\.04em;/,
-    "must share the exact font-size and vertical padding the row's own inputs already use, with no fixed height of its own",
-  );
-  assert.doesNotMatch(body, /\.admin-category-options-toggle \{[^}]*height:/, "no explicit height -- the shared padding/font-size alone must set it");
-});
-
-check("test_PRD_P0_142_category_item_options__admin_shows_no_sets_toggle_when_no_option_set_exists_anywhere", async () => {
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  const body = await (await get("/admin", MANAGER, env(mirror))).text();
-  assert.doesNotMatch(body, /<button[^>]*class="admin-category-options-toggle/, "nothing to pick means no toggle at all");
-});
-
-check("test_PRD_P0_142_category_item_options__admin_setting_a_categorys_option_sets_reaches_the_tool_layer_no_square_needed", async () => {
-  /* Unlike catalog.create_category/set_category_number/rename/remove,
-     catalog.set_category_item_options declares no square resource at all
-     -- purely ours -- so this is provably testable end to end even with
-     no SQUARE_ACCESS_TOKEN, the same P0-71 custom-field-name reasoning. */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  seedItemOption(mirror, { id: "opt1", externalRef: "sqopt1", name: "Size" });
-  seedItemOption(mirror, { id: "opt2", externalRef: "sqopt2", name: "Color" });
-  const form = new URLSearchParams();
-  form.set("category_id", "cat1");
-  form.append("item_option_ids", "opt1");
-  form.append("item_option_ids", "opt2");
-  const res = await worker.fetch(
-    new Request("http://localhost/admin/categories/item-options", {
-      method: "POST",
-      headers: { "Cf-Access-Jwt-Assertion": assertion(MANAGER), "content-type": "application/x-www-form-urlencoded" },
-      body: form.toString(),
-    }),
-    env(mirror),
-  );
-  assert.equal(res.status, 303);
-  assert.equal(res.headers.get("location"), "/admin");
-  const rows = mirror.db.prepare("SELECT item_option_id FROM mirror_category_item_option_index WHERE category_id = 'cat1' ORDER BY item_option_id").all();
-  assert.deepEqual(rows.map((r) => r.item_option_id), ["opt1", "opt2"]);
-});
-
-check("test_PRD_P0_142_category_item_options__admin_staff_cannot_reach_the_route", async () => {
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  seedItemOption(mirror);
-  const res = await postForm("/admin/categories/item-options", STAFF, env(mirror), { category_id: "cat1", item_option_ids: "opt1" });
-  assert.equal(res.status, 403);
-});
-
-check("test_PRD_P0_144_apply_category_item_options__saving_a_categorys_option_sets_cascades_into_a_square_apply", async () => {
-  /* "Why is there a separate apply button? Shouldn't it just make the
-     save button dirty and press the save button and apply all the
-     options?" — the owner's own words. There is no more standalone
-     apply route: saving a category's own option sets (below) now also
-     always tries catalog.apply_category_item_options_to_products for
-     that same category, with no extra click. This env() has no
-     SQUARE_ACCESS_TOKEN, so the cascade itself cannot succeed -- but
-     that failure is a logged best-effort follow-up, never a failure of
-     the primary save, so the redirect below still proves the save
-     itself went through. */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  seedItemOption(mirror, { id: "opt1", externalRef: "sqopt1", name: "Size" });
-  const lines = await captureConsole(async () => {
-    const res = await postForm("/admin/categories/item-options", MANAGER, env(mirror), { category_id: "cat1", item_option_ids: "opt1" });
-    assert.equal(res.status, 303);
-    assert.equal(res.headers.get("location"), "/admin");
-  });
-  assert.match(lines.error.join("\n"), /auto-apply after saving option sets/);
-  assert.match(lines.error.join("\n"), /SQUARE_ACCESS_TOKEN is unset/);
-});
-
-/* ─────────────────────────────────────────────────────────────────────────
- * P0-149 (REVISED) — "I tried it. Didn't work" — the owner's own words,
- * after resaving a category's Sets exactly as instructed. Root cause,
- * found from the real production audit_log: catalog.apply_category_item_
- * options_to_products' own run() had genuinely failed per-product (a real
- * Square write error), but its OWN outcome (`{applied, errors}`) was never
- * a thrown error or a `denied` -- runTool's own audit row for a T2 call is
- * written BEFORE run() ever executes, so it can only ever record that
- * approval was granted, never what run() actually did. The cascade above
- * only ever checked `applyResult.error`/`.denied`, so a real per-product
- * failure sailed through as a silent, invisible no-op -- nothing in the
- * audit log, nothing in a Worker log (this Worker's own logs are not
- * retained). perProductApplyFailure is the exact decision that closes
- * this gap, tested directly here with no Square mock or HTTP round trip
- * needed: the tool's own established "one product's failure does not
- * fail the batch" shape (catalog-writer.js) means a real failure never
- * throws, it just fills the errors array run() already returns.
- * ───────────────────────────────────────────────────────────────────────── */
-
-check("test_PRD_P0_149_auto_apply_failure_visibility__a_per_product_failure_with_no_top_level_error_is_still_flagged", () => {
-  const applyResult = { ok: true, data: { products_applied: 0, errors: [{ handle: "black-dress", error: "VERSION_MISMATCH" }] } };
-  const failure = perProductApplyFailure(applyResult);
-  assert.ok(failure, "an ok: true, denied-free result with a real per-product error must still be treated as a failure to surface");
-  assert.match(failure.message, /0\/1/);
-  assert.match(failure.message, /black-dress: VERSION_MISMATCH/);
-  assert.deepEqual(failure.detail, { reason: "auto_apply_per_product_failures", errors: applyResult.data.errors });
-});
-
-check("test_PRD_P0_149_auto_apply_failure_visibility__a_partial_failure_is_also_flagged_not_just_a_total_one", () => {
-  const applyResult = {
-    ok: true,
-    data: { products_applied: 2, errors: [{ handle: "red-scarf", error: "CATALOG_MAX_VARIATIONS exceeded" }] },
-  };
-  const failure = perProductApplyFailure(applyResult);
-  assert.ok(failure, "2 of 3 succeeding still leaves one product silently untouched -- still worth surfacing");
-  assert.match(failure.message, /2\/3/);
-});
-
-check("test_PRD_P0_149_auto_apply_failure_visibility__a_clean_result_is_not_flagged", () => {
-  assert.equal(perProductApplyFailure({ ok: true, data: { products_applied: 1, errors: [] } }), null);
-  assert.equal(
-    perProductApplyFailure({ ok: true, data: { products_applied: 0, errors: [] } }),
-    null,
-    "products_applied: 0 with no errors is the legitimate 'nothing to do' case (P0-144's own quiet no-op), never a failure",
-  );
-  assert.equal(perProductApplyFailure(undefined), null);
-});
-
-check("test_PRD_P0_149_auto_apply_failure_visibility__a_per_product_failure_writes_a_real_audit_row", async () => {
-  /* The actual bug, reproduced end to end through the real route: this
-     time env() carries a real AUDIT db (auditDb(), already wired into
-     env() for the ordinary approval-gate audit rows every T2 call
-     writes) so the fix's own write survives the redirect and is
-     queryable afterward, the same way the real production incident was
-     diagnosed. There is still no SQUARE_ACCESS_TOKEN here, so the
-     underlying apply call is refused at the resource-construction step,
-     the same "missing_binding" error runTool itself already always
-     audits (one ordinary row -- not this fix's doing, present with or
-     without it) -- proving the fix's own audit write, tagged with its
-     own `auto_apply_per_product_failures` reason, is never a SECOND,
-     redundant row layered on top of a failure `applyGate.error` already
-     makes visible on its own. */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  seedItemOption(mirror, { id: "opt1", externalRef: "sqopt1", name: "Size" });
-  const e = env(mirror);
-  await postForm("/admin/categories/item-options", MANAGER, e, { category_id: "cat1", item_option_ids: "opt1" });
-  const ownRows = (
-    await e.AUDIT.prepare("SELECT detail FROM audit_log WHERE tool = 'catalog.apply_category_item_options_to_products' AND detail LIKE '%auto_apply_per_product_failures%'").all()
-  ).results;
-  assert.deepEqual(ownRows, [], "no SQUARE_ACCESS_TOKEN means applyGate.error, not applyResult.data.errors -- the fix's own reason tag must not appear");
-});
-
-check("test_PRD_P0_144_apply_category_item_options__the_old_standalone_apply_route_is_gone", async () => {
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  const res = await postForm("/admin/categories/apply-item-options", MANAGER, env(mirror), { category_id: "cat1" });
-  assert.equal(res.status, 404);
-});
-
-check("test_PRD_P0_144_apply_category_item_options__admin_no_longer_renders_a_separate_apply_button", async () => {
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  seedItemOption(mirror, { id: "opt1", externalRef: "sqopt1", name: "Size" });
-  const body = await (await get("/admin", MANAGER, env(mirror))).text();
-  assert.doesNotMatch(body, /admin-category-apply-btn/, "the apply button is folded into the ordinary Save flow now");
 });
 
 check("test_PRD_P0_138_nested_categories__admin_staff_cannot_reach_the_page_at_all", async () => {

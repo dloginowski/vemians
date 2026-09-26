@@ -3062,14 +3062,7 @@ function sortByNumericId(a, b) {
   const bn = b.numeric_id ? Number(b.numeric_id) : Infinity;
   return an !== bn ? an - bn : a.name.localeCompare(b.name);
 }
-function renderAdminCategoryNodes(
-  categories,
-  parentId,
-  categoryProductCountsById = new Map(),
-  itemOptions = [],
-  categoryItemOptionIdsById = new Map(),
-  categoryExplicitIdsSet = new Set(),
-) {
+function renderAdminCategoryNodes(categories, parentId, categoryProductCountsById = new Map()) {
   /* "We were never going to go deep into more than one level of
      subcategories, so I should not have a plus button next to any of my
      subcategories because we'll never be adding any [under them]." Every
@@ -3107,60 +3100,6 @@ function renderAdminCategoryNodes(
         : hasProducts
           ? `<button type="button" class="admin-remove-btn" disabled aria-label="Remove ${esc(c.name)}" title="Move its products to a different category first">${TRASH_ICON}</button>`
           : `<button type="button" class="admin-remove-btn" data-category-id="${esc(c.id)}" aria-label="Remove ${esc(c.name)}" title="Remove ${esc(c.name)}">${TRASH_ICON}</button>`;
-      /* REVISED: "when clicking Sets, I want you to open a menu with
-         checkboxes, not a whole row that's not aligned to anything... I
-         want to select multiple checkboxes, toggle them" — the owner's
-         own words, once the previous hidden-block disclosure (the same
-         shape the add-subcategory form already used) pushed every row
-         beneath it down and left instead of floating over them. Now the
-         exact same floating-dropdown shape .vendor-picker/.category-picker
-         already establish on the Items tab (own script, not shared with
-         this page, but the same position: relative wrapper +
-         position: absolute menu convention) — the toggle and its menu
-         share one wrapper, so the menu floats below the button rather
-         than widening or relayouting the row underneath it. Multiple
-         checkboxes stay tickable in one sitting: nothing in the open/close
-         logic below closes the menu on a checkbox click, only on an
-         outside click, Escape, or the toggle button itself. Nothing to
-         show (no option set exists anywhere yet) means no control at all,
-         the same "not reachable, don't show it" rule the remove button
-         already follows. */
-      const assignedIds = categoryItemOptionIdsById.get(c.id) ?? new Set();
-      /* "There needs to be a separate option called inherit for every
-         item. It should be set by default to inherit. I should be able
-         to disable the inherit button, and then specify specific
-         categories at that point. Once inherit is checked, I don't see
-         any options — they're grayed out and disabled. But if I disable
-         inherit, I can now adjust" — the owner's own words: an explicit
-         control for the SAME inherit-vs-explicit fact this codebase has
-         tracked since P0-142 (mirror_category.item_options_set_at), never
-         surfaced as its own toggle before now — a person had no way to
-         tell "this shows Outerwear's own set because it's inheriting" apart
-         from "this shows it because I explicitly picked the same one," and
-         no way to go BACK to inheriting once anything was ever saved
-         explicitly. Unchecking Inherit enables the checkboxes below for a
-         genuinely new explicit choice (adminSetsScript, below, flips
-         `disabled` live); checking it again — and saving — clears that
-         explicit choice entirely via `inherit: true`
-         (catalog.set_category_item_options' own REVISED entry). */
-      const isExplicit = categoryExplicitIdsSet.has(c.id);
-      const optionsControl = itemOptions.length
-        ? `<div class="admin-category-options">
-            <button type="button" class="admin-category-options-toggle${assignedIds.size ? " admin-category-options-toggle-active" : ""}" aria-label="Option sets for ${esc(c.name)}" title="Option sets">Sets${assignedIds.size ? ` (${assignedIds.size})` : ""}</button>
-            <form method="post" action="/admin/categories/item-options" class="admin-category-options-menu" hidden>
-              <input type="hidden" name="category_id" value="${esc(c.id)}">
-              <label class="admin-category-options-item admin-category-options-inherit">
-                <input type="checkbox" name="inherit" value="1"${isExplicit ? "" : " checked"}> Inherit
-              </label>
-              ${itemOptions
-                .map(
-                  (o) =>
-                    `<label class="admin-category-options-item"><input type="checkbox" name="item_option_ids" value="${esc(o.id)}"${assignedIds.has(o.id) ? " checked" : ""}${isExplicit ? "" : " disabled"}> ${esc(o.name)}</label>`,
-                )
-                .join("")}
-            </form>
-          </div>`
-        : "";
       return `<div class="admin-category-node" style="padding-left: ${parentId === null ? 0 : CATEGORY_NODE_TOGGLE_PX}px">
         <div class="admin-category-row">
           ${toggle}
@@ -3172,7 +3111,6 @@ function renderAdminCategoryNodes(
             <input type="hidden" name="category_id" value="${esc(c.id)}">
             <input class="admin-category-numeric-id" name="numeric_id" value="${esc(c.numeric_id ?? "")}" placeholder="ID" maxlength="2" pattern="\\d{2}" required title="A 2-digit code, 00-99 — must be unique among its own siblings">
           </form>
-          ${optionsControl}
           ${removeBtn}
           ${
             isTopLevel
@@ -3185,29 +3123,27 @@ function renderAdminCategoryNodes(
                    trailing element than a top-level row — since
                    .admin-category-name is the only flex: 1 1 auto piece
                    in the row, it silently absorbed that missing width,
-                   shifting Sets/remove sideways relative to every
+                   shifting remove sideways relative to every
                    top-level row above it. The exact same width, held by
                    an inert spacer instead of a working button, cancels
                    that out. */
                 `<span class="admin-category-toggle-spacer"></span>`
           }
         </div>
-        <div class="admin-category-children">${renderAdminCategoryNodes(categories, c.id, categoryProductCountsById, itemOptions, categoryItemOptionIdsById, categoryExplicitIdsSet)}</div>
+        <div class="admin-category-children">${renderAdminCategoryNodes(categories, c.id, categoryProductCountsById)}</div>
         ${
           isTopLevel
             ? /* "Include all of the buttons that you normally would add...
                  except they're blanked out... I want the adding of a
                  subcategory to be perfectly aligned with the existing
                  categories. Right now it's overflowing a little too much"
-                 — the owner's own words. Missing the Sets/remove buttons a
-                 real row would have left .admin-category-new-name (flex:
-                 1 1 auto, same as the real row's own name input) with no
+                 — the owner's own words. Missing the remove button a real
+                 row would have left .admin-category-new-name (flex: 1 1
+                 auto, same as the real row's own name input) with no
                  trailing width to share the row with, stretching it wider
-                 than every saved row beneath it. A disabled Sets button
-                 (only when one could ever show, same as a real row) and a
-                 disabled remove button reserve the exact same space real
-                 ones would, rather than an abstract spacer of a guessed
-                 width.
+                 than every saved row beneath it. A disabled remove button
+                 reserves the exact same space a real one would, rather
+                 than an abstract spacer of a guessed width.
                  REVISED: a real "+"-width spacer closes it out too now —
                  a subcategory never gets a real "+" of its own, but
                  leaving that width out entirely was its own, subtler
@@ -3219,7 +3155,6 @@ function renderAdminCategoryNodes(
           <span class="admin-category-toggle-spacer"></span>
           <input type="text" class="admin-category-new-name" name="name" placeholder="Subcategory name" maxlength="60">
           <input class="admin-category-new-numeric-id" name="numeric_id" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — optional, can be set later">
-          ${itemOptions.length ? `<button type="button" class="admin-category-options-toggle" disabled title="Save the new subcategory first">Sets</button>` : ""}
           <button type="button" class="admin-remove-btn" disabled aria-label="Remove" title="Save the new subcategory first">${TRASH_ICON}</button>
           <span class="admin-category-toggle-spacer"></span>
         </form>`
@@ -5173,65 +5108,6 @@ ${OPS_DARK_CSS}
 }
 .admin-category-new-name { flex: 1 1 auto; min-width: 0; }
 .admin-category-new-numeric-id { flex: 0 0 2ch; width: 2ch; box-sizing: content-box; text-align: center; }
-/* "Associate a category with option sets" — a text toggle rather than an
-   icon, since there is no established glyph for this yet; orange once
-   anything is actually assigned, the same "reflects real state, not just
-   hover" rule every other control on this page already follows.
-   REVISED: "make the Sets button the same height as the rest of the UI
-   elements... everything needs to flow." The fixed height/font-size below
-   made it noticeably SHORTER than its own row's rename/numeric_id inputs
-   (admin-category-name/admin-category-numeric-id, both sized off a 13px
-   font and 4px vertical padding, no explicit height at all) — this now
-   matches those two exactly instead, so the row's own height comes from
-   one consistent metric, not the tallest of several different ones.
-   "Use all capitals for Sets" — the same text-transform this page's own
-   section labels (admin-section-label, above) already use, over
-   hand-typing "SETS" in the markup. */
-/* REVISED: a floating dropdown menu, not a block that pushes the row
-   below it down and out of alignment — the same position: relative
-   wrapper + position: absolute menu shape .vendor-picker/.vendor-picker-
-   menu already establish (Items tab, a separate script, but the
-   identical convention). */
-.admin-category-options { position: relative; flex: 0 0 auto; }
-.admin-category-options-toggle {
-  flex: 0 0 auto; padding: 4px 8px; font: inherit; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em;
-  border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--muted); cursor: pointer;
-}
-/* "When I click Apply to items, it stays orange... orange indicates
-   dirty" — the owner's own words. This border used --accent (the SAME
-   orange .field-dirty's own outline uses for a genuinely unsaved
-   change) just to mean "this category has option sets assigned" — a
-   persistent fact, never a pending-save one, so it read as permanently
-   dirty and never actually cleared. The same fix PR #238 already gave
-   Web/Active: a bright --muted border/text instead, a real but
-   non-alarming "this is active" signal — --accent stays reserved for
-   .field-dirty alone. */
-.admin-category-options-toggle-active { border-color: var(--muted); color: var(--ink); }
-.admin-category-options-menu[hidden] { display: none; }
-/* REVISED: "don't open it off screen. Open it to the left because the
-   current position of the button is to the right center. Open it to
-   the left." The toggle sits well over toward the right of its own row
-   (after name/numeric_id, before remove/+), so a menu anchored to its
-   LEFT edge and growing rightward (the .vendor-picker-menu convention
-   this shape was copied from, where the toggle sits at the LEFT of its
-   own row instead) ran past the right edge of the screen. Anchored to
-   the toggle's own RIGHT edge and growing leftward instead keeps it on
-   screen regardless of how close to the right edge the button sits. */
-.admin-category-options-menu {
-  position: absolute; top: 100%; right: 0; z-index: 15; margin-top: 4px; min-width: 12em; max-height: 16em;
-  overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding: 6px 10px;
-  border: 1px solid var(--muted); border-radius: 8px; background: var(--ground); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-}
-.admin-category-options-item { display: flex; align-items: center; gap: 6px; font-size: 12px; padding: 3px 2px; cursor: pointer; }
-.admin-category-options-item input.field-dirty[type="checkbox"] { outline: 1.5px solid var(--accent); outline-offset: 1px; }
-/* "There needs to be a separate option called Inherit... set by default
-   to inherit... once inherit is checked, I don't see any options —
-   they're grayed out and disabled" — the owner's own words. Its own
-   bottom border sets it apart from the plain option checkboxes below.
-   A disabled sibling checkbox already reads as grayed out on its own
-   (the browser's own default styling); nothing extra needed here for
-   that half. */
-.admin-category-options-inherit { margin-bottom: 4px; padding-bottom: 6px; border-bottom: 1px solid var(--rule); font-style: italic; }
 .admin-vendor-row { display: flex; align-items: center; gap: 6px; padding: 4px 0; }
 .admin-vendor-row-name { flex: 1 1 auto; min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
 .admin-vendor-commission-form { display: contents; }
@@ -5267,15 +5143,7 @@ input.field-dirty, select.field-dirty, textarea.field-dirty { border-color: var(
 .item-edit-error:hover { opacity: 0.92; }
 `;
 
-export function adminPage(
-  allCategories = [],
-  allVendors = [],
-  customFieldNames = [],
-  categoryProductCountsById = new Map(),
-  allItemOptions = [],
-  categoryItemOptionIdsById = new Map(),
-  categoryExplicitIdsSet = new Set(),
-) {
+export function adminPage(allCategories = [], allVendors = [], customFieldNames = [], categoryProductCountsById = new Map()) {
   return page(
     "Admin — Vemians ops",
     `<main class="ops">
@@ -5291,23 +5159,20 @@ export function adminPage(
       <button type="button" class="admin-category-add-toggle" data-parent-id="" aria-label="Add a top-level category" title="Add a category">+</button>
     </div>
     <div class="admin-section-body">
-      ${allCategories.length ? renderAdminCategoryNodes(allCategories, null, categoryProductCountsById, allItemOptions, categoryItemOptionIdsById, categoryExplicitIdsSet) : `<p class="item-empty">No categories yet.</p>`}
+      ${allCategories.length ? renderAdminCategoryNodes(allCategories, null, categoryProductCountsById) : `<p class="item-empty">No categories yet.</p>`}
       <!-- "Make sure that the main category add button also generates all
            of the proper fields so that it's perfectly aligned as well,
-           just like you did with the subcategories — we need the Sets
-           and then we have the disabled delete button" — the owner's own
+           just like you did with the subcategories" — the owner's own
            words. This row is TOP-LEVEL (no left padding, same as every
            real top-level row) and a real top-level category always keeps
-           its own "+", so all three placeholders join it here: Sets (when
-           one could ever show), remove, and "+" — the identical trailing
-           shape a saved top-level row has, disabled rather than guessed
-           at with an abstract spacer. -->
+           its own "+", so both placeholders join it here: remove and "+"
+           — the identical trailing shape a saved top-level row has,
+           disabled rather than guessed at with an abstract spacer. -->
       <form method="post" action="/admin/categories/create" class="admin-category-add-form" hidden>
         <input type="hidden" name="parent_id" value="">
         <span class="admin-category-toggle-spacer"></span>
         <input type="text" class="admin-category-new-name" name="name" placeholder="Category name" maxlength="60">
         <input class="admin-category-new-numeric-id" name="numeric_id" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — optional, can be set later">
-        ${allItemOptions.length ? `<button type="button" class="admin-category-options-toggle" disabled title="Save the new category first">Sets</button>` : ""}
         <button type="button" class="admin-remove-btn" disabled aria-label="Remove" title="Save the new category first">${TRASH_ICON}</button>
         <button type="button" class="admin-category-add-toggle" disabled aria-label="Add a subcategory" title="Save the new category first">+</button>
       </form>
@@ -5392,23 +5257,6 @@ function refreshDirtyState(field) {
 }
 document.body.addEventListener("input", (e) => {
   if (e.target.matches("input")) refreshDirtyState(e.target);
-});
-
-/* "Once the inherit is checked... they're grayed out and disabled. But
-   if I disable inherit, I can now adjust" — the owner's own words. The
-   server already renders the correct initial disabled state from
-   categoryExplicitIdsSet; this just keeps the sibling Option Set
-   checkboxes in sync live as the Inherit checkbox itself is toggled in
-   the browser, with no page reload. A disabled checkbox is excluded from
-   FormData automatically, so this is also what keeps a still-inheriting
-   category from ever submitting stale item_option_ids. */
-document.body.addEventListener("change", (e) => {
-  if (!e.target.matches(".admin-category-options-inherit input")) return;
-  const menu = e.target.closest(".admin-category-options-menu");
-  const willInherit = e.target.checked;
-  menu?.querySelectorAll(".admin-category-options-item:not(.admin-category-options-inherit) input").forEach((cb) => {
-    cb.disabled = willInherit;
-  });
 });
 
 /* "As soon as I enter that ID... it should immediately in my browser
@@ -5654,15 +5502,7 @@ document.body.addEventListener("click", (e) => {
     return;
   }
   const row = e.target.closest(".admin-category-row");
-  /* "Every time I toggle a set on and off, it expands and collapses the
-     header" — the owner's own words. Each checkbox is wrapped in its own
-     <label> (so clicking the option's NAME toggles it too, not just the
-     tiny box) — a click there lands on the label, not the <input> itself,
-     so "input, button" alone let it fall through and toggle the row.
-     .admin-category-options covers the whole Sets control (button AND
-     its open menu), the same exclusion the outside-click-to-close
-     listener below already uses for the identical reason. */
-  if (row && !e.target.closest("input, button, .admin-category-options")) {
+  if (row && !e.target.closest("input, button")) {
     row.closest(".admin-category-node")?.classList.toggle("expanded");
     return;
   }
@@ -5737,34 +5577,6 @@ document.body.addEventListener("click", (e) => {
     form.querySelector(".admin-category-new-name")?.focus();
     return;
   }
-  const optionsToggle = e.target.closest(".admin-category-options-toggle");
-  if (optionsToggle) {
-    const menu = optionsToggle.closest(".admin-category-options")?.querySelector(":scope > .admin-category-options-menu");
-    if (!menu) return;
-    const wasHidden = menu.hidden;
-    closeAllOptionsMenus();
-    menu.hidden = !wasHidden;
-  }
-});
-/* "A menu with checkboxes... I want to select multiple checkboxes,
-   toggle them" — a checkbox click inside the menu never reaches here
-   (e.target.closest(".admin-category-options") matches it, same as it
-   matches the toggle button itself), so any number of them stay
-   tickable in one sitting; only an outside click, Escape, or the toggle
-   button closes it. Same outside-click/Escape convention
-   closeAllCategoryPickers already establishes on the Items tab's own
-   script, reimplemented here rather than shared since the two pages
-   share no script module of their own. */
-function closeAllOptionsMenus() {
-  document.querySelectorAll(".admin-category-options-menu").forEach((m) => (m.hidden = true));
-}
-document.addEventListener("click", (e) => {
-  if (e.target.closest(".admin-category-options")) return;
-  closeAllOptionsMenus();
-});
-document.addEventListener("keydown", (e) => {
-  if (e.key !== "Escape") return;
-  closeAllOptionsMenus();
 });
 </script>`,
     ADMIN_CSS,

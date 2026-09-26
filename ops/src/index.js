@@ -33,7 +33,6 @@ import { CAPS } from "./tools/caps.js";
 import { roleAtLeast } from "./tools/roles.js";
 import { contentTypeFor, mediaKey, mintUploadTicket, verifyUploadTicket, STORABLE_IMAGE_TYPES } from "./tools/media.js";
 import { mediaStoreFor, assetFileStoreFor, receiptFileStoreFor, runTool } from "./tools/index.js";
-import { writeAudit } from "./tools/audit.js";
 import { contentTypeForAsset, extractText } from "./tools/assets.js";
 import { scanReceipt } from "./tools/receipt-ocr.js";
 import {
@@ -45,8 +44,6 @@ import {
   productByHandle,
   variantsOf,
   categoryProductCounts,
-  effectiveCategoryItemOptionIds,
-  categoryExplicitIds,
   insertVariantImage,
   archiveImage,
 } from "./tools/catalog-writer.js";
@@ -85,26 +82,6 @@ const html = (body, status = 200) =>
 
 const json = (body, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8" } });
-
-/* Exported so a test can exercise this decision directly, with no Square
-   mock or HTTP round trip needed: a real per-product Square failure (a
-   VERSION_MISMATCH, say) never throws catalog.apply_category_item_
-   options_to_products' own run() -- it collects it in the returned
-   errors array instead, the established "one product's failure does not
-   fail the batch" shape (catalog-writer.js). A successful call with
-   errors is still something to surface; an errors-free result, even
-   products_applied: 0 (nothing to do, or nothing missing), is not. */
-export function perProductApplyFailure(applyResult) {
-  const errors = applyResult?.data?.errors;
-  if (!errors?.length) return null;
-  const applied = applyResult.data.products_applied ?? 0;
-  const total = applied + errors.length;
-  const perProduct = errors.map((e) => `${e.handle}: ${e.error}`).join("; ");
-  return {
-    message: `applied to only ${applied}/${total} product(s) — ${perProduct}`,
-    detail: { reason: "auto_apply_per_product_failures", errors },
-  };
-}
 
 const DEV_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "[::1]"]);
 
@@ -1094,32 +1071,7 @@ async function ops(request, env, path) {
       const allVendors = await listMirrorVendors(env.CATALOG_MIRROR);
       const customFieldNames = await listCustomFieldNames(env.CATALOG_MIRROR);
       const categoryProductCountsById = await categoryProductCounts(env.CATALOG_MIRROR);
-      const allItemOptions = await listItemOptions(env.CATALOG_MIRROR);
-      /* "All subcategories inherit the sets unless I specify different
-         selections" — the Admin panel's own checkbox list shows what is
-         actually IN EFFECT for a category, inherited or explicit alike,
-         never just its own raw rows (categoryItemOptionIds' own job,
-         used only by the tool layer's own read-before-write). */
-      const categoryItemOptionIdsById = await effectiveCategoryItemOptionIds(env.CATALOG_MIRROR);
-      /* "I should be able to disable the inherit button, and then specify
-         specific categories" — the owner's own words. Which categories
-         have their OWN explicit set (never mind what's in it) is a
-         separate fact from what is currently in effect above — the
-         "Inherit" checkbox needs to know one is inheriting even when its
-         effective set happens to be non-empty (following a parent's own
-         real set). */
-      const categoryExplicitIdsSet = await categoryExplicitIds(env.CATALOG_MIRROR);
-      return html(
-        adminPage(
-          allCategories,
-          allVendors,
-          customFieldNames,
-          categoryProductCountsById,
-          allItemOptions,
-          categoryItemOptionIdsById,
-          categoryExplicitIdsSet,
-        ),
-      );
+      return html(adminPage(allCategories, allVendors, customFieldNames, categoryProductCountsById));
     }
 
     if (request.method !== "POST") {
@@ -1146,21 +1098,6 @@ async function ops(request, env, path) {
        all means a request that did not come from this page's own UI. */
     const suffix = path.slice("/admin".length);
     let toolName, args, summaryNoun;
-    /* "Why even have a separate apply button? Why not just use the save
-       button? Shouldn't it just make the save button dirty and press the
-       save button and apply all the options? That makes more sense" —
-       the owner's own words. Set only by the /categories/item-options
-       branch below; when set, a successful save of a category's own
-       option sets immediately ALSO pushes that (now possibly inherited)
-       effective set to every product in the category's own subtree —
-       catalog.apply_category_item_options_to_products, the same tool
-       the Admin panel's own "Apply to items" button used to fire by
-       itself. A failure here is logged, never surfaced as a failure of
-       the save itself: the category's own Sets change already
-       succeeded and is the primary, always-meaningful action; pushing
-       it to Square is a best-effort follow-up, same as this button's
-       own former silence about a per-product error already was. */
-    let cascadeApplyForCategoryId = null;
     if (suffix === "/categories/create") {
       /* A blank parent_id means a new TOP-LEVEL category; a real one
          nests under it, at whatever depth. */
@@ -1208,30 +1145,6 @@ async function ops(request, env, path) {
       toolName = "catalog.remove_category";
       args = { category_id: categoryId };
       summaryNoun = "category";
-    } else if (suffix === "/categories/item-options") {
-      /* "I want to be able to associate a category with option sets... I
-         don't want to be adding the same option sets to every single
-         category." A full-REPLACE, same as every other checkbox-list this
-         panel already sends — the checked boxes ARE the new set, an empty
-         submission means "none". The "Inherit" checkbox (unchecked to
-         edit the list below at all — views.js's own disabled-while-
-         inheriting checkboxes) submits `inherit`, present only when
-         checked; checked-and-saved clears this category's own explicit
-         set entirely, the same `inherit: true` catalog.set_category_
-         item_options' own REVISED entry describes. */
-      const categoryId = String(form.get("category_id") ?? "").trim();
-      if (!categoryId) return json({ error: "give a category" }, 400);
-      const inherit = form.get("inherit") != null;
-      toolName = "catalog.set_category_item_options";
-      args = inherit
-        ? { category_id: categoryId, inherit: true, reason: "set from the Admin panel" }
-        : {
-            category_id: categoryId,
-            item_option_ids: form.getAll("item_option_ids").map((v) => String(v).trim()).filter(Boolean),
-            reason: "set from the Admin panel",
-          };
-      summaryNoun = "category's option sets";
-      cascadeApplyForCategoryId = categoryId;
     } else if (suffix === "/vendors/create") {
       /* commission is REQUIRED here, unlike a category's own optional
          numeric_id: a brand-new vendor has nothing on file yet for
@@ -1275,63 +1188,6 @@ async function ops(request, env, path) {
     const result = await runTool(toolName, args, { actor: email, role, env, approvalToken: gate.data.approval.token });
     if (result?.error || result?.denied) {
       return json({ error: result.error || result.denied || `That ${summaryNoun} change was refused.` }, 400);
-    }
-
-    if (cascadeApplyForCategoryId) {
-      const applyArgs = {
-        category_id: cascadeApplyForCategoryId,
-        reason: "applied automatically after saving this category's option sets",
-      };
-      try {
-        const applyGate = await runTool("catalog.apply_category_item_options_to_products", applyArgs, { actor: email, role, env });
-        if (!applyGate?.needsApproval) {
-          console.error(`ERROR ops/admin: auto-apply after saving option sets could not be proposed for ${cascadeApplyForCategoryId} — ${applyGate?.error}`);
-        } else {
-          const applyResult = await runTool("catalog.apply_category_item_options_to_products", applyArgs, {
-            actor: email,
-            role,
-            env,
-            approvalToken: applyGate.data.approval.token,
-          });
-          if (applyResult?.error || applyResult?.denied) {
-            console.error(`ERROR ops/admin: auto-apply after saving option sets was refused for ${cascadeApplyForCategoryId} — ${applyResult.error || applyResult.denied}`);
-          } else {
-            /* "It didn't work" -- caught live: catalog.apply_category_item_
-               options_to_products can come back result: "ok" at the audit
-               level (the call itself completed, was not denied) while its
-               OWN per-product errors array is non-empty -- runTool's own
-               audit row is written BEFORE run() ever executes, so it can
-               only ever record that approval was granted, never what run()
-               actually did. Checking only .error/.denied above missed this
-               entirely: a real per-product failure (e.g. Square's own
-               VERSION_MISMATCH) sailed through as a silent no-op, with
-               nothing in the audit log or anywhere else durable to explain
-               it later. Console logs alone are not enough here either --
-               this Worker's own logs are not retained (mirror-status.yml's
-               own comment) -- so this writes a real, queryable audit_log
-               row, the same durable record every other tool call already
-               gets. */
-            const failure = perProductApplyFailure(applyResult);
-            if (failure) {
-              console.error(`ERROR ops/admin: auto-apply after saving option sets for ${cascadeApplyForCategoryId} — ${failure.message}`);
-              try {
-                await writeAudit(env?.AUDIT, {
-                  actor: email,
-                  domain: "catalog",
-                  tool: "catalog.apply_category_item_options_to_products",
-                  arguments: applyArgs,
-                  result: "error",
-                  detail: failure.detail,
-                });
-              } catch (auditErr) {
-                console.error(`ERROR ops/admin: could not even audit the auto-apply failure for ${cascadeApplyForCategoryId} — ${auditErr.message}`);
-              }
-            }
-          }
-        }
-      } catch (err) {
-        console.error(`ERROR ops/admin: auto-apply after saving option sets threw for ${cascadeApplyForCategoryId} — ${err.message}`);
-      }
     }
 
     return new Response(null, { status: 303, headers: { Location: "/admin" } });
