@@ -112,6 +112,7 @@ import {
   mergeVariations,
   nextStyleIdFor,
   priceBand,
+  PRIMARY_VARIANT_ORDINAL,
   productByHandle,
   styleIdCodesFor,
   variantBySku,
@@ -2599,10 +2600,15 @@ export const catalogWriteTools = {
       reason: { type: "string", required: true, maxLength: CAPS.MAX_TEXT },
     },
     async check(args, t) {
+      /* Joined on the LOWEST ordinal per product (PRIMARY_VARIANT_ORDINAL,
+         catalog-writer.js), not a hardcoded 0 — a real, caught-live bug
+         where a product whose real Square ordinal did not start at zero
+         matched nothing here and was skipped by run() below too, before
+         this fix. */
       const count = await t.db.catalog_mirror
         .prepare(
           `SELECT COUNT(*) AS n FROM mirror_product_index p
-             JOIN mirror_variant_index v0 ON v0.product_id = p.id AND v0.ordinal = 0
+             JOIN mirror_variant_index v0 ON v0.product_id = p.id AND v0.ordinal = ${PRIMARY_VARIANT_ORDINAL}
             WHERE v0.vendor_id IS NULL`,
         )
         .bind()

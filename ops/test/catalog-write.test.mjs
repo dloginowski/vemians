@@ -523,8 +523,8 @@ function squareEnv() {
 }
 
 /* One place to build a ctx, so no check can accidentally invent an actor. */
-async function fixture({ actor = "mara@vemians.com", role = "manager", seedMirror = true, failSearch = false, failUpsert = null } = {}) {
-  const square = fakeSquare(SEED, { failSearch, failUpsert });
+async function fixture({ actor = "mara@vemians.com", role = "manager", seedMirror = true, failSearch = false, failUpsert = null, extraSeed = [] } = {}) {
+  const square = fakeSquare([...SEED, ...extraSeed], { failSearch, failUpsert });
   const mirrorDb = d1FromSql(MIRROR_SQL);
   const auditDb = d1FromSql(AUDIT_SQL);
   const bucket = fakeR2();
@@ -3760,6 +3760,68 @@ check("test_PRD_P0_154_inhouse_vendor__the_vendor_itself_is_guaranteed_even_with
 
   const afterVendors = f.mirror("SELECT name FROM mirror_vendor_index").map((r) => r.name);
   assert.ok(afterVendors.includes("In-house"), "In-house must exist and be mirrored even with nothing to reassign");
+});
+
+check("test_PRD_P0_154_inhouse_vendor__a_product_whose_square_ordinal_does_not_start_at_zero_is_still_reassigned", async () => {
+  /* A real transcript: "I ran assigned vendors, and yes, I see the vendor
+     created, but not all items have it automatically assigned. They have
+     no vendor still assigned to them." Root cause, found by syncing a
+     real, minimal fake Square item through the REAL adapter rather than
+     hand-writing a mirror row: this tool's own query (and productByHandle/
+     currentVendorInfo, catalog-writer.js) used to find "the product's own
+     vendor-bearing variation" by filtering for the LITERAL value
+     ordinal = 0 — but Square's own ordinal field is whatever Square
+     itself assigned when the variation was created, not a value this
+     codebase controls or one Square guarantees is zero-based. A product
+     whose one real variation happens to carry ordinal 1 (seeded here
+     exactly as Square's own API would return it, never hand-inserted into
+     the mirror) matched NOTHING under the old query and was silently
+     skipped by every single pass of this tool, no matter how many times
+     it ran — the exact "not all items have it automatically assigned"
+     reported live. */
+  const nonZeroOrdinalItem = {
+    type: "ITEM",
+    id: "ITEM_OFFSET_ORDINAL",
+    version: 1,
+    present_at_all_locations: true,
+    item_data: {
+      name: "Item With a Nonzero Starting Ordinal",
+      description: "",
+      variations: [
+        {
+          type: "ITEM_VARIATION",
+          id: "VAR_OFFSET_ORDINAL",
+          version: 1,
+          present_at_all_locations: true,
+          item_variation_data: {
+            item_id: "ITEM_OFFSET_ORDINAL",
+            name: "One size",
+            sku: "VEM-OFFSET-1",
+            ordinal: 1,
+            pricing_type: "FIXED_PRICING",
+            price_money: { amount: 12000, currency: "USD" },
+            track_inventory: true,
+          },
+        },
+      ],
+    },
+  };
+  const f = await fixture({ extraSeed: [nonZeroOrdinalItem] });
+  const before = f.mirror(
+    "SELECT ordinal, vendor_id FROM mirror_variant WHERE product_id = (SELECT id FROM mirror_product WHERE handle = 'item-with-a-nonzero-starting-ordinal')",
+  )[0];
+  assert.equal(before.ordinal, 1, "sanity check: Square's own ordinal for this product's only variation is not 0");
+  assert.equal(before.vendor_id, null, "this product starts with no vendor at all, same as any other legacy row");
+
+  const res = await approvedCall(f, "catalog.assign_inhouse_vendor", { reason: "test" });
+  assert.equal(res.ok, true, res.error);
+  assert.deepEqual(res.data.errors, []);
+
+  const after = f.mirror(
+    "SELECT mv.name AS vendor FROM mirror_variant v LEFT JOIN mirror_vendor mv ON mv.id = v.vendor_id" +
+      " WHERE v.product_id = (SELECT id FROM mirror_product WHERE handle = 'item-with-a-nonzero-starting-ordinal')",
+  )[0];
+  assert.equal(after.vendor, "In-house", "a nonzero-ordinal product must be reassigned exactly like any other vendorless product");
 });
 
 /* ─────────────────────────────────────────────────────────────────────────

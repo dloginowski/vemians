@@ -259,14 +259,34 @@ export async function nextStyleIdFor(db, catCode, subCode) {
 
 /*
  * vendor/vendor_code/unit_cost_minor/unit_cost_currency are resolved off the
- * product's own ORDINAL-0 variation (LEFT JOIN, so a product with no
+ * product's own PRIMARY variation (LEFT JOIN, so a product with no
  * variations yet — created but not synced — still returns a row) — "one
  * vendor per product, applied uniformly to every variation," the
  * simplification chosen over Square's own per-variation granularity. vendor
  * itself moved off mirror_product entirely once the owner got Retail Plus
  * (Test-PRD-P0-136-square_custom_attributes, revised): it is Square's own
  * Vendor name now, not a plain-text custom attribute.
+ *
+ * REVISED, a real bug caught live: "I ran assign inhouse vendor... but not
+ * all items have it automatically assigned." "Primary" here used to mean
+ * "the variation Square happens to have numbered ordinal 0" — but Square's
+ * own ordinal field is whatever Square itself assigned when the variation
+ * was created, not a value this codebase controls or one Square documents
+ * as zero-based; a real product's first (and often only) variation can
+ * carry any starting ordinal. Every query that filtered for the LITERAL
+ * value 0 silently found no match at all for such a product — not "found
+ * the wrong variation," found NONE — so it was skipped by the vendor
+ * backfill entirely, read back with no vendor/cost by productByHandle, and
+ * (currentVendorInfo, below) could even have an UNRELATED edit silently
+ * resend "no vendor" to Square by reading a false "nothing on file" for a
+ * product that actually had a real vendor. listAllProducts (this file, its
+ * own comment) already had the right instinct — sort variants by ordinal
+ * and take the first one, rather than filter for a specific number — every
+ * other read of "the product's own primary variation" now matches it:
+ * PRIMARY_VARIANT_ORDINAL, the query fragment below, picks the variation
+ * with the LOWEST ordinal for a product, whatever that number actually is.
  */
+export const PRIMARY_VARIANT_ORDINAL = "(SELECT MIN(ordinal) FROM mirror_variant_index WHERE product_id = p.id)";
 /* "For all items that do not have a vendor, they're now considered
    In-house... this has nothing to do with vendors [conceptually], but
    every item must have [a cost] associated with it" — the owner's own
@@ -302,7 +322,7 @@ const PRODUCT_WITH_VENDOR_COLUMNS = `
   mv.name AS vendor, v0.vendor_code, v0.unit_cost_minor, v0.unit_cost_currency
 `;
 const PRODUCT_WITH_VENDOR_JOIN = `
-  LEFT JOIN mirror_variant_index v0 ON v0.product_id = p.id AND v0.ordinal = 0
+  LEFT JOIN mirror_variant_index v0 ON v0.product_id = p.id AND v0.ordinal = ${PRIMARY_VARIANT_ORDINAL}
   LEFT JOIN mirror_vendor_index mv ON mv.id = v0.vendor_id
 `;
 const PRODUCT_WITH_VENDOR_SELECT = `SELECT ${PRODUCT_WITH_VENDOR_COLUMNS} FROM mirror_product_index p ${PRODUCT_WITH_VENDOR_JOIN}`;
@@ -891,14 +911,21 @@ export function createSquareCatalogWriter(env, opts = {}) {
     return row;
   }
 
-  /* The CURRENT vendor/cost, read off the product's own ordinal-0 variation
-     — "one vendor per product, applied uniformly," the same simplification
-     PRODUCT_WITH_VENDOR_SELECT's own comment describes. Used by
-     updateProduct's own "resend the whole thing" fallback: undefined always
-     means "this call is not about that field," resolved to whatever is
-     already there, the same reasoning style_id/commission already use for
-     an item-level field — this is that same reasoning one level down, at
-     the variation Square itself stores vendor_information on. */
+  /* The CURRENT vendor/cost, read off the product's own PRIMARY variation
+     (PRIMARY_VARIANT_ORDINAL's own comment has the full history — this is
+     the one call site that correlates by a bound productId rather than an
+     outer p.id, so it repeats the same MIN(ordinal) shape rather than
+     reusing that constant directly) — "one vendor per product, applied
+     uniformly," the same simplification PRODUCT_WITH_VENDOR_SELECT's own
+     comment describes. Used by updateProduct's own "resend the whole
+     thing" fallback: undefined always means "this call is not about that
+     field," resolved to whatever is already there, the same reasoning
+     style_id/commission already use for an item-level field — this is
+     that same reasoning one level down, at the variation Square itself
+     stores vendor_information on. Getting this one wrong is worse than a
+     display gap: a fallback that reads the WRONG "current" vendor (or
+     none, when a real one exists) can resend that false state to Square
+     as part of an edit that was never about vendor at all. */
   async function currentVendorInfo(productId) {
     const row = await mirrorDb
       .prepare(
@@ -906,9 +933,10 @@ export function createSquareCatalogWriter(env, opts = {}) {
                 v.vendor_code, v.unit_cost_minor, v.unit_cost_currency
            FROM mirror_variant_index v
            LEFT JOIN mirror_vendor_index mv ON mv.id = v.vendor_id
-          WHERE v.product_id = ? AND v.ordinal = 0`,
+          WHERE v.product_id = ?
+            AND v.ordinal = (SELECT MIN(ordinal) FROM mirror_variant_index WHERE product_id = ?)`,
       )
-      .bind(productId)
+      .bind(productId, productId)
       .first();
     return (
       row ?? {
@@ -1488,18 +1516,28 @@ export function createSquareCatalogWriter(env, opts = {}) {
     /* One-time backfill for the "In-house" vendor rule (schema.sql's own
        comment on mirror_product.commission_pct has the full history): every
        product a real vendor was never named for still has vendor_id: null
-       on its own ordinal-0 variation, from before this shop's data could
+       on its own PRIMARY variation, from before this shop's data could
        not be in that state at all. vendor: "" is updateProduct's own
        "reassign to In-house" signal (vendorRefOrInHouse) — the exact same
        path a fresh clear_vendor call takes, run here once per row instead
        of once per person clicking it. Same applied/errors shape as
        applyItemOptionsToProductsInCategory above, for the same reason: a
-       genuine Square failure on one product must never stop the rest. */
+       genuine Square failure on one product must never stop the rest.
+
+       REVISED, a real bug caught live: "I ran assign inhouse vendor... but
+       not all items have it automatically assigned. They have no vendor
+       still." This JOIN used to filter for ordinal = 0 literally —
+       PRIMARY_VARIANT_ORDINAL's own comment (above) has the full story —
+       so a vendorless product whose real Square ordinal for its first
+       variation was not exactly zero matched NOTHING here and was silently
+       skipped by this exact tool, the one this whole backfill exists to
+       reach. Fixed by joining on the lowest ordinal per product instead of
+       a hardcoded literal. */
     async assignInHouseVendorToVendorlessProducts() {
       const products = await mirrorDb
         .prepare(
           `SELECT p.handle FROM mirror_product_index p
-             JOIN mirror_variant_index v0 ON v0.product_id = p.id AND v0.ordinal = 0
+             JOIN mirror_variant_index v0 ON v0.product_id = p.id AND v0.ordinal = ${PRIMARY_VARIANT_ORDINAL}
             WHERE v0.vendor_id IS NULL`,
         )
         .bind()
