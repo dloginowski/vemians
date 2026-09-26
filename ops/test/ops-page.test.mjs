@@ -627,20 +627,21 @@ check("test_PRD_P0_89_batch_preview_confirm__the_table_matches_a_plain_rendered_
 });
 
 check("test_PRD_P0_119_table_headers_never_wrap__the_compact_card_height_is_recomputed_for_the_bigger_font", async () => {
-  /* The owner's own words: "make it fit to content vertically. I only
-     need to see 2 rows. The header and the content cells when in chat
-     preview." — recomputed through several rounds since: 118px, 84px,
-     70px, 58px at a 9px font, now 86px once Test-PRD-P0-119-table_headers_never_wrap
-     bumped the font back up to 12px ("bump up the sizes of the font so
-     it's more readable... might as well just make the font bigger a
-     couple sizes"). Measured directly against a real header-plus-two-row
-     table at the new font, not guessed by scaling the old number. Full
-     screen must still drop the cap entirely so it shows the WHOLE table,
-     not just a bit more of it. */
+  /* The owner's own words, this round: "make it fit to content vertically.
+     I only need to see 2 rows." — recomputed through several rounds since:
+     118px, 84px, 70px, 58px at a 9px font, then 86px once this same check
+     bumped the font back up to 12px.
+     REVISED — Test-PRD-P0-160-table_card_never_vertically_capped removed
+     the height cap outright: every one of those rounds just raised the
+     number again the next time it read as too short, and a real
+     transcript finally asked to stop doing that ("I should never see
+     vertically collapsed previews ever in chat"). This check now asserts
+     the opposite of what it once did — no max-height on the bare card at
+     all — kept under its own original label since it is the same
+     card-height property evolving, not a new one. */
   const { body } = await frontPage(OWNER);
-  assert.match(body, /\.table-card\s*\{[^}]*max-height:\s*86px/s, "the compact card must be sized to roughly a header plus two rows at the new, bigger font");
-  assert.doesNotMatch(body, /\.table-card\s*\{[^}]*max-height:\s*58px/s, "the previous round's smaller-font 58px target must not still be set");
-  assert.match(body, /\.table-card\.full\s*\{[^}]*max-height:\s*none/s, "full screen must remove the height cap entirely");
+  assert.doesNotMatch(body, /\.table-card\s*\{[^}]*max-height/s, "the compact card must never cap its own height, at any pixel value");
+  assert.match(body, /\.table-card\.full\s*\{[^}]*max-height:\s*none/s, "full screen must still remove the height cap entirely, whether or not the base rule below it also caps");
 });
 
 check("test_PRD_P0_117_batch_preview_one_row_fits_without_scrolling__revised_the_preview_card_scrolls_and_expands_like_any_other_now", async () => {
@@ -661,29 +662,35 @@ check("test_PRD_P0_117_batch_preview_one_row_fits_without_scrolling__revised_the
      the sibling P0-89 check below) — and "Full screen" (.table-card.full,
      unconditional on .preview) is what now actually delivers "scroll up
      and down and review the entire contents." */
+  /* REVISED ONCE MORE — Test-PRD-P0-160-table_card_never_vertically_capped
+     removed the height cap outright, everywhere, so the preview once again
+     never waives a cap — there is none left to waive, on .preview or on
+     the bare .table-card it builds on. */
   const { body } = await frontPage(OWNER);
-  assert.doesNotMatch(body, /\.table-card\.preview\s*\{[^}]*max-height:\s*none/s, "the preview card must no longer waive the height cap now that it can carry every interpreted row, not one sample");
-  assert.match(body, /\.table-card\.full\s*\{[^}]*max-height:\s*none/s, "Full screen must still remove the cap entirely, .preview or not");
+  assert.doesNotMatch(body, /\.table-card\.preview\s*\{[^}]*max-height/s, "the preview must carry no height cap of its own, at any value");
+  assert.doesNotMatch(body, /\.table-card\s*\{[^}]*max-height/s, "nor must the bare card it builds on");
   assert.match(
     body,
     /className = "table-card" \+ \(t\.compact \? " preview" : ""\)/,
-    "tableCard() still adds the preview modifier for compact table data, now just for its cell-crop styling rather than an uncapped height",
+    "tableCard() still adds the preview modifier for compact table data, now just for its cell-crop styling rather than any height difference",
   );
 });
 
-check("test_PRD_P0_89_batch_preview_confirm__the_collapsed_preview_card_is_three_times_taller_than_the_ordinary_cap", async () => {
-  /* "Make the preview card like three times taller than it currently is" —
-     the owner's own words. A dedicated .table-card.preview height, scoped
-     to the preview only at the time. REVISED — batchDraftTable()'s own
-     ready/skipped result later got the identical 258px too (its own
-     .table-card.tall, "I can't see shit, it's collapsed!!"), but the BARE
-     .table-card rule itself (what anything with neither modifier still
-     gets) stays the original 86px either way. */
+check("test_PRD_P0_160_table_card_never_vertically_capped__no_table_card_of_any_kind_caps_its_own_height", async () => {
+  /* Superseded from "the collapsed preview card is three times taller
+     than the ordinary cap" (86px -> 258px, .preview and .tall alike) —
+     that whole premise, a fixed cap someone might raise again, is exactly
+     what a real transcript asked to stop: "you're giving me a collapsed,
+     vertically collapsed preview... I should never see vertically
+     collapsed previews ever in chat." No table-card, with any modifier or
+     none, may declare a max-height any more; only .full's own explicit
+     "none" is expected, and it is now redundant with the base rule rather
+     than the one place the cap actually lifts. */
   const { body } = await frontPage(OWNER);
-  assert.match(body, /\.table-card\.preview\s*\{[^}]*max-height:\s*258px/s, "three times the ordinary 86px cap");
-  assert.match(body, /\.table-card\.tall\s*\{[^}]*max-height:\s*258px/s, "a batch result table gets the same three-times height, on its own modifier");
-  assert.match(body, /\.table-card\s*\{[^}]*max-height:\s*86px/s, "the bare, unmodified cap must be unchanged");
-  assert.match(body, /\.table-card\.full\s*\{[^}]*max-height:\s*none/s, "Full screen must still remove the cap entirely, whichever modifier applies");
+  assert.doesNotMatch(body, /\.table-card\s*\{[^}]*max-height/s, "the bare card must carry no cap");
+  assert.doesNotMatch(body, /\.table-card\.preview\s*\{[^}]*max-height/s, "nor must .preview");
+  assert.doesNotMatch(body, /\.table-card\.tall\s*\{[^}]*max-height/s, "nor must .tall");
+  assert.match(body, /\.table-card\.full\s*\{[^}]*max-height:\s*none/s, "Full screen may still say so explicitly, even though it is no longer the only uncapped state");
 });
 
 check("test_PRD_P0_89_batch_preview_confirm__the_table_is_as_space_efficient_as_possible", async () => {
