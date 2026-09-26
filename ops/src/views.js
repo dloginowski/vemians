@@ -856,9 +856,23 @@ ${INPUT_BAR_CSS}
  * (.log p, below), so an outer frame around .log serves no purpose
  * .items-grid doesn't already do without one. Top/bottom stay 14px —
  * this was never about vertical rhythm, only "notice how much padding
- * is on the SIDES." */
+ * is on the SIDES."
+ *
+ * margin-bottom (16px) is GONE now too — REVISED, Test-PRD-P0-161's own
+ * flex-column fix. It was clearance before the fixed composer form, back
+ * when .log had its own vh-guessed max-height and this page's real
+ * bottom edge was wherever that guess happened to end, usually well short
+ * of the actual space available. Now that .chat-top itself flex-grows to
+ * fill exactly what .ops's own padding-bottom leaves over (the same
+ * padding-bottom already recalibrated, Test-PRD-P0-157, to be real
+ * clearance for .input-bar and nothing more), a SECOND, separate margin
+ * on top of that is the identical stale-spacing mistake .items-grid's own
+ * former max-height already turned out to be: a number nobody re-measured
+ * once the layout underneath it changed. .items-grid carries no trailing
+ * margin of its own for the same reason — one source of "how much
+ * clearance before the bar," not two stacked. */
 .chat-top {
-  padding: 14px 0; margin-bottom: 16px;
+  padding: 14px 0;
 }
 /* The composer <form> carries class="chat" deliberately (so the
    approval gate's own button row further down inherits from it too),
@@ -917,10 +931,19 @@ ${INPUT_BAR_CSS}
  * batch preview's own long explanatory reply AND a table in the same
  * scrolling column — the owner's own words, seeing a real one cropped mid-
  * table on a phone with most of the screen still empty below it: "I cant
- * really tell what is being shown." min(62vh, 560px) scales with the actual
- * viewport instead of a single guessed number: room for a real reply plus a
- * few rows of table on a typical phone, capped so a very tall window does
- * not turn the log into most of the page.
+ * really tell what is being shown." min(62vh, 560px) scaled with the actual
+ * viewport instead of a single guessed number, but was still exactly the
+ * same class of guess .items-grid's own max-height: min(72vh, 900px) turned
+ * out to be — no real relationship to the space actually left over once
+ * .greet and the fixed .input-bar are accounted for. A real transcript,
+ * after the identical items-grid bug was already fixed once: "you're
+ * cutting off the chat window as well on the bottom, the same way you were
+ * cutting off the items view." .ops.chat-page (below) applies the exact
+ * same fix here: the whole page becomes a flex column, .chat-top's own
+ * flex: 1 1 auto takes up exactly whatever space is left after .greet, and
+ * .log (a flex column itself, inside .chat-top) grows to fill THAT, with
+ * #gate keeping its own natural height beside it — no vh fraction to guess
+ * at, on any device, ever again.
  */
 /* THE SAME CLASS OF BUG AGAIN (P0-96's .attach-name, P0-99's inherited
    .chat margin) — .log's own margin-top (8px) plus padding-top (4px) was
@@ -944,9 +967,25 @@ ${INPUT_BAR_CSS}
    the only spacing either one needs. */
 .log {
   display: flex; flex-direction: column; gap: 6px;
-  max-height: min(62vh, 560px); overflow-y: auto;
+  overflow-y: auto;
   margin: 0 0 8px; padding: 0;
 }
+/* The flex column that makes .log's own sizing real, the same technique
+   .ops.items-page already uses: .greet takes exactly its own content
+   height, .chat-top (a flex column itself, since it holds .log AND #gate
+   stacked) takes exactly what's left, and .log grows to fill that with
+   #gate keeping its own natural height beside it. Scoped to .chat-page
+   specifically — .ops itself is shared by every ops page (Items, Dashboard,
+   Website), and turning ALL of them into a fixed-height flex column was
+   never asked for and is not this fix's to make. height: 100dvh with the
+   same 100vh fallback SHELL_CSS's own .shell and .ops.items-page already
+   use, for the identical reason: 100vh alone is measured against the
+   largest possible mobile viewport, not the one actually visible. */
+.ops.chat-page { display: flex; flex-direction: column; height: 100vh; height: 100dvh; box-sizing: border-box; }
+.ops.chat-page .greet { flex: 0 0 auto; }
+.ops.chat-page .chat-top { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.ops.chat-page .log { flex: 1 1 auto; min-height: 0; }
+.ops.chat-page #gate { flex: 0 0 auto; }
 .log:empty { display: none; }
 .log p {
   margin: 0; padding: 8px 12px; border-radius: 14px;
@@ -1336,7 +1375,7 @@ export function opsPage(identity, { hasKey, role }) {
        ONLY inside the shell's own iframe (shellPage(), above), which
        already draws that strip once, in its own header. A second copy
        here stacked directly on top of it, every time this loaded. */
-    `<main class="ops">
+    `<main class="ops chat-page">
 ${id}
 
   <section class="greet">

@@ -7758,6 +7758,24 @@ that does not trace to one of these is a process failure (see §12).
     preview's own ellipsis-cropped cells vs. a batch result's full wrapping) — neither one caps height
     any more.
 
+94. **`Test-PRD-P0-161-chat_window_flush_to_bar`** — A real transcript, after the identical bug was
+    already fixed once on Items (P0-104): "you're cutting off the chat window as well on the bottom,
+    the same way you were cutting off the items view." `.log`'s own `max-height: min(62vh, 560px)` was
+    exactly the same class of guess `.items-grid`'s own `max-height: min(72vh, 900px)` turned out to
+    be — scaling with the viewport, but with no real relationship to the space actually left over once
+    `.greet` above it and the fixed `.input-bar` below it are accounted for. `.ops.chat-page` (scoped to
+    the Agent page alone, never touching `.ops.items-page` or the shared base every other ops page also
+    uses) applies the identical fix already proven there: the whole page becomes a flex column,
+    `.chat-top` (a flex column itself, since it holds both `.log` and `#gate` stacked) takes exactly
+    whatever space `.greet` leaves over, and `.log` grows to fill that — no vh fraction to guess at, on
+    any device. `#gate` keeps its own natural height beside `.log` rather than competing with it for the
+    same flex-grow share. `.chat-top`'s own `margin-bottom: 16px` — clearance before the fixed composer,
+    dating from when `.log`'s vh-guessed cap meant this page's real bottom edge rarely reached the actual
+    available space anyway — is gone too: with `.chat-top` now flex-growing to fill exactly what `.ops`'s
+    own (already recalibrated, P0-157) bottom padding leaves over, a second, separate margin on top of
+    that was the identical stale-spacing mistake `.items-grid`'s own former `max-height` already turned
+    out to be. Verified live: the log's own real content height grew by exactly the removed 16px.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
