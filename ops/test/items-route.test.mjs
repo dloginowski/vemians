@@ -778,6 +778,21 @@ check("test_PRD_P0_174_variant_photo_delete__an_image_id_from_another_product_is
   assert.equal(mirror.db.prepare("SELECT archived_at FROM mirror_image WHERE id = 'img1'").get().archived_at, null);
 });
 
+check("test_PRD_P0_175_photo_delete_padding_matches_pill__the_gap_below_the_delete_button_matches_the_gap_above_the_variant_pill", async () => {
+  /* "Make sure that the padding underneath the delete button is the same
+     as the top padding for the balloon that tells you the option name" —
+     the owner's own words. Measured live: .item-photo-variant-pill sits a
+     real 4px below .item-top's own bottom edge (top: 36px against a
+     32px-tall .item-top); .item-photo-delete's own bottom offset (33px)
+     was recomputed the same way to clear .item-bottom's own tallest case
+     by that identical 4px, replacing an earlier, ungauged 46px that
+     actually left a 17px gap — confirmed by measuring both gaps in the
+     same real render, not just by reading these two numbers. */
+  const res = await get("/items", MANAGER, env(mirrorDb()));
+  const body = await res.text();
+  assert.match(body, /\.item-photo-delete\s*\{[^}]*bottom:\s*33px/, "the delete button's own bottom offset must be the recomputed, measured value");
+});
+
 check("test_PRD_P0_71_items_tab__a_tile_expands_to_the_full_screen_instead_of_cramming_data_into_a_cell", async () => {
   /* The owner's own words: "when I click on the item, it's gonna
      expand to my entire phone screen, and I should see all of that
