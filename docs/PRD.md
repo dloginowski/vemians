@@ -7741,6 +7741,23 @@ that does not trace to one of these is a process failure (see §12).
     same mechanism `#help-btn` (P0-156) already uses — never a second, parallel way of talking to the
     agent.
 
+93. **`Test-PRD-P0-160-table_card_never_vertically_capped`** — A real transcript, the same collapsed-box
+    complaint recurring a third time, this time specifically on a CSV upload mid-conversation: "you're
+    giving me a collapsed, vertically collapsed preview... I should never see vertically collapsed
+    previews ever in chat." `.table-card`'s own height cap has a long history (P0-89, P0-117, P0-119) of
+    being RAISED every time it turned out to still be too short — no cap, then a plain 86px, then a
+    dedicated 258px (three times that) once even 86px still read as "I can't see shit, it's collapsed!!"
+    — never removed outright. Every one of those rounds kept the same assumption: that some fixed number
+    would eventually be enough. It never was. This round removes the vertical cap outright — no
+    `max-height` at all on `.table-card`, collapsed or not, whether it carries `.preview`, `.tall`,
+    neither, or `.full`. A table's own natural height now simply becomes part of the chat log's existing
+    scroll (`.log`'s own `overflow-y`, unchanged) instead of nesting a second, smaller scrollbar inside
+    the first — the same "we should never have to scroll it vertically though" principle P0-89 already
+    established for the FULL-SCREEN state, generalized here to the DEFAULT one too. `.preview` and
+    `.tall` survive as class names only, for the still-real HORIZONTAL differences between them (a
+    preview's own ellipsis-cropped cells vs. a batch result's full wrapping) — neither one caps height
+    any more.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

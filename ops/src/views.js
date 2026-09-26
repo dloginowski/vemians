@@ -438,11 +438,26 @@ const TABLE_CARD_CSS = `
    card's own sizing already kept in step. Padding is untouched; only
    the font asked to grow. max-height is recomputed once more for the
    taller row height a bigger font produces. */
+/* REVISED — this card used to open at a fixed max-height (86px, later a
+   "tall"/"preview" 258px for a table with more rows to show — see the
+   history below on .table-card.preview/.tall), needing a person to open
+   "Full screen" just to see rows already sitting right there. A real
+   transcript, after the same collapsed-box complaint recurred a third
+   time on a CSV upload specifically: "you're giving me a collapsed,
+   vertically collapsed preview... I should never see vertically
+   collapsed previews ever in chat." Every previous round of this fix
+   raised the number; this one removes the cap outright — no max-height
+   at all, on any table-card, collapsed or not. The card's own natural
+   height now simply becomes part of the chat log's own flow, scrolling
+   with it (.log's own overflow-y, unchanged) rather than nesting a
+   second, smaller scrollbar inside the first. overflow: auto stays for
+   the orthogonal case this was never about — a table wide enough to
+   need its own sideways scroll, not tall enough to need a vertical one. */
 .table-card {
   align-self: stretch; max-width: 100%; box-sizing: border-box;
   border: 1px solid var(--rule); border-radius: 0; padding: 2px;
   background: var(--image-ground); font-size: 12px;
-  max-height: 86px; overflow: auto;
+  overflow: auto;
 }
 .table-card h4 {
   margin: 0 0 2px; padding: 0; font-size: 12px; font-weight: 700;
@@ -473,40 +488,20 @@ const TABLE_CARD_CSS = `
   position: fixed; inset: 12px; z-index: 50; max-height: none;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
 }
-/* REVISED — a batch preview used to be one header row plus a single data
-   row (batch.js's own PREVIEW_SAMPLE_ROWS), so this rule dropped the height
-   cap entirely: "the preview in chat still doesn't expand vertically to
-   show the entire table... make sure the height fits all the data." A
-   preview now carries EVERY interpreted product/customer (batch.js's own
-   previewBatch, REVISED again) — "I always wanted to be able to click on
-   the chat preview and expand and see the entire column... scroll up and
-   down and just review the entire contents" — the owner's own words,
-   correcting the assumption behind the rule above: the collapsed default
-   was always meant to stay small, only the DATA it carries grew. For a
-   while this fell back to the ordinary .table-card cap right above (86px),
-   same as batchDraftTable()'s own result; .table-card.full (also above)
-   already removes that cap unconditionally the moment "Full screen" is
-   clicked, .preview or not, which is what actually delivers "scroll up
-   and down and review the entire contents" now.
-
-   REVISED AGAIN — "make the preview card like three times taller than it
-   currently is" — the owner's own words. A dedicated .table-card.preview
-   height, three times the ordinary 86px cap (258px), scoped to the preview
-   ONLY — batchDraftTable()'s own ready/skipped result (plain .table-card,
-   no .preview class) kept the original 86px at the time, since nothing had
-   asked for that one to grow too.
-
-   REVISED ONCE MORE — something did: "it says 9 need a person's decision
-   but the next preview row is too short! I can't see shit, it's
-   collapsed!!" A batch RESULT can carry just as many rows as a preview
-   can, and was still stuck at the plain 86px cap. .table-card.tall is the
-   same 258px, on its own class rather than folded into .preview, because a
-   result table still wraps its cells in FULL (the rule right below this
-   one is preview-only) — a skip reason or a park link is worth reading
-   completely, never cropped with an ellipsis the way a preview's own
-   column-shape-only cells are. */
-.table-card.preview { max-height: 258px; }
-.table-card.tall { max-height: 258px; }
+/* This card's OWN collapsed height has a long history of being raised —
+   never removed — every time it turned out to still be too short: no cap
+   at all (a preview used to carry only one sample row), then the plain
+   86px .table-card cap once a preview grew to carry every row, then a
+   dedicated 258px (three times that) once even 86px read as "I can't see
+   shit, it's collapsed!!", split into .preview and .tall so a batch
+   RESULT table got the same taller height a preview already had. Every
+   one of those rounds kept the assumption that SOME fixed number would
+   eventually be enough. It never was, and the base .table-card rule above
+   now carries no max-height at all for exactly that reason — see its own
+   comment. .preview and .tall survive here as class names only, for the
+   still-real, purely HORIZONTAL differences below (a preview's own
+   ellipsis-cropped cells vs. a result's full wrapping) — neither one
+   caps this card's height any more. */
 /* The preview's own data cells crop with an ellipsis instead of wrapping
    — the owner's own correction, after Test-PRD-P0-119-table_headers_never_wrap
    let data wrap onto as many lines as it needed: "your test is a little
