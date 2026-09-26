@@ -7797,6 +7797,38 @@ that does not trace to one of these is a process failure (see §12).
     283px as the first message in an empty log rendered at 149px — squeezed, not sized to content —
     appended after prior conversation, and at its full natural height again once this fix landed.
 
+96. **`Test-PRD-P0-163-chat_log_anchored_to_bar`** — Reacting to P0-161 above, a real transcript: "there is
+    still a 15 to 20 pixel dead space above the chat box, just like it was in the items view, like that
+    you fixed before. Why aren't you doing this on all these tabs?" Once `.log`'s own box correctly grew
+    to fill the real available space, a SHORT conversation still stacked every message at the box's own
+    TOP (flex's default start alignment) and dumped the box's entire unused height as one gap below the
+    LAST message instead of above the first one — confirmed live, a real four-message conversation left
+    354px of dead space before the bar, not the reported 15-20px, the same class of bug `.items-grid`'s
+    own `align-content` already fixed, just far more visible here since a chat log usually holds much
+    less content than a full grid does.
+
+    Checked whether the same class of bug existed on Dashboard and Tickets too, per the "why aren't you
+    doing this on all these tabs" question directly: it does not, and could not — neither page ever
+    tries to keep a scrollable region pinned to fill the gap between a header and the fixed composer bar
+    the way Items and Agent both do; `#dash-feed` and `.ticket-list` are plain, unbounded document flow,
+    and the whole page scrolls, with `.ops`'s own (already recalibrated, P0-157) bottom padding as the
+    only clearance either one has ever needed. Only Items and Agent share the specific structural pattern
+    this bug lives in, and both now carry the identical fix.
+
+    `justify-content: flex-end` on `.log` was the obvious first fix, and is actively WRONG: on an
+    overflowing flex container, end-alignment gives the browser license to clip the overflow at the
+    START rather than the end — confirmed live, `scrollHeight` collapsed to exactly equal `clientHeight`
+    the moment content actually overflowed, making every earlier message permanently unreachable, not
+    merely scrolled out of view. The safe fix is the standard one: `margin-top: auto` on `.log`'s own
+    first child. An auto margin only ever absorbs POSITIVE leftover space (pushing a short conversation
+    down to sit right above the composer, exactly like a real chat app) and collapses to 0 the instant
+    content is tall enough to overflow, so `.log`'s own default start alignment and its `overflow-y`
+    scrolling are never disturbed — a long conversation scrolls exactly as it always correctly did.
+    `:first-child` rather than a fixed selector, since the log is never cleared mid-session and whichever
+    bubble or table happens to be first is the one that needs the push. Verified live for both cases: a
+    short conversation now sits flush above the bar, and scrolling a 40-message conversation all the way
+    up correctly reveals the very first message, flush with the log's own top edge.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

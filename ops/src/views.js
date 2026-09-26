@@ -994,6 +994,33 @@ ${INPUT_BAR_CSS}
   overflow-y: auto;
   margin: 0 0 8px; padding: 0;
 }
+/* REVISED — a real transcript: "there is still a 15 to 20 pixel dead
+   space above the chat box, just like it was in the items view." Once
+   .log's own box correctly grows to fill the real available space
+   (Test-PRD-P0-161), a SHORT conversation left every message stacked at
+   the box's own TOP (flex's default start alignment), dumping the box's
+   entire unused height as one gap below the LAST message instead of
+   above the first one — confirmed live: a real four-message conversation
+   left 354px of dead space before the bar, not the reported 15-20px, the
+   same class of bug .items-grid's own align-content already fixed, just
+   showing up far worse here since a chat log usually has much less
+   content than a full grid does.
+   justify-content: flex-end was the obvious first fix and is WRONG: on an
+   overflowing flex container, end-alignment gives the browser license to
+   clip the overflow at the START rather than the end, and — confirmed
+   live — scrollHeight collapses to equal clientHeight once content
+   actually overflows, making every earlier message permanently
+   unreachable, not merely scrolled out of view. margin-top: auto on the
+   first child is the standard, safe alternative: an auto margin only
+   ever absorbs POSITIVE leftover space (pushing a short conversation down
+   to sit right above the composer, exactly like a real chat app), and
+   collapses to 0 the moment content is tall enough to overflow — .log's
+   own default start-alignment and its overflow-y scrolling are never
+   touched, so a long conversation scrolls exactly as it always correctly
+   did. :first-child rather than a fixed selector, since whichever bubble
+   or table happens to be first (the log is never cleared mid-session) is
+   the one that needs the push. */
+.log > :first-child { margin-top: auto; }
 /* The flex column that makes .log's own sizing real, the same technique
    .ops.items-page already uses: .greet takes exactly its own content
    height, .chat-top (a flex column itself, since it holds .log AND #gate
