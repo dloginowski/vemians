@@ -2310,12 +2310,38 @@ ${INPUT_BAR_CSS}
    still too transparent to be visible in the item thumbnail view" — not a
    separate color to keep in sync by hand. */
 .item-top, .item-bottom {
-  position: absolute; left: 0; right: 0; display: flex; align-items: center;
-  justify-content: space-between; gap: 6px; padding: 6px 8px;
+  position: absolute; left: 0; right: 0;
   background: rgba(25, 24, 23, 0.75);
 }
-.item-top { top: 0; }
-.item-bottom { bottom: 0; }
+.item-top { top: 0; display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 8px; }
+/* REVISED — "I want to see their category, their subcategory name on the
+   bottom of each of those thumbnails" — the owner's own words. .item-
+   bottom carries a second line now (the breadcrumb, below) underneath
+   the original style_id/tags row, so it becomes a small flex COLUMN
+   instead of the single row .item-top still is; .item-bottom-row is
+   that original row, moved into its own element so it can keep the
+   exact same space-between layout it always had, unaffected by the new
+   line stacked beneath it. */
+.item-bottom { bottom: 0; display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; }
+.item-bottom-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+/* One clickable segment per category level — "I should be able to click
+   on them to browse through them." font: inherit/no background/no
+   border so a segment reads as text with an underline, not a button,
+   matching the plain, unstyled convention every other inline control in
+   this overlay already follows (.item-share/.item-close are the only
+   actual buttons here, and both are icon-only circles, not text). Kept
+   on one line with its own ellipsis rather than wrapping — this bar
+   sits over a photo, and a wrapped second line would fight the tile's
+   own fixed aspect-ratio for room the same way an unbounded photo caption
+   would. */
+.item-breadcrumb { display: flex; align-items: center; gap: 4px; overflow: hidden; }
+.item-breadcrumb-seg {
+  font: inherit; font-size: 11px; color: #fff; background: transparent; border: none; padding: 0;
+  cursor: pointer; text-decoration: underline; text-underline-offset: 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+.item-breadcrumb-seg:hover { opacity: 0.8; }
+.item-breadcrumb-sep { font-size: 11px; color: var(--muted); flex: 0 0 auto; }
 .item-tile h3 {
   margin: 0; font-size: 13px; color: #fff; line-height: 1.3;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -3167,6 +3193,27 @@ function categoryAncestorIds(categories, categoryId) {
   return ids;
 }
 
+/* "I want to see their category, their subcategory name on the bottom of
+   each of those thumbnails... I should be able to click on them to
+   browse through them" — the owner's own words. Same top-to-leaf walk as
+   categoryPath (above), but returning each level as its own {id, name}
+   instead of one joined string, so the item tile (below) can render
+   every level as its own independently clickable breadcrumb segment
+   rather than one plain, unclickable label. Empty for an unassigned or
+   unknown id, never a partial chain. */
+function categorySegments(categories, categoryId) {
+  if (!categoryId) return [];
+  const byId = new Map(categories.map((c) => [c.id, c]));
+  const segments = [];
+  let cur = byId.get(categoryId);
+  if (!cur) return [];
+  while (cur) {
+    segments.unshift({ id: cur.id, name: cur.name });
+    cur = cur.parent_id ? byId.get(cur.parent_id) : null;
+  }
+  return segments;
+}
+
 /* The picker's own tree — same recursive shape and same toggle-width
    indent as renderCategoryNodes above, but for SELECTING a product's
    category rather than editing the tree itself: no +, no numeric_id, and
@@ -3545,6 +3592,42 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
   const categoryId = product.category_id ?? null;
   const categoryFullPath = categoryPath(allCategories, categoryId);
   const categoryLeafLabel = allCategories.find((c) => c.id === categoryId)?.name ?? "Uncategorized";
+  /* "I want to see their category, their subcategory name on the bottom
+     of each of those thumbnails... when that item is expanded into its
+     full item view, then I want to see the full breadcrumb... and I
+     should be able to click on them to browse through them" — the
+     owner's own words. ONE breadcrumb, rendered once here and shown in
+     BOTH the collapsed and the expanded state (.item-bottom, below,
+     already overlays the same photo in .full too — see .item-tile.full
+     .item-photo's own comment) rather than two separate pieces of
+     markup that could drift apart. Every level (category AND
+     subcategory) is its own clickable segment, satisfying the
+     collapsed case too: clicking the LAST segment is exactly "click on
+     it to see all the items of that subcategory." data-category-chain
+     (the article tag, below) carries every level's own name so
+     filterItems()'s own category match can recognize a click on an
+     ANCESTOR level, not only the leaf the existing category-menu
+     filter already matches on. JSON, not a hand-picked delimiter joined
+     with .join()/.split(): this whole file is ONE template literal, so
+     any escape sequence written here (\u0000 was the first attempt) is
+     evaluated by NODE the moment the literal itself is built, landing
+     in the served HTML as a real control character rather than surviving
+     as escaped text for the BROWSER to interpret later — caught live,
+     rendering it and reading the attribute back in a real browser: a raw
+     NUL byte in an HTML document is silently replaced by the parser
+     (U+FFFD) wherever it appears, attribute value AND script text alike,
+     which happened to cancel out and still "work" here only because
+     BOTH sides of the eventual split were the same corrupted byte — an
+     accident, not a guarantee, and not something to ship. esc() + JSON
+     is the same escaping this file already trusts for every other piece
+     of structured data rendered into an attribute or a script. */
+  const categorySegs = categorySegments(allCategories, categoryId);
+  const categoryChain = JSON.stringify(categorySegs.map((s) => s.name));
+  const breadcrumbHtml = categorySegs.length
+    ? `<nav class="item-breadcrumb" aria-label="Category">${categorySegs
+        .map((seg) => `<button type="button" class="item-breadcrumb-seg" data-category="${esc(seg.name)}">${esc(seg.name)}</button>`)
+        .join('<span class="item-breadcrumb-sep">/</span>')}</nav>`
+    : "";
   const categoryControl = canEdit
     ? `<form method="post" action="/items/${esc(product.handle)}/category" class="category-form">
          <input type="text" name="category_id" value="${esc(categoryId ?? "")}" hidden>
@@ -3657,7 +3740,7 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
 
   const photoStyle = product.image_key ? ` style="background-image:url('${MEDIA_BASE_URL}/${esc(product.image_key)}')"` : "";
 
-  return `<article class="item-tile" data-search="${esc(searchText)}" data-category="${esc(product.category_name || "")}" data-status="${isActive ? "active" : "inactive"}" data-channel="${esc(product.channel)}" data-handle="${esc(product.handle)}" data-sku="${esc(primarySku)}">
+  return `<article class="item-tile" data-search="${esc(searchText)}" data-category="${esc(product.category_name || "")}" data-category-chain="${esc(categoryChain)}" data-status="${isActive ? "active" : "inactive"}" data-channel="${esc(product.channel)}" data-handle="${esc(product.handle)}" data-sku="${esc(primarySku)}">
     <div class="item-photo"${photoStyle}>
       <div class="item-top"><h3>${esc(product.title)}</h3>
         <div class="item-top-right">
@@ -3666,7 +3749,10 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
           <button type="button" class="item-close" aria-label="Close" title="Close">${CANCEL_ICON}</button>
         </div>
       </div>
-      <div class="item-bottom"><span class="item-style-id">${esc(product.style_id ?? "")}</span><div class="item-tags">${tags}</div></div>
+      <div class="item-bottom">
+        <div class="item-bottom-row"><span class="item-style-id">${esc(product.style_id ?? "")}</span><div class="item-tags">${tags}</div></div>
+        ${breadcrumbHtml}
+      </div>
     </div>
     <div class="item-detail">
       <div class="item-badges">
@@ -3804,6 +3890,23 @@ function setAgentCategories(names) {
   names.forEach((n) => selectedCategories.add(n));
   updateCategoryLabel("Agent");
 }
+/* A breadcrumb segment click (item-tile's own .item-breadcrumb, the
+   click-delegation handler below) — "click on them to browse through
+   them." A REPLACE, like the agent's own pick above, never a toggle:
+   clicking "Outerwear" on one item means "show me Outerwear," not "also
+   show me whatever was already selected" the way manually building a
+   multi-category filter from the menu does. filterItems() is called
+   here directly, unlike toggleCategory/setAgentCategories above, since
+   every existing call site of those two already chains its own
+   filterItems() call immediately after — this one has no such site of
+   its own to chain from (it starts inside a delegated click handler
+   matching dynamically rendered content, not a single static control). */
+function browseCategory(name) {
+  selectedCategories.clear();
+  selectedCategories.add(name);
+  updateCategoryLabel("Category");
+  filterItems();
+}
 /* In Store / Web / Inactive — the owner's own words: "let's have a
    dropdown that's in store, which will show all of the items that we
    have in store that are active... then we have a web, which will show
@@ -3819,7 +3922,7 @@ function matchesStatusFilter(el) {
   if (el.dataset.status === "inactive") return false;
   return statusFilter === "web" ? el.dataset.channel === "website" : true;
 }
-/* .items-grid's own CSS (above) starts plain (align-content: normal) --
+/* .items-grid's own CSS (above) starts plain (align-content: start) --
    safe under overflow by construction -- and opts into space-between,
    via this class alone, only on the turns actually measured to fit
    without it. Re-run after every filter change (the visible tile count,
@@ -3833,12 +3936,28 @@ function updateItemsGridFit() {
 }
 window.addEventListener("resize", updateItemsGridFit);
 
+/* The existing top-of-page category menu only ever offers LEAF names
+   (categories, above — flat, built from product.category_name), so
+   selectedCategories.has(el.dataset.category) alone was always enough
+   for it. The breadcrumb (item-tile's own .item-breadcrumb) can put a
+   TOP-LEVEL ancestor's name into that same Set instead — clicking
+   "Outerwear" on a product actually filed under Outerwear > Coats — and
+   no tile's own leaf name would ever equal "Outerwear" to match it.
+   data-category-chain carries every level's own name (top to leaf, see
+   categorySegments/itemTile), so matching against ANY of them is a
+   strict superset of the old leaf-only check: every case that matched
+   before still does (the chain always includes the leaf itself), and a
+   click on an ancestor level now also does. */
+function matchesCategoryFilter(el) {
+  if (selectedCategories.size === 0) return true;
+  const chain = el.dataset.categoryChain ? JSON.parse(el.dataset.categoryChain) : [];
+  return chain.some((name) => selectedCategories.has(name));
+}
 function filterItems() {
   const q = itemSearch.value.trim().toLowerCase();
   document.querySelectorAll(".item-tile").forEach((el) => {
-    const matchesCategory = selectedCategories.size === 0 || selectedCategories.has(el.dataset.category);
     const matchesSearch = !q || el.dataset.search.includes(q);
-    el.hidden = !matchesCategory || !matchesSearch || !matchesStatusFilter(el);
+    el.hidden = !matchesCategoryFilter(el) || !matchesSearch || !matchesStatusFilter(el);
   });
   updateItemsGridFit();
 }
@@ -4060,6 +4179,28 @@ function toggleVariantGroupExclusive(group) {
   if (!wasExpanded) group.classList.add("expanded");
 }
 document.getElementById("items-grid").addEventListener("click", async (e) => {
+  /* A breadcrumb segment — "click on them to browse through them."
+     Checked FIRST, before every other control in this delegated handler
+     (including the plain "click the body to expand" fallthrough at the
+     very end), so it always wins regardless of the tile's own collapsed/
+     expanded state: collapsed, this filters in place without also
+     expanding the tile (the same click would otherwise fall through to
+     the final "expand to full" branch); expanded, this closes the tile
+     back to the grid first — same unsaved-changes guard .item-close
+     already uses — so the person actually LANDS on the now-filtered
+     grid rather than staying stuck inside the one item they clicked
+     away from. */
+  const breadcrumbSeg = e.target.closest(".item-breadcrumb-seg");
+  if (breadcrumbSeg) {
+    const tile = breadcrumbSeg.closest(".item-tile");
+    if (tile.classList.contains("full")) {
+      if (tile.classList.contains("dirty") && !confirm("You have unsaved changes. Close without saving?")) return;
+      tile.classList.remove("full");
+      setDeepLinkHash(null);
+    }
+    browseCategory(breadcrumbSeg.dataset.category);
+    return;
+  }
   /* The category picker — "the dropdown opens up a set of expandable
      rows and you can expand them and select submenus... and that's how
      you assign the category, which will resolve in that path."

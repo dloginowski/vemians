@@ -8004,6 +8004,62 @@ that does not trace to one of these is a process failure (see §12).
     non-overlapping rows 10px apart (`.short` never applied), and a short, 2-row catalog that fits
     with room to spare still reaches all the way down to the search bar once `.short` is applied —
     the original `Test-PRD-P0-157` fix's own real behavior, preserved rather than regressed.
+102. **`Test-PRD-P0-169-item_breadcrumb`** — The owner's own words: "on the bottom line of each
+    one of these item thumbnails, I want to have a breadcrumb... I just want to see their
+    category, their subcategory name... so if I click on it, I can see all the items of that
+    subcategory. When that item is expanded into its full item view, then I want to see the full
+    breadcrumb... and I should be able to click on them to kind of browse through them." ONE
+    breadcrumb, built once (`categorySegments`, a top-to-leaf walk identical to `categoryPath`'s
+    own, but returning each level as its own `{id, name}` instead of one joined string) and
+    rendered once inside `.item-bottom`, satisfies both halves of the request without a second,
+    separate piece of markup: `.item-bottom` already overlays the same photo whether the tile is
+    collapsed or expanded (`Test-PRD-P0-71`'s own `.item-tile.full .item-photo`), so the identical
+    breadcrumb is what "the bottom line" already means in both states. Every level renders as its
+    own `<button class="item-breadcrumb-seg">`, not one plain unclickable label — satisfying the
+    collapsed case too: clicking the LAST segment is exactly "click on it to see all the items of
+    that subcategory," and the full view's "click on them" (plural) now has one segment per level
+    to click.
+
+    **`data-category-chain` — every level's own name — lets a click on an ANCESTOR level match a
+    subcategorized product, something the existing category filter could never do.** The
+    top-of-page category menu (`Test-PRD-P0-106`) only ever offers LEAF names, flat, built from
+    `product.category_name`, so `selectedCategories.has(el.dataset.category)` alone was always
+    enough for it. A breadcrumb click can put a TOP-LEVEL ancestor's name into that same Set
+    instead — clicking "Outerwear" on a product actually filed under Outerwear > Coats — and no
+    product's own leaf name would ever equal "Outerwear" to match it under the old check.
+    `matchesCategoryFilter` (`filterItems`'s own category check, factored out) matches against
+    ANY name in the chain instead, a strict superset of the old leaf-only behavior: every case
+    that matched before still does (the chain always includes the leaf itself), confirmed live —
+    clicking "Outerwear" kept a Coats-categorized product visible and correctly hid an unrelated
+    Dresses product, the real negative case, not just "nothing broke." `browseCategory(name)`
+    (a new function, distinct from `toggleCategory`/`setAgentCategories`) REPLACES the whole
+    filter set rather than toggling into it — clicking a breadcrumb means "show me this," not
+    "also show me whatever was already selected."
+
+    **Clicking a segment while the tile is expanded closes it back to the grid first, the same
+    unsaved-changes guard `.item-close` already uses**, so the person actually lands on the
+    now-filtered grid they can browse, rather than staying stuck inside the one item they clicked
+    away from — checked first, before every other control in the delegated click handler
+    (including the plain "click the body to expand" fallthrough), so it wins regardless of the
+    tile's own collapsed/expanded state.
+
+    **A real, caught-live encoding bug, not shipped:** the first version of `data-category-chain`
+    joined every level's name with `"\u0000"`. This whole file is ONE server-side template
+    literal, so that escape sequence is evaluated by NODE the moment the literal itself is built
+    — landing in the served HTML as a genuine NUL byte, not surviving as literal text for the
+    BROWSER to interpret later the way it would in an ordinary, separately-parsed client script.
+    A raw NUL anywhere in an HTML document is silently replaced by the browser's own parser
+    (U+FFFD) — confirmed live, rendering the real page and reading the attribute back in an
+    actual browser. It "worked" anyway at first, purely by coincidence: the client-side
+    `.split("\u0000")` call's own delimiter is written in that SAME template literal, so it
+    underwent the IDENTICAL NUL-to-U+FFFD corruption, and two identically-corrupted values still
+    matched each other — an accident of both sides breaking the same way, not a guarantee, and
+    exactly the kind of thing that "measure the real thing" exists to catch before it ships.
+    `JSON.stringify`/`JSON.parse` — the same escaping (`esc()`) this file already trusts for
+    every other piece of structured data rendered into an attribute or a script — replaced the
+    hand-picked delimiter. Also confirmed safe against an adversarial category name containing
+    quotes, a literal `</script>`, and HTML tags: rendered as inert plain text, no script-tag
+    count change, no page errors.
 
 ## 4. P1 features
 
