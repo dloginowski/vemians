@@ -3062,14 +3062,7 @@ function sortByNumericId(a, b) {
   const bn = b.numeric_id ? Number(b.numeric_id) : Infinity;
   return an !== bn ? an - bn : a.name.localeCompare(b.name);
 }
-function renderAdminCategoryNodes(
-  categories,
-  parentId,
-  categoryProductCountsById = new Map(),
-  itemOptions = [],
-  categoryItemOptionIdsById = new Map(),
-  categoryExplicitIdsSet = new Set(),
-) {
+function renderAdminCategoryNodes(categories, parentId, categoryProductCountsById = new Map()) {
   /* "We were never going to go deep into more than one level of
      subcategories, so I should not have a plus button next to any of my
      subcategories because we'll never be adding any [under them]." Every
@@ -3107,60 +3100,6 @@ function renderAdminCategoryNodes(
         : hasProducts
           ? `<button type="button" class="admin-remove-btn" disabled aria-label="Remove ${esc(c.name)}" title="Move its products to a different category first">${TRASH_ICON}</button>`
           : `<button type="button" class="admin-remove-btn" data-category-id="${esc(c.id)}" aria-label="Remove ${esc(c.name)}" title="Remove ${esc(c.name)}">${TRASH_ICON}</button>`;
-      /* REVISED: "when clicking Sets, I want you to open a menu with
-         checkboxes, not a whole row that's not aligned to anything... I
-         want to select multiple checkboxes, toggle them" — the owner's
-         own words, once the previous hidden-block disclosure (the same
-         shape the add-subcategory form already used) pushed every row
-         beneath it down and left instead of floating over them. Now the
-         exact same floating-dropdown shape .vendor-picker/.category-picker
-         already establish on the Items tab (own script, not shared with
-         this page, but the same position: relative wrapper +
-         position: absolute menu convention) — the toggle and its menu
-         share one wrapper, so the menu floats below the button rather
-         than widening or relayouting the row underneath it. Multiple
-         checkboxes stay tickable in one sitting: nothing in the open/close
-         logic below closes the menu on a checkbox click, only on an
-         outside click, Escape, or the toggle button itself. Nothing to
-         show (no option set exists anywhere yet) means no control at all,
-         the same "not reachable, don't show it" rule the remove button
-         already follows. */
-      const assignedIds = categoryItemOptionIdsById.get(c.id) ?? new Set();
-      /* "There needs to be a separate option called inherit for every
-         item. It should be set by default to inherit. I should be able
-         to disable the inherit button, and then specify specific
-         categories at that point. Once inherit is checked, I don't see
-         any options — they're grayed out and disabled. But if I disable
-         inherit, I can now adjust" — the owner's own words: an explicit
-         control for the SAME inherit-vs-explicit fact this codebase has
-         tracked since P0-142 (mirror_category.item_options_set_at), never
-         surfaced as its own toggle before now — a person had no way to
-         tell "this shows Outerwear's own set because it's inheriting" apart
-         from "this shows it because I explicitly picked the same one," and
-         no way to go BACK to inheriting once anything was ever saved
-         explicitly. Unchecking Inherit enables the checkboxes below for a
-         genuinely new explicit choice (adminSetsScript, below, flips
-         `disabled` live); checking it again — and saving — clears that
-         explicit choice entirely via `inherit: true`
-         (catalog.set_category_item_options' own REVISED entry). */
-      const isExplicit = categoryExplicitIdsSet.has(c.id);
-      const optionsControl = itemOptions.length
-        ? `<div class="admin-category-options">
-            <button type="button" class="admin-category-options-toggle${assignedIds.size ? " admin-category-options-toggle-active" : ""}" aria-label="Option sets for ${esc(c.name)}" title="Option sets">Sets${assignedIds.size ? ` (${assignedIds.size})` : ""}</button>
-            <form method="post" action="/admin/categories/item-options" class="admin-category-options-menu" hidden>
-              <input type="hidden" name="category_id" value="${esc(c.id)}">
-              <label class="admin-category-options-item admin-category-options-inherit">
-                <input type="checkbox" name="inherit" value="1"${isExplicit ? "" : " checked"}> Inherit
-              </label>
-              ${itemOptions
-                .map(
-                  (o) =>
-                    `<label class="admin-category-options-item"><input type="checkbox" name="item_option_ids" value="${esc(o.id)}"${assignedIds.has(o.id) ? " checked" : ""}${isExplicit ? "" : " disabled"}> ${esc(o.name)}</label>`,
-                )
-                .join("")}
-            </form>
-          </div>`
-        : "";
       return `<div class="admin-category-node" style="padding-left: ${parentId === null ? 0 : CATEGORY_NODE_TOGGLE_PX}px">
         <div class="admin-category-row">
           ${toggle}
@@ -3172,7 +3111,6 @@ function renderAdminCategoryNodes(
             <input type="hidden" name="category_id" value="${esc(c.id)}">
             <input class="admin-category-numeric-id" name="numeric_id" value="${esc(c.numeric_id ?? "")}" placeholder="ID" maxlength="2" pattern="\\d{2}" required title="A 2-digit code, 00-99 — must be unique among its own siblings">
           </form>
-          ${optionsControl}
           ${removeBtn}
           ${
             isTopLevel
@@ -3192,7 +3130,7 @@ function renderAdminCategoryNodes(
                 `<span class="admin-category-toggle-spacer"></span>`
           }
         </div>
-        <div class="admin-category-children">${renderAdminCategoryNodes(categories, c.id, categoryProductCountsById, itemOptions, categoryItemOptionIdsById, categoryExplicitIdsSet)}</div>
+        <div class="admin-category-children">${renderAdminCategoryNodes(categories, c.id, categoryProductCountsById)}</div>
         ${
           isTopLevel
             ? /* "Include all of the buttons that you normally would add...
@@ -3219,7 +3157,6 @@ function renderAdminCategoryNodes(
           <span class="admin-category-toggle-spacer"></span>
           <input type="text" class="admin-category-new-name" name="name" placeholder="Subcategory name" maxlength="60">
           <input class="admin-category-new-numeric-id" name="numeric_id" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — optional, can be set later">
-          ${itemOptions.length ? `<button type="button" class="admin-category-options-toggle" disabled title="Save the new subcategory first">Sets</button>` : ""}
           <button type="button" class="admin-remove-btn" disabled aria-label="Remove" title="Save the new subcategory first">${TRASH_ICON}</button>
           <span class="admin-category-toggle-spacer"></span>
         </form>`
@@ -5267,15 +5204,7 @@ input.field-dirty, select.field-dirty, textarea.field-dirty { border-color: var(
 .item-edit-error:hover { opacity: 0.92; }
 `;
 
-export function adminPage(
-  allCategories = [],
-  allVendors = [],
-  customFieldNames = [],
-  categoryProductCountsById = new Map(),
-  allItemOptions = [],
-  categoryItemOptionIdsById = new Map(),
-  categoryExplicitIdsSet = new Set(),
-) {
+export function adminPage(allCategories = [], allVendors = [], customFieldNames = [], categoryProductCountsById = new Map()) {
   return page(
     "Admin — Vemians ops",
     `<main class="ops">
@@ -5291,23 +5220,20 @@ export function adminPage(
       <button type="button" class="admin-category-add-toggle" data-parent-id="" aria-label="Add a top-level category" title="Add a category">+</button>
     </div>
     <div class="admin-section-body">
-      ${allCategories.length ? renderAdminCategoryNodes(allCategories, null, categoryProductCountsById, allItemOptions, categoryItemOptionIdsById, categoryExplicitIdsSet) : `<p class="item-empty">No categories yet.</p>`}
+      ${allCategories.length ? renderAdminCategoryNodes(allCategories, null, categoryProductCountsById) : `<p class="item-empty">No categories yet.</p>`}
       <!-- "Make sure that the main category add button also generates all
            of the proper fields so that it's perfectly aligned as well,
-           just like you did with the subcategories — we need the Sets
-           and then we have the disabled delete button" — the owner's own
+           just like you did with the subcategories" — the owner's own
            words. This row is TOP-LEVEL (no left padding, same as every
            real top-level row) and a real top-level category always keeps
-           its own "+", so all three placeholders join it here: Sets (when
-           one could ever show), remove, and "+" — the identical trailing
-           shape a saved top-level row has, disabled rather than guessed
-           at with an abstract spacer. -->
+           its own "+", so both placeholders join it here: remove and "+"
+           — the identical trailing shape a saved top-level row has,
+           disabled rather than guessed at with an abstract spacer. -->
       <form method="post" action="/admin/categories/create" class="admin-category-add-form" hidden>
         <input type="hidden" name="parent_id" value="">
         <span class="admin-category-toggle-spacer"></span>
         <input type="text" class="admin-category-new-name" name="name" placeholder="Category name" maxlength="60">
         <input class="admin-category-new-numeric-id" name="numeric_id" placeholder="ID" maxlength="2" pattern="\\d{2}" title="A 2-digit code, 00-99 — optional, can be set later">
-        ${allItemOptions.length ? `<button type="button" class="admin-category-options-toggle" disabled title="Save the new category first">Sets</button>` : ""}
         <button type="button" class="admin-remove-btn" disabled aria-label="Remove" title="Save the new category first">${TRASH_ICON}</button>
         <button type="button" class="admin-category-add-toggle" disabled aria-label="Add a subcategory" title="Save the new category first">+</button>
       </form>

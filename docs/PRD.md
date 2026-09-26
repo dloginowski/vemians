@@ -6435,101 +6435,14 @@ that does not trace to one of these is a process failure (see §12).
     mechanism for item options (confirmed against Square's own developer documentation), so that
     association, if built, will be ours alone to define.
 
-77. **`Test-PRD-P0-142-category_item_options`** — The owner's own follow-up request: "I want to be able
-    to associate a category with option sets... so that these option sets will show up instead of
-    variants, for the items that belong to the category," immediately narrowed once asked about
-    defaults: "I don't want to be adding the same option sets to every single category, because certain
-    categories might not have the same option sets." Confirmed against Square's own developer docs
-    (P0-141's own entry, above) that Square has no category-level default/inheritance mechanism for
-    item options at all — so `mirror_category_item_option` (new table, `0008_category_item_options.sql`)
-    is a link that exists nowhere but here, purely ours, the same "no Square correlate whatsoever"
-    territory `mirror_custom_field_name` already occupies.
-
-    `catalog.set_category_item_options` (new T2, manager) sets the FULL list a category offers in one
-    call — a resend REPLACES, never merges, the same "send the whole thing back" convention
-    `catalog.update_product`'s own variations array already uses. Unassigning is still never a literal
-    `DELETE` — this tool layer refuses to contain that statement outright, everywhere but the not-yet-
-    built erasure workflow (`Test-PRD-P0-25-write_approval_gate`) — so a row no longer wanted is archived
-    (`archived_at`) and reused (not re-inserted) if the same option set is assigned again later, exactly
-    the archive-only shape every Square-mirrored table already follows, even though nothing here mirrors
-    Square.
-
-    The Admin panel's own category tree (`renderAdminCategoryNodes`, `views.js`) gets one more per-row
-    control, folded into the same hidden-until-toggled disclosure every other per-category control here
-    already uses (the "+" add-subcategory form, the remove button) — a "Sets" toggle, shown only when at
-    least one option set exists anywhere (nothing to show otherwise, the same "not reachable, don't show
-    it" rule the remove button already follows), opening a checkbox per known option set with the
-    category's own current assignment pre-checked. Folded into the page's one existing "Save all"
-    mechanism rather than a submit button of its own — `isFieldDirty` (the admin page's own copy, not the
-    Items tab's) now recognizes a checkbox's `checked`/`defaultChecked` divergence the same way the
-    Items tab's own copy already does, since this is the first checkbox this particular page has ever
-    needed to track as dirty.
-
-    This is only the ASSOCIATION — the owner's own two option sets can now be attached to a category from
-    the Admin panel, but nothing here yet builds a product's own variation from a chosen value, or shows
-    a dropdown on the Items tab. `catalog.item_options` and this tool are what that future UI would read
-    from.
-
-    **REVISED: the "Sets" toggle now matches its own row's height, and reads in capitals.** The owner's
-    own words: "make the Sets button the same height as the rest of the UI elements. It needs to be the
-    same height. Everything needs to flow. And use all capitals for Sets." Its own fixed
-    `height: 14px`/`font-size: 11px` (matching the small square icon buttons beside it) made it
-    noticeably shorter than the row's own `.admin-category-name`/`.admin-category-numeric-id` inputs,
-    which carry no explicit height at all and are sized purely off a 13px font plus 4px vertical
-    padding — the toggle now shares that exact font-size and padding instead, with no height of its own,
-    so the row's height comes from one consistent metric rather than the tallest of several different
-    ones. Capitalized via `text-transform: uppercase` (the same convention this page's own
-    `.admin-section-label` — "CATEGORIES", "VENDORS", "CUSTOM FIELDS" — already uses) rather than
-    hand-typing "SETS" in the markup, so the text node and the `aria-label`/checkbox-toggle logic keyed
-    off it stay untouched.
-
-    **REVISED: clicking Sets now opens a floating dropdown menu, not a block that pushed the row
-    beneath it out of alignment.** The owner's own words: "when clicking Sets, I want you to open a
-    menu with checkboxes, not a whole row that's not aligned to anything. A menu with checkboxes. I
-    want to select multiple checkboxes, toggle them." The checkbox list used to be its own hidden
-    `<form>` sitting BETWEEN a category's own row and its `.admin-category-children` — widening and
-    re-laying-out everything beneath it once opened. It is now wrapped together with the toggle button
-    in one `.admin-category-options` (`position: relative`), with the checkbox list itself
-    (`.admin-category-options-menu`) `position: absolute`, floating below the button — the identical
-    convention `.vendor-picker`/`.vendor-picker-menu` already establish on the Items tab (a separate
-    script, not shared with this page, but the same shape). A new `closeAllOptionsMenus()` plus
-    outside-click/`Escape` listeners close it, mirroring the Items tab's own `closeAllCategoryPickers`;
-    a click on a checkbox INSIDE the menu is excluded from the outside-click check the identical way a
-    click on the toggle button itself already is, so any number of them stay tickable in one sitting —
-    the menu only closes on an outside click, `Escape`, or the toggle button.
-
-    **REVISED: the menu opens leftward from the toggle's own right edge, not rightward off the edge of
-    the screen.** The owner's own words: "don't open it off screen. Open it to the left because the
-    current position of the button is to the right center. Open it to the left." `.vendor-picker-menu`,
-    the convention this shape was copied from, anchors `left: 0` because ITS OWN toggle sits at the
-    LEFT of its row — the Sets toggle sits well over toward the RIGHT of its own row instead (after
-    name/numeric_id, before remove/"+"), so the identical `left: 0` anchor ran the menu's own `min-width`
-    past the right edge of the screen for exactly the rows where it mattered most. `right: 0` anchors it
-    to the toggle's own right edge and grows it leftward instead, keeping it on screen regardless of how
-    close to the right edge the button itself sits.
-
-    **REVISED: a subcategory with no explicit option sets of its own now inherits its parent's, all the
-    way up the tree.** The owner's own words: "when I set sets for a category, all subcategories
-    inherit the sets unless I specify different selections for the subcategories." A new OURS-only
-    column, `mirror_category.item_options_set_at` (migration `0009_category_item_options_inherit.sql`
-    — schema.sql's own comment on it has the full reasoning), tells apart "never touched here, still
-    inheriting" (`NULL`) from "explicitly set here, even to nothing" (a real timestamp) — a distinction
-    `mirror_category_item_option`'s own rows alone cannot make, since both a never-touched category and
-    one explicitly cleared show zero active rows. `catalog.set_category_item_options`'s own `run()` now
-    sets this column unconditionally on every successful call, `item_option_ids: []` included; its own
-    `check()` only refuses a resend as a no-op once a category is ALREADY explicit — a category that is
-    still inheriting and resends the identical list it currently shows (inherited) is a real, meaningful
-    change (it stops following the parent's future edits), never a no-op.
-
-    A new `effectiveCategoryItemOptionIds(db)` (`catalog-writer.js`) walks up a category's own parent
-    chain, stopping at the nearest ancestor (itself included) with its own explicit set, and returns
-    THAT one's own raw ids — never merging an ancestor's and a descendant's own. This, not
-    `categoryItemOptionIds`'s own raw per-category rows, is what the Admin panel's own checkbox list and
-    "Sets (N)" badge read from now — the count and the pre-checked boxes both show what is actually IN
-    EFFECT for a category, inherited or explicit alike; `categoryItemOptionIds` stays exactly what it
-    was, the tool layer's own read-before-write over a category's own raw rows only. Viewing an
-    inherited list writes nothing on its own — only an actual Save turns "inherited" into "explicit,"
-    matching every other checkbox on this page.
+77. **`Test-PRD-P0-142-category_item_options`** — RETIRED by `Test-PRD-P0-178-
+    remove_category_item_options`. Used to let a manager associate a category with a fixed list of
+    Option Sets (a "Sets" toggle and floating checkbox menu on the Admin category tree, `mirror_category_
+    item_option`), with an "Inherit" toggle so a subcategory could follow its parent's own list or set
+    its own (`mirror_category.item_options_set_at`). Removed outright: see P0-178's own entry, below
+    P0-149, for the full reasoning. `mirror_category_item_option` and `item_options_set_at` no longer
+    exist (`0012_remove_category_item_options.sql`) — everything this entry once described about them is
+    historical only.
 
 78. **`Test-PRD-P0-143-product_item_options_mirrored`** — Which Option Sets an ITEM ITSELF declares
     (Square's own `item_data.item_options`, an array of `{item_option_id}` pairs) — a real Square fact,
@@ -6546,48 +6459,20 @@ that does not trace to one of these is a process failure (see §12).
     identical reason: an incremental payload for one item cannot by itself prove an item_option is gone
     versus simply "not touched in this page."
 
-79. **`Test-PRD-P0-144-apply_category_item_options`** — The owner's own request, immediately following
-    P0-142's own inheritance entry: "when I apply the groups to a category, it means that you're going
-    to apply these option sets to every product that is part of the category... because right now, you
-    have to apply these options manually per item." Clarified in the same breath: "remove variants from
-    item panel — variants will be defined and configured in Square. However, I want you to mass apply
-    the options to all of the items that are part of the category." Deliberately a SEPARATE, explicit
-    action rather than an automatic cascade fired on every `catalog.set_category_item_options` save —
-    saving a category's own option sets stays purely ours, no Square call at all; a brand new T2 tool,
-    `catalog.apply_category_item_options_to_products`, is the one that actually reaches every product.
-    It resolves the category's own CURRENT EFFECTIVE set (`effectiveCategoryItemOptionIds`, inherited or
-    explicit alike — never a caller-supplied list, so this always means exactly "make every product
-    match what Sets already shows"), then loops every product currently filed in that category and
-    calls `catalog-writer.js`'s own `updateProduct` for each — the same "resend the whole thing, only
-    THIS field actually changes" call `catalog.set_category_number`'s own retroactive resort already
-    makes in bulk, one real Square write per product, errors collected per-handle rather than aborting
-    the batch.
+    **NOT retired alongside `Test-PRD-P0-178-remove_category_item_options`** — unlike P0-142/144/148/149,
+    this table is a real Square fact with a consumer completely independent of category-level assignment:
+    `catalog.update_product`'s own "resend the whole thing or it vanishes" fallback for `item_options`
+    reads this table unconditionally, for ANY product with real `item_option_values` on its variations —
+    including one created entirely through ordinary CSV/agent ingestion (P0-146) that never touched
+    category-level assignment at all. Dropping it would silently wipe such a product's own Option Set
+    declaration in Square the next time someone edited its title or price.
 
-    Item-level ONLY (`item_data.item_options`): no variation is ever created, changed, or removed by
-    this tool — "variants will be defined and configured in Square" stays true; this only tells Square
-    which option sets an item MAY build a variation from. `itemData()` (`catalog-writer.js`) gained its
-    own `item_options` field to make this possible at all, following the exact "resend or it vanishes"
-    rule every other field there already follows (`updateProduct`'s own `currentItemOptionExternalRefs`
-    resends what is already mirrored whenever a call is not actually about this field, the identical
-    reasoning `categoryId`/`description`/`vendor` already established) — a real bug class this codebase
-    has hit before, now closed off for a fifth field before it could ever ship broken for a first. The
-    idempotency key gained the same field too, for the identical reason `commissionPct`/`vendorInfos`
-    already had to join it.
-
-    The Admin panel's own Sets menu gets one more control, an "Apply to items" button living inside the
-    same floating menu as the checkbox list — an immediate, one-shot action (`.admin-category-apply-btn`,
-    the same click-and-`fetch`-directly treatment `.admin-remove-btn` already gets elsewhere on this
-    page) rather than a field folded into the batched Save-all, since it fires a real bulk Square write
-    the moment it is clicked, not a mirror-only edit waiting to be reviewed and saved.
-
-    REVISED: a category with no products of its own (a purely organizational one, every real product
-    living in a subcategory instead) originally REFUSED this call outright — "has no products to apply
-    anything to." The owner's own words, clicking through many categories in a row: "that should not be
-    a stopping point for you... just ignore it and don't apply anything to it. I don't need to see an
-    error about it and you don't need to stop." `check()` now treats this as a quiet no-op (`ok: true`,
-    `products_applied: 0`, no Square call at all) rather than a refusal — the tool's own scope is
-    unchanged (still only the products directly filed in the given category, never its subcategories),
-    only the empty case stopped being treated as a mistake.
+79. **`Test-PRD-P0-144-apply_category_item_options`** — RETIRED by `Test-PRD-P0-178-
+    remove_category_item_options`. Used to bulk-push a category's own assigned Option Sets to every
+    product filed in it (and its subtree), item-level only (`item_data.item_options`, no variation
+    touched). Removed together with P0-142/148/149 — see P0-178's own entry, below P0-149, for the full
+    reasoning. `catalog.apply_category_item_options_to_products` and its own Admin "Apply to items"
+    control no longer exist.
 
 80. **`Test-PRD-P0-146-dynamic_option_values`** — The owner's own words: "if we are adding a set of
     items and we specify its size or color, and this size or color is not already defined in our
@@ -6741,226 +6626,64 @@ that does not trace to one of these is a process failure (see §12).
     `button.closest(".row, .variant-size-cell")`, so a stepper works identically in the flat list and
     inside a grouped grid cell alike; no other stepper behavior changed.
 
-82. **`Test-PRD-P0-148-auto_generate_variations`** — The owner's own words, on discovering the earlier
-    P0-144 behavior was item-level only: "I expect the black dress to have these variations
-    auto-assigned because I assigned the sets to its parent category." Asked directly and confirmed:
-    `catalog.apply_category_item_options_to_products` now ALSO generates the real missing Size/Color
-    (etc.) variations, not just the item-level flag. `itemOptionValueNames`/`optionCombinations`
-    (`catalog-writer.js`) build the full cross product of every value currently on file for the
-    category's own assigned Option Sets; `variantsWithOptions` reads each product's own CURRENT
-    variations (via the same `mirror_variant.options` blob P0-147 reads); `comboSignature` compares
-    the two, key-order-independent, to find what is genuinely missing. A missing combination becomes a
-    brand-new variation — title joined from its own values, price copied from the product's own first
-    variation, stock starting at 0 (a real count still needs an actual inventory count, via
-    `inventory.adjust`) — never an existing one touched, edited, or removed. Capped by the existing
-    `CAPS.CATALOG_MAX_VARIATIONS`: a product that would need more variations than the cap allows is
-    reported as a per-product error (`catalog-writer.js`'s own established "one product's failure does
-    not fail the batch" shape, `resortProductsByStyleId`/P0-144's own), never silently truncated.
+82. **`Test-PRD-P0-148-auto_generate_variations`** — RETIRED by `Test-PRD-P0-178-
+    remove_category_item_options`. Used to auto-generate any missing Size/Color variation combinations
+    for every product in a category (a cross product of the category's own assigned Option Set values),
+    retag old skuless/untagged variations to match by title, and mint a SKU on retag when one was
+    missing. Removed together with P0-142/144/149 — see P0-178's own entry, below P0-149, for the full
+    reasoning; `skuFromStyleId` (the human-readable SKU shape this entry's own history mentions) was
+    already retired separately by `Test-PRD-P0-177-fluid_style_id` before this whole mechanism went too.
+    `optionCombinations`/`comboSignature`/`variantsWithOptions`/`retagByTitle` no longer exist.
 
-    `mergeVariations` (shared by `catalog.create_product`/`catalog.update_product`'s own preflight and
-    write) now carries `option_values` through on BOTH sides of a merge — an EXISTING variation's own
-    already-mirrored `options` (renamed to the same field name), and a newly ADDED one's own patch
-    data — so `updateProduct`'s own resolution loop (mirroring `createProduct`'s own, via
-    `ensureItemOptionValue`) can resend every kept variation's own `item_option_values` whole. This
-    closes a latent instance of this codebase's own "resend the whole thing or it vanishes" rule
-    (Square's `UpsertCatalogObject` replaces a variation's own data wholesale, same as item_options/
-    vendor_information one level up) that no prior call had ever actually exercised: nothing called
-    `catalog.update_product` on a product with real `item_option_values` until this feature made it
-    possible, so an unrelated edit could have silently wiped them.
+83. **`Test-PRD-P0-149-category_options_inherit_toggle`** — RETIRED by `Test-PRD-P0-178-
+    remove_category_item_options`. Used to let a subcategory INHERIT its parent's own assigned Option
+    Sets, or opt out and set its own; a later revision (test label `auto_apply_failure_visibility`) also
+    cascaded a bulk apply from the category Save button and surfaced its own per-product failures in the
+    audit log. Removed together with P0-142/144/148 — see P0-178's own entry immediately below, for the
+    full reasoning. The "Inherit" checkbox, the Save-button apply cascade, and `perProductApplyFailure`
+    no longer exist.
 
-    REVISED: the owner hit this shipped, live — "I only see sizes for the black dress. I don't see any
-    colors" — even with both Dress Sizes and Dress Colors checked on the category. The cause:
-    `optionCombinations`' own cross product collapses to NOTHING the moment any ONE assigned Option Set
-    has zero values on file in Square yet — Dress Colors had never been given an actual value ("Black",
-    "Red", ...) — so no combinations were generated for EITHER dimension, silently, with no error and
-    no hint why. `catalog.apply_category_item_options_to_products`'s own `check()` now names any
-    assigned option with no values right in the approval summary ("WARNING: Dress Colors has no values
-    on file in Square yet, so NO variations will be generated..."), before anyone says yes — and the
-    same fact rides through to the executed result too (`options_with_no_values_yet`), not just the
-    approval screen, so this is never a silent no-op discovered only after the fact either way.
+83a. **`Test-PRD-P0-178-remove_category_item_options`** — The owner's own words, having watched
+    CSV/agent ingestion prove it already auto-creates whichever Size/Color an item actually needs, per
+    item, on the fly (P0-146): "now that I've seen how this whole ingestion of spreadsheet works, and
+    I'm seeing how you're creating all the variants and sizes and options, I don't think we need to have
+    this idea of option sets with dropdowns in our admin panel... this whole thing is completely
+    unnecessary and just adds complexity... let's remove all of those."
 
-    REVISED AGAIN: with the empty-values gap fixed, the owner still saw nothing on the black dress
-    itself — "I'm not seeing any of it... why even have the option to set those options on the category
-    if you're not going to do it. I expect all subcategories to get the same settings applied — they
-    should propagate, why don't they?" The actual product was filed in a SUBCATEGORY; "Apply to items"
-    only ever reached products filed DIRECTLY in the exact category clicked — Option Set ASSIGNMENT was
-    already inherited down the tree (`effectiveCategoryItemOptionIds`, P0-142), but actually PUSHING
-    that assignment to Square never followed the same rule, a real mismatch between what "Sets" showed
-    as assigned and what a bulk Apply actually reached. `applyItemOptionsToProductsInCategory`
-    (`catalog-writer.js`) now walks the category's own full subtree (itself plus every subcategory, at
-    any depth, via `mirror_category`'s own `parent_id` chain) and reaches every product filed anywhere
-    in it — but each product still gets its OWN category's own current effective set, resolved
-    individually, never blindly the clicked category's own: a subcategory with its own explicit
-    override (its own separate `catalog.set_category_item_options` call) keeps that override,
-    untouched by a parent's own bulk Apply; only a subcategory with no override of its own inherits
-    what was clicked. `check()`'s own product count, names and empty-values warning are all computed
-    across the same subtree now too, so the approval summary already reflects the real scope of the
-    call rather than only the clicked category's own direct products.
+    **Two mechanisms shared the name "Option Sets," and only one of them is what this retires.** The
+    per-item mechanism (a variation's own `option_values`, resolved by `ensureItemOptionValue` into a
+    real Square Option Set/value the moment a product is created or CSV-ingested — P0-146, and the
+    shop-wide read-only list behind it, P0-141) is foundational and untouched: it is exactly the
+    mechanism the owner just praised. What is retired is the SEPARATE, CATEGORY-LEVEL layer built on top
+    of it — letting a manager assign a fixed list of Option Sets to a category (P0-142), inherit it down
+    a subcategory tree or opt out (P0-149), and bulk-push it to every product already filed there,
+    auto-generating any missing Size/Color combinations and retagging old untagged variations to match
+    (P0-144, P0-148). That whole layer is gone: `catalog.set_category_item_options` and `catalog.
+    apply_category_item_options_to_products` (and their own backing helpers —
+    `effectiveCategoryItemOptionIds`, `categoryExplicitIds`, `categoryItemOptionIds`,
+    `categoryItemOptionsSetAt`, `itemOptionValueNames`, `optionCombinations`, `comboSignature`,
+    `variantsWithOptions`, `retagByTitle`), the Admin category tree's own "Sets"/"Inherit" dropdown UI,
+    and the `/admin/categories/item-options` route and its Save-cascade no longer exist.
 
-    REVISED A THIRD TIME, from Square's own real answer once `Test-PRD-P0-149-auto_apply_failure_
-    visibility`'s own fix finally surfaced it: `INVALID_REQUEST_ERROR/BAD_REQUEST: Expected
-    ItemVariation to have 1 Item Option Values, got 0`. The Black Dress's own five real variations
-    predate this whole Option Sets feature — plain titles ("S", "M", ...), no `item_option_values` at
-    all — and Square refuses to let an ITEM declare `item_options` while any of its own variations
-    still carry none; generating the genuinely MISSING combinations was never the problem, the
-    pre-existing, never-touched ones were. Asked directly, the owner's own choice: auto-match an
-    untagged existing variation's own title against the assigned option's own value names
-    (case-insensitive exact match) and retag it in place — never a new SKU, never touching price/sku/
-    anything else — rather than a manual per-product fix or leaving every such product permanently
-    unable to ever apply. `retagByTitle` (`catalog-writer.js`) computes this before the missing-combo
-    pass, so a retagged variation counts as already covering its own combination (never both retagged
-    AND duplicated as a second SKU); `mergeVariations`'s own UPDATE branch — previously dropping
-    `option_values` on a patch matching an EXISTING variant entirely, only ever carrying it through for
-    a brand-new one — now carries it through either way, the actual gap that made a retag patch a
-    no-op before this fix. A title matching nothing is left exactly as it was, its own failure now
-    visible (the fix above) rather than silently wrong.
+    **Two related pieces stay, on purpose, because they are load-bearing for the mechanism that stays.**
+    `mirror_product_item_option` (P0-143 — a real Square fact, which Option Sets an ITEM currently
+    declares, mirrored on every sync) is NOT retired: `catalog.update_product`'s own "resend the whole
+    thing or it vanishes" fallback for `item_options` reads it unconditionally, for ANY product with real
+    `option_values` on its variations — dropping it would silently wipe an ordinary CSV-created
+    product's own Option Set declaration in Square the next time someone edited its title or price.
+    `variantsGridAxes`/`variantsGroupedAccordionHtml` (P0-147, the 2-axis grouped Variants view in the
+    Items admin tile) is also unaffected — traced end to end, it reads only a product's own
+    already-synced `variations[].options` and the shop-wide Option Set list, with zero reference to
+    category-level assignment; a product whose variations already carry `option_values` (however they
+    arrived — interactive creation, `catalog.create_product`, or CSV/agent batch import) keeps this
+    view working exactly as before, with no code change needed for it at all.
 
-    **Known, deliberately out of scope**: a product whose own base variation carries a generic title
-    that names no real value at all (a plain "One size", say) cannot be retagged by title — nothing to
-    match. Real Square very likely refuses that product's own apply the same way, the moment ANY
-    Option Set reaches its category; discovered live, while proving this fix, testing against several
-    of this suite's OWN existing fixtures. A real fix needs a genuine design decision (what should a
-    non-title-matchable base variation become?) that was not part of what was asked here — left for the
-    next report, now that a failure like it would surface clearly rather than silently, the same as the
-    Black Dress's own did.
-
-    REVISED AGAIN, minutes later, live: `INVALID_REQUEST_ERROR/BAD_REQUEST: Expected ItemVariation to
-    have 2 Item Option Values, got 1` — the moment Dresses had BOTH Size and Color assigned. Square
-    requires a value for EVERY declared dimension on every variation, not merely one of them; a
-    variation's own title never names a color at all ("S", "M", ...), so the first retag pass had
-    nothing there to find for Color. Asked directly a second time, the owner's own choice: fall back to
-    the PRODUCT's own title (e.g. "Black Dress") for whichever dimension the variation's own title could
-    not resolve, when EXACTLY ONE of that dimension's own values appears in it — an ambiguous match
-    (zero, or more than one) is left exactly as it was, the same as an unmatched variation title. **A
-    real bug caught live, testing this exact fix before it ever shipped**: the first version matched
-    with a bare `.includes()`, which matched the single letter "S" buried inside "dres`s`" in "Black
-    Dress" itself, silently mis-tagging Size as "S" from a product title that never said any such thing.
-    Fixed to a whole-word match (`\bS\b`, case-insensitive) — a short value like "S" now only matches
-    its OWN standalone word, never a letter it happens to share with an unrelated one.
-
-    REVISED A THIRD TIME, live, once the White combinations this section itself generates for the Black
-    Dress were actually clicked on: `inventory.adjust` refused every one of them — "'Black Dress' —
-    'White, M' has no SKU yet, so it has never been mirrored into stock — nothing to adjust." Asked why,
-    the owner's own words: "SKU should be auto generated when adding variants or options — Square does
-    that." Verified live it does not, for a variation created through the Catalog API this file calls:
-    every one of the White/S-M-L-XL combinations this section itself auto-generated for the Black Dress
-    came back from Square with `sku: null`. "Automatically generate SKUs" is a real Square setting, but a
-    Dashboard/POS-side feature — it never fires for an object created through `UpsertCatalogObject`, which
-    is the only path this codebase writes through. Confirmed, the owner's own choice: build one here
-    instead, rather than continue leaving a brand-new variation permanently untrackable until someone
-    opens it in Square by hand. `generateSku` (`catalog-writer.js`) mints a plain 12-digit numeric code —
-    the same shape a UPC-A barcode label already takes, so it prints and scans in Square exactly like a
-    real one would; it is simply never registered outside this shop's own account, same as any other
-    home-grown SKU — deterministically, from a hash (FNV-1a, synchronous, no `crypto.subtle`) of a stable
-    per-write seed (an existing sibling variation's own `external_ref` when the product already has one,
-    or the item's own title for a brand-new product, plus the variation's own title/`option_values`) —
-    never `crypto.randomUUID()`: this same content already feeds Square's own `idempotency_key`
-    (`updateProduct`'s own `IDEMPOTENCY_KEY_REUSED` comment, above), so a genuinely random value would
-    make an identical retry of the same write hash to a different key every time, the exact class of bug
-    that comment already describes. `mergeVariations`'s own `added` branch (a brand-new variation, no
-    `variant_id`) and `createProduct`'s own variation list both mint one when none is given; an
-    already-mirrored variation's own `sku` (`mergeVariations`'s own UPDATE branch, an existing
-    `variant_id`) still rides through completely untouched, exactly as before — this only ever reaches a
-    variation that did not exist a moment ago, never backfills one that predates this whole feature and
-    still carries none.
-
-    REVISED A FOURTH TIME, minutes later, three more asks in one breath: "Maybe generate it from the
-    style id? Add option and size to the end? ... I want the barcode to work with it ... Will it conflict
-    with existing skus?" and, separately: "No it must be auto generated when making the options
-    assignment!" on hearing that a variation Apply had already retagged in an EARLIER run would never get
-    a SKU just from running Apply again.
-
-    `skuFromStyleId` (`catalog-writer.js`) replaces the opaque `generateSku` as the PREFERRED shape
-    whenever this product has a `style_id` on file: `${styleId}-${SUFFIX}`, e.g. `01-04-001-WHITE-M` for
-    the Black Dress's own White/M — the suffix is this variation's own `option_values`, uppercased and
-    joined (falling back to its own title when it carries no option_values at all, so two variations
-    sharing a product but no Option Sets yet still cannot collide, exactly as Square itself already
-    requires their titles to differ). Collision-free BY CONSTRUCTION, no live uniqueness check needed:
-    `style_id` is already refused when another product has it, and Square itself already refuses two
-    variations of the SAME item sharing the same `option_values` — so this can never match another SKU.
-    "Will the barcode work with it?" — yes, as Code128 (alphanumeric), the same as Square already prints
-    for any SKU that is not itself a valid numeric UPC/EAN; it is simply never a REGISTERED code outside
-    this shop's own account, same as `generateSku`'s own opaque one. The numeric `generateSku` fallback
-    still applies only when a product has no `style_id` at all (no category, and none given by hand).
-
-    "Auto generated when making the options assignment" — retagging an untagged variation (the REVISED A
-    THIRD TIME paragraph, above) now ALSO mints a SKU for it when it has none, right there in
-    `applyItemOptionsToProductsInCategory`'s own retag loop, using this same `skuFromStyleId`/`generateSku`
-    choice — going from untagged to a real Size/Color IS "making the options assignment" for that
-    variation, so it must be adjustable the instant that happens, not stuck the way the Black Dress's own
-    White combinations were until `inventory.adjust` itself was also fixed (`Test-PRD-P0-31-
-    inventory_ledger`'s own REVISED, above). Only when the variation's own SKU is genuinely missing — the
-    common case (a variation predating Option Sets almost always already has a real, physical SKU) is
-    never touched, exactly as `retagByTitle`'s own "never touching price/sku/anything else" rule already
-    promises for everything else about it.
-
-    **REVISED by `Test-PRD-P0-177-fluid_style_id` — `skuFromStyleId` is gone.** The owner's own later
-    words, reversing "REVISED A FOURTH TIME" above: a SKU baked from a style_id that can later change
-    (a category correction, a re-filing) goes stale and misleading in a way a barcode already printed on
-    a physical ticket cannot un-print. SKU is now ALWAYS the opaque `generateSku` hash, unconditionally
-    — never the style_id-embedding shape, whether or not the product has a style_id on file. The retag
-    path's own "mint one when missing" behavior is unchanged, just always via `generateSku` now.
-
-83. **`Test-PRD-P0-149-category_options_inherit_toggle`** — The owner's own words, right after P0-148
-    shipped: "I think there needs to be a separate option called Inherit for every category. It should
-    be set by default to inherit... but I should be able to disable the Inherit button and specify
-    specific categories at that point. Once Inherit is checked, I don't see any options — they're
-    grayed out and disabled. But if I disable Inherit, I can now adjust." Before this, `item_options_
-    set_at` (P0-142) could only ever move ONE direction — NULL ("still inheriting") to a timestamp
-    ("explicit, even to an empty set") — every explicit save, even a resend of the exact list already
-    showing, could only ever set it, never clear it back to NULL: there was no way to go back to
-    inheriting once a category had ever been made explicit. `catalog.set_category_item_options` gains
-    `inherit: true` (schema: `item_option_ids` is no longer `required`, an `inherit: true` call needs
-    none), which reverses this — it archives every explicit `mirror_category_item_option` row the
-    category has and clears `item_options_set_at` back to NULL, resuming its parent's future edits
-    "forever, not just until the next explicit save." Already-inheriting is refused as a no-op, the
-    same shape as an already-explicit no-op resend. `categoryExplicitIds` (`catalog-writer.js`) gives
-    the Admin page a plain set of every category's own `item_options_set_at IS NOT NULL` id, so the
-    Sets menu (`views.js`) can render an "Inherit" checkbox above the option checkboxes — checked
-    (and its siblings disabled) whenever a category is NOT in that set, unchecked (siblings enabled)
-    when it is. A disabled checkbox is excluded from `FormData` automatically, so a still-inheriting
-    category's menu can never submit stale `item_option_ids` even by accident; a small `change`
-    listener keeps the disabled state live as Inherit itself is toggled in the browser, since the
-    server only ever renders the INITIAL state.
-
-    REVISED, from a report sent moments after seeing "Apply to items" live: "when I click Apply to
-    items, it stays orange. Should it clear the orange state? That indicates dirty." `.admin-category-
-    options-toggle-active` (the Sets button's own "this category has option sets assigned" indicator, a
-    persistent, non-dirty fact) had been styled with `--accent` — the exact color this codebase already
-    reserves ONLY for genuine unsaved/dirty state (P0-135's own "orange is reserved for a genuinely
-    dirty field, never a steady 'this is on' color" rule).
-    Fixed to `--muted`, the same brighter gray `.item-checkbox-toggle`'s own "on but saved" state
-    already uses, so a category with Sets assigned no longer reads as permanently unsaved.
-
-    REVISED AGAIN, asked in the same breath: "why is there an Apply button? Why not just use the Save
-    button? Shouldn't saving make the Save button dirty, and pressing Save apply all the options too?"
-    The standalone `POST /admin/categories/apply-item-options` route (and its own `.admin-category-
-    apply-btn`) is gone entirely. Saving a category's Sets now (`POST /admin/categories/item-options`,
-    the ordinary route the global Save-all button already posts every dirty form to) ALSO calls
-    `catalog.apply_category_item_options_to_products` for that same category immediately after the
-    Sets save succeeds — the owner's own literal ask, "just press Save and apply the options." This
-    cascade lives in the Admin route (`index.js`), not inside `catalog.set_category_item_options`
-    itself: that tool's own `describe` explicitly promises "no Square object is read, written, or
-    affected," a promise a chat agent calling it directly still gets — only the Admin UI's Save button
-    gets the auto-cascade. A cascade failure (no `SQUARE_ACCESS_TOKEN`, a per-product Square error, ...)
-    is logged (`console.error`) and never fails the Sets save itself, the same "one product's failure
-    never fails the batch" philosophy this feature area already follows one level down.
-
-    REVISED (`Test-PRD-P0-149-auto_apply_failure_visibility`): "I tried it. Didn't work" — the owner's
-    own words, live, after resaving Dresses' Sets exactly as instructed. The production `audit_log`
-    itself showed why: `catalog.apply_category_item_options_to_products` really had run and really had
-    failed for the Black Dress — a genuine per-product Square error, never thrown (`catalog-writer.js`'s
-    own "one product's failure does not fail the batch" shape puts it in the returned `errors` array
-    instead) — but the cascade above only ever checked `applyResult.error`/`.denied`, which a call like
-    this never sets: `runTool`'s own audit row for a T2 call is written BEFORE `run()` ever executes, so
-    it can only ever record that approval was granted, never what `run()` actually did. The result was a
-    real failure with nothing durable anywhere to explain it — not the audit log, not a Worker log either
-    (this Worker's own logs are not retained, `mirror-status.yml`'s own comment). `perProductApplyFailure`
-    (`index.js`, exported for direct testing with no Square mock needed) now inspects `applyResult.data.
-    errors` itself — flagging a real failure even inside an otherwise-successful call, and even a PARTIAL
-    one (some products applied, one did not) — and writes a genuine `audit_log` row (`result: "error"`,
-    `reason: "auto_apply_per_product_failures"`, the per-product detail) so a failure like this is
-    queryable afterward, the same way this one was finally diagnosed.
+    `ops/migrations/catalog_mirror/0012_remove_category_item_options.sql` drops `mirror_category_item_
+    option` (table + its `_index` view) and `mirror_category.item_options_set_at` (column, with
+    `mirror_category_index` recreated without it) — verified to produce a structurally identical schema
+    whether applied as a fresh migration chain or read straight off the updated `schema.sql`. No other
+    schema change: `mirror_item_option`/`mirror_item_option_value`/`mirror_product_item_option` are all
+    untouched.
 
 84. **`Test-PRD-P0-150-agent_chat_conversation_memory`** — "Why is the agentic input so
     stupid?" — the owner's own words, after a real transcript showed the built-in chat (P0-68)

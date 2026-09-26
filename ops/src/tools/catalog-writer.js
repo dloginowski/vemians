@@ -59,28 +59,6 @@ export async function listCategories(db) {
   return (res.results ?? []).map((r) => ({ id: r.id, name: r.name, parent_id: r.parent_id, numeric_id: r.numeric_id }));
 }
 
-/* Whether a category has ever had its own EXPLICIT option-set list saved
-   (mirror_category.item_options_set_at, schema.sql's own comment on it
-   has the full reasoning) — kept separate from listCategories' own
-   shared shape (catalog.categories hands that one straight to a model,
-   and this is not a fact any caller of that tool needs to reason about)
-   rather than widening every consumer's own object shape for one
-   narrow use. */
-export async function categoryItemOptionsSetAt(db, categoryId) {
-  return (await db.prepare("SELECT item_options_set_at FROM mirror_category_index WHERE id = ?").bind(categoryId).first("item_options_set_at")) ?? null;
-}
-
-/* Every category with its OWN explicit option-set list (never mind what
-   is IN it — even an explicit empty one counts) — the Admin panel's own
-   "Inherit" checkbox needs this for every row at once, the same
-   advance-knowledge role categoryProductCounts/categoryItemOptionIds
-   already play elsewhere on this same page. A Set, not a Map: this is a
-   plain yes/no per category, nothing more to carry. */
-export async function categoryExplicitIds(db) {
-  const res = await db.prepare("SELECT id FROM mirror_category_index WHERE item_options_set_at IS NOT NULL").bind().all();
-  return new Set((res.results ?? []).map((r) => r.id));
-}
-
 /* How many products currently sit in each category — the Admin panel's own
    remove button needs this to hide itself the same "not reachable, don't
    show it" way it already does for a category that still has subcategories
@@ -117,59 +95,6 @@ export async function listItemOptions(db) {
     valuesByOption.get(v.item_option_id).push({ id: v.id, name: v.name });
   }
   return (optionsRes.results ?? []).map((o) => ({ id: o.id, name: o.name, values: valuesByOption.get(o.id) ?? [] }));
-}
-
-/* Which option sets are already assigned to which category — the Admin
-   panel's own checkbox list needs this to pre-check the ones a category
-   already has, the same advance-knowledge role categoryProductCounts plays
-   for the remove button above. A Map, category_id -> Set<item_option_id>,
-   with no entry at all for a category with nothing assigned. */
-export async function categoryItemOptionIds(db) {
-  const res = await db.prepare("SELECT category_id, item_option_id FROM mirror_category_item_option_index").bind().all();
-  const byCategory = new Map();
-  for (const r of res.results ?? []) {
-    if (!byCategory.has(r.category_id)) byCategory.set(r.category_id, new Set());
-    byCategory.get(r.category_id).add(r.item_option_id);
-  }
-  return byCategory;
-}
-
-/* "When I set sets for a category, all subcategories inherit the sets
-   unless I specify different selections for the subcategories" — the
-   owner's own words. mirror_category.item_options_set_at (schema.sql's
-   own comment on it has the full reasoning) tells apart "never touched,
-   still inheriting" (NULL) from "explicitly set here, even to nothing"
-   (a real timestamp) — a distinction categoryItemOptionIds' own rows
-   alone cannot make, since both look identical (zero active rows). Walks
-   up the parent chain from every category, stopping at the nearest
-   ancestor (itself included) with its own explicit set, and returns
-   THAT one's own raw ids — never merges an ancestor's and a
-   descendant's. A category with no explicit set anywhere in its own
-   chain (no ancestor has ever called catalog.set_category_item_options)
-   resolves to an empty Set, same as one explicitly cleared. */
-export async function effectiveCategoryItemOptionIds(db) {
-  const [categoriesRes, rawIds] = await Promise.all([
-    db.prepare("SELECT id, parent_id, item_options_set_at FROM mirror_category_index").bind().all(),
-    categoryItemOptionIds(db),
-  ]);
-  const categories = categoriesRes.results ?? [];
-  const byId = new Map(categories.map((c) => [c.id, c]));
-  const effective = new Map();
-  function resolve(categoryId) {
-    if (effective.has(categoryId)) return effective.get(categoryId);
-    const category = byId.get(categoryId);
-    const result = !category
-      ? new Set()
-      : category.item_options_set_at != null
-        ? (rawIds.get(categoryId) ?? new Set())
-        : category.parent_id
-          ? resolve(category.parent_id)
-          : new Set();
-    effective.set(categoryId, result);
-    return result;
-  }
-  for (const category of categories) resolve(category.id);
-  return effective;
 }
 
 /* Every vendor, for the picker/admin panel — "the same kind of drop down
@@ -647,12 +572,11 @@ export function mergeVariations(current, patch) {
          it, the same "resend or it may vanish" reasoning title/price
          already use one line up. */
       unit_cost_minor: p.unit_cost_minor ?? cur.unit_cost_minor,
-      /* A patch naming an EXISTING variant's own option_values (catalog.
-         apply_category_item_options_to_products' own retagByTitle, for a
-         variation that predates Option Sets entirely and so carries none)
-         must actually reach it — this used to be silently dropped on the
-         UPDATE side of a merge; only a brand-new added entry ever carried
-         option_values through at all. */
+      /* A patch naming an EXISTING variant's own option_values (a CSV/agent
+         edit giving a variation that predates Option Sets entirely its
+         own Size/Color, for instance) must actually reach it — this used
+         to be silently dropped on the UPDATE side of a merge; only a
+         brand-new added entry ever carried option_values through at all. */
       option_values: p.option_values ?? cur.option_values,
     });
   }
@@ -781,23 +705,6 @@ export function createSquareCatalogWriter(env, opts = {}) {
       .first();
     if (!row) throw new Error(`no such category ${ourId}`);
     return row;
-  }
-
-  /* Our internal item_option ids -> Square's own external refs, for
-     building itemData()'s own item_options array. An id that does not
-     resolve (typo, or an item_option that has since been archived) is
-     dropped rather than thrown on — resolved to a plain filter().length
-     check by every caller, matching listItemOptions' own "an unresolved
-     vendor_id is left null, never guessed at" tolerance elsewhere in
-     this file. */
-  async function itemOptionExternalRefsOf(itemOptionIds) {
-    const refs = await Promise.all(
-      itemOptionIds.map(async (id) => {
-        const row = await mirrorDb.prepare("SELECT external_ref FROM mirror_item_option_index WHERE id = ?").bind(id).first();
-        return row?.external_ref ?? null;
-      }),
-    );
-    return refs.filter(Boolean);
   }
 
   /* The item's own CURRENTLY mirrored item_options, as Square external
@@ -1175,124 +1082,6 @@ export function createSquareCatalogWriter(env, opts = {}) {
     };
   }
 
-  /* Every value currently on file for a set of Option Sets, by name — "I
-     expect the black dress to have these variations auto-assigned
-     because I assigned the sets to its parent category," the owner's
-     own words. applyItemOptionsToProductsInCategory (below) crosses
-     these to find every Size x Color (etc.) combination a product in
-     that category SHOULD have, then generates whichever are missing. */
-  async function itemOptionValueNames(itemOptionIds) {
-    const options = await Promise.all(
-      itemOptionIds.map(async (id) => {
-        const option = await mirrorDb.prepare("SELECT name FROM mirror_item_option_index WHERE id = ?").bind(id).first();
-        if (!option) return null;
-        const values = await mirrorDb
-          .prepare("SELECT name FROM mirror_item_option_value_index WHERE item_option_id = ? ORDER BY ordinal, name COLLATE NOCASE")
-          .bind(id)
-          .all();
-        return { name: option.name, values: (values.results ?? []).map((v) => v.name) };
-      }),
-    );
-    return options.filter(Boolean);
-  }
-
-  /* The full cross product of every Option Set's own values — [{Size:
-     "S", Color: "Red"}, {Size: "S", Color: "Blue"}, ...]. A single
-     Option Set with no values at all collapses the WHOLE result to
-     nothing (there is no combination possible without at least one
-     value on every axis) rather than half a combination. */
-  function optionCombinations(options) {
-    return options.reduce(
-      (acc, opt) => acc.flatMap((combo) => opt.values.map((value) => ({ ...combo, [opt.name]: value }))),
-      [{}],
-    );
-  }
-
-  /* A combination's own identity, independent of key order — "Size=S|
-     Color=Red" reads the same whether Size or Color was inserted first,
-     so a real variation's own already-mirrored options and a freshly
-     generated combo compare equal when they mean the same thing. */
-  function comboSignature(optionValues) {
-    return Object.entries(optionValues ?? {})
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([k, v]) => `${k}=${v}`)
-      .join("|");
-  }
-
-  async function variantsWithOptions(productId) {
-    const res = await mirrorDb
-      .prepare(
-        "SELECT id, external_ref, sku, title, price_minor, currency, options FROM mirror_variant_index WHERE product_id = ? ORDER BY ordinal",
-      )
-      .bind(productId)
-      .all();
-    return (res.results ?? []).map((v) => {
-      let options = {};
-      try {
-        options = JSON.parse(v.options || "{}");
-      } catch {
-        options = {};
-      }
-      return { id: v.id, external_ref: v.external_ref, sku: v.sku, title: v.title, price_minor: v.price_minor, currency: v.currency, options };
-    });
-  }
-
-  /* "I tried it. Didn't work" — Square's own real answer, once the two
-     visibility fixes above finally surfaced it: "Expected ItemVariation
-     to have 1 Item Option Values, got 0." A variation created before this
-     Option Sets feature existed carries no item_option_values at all —
-     just a plain title ("S", "M", ...) — and Square refuses to let an
-     ITEM declare item_options at all while any of its own variations
-     carry none. The owner's own choice, asked directly: auto-match an
-     untagged variation's own title against the assigned option's own
-     value names (case-insensitive) and retag it that way, rather than
-     requiring a manual fix per product or leaving it permanently
-     untouched (and permanently unable to ever apply). Only ever ADDS a
-     dimension a variation does not already carry — an already-tagged
-     dimension is never overwritten.
-
-     REVISED: "Expected ItemVariation to have 2 Item Option Values, got
-     1" — Square's own next real answer, live, once BOTH Size and Color
-     were assigned: every declared dimension needs its own value on every
-     variation, not just one of them. A variation's own title never names
-     a color at all ("S", "M", ...) — there is nothing there for the
-     first pass to find. The owner's own choice, asked directly a second
-     time: fall back to the PRODUCT's own title (e.g. "Black Dress")
-     for any dimension the variation's own title could not resolve, only
-     when EXACTLY ONE of that dimension's values appears in it as a
-     case-insensitive WHOLE-WORD match — an ambiguous match (zero, or
-     more than one) is left exactly as it was, same as an unmatched
-     variation title, its own per-product failure now clearly visible
-     rather than silently wrong or silently guessed at. WHOLE-word,
-     never a bare substring: a naive `.includes()` on a short value like
-     "S" matches the letter buried inside "dres`s`" in "Black Dress"
-     itself — caught live, testing this exact fix, before it ever
-     shipped. */
-  function wholeWordMatch(haystack, needle) {
-    const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    return new RegExp(`\\b${escaped}\\b`, "i").test(haystack);
-  }
-  function retagByTitle(existing, options, productTitle) {
-    const merged = { ...existing.options };
-    let changed = false;
-    const title = (existing.title ?? "").trim().toLowerCase();
-    for (const opt of options) {
-      if (merged[opt.name]) continue;
-      const exact = opt.values.find((v) => v.toLowerCase() === title);
-      if (exact) {
-        merged[opt.name] = exact;
-        changed = true;
-        continue;
-      }
-      const inProductTitle = opt.values.filter((v) => wholeWordMatch(productTitle ?? "", v));
-      if (inProductTitle.length === 1) {
-        merged[opt.name] = inProductTitle[0];
-        changed = true;
-      }
-    }
-    return changed ? merged : null;
-  }
-
   return {
     kind: "square",
     adapter,
@@ -1399,144 +1188,6 @@ export function createSquareCatalogWriter(env, opts = {}) {
       return { updated, errors };
     },
 
-    /* "When I apply the groups to a category, it means... you're going to
-       apply these option sets to every product that is part of the
-       category... because right now, you have to apply these options
-       manually per item" — the owner's own words, and explicit go-ahead
-       for a SEPARATE, explicit action over an automatic cascade on every
-       category save. One real Square write per product, the same
-       resyncStyleIdPrefixes' own shape just above uses for its own
-       bulk write.
-       REVISED: "I expect the black dress to have these variations
-       auto-assigned because I assigned the sets to its parent category"
-       — the owner's own words, asked directly and confirmed: this now
-       ALSO generates the real missing variations (every Size x Color
-       combination a product's own EFFECTIVE Option Sets allow, that it
-       does not already have one of), not just the item-level flag.
-       EXISTING SKUS ARE NEVER TOUCHED OR REMOVED — only combinations
-       genuinely missing get a new one, priced the same as the product's
-       own first variation, stock starting at 0.
-       REVISED AGAIN: "I expect all subcategories to get the same
-       settings applied... they should propagate — why don't they?" —
-       the owner's own words. Every product filed ANYWHERE under the
-       given category — itself or any subcategory, at any depth, not
-       just the ones filed directly in it — now gets reached. Each one
-       still gets its OWN category's own current EFFECTIVE set
-       (effectiveCategoryItemOptionIds, inherited or explicit), never
-       blindly the clicked category's own set: a subcategory with its
-       own explicit override keeps that override, exactly as "Sets"
-       itself already shows it — only a subcategory with NO override of
-       its own inherits what was clicked here, the identical rule that
-       already governs what counts as "assigned" in the first place. */
-    async applyItemOptionsToProductsInCategory(categoryId) {
-      const categoriesRes = await mirrorDb.prepare("SELECT id, parent_id FROM mirror_category_index").bind().all();
-      const childrenByParent = new Map();
-      for (const c of categoriesRes.results ?? []) {
-        if (!childrenByParent.has(c.parent_id)) childrenByParent.set(c.parent_id, []);
-        childrenByParent.get(c.parent_id).push(c.id);
-      }
-      const subtreeIds = [categoryId];
-      const queue = [categoryId];
-      while (queue.length) {
-        const current = queue.shift();
-        for (const child of childrenByParent.get(current) ?? []) {
-          subtreeIds.push(child);
-          queue.push(child);
-        }
-      }
-
-      const effectiveByCategory = await effectiveCategoryItemOptionIds(mirrorDb);
-      /* One lookup per DISTINCT category in the subtree, not per product
-         — several products sharing a category (the common case) share
-         the same option-set/combo computation too. */
-      const comboDataCache = new Map();
-      async function comboDataFor(catId) {
-        if (comboDataCache.has(catId)) return comboDataCache.get(catId);
-        const ids = [...(effectiveByCategory.get(catId) ?? [])];
-        const options = await itemOptionValueNames(ids);
-        const combos = options.length ? optionCombinations(options).filter((c) => Object.keys(c).length) : [];
-        const data = { ids, combos, options };
-        comboDataCache.set(catId, data);
-        return data;
-      }
-
-      const placeholders = subtreeIds.map(() => "?").join(",");
-      const products = await mirrorDb
-        .prepare(`SELECT id, handle, title, category_id FROM mirror_product_index WHERE category_id IN (${placeholders})`)
-        .bind(...subtreeIds)
-        .all();
-      let applied = 0;
-      const errors = [];
-      for (const p of products.results ?? []) {
-        try {
-          const { ids, combos, options } = await comboDataFor(p.category_id);
-          const existing = await variantsWithOptions(p.id);
-          /* Retag first, so a title-matched existing variation counts as
-             covering its own combination below — never both retagged AND
-             regenerated as a second, duplicate SKU. */
-          const retagPatches = [];
-          const existingSignatures = new Set();
-          for (const v of existing) {
-            const retagged = retagByTitle(v, options, p.title);
-            if (retagged) {
-              /* "No, it must be auto generated when making the options
-                 assignment!" — the owner's own words, on hearing that
-                 re-running Apply would never backfill a SKU for a
-                 combination it had already tagged in an earlier run.
-                 Retagging IS "making the options assignment" for this
-                 variation — the moment it goes from untagged to a real
-                 Size/Color, it must be adjustable too, not stuck exactly
-                 like the Black Dress's own White combinations were. Only
-                 when `v.sku` is genuinely missing: an already-real SKU
-                 (the common case — most untagged variations here predate
-                 this feature but not the shop's own physical inventory)
-                 is never touched. */
-              retagPatches.push({
-                variant_id: v.id,
-                option_values: retagged,
-                sku: v.sku || generateSku(`${v.external_ref ?? v.id}|retag`),
-              });
-              existingSignatures.add(comboSignature(retagged));
-            } else {
-              existingSignatures.add(comboSignature(v.options));
-            }
-          }
-          const missing = combos.filter((c) => !existingSignatures.has(comboSignature(c)));
-          const newEntries = [];
-          if (missing.length) {
-            const total = existing.length + missing.length;
-            if (total > CAPS.CATALOG_MAX_VARIATIONS) {
-              throw new Error(
-                `generating the missing Size/Color combinations would need ${total} variations, past the cap of ${CAPS.CATALOG_MAX_VARIATIONS}`,
-              );
-            }
-            const base = existing[0] ?? { price_minor: 0, currency: "USD" };
-            for (const combo of missing) {
-              newEntries.push({
-                title: Object.values(combo).join(" / "),
-                price_minor: base.price_minor,
-                currency: base.currency,
-                option_values: combo,
-              });
-            }
-          }
-          const variationsPatch = [...retagPatches, ...newEntries];
-          await this.updateProduct({ handle: p.handle, itemOptionIds: ids, ...(variationsPatch.length ? { variations: variationsPatch } : {}) });
-          applied += 1;
-        } catch (err) {
-          /* err.message alone is only ever "Square POST /v2/catalog/object
-             failed with 400" — the real reason (category/code/field/detail,
-             a SquareError's own .errors, entirely separate from .message)
-             was being dropped right here, the one place a live failure
-             ("I tried it. Didn't work") most needed it. */
-          const detail = errorDetail(err);
-          console.error(`ERROR catalog-writer: apply item options failed for ${p.handle} — ${detail}`);
-          errors.push({ handle: p.handle, error: detail });
-        }
-      }
-      return { applied, errors };
-    },
-
     /* One-time backfill for the "In-house" vendor rule (schema.sql's own
        comment on mirror_product.commission_pct has the full history): every
        product a real vendor was never named for still has vendor_id: null
@@ -1545,8 +1196,8 @@ export function createSquareCatalogWriter(env, opts = {}) {
        "reassign to In-house" signal (vendorRefOrInHouse) — the exact same
        path a fresh clear_vendor call takes, run here once per row instead
        of once per person clicking it. Same applied/errors shape as
-       applyItemOptionsToProductsInCategory above, for the same reason: a
-       genuine Square failure on one product must never stop the rest.
+       resyncStyleIdPrefixes above, for the same reason: a genuine Square
+       failure on one product must never stop the rest.
 
        REVISED, a real bug caught live: "I ran assign inhouse vendor... but
        not all items have it automatically assigned. They have no vendor
@@ -1721,17 +1372,13 @@ export function createSquareCatalogWriter(env, opts = {}) {
       unitCostMinor,
       unitCostCurrency,
       commissionPct,
-      itemOptionIds,
     }) {
       const row = await productRow(handle);
-      /* undefined means "this call is not about the item's own option
-         sets," resolved to whatever is already mirrored — the same
+      /* A call to this function is never about the item's own option
+         sets — resolved to whatever is already mirrored, the same
          "resend the whole thing" fallback every other field on this
-         function already follows. A real array (catalog.apply_category_
-         item_options_to_products' own call, empty list included)
-         replaces it outright. */
-      const resolvedItemOptionExternalRefs =
-        itemOptionIds !== undefined ? await itemOptionExternalRefsOf(itemOptionIds) : await currentItemOptionExternalRefs(row.id);
+         function already follows. */
+      const resolvedItemOptionExternalRefs = await currentItemOptionExternalRefs(row.id);
       /* Bug found while wiring up style_id-driven auto-categorization: an
          UNDEFINED categoryId used to resolve straight to null, which
          itemData() below reads as "omit categories/reporting_category
