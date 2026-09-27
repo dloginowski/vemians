@@ -74,6 +74,25 @@ check("test_PRD_P0_60_spreadsheet_products__the_upload_page_names_the_required_c
   assert.match(body, /price/i);
 });
 
+check("test_PRD_P0_182_explicit_add_or_update_mode__the_products_upload_page_offers_an_explicit_add_or_update_choice", async () => {
+  /* "I think we should have two distinct commands. Add new products or
+     update products" — the owner's own words. Neither radio pre-checked:
+     a person must actually choose, never silently inherit a default. */
+  const res = await get("/products/batch", MANAGER);
+  const body = await res.text();
+  assert.match(body, /name="mode"\s+value="add"/);
+  assert.match(body, /name="mode"\s+value="update"/);
+  assert.doesNotMatch(body, /<input[^>]*\bchecked\b/i, "neither choice is pre-selected");
+});
+
+check("test_PRD_P0_182_explicit_add_or_update_mode__the_customer_upload_page_has_no_such_choice", async () => {
+  /* Customers were never matched against existing customers at all -- the
+     add/update distinction only exists for products. */
+  const res = await get("/customers/batch", MANAGER);
+  const body = await res.text();
+  assert.doesNotMatch(body, /name="mode"/);
+});
+
 check("test_PRD_P0_60_spreadsheet_products__staff_are_told_to_ask_a_manager_before_reading_the_file", async () => {
   const res = await get("/products/batch", STAFF);
   assert.equal(res.status, 403);
@@ -118,6 +137,16 @@ check("test_PRD_P0_60_spreadsheet_products__a_file_over_the_byte_cap_is_refused_
   const { CAPS } = await import("../src/tools/caps.js");
   const res = await postFile("/products/batch", MANAGER, { size: CAPS.BATCH_MAX_BYTES + 1 });
   assert.equal(res.status, 413);
+});
+
+check("test_PRD_P0_182_explicit_add_or_update_mode__posting_a_real_file_with_no_mode_chosen_is_refused", async () => {
+  /* A hand-crafted request that skips the form's own two radio buttons
+     entirely must not silently default to either mode -- checked AFTER
+     the file itself validates (a genuinely empty/oversized upload gets
+     that more specific answer first, the two checks immediately above). */
+  const res = await postFile("/products/batch", MANAGER);
+  assert.equal(res.status, 400);
+  assert.match(await res.text(), /adds new products or updates existing ones/i);
 });
 
 check("test_PRD_P0_60_spreadsheet_products__a_get_only_shows_the_form_a_post_only_reads_a_file", async () => {

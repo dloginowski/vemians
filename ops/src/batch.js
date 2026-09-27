@@ -127,6 +127,20 @@ async function parkRows(env, { actor, role, toolName, rate, onProgress }, rows) 
  */
 const NOT_ROW_FIXABLE = /requires the .* role|^rate cap:|no tool '|cannot be passed as an argument|^bad_arguments/i;
 
+/* "I think we should have two distinct commands. Add new products or
+   update products" -- the owner's own words. Every caller into this
+   file's own product-batch entry points (draftProductBatch, planProductBatch,
+   previewBatch) must say up front which one this run is -- never a
+   default, because a caller that forgot to pass one would otherwise
+   silently behave as "add" (every `mode === "update"` check below simply
+   fails closed), the exact silent-create-instead-of-update mistake this
+   whole split exists to prevent. */
+function assertBatchMode(mode) {
+  if (mode !== "add" && mode !== "update") {
+    throw new Error(`batch mode must be "add" or "update", got ${JSON.stringify(mode)}`);
+  }
+}
+
 async function createRows(env, { actor, role, rate, onProgress }, rows) {
   const created = [];
   const parked = [];
@@ -994,13 +1008,41 @@ async function resolveNamedCategory(env, ctx, record) {
  * price is, so a category creation failure still parks a complete,
  * editable proposal for a person, rather than silently vanishing.
  */
-function draftNamedCategoryProduct(category, resolutionError, nextAutoTitle, record, rowNumber) {
+async function draftNamedCategoryProduct(env, category, resolutionError, nextAutoTitle, record, rowNumber, mode, ctx) {
   const rawTitle = pick(record, TITLE_KEYS).slice(0, 200);
   const priceRaw = pick(record, PRICE_KEYS);
   const currency = (pick(record, CURRENCY_KEYS) || "USD").toUpperCase();
   const notes = [];
   const rowClashes = [];
   if (resolutionError) rowClashes.push(resolutionError);
+
+  /* "Update products will try to match... add new products will not" -- a
+     named row (a plain Category/Subcategory NAME pair, no style number at
+     all -- resolveNamedCategory's own header comment) has nothing else to
+     match an existing product by, so update mode's only tool here is the
+     SAME category+title fallback draftGroupedProduct's own style-numbered
+     path uses (productsByCategoryAndTitle) -- reused wholesale via
+     draftProductUpdate itself, wrapping this one record as a one-row
+     "group" (a named row was always exactly one variation, never grouped
+     with siblings the way a shared style number groups several rows). */
+  if (mode === "update" && !resolutionError && category && rawTitle) {
+    const candidates = await productsByCategoryAndTitle(env.CATALOG_MIRROR, category.id, rawTitle);
+    if (candidates.length === 1) {
+      return draftProductUpdate(env, candidates[0], rawTitle, [{ record, rowNumber, color: undefined, size: undefined }], ctx);
+    }
+    if (candidates.length > 1) {
+      rowClashes.push(
+        `"${rawTitle}" in "${category.name}" matches ${candidates.length} existing products ` +
+          `(${candidates.map((c) => c.handle).join(", ")}) -- too ambiguous to update automatically; confirm which one, if any, this row means`,
+      );
+    }
+  }
+  if (mode === "update" && rowClashes.length === 0) {
+    rowClashes.push(
+      `no existing product found matching "${rawTitle || "(untitled row)"}" by category/subcategory/title -- expected to ` +
+        `update an existing product, but nothing matches; use "add new products" instead if this is meant to be a new item`,
+    );
+  }
 
   const title = rawTitle || nextAutoTitle(category);
   const priceMinor = parsePriceToMinor(priceRaw);
@@ -1230,36 +1272,51 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
 }
 
 async function draftGroupedProduct(env, ctx, base, groupRows) {
-  const { actor, role, categories, reservedNumericIds, reservedSubcategoryNumericIds, categoryCache, nextAutoTitle, rate } = ctx;
+  const { actor, role, categories, reservedNumericIds, reservedSubcategoryNumericIds, categoryCache, nextAutoTitle, rate, mode } = ctx;
   const first = groupRows[0].record;
   const firstRow = groupRows[0].rowNumber;
 
-  /* "If that all matches, then you just update" / "you should be able to
-     determine which item is in there, and just find it and update it" --
-     the owner's own words. import_style_number is `base` itself, stamped
-     once at creation (catalog.create_product's own run()) and never
-     touched again by anything -- a resubmit of the exact same sheet finds
-     the SAME product this way even if its category (and so its live,
-     fluid style_id) has moved on since. Checked before any category
-     resolution at all: an update never resends category_id, so there is
-     nothing here to resolve for this path.
+  /* "I think we should have two distinct commands. Add new products or
+     update products... update products will try to match products using
+     the current spreadsheet... add new products will not try to match...
+     it will only identify clashes, but it's not seeking to update existing
+     products" -- the owner's own words, retiring the earlier design
+     (Test-PRD-P0-179/180/181) where every row implicitly tried to match
+     before falling back to create. Matching is now gated entirely behind
+     an explicit `mode` the caller chose up front (Test-PRD-P0-182-
+     explicit_add_or_update_mode): "add" skips every match attempt below
+     and reproduces this function's own original, pre-matching behavior
+     exactly; "update" always attempts them, and -- see the bottom of this
+     function, past the category/title fallback -- never falls through to
+     a silent create when nothing matches at all. */
+  if (mode === "update") {
+    /* "If that all matches, then you just update" / "you should be able to
+       determine which item is in there, and just find it and update it" --
+       the owner's own words. import_style_number is `base` itself, stamped
+       once at creation (catalog.create_product's own run()) and never
+       touched again by anything -- a resubmit of the exact same sheet
+       finds the SAME product this way even if its category (and so its
+       live, fluid style_id) has moved on since. Checked before any
+       category resolution at all: an update never resends category_id, so
+       there is nothing here to resolve for this path.
 
-     REVISED: "the most important match... our style ID... because that's
-     how we want to identify items externally... there may be situations
-     where we want to bulk update a bunch of items based on their style
-     IDs" -- the owner's own words, once import_style_number turned out to
-     be only HALF of what a real resubmit sheet uses: a person bulk-editing
-     prices types the item's CURRENT, live style_id, which has already
-     moved on from whatever import_style_number still holds if the item's
-     own category was corrected since creation. Tried only when
-     import_style_number itself finds nothing -- the two can never
-     disagree about which product they name (mirror_style_id_ledger
-     reserves a style_id forever once assigned, productByStyleId's own
-     comment has the full reasoning), so there is nothing to reconcile,
-     only a second door to the same room. */
-  const existing = (await productByImportStyleNumber(env.CATALOG_MIRROR, base)) ?? (await productByStyleId(env.CATALOG_MIRROR, base));
-  if (existing) {
-    return draftProductUpdate(env, existing, base, groupRows, ctx);
+       REVISED: "the most important match... our style ID... because
+       that's how we want to identify items externally... there may be
+       situations where we want to bulk update a bunch of items based on
+       their style IDs" -- the owner's own words, once import_style_number
+       turned out to be only HALF of what a real resubmit sheet uses: a
+       person bulk-editing prices types the item's CURRENT, live style_id,
+       which has already moved on from whatever import_style_number still
+       holds if the item's own category was corrected since creation.
+       Tried only when import_style_number itself finds nothing -- the two
+       can never disagree about which product they name
+       (mirror_style_id_ledger reserves a style_id forever once assigned,
+       productByStyleId's own comment has the full reasoning), so there is
+       nothing to reconcile, only a second door to the same room. */
+    const existing = (await productByImportStyleNumber(env.CATALOG_MIRROR, base)) ?? (await productByStyleId(env.CATALOG_MIRROR, base));
+    if (existing) {
+      return draftProductUpdate(env, existing, base, groupRows, ctx);
+    }
   }
 
   const [catCode, subCode] = base.split("-");
@@ -1392,7 +1449,7 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
      anything real) and a real, already-resolved category to scope the
      search to -- productsByCategoryAndTitle's own comment has the full
      "zero/one/many" reasoning. */
-  if (rawTitle && category) {
+  if (mode === "update" && rawTitle && category) {
     const candidates = await productsByCategoryAndTitle(env.CATALOG_MIRROR, category.id, rawTitle);
     if (candidates.length === 1) {
       return draftProductUpdate(env, candidates[0], base, groupRows, ctx);
@@ -1411,6 +1468,24 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
           `(${candidates.map((c) => c.handle).join(", ")}) -- too ambiguous to update automatically; confirm which one, if any, this row means`,
       );
     }
+  }
+
+  /* "When I'm updating products, I'm expecting there to be matching
+     products, and I expect you to be looking for matches" -- the owner's
+     own words. Every match attempt this mode makes (import_style_number,
+     live style_id, category+subcategory+title, all above) has now run and
+     found nothing -- update mode must never silently fall through to
+     creating a brand-new product instead, the one thing "add" is for.
+     `clashes` already carries a more specific reason when one exists (an
+     unresolvable category, an ambiguous title match) -- this is only the
+     GENERIC catch-all for a row that resolved cleanly but simply matched
+     no existing product at all. */
+  if (mode === "update" && clashes.length === 0) {
+    clashes.push(
+      `style number "${base}": no existing product found matching this style number, its current style ID, or its ` +
+        `category/subcategory/title -- expected to update an existing product, but nothing matches; use "add new ` +
+        `products" instead if this is meant to be a new item`,
+    );
   }
 
   /* Vendor/commission/unit cost/vendor code are PRODUCT-level facts (the
@@ -1599,7 +1674,7 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
  * call, or plan a checklist to submit row by row) differs; this part does
  * not.
  */
-async function resolveProductRows(env, { actor, role }, records) {
+async function resolveProductRows(env, { actor, role, mode }, records) {
   const categories = await listCategories(env.CATALOG_MIRROR);
   const nextAutoTitle = autoTitler(await categoryProductCounts(env.CATALOG_MIRROR));
 
@@ -1645,7 +1720,7 @@ async function resolveProductRows(env, { actor, role }, records) {
   const clashes = [];
 
   for (const base of groupOrder) {
-    const outcome = await draftGroupedProduct(env, { actor, role, categories, reservedNumericIds, reservedSubcategoryNumericIds, categoryCache, nextAutoTitle, rate }, base, groups.get(base));
+    const outcome = await draftGroupedProduct(env, { actor, role, categories, reservedNumericIds, reservedSubcategoryNumericIds, categoryCache, nextAutoTitle, rate, mode }, base, groups.get(base));
     if (outcome.clash) clashes.push(outcome.clash);
     else rows.push(outcome.row);
   }
@@ -1657,7 +1732,7 @@ async function resolveProductRows(env, { actor, role }, records) {
       record,
     );
     if (!resolved.category && !resolved.error) continue; /* neither name was even given -- nothing to build from */
-    const outcome = draftNamedCategoryProduct(resolved.category ?? null, resolved.error, nextAutoTitle, record, rowNumber);
+    const outcome = await draftNamedCategoryProduct(env, resolved.category ?? null, resolved.error, nextAutoTitle, record, rowNumber, mode, { actor, role, rate });
     if (outcome.clash) clashes.push(outcome.clash);
     else rows.push(outcome.row);
   }
@@ -1665,12 +1740,13 @@ async function resolveProductRows(env, { actor, role }, records) {
   return { rows, clashes, rate };
 }
 
-export async function draftProductBatch(env, { text, actor, role, onProgress }) {
+export async function draftProductBatch(env, { text, actor, role, onProgress, mode }) {
+  assertBatchMode(mode);
   const records = csvRecords(parseCsv(text));
   if (records.length > CAPS.BATCH_MAX_ROWS) {
     return { created: [], ready: [], skipped: [], tooMany: records.length };
   }
-  const { rows, clashes, rate } = await resolveProductRows(env, { actor, role }, records);
+  const { rows, clashes, rate } = await resolveProductRows(env, { actor, role, mode }, records);
 
   const { created: madeRows, parked: parkedFromDenials, skipped: refused } = await createRows(
     env,
@@ -1715,12 +1791,13 @@ export async function draftProductBatch(env, { text, actor, role, onProgress }) 
  *
  * @returns { rows: [{rowNumber, title, args, summary}], ready: [...], skipped: [...], tooMany?: number }
  */
-export async function planProductBatch(env, { text, actor, role }) {
+export async function planProductBatch(env, { text, actor, role, mode }) {
+  assertBatchMode(mode);
   const records = csvRecords(parseCsv(text));
   if (records.length > CAPS.BATCH_MAX_ROWS) {
     return { rows: [], ready: [], skipped: [], tooMany: records.length };
   }
-  const { rows: built, clashes, rate } = await resolveProductRows(env, { actor, role }, records);
+  const { rows: built, clashes, rate } = await resolveProductRows(env, { actor, role, mode }, records);
 
   const readyRows = [];
   const parkedFromGate = [];
@@ -1983,8 +2060,18 @@ function positionalField(values) {
    preview sees "this will update X" rather than assuming every row mints a
    fresh product. sku/style_id stay "(unchanged)" rather than "(auto-
    generated)" for a match: neither one is touched by catalog.update_product
-   at all. */
-function mapProductGroup(groupRows, existing = null) {
+   at all.
+
+   `showNoMatchNote`, only ever true in UPDATE mode (Test-PRD-P0-182-
+   explicit_add_or_update_mode), flags a row `previewBatch` could not
+   already confirm a match for from the style number alone -- the real
+   draft ALSO tries category+subcategory+title (productsByCategoryAndTitle)
+   before giving up, a real, resolving DB read this side-effect-free
+   preview does not attempt (it never resolves a category against the real
+   list at all, by design -- mapProductGroup's own header history). Never
+   shown alongside `will_update`: a style-number match already answers the
+   question. */
+function mapProductGroup(groupRows, existing = null, showNoMatchNote = false) {
   const first = groupRows[0].record;
   const categoryName = pick(first, CATEGORY_KEYS);
   /* "Any time you see TBD, just use like a default or no option... it
@@ -2038,6 +2125,12 @@ function mapProductGroup(groupRows, existing = null) {
   return {
     title,
     ...(existing ? { will_update: `${existing.title} (${existing.handle})` } : {}),
+    ...(showNoMatchNote && !existing
+      ? {
+          update_note:
+            "no existing product found by style number yet -- category/subcategory/title are also checked when this is actually submitted",
+        }
+      : {}),
     category: categoryName || null,
     subcategory: pick(first, SUBCATEGORY_KEYS) || null,
     price: positionalField(groupRows.map(({ record }) => pick(record, PRICE_KEYS) || null)),
@@ -2068,7 +2161,8 @@ function mapCustomerRow(record) {
   };
 }
 
-export async function previewBatch(env, text, kind) {
+export async function previewBatch(env, text, kind, mode) {
+  if (kind !== "customers") assertBatchMode(mode);
   const records = csvRecords(parseCsv(text));
   if (!records.length) return { headers: [], rowCount: 0, sampleRows: [] };
 
@@ -2091,21 +2185,37 @@ export async function previewBatch(env, text, kind) {
        given (mapProductGroup already reads the category/subcategory names
        straight off the sheet, the same as it always has for a style-numbered
        group), leaving what the real create/conform will resolve to for the
-       real draft to actually do. */
+       real draft to actually do.
+
+       REVISED (Test-PRD-P0-182-explicit_add_or_update_mode): match lookups
+       (`will_update`/`update_note`) only ever run in UPDATE mode -- "add
+       new products will not try to match... it will only identify
+       clashes," the owner's own words, so an add-mode preview must never
+       suggest a row will update something; it never even queries. Only
+       the style-number tiers (import_style_number, live style_id) are
+       tried here, both a plain read keyed on `base` alone -- the
+       category+subcategory+title fallback needs a REAL category
+       resolution against the live list, which stays out of scope for this
+       side-effect-free preview (mapProductGroup's own comment); a row
+       neither style-number tier confirms gets `update_note` instead of a
+       flat "will create", since the real draft still has one more thing
+       left to try. */
     const namedRows = namedRecords.map(({ record, rowNumber }) =>
-      mapProductGroup([{ record, rowNumber, color: undefined, size: undefined }]),
+      mapProductGroup([{ record, rowNumber, color: undefined, size: undefined }], null, mode === "update"),
     );
-    /* A read-only lookup, one per distinct style number -- never a write,
-       so this preview stays the same side-effect-free look it has always
-       been (this function's own header comment on category/subcategory
-       resolution), just no longer blind to a resubmit that already has a
-       real match on file. */
-    mapped = [
-      ...(await Promise.all(
-        groupOrder.map(async (base) => mapProductGroup(groups.get(base), await productByImportStyleNumber(env.CATALOG_MIRROR, base))),
-      )),
-      ...namedRows,
-    ];
+    mapped =
+      mode === "update"
+        ? [
+            ...(await Promise.all(
+              groupOrder.map(async (base) => {
+                const existing =
+                  (await productByImportStyleNumber(env.CATALOG_MIRROR, base)) ?? (await productByStyleId(env.CATALOG_MIRROR, base));
+                return mapProductGroup(groups.get(base), existing, true);
+              }),
+            )),
+            ...namedRows,
+          ]
+        : [...groupOrder.map((base) => mapProductGroup(groups.get(base))), ...namedRows];
   }
 
   /* mapProductGroup's extra (custom) fields are per-group: a sheet's own

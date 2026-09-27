@@ -8323,6 +8323,66 @@ that does not trace to one of these is a process failure (see §12).
     product gets the built-in "In-house" vendor assigned automatically the moment a resubmit tries to
     update its cost, so the cost actually lands rather than parking as an avoidable refusal.
 
+114. **`Test-PRD-P0-182-explicit_add_or_update_mode`** — "I think we should have two distinct
+    commands. Add new products or update products, right? Update products will try to match products
+    using the current spreadsheet... add new products will not try to match... it will only identify
+    clashes, but it's not seeking to update existing products. The working assumption here is when
+    I'm adding new products, I don't expect to be re-updating anything. I'm just adding new products.
+    When I'm updating products, I'm expecting there to be matching products, and I expect you to be
+    looking for matches" — the owner's own words, immediately after the resubmit-matching feature
+    (P0-179/180/181) shipped, retiring its own implicit design: every row used to try matching first
+    and quietly fall back to creating when nothing matched. That implicit fallback is gone. A caller
+    now says which of two modes a run is, up front, every time — never a default, never inferred from
+    the sheet's own columns (a style-numbered sheet looks identical whether it is new stock or a price
+    update).
+
+    - **`mode: "add" | "update"`** threads through every product-batch entry point (`draftProductBatch`,
+      `planProductBatch`, `previewBatch`, `resolveProductRows`, `draftGroupedProduct`, and — newly async
+      — `draftNamedCategoryProduct`, `batch.js`) via a new `assertBatchMode` guard that throws rather
+      than silently defaulting when a caller omits it. "add" skips every match attempt in
+      `draftGroupedProduct` entirely — the exact pre-P0-179 create path, byte for byte, still stamping
+      `import_style_number` on creation (harmless, useful for a later update run). "update" always runs
+      the three-tier match (import_style_number, live style_id, category+subcategory+title, all three
+      from P0-179/181) and, new here: when NONE of the three finds anything at all, that is now a
+      clash in its own right — `no existing product found matching this style number, its current
+      style ID, or its category/subcategory/title -- expected to update an existing product, but
+      nothing matches` — parked for a person exactly like any other clash, never silently falling
+      through to create. The identical category+subcategory+title fallback now also applies to a
+      NAMED row (no style number at all, `resolveNamedCategory`'s own path) in update mode, reusing
+      `draftProductUpdate` wholesale by wrapping the one record as a one-row "group" — a named row was
+      always exactly one variation, never grouped with siblings the way a shared style number groups
+      several rows.
+
+    - **Four chat tools replace two**: `catalog_add_product_batch`/`catalog_preview_add_product_batch`
+      and `catalog_update_product_batch`/`catalog_preview_update_product_batch` (`agent.js`), each
+      hardcoding its own mode via a small `PRODUCT_BATCH_MODE_BY_TOOL` lookup rather than taking mode
+      as a model-supplied argument the model could get wrong. The attachment-note instructions
+      (`buildAttachmentNote`) now ask the model to judge which of THREE things a spreadsheet is — new
+      products, updated numbers for existing ones, or customers — asking the person outright when it
+      is not already obvious, never guessing from the sheet's own columns. `formatBatchDraft`/
+      `batchDraftTable` already distinguished created/updated counts (P0-179); the checklist's own
+      instruction text no longer promises every ready row is a create.
+
+    - **The primary human-facing surface — `/products/batch` — gets the identical explicit choice**:
+      `batchUploadPage` (`views.js`) adds a required, two-option `<fieldset>` (`mode=add`/`mode=update`
+      radio buttons, NEITHER pre-checked) above the file input; `index.js`'s own POST handler refuses
+      a submission with neither chosen (checked after the file itself validates — an empty or
+      oversized upload is wrong regardless of mode, and gets that more specific answer first) and
+      passes the chosen mode straight through to `draftProductBatch`. A real, separate bug found and
+      fixed while wiring this: `batchReviewPage`'s own result table had drifted out of sync with
+      `agent.js`'s own `batchDraftTable` fix from P0-179 — it still hardcoded every row's own status
+      as `"created"`, never reading `r.action`, so an update-mode row submitted through this page would
+      have shown "created" for something that was actually updated. Fixed identically to the chat
+      path: `r.action ?? "created"`, and the page's own heading now counts created/updated separately.
+
+    Confirmed against the real fixture DB, Square mock, and HTTP route (`worker.fetch`): the ops test
+    suite's own pre-existing product-batch tests (predating this feature, `mode: "add"` throughout)
+    still pass unchanged, proving add mode reproduces the original create-only behavior exactly; the
+    resubmit-matching tests from P0-179/180/181 now explicitly seed with `mode: "add"` and resubmit
+    with `mode: "update"`; the `/products/batch` page's own GET response carries both radio buttons
+    with neither pre-selected, and a POST that skips the mode field entirely is refused with a plain
+    reason naming the missing choice.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
