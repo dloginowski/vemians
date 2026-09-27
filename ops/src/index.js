@@ -1777,7 +1777,7 @@ async function ops(request, env, path) {
     if (!Number.isInteger(row)) return json({ error: "row must be a whole number." }, 400);
 
     const out = await submitBatchPlanRow({ id, row, title, identity, env });
-    return json({ verified: identity.verified, ...out }, out.status);
+    return json({ verified: identity.verified, ...out }, out.httpStatus);
   }
 
   /*

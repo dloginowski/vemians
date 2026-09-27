@@ -8251,6 +8251,23 @@ that does not trace to one of these is a process failure (see §12).
     resubmit's own match, since it was never keyed on style_id to begin with; and the preview shows
     the update outcome before a person ever confirms anything.
 
+112. **`Test-PRD-P0-180-batch_submit_row_http_status`** — A real bug found while wiring "updated"
+    through the checklist submit path just above: `submitBatchPlanRow`'s own success return was
+    `{ ok: true, status: 200, ...result, done, total }`, and `result` (`submitProductBatchRow`'s own
+    return) already has its OWN `status` field — `"created"`/`"updated"`/`"parked"`/`"skipped"`,
+    the exact string the checklist's own progress bar (`views.js`) reads to label each row. Object-
+    spread order let that string silently overwrite the literal `200` on every successful row, and
+    `index.js`'s own `/agent/batch-submit-row` route handed the result straight to `new Response(body,
+    { status: out.status })` — which throws for anything other than an integer 200-599. Every
+    ordinary, successful row submission through the checklist's own progress bar hit this, and no
+    earlier test caught it, for the exact same reason `Test-PRD-P0-35-approval_never_in_band` once
+    slipped through: every earlier test called `submitBatchPlanRow` directly, never through the real
+    HTTP route, so nothing ever exercised the line that actually threw. Fixed by giving the real HTTP
+    code its own name, `httpStatus`, which `result` never has — it can never collide with `result`'s
+    own `status` again, whatever outcome a row's own submission carries. Confirmed against the real
+    route (`worker.fetch`, not the function called directly): a genuine, well-formed `200` comes back
+    for an ordinary successful row, where building that exact `Response` used to throw.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

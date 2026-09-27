@@ -1705,22 +1705,36 @@ export async function approve({ id, identity, env }) {
  * authorization PENDING/approve() already enforce — the plan belongs to
  * the actor asking to spend it, and one submitted row is spent once.
  */
+/* `httpStatus` is the real HTTP status code index.js's own route hands
+   straight to Response — kept under its OWN name, deliberately never
+   `status`, because `result` (submitProductBatchRow's own return, spread in
+   below on success) already uses `status` for its own outcome enum
+   ("created"/"updated"/"parked"/"skipped", read by name in views.js's own
+   checklist submit loop and by several tests that call this function
+   directly). `{ status: 200, ...result }` used to put the literal 200
+   FIRST, so object-spread order let result.status silently overwrite it —
+   `out.status` reaching index.js's `new Response(body, { status: out.status
+   })` as the STRING "created" (or "updated"/"parked"/"skipped") rather
+   than a number, which throws ("init[\"status\"] must be in the range of
+   200 to 599"). Every successful row submission hit this. `httpStatus`
+   cannot collide the same way: nothing submitProductBatchRow returns ever
+   uses that name. */
 export async function submitBatchPlanRow({ id, row, title, identity, env }) {
   const actor = identity.email;
   const role = await roleFor(identity, env);
 
   sweepBatchPlans(Date.now());
   const plan = BATCH_PLANS.get(id);
-  if (!plan) return { ok: false, status: 404, reply: "That batch is unknown or has expired. Nothing was run." };
+  if (!plan) return { ok: false, httpStatus: 404, reply: "That batch is unknown or has expired. Nothing was run." };
 
   if (plan.actor !== actor) {
     console.error(`ERROR agent: batch plan ${id} raised by ${plan.actor} but submitted by ${actor}; refused`);
-    return { ok: false, status: 403, reply: "That batch belongs to a different person." };
+    return { ok: false, httpStatus: 403, reply: "That batch belongs to a different person." };
   }
 
   const idx = plan.rows.findIndex((r) => r.rowNumber === row);
   if (idx === -1) {
-    return { ok: false, status: 404, reply: "That row is unknown, already submitted, or was never part of this batch." };
+    return { ok: false, httpStatus: 404, reply: "That row is unknown, already submitted, or was never part of this batch." };
   }
   /* Spent the moment it is picked up, whatever createRows goes on to do with
      it — the same "single use" property PENDING's own approve() already
@@ -1744,8 +1758,8 @@ export async function submitBatchPlanRow({ id, row, title, identity, env }) {
     result = await submitProductBatchRow(env, { actor, role, rate: plan.rate }, target, editedTitle);
   } catch (err) {
     console.error(`ERROR agent: batch plan ${id} row ${row} failed — ${err.message}`);
-    return { ok: false, status: 502, reply: `Row ${row} failed while running.`, done: plan.done, total };
+    return { ok: false, httpStatus: 502, reply: `Row ${row} failed while running.`, done: plan.done, total };
   }
 
-  return { ok: true, status: 200, ...result, done: plan.done, total };
+  return { ok: true, httpStatus: 200, ...result, done: plan.done, total };
 }
