@@ -8169,6 +8169,88 @@ that does not trace to one of these is a process failure (see §12).
     sku or style_id label of any kind. `styleIdVariantLabel` and `.variation-sku-label` no longer exist.
     Confirmed live: sizes tile left-to-right again, wrapping once the tile's own width runs out.
 
+111. **`Test-PRD-P0-179-import_style_number_matching`** — The owner's own question, asked after a
+    long run of spreadsheet-import fixes: "If I resubmit all of the the um, the item like spreadsheet,
+    will you update all of the costs in a proper location and all the missing information that
+    matches?" The honest answer was no: `batch.js`'s own `draftGroupedProduct` called
+    `catalog.create_product` unconditionally, for every row, every time — resubmitting the exact same
+    sheet a second time minted a second, duplicate product rather than updating the first.
+
+    **The matching key could not be `style_id`.** The owner's first instinct — "we match by style ID.
+    Style ID never changes, right? If you match style ID, then you match all of the stuff in it" — ran
+    straight into the redesign the owner themselves specified in `Test-PRD-P0-177-fluid_style_id`:
+    `style_id` is a LIVE reflection of a product's current category, reassigned automatically by any
+    later category move or renumber. Matching a resubmit on it would silently attach a resubmitted
+    row's data to whatever OTHER product happened to be sitting at that style_id by then — exactly the
+    stale-identity bug P0-177 was built to eliminate. A new, separate, PERMANENT field was needed
+    instead: the spreadsheet's own literal style-number text, captured once, at creation, and never
+    touched again by anything.
+
+    - **`mirror_product.import_style_number`** (new column, migration `0013_import_style_number.sql`,
+      `shared/commerce/square/schema.sql` kept in sync by hand as always) is that field — the CSV
+      row's own style-number `base` (`splitProductRecords`' own grouping key, e.g. `"01-04-001"`),
+      stamped once by `catalog.create_product`'s own `run()` the moment a batch row creates a product,
+      and never referenced by `shared/commerce/square/mirror.js`'s sync in either direction — the same
+      "no Square correlate at all, so no second writer to diverge from" shape as `channel` and
+      `custom_fields` before it (ADR-009). `catalog.create_product`'s own schema accepts
+      `import_style_number` as BATCH-IMPORT BOOKKEEPING ONLY, documented as never something a person
+      or a chat agent should give directly — `batch.js` is the one caller.
+
+    - **Matching, confirmed and refined by the owner's own follow-ups.** "No, no, all the sizes are
+      the same, all the options are the same, you match them. Style IDs, if, if that, all of that
+      matches, then you just update" and, separately, "we have very specific categories, we have
+      specific category subcategories... you should be able to determine which item is in there, and
+      just find it and update it" — together, the two-level match this ships: a group's own `base`
+      looked up against `mirror_product.import_style_number` (`productByImportStyleNumber`,
+      `catalog-writer.js`) identifies the PRODUCT, before any category resolution even runs (an update
+      never resends `category_id`, so there is nothing there to resolve); each CSV row is then matched
+      to one of that product's OWN CURRENT variations by Color/Size (`variantsWithOptionsOf` +
+      `sameOptions`, `batch.js`) to identify the VARIATION, never by row position — a resubmitted
+      sheet with its rows reordered, or a size added/removed elsewhere in the file, still lands on the
+      correct existing variation for the size it actually names.
+
+    - **On a match, `draftGroupedProduct` builds a `catalog.update_product` call instead of a fresh
+      `catalog.create_product` one** (`draftProductUpdate`, `batch.js`): `title`/`description` only
+      when the sheet gives a REAL title column of its own (never the Description-stands-in-for-title
+      fallback, which would overwrite an already-named product's real title with a guess); a matched
+      row's `price_minor` and `unit_cost_minor` update in place via `VARIATION_WITH_ID`'s own
+      per-variation fields — the resubmit's actual ask, "update all of the costs in a proper
+      location." `vendor`/`vendor_code`/`commission` are deliberately never touched by a resubmit at
+      all: `catalog.update_product` has no schema field for any of them (they live on
+      `catalog.set_square_attributes`, a separate manager action with its own centralized-commission
+      business rules) — reassigning a vendor relationship is a heavier, rarer, more consequential edit
+      than "update the cost," and stays a deliberate action a person takes on purpose, never a silent
+      side effect of ingesting a spreadsheet.
+
+    - **Two guardrails, both preserved on purpose, both already-standing rules elsewhere in this
+      codebase:** `quantity` is never sent on a matched row's variation — this shop's own
+      inventory-ledger guarantee (no write outside `inventory.adjust` ever silently changes stock)
+      applies here exactly as everywhere else, even though the CSV itself carries a Quantity column. A
+      row whose Color/Size combination matches NOTHING already on the product is a genuine clash, not
+      a silent add: `catalog.update_product`'s own `VARIATION_WITH_ID` shape has no `option_values`
+      field at all (an edit to an EXISTING product's variations was always a materially different,
+      larger decision than creation, P0-177's own reasoning) — a truly new size or color on a resubmit
+      is parked as an ordinary, editable T2 approval for a person, the reason spelled out in its own
+      summary, never guessed at.
+
+    - **The preview reflects the outcome, not just the intent** (`previewBatch`, now doing one
+      additional read-only lookup per distinct style number — never a write, so it stays exactly the
+      side-effect-free function it has always been): a style-numbered group whose `base` already
+      matches an existing product previews with a `will_update` field naming that product, and its
+      `sku`/`style_id` columns read `"(unchanged)"` rather than `"(auto-generated)"`, since neither one
+      is touched by an update. `batchDraftTable`/`formatBatchDraft` (`agent.js`) count and label
+      `created` and `updated` outcomes separately, and the product-batch checklist's own instruction
+      text no longer promises every ready row is a fresh create.
+
+    Confirmed against the real fixture DB and Square mock (`catalog-write.test.mjs`,
+    `Test-PRD-P0-179-import_style_number_matching`): a resubmitted sheet updates the same product
+    rather than duplicating it; each variation is matched by its own Color/Size even with the sheet's
+    rows reordered; a genuinely new size on a resubmit parks as a clash rather than silently creating
+    or erroring; a resubmit's own new quantity column never pushes a second Square inventory count; a
+    later category move (and the live style_id change that comes with it) never breaks a future
+    resubmit's own match, since it was never keyed on style_id to begin with; and the preview shows
+    the update outcome before a person ever confirms anything.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

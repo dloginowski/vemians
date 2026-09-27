@@ -246,6 +246,27 @@ CREATE TABLE mirror_product (
   -- ops-only: the public storefront's own read of this mirror (P0-24) has
   -- no reason to select it, and never should.
   custom_fields      TEXT NOT NULL DEFAULT '{}',
+  -- THE SPREADSHEET'S OWN STYLE-NUMBER TEXT, CAPTURED ONCE AT CREATION, SO A
+  -- LATER RESUBMIT OF THE SAME ROW UPDATES THIS PRODUCT INSTEAD OF DUPLICATING
+  -- IT. The owner's own words, resubmitting a cost sheet: "if that all
+  -- matches, then you just update" — and, once told style_id itself can no
+  -- longer be trusted as that key (Test-PRD-P0-177-fluid_style_id made it a
+  -- LIVE reflection of category, recomputed on a category move or renumber):
+  -- "we have very specific categories... you should be able to determine
+  -- which item is in there, and just find it and update it." The compressed
+  -- base a style-numbered CSV row actually carries (`parseStyleNumber`'s own
+  -- `base`, e.g. "01-04-001" — already what identifies category/subcategory
+  -- AND which item within it, batch.js's own existing grouping logic) is
+  -- stored here VERBATIM, exactly once, at creation — never touched by a
+  -- later category move or renumber the way `style_id` now deliberately is.
+  -- Purely OURS, like `channel`/`custom_fields` above: no Square correlate
+  -- whatsoever, so the sync job (mirror.js) never names this column in its
+  -- UPDATE, on purpose — a value set here survives every future re-sync
+  -- untouched. NULL for a product never created from a style-numbered CSV
+  -- row (interactive creation, a name-matched CSV row with no style number,
+  -- a chat/agent creation) — nothing for a resubmit to ever match against,
+  -- which is correct: there is no spreadsheet row it corresponds to.
+  import_style_number TEXT,
   -- THE OPPOSITE OF channel/custom_fields ABOVE: Square's own Custom
   -- Attributes (Test-PRD-P0-136-square_custom_attributes), so Square IS
   -- authoritative for these and the sync job DOES overwrite them on every
@@ -326,10 +347,11 @@ CREATE TABLE mirror_product (
 );
 CREATE INDEX idx_mirror_product_active ON mirror_product (archived_at, handle);
 CREATE INDEX idx_mirror_product_style_id ON mirror_product (style_id);
+CREATE INDEX idx_mirror_product_import_style_number ON mirror_product (import_style_number);
 
 CREATE VIEW mirror_product_index AS
 SELECT id, external_ref, handle, title, source_description, status, channel,
-       custom_fields, style_id, commission_pct, category_id, source_version, synced_at
+       custom_fields, import_style_number, style_id, commission_pct, category_id, source_version, synced_at
 FROM mirror_product WHERE archived_at IS NULL;
 
 -- Which Option Sets an ITEM itself declares (Square's own item_data.

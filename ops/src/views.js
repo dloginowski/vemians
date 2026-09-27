@@ -1857,6 +1857,7 @@ function checklistCard(c) {
     bar.value = 0;
 
     let created = 0;
+    let updated = 0;
     let parked = 0;
     let skipped = 0;
     const rows = [];
@@ -1874,9 +1875,16 @@ function checklistCard(c) {
         result = { ok: false, reply: "Request failed: " + err.message };
       }
       bar.value += 1;
-      if (result.ok && result.status === "created") {
-        created += 1;
-        rows.push([String(row), result.title, "created", result.summary]);
+      /* "updated" is a resubmit matched to a product this same batch tool
+         already made (import_style_number, Test-PRD-P0-179-
+         import_style_number_matching) -- its own outcome, counted and shown
+         separately from a fresh "created" rather than falling through to
+         the "skipped" bucket below, which is what an unrecognized status
+         used to mean. */
+      if (result.ok && (result.status === "created" || result.status === "updated")) {
+        if (result.status === "updated") updated += 1;
+        else created += 1;
+        rows.push([String(row), result.title, result.status, result.summary]);
       } else if (result.ok && result.status === "parked") {
         parked += 1;
         rows.push([String(row), result.title, "needs a person", (result.summary || "") + (result.url ? " — " + result.url : "")]);
@@ -1890,9 +1898,10 @@ function checklistCard(c) {
     }
 
     gate.textContent = "";
-    entry("agent", created + " created, " + parked + " need a person's decision, " + skipped + " skipped.");
+    const updatedNote = updated ? updated + " updated, " : "";
+    entry("agent", created + " created, " + updatedNote + parked + " need a person's decision, " + skipped + " skipped.");
     tableCard({
-      title: "Products: " + created + " created, " + parked + " need a person's decision, " + skipped + " skipped",
+      title: "Products: " + created + " created, " + updatedNote + parked + " need a person's decision, " + skipped + " skipped",
       columns: ["Row", "Title", "Status", "Detail"],
       rows,
       /* Same "9 need a person's decision... collapsed" complaint this

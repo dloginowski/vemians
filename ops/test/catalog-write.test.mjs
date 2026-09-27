@@ -1542,13 +1542,14 @@ check("test_PRD_P0_70_flexible_spreadsheet_columns__a_cost_column_is_no_longer_m
 
 check("test_PRD_P0_70_flexible_spreadsheet_columns__the_preview_shows_extra_columns_the_same_way_it_shows_known_ones", async () => {
   const { previewBatch } = await import("../src/batch.js");
-  const preview = previewBatch("title,category,price,style id,Season\nWool Coat,Outerwear,450.00,01-04-001,Fall 2026\n", "products");
+  const f = await fixture();
+  const preview = await previewBatch(f.env, "title,category,price,style id,Season\nWool Coat,Outerwear,450.00,01-04-001,Fall 2026\n", "products");
   assert.equal(preview.sampleRows[0].season, "Fall 2026");
 
   /* A blank extra column on that row simply has no key at all, the same as
      any known column left blank being pruned by extraFields(), rather than
      surfacing as a column with a raw "undefined" value. */
-  const blank = previewBatch("title,category,price,style id,Season\nSilk Scarf,Accessories,90.00,01-05-001,\n", "products");
+  const blank = await previewBatch(f.env, "title,category,price,style id,Season\nSilk Scarf,Accessories,90.00,01-05-001,\n", "products");
   assert.equal("season" in blank.sampleRows[0], false);
 });
 
@@ -2863,35 +2864,38 @@ check("test_PRD_P0_37_mirror_is_ours__no_authoring_tool_writes_a_square_fact_to_
    * only writer of a Square-sourced column is shared/commerce/square/mirror.js,
    * reading back what Square now says.
    *
-   * FIVE DELIBERATE EXCEPTIONS, allowlisted by name below rather than left
+   * SIX DELIBERATE EXCEPTIONS, allowlisted by name below rather than left
    * to widen this regex's blind spot: catalog.set_channel's own
    * `UPDATE mirror_product SET channel = ...` (Test-PRD-P0-71-product_channel),
    * catalog.set_custom_fields'/catalog.create_product's own
    * `UPDATE mirror_product SET custom_fields = ...`
    * (Test-PRD-P0-89-batch_preview_confirm's custom_fields entry),
-   * catalog.set_category_number's own `UPDATE mirror_category SET
+   * catalog.create_product's own `UPDATE mirror_product SET
+   * import_style_number = ...` (Test-PRD-P0-179-import_style_number_
+   * matching), catalog.set_category_number's own `UPDATE mirror_category SET
    * numeric_id = ...` (Test-PRD-P0-138-nested_categories), and
    * catalog.create_product's/catalog.set_square_attributes' own
    * `UPDATE mirror_vendor SET commission_pct = ...`
    * (Test-PRD-P0-138-nested_categories' own vendor-commission-centralization
-   * entry). None of `channel`, `custom_fields`, `numeric_id` or a VENDOR's
-   * own `commission_pct` is a fact Square has any notion of at all — Square
-   * does not know our storefront exists, has no field for a fact we
-   * invented, has no idea what "01" means to this shop's own style_id
-   * nomenclature, and has no concept of a resale commission at all — so
+   * entry). None of `channel`, `custom_fields`, `import_style_number`,
+   * `numeric_id` or a VENDOR's own `commission_pct` is a fact Square has
+   * any notion of at all — Square does not know our storefront exists, has
+   * no field for a fact we invented, has no idea what "01" means to this
+   * shop's own style_id nomenclature, has no idea a CSV resubmit needs its
+   * own stable key, and has no concept of a resale commission at all — so
    * none has a second writer to diverge from, and mirror.js's own sync
-   * deliberately never names any of the four in its UPDATE or INSERT, for
-   * exactly this reason (see the comments on all four columns in
-   * shared/commerce/square/schema.sql). The FIFTH, catalog.create_custom_
+   * deliberately never names any of the five in its UPDATE or INSERT, for
+   * exactly this reason (see the comments on all five columns in
+   * shared/commerce/square/schema.sql). The SIXTH, catalog.create_custom_
    * field_name's own `INSERT INTO mirror_custom_field_name`, is not even
    * the same shape of exception — mirror_custom_field_name has no Square
-   * correlate WHATSOEVER (unlike the other four, each an OURS-only column
+   * correlate WHATSOEVER (unlike the other five, each an OURS-only column
    * bolted onto an otherwise Square-mirrored table), so mirror.js's own
    * sync has no row here to ever diverge from in the first place. The
    * assertion below still forbids that same file touching any OTHER
    * mirror column or table.
    *
-   * A SIXTH, a different shape from the rest: catalog-writer.js's own
+   * A SEVENTH, a different shape from the rest: catalog-writer.js's own
    * insertVariantImage() `INSERT INTO mirror_image`, behind POST /items/
    * <handle>/photo (index.js) — not an agent tool at all, a direct, human-
    * only route, the same shape as the stock stepper's own /inventory.
@@ -2907,12 +2911,12 @@ check("test_PRD_P0_37_mirror_is_ours__no_authoring_tool_writes_a_square_fact_to_
    * Square's side to diverge FROM. schema.sql's own comment on
    * mirror_image.variant_id has the full reasoning.
    *
-   * A SEVENTH, the same shape as the sixth: catalog-writer.js's own
+   * An EIGHTH, the same shape as the seventh: catalog-writer.js's own
    * archiveImage() `UPDATE mirror_image SET archived_at = ...`, behind POST
    * /items/<handle>/photo/<id>/delete (index.js) — also a direct, human-only
    * route, not an agent tool. archiveImage() itself refuses outright (never
    * writes at all) unless the row's own external_ref already carries the
-   * sixth exception's own "ops-upload:" prefix, so this UPDATE can only
+   * seventh exception's own "ops-upload:" prefix, so this UPDATE can only
    * ever land on a row the SAME file's own insertVariantImage() created —
    * never a row mirror.js's sync would also touch.
    */
@@ -2937,8 +2941,11 @@ check("test_PRD_P0_37_mirror_is_ours__no_authoring_tool_writes_a_square_fact_to_
      match, so a THIRD such statement cannot sneak in unnoticed. */
   const writer = fs.readFileSync(path.join(TOOLS_DIR, "catalog-write.js"), "utf8");
   const stmts = [...writer.matchAll(/UPDATE mirror_product SET ([\s\S]*?) WHERE/g)];
-  assert.ok(stmts.length >= 2, "catalog.set_channel's and catalog.set_custom_fields' own UPDATEs have moved or been removed");
-  const ALLOWED_DIRECT_COLUMNS = ["channel = ?", "custom_fields = ?"];
+  assert.ok(
+    stmts.length >= 3,
+    "catalog.set_channel's, catalog.set_custom_fields'/catalog.create_product's custom_fields, and catalog.create_product's import_style_number UPDATEs have moved or been removed",
+  );
+  const ALLOWED_DIRECT_COLUMNS = ["channel = ?", "custom_fields = ?", "import_style_number = ?"];
   for (const [, captured] of stmts) {
     assert.ok(
       ALLOWED_DIRECT_COLUMNS.includes(captured.trim()),
@@ -5310,6 +5317,7 @@ check("test_PRD_P0_117_batch_preview_one_row_fits_without_scrolling__the_preview
      fixed max-height clip entirely — "the height fits all the data" —
      unlike batchDraftTable()'s own potentially-long ready/skipped result,
      which stays plain (uncapped rows, still needs the scroll frame). */
+  const f = await fixture();
   const csv = "title,category,price,style id\nWool Coat,Outerwear,450.00,01-04-001\n";
   const outcome = await dispatch(
     "catalog_preview_product_batch",
@@ -5317,7 +5325,7 @@ check("test_PRD_P0_117_batch_preview_one_row_fits_without_scrolling__the_preview
     {
       actor: "mara@vemians.com",
       role: "manager",
-      env: { ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) },
+      env: { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) },
       allowed: new Set(["catalog_preview_product_batch"]),
     },
   );
@@ -5334,6 +5342,7 @@ check("test_PRD_P0_89_batch_preview_confirm__shows_every_interpreted_row_not_jus
      own words. A sheet with far more rows than fit collapsed must still
      carry every one of them in the structured table (collapsed by CSS,
      not by a smaller dataset) — only the plain-text summary stays short. */
+  const f = await fixture();
   const rows = Array.from({ length: 20 }, (_, i) => `Item ${i},Outerwear,${10 + i}.00,01-04-${String(i + 1).padStart(3, "0")}`).join("\n");
   const csv = `title,category,price,style id\n${rows}\n`;
   const outcome = await dispatch(
@@ -5342,7 +5351,7 @@ check("test_PRD_P0_89_batch_preview_confirm__shows_every_interpreted_row_not_jus
     {
       actor: "mara@vemians.com",
       role: "manager",
-      env: { ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) },
+      env: { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) },
       allowed: new Set(["catalog_preview_product_batch"]),
     },
   );
@@ -5728,7 +5737,8 @@ check("test_PRD_P0_146_dynamic_option_values__the_preview_splits_a_full_style_nu
      the sheet's own style number still drives the color/size split, just
      never shown back as if IT were the resulting style_id. */
   const { previewBatch } = await import("../src/batch.js");
-  const preview = previewBatch("title,category,price,style id\nWool Coat,Outerwear,450.00,01-04-001-BLK-M\n", "products");
+  const f = await fixture();
+  const preview = await previewBatch(f.env, "title,category,price,style id\nWool Coat,Outerwear,450.00,01-04-001-BLK-M\n", "products");
   assert.equal(preview.sampleRows[0].style_id, "(auto-generated)");
   assert.equal(preview.sampleRows[0].color, "BLK");
   assert.equal(preview.sampleRows[0].size, "M");
@@ -5739,7 +5749,8 @@ check("test_PRD_P0_146_dynamic_option_values__a_bare_style_id_with_no_suffix_sti
      bare NN-NN-NNN with no trailing segment at all -- parseStyleNumber
      must leave it completely alone. */
   const { previewBatch } = await import("../src/batch.js");
-  const preview = previewBatch("title,category,price,style id\nWool Coat,Outerwear,450.00,01-04-001\n", "products");
+  const f = await fixture();
+  const preview = await previewBatch(f.env, "title,category,price,style id\nWool Coat,Outerwear,450.00,01-04-001\n", "products");
   assert.equal(preview.sampleRows[0].style_id, "(auto-generated)");
   assert.equal(preview.sampleRows[0].color, null);
   assert.equal(preview.sampleRows[0].size, null);
@@ -6558,7 +6569,8 @@ check("test_PRD_P0_152_style_number_grouping__two_named_rows_matching_the_same_c
 
 check("test_PRD_P0_89_batch_preview_confirm__a_named_category_row_previews_with_auto_generated_style_id_and_sku", async () => {
   const { previewBatch } = await import("../src/batch.js");
-  const preview = previewBatch("title,category,subcategory,price\nWhite Blazer,Jacket,Blazer,175.00\n", "products");
+  const f = await fixture();
+  const preview = await previewBatch(f.env, "title,category,subcategory,price\nWhite Blazer,Jacket,Blazer,175.00\n", "products");
   assert.equal(preview.sampleRows.length, 1, "a named row previews as a real product, not dropped");
   const row = preview.sampleRows[0];
   assert.equal(row.title, "White Blazer");
@@ -6578,7 +6590,8 @@ check("test_PRD_P0_89_batch_preview_confirm__a_named_category_row_with_nothing_t
      same way any other named row does, category/subcategory names shown
      exactly as given. */
   const { previewBatch } = await import("../src/batch.js");
-  const preview = previewBatch("title,category,subcategory,price\nMystery Item,Nonexistent Category,Nonexistent Sub,50.00\n", "products");
+  const f = await fixture();
+  const preview = await previewBatch(f.env, "title,category,subcategory,price\nMystery Item,Nonexistent Category,Nonexistent Sub,50.00\n", "products");
   assert.equal(preview.sampleRows.length, 1);
   const row = preview.sampleRows[0];
   assert.equal(row.title, "Mystery Item");
@@ -6808,7 +6821,9 @@ check("test_PRD_P0_152_style_number_grouping__the_preview_shows_the_same_title_f
      misleadingly empty title for a row the real draft handles perfectly
      fine, prompting a question nobody needed to ask. */
   const { previewBatch } = await import("../src/batch.js");
-  const noTitleColumn = previewBatch(
+  const f = await fixture();
+  const noTitleColumn = await previewBatch(
+    f.env,
     "Style #,Category,Subcategory,Description,Color,Size,Cost (USD),Retail Price\n" +
       "001-001-001-BLK-S,Jacket,Blazer,Black hand-painted blazer,Black,S,30,165\n",
     "products",
@@ -6816,7 +6831,8 @@ check("test_PRD_P0_152_style_number_grouping__the_preview_shows_the_same_title_f
   assert.equal(noTitleColumn.sampleRows[0].title, "Black hand-painted blazer", "the description stands in for the missing title, same as the real draft");
   assert.equal(noTitleColumn.sampleRows[0].description, null, "never shown as a SEPARATE description too -- it already became the title");
 
-  const withTitleColumn = previewBatch(
+  const withTitleColumn = await previewBatch(
+    f.env,
     "Style #,Title,Category,Subcategory,Description,Color,Size,Cost (USD),Retail Price\n" +
       "001-001-001-BLK-S,Bomber Blazer,Jacket,Blazer,A hand-painted piece,Black,S,30,165\n",
     "products",
@@ -6965,7 +6981,9 @@ check("test_PRD_P0_152_style_number_grouping__the_preview_shows_the_same_sku_fal
      real draft's own generateSku/resolveStyleId, never the row's own raw
      text. */
   const { previewBatch } = await import("../src/batch.js");
-  const preview = previewBatch(
+  const f = await fixture();
+  const preview = await previewBatch(
+    f.env,
     "Style #,Category,Subcategory,Description,Color,Size,Cost (USD),Retail Price\n" +
       "001-001-001-BLK-S,Jacket,Blazer,Black hand-painted blazer,Black,S,30,165\n",
     "products",
@@ -6980,7 +6998,9 @@ check("test_PRD_P0_152_style_number_grouping__the_preview_drops_a_tbd_color_or_s
      show a literal "TBD" as though it were a real color/size the product
      would actually end up with. */
   const { previewBatch } = await import("../src/batch.js");
-  const preview = previewBatch(
+  const f = await fixture();
+  const preview = await previewBatch(
+    f.env,
     "Style #,Category,Subcategory,Description,Color,Size,Cost (USD),Retail Price\n" +
       "001-001-003-TBD-S,Jacket,Blazer,Embellished blazer,TBD,S,35,125\n",
     "products",
@@ -6997,7 +7017,8 @@ check("test_PRD_P0_152_style_number_grouping__the_preview_says_a_blank_title_wil
      that will never actually be missing is the same class of mismatch the
      title/description bug already was. */
   const { previewBatch } = await import("../src/batch.js");
-  const preview = previewBatch("category,price,style id\nOuterwear,45.00,01-04-001\n", "products");
+  const f = await fixture();
+  const preview = await previewBatch(f.env, "category,price,style id\nOuterwear,45.00,01-04-001\n", "products");
   assert.equal(preview.sampleRows[0].title, "(auto-generated from its category)");
 });
 
@@ -7022,12 +7043,13 @@ check("test_PRD_P0_89_batch_preview_confirm__a_style_numbered_group_previews_siz
      per-variant field is now a "|"-joined list, one entry per row, always
      exactly `variants` long. */
   const { previewBatch } = await import("../src/batch.js");
+  const f = await fixture();
   const csv =
     "Style #,Category,Description,Color,Size,Retail Price\n" +
     "001-001-001-BLK-S,Jacket,Black hand-painted blazer,Black,S,165.00\n" +
     "001-001-001-BLK-M,Jacket,Black hand-painted blazer,Black,M,165.00\n" +
     "001-001-001-BLK-L,Jacket,Black hand-painted blazer,Black,L,180.00\n";
-  const preview = previewBatch(csv, "products");
+  const preview = await previewBatch(f.env, csv, "products");
 
   assert.equal(preview.rowCount, 3, "three raw CSV rows were read");
   assert.equal(preview.sampleRows.length, 1, "all three variants collapse into the one product they actually are");
@@ -7048,7 +7070,8 @@ check("test_PRD_P0_89_batch_preview_confirm__a_style_numbered_group_previews_siz
 
 check("test_PRD_P0_89_batch_preview_confirm__a_lone_variant_group_still_previews_its_own_real_sku_same_as_before", async () => {
   const { previewBatch } = await import("../src/batch.js");
-  const preview = previewBatch("Style #,Category,Description,Color,Size,Retail Price\n001-001-002-RED-M,Jacket,Red Blazer,Red,M,150.00\n", "products");
+  const f = await fixture();
+  const preview = await previewBatch(f.env, "Style #,Category,Description,Color,Size,Retail Price\n001-001-002-RED-M,Jacket,Red Blazer,Red,M,150.00\n", "products");
   const row = preview.sampleRows[0];
   assert.equal(row.variants, 1);
   assert.equal(row.sku, "(auto-generated)", "a group of exactly one variant previews the same literal fallback as any other -- never a real value");
@@ -7068,7 +7091,8 @@ check("test_PRD_P0_89_batch_preview_confirm__a_row_with_no_style_id_never_appear
      previewBatch's own splitProductRecords call, the same as a garbled
      one always was, so this sheet previews as nothing at all. */
   const { previewBatch } = await import("../src/batch.js");
-  const preview = previewBatch("title,category,price\nLoose Scarf,Accessories,35.00\n", "products");
+  const f = await fixture();
+  const preview = await previewBatch(f.env, "title,category,price\nLoose Scarf,Accessories,35.00\n", "products");
   assert.equal(preview.sampleRows.length, 0, "no style number at all -- not a real product row, not previewed either");
 });
 
@@ -7079,12 +7103,13 @@ check("test_PRD_P0_89_batch_preview_confirm__a_style_id_less_row_in_a_mixed_shee
      group survives; "Loose Scarf" (no style number) is dropped outright,
      the same as it now is in the real draft too. */
   const { previewBatch } = await import("../src/batch.js");
+  const f = await fixture();
   const csv =
     "title,Style #,Category,Color,Size,Retail Price\n" +
     ",001-001-003-BLU-S,Jacket,Blue,S,140.00\n" +
     ",001-001-003-BLU-M,Jacket,Blue,M,140.00\n" +
     "Loose Scarf,,Accessories,,,35.00\n";
-  const preview = previewBatch(csv, "products");
+  const preview = await previewBatch(f.env, csv, "products");
 
   assert.equal(preview.rowCount, 3);
   assert.equal(preview.sampleRows.length, 1, "only the real, style-numbered group previews -- the style-id-less row is dropped outright");
@@ -7098,4 +7123,250 @@ check("test_PRD_P0_89_batch_preview_confirm__a_style_id_less_row_in_a_mixed_shee
   assert.equal(grouped.size, "S | M");
   assert.equal(grouped.sku, "(auto-generated)");
   assert.equal(preview.sampleRows.find((r) => r.title === "Loose Scarf"), undefined, "the style-id-less row never appears in the preview at all");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-179 — "If I resubmit all of the the um, the item like spreadsheet,
+ * will you update all of the costs in a proper location and all the
+ * missing information that matches?" — the owner's own question, which
+ * turned out to have no real answer at all: draftGroupedProduct used to
+ * call catalog.create_product unconditionally, so resubmitting the exact
+ * same sheet a second time minted a second, duplicate product every time.
+ *
+ * "The matching is very simple. We match by style ID... if it exists and
+ * you're putting in the same data, you just update it" — corrected, once
+ * the LIVE style_id turned out to be exactly the mutable, category-derived
+ * fact P0-177's own fluid_style_id redesign made it (the owner's own,
+ * earlier words): the spreadsheet's own literal style-number TEXT is what
+ * never changes, captured once at creation as mirror_product.
+ * import_style_number and never touched again by anything — a later
+ * category move/renumber moves the live style_id, never this. "No, no,
+ * all the sizes are the same, all the options are the same, you match
+ * them" -- confirmed the finer point: matching happens at the PRODUCT
+ * level by import_style_number, and at the VARIATION level by matching
+ * each row's own Color/Size against the product's CURRENT variations
+ * (variantsWithOptionsOf/sameOptions, batch.js), never by row position.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_179_import_style_number_matching__resubmitting_the_same_style_number_updates_instead_of_duplicating", async () => {
+  const f = await fixture();
+  const csv1 = "title,category,price,cost,style id\nWool Coat,Outerwear,450.00,210.00,01-04-001\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let first;
+  let second;
+  try {
+    first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager" });
+    assert.equal(first.created.length, 1, `expected the first submission to create, got: ${JSON.stringify(first)}`);
+    assert.equal(first.created[0].action, "created");
+
+    /* Resubmitted: same style number, a real price/cost CHANGE. */
+    const csv2 = "title,category,price,cost,style id\nWool Coat,Outerwear,475.00,225.00,01-04-001\n";
+    second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.equal(second.skipped.length, 0, `expected no skips, got: ${JSON.stringify(second.skipped)}`);
+  assert.equal(second.created.length, 1, "the resubmit still counts as one outcome, an update rather than a create");
+  assert.equal(second.created[0].action, "updated");
+  assert.equal(second.created[0].handle, first.created[0].handle, "the SAME product, never a second one");
+
+  const products = f.mirror("SELECT id, handle FROM mirror_product WHERE title = 'Wool Coat'");
+  assert.equal(products.length, 1, "still only one product exists -- the resubmit never duplicated it");
+
+  const variant = f.mirror("SELECT price_minor, unit_cost_minor FROM mirror_variant WHERE product_id = ?", products[0].id)[0];
+  assert.equal(variant.price_minor, 47500, "the resubmit's own new price actually landed");
+  assert.equal(variant.unit_cost_minor, 22500, "the resubmit's own new cost actually landed, in the proper (vendor_information) location");
+});
+
+check("test_PRD_P0_179_import_style_number_matching__each_size_is_matched_by_its_own_color_size_never_by_row_position", async () => {
+  const f = await fixture();
+  const csv1 =
+    "title,category,price,style id,color,size\n" +
+    "Wool Coat,Outerwear,100.00,01-04-002,Black,S\n" +
+    "Wool Coat,Outerwear,110.00,01-04-002,Black,M\n" +
+    "Wool Coat,Outerwear,120.00,01-04-002,Black,L\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let second;
+  try {
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager" });
+    assert.equal(first.created.length, 1, `expected the first submission to create, got: ${JSON.stringify(first)}`);
+
+    /* Resubmitted with the ROWS REORDERED (L, then S, then M) and new
+       prices — a position-based match would silently mismatch every
+       price; only a real Color/Size match gets each one right. */
+    const csv2 =
+      "title,category,price,style id,color,size\n" +
+      "Wool Coat,Outerwear,999.00,01-04-002,Black,L\n" +
+      "Wool Coat,Outerwear,105.00,01-04-002,Black,S\n" +
+      "Wool Coat,Outerwear,115.00,01-04-002,Black,M\n";
+    second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.equal(second.skipped.length, 0, `expected no skips, got: ${JSON.stringify(second.skipped)}`);
+  assert.equal(second.created.length, 1);
+  assert.equal(second.created[0].action, "updated");
+
+  const product = f.mirror("SELECT id FROM mirror_product WHERE title = 'Wool Coat'")[0];
+  const variants = f.mirror("SELECT title, price_minor, options FROM mirror_variant WHERE product_id = ?", product.id);
+  const bySize = Object.fromEntries(variants.map((v) => [JSON.parse(v.options).Size, v.price_minor]));
+  assert.equal(bySize.S, 10500, "matched by its own Color/Size, not by the row's new position (1st)");
+  assert.equal(bySize.M, 11500, "matched by its own Color/Size, not by the row's new position (3rd)");
+  assert.equal(bySize.L, 99900, "matched by its own Color/Size, not by the row's new position (2nd)");
+  assert.equal(variants.length, 3, "still exactly the three original variations, none added or removed");
+});
+
+check("test_PRD_P0_179_import_style_number_matching__a_genuinely_new_size_on_a_resubmit_is_a_clash_not_a_silent_add", async () => {
+  const f = await fixture();
+  const csv1 = "title,category,price,style id,size\nWool Coat,Outerwear,100.00,01-04-003,S\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let second;
+  try {
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager" });
+    assert.equal(first.created.length, 1);
+
+    /* Resubmitted with an extra row for a size that never existed before. */
+    const csv2 =
+      "title,category,price,style id,size\n" +
+      "Wool Coat,Outerwear,100.00,01-04-003,S\n" +
+      "Wool Coat,Outerwear,100.00,01-04-003,XL\n";
+    second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.equal(second.created.length, 0, "never silently created/updated when a row cannot be matched");
+  assert.equal(second.ready.length, 1, "parked for a person, the same as any other clash");
+  assert.match(second.ready[0].summary, /XL.*not an existing variation/i);
+
+  const product = f.mirror("SELECT id FROM mirror_product WHERE title = 'Wool Coat'")[0];
+  const variants = f.mirror("SELECT options FROM mirror_variant WHERE product_id = ?", product.id);
+  assert.equal(variants.length, 1, "the existing product is untouched -- no size was silently added");
+});
+
+check("test_PRD_P0_179_import_style_number_matching__stock_quantity_is_never_touched_by_a_resubmit", async () => {
+  const f = await fixture();
+  const csv1 = "title,category,price,style id,quantity\nWool Coat,Outerwear,100.00,01-04-004,7\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager" });
+    assert.equal(first.created.length, 1);
+    const pushCountBefore = f.calls().filter((c) => c.path === "/v2/inventory/changes/batch-create").length;
+    assert.equal(pushCountBefore, 1, "the initial create really did push a real stock count");
+
+    /* Resubmitted with a DIFFERENT quantity -- this codebase's own
+       inventory-ledger guarantee: no write outside inventory.adjust ever
+       silently changes stock, and this resubmit is no exception. */
+    const csv2 = "title,category,price,style id,quantity\nWool Coat,Outerwear,120.00,01-04-004,99\n";
+    const second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager" });
+    assert.equal(second.created.length, 1);
+    assert.equal(second.created[0].action, "updated");
+
+    const pushCountAfter = f.calls().filter((c) => c.path === "/v2/inventory/changes/batch-create").length;
+    assert.equal(pushCountAfter, pushCountBefore, "the resubmit's own new quantity column must never push a second inventory count");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_179_import_style_number_matching__a_later_category_move_never_breaks_a_future_resubmits_own_match", async () => {
+  /* "We have very specific categories... you should be able to determine
+     which item is in there, and just find it and update it" -- the owner's
+     own words. import_style_number is captured once, at creation, and
+     stays put even once the live, category-derived style_id has moved on
+     (P0-177's own fluid_style_id) -- proving the whole POINT of a second,
+     separate, permanent key: style_id alone could never survive this. */
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  await approvedCall(f, "catalog.set_category_number", { category_id: outerwear.id, numeric_id: "01" });
+  const casual = (await approvedCall(f, "catalog.create_category", { name: "Casual", parent_id: outerwear.id, reason: "test" })).data
+    .category;
+  await approvedCall(f, "catalog.set_category_number", { category_id: casual.id, numeric_id: "04" });
+
+  /* The style-numbered sheet's own catCode/subCode ("01"/"04") resolve
+     straight to Casual by NUMBER (resolveCategoryByCode) -- no Category
+     name column needed here, the same path a real numbered resubmit uses. */
+  const csv1 = "title,category,price,style id\nWool Coat,Casual,100.00,01-04-005\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager" });
+    assert.equal(first.created.length, 1, `expected the first submission to create, got: ${JSON.stringify(first)}`);
+
+    const before = f.mirror("SELECT id, handle, style_id, import_style_number FROM mirror_product WHERE title = 'Wool Coat'")[0];
+    assert.equal(before.style_id, "01-04-001", "sanity: a real, category-derived style_id, not null");
+    assert.equal(before.import_style_number, "01-04-005");
+
+    /* A real category move, the ordinary way -- reassigns style_id, never
+       import_style_number (catalog.update_product's own job, unrelated to
+       this feature). Moved to a bare top-level category on purpose: this
+       codebase's own rule is that only a SUBcategory ever carries a
+       style_id at all, so this is a real, unambiguous change away from
+       "01-04-001", not a coincidental re-derivation of the same value. */
+    const knitwear = f.categories().find((c) => c.name === "Knitwear");
+    const moved = await approvedCall(f, "catalog.update_product", { handle: before.handle, category_id: knitwear.id });
+    assert.equal(moved.ok, true, moved.error);
+
+    const after = f.mirror("SELECT style_id, import_style_number FROM mirror_product WHERE id = ?", before.id)[0];
+    assert.notEqual(after.style_id, before.style_id, "the live style_id really did move with the category, as designed");
+    assert.equal(after.import_style_number, "01-04-005", "import_style_number never moves -- the whole reason it exists");
+
+    /* A resubmit of the ORIGINAL sheet, unchanged category cell and all --
+       still finds and updates the SAME product, even though its style_id
+       is now something else entirely. */
+    const csv2 = "title,category,price,style id\nWool Coat,Casual,130.00,01-04-005\n";
+    const second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager" });
+    assert.equal(second.created.length, 1, `expected the resubmit to update, got: ${JSON.stringify(second)}`);
+    assert.equal(second.created[0].action, "updated");
+    assert.equal(second.created[0].handle, before.handle);
+
+    const products = f.mirror("SELECT id FROM mirror_product WHERE import_style_number = '01-04-005'");
+    assert.equal(products.length, 1, "still the one product -- the resubmit found it by import_style_number, not by the now-stale style_id");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_179_import_style_number_matching__the_preview_shows_a_matched_row_as_an_update_not_a_fresh_create", async () => {
+  const { previewBatch } = await import("../src/batch.js");
+  const f = await fixture();
+  const csv1 = "title,category,price,style id\nWool Coat,Outerwear,100.00,01-04-006\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let created;
+  try {
+    created = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(created.created.length, 1);
+
+  /* The identical style number, previewed again -- side-effect-free
+     (nothing here ever calls Square), but no longer blind to the fact
+     that a real match is already on file. */
+  const csv2 = "title,category,price,style id\nWool Coat,Outerwear,130.00,01-04-006\n";
+  const preview = await previewBatch(f.env, csv2, "products");
+  assert.equal(preview.sampleRows.length, 1);
+  assert.match(preview.sampleRows[0].will_update, /Wool Coat/);
+  assert.equal(preview.sampleRows[0].sku, "(unchanged)");
+  assert.equal(preview.sampleRows[0].style_id, "(unchanged)");
+
+  /* A brand-new style number on the same sheet previews the ordinary way
+     -- no match, no `will_update` field at all. */
+  const csv3 = "title,category,price,style id\nDenim Jacket,Outerwear,80.00,01-04-007\n";
+  const freshPreview = await previewBatch(f.env, csv3, "products");
+  assert.equal("will_update" in freshPreview.sampleRows[0], false);
+  assert.equal(freshPreview.sampleRows[0].sku, "(auto-generated)");
 });

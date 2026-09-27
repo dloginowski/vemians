@@ -512,14 +512,30 @@ async function readAssetText(env, assetId) {
    batch parks (parkRows, unchanged) always has been. `result.created` is
    `undefined` for customers — there is no immediate-creation bucket for
    that kind at all, so it is simply treated as empty throughout. */
+/* `r.action` ("created" or "updated") tags every entry in `result.created`
+   since draftGroupedProduct started matching a resubmitted row to a
+   product it already made (import_style_number, Test-PRD-P0-179-
+   import_style_number_matching) — customer rows never carry one (there is
+   no resubmit-matching for customers), so this falls back to "created",
+   the only thing that bucket could ever mean before. */
+function batchCounts(created) {
+  const updated = created.filter((r) => r.action === "updated").length;
+  return { created: created.length - updated, updated };
+}
+
 function formatBatchDraft(kind, result) {
   if (result.tooMany !== undefined) {
     return `The spreadsheet has ${result.tooMany} rows, past the ${CAPS.BATCH_MAX_ROWS}-row cap for one upload. Split it and try again.`;
   }
   const created = result.created ?? [];
   const ready = result.ready ?? [];
-  const lines = [`${created.length} ${kind} created, ${ready.length} need a person's decision, ${result.skipped.length} skipped.`];
-  for (const r of created) lines.push(`- Row ${r.row} "${r.title}": created — ${r.summary}`);
+  const counts = batchCounts(created);
+  const lines = [
+    `${counts.created} ${kind} created` +
+      (counts.updated ? `, ${counts.updated} updated` : "") +
+      `, ${ready.length} need a person's decision, ${result.skipped.length} skipped.`,
+  ];
+  for (const r of created) lines.push(`- Row ${r.row} "${r.title}": ${r.action ?? "created"} — ${r.summary}`);
   for (const r of ready) lines.push(`- Row ${r.row} "${r.title}": ${r.summary} — ${r.url}`);
   for (const s of result.skipped) lines.push(`- Row ${s.row} "${s.title}": skipped — ${s.reason}`);
   return lines.join("\n");
@@ -529,14 +545,18 @@ function batchDraftTable(kind, result) {
   if (result.tooMany !== undefined) return null;
   const created = result.created ?? [];
   const ready = result.ready ?? [];
+  const counts = batchCounts(created);
   const rows = [
-    ...created.map((r) => [String(r.row), r.title, "created", r.summary]),
+    ...created.map((r) => [String(r.row), r.title, r.action ?? "created", r.summary]),
     ...ready.map((r) => [String(r.row), r.title, "needs a person", `${r.summary} — ${r.url}`]),
     ...result.skipped.map((s) => [String(s.row), s.title, "skipped", s.reason]),
   ];
   rows.sort((a, b) => Number(a[0]) - Number(b[0]));
   return {
-    title: `${kind[0].toUpperCase()}${kind.slice(1)}: ${created.length} created, ${ready.length} need a person's decision, ${result.skipped.length} skipped`,
+    title:
+      `${kind[0].toUpperCase()}${kind.slice(1)}: ${counts.created} created` +
+      (counts.updated ? `, ${counts.updated} updated` : "") +
+      `, ${ready.length} need a person's decision, ${result.skipped.length} skipped`,
     columns: ["Row", "Title", "Status", "Detail"],
     rows,
     /* "It says 9 need a person's decision but the next preview row is too
@@ -618,7 +638,12 @@ async function dispatchProductBatchPlan(args, { actor, role, env }) {
   const readyCount = plan.rows.length;
   const lines = [
     `${readyCount} products ready to submit, ${plan.ready.length} need a person's decision, ${plan.skipped.length} skipped.`,
-    "Review the list and press Submit to create the ready ones.",
+    /* A row here can be a fresh create OR a resubmit-matched update
+       (import_style_number, Test-PRD-P0-179-import_style_number_matching)
+       — which one is already spelled out in that row's own `summary`
+       (runTool's own check() text, "create ..." vs "edit ..."), so this
+       line just stops promising every row is a create. */
+    "Review the list — each row says whether it will create or update — and press Submit to run the ready ones.",
   ];
   return {
     isError: false,
@@ -665,7 +690,7 @@ async function precheckBatchDraft(name, args, { role, env }) {
      either way. previewBatch's own {rowCount} is side-effect-free, the
      same reason dispatchBatchPreview already trusts it. */
   const kind = name === "catalog_draft_product_batch" ? "products" : "customers";
-  const preview = previewBatch(asset.row.extracted_text, kind);
+  const preview = await previewBatch(env, asset.row.extracted_text, kind);
   if (preview.rowCount > CAPS.BATCH_MAX_ROWS) {
     /* Not a tool error (isError stays false, matching dispatchBatchDraft's
        own tooMany case below) -- a real, expected outcome the model
@@ -771,7 +796,7 @@ async function dispatchBatchPreview(name, args, { actor, role, env }) {
 
   const kind = name === "catalog_preview_product_batch" ? "products" : "customers";
   try {
-    const preview = previewBatch(asset.row.extracted_text, kind);
+    const preview = await previewBatch(env, asset.row.extracted_text, kind);
     /* Recorded on a SUCCESSFUL preview only — a bad asset_id must never
        overwrite a real, earlier preview this same actor could still go on
        to confirm. See LAST_PREVIEW's own header comment for why this,

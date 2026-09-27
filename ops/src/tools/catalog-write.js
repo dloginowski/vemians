@@ -875,6 +875,14 @@ export const catalogWriteTools = {
         keyMaxLength: CAPS.CATALOG_CUSTOM_FIELD_KEY_MAX,
         valueMaxLength: CAPS.CATALOG_CUSTOM_FIELD_VALUE_MAX,
       },
+      /* BATCH-IMPORT BOOKKEEPING ONLY — the CSV importer's own way to
+         recognize a resubmitted row later (Test-PRD-P0-179-
+         import_style_number_matching), never something a person or a chat
+         agent should give directly. Same "no Square correlate at all"
+         shape as custom_fields above: written straight to our own mirror,
+         right after the item is created, and untouched by every future
+         sync. */
+      import_style_number: { type: "string", maxLength: 40 },
     },
     async check(args, t) {
       const problems = validateProposal(args);
@@ -1026,6 +1034,19 @@ export const catalogWriteTools = {
         await t.db.catalog_mirror
           .prepare("UPDATE mirror_product SET custom_fields = ? WHERE handle = ?")
           .bind(JSON.stringify(args.custom_fields), out.product.handle)
+          .run();
+      }
+
+      /* import_style_number never reaches Square either, same reasoning as
+         custom_fields just above — set once, here, and never touched
+         again by anything (not by a future sync, not by a category move
+         or renumber's own style_id reassignment, which is exactly the
+         point: this is the one identity a resubmitted CSV row can still
+         recognize after style_id itself has moved on). */
+      if (args.import_style_number) {
+        await t.db.catalog_mirror
+          .prepare("UPDATE mirror_product SET import_style_number = ? WHERE handle = ?")
+          .bind(args.import_style_number, out.product.handle)
           .run();
       }
 
