@@ -164,7 +164,7 @@ async function draftBatchViaChatButton(name, args, { actor = "mara@vemians.com",
 
 /*
  * REVISED — "I shouldn't need to do that," the owner's own words, looking
- * at the approval card catalog_draft_product_batch used to show even after
+ * at the approval card catalog_add_product_batch used to show even after
  * the person had already confirmed the preview mapping in chat. That outer
  * click is gone.
  *
@@ -190,7 +190,7 @@ async function draftProductBatchViaChat(name, args, { actor = "mara@vemians.com"
     if (outcome.kind === "result") {
       return { ok: !outcome.block.is_error, reply: outcome.block.content, table: outcome.table, checklist: null };
     }
-    assert.equal(outcome.kind, "checklist", "catalog_draft_product_batch must plan a checklist, never stop for an old-style approval");
+    assert.equal(outcome.kind, "checklist", "catalog_add_product_batch must plan a checklist, never stop for an old-style approval");
     const identity = { email: actor, groups: ["vemians-manager"] };
     const created = [];
     const parked = [];
@@ -786,7 +786,7 @@ check("test_PRD_P0_60_spreadsheet_products__a_clean_row_is_created_immediately",
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -817,7 +817,7 @@ check("test_PRD_P0_60_spreadsheet_products__a_bad_row_is_reported_with_why_not_s
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -855,7 +855,7 @@ check("test_PRD_P0_136_square_custom_attributes__a_missing_category_is_created_i
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -884,7 +884,7 @@ check("test_PRD_P0_136_square_custom_attributes__several_rows_naming_the_same_mi
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -909,7 +909,7 @@ check("test_PRD_P0_136_square_custom_attributes__two_distinct_missing_categories
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -950,7 +950,7 @@ check("test_PRD_P0_136_square_custom_attributes__a_misspelled_named_category_sil
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -981,7 +981,7 @@ check("test_PRD_P0_145_auto_generated_title__a_blank_title_is_auto_generated_fro
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -1012,7 +1012,7 @@ check("test_PRD_P0_31_inventory_ledger__a_spreadsheet_row_with_no_quantity_colum
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -1029,7 +1029,7 @@ check("test_PRD_P0_31_inventory_ledger__a_spreadsheet_quantity_column_is_honored
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -1050,7 +1050,7 @@ check("test_PRD_P0_31_inventory_ledger__a_spreadsheet_quantity_that_does_not_par
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -1077,7 +1077,7 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_derives_its_c
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -1108,7 +1108,7 @@ check("test_PRD_P0_136_square_custom_attributes__a_style_number_column_is_never_
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -1141,7 +1141,7 @@ check("test_PRD_P0_145_auto_generated_title__revised_a_row_with_no_style_id_at_a
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -1170,7 +1170,7 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_vendor_with_no_co
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -1191,7 +1191,7 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_vendor_with_nothi
     .run();
   const csv = "title,category,price,style id,vendor\n" + `Wool Coat,${outerwear.name},450.00,01-04-001,Acme Mills\n`;
 
-  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" , mode: "add"});
   assert.equal(result.created.length, 0);
   assert.equal(result.skipped.length, 0);
   assert.equal(result.ready.length, 1, "a vendor with no commission on file is a real clash, parked for a person, not silently skipped");
@@ -1207,7 +1207,7 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_brand_new_vendor_
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   const csv = "title,category,price,style id,vendor\n" + `Wool Coat,${outerwear.name},450.00,01-04-001,Acme Mills\n`;
 
-  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+  const result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" , mode: "add"});
   assert.equal(result.created.length, 0);
   assert.equal(result.skipped.length, 0);
   assert.equal(result.ready.length, 1, "a vendor with no commission on file is a real clash, parked for a person, not silently skipped");
@@ -1225,7 +1225,7 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_vendor_a
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -1254,7 +1254,7 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_vendor_rows_cost_
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -1288,7 +1288,7 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_commission_that_i
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -1312,7 +1312,7 @@ check("test_PRD_P0_136_square_custom_attributes__a_malformed_commission_still_le
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -1342,7 +1342,7 @@ check("test_PRD_P0_136_square_custom_attributes__revised_a_row_with_no_style_id_
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -1366,7 +1366,7 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_no_vendo
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -1394,7 +1394,7 @@ check("test_PRD_P0_136_square_custom_attributes__a_spreadsheet_row_with_a_style_
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -1430,7 +1430,7 @@ check("test_PRD_P0_70_flexible_spreadsheet_columns__a_real_world_header_row_stil
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -1461,7 +1461,7 @@ check("test_PRD_P0_70_flexible_spreadsheet_columns__an_unrecognised_column_is_ke
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -1495,7 +1495,7 @@ check("test_PRD_P0_70_flexible_spreadsheet_columns__a_margin_column_is_dropped_e
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -1523,7 +1523,7 @@ check("test_PRD_P0_70_flexible_spreadsheet_columns__a_cost_column_is_no_longer_m
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -1543,13 +1543,13 @@ check("test_PRD_P0_70_flexible_spreadsheet_columns__a_cost_column_is_no_longer_m
 check("test_PRD_P0_70_flexible_spreadsheet_columns__the_preview_shows_extra_columns_the_same_way_it_shows_known_ones", async () => {
   const { previewBatch } = await import("../src/batch.js");
   const f = await fixture();
-  const preview = await previewBatch(f.env, "title,category,price,style id,Season\nWool Coat,Outerwear,450.00,01-04-001,Fall 2026\n", "products");
+  const preview = await previewBatch(f.env, "title,category,price,style id,Season\nWool Coat,Outerwear,450.00,01-04-001,Fall 2026\n", "products", "add");
   assert.equal(preview.sampleRows[0].season, "Fall 2026");
 
   /* A blank extra column on that row simply has no key at all, the same as
      any known column left blank being pruned by extraFields(), rather than
      surfacing as a column with a raw "undefined" value. */
-  const blank = await previewBatch(f.env, "title,category,price,style id,Season\nSilk Scarf,Accessories,90.00,01-05-001,\n", "products");
+  const blank = await previewBatch(f.env, "title,category,price,style id,Season\nSilk Scarf,Accessories,90.00,01-05-001,\n", "products", "add");
   assert.equal("season" in blank.sampleRows[0], false);
 });
 
@@ -1563,7 +1563,7 @@ check("test_PRD_P0_60_spreadsheet_products__catalog_create_product_still_gates_o
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   const csv = `title,category,price,style id,cost\nWool Coat,${outerwear.name},450.00,01-04-001,210.00\n`;
 
-  const result = await draftProductBatch(f.env, { text: csv, actor: "ana@vemians.com", role: "staff" });
+  const result = await draftProductBatch(f.env, { text: csv, actor: "ana@vemians.com", role: "staff" , mode: "add"});
   assert.equal(result.created.length, 0);
   assert.equal(result.skipped.length, 1);
   assert.match(result.skipped[0].reason, /requires the manager role/);
@@ -1574,7 +1574,7 @@ check("test_PRD_P0_60_spreadsheet_products__more_rows_than_the_cap_is_refused_be
   const tooMany = CAPS.BATCH_MAX_ROWS + 1;
   const csv = "title,category,price\n" + Array.from({ length: tooMany }, (_, i) => `Item ${i},Outerwear,10.00`).join("\n");
 
-  const result = await draftProductBatch(f.env, { text: csv, actor: f.ctx.actor, role: f.ctx.role });
+  const result = await draftProductBatch(f.env, { text: csv, actor: f.ctx.actor, role: f.ctx.role , mode: "add"});
   assert.equal(result.tooMany, tooMany);
   assert.deepEqual(result.created, []);
   assert.deepEqual(result.skipped, []);
@@ -5098,9 +5098,9 @@ async function assetsFixtureWithRow({ extracted_text = null, filename = "product
 
 check("test_PRD_P0_88_spreadsheet_via_chat__staff_cannot_call_the_batch_draft_meta_tools", async () => {
   const outcome = await dispatch(
-    "catalog_draft_product_batch",
+    "catalog_add_product_batch",
     { asset_id: "ast_1" },
-    { actor: "ana@vemians.com", role: "staff", env: { ASSETS: await assetsFixtureWithRow() }, allowed: new Set(["catalog_draft_product_batch"]) },
+    { actor: "ana@vemians.com", role: "staff", env: { ASSETS: await assetsFixtureWithRow() }, allowed: new Set(["catalog_add_product_batch"]) },
   );
   assert.equal(outcome.block.is_error, true);
   assert.match(outcome.block.content, /manager or owner/i);
@@ -5108,9 +5108,9 @@ check("test_PRD_P0_88_spreadsheet_via_chat__staff_cannot_call_the_batch_draft_me
 
 check("test_PRD_P0_88_spreadsheet_via_chat__refuses_plainly_with_no_assets_store_bound", async () => {
   const outcome = await dispatch(
-    "catalog_draft_product_batch",
+    "catalog_add_product_batch",
     { asset_id: "ast_1" },
-    { actor: "mara@vemians.com", role: "manager", env: {}, allowed: new Set(["catalog_draft_product_batch"]) },
+    { actor: "mara@vemians.com", role: "manager", env: {}, allowed: new Set(["catalog_add_product_batch"]) },
   );
   assert.equal(outcome.block.is_error, true);
   assert.match(outcome.block.content, /no asset store/i);
@@ -5118,9 +5118,9 @@ check("test_PRD_P0_88_spreadsheet_via_chat__refuses_plainly_with_no_assets_store
 
 check("test_PRD_P0_88_spreadsheet_via_chat__refuses_plainly_for_an_unknown_asset_id", async () => {
   const outcome = await dispatch(
-    "catalog_draft_product_batch",
+    "catalog_add_product_batch",
     { asset_id: "nope" },
-    { actor: "mara@vemians.com", role: "manager", env: { ASSETS: await assetsFixtureWithRow() }, allowed: new Set(["catalog_draft_product_batch"]) },
+    { actor: "mara@vemians.com", role: "manager", env: { ASSETS: await assetsFixtureWithRow() }, allowed: new Set(["catalog_add_product_batch"]) },
   );
   assert.equal(outcome.block.is_error, true);
   assert.match(outcome.block.content, /no asset/i);
@@ -5128,13 +5128,13 @@ check("test_PRD_P0_88_spreadsheet_via_chat__refuses_plainly_for_an_unknown_asset
 
 check("test_PRD_P0_88_spreadsheet_via_chat__refuses_plainly_when_the_file_had_no_extractable_text", async () => {
   const outcome = await dispatch(
-    "catalog_draft_product_batch",
+    "catalog_add_product_batch",
     { asset_id: "ast_1" },
     {
       actor: "mara@vemians.com",
       role: "manager",
       env: { ASSETS: await assetsFixtureWithRow({ extracted_text: null }) },
-      allowed: new Set(["catalog_draft_product_batch"]),
+      allowed: new Set(["catalog_add_product_batch"]),
     },
   );
   assert.equal(outcome.block.is_error, true);
@@ -5144,7 +5144,7 @@ check("test_PRD_P0_88_spreadsheet_via_chat__refuses_plainly_when_the_file_had_no
 check("test_PRD_P0_88_spreadsheet_via_chat__a_real_csv_drafts_through_the_same_path_products_batch_uses", async () => {
   /* THE POINT: the same draftProductBatch() that /products/batch calls
      directly, reached instead through the chat's own tool-call loop — the
-     model's own call to catalog_draft_product_batch runs it immediately, no
+     model's own call to catalog_add_product_batch runs it immediately, no
      approval button in between — with the CSV read back from the asset
      store rather than re-typed by the model — a wrong guess on this row
      from the model is not possible, only a wrong guess by the same
@@ -5154,7 +5154,7 @@ check("test_PRD_P0_88_spreadsheet_via_chat__a_real_csv_drafts_through_the_same_p
   const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
 
   const outcome = await draftProductBatchViaChat(
-    "catalog_draft_product_batch",
+    "catalog_add_product_batch",
     { asset_id: "ast_1" },
     { env, square: f.square },
   );
@@ -5172,7 +5172,7 @@ check("test_PRD_P0_136_square_custom_attributes__a_missing_category_via_chat_is_
   const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
 
   const outcome = await draftProductBatchViaChat(
-    "catalog_draft_product_batch",
+    "catalog_add_product_batch",
     { asset_id: "ast_1" },
     { env, square: f.square },
   );
@@ -5191,9 +5191,9 @@ check("test_PRD_P0_88_spreadsheet_via_chat__too_many_rows_reports_the_cap_not_a_
   const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
 
   const outcome = await dispatch(
-    "catalog_draft_product_batch",
+    "catalog_add_product_batch",
     { asset_id: "ast_1" },
-    { actor: "mara@vemians.com", role: "manager", env, allowed: new Set(["catalog_draft_product_batch"]) },
+    { actor: "mara@vemians.com", role: "manager", env, allowed: new Set(["catalog_add_product_batch"]) },
   );
   assert.equal(outcome.block.is_error, false);
   assert.match(outcome.block.content, new RegExp(`${CAPS.BATCH_MAX_ROWS}-row cap`));
@@ -5203,7 +5203,7 @@ check("test_PRD_P0_88_spreadsheet_via_chat__an_unknown_tool_name_still_refuses_b
   /* Second enforcement of the same set (agent.js's own rule, P0-24) — a name
      these meta-tools don't recognise must never reach dispatchBatchDraft at
      all when it was never offered in the first place. */
-  const outcome = await dispatch("catalog_draft_product_batch", {}, { actor: "mara@vemians.com", role: "manager", env: {}, allowed: new Set() });
+  const outcome = await dispatch("catalog_add_product_batch", {}, { actor: "mara@vemians.com", role: "manager", env: {}, allowed: new Set() });
   assert.match(outcome.block.content, /No such tool/);
 });
 
@@ -5213,9 +5213,9 @@ check("test_PRD_P0_88_spreadsheet_via_chat__an_unknown_tool_name_still_refuses_b
 
 check("test_PRD_P0_89_batch_preview_confirm__staff_cannot_call_the_preview_meta_tools_either", async () => {
   const outcome = await dispatch(
-    "catalog_preview_product_batch",
+    "catalog_preview_add_product_batch",
     { asset_id: "ast_1" },
-    { actor: "ana@vemians.com", role: "staff", env: { ASSETS: await assetsFixtureWithRow() }, allowed: new Set(["catalog_preview_product_batch"]) },
+    { actor: "ana@vemians.com", role: "staff", env: { ASSETS: await assetsFixtureWithRow() }, allowed: new Set(["catalog_preview_add_product_batch"]) },
   );
   assert.equal(outcome.block.is_error, true);
   assert.match(outcome.block.content, /manager or owner/i);
@@ -5227,9 +5227,9 @@ check("test_PRD_P0_89_batch_preview_confirm__previews_the_first_rows_and_heading
   const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
 
   const outcome = await dispatch(
-    "catalog_preview_product_batch",
+    "catalog_preview_add_product_batch",
     { asset_id: "ast_1" },
-    { actor: "mara@vemians.com", role: "manager", env, allowed: new Set(["catalog_preview_product_batch"]) },
+    { actor: "mara@vemians.com", role: "manager", env, allowed: new Set(["catalog_preview_add_product_batch"]) },
   );
   assert.equal(outcome.block.is_error, false);
   assert.match(outcome.block.content, /2 rows detected/);
@@ -5264,7 +5264,7 @@ check("test_PRD_P0_89_batch_preview_confirm__the_draft_tool_uses_the_actors_own_
   /* TWO real chat transcripts showed the model itself cannot be trusted to
      carry the asset id across the turn boundary between a preview and its
      own later confirmation reply -- once by losing it entirely ("refused
-     assets.list", "refused catalog_draft_product_batch", twice each, then
+     assets.list", "refused catalog_add_product_batch", twice each, then
      "I can't find its asset id right now"), and once more after a first
      attempted fix (tagging the preview's own tool-result text with the id)
      that never actually reached the model's own VISIBLE reply -- that text
@@ -5289,9 +5289,9 @@ check("test_PRD_P0_89_batch_preview_confirm__the_draft_tool_uses_the_actors_own_
   const ctx = { actor: "yuki@vemians.com", role: "manager", env };
 
   const preview = await dispatch(
-    "catalog_preview_product_batch",
+    "catalog_preview_add_product_batch",
     { asset_id: "ast_1" },
-    { ...ctx, allowed: new Set(["catalog_preview_product_batch"]) },
+    { ...ctx, allowed: new Set(["catalog_preview_add_product_batch"]) },
   );
   assert.equal(preview.block.is_error, false);
 
@@ -5300,9 +5300,9 @@ check("test_PRD_P0_89_batch_preview_confirm__the_draft_tool_uses_the_actors_own_
   let outcome;
   try {
     outcome = await dispatch(
-      "catalog_draft_product_batch",
+      "catalog_add_product_batch",
       { asset_id: "ast_does_not_exist" },
-      { ...ctx, allowed: new Set(["catalog_draft_product_batch"]) },
+      { ...ctx, allowed: new Set(["catalog_add_product_batch"]) },
     );
   } finally {
     globalThis.fetch = realFetch;
@@ -5320,13 +5320,13 @@ check("test_PRD_P0_117_batch_preview_one_row_fits_without_scrolling__the_preview
   const f = await fixture();
   const csv = "title,category,price,style id\nWool Coat,Outerwear,450.00,01-04-001\n";
   const outcome = await dispatch(
-    "catalog_preview_product_batch",
+    "catalog_preview_add_product_batch",
     { asset_id: "ast_1" },
     {
       actor: "mara@vemians.com",
       role: "manager",
       env: { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) },
-      allowed: new Set(["catalog_preview_product_batch"]),
+      allowed: new Set(["catalog_preview_add_product_batch"]),
     },
   );
   assert.equal(outcome.table.compact, true);
@@ -5346,13 +5346,13 @@ check("test_PRD_P0_89_batch_preview_confirm__shows_every_interpreted_row_not_jus
   const rows = Array.from({ length: 20 }, (_, i) => `Item ${i},Outerwear,${10 + i}.00,01-04-${String(i + 1).padStart(3, "0")}`).join("\n");
   const csv = `title,category,price,style id\n${rows}\n`;
   const outcome = await dispatch(
-    "catalog_preview_product_batch",
+    "catalog_preview_add_product_batch",
     { asset_id: "ast_1" },
     {
       actor: "mara@vemians.com",
       role: "manager",
       env: { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) },
-      allowed: new Set(["catalog_preview_product_batch"]),
+      allowed: new Set(["catalog_preview_add_product_batch"]),
     },
   );
   assert.equal(outcome.block.is_error, false);
@@ -5380,7 +5380,7 @@ check("test_PRD_P0_89_batch_preview_confirm__customers_preview_maps_the_square_f
 });
 
 check("test_PRD_P0_89_batch_preview_confirm__customer_draft_still_stops_for_a_real_approval_button", async () => {
-  /* UNLIKE catalog_draft_product_batch (draftProductBatchViaChat, above):
+  /* UNLIKE catalog_add_product_batch (draftProductBatchViaChat, above):
      a bulk customer import is still its own T2 decision, gated behind a
      real Approve click -- the outer click here is not a redundant second
      yes on top of one already given in chat, it is the only place the
@@ -5400,13 +5400,13 @@ check("test_PRD_P0_89_batch_preview_confirm__customer_draft_still_stops_for_a_re
 
 check("test_PRD_P0_89_batch_preview_confirm__an_empty_spreadsheet_previews_as_nothing_to_show_not_a_crash", async () => {
   const outcome = await dispatch(
-    "catalog_preview_product_batch",
+    "catalog_preview_add_product_batch",
     { asset_id: "ast_1" },
     {
       actor: "mara@vemians.com",
       role: "manager",
       env: { ASSETS: await assetsFixtureWithRow({ extracted_text: "title,category,price\n" }) },
-      allowed: new Set(["catalog_preview_product_batch"]),
+      allowed: new Set(["catalog_preview_add_product_batch"]),
     },
   );
   assert.equal(outcome.block.is_error, false);
@@ -5423,13 +5423,13 @@ check("test_PRD_P0_89_batch_preview_confirm__rows_that_all_fail_to_group_preview
      still preview as a plain message rather than crash reading a table
      with nothing in it. */
   const outcome = await dispatch(
-    "catalog_preview_product_batch",
+    "catalog_preview_add_product_batch",
     { asset_id: "ast_1" },
     {
       actor: "mara@vemians.com",
       role: "manager",
       env: { ASSETS: await assetsFixtureWithRow({ extracted_text: "title,category,price,style id\n,Outerwear,10.00,not-a-style-number\n" }) },
-      allowed: new Set(["catalog_preview_product_batch"]),
+      allowed: new Set(["catalog_preview_add_product_batch"]),
     },
   );
   assert.equal(outcome.block.is_error, false);
@@ -5440,7 +5440,7 @@ check("test_PRD_P0_89_batch_preview_confirm__rows_that_all_fail_to_group_preview
 check("test_PRD_P0_89_batch_preview_confirm__the_draft_tools_carry_a_structured_table_too", async () => {
   /* Not just the preview — the plan's own result is ALSO structured, since a
      person cannot review forty skip reasons rendered as one text bubble.
-     REVISED — catalog_draft_product_batch now PLANS rather than creating
+     REVISED — catalog_add_product_batch now PLANS rather than creating
      (dispatchProductBatchPlan, agent.js): a row still needing a person's
      decision at plan time (Silk Scarf's unparseable price, a clash
      batch.js itself already found) is in the checklist reply's own
@@ -5452,7 +5452,7 @@ check("test_PRD_P0_89_batch_preview_confirm__the_draft_tools_carry_a_structured_
   const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
 
   const outcome = await draftProductBatchViaChat(
-    "catalog_draft_product_batch",
+    "catalog_add_product_batch",
     { asset_id: "ast_1" },
     { env, square: f.square },
   );
@@ -5476,9 +5476,9 @@ check("test_PRD_P0_89_batch_preview_confirm__too_many_rows_carries_no_table_only
   const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
 
   const outcome = await dispatch(
-    "catalog_draft_product_batch",
+    "catalog_add_product_batch",
     { asset_id: "ast_1" },
-    { actor: "mara@vemians.com", role: "manager", env, allowed: new Set(["catalog_draft_product_batch"]) },
+    { actor: "mara@vemians.com", role: "manager", env, allowed: new Set(["catalog_add_product_batch"]) },
   );
   assert.equal(outcome.table, null);
 });
@@ -5619,7 +5619,7 @@ check("test_PRD_P0_146_dynamic_option_values__a_csv_size_or_color_column_reaches
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "noor@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "noor@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -5653,7 +5653,7 @@ check("test_PRD_P0_146_dynamic_option_values__a_full_style_number_supplies_color
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "noor@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "noor@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -5690,7 +5690,7 @@ check("test_PRD_P0_146_dynamic_option_values__a_lone_trailing_segment_is_always_
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "noor@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "noor@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -5719,7 +5719,7 @@ check("test_PRD_P0_146_dynamic_option_values__an_explicit_size_or_color_column_w
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "noor@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "noor@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -5738,7 +5738,7 @@ check("test_PRD_P0_146_dynamic_option_values__the_preview_splits_a_full_style_nu
      never shown back as if IT were the resulting style_id. */
   const { previewBatch } = await import("../src/batch.js");
   const f = await fixture();
-  const preview = await previewBatch(f.env, "title,category,price,style id\nWool Coat,Outerwear,450.00,01-04-001-BLK-M\n", "products");
+  const preview = await previewBatch(f.env, "title,category,price,style id\nWool Coat,Outerwear,450.00,01-04-001-BLK-M\n", "products", "add");
   assert.equal(preview.sampleRows[0].style_id, "(auto-generated)");
   assert.equal(preview.sampleRows[0].color, "BLK");
   assert.equal(preview.sampleRows[0].size, "M");
@@ -5750,7 +5750,7 @@ check("test_PRD_P0_146_dynamic_option_values__a_bare_style_id_with_no_suffix_sti
      must leave it completely alone. */
   const { previewBatch } = await import("../src/batch.js");
   const f = await fixture();
-  const preview = await previewBatch(f.env, "title,category,price,style id\nWool Coat,Outerwear,450.00,01-04-001\n", "products");
+  const preview = await previewBatch(f.env, "title,category,price,style id\nWool Coat,Outerwear,450.00,01-04-001\n", "products", "add");
   assert.equal(preview.sampleRows[0].style_id, "(auto-generated)");
   assert.equal(preview.sampleRows[0].color, null);
   assert.equal(preview.sampleRows[0].size, null);
@@ -5777,7 +5777,7 @@ check("test_PRD_P0_146_dynamic_option_values__separate_category_and_subcategory_
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "noor@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "noor@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -5820,7 +5820,7 @@ check("test_PRD_P0_146_dynamic_option_values__a_subcategory_given_with_no_catego
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "noor@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "noor@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -5849,7 +5849,7 @@ check("test_PRD_P0_146_dynamic_option_values__the_same_subcategory_name_under_tw
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "noor@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "noor@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -5879,7 +5879,7 @@ check("test_PRD_P0_146_dynamic_option_values__several_rows_naming_the_same_categ
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "noor@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "noor@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -5917,7 +5917,7 @@ check("test_PRD_P0_152_style_number_grouping__rows_sharing_a_style_base_become_o
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -5952,7 +5952,7 @@ check("test_PRD_P0_152_style_number_grouping__category_and_subcategory_resolve_b
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -5970,7 +5970,7 @@ check("test_PRD_P0_152_style_number_grouping__a_number_with_no_match_creates_a_n
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -6001,7 +6001,7 @@ check("test_PRD_P0_152_style_number_grouping__an_existing_category_matched_by_na
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -6034,7 +6034,7 @@ check("test_PRD_P0_152_style_number_grouping__a_name_that_already_has_a_differen
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -6072,7 +6072,7 @@ check("test_PRD_P0_152_style_number_grouping__a_near_duplicate_subcategory_name_
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "sana@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "sana@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -6135,14 +6135,14 @@ check("test_PRD_P0_152_style_number_grouping__a_row_naming_an_existing_category_
     seed = await draftProductBatch(f.env, {
       text: "Style #,Category,Subcategory,Description,Price\n70-01-001,Jacket,Blazer,Black Blazer,165.00\n",
       actor: "keiko@vemians.com",
-      role: "manager",
+      role: "manager", mode: "add",
     });
     assert.equal(seed.created.length, 1, `seed row failed: ${JSON.stringify(seed)}`);
 
     result = await draftProductBatch(f.env, {
       text: "title,category,subcategory,price\nWhite Blazer,Jacket,Blazer,175.00\n",
       actor: "keiko@vemians.com",
-      role: "manager",
+      role: "manager", mode: "add",
     });
   } finally {
     globalThis.fetch = realFetch;
@@ -6167,14 +6167,14 @@ check("test_PRD_P0_152_style_number_grouping__matching_a_named_category_folds_pl
     seed = await draftProductBatch(f.env, {
       text: "Style #,Category,Subcategory,Description,Price\n71-01-001,Jacket,Blazer,Black Blazer,165.00\n",
       actor: "keiko@vemians.com",
-      role: "manager",
+      role: "manager", mode: "add",
     });
     assert.equal(seed.created.length, 1);
 
     result = await draftProductBatch(f.env, {
       text: "title,category,subcategory,price\nWhite Blazer,Jackets,Blazers,175.00\n",
       actor: "keiko@vemians.com",
-      role: "manager",
+      role: "manager", mode: "add",
     });
   } finally {
     globalThis.fetch = realFetch;
@@ -6199,7 +6199,7 @@ check("test_PRD_P0_152_style_number_grouping__a_named_category_or_subcategory_ma
     result = await draftProductBatch(f.env, {
       text: "title,category,subcategory,price\nMystery Item,Brand New Category,Brand New Sub,50.00\n",
       actor: "keiko@vemians.com",
-      role: "manager",
+      role: "manager", mode: "add",
     });
   } finally {
     globalThis.fetch = realFetch;
@@ -6235,7 +6235,7 @@ check("test_PRD_P0_152_style_number_grouping__a_top_level_pool_with_no_free_numb
   const result = await draftProductBatch(f.env, {
     text: "title,category,subcategory,price\nMystery Item,Brand New Category,Brand New Sub,50.00\n",
     actor: "omar@vemians.com",
-    role: "manager",
+    role: "manager", mode: "add",
   });
   assert.equal(result.created.length, 0);
   assert.equal(result.ready.length, 1);
@@ -6256,7 +6256,7 @@ check("test_PRD_P0_152_style_number_grouping__a_subcategory_pool_with_no_free_nu
       .run(`sub-filler-${n}`, `SQ_SUB_FILLER_${n}`, `Sub Filler ${n}`, outerwear.id, String(n).padStart(2, "0"));
   }
   const csv = "Style #,Category,Subcategory,Description,Price\n01-01-001,Outerwear,Brand New Subcategory,A coat,165.00\n";
-  const result = await draftProductBatch(f.env, { text: csv, actor: "noor@vemians.com", role: "manager" });
+  const result = await draftProductBatch(f.env, { text: csv, actor: "noor@vemians.com", role: "manager" , mode: "add"});
   assert.equal(result.created.length, 0);
   assert.equal(result.ready.length, 1);
   assert.match(result.ready[0].summary, /no free subcategory number available/);
@@ -6290,7 +6290,7 @@ check("test_PRD_P0_152_style_number_grouping__a_batch_import_is_not_starved_by_t
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor, role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor, role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -6321,7 +6321,7 @@ check("test_PRD_P0_152_style_number_grouping__onprogress_fires_once_per_row_as_e
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager", onProgress });
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager", onProgress , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -6335,7 +6335,7 @@ check("test_PRD_P0_152_style_number_grouping__onprogress_fires_once_per_row_as_e
 });
 
 check("test_PRD_P0_152_style_number_grouping__batch_progress_is_cleared_once_the_real_customer_dispatch_finishes", async () => {
-  /* REVISED — catalog_draft_product_batch no longer uses BATCH_PROGRESS at
+  /* REVISED — catalog_add_product_batch no longer uses BATCH_PROGRESS at
      all (dispatchProductBatchPlan/planProductBatch replace the one-call
      create-everything path onProgress/recordBatchProgress were built for —
      see planProductBatch's own header comment, batch.js); this mechanism
@@ -6382,9 +6382,9 @@ check("test_PRD_P0_152_style_number_grouping__a_plan_rows_own_submission_is_sing
   let outcome;
   try {
     outcome = await dispatch(
-      "catalog_draft_product_batch",
+      "catalog_add_product_batch",
       { asset_id: "ast_1" },
-      { actor: "zeynep@vemians.com", role: "manager", env, allowed: new Set(["catalog_draft_product_batch"]) },
+      { actor: "zeynep@vemians.com", role: "manager", env, allowed: new Set(["catalog_add_product_batch"]) },
     );
     assert.equal(outcome.kind, "checklist");
     assert.equal(outcome.checklist.rows.length, 1);
@@ -6417,9 +6417,9 @@ check("test_PRD_P0_152_style_number_grouping__a_plan_belongs_to_the_actor_who_ra
   globalThis.fetch = f.square;
   try {
     const outcome = await dispatch(
-      "catalog_draft_product_batch",
+      "catalog_add_product_batch",
       { asset_id: "ast_1" },
-      { actor: "zeynep@vemians.com", role: "manager", env, allowed: new Set(["catalog_draft_product_batch"]) },
+      { actor: "zeynep@vemians.com", role: "manager", env, allowed: new Set(["catalog_add_product_batch"]) },
     );
     assert.equal(outcome.kind, "checklist");
     const row = outcome.checklist.rows[0].row;
@@ -6456,9 +6456,9 @@ check("test_PRD_P0_152_style_number_grouping__the_checklists_own_title_can_be_ed
   globalThis.fetch = f.square;
   try {
     const outcome = await dispatch(
-      "catalog_draft_product_batch",
+      "catalog_add_product_batch",
       { asset_id: "ast_1" },
-      { actor: "zeynep@vemians.com", role: "manager", env, allowed: new Set(["catalog_draft_product_batch"]) },
+      { actor: "zeynep@vemians.com", role: "manager", env, allowed: new Set(["catalog_add_product_batch"]) },
     );
     assert.equal(outcome.kind, "checklist");
     assert.match(outcome.checklist.rows[0].title, /Wool Coat/, "the checklist itself still shows the originally planned title");
@@ -6493,9 +6493,9 @@ check("test_PRD_P0_152_style_number_grouping__a_blank_edited_title_falls_back_to
   globalThis.fetch = f.square;
   try {
     const outcome = await dispatch(
-      "catalog_draft_product_batch",
+      "catalog_add_product_batch",
       { asset_id: "ast_1" },
-      { actor: "zeynep@vemians.com", role: "manager", env, allowed: new Set(["catalog_draft_product_batch"]) },
+      { actor: "zeynep@vemians.com", role: "manager", env, allowed: new Set(["catalog_add_product_batch"]) },
     );
     const row = outcome.checklist.rows[0].row;
 
@@ -6519,14 +6519,14 @@ check("test_PRD_P0_152_style_number_grouping__a_named_category_with_no_subcatego
     seed = await draftProductBatch(f.env, {
       text: "Style #,Category,Subcategory,Description,Price\n72-01-001,Jacket,Blazer,Black Blazer,165.00\n",
       actor: "keiko@vemians.com",
-      role: "manager",
+      role: "manager", mode: "add",
     });
     assert.equal(seed.created.length, 1);
 
     result = await draftProductBatch(f.env, {
       text: "title,category,price\nSome Coat,Jacket,50.00\n",
       actor: "keiko@vemians.com",
-      role: "manager",
+      role: "manager", mode: "add",
     });
   } finally {
     globalThis.fetch = realFetch;
@@ -6548,14 +6548,14 @@ check("test_PRD_P0_152_style_number_grouping__two_named_rows_matching_the_same_c
     seed = await draftProductBatch(f.env, {
       text: "Style #,Category,Subcategory,Description,Price\n73-01-001,Jacket,Blazer,Black Blazer,165.00\n",
       actor: "keiko@vemians.com",
-      role: "manager",
+      role: "manager", mode: "add",
     });
     assert.equal(seed.created.length, 1);
 
     result = await draftProductBatch(f.env, {
       text: "title,category,subcategory,price\nWhite Blazer,Jacket,Blazer,175.00\nGrey Blazer,Jacket,Blazer,180.00\n",
       actor: "keiko@vemians.com",
-      role: "manager",
+      role: "manager", mode: "add",
     });
   } finally {
     globalThis.fetch = realFetch;
@@ -6570,7 +6570,7 @@ check("test_PRD_P0_152_style_number_grouping__two_named_rows_matching_the_same_c
 check("test_PRD_P0_89_batch_preview_confirm__a_named_category_row_previews_with_auto_generated_style_id_and_sku", async () => {
   const { previewBatch } = await import("../src/batch.js");
   const f = await fixture();
-  const preview = await previewBatch(f.env, "title,category,subcategory,price\nWhite Blazer,Jacket,Blazer,175.00\n", "products");
+  const preview = await previewBatch(f.env, "title,category,subcategory,price\nWhite Blazer,Jacket,Blazer,175.00\n", "products", "add");
   assert.equal(preview.sampleRows.length, 1, "a named row previews as a real product, not dropped");
   const row = preview.sampleRows[0];
   assert.equal(row.title, "White Blazer");
@@ -6591,7 +6591,7 @@ check("test_PRD_P0_89_batch_preview_confirm__a_named_category_row_with_nothing_t
      exactly as given. */
   const { previewBatch } = await import("../src/batch.js");
   const f = await fixture();
-  const preview = await previewBatch(f.env, "title,category,subcategory,price\nMystery Item,Nonexistent Category,Nonexistent Sub,50.00\n", "products");
+  const preview = await previewBatch(f.env, "title,category,subcategory,price\nMystery Item,Nonexistent Category,Nonexistent Sub,50.00\n", "products", "add");
   assert.equal(preview.sampleRows.length, 1);
   const row = preview.sampleRows[0];
   assert.equal(row.title, "Mystery Item");
@@ -6617,7 +6617,7 @@ check("test_PRD_P0_152_style_number_grouping__a_style_number_that_does_not_match
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -6647,7 +6647,7 @@ check("test_PRD_P0_152_style_number_grouping__a_totals_rows_blank_style_number_i
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -6667,7 +6667,7 @@ check("test_PRD_P0_152_style_number_grouping__a_bad_price_on_any_one_row_skips_t
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -6719,7 +6719,7 @@ check("test_PRD_P0_152_style_number_grouping__the_actual_sample_sheet_drafts_six
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -6774,7 +6774,7 @@ check("test_PRD_P0_152_style_number_grouping__a_description_column_standing_in_f
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -6798,7 +6798,7 @@ check("test_PRD_P0_152_style_number_grouping__a_real_title_column_still_keeps_it
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -6827,6 +6827,7 @@ check("test_PRD_P0_152_style_number_grouping__the_preview_shows_the_same_title_f
     "Style #,Category,Subcategory,Description,Color,Size,Cost (USD),Retail Price\n" +
       "001-001-001-BLK-S,Jacket,Blazer,Black hand-painted blazer,Black,S,30,165\n",
     "products",
+    "add",
   );
   assert.equal(noTitleColumn.sampleRows[0].title, "Black hand-painted blazer", "the description stands in for the missing title, same as the real draft");
   assert.equal(noTitleColumn.sampleRows[0].description, null, "never shown as a SEPARATE description too -- it already became the title");
@@ -6836,6 +6837,7 @@ check("test_PRD_P0_152_style_number_grouping__the_preview_shows_the_same_title_f
     "Style #,Title,Category,Subcategory,Description,Color,Size,Cost (USD),Retail Price\n" +
       "001-001-001-BLK-S,Bomber Blazer,Jacket,Blazer,A hand-painted piece,Black,S,30,165\n",
     "products",
+    "add",
   );
   assert.equal(withTitleColumn.sampleRows[0].title, "Bomber Blazer", "a real title column still wins outright");
   assert.equal(withTitleColumn.sampleRows[0].description, "A hand-painted piece", "and keeps its own separate description, unaffected");
@@ -6857,7 +6859,7 @@ check("test_PRD_P0_152_style_number_grouping__a_tbd_color_or_size_is_dropped_as_
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -6897,7 +6899,7 @@ check("test_PRD_P0_152_style_number_grouping__a_vendor_code_given_without_a_vend
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "sana@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "sana@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -6921,7 +6923,7 @@ check("test_PRD_P0_152_style_number_grouping__an_unparseable_unit_cost_with_a_ve
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "sana@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "sana@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -6964,7 +6966,7 @@ check("test_PRD_P0_146_dynamic_option_values__revised_a_row_with_no_style_id_is_
   globalThis.fetch = f.square;
   let result;
   try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "tamsin@vemians.com", role: "manager" });
+    result = await draftProductBatch(f.env, { text: csv, actor: "tamsin@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -6987,6 +6989,7 @@ check("test_PRD_P0_152_style_number_grouping__the_preview_shows_the_same_sku_fal
     "Style #,Category,Subcategory,Description,Color,Size,Cost (USD),Retail Price\n" +
       "001-001-001-BLK-S,Jacket,Blazer,Black hand-painted blazer,Black,S,30,165\n",
     "products",
+    "add",
   );
   assert.equal(preview.sampleRows[0].sku, "(auto-generated)");
   assert.equal(preview.sampleRows[0].style_id, "(auto-generated)");
@@ -7004,6 +7007,7 @@ check("test_PRD_P0_152_style_number_grouping__the_preview_drops_a_tbd_color_or_s
     "Style #,Category,Subcategory,Description,Color,Size,Cost (USD),Retail Price\n" +
       "001-001-003-TBD-S,Jacket,Blazer,Embellished blazer,TBD,S,35,125\n",
     "products",
+    "add",
   );
   assert.equal(preview.sampleRows[0].color, null, "TBD previews as genuinely absent, matching what the real product ends up with");
   assert.equal(preview.sampleRows[0].size, "S", "a real size is unaffected");
@@ -7018,7 +7022,7 @@ check("test_PRD_P0_152_style_number_grouping__the_preview_says_a_blank_title_wil
      title/description bug already was. */
   const { previewBatch } = await import("../src/batch.js");
   const f = await fixture();
-  const preview = await previewBatch(f.env, "category,price,style id\nOuterwear,45.00,01-04-001\n", "products");
+  const preview = await previewBatch(f.env, "category,price,style id\nOuterwear,45.00,01-04-001\n", "products", "add");
   assert.equal(preview.sampleRows[0].title, "(auto-generated from its category)");
 });
 
@@ -7049,7 +7053,7 @@ check("test_PRD_P0_89_batch_preview_confirm__a_style_numbered_group_previews_siz
     "001-001-001-BLK-S,Jacket,Black hand-painted blazer,Black,S,165.00\n" +
     "001-001-001-BLK-M,Jacket,Black hand-painted blazer,Black,M,165.00\n" +
     "001-001-001-BLK-L,Jacket,Black hand-painted blazer,Black,L,180.00\n";
-  const preview = await previewBatch(f.env, csv, "products");
+  const preview = await previewBatch(f.env, csv, "products", "add");
 
   assert.equal(preview.rowCount, 3, "three raw CSV rows were read");
   assert.equal(preview.sampleRows.length, 1, "all three variants collapse into the one product they actually are");
@@ -7071,7 +7075,7 @@ check("test_PRD_P0_89_batch_preview_confirm__a_style_numbered_group_previews_siz
 check("test_PRD_P0_89_batch_preview_confirm__a_lone_variant_group_still_previews_its_own_real_sku_same_as_before", async () => {
   const { previewBatch } = await import("../src/batch.js");
   const f = await fixture();
-  const preview = await previewBatch(f.env, "Style #,Category,Description,Color,Size,Retail Price\n001-001-002-RED-M,Jacket,Red Blazer,Red,M,150.00\n", "products");
+  const preview = await previewBatch(f.env, "Style #,Category,Description,Color,Size,Retail Price\n001-001-002-RED-M,Jacket,Red Blazer,Red,M,150.00\n", "products", "add");
   const row = preview.sampleRows[0];
   assert.equal(row.variants, 1);
   assert.equal(row.sku, "(auto-generated)", "a group of exactly one variant previews the same literal fallback as any other -- never a real value");
@@ -7092,7 +7096,7 @@ check("test_PRD_P0_89_batch_preview_confirm__a_row_with_no_style_id_never_appear
      one always was, so this sheet previews as nothing at all. */
   const { previewBatch } = await import("../src/batch.js");
   const f = await fixture();
-  const preview = await previewBatch(f.env, "title,category,price\nLoose Scarf,Accessories,35.00\n", "products");
+  const preview = await previewBatch(f.env, "title,category,price\nLoose Scarf,Accessories,35.00\n", "products", "add");
   assert.equal(preview.sampleRows.length, 0, "no style number at all -- not a real product row, not previewed either");
 });
 
@@ -7109,7 +7113,7 @@ check("test_PRD_P0_89_batch_preview_confirm__a_style_id_less_row_in_a_mixed_shee
     ",001-001-003-BLU-S,Jacket,Blue,S,140.00\n" +
     ",001-001-003-BLU-M,Jacket,Blue,M,140.00\n" +
     "Loose Scarf,,Accessories,,,35.00\n";
-  const preview = await previewBatch(f.env, csv, "products");
+  const preview = await previewBatch(f.env, csv, "products", "add");
 
   assert.equal(preview.rowCount, 3);
   assert.equal(preview.sampleRows.length, 1, "only the real, style-numbered group previews -- the style-id-less row is dropped outright");
@@ -7157,13 +7161,13 @@ check("test_PRD_P0_179_import_style_number_matching__resubmitting_the_same_style
   let first;
   let second;
   try {
-    first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager" });
+    first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager" , mode: "add"});
     assert.equal(first.created.length, 1, `expected the first submission to create, got: ${JSON.stringify(first)}`);
     assert.equal(first.created[0].action, "created");
 
     /* Resubmitted: same style number, a real price/cost CHANGE. */
     const csv2 = "title,category,price,cost,style id\nWool Coat,Outerwear,475.00,225.00,01-04-001\n";
-    second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager" });
+    second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager" , mode: "update"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -7193,7 +7197,7 @@ check("test_PRD_P0_179_import_style_number_matching__each_size_is_matched_by_its
   globalThis.fetch = f.square;
   let second;
   try {
-    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager" });
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager" , mode: "add"});
     assert.equal(first.created.length, 1, `expected the first submission to create, got: ${JSON.stringify(first)}`);
 
     /* Resubmitted with the ROWS REORDERED (L, then S, then M) and new
@@ -7204,7 +7208,7 @@ check("test_PRD_P0_179_import_style_number_matching__each_size_is_matched_by_its
       "Wool Coat,Outerwear,999.00,01-04-002,Black,L\n" +
       "Wool Coat,Outerwear,105.00,01-04-002,Black,S\n" +
       "Wool Coat,Outerwear,115.00,01-04-002,Black,M\n";
-    second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager" });
+    second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager" , mode: "update"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -7230,7 +7234,7 @@ check("test_PRD_P0_179_import_style_number_matching__a_genuinely_new_size_on_a_r
   globalThis.fetch = f.square;
   let second;
   try {
-    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager" });
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager" , mode: "add"});
     assert.equal(first.created.length, 1);
 
     /* Resubmitted with an extra row for a size that never existed before. */
@@ -7238,7 +7242,7 @@ check("test_PRD_P0_179_import_style_number_matching__a_genuinely_new_size_on_a_r
       "title,category,price,style id,size\n" +
       "Wool Coat,Outerwear,100.00,01-04-003,S\n" +
       "Wool Coat,Outerwear,100.00,01-04-003,XL\n";
-    second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager" });
+    second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager" , mode: "update"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -7259,7 +7263,7 @@ check("test_PRD_P0_179_import_style_number_matching__stock_quantity_is_never_tou
   const realFetch = globalThis.fetch;
   globalThis.fetch = f.square;
   try {
-    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager" });
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager" , mode: "add"});
     assert.equal(first.created.length, 1);
     const pushCountBefore = f.calls().filter((c) => c.path === "/v2/inventory/changes/batch-create").length;
     assert.equal(pushCountBefore, 1, "the initial create really did push a real stock count");
@@ -7268,7 +7272,7 @@ check("test_PRD_P0_179_import_style_number_matching__stock_quantity_is_never_tou
        inventory-ledger guarantee: no write outside inventory.adjust ever
        silently changes stock, and this resubmit is no exception. */
     const csv2 = "title,category,price,style id,quantity\nWool Coat,Outerwear,120.00,01-04-004,99\n";
-    const second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager" });
+    const second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager" , mode: "update"});
     assert.equal(second.created.length, 1);
     assert.equal(second.created[0].action, "updated");
 
@@ -7301,7 +7305,7 @@ check("test_PRD_P0_179_import_style_number_matching__a_later_category_move_never
   const realFetch = globalThis.fetch;
   globalThis.fetch = f.square;
   try {
-    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager" });
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager" , mode: "add"});
     assert.equal(first.created.length, 1, `expected the first submission to create, got: ${JSON.stringify(first)}`);
 
     const before = f.mirror("SELECT id, handle, style_id, import_style_number FROM mirror_product WHERE title = 'Wool Coat'")[0];
@@ -7326,7 +7330,7 @@ check("test_PRD_P0_179_import_style_number_matching__a_later_category_move_never
        still finds and updates the SAME product, even though its style_id
        is now something else entirely. */
     const csv2 = "title,category,price,style id\nWool Coat,Casual,130.00,01-04-005\n";
-    const second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager" });
+    const second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager" , mode: "update"});
     assert.equal(second.created.length, 1, `expected the resubmit to update, got: ${JSON.stringify(second)}`);
     assert.equal(second.created[0].action, "updated");
     assert.equal(second.created[0].handle, before.handle);
@@ -7347,7 +7351,7 @@ check("test_PRD_P0_179_import_style_number_matching__the_preview_shows_a_matched
   globalThis.fetch = f.square;
   let created;
   try {
-    created = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager" });
+    created = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager" , mode: "add"});
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -7357,7 +7361,7 @@ check("test_PRD_P0_179_import_style_number_matching__the_preview_shows_a_matched
      (nothing here ever calls Square), but no longer blind to the fact
      that a real match is already on file. */
   const csv2 = "title,category,price,style id\nWool Coat,Outerwear,130.00,01-04-006\n";
-  const preview = await previewBatch(f.env, csv2, "products");
+  const preview = await previewBatch(f.env, csv2, "products", "update");
   assert.equal(preview.sampleRows.length, 1);
   assert.match(preview.sampleRows[0].will_update, /Wool Coat/);
   assert.equal(preview.sampleRows[0].sku, "(unchanged)");
@@ -7366,7 +7370,7 @@ check("test_PRD_P0_179_import_style_number_matching__the_preview_shows_a_matched
   /* A brand-new style number on the same sheet previews the ordinary way
      -- no match, no `will_update` field at all. */
   const csv3 = "title,category,price,style id\nDenim Jacket,Outerwear,80.00,01-04-007\n";
-  const freshPreview = await previewBatch(f.env, csv3, "products");
+  const freshPreview = await previewBatch(f.env, csv3, "products", "update");
   assert.equal("will_update" in freshPreview.sampleRows[0], false);
   assert.equal(freshPreview.sampleRows[0].sku, "(auto-generated)");
 });
@@ -7399,9 +7403,9 @@ check("test_PRD_P0_180_batch_submit_row_http_status__the_real_route_returns_a_re
   globalThis.fetch = f.square;
   try {
     const outcome = await dispatch(
-      "catalog_draft_product_batch",
+      "catalog_add_product_batch",
       { asset_id: "ast_1" },
-      { actor: "mara@vemians.com", role: "manager", env: { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) }, allowed: new Set(["catalog_draft_product_batch"]) },
+      { actor: "mara@vemians.com", role: "manager", env: { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) }, allowed: new Set(["catalog_add_product_batch"]) },
     );
     assert.equal(outcome.kind, "checklist", `expected a checklist, got: ${JSON.stringify(outcome)}`);
     assert.equal(outcome.checklist.rows.length, 1);
@@ -7464,7 +7468,7 @@ check("test_PRD_P0_181_resubmit_matching_refinements__a_resubmit_matches_by_the_
   const realFetch = globalThis.fetch;
   globalThis.fetch = f.square;
   try {
-    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager" });
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager" , mode: "add"});
     assert.equal(first.created.length, 1, `expected the first submission to create, got: ${JSON.stringify(first)}`);
 
     const before = f.mirror("SELECT id, handle, style_id, import_style_number FROM mirror_product WHERE title = 'Wool Coat'")[0];
@@ -7483,7 +7487,7 @@ check("test_PRD_P0_181_resubmit_matching_refinements__a_resubmit_matches_by_the_
 
     /* Resubmitted keyed on the CURRENT style_id, not the stale original. */
     const csv2 = "title,category,price,style id\nWool Coat,Formal,140.00,01-06-001\n";
-    const second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager" });
+    const second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager" , mode: "update"});
     assert.equal(second.created.length, 1, `expected the resubmit to update, got: ${JSON.stringify(second)}`);
     assert.equal(second.created[0].action, "updated");
     assert.equal(second.created[0].handle, before.handle);
@@ -7509,7 +7513,7 @@ check("test_PRD_P0_181_resubmit_matching_refinements__a_renumbered_style_number_
   const realFetch = globalThis.fetch;
   globalThis.fetch = f.square;
   try {
-    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager" });
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager" , mode: "add"});
     assert.equal(first.created.length, 1, `expected the first submission to create, got: ${JSON.stringify(first)}`);
     const before = f.mirror("SELECT id, handle FROM mirror_product WHERE title = 'Wool Coat'")[0];
 
@@ -7518,7 +7522,7 @@ check("test_PRD_P0_181_resubmit_matching_refinements__a_renumbered_style_number_
        style_id at all. Same category/subcategory NAMES and same title,
        though, so the fallback still finds it. */
     const csv2 = "title,category,subcategory,price,style id\nWool Coat,Outerwear,Casual,155.00,77-77-001\n";
-    const second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager" });
+    const second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager" , mode: "update"});
     assert.equal(second.created.length, 1, `expected the renumbered resubmit to update, got: ${JSON.stringify(second)}`);
     assert.equal(second.created[0].action, "updated");
     assert.equal(second.created[0].handle, before.handle);
@@ -7550,14 +7554,14 @@ check("test_PRD_P0_181_resubmit_matching_refinements__an_ambiguous_title_match_p
   const realFetch = globalThis.fetch;
   globalThis.fetch = f.square;
   try {
-    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager" });
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager" , mode: "add"});
     assert.equal(first.created.length, 2, `expected two separate products, got: ${JSON.stringify(first)}`);
 
     /* A THIRD, unrelated style number, same category/subcategory/title --
        matches neither existing product by style number, and now matches
        BOTH of them by category+title. Too ambiguous to guess. */
     const csv2 = "title,category,subcategory,price,style id\nWool Coat,Outerwear,Casual,999.00,01-04-007\n";
-    const second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager" });
+    const second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager" , mode: "update"});
     assert.equal(second.created.length, 0, "never silently created a third, and never silently updated either");
     assert.equal(second.ready.length, 1, "parked for a person, the same as any other clash");
     assert.match(second.ready[0].summary, /matches 2 existing products/);
@@ -7576,7 +7580,7 @@ check("test_PRD_P0_181_resubmit_matching_refinements__a_legacy_vendor_less_produ
   const realFetch = globalThis.fetch;
   globalThis.fetch = f.square;
   try {
-    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager" });
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager" , mode: "add"});
     assert.equal(first.created.length, 1);
     const before = f.mirror("SELECT id, handle FROM mirror_product WHERE title = 'Wool Coat'")[0];
 
@@ -7593,7 +7597,7 @@ check("test_PRD_P0_181_resubmit_matching_refinements__a_legacy_vendor_less_produ
     /* Resubmitted with a real cost -- must not park as a clash over a
        vendor this file can safely default on its own. */
     const csv2 = "title,category,price,style id,cost\nWool Coat,Outerwear,100.00,01-04-005,42.00\n";
-    const second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager" });
+    const second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager" , mode: "update"});
     assert.equal(second.created.length, 1, `expected the resubmit to update, got: ${JSON.stringify(second)}`);
     assert.equal(second.created[0].action, "updated");
 

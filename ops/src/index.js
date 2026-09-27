@@ -383,9 +383,11 @@ async function ops(request, env, path) {
     }
 
     let file;
+    let mode;
     try {
       const form = await request.formData();
       file = form.get("file");
+      mode = form.get("mode");
     } catch (err) {
       return html(refusalPage(400, `Unreadable upload — ${err.message}`), 400);
     }
@@ -398,9 +400,22 @@ async function ops(request, env, path) {
         413,
       );
     }
+    /* "I think we should have two distinct commands. Add new products or
+       update products" — the owner's own words (Test-PRD-P0-182-explicit_
+       add_or_update_mode). This page's own form requires picking one (two
+       radio buttons, neither pre-checked, batchUploadPage's own comment) —
+       a submission with neither checked, or a hand-crafted request that
+       skips the form entirely, is refused here rather than silently
+       defaulting to either mode. Customers have no such choice at all.
+       Checked AFTER the file itself is validated: an empty or oversized
+       upload is wrong regardless of mode, and deserves that more specific
+       answer first. */
+    if (kind === "products" && mode !== "add" && mode !== "update") {
+      return html(refusalPage(400, 'Choose whether this spreadsheet adds new products or updates existing ones.'), 400);
+    }
 
     const text = await file.text();
-    const result = await draftFn(env, { text, actor: email, role });
+    const result = await draftFn(env, { text, actor: email, role, ...(kind === "products" ? { mode } : {}) });
     return html(batchReviewPage(result, kind));
   }
 

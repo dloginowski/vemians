@@ -384,20 +384,49 @@ export const NO_TEXT_TABLE_NOTE =
   "yourself in any form (a markdown table, a bulleted or arrow-style field-by-field mapping, an ASCII grid); " +
   "reply in one or two plain sentences (counts, anything that looks wrong) and let the table do the showing.";
 
+/* "I think we should have two distinct commands. Add new products or
+   update products, right? Update products will try to match products
+   using the current spreadsheet... add new products will not try to
+   match... The working assumption here is when I'm adding new products, I
+   don't expect to be re-updating anything. I'm just adding new products.
+   When I'm updating products, I'm expecting there to be matching
+   products, and I expect you to be looking for matches" — the owner's own
+   words, retiring the single catalog_preview_product_batch/catalog_draft_
+   product_batch pair (Test-PRD-P0-182-explicit_add_or_update_mode): FOUR
+   tool names now, one preview/draft pair per mode, so the choice is made
+   once, by NAME, rather than an argument the model could get wrong. Which
+   one to call is a judgment about the PERSON's own intent (are they
+   adding brand-new stock, or handing over a sheet of items they already
+   sell with updated numbers?) — never guessed from the sheet's own
+   contents, and never defaulted. */
+/* The one place that translates a product-batch tool's NAME into the
+   `mode` batch.js's own functions now require (Test-PRD-P0-182-explicit_
+   add_or_update_mode) -- undefined for a customer tool (customers have no
+   add/update distinction at all), which every caller below already treats
+   as "this is the customer path" the same way a bare kind check used to. */
+const PRODUCT_BATCH_MODE_BY_TOOL = {
+  catalog_add_product_batch: "add",
+  catalog_preview_add_product_batch: "add",
+  catalog_update_product_batch: "update",
+  catalog_preview_update_product_batch: "update",
+};
+
 const PREVIEW_TOOL_DEFS = [
   {
-    name: "catalog_preview_product_batch",
+    name: "catalog_preview_add_product_batch",
     description:
       "Read only the column headings and first row of an attached spreadsheet (asset id from the attachment " +
       "note) and show how they map to title/category/price/description/sku — without creating anything at " +
-      "all. Call this FIRST for any spreadsheet of products: catalog_draft_product_batch now creates every " +
-      "row that resolves cleanly IMMEDIATELY, with no approval step of its own, so this preview is the one " +
-      "chance to catch a wrong column mapping before it becomes real, wrong products — show the person the " +
-      "mapping, and wait for them to confirm it looks right before calling catalog_draft_product_batch. " +
-      "You do not need to remember or re-supply this exact asset id later: this app tracks, on its own, " +
-      "which file you most recently previewed for you, and catalog_draft_product_batch automatically uses " +
-      "that one when you call it — pass whatever asset_id you have at that point, even a guess, it is not " +
-      "what actually decides which file gets drafted." +
+      "all, and WITHOUT checking whether any row already matches an existing product (that is catalog_" +
+      "preview_update_product_batch's own job — use it instead when the person is handing over updated " +
+      "numbers for items they already sell, not brand-new stock). Call this FIRST for any spreadsheet of " +
+      "NEW products: catalog_add_product_batch creates every row that resolves cleanly IMMEDIATELY, with no " +
+      "approval step of its own, so this preview is the one chance to catch a wrong column mapping before it " +
+      "becomes real, wrong products — show the person the mapping, and wait for them to confirm it looks " +
+      "right before calling catalog_add_product_batch. You do not need to remember or re-supply this exact " +
+      "asset id later: this app tracks, on its own, which file you most recently previewed for you, and " +
+      "catalog_add_product_batch automatically uses that one when you call it — pass whatever asset_id you " +
+      "have at that point, even a guess, it is not what actually decides which file gets drafted." +
       NO_TEXT_TABLE_NOTE,
     /* A row that resolves cleanly still creates immediately, unaffected;
        a row with a real CLASH (a category name already numbered
@@ -417,8 +446,27 @@ const PREVIEW_TOOL_DEFS = [
     },
   },
   {
+    name: "catalog_preview_update_product_batch",
+    description:
+      "The same column-mapping preview as catalog_preview_add_product_batch, for a spreadsheet meant to " +
+      "UPDATE products this shop already sells, not add new ones — use this one when the person hands over " +
+      "a sheet of already-existing items with corrected prices, costs, or other details. Each row's own " +
+      "preview additionally shows `will_update: \"<title> (<handle>)\"` when it already, confidently matches " +
+      "an existing product (by style number, by its current style ID, or by category/subcategory/title), or " +
+      "an `update_note` when it does not — the real update run also tries matching by category/subcategory/" +
+      "title, a check this read-only preview does not attempt, so `update_note` means \"no confirmed match " +
+      "yet,\" never \"will fail.\" Call this FIRST, the same as the add-mode preview, and wait for the person " +
+      "to confirm before calling catalog_update_product_batch." +
+      NO_TEXT_TABLE_NOTE,
+    input_schema: {
+      type: "object",
+      properties: { asset_id: { type: "string", description: "The asset id named in the attachment note." } },
+      required: ["asset_id"],
+    },
+  },
+  {
     name: "customer_preview_customer_batch",
-    description: "The same as catalog_preview_product_batch, for a spreadsheet of customers instead of products." + NO_TEXT_TABLE_NOTE,
+    description: "The same as catalog_preview_add_product_batch, for a spreadsheet of customers instead of products." + NO_TEXT_TABLE_NOTE,
     input_schema: {
       type: "object",
       properties: { asset_id: { type: "string", description: "The asset id named in the attachment note." } },
@@ -429,25 +477,50 @@ const PREVIEW_TOOL_DEFS = [
 
 const BATCH_TOOL_DEFS = [
   {
-    name: "catalog_draft_product_batch",
+    name: "catalog_add_product_batch",
     description:
       "Parse an attached spreadsheet (already uploaded — pass the asset id from the attachment note) " +
-      "into products: matches column headings (title/name/item/style, category, price, description, sku " +
+      "into NEW products: matches column headings (title/name/item/style, category, price, description, sku " +
       "— any reasonable spelling) the same way /products/batch does, and CREATES every row that resolves " +
       "cleanly RIGHT NOW — no approval link, no second click, the person's own chat confirmation IS the " +
-      "deliberate action. A row with a genuine CLASH instead (a category name already numbered differently, " +
-      "a price that will not parse) mints its OWN separate, " +
-      "EDITABLE T2 approval link for a person to open, fix, and approve — never silently guessed at, never " +
-      "a bare skip either, since \"the only time you want to do an approval link is if there's a clash and " +
-      "it has to be resolved by a person\" is the owner's own rule. Every other genuinely bad row (nothing " +
-      "to salvage — a rate cap, the actor's own role) is still reported as a plain skip with its real " +
-      "reason, never blocking any OTHER row. Call catalog_preview_product_batch on the same asset FIRST and " +
-      "wait for the person to confirm the mapping looks right before calling this one — a clean row is not " +
-      "undoable by declining, there is no button left to not click. This app automatically drafts whichever " +
-      "file you most recently previewed, regardless of the asset_id argument given here, so there is no need " +
-      "to recall or re-derive the exact id from an earlier turn — pass whatever value is at hand and never " +
-      "call assets.list to try to relocate the file yourself. This is the same deterministic logic the " +
-      "dedicated upload page uses, just reached from chat." +
+      "deliberate action. This NEVER checks whether a row already matches an existing product — every row " +
+      "that resolves cleanly becomes a brand-new product, even if an identical style number, style ID, or " +
+      "title already exists (that is precisely what catalog_update_product_batch is for; use it instead when " +
+      "the person means to update items they already sell, not add new stock). A row with a genuine CLASH " +
+      "instead (a category name already numbered differently, a price that will not parse) mints its OWN " +
+      "separate, EDITABLE T2 approval link for a person to open, fix, and approve — never silently guessed " +
+      "at, never a bare skip either, since \"the only time you want to do an approval link is if there's a " +
+      "clash and it has to be resolved by a person\" is the owner's own rule. Every other genuinely bad row " +
+      "(nothing to salvage — a rate cap, the actor's own role) is still reported as a plain skip with its " +
+      "real reason, never blocking any OTHER row. Call catalog_preview_add_product_batch on the same asset " +
+      "FIRST and wait for the person to confirm the mapping looks right before calling this one — a clean " +
+      "row is not undoable by declining, there is no button left to not click. This app automatically drafts " +
+      "whichever file you most recently previewed, regardless of the asset_id argument given here, so there " +
+      "is no need to recall or re-derive the exact id from an earlier turn — pass whatever value is at hand " +
+      "and never call assets.list to try to relocate the file yourself." +
+      NO_TEXT_TABLE_NOTE,
+    input_schema: {
+      type: "object",
+      properties: { asset_id: { type: "string", description: "The asset id named in the attachment note." } },
+      required: ["asset_id"],
+    },
+  },
+  {
+    name: "catalog_update_product_batch",
+    description:
+      "The same column-mapping and immediate-execution shape as catalog_add_product_batch, but for a " +
+      "spreadsheet meant to UPDATE products this shop already sells — \"when I'm updating products, I'm " +
+      "expecting there to be matching products, and I expect you to be looking for matches,\" the owner's " +
+      "own words. Every row is matched to an existing product first (by its style number, its CURRENT style " +
+      "ID, or its category/subcategory/title) and, when found, updates price/cost/title/description on that " +
+      "SAME product IMMEDIATELY — never creates a new one. A row that cannot be matched to anything at all " +
+      "is a CLASH, exactly like a bad price would be: parked as an ordinary, editable approval for a person " +
+      "to resolve (maybe this sheet needed catalog_add_product_batch instead; maybe the item's category data " +
+      "is wrong) — NEVER silently created as a new product, since this mode's whole point is that every row " +
+      "is expected to already exist. Call catalog_preview_update_product_batch on the same asset FIRST and " +
+      "wait for the person to confirm the mapping looks right, the same as the add-mode pair; this app " +
+      "automatically drafts whichever file was most recently previewed, so pass whatever asset_id is at hand " +
+      "and never call assets.list to relocate the file yourself." +
       NO_TEXT_TABLE_NOTE,
     input_schema: {
       type: "object",
@@ -458,7 +531,7 @@ const BATCH_TOOL_DEFS = [
   {
     name: "customer_draft_customer_batch",
     description:
-      "Mostly the same as catalog_draft_product_batch (call customer_preview_customer_batch on the same " +
+      "Mostly the same as catalog_add_product_batch (call customer_preview_customer_batch on the same " +
       "asset first, wait for the person to confirm the mapping, then call this one — this app automatically " +
       "drafts whichever file was most recently previewed, regardless of the asset_id argument given here, " +
       "so pass whatever value is at hand and never call assets.list to try to relocate the file yourself) — " +
@@ -578,11 +651,12 @@ async function dispatchBatchDraft(name, args, { actor, role, env }) {
   const asset = await readAssetText(env, args?.asset_id);
   if (asset.isError) return asset;
 
-  const draft = name === "catalog_draft_product_batch" ? draftProductBatch : draftCustomerBatch;
-  const kind = name === "catalog_draft_product_batch" ? "products" : "customers";
+  const mode = PRODUCT_BATCH_MODE_BY_TOOL[name];
+  const draft = mode ? draftProductBatch : draftCustomerBatch;
+  const kind = mode ? "products" : "customers";
   const onProgress = (progress) => recordBatchProgress(actor, { ...progress, kind });
   try {
-    const result = await draft(env, { text: asset.row.extracted_text, actor, role, onProgress });
+    const result = await draft(env, { text: asset.row.extracted_text, actor, role, onProgress, ...(mode ? { mode } : {}) });
     return { isError: false, text: formatBatchDraft(kind, result), table: batchDraftTable(kind, result) };
   } catch (err) {
     console.error(`ERROR agent: ${name} failed — ${err.message}`);
@@ -612,15 +686,15 @@ async function dispatchBatchDraft(name, args, { actor, role, env }) {
  * single product; that only happens later, one row per request, through
  * submitBatchPlanRow.
  */
-async function dispatchProductBatchPlan(args, { actor, role, env }) {
+async function dispatchProductBatchPlan(args, { actor, role, env, mode }) {
   const asset = await readAssetText(env, args?.asset_id);
   if (asset.isError) return asset;
 
   let plan;
   try {
-    plan = await planProductBatch(env, { text: asset.row.extracted_text, actor, role });
+    plan = await planProductBatch(env, { text: asset.row.extracted_text, actor, role, mode });
   } catch (err) {
-    console.error(`ERROR agent: catalog_draft_product_batch planning failed — ${err.message}`);
+    console.error(`ERROR agent: catalog_${mode}_product_batch planning failed — ${err.message}`);
     return { isError: true, text: `Drafting from "${asset.row.filename}" failed: ${err.message}` };
   }
 
@@ -638,12 +712,16 @@ async function dispatchProductBatchPlan(args, { actor, role, env }) {
   const readyCount = plan.rows.length;
   const lines = [
     `${readyCount} products ready to submit, ${plan.ready.length} need a person's decision, ${plan.skipped.length} skipped.`,
-    /* A row here can be a fresh create OR a resubmit-matched update
-       (import_style_number, Test-PRD-P0-179-import_style_number_matching)
-       — which one is already spelled out in that row's own `summary`
-       (runTool's own check() text, "create ..." vs "edit ..."), so this
-       line just stops promising every row is a create. */
-    "Review the list — each row says whether it will create or update — and press Submit to run the ready ones.",
+    /* mode "add" never matches at all (Test-PRD-P0-182-explicit_add_or_
+       update_mode) -- every ready row here really is a fresh create, so
+       this only needs the update-mode caveat when it could possibly be
+       true. In update mode, a row here is always a resubmit-matched
+       update, already spelled out in its own `summary` (runTool's own
+       check() text, "edit ..."), never a create -- update mode's own
+       unmatched rows are clashes (plan.ready), never reach this list. */
+    mode === "update"
+      ? "Review the list — every ready row will UPDATE an existing product — and press Submit to run the ready ones."
+      : "Review the list and press Submit to create the ready ones.",
   ];
   return {
     isError: false,
@@ -657,8 +735,9 @@ async function dispatchProductBatchPlan(args, { actor, role, env }) {
 }
 
 /*
- * Shared by both catalog_draft_product_batch and customer_draft_customer_batch
- * (dispatch(), below), which now diverge right after this same pre-check:
+ * Shared by catalog_add_product_batch, catalog_update_product_batch, and
+ * customer_draft_customer_batch (dispatch(), below), which now diverge
+ * right after this same pre-check:
  *
  *   - customer_draft_customer_batch still stashes a real PENDING approval
  *     here (the mechanism this comment used to describe for both) — "I need
@@ -668,7 +747,7 @@ async function dispatchProductBatchPlan(args, { actor, role, env }) {
  *     own separate, individual approval link (createRows, batch.js) — the
  *     outer click here is the only place the BATCH as a whole is ever
  *     approved, not a redundant second yes on top of one already given.
- *   - catalog_draft_product_batch, REVISED, no longer stashes anything at
+ *   - the two product tools, REVISED, no longer stash anything at
  *     all — "I shouldn't need to do that," the owner's own words, looking
  *     at exactly this approval card for a product batch. A person who
  *     already confirmed the preview mapping looks right has already made
@@ -689,8 +768,9 @@ async function precheckBatchDraft(name, args, { role, env }) {
      never offering a confirm button for something that cannot proceed
      either way. previewBatch's own {rowCount} is side-effect-free, the
      same reason dispatchBatchPreview already trusts it. */
-  const kind = name === "catalog_draft_product_batch" ? "products" : "customers";
-  const preview = await previewBatch(env, asset.row.extracted_text, kind);
+  const mode = PRODUCT_BATCH_MODE_BY_TOOL[name];
+  const kind = mode ? "products" : "customers";
+  const preview = await previewBatch(env, asset.row.extracted_text, kind, mode);
   if (preview.rowCount > CAPS.BATCH_MAX_ROWS) {
     /* Not a tool error (isError stays false, matching dispatchBatchDraft's
        own tooMany case below) -- a real, expected outcome the model
@@ -794,9 +874,10 @@ async function dispatchBatchPreview(name, args, { actor, role, env }) {
   const asset = await readAssetText(env, args?.asset_id);
   if (asset.isError) return asset;
 
-  const kind = name === "catalog_preview_product_batch" ? "products" : "customers";
+  const mode = PRODUCT_BATCH_MODE_BY_TOOL[name];
+  const kind = mode ? "products" : "customers";
   try {
-    const preview = await previewBatch(env, asset.row.extracted_text, kind);
+    const preview = await previewBatch(env, asset.row.extracted_text, kind, mode);
     /* Recorded on a SUCCESSFUL preview only — a bad asset_id must never
        overwrite a real, earlier preview this same actor could still go on
        to confirm. See LAST_PREVIEW's own header comment for why this,
@@ -1139,7 +1220,7 @@ export async function dispatch(name, args, { actor, role, env, allowed }) {
     const { isError, text } = skillsReadResult(role, args?.name);
     return { kind: "result", block: { type: "tool_result", tool_use_id: null, content: text, is_error: isError } };
   }
-  if (name === "catalog_draft_product_batch") {
+  if (name === "catalog_add_product_batch" || name === "catalog_update_product_batch") {
     /* REVISED — "I shouldn't need to do that," the owner's own words,
        looking at the approval card this used to stash here. A person who
        already confirmed the preview mapping looks right has already made
@@ -1168,7 +1249,7 @@ export async function dispatch(name, args, { actor, role, env, allowed }) {
     if (pre.isError || pre.tooMany) {
       return { kind: "result", table: null, block: { type: "tool_result", tool_use_id: null, content: pre.text, is_error: pre.isError } };
     }
-    const { isError, text, table, checklist } = await dispatchProductBatchPlan(resolvedArgs, { actor, role, env });
+    const { isError, text, table, checklist } = await dispatchProductBatchPlan(resolvedArgs, { actor, role, env, mode: PRODUCT_BATCH_MODE_BY_TOOL[name] });
     if (checklist) return { kind: "checklist", checklist, table, text };
     return { kind: "result", table, block: { type: "tool_result", tool_use_id: null, content: text, is_error: isError } };
   }
@@ -1195,7 +1276,7 @@ export async function dispatch(name, args, { actor, role, env, allowed }) {
       stores: ["customer_mirror"],
     };
   }
-  if (name === "catalog_preview_product_batch" || name === "customer_preview_customer_batch") {
+  if (name === "catalog_preview_add_product_batch" || name === "catalog_preview_update_product_batch" || name === "customer_preview_customer_batch") {
     const { isError, text, table } = await dispatchBatchPreview(name, args, { actor, role, env });
     return { kind: "result", table, block: { type: "tool_result", tool_use_id: null, content: text, is_error: isError } };
   }
@@ -1258,26 +1339,39 @@ function attachmentNote(attachment, role) {
       "tool's images argument — it is already uploaded; do not call catalog.upload_image for it.]"
     );
   }
-  /* A spreadsheet gets a pointer at catalog_draft_product_batch/
-     customer_draft_customer_batch instead of its raw text — reading a CSV's
-     rows out of a wall of text and hand-drafting each one is the "dumb
-     uploading pathway" the owner asked to stop going through; the batch
-     tools apply the same deterministic column-matching and validation
-     /products/batch and /customers/batch already do. Only offered when the
-     role can actually reach those tools (manager+, matching the writes they
-     mint) — for staff, the plain extracted-text note is still the honest
-     answer, same as any other file. */
+  /* A spreadsheet gets a pointer at one of the batch tools instead of its
+     raw text — reading a CSV's rows out of a wall of text and hand-drafting
+     each one is the "dumb uploading pathway" the owner asked to stop going
+     through; the batch tools apply the same deterministic column-matching
+     and validation /products/batch and /customers/batch already do. Only
+     offered when the role can actually reach those tools (manager+,
+     matching the writes they mint) — for staff, the plain extracted-text
+     note is still the honest answer, same as any other file.
+
+     REVISED (Test-PRD-P0-182-explicit_add_or_update_mode): "I think we
+     should have two distinct commands. Add new products or update
+     products... update products will try to match products using the
+     current spreadsheet... add new products will not try to match" — the
+     owner's own words. THREE possible tools now, not two, and picking the
+     right one is a real judgment call about the person's own intent, never
+     a default and never guessed from the sheet's own columns (a sheet with
+     a style-number column looks identical whether it is brand-new stock or
+     a price update for existing items) — ask outright if it genuinely is
+     not obvious from what the person already said. */
   if (looksLikeSpreadsheet(attachment) && canDraftBatches(role)) {
     return (
       `\n\n[Attached spreadsheet, filename "${attachment.filename}", stored as asset id "${attachment.id}". ` +
-      "Do not read its rows out of raw text yourself. First call catalog_preview_product_batch if this is a " +
-      "list of products, or customer_preview_customer_batch if it is a list of customers, with this asset id " +
-      "— ask the person which if it is not already obvious from what they said. Show them the column mapping " +
-      "it returns, and wait for them to confirm it looks right before calling catalog_draft_product_batch / " +
-      "customer_draft_customer_batch. When their confirmation arrives, in whatever later turn, you do not " +
-      "need to recall or re-derive this asset id at all: this app automatically drafts whichever file was " +
-      "most recently previewed, so pass whatever asset_id value is at hand and never call assets.list to try " +
-      "to relocate the file yourself.]"
+      "Do not read its rows out of raw text yourself. First figure out which of three things this is, asking " +
+      "the person outright if it is not already obvious from what they said: (1) a list of NEW products to " +
+      "add — call catalog_preview_add_product_batch, then catalog_add_product_batch once they confirm the " +
+      "mapping; (2) updated numbers (price, cost, etc.) for products this shop ALREADY sells — call catalog_" +
+      "preview_update_product_batch, then catalog_update_product_batch, which matches each row to an existing " +
+      "product and refuses to guess when nothing matches; or (3) a list of customers — call customer_preview_" +
+      "customer_batch, then customer_draft_customer_batch. Show the person the column mapping the preview " +
+      "returns, and wait for them to confirm it looks right before calling the matching draft tool. When " +
+      "their confirmation arrives, in whatever later turn, you do not need to recall or re-derive this asset " +
+      "id at all: this app automatically drafts whichever file was most recently previewed, so pass whatever " +
+      "asset_id value is at hand and never call assets.list to try to relocate the file yourself.]"
     );
   }
   return (
@@ -1647,7 +1741,7 @@ export async function approve({ id, identity, env }) {
      button instead carries the asset id in the server's own PENDING
      record from the moment it was proposed, the same way any other T2
      approval already does; clicking it needs no model turn at all. */
-  const BATCH_DRAFT_TOOLS = new Set(["catalog_draft_product_batch", "customer_draft_customer_batch"]);
+  const BATCH_DRAFT_TOOLS = new Set(["catalog_add_product_batch", "catalog_update_product_batch", "customer_draft_customer_batch"]);
   if (BATCH_DRAFT_TOOLS.has(rec.tool)) {
     const { isError, text, table } = await dispatchBatchDraft(rec.tool, rec.args, { actor, role, env });
     return { ok: !isError, status: 200, tool: rec.tool, reply: text, table };

@@ -6489,7 +6489,7 @@ const BATCH_KINDS = Object.freeze({
        want to do an approval link is if there's a clash and it has to be
        resolved by a person" — those still get one, editable, same as
        ever. */
-    uploadNotice: "Uploading creates every row that resolves cleanly, right away — a row with a real clash gets an editable approval link instead, never a separate approval for anything else.",
+    uploadNotice: "Uploading creates (or, in Update mode, updates) every row that resolves cleanly, right away — a row with a real clash gets an editable approval link instead, never a separate approval for anything else.",
   },
   customers: {
     noun: "customer",
@@ -6505,6 +6505,30 @@ const BATCH_KINDS = Object.freeze({
   },
 });
 
+/* "I think we should have two distinct commands. Add new products or
+   update products, right? Update products will try to match products
+   using the current spreadsheet... add new products will not try to
+   match... it will only identify clashes, but it's not seeking to update
+   existing products" — the owner's own words (Test-PRD-P0-182-explicit_
+   add_or_update_mode). This page is the primary human-facing surface for
+   the whole feature — the chat tools got two names each for exactly this
+   choice (catalog_add_product_batch/catalog_update_product_batch), so this
+   form needs the identical, explicit, un-defaulted choice: two radio
+   buttons, NEITHER pre-checked, so a person must actually pick one rather
+   than silently inheriting whichever happens to be `checked` in the
+   markup. Customers have no such distinction (customer batches never
+   matched existing customers at all) — the fieldset is products-only. */
+const BATCH_MODE_FIELDSET = `<fieldset class="mode-choice">
+  <legend>What is this spreadsheet for?</legend>
+  <label><input type="radio" name="mode" value="add" required> Add new products — every row becomes a brand-new
+    product; existing products are never checked or touched.
+    <span class="hint">Use this for stock you have never carried before.</span></label>
+  <label><input type="radio" name="mode" value="update" required> Update existing products — every row is matched
+    to a product this shop already sells (by style number, current style ID, or category/subcategory/title) and
+    updated in place. A row that matches nothing is flagged for a person to review, never silently created.
+    <span class="hint">Use this for corrected prices, costs, or other details on items you already sell.</span></label>
+</fieldset>`;
+
 export function batchUploadPage(kind = "products") {
   const k = BATCH_KINDS[kind];
   return page(
@@ -6514,6 +6538,7 @@ export function batchUploadPage(kind = "products") {
        <h1>Add ${k.noun}s from a spreadsheet</h1>
        <p>${k.columns}</p>
        <form method="POST" enctype="multipart/form-data">
+         ${kind === "products" ? BATCH_MODE_FIELDSET : ""}
          <input type="file" name="file" accept=".csv,text/csv" required>
          <p><button type="submit">Upload</button></p>
        </form>
@@ -6561,6 +6586,17 @@ export function batchReviewPage(result, kind = "products") {
      empty throughout. */
   const created = result.created ?? [];
   const ready = result.ready ?? [];
+  /* `r.action` ("created" or "updated") tags every entry in `result.
+     created` since draftGroupedProduct started matching a resubmitted/
+     update-mode row to a product it already made (Test-PRD-P0-179-
+     import_style_number_matching, Test-PRD-P0-182-explicit_add_or_
+     update_mode) — customer rows never carry one, so this falls back to
+     "created", the only thing that bucket could ever mean before. Same
+     `r.action ?? "created"` fallback agent.js's own batchDraftTable()
+     already uses for the identical data reached from chat instead of
+     here — this page had drifted out of sync with that fix until now. */
+  const updatedCount = created.filter((r) => r.action === "updated").length;
+  const createdCount = created.length - updatedCount;
   /* One table, not a <ol> of created/ready rows plus a separate <ul> of
      skip reasons — the same Row/Title/Status/Detail shape the chat's own
      tableCard() already uses for this exact data (agent.js's own
@@ -6569,7 +6605,7 @@ export function batchReviewPage(result, kind = "products") {
      both: "I like how the table renders in our chat! Doesn't look like
      that on our website!" */
   const rows = [
-    ...created.map((r) => ({ row: r.row, title: r.title, status: "created", detail: r.summary, url: null })),
+    ...created.map((r) => ({ row: r.row, title: r.title, status: r.action ?? "created", detail: r.summary, url: null })),
     ...ready.map((r) => ({ row: r.row, title: r.title, status: "needs a person", detail: r.summary, url: r.url })),
     ...skipped.map((s) => ({ row: s.row, title: s.title, status: "skipped", detail: s.reason, url: null })),
   ].sort((a, b) => a.row - b.row);
@@ -6578,7 +6614,7 @@ export function batchReviewPage(result, kind = "products") {
     "Spreadsheet uploaded",
     `<main class="wrap">
        <p class="eyebrow">Spreadsheet uploaded</p>
-       <h1>${created.length} created, ${ready.length} need a person's decision, ${skipped.length} not added</h1>
+       <h1>${createdCount} created${updatedCount ? `, ${updatedCount} updated` : ""}, ${ready.length} need a person's decision, ${skipped.length} not added</h1>
        ${
          created.length
            ? `<p class="fine">Every created row is already live in Square — nothing further to approve. Find
@@ -6784,4 +6820,9 @@ button{margin-top:1.5rem;padding:.85rem 1.4rem;font-size:1rem;border-radius:.5re
 .field label{display:block;font-weight:600;font-size:.85rem;margin-bottom:.3rem}
 .field input,.field select,.field textarea{width:100%;font:inherit;font-size:1rem;padding:.6rem .7rem;border:1px solid rgba(255,255,255,.25);border-radius:.4rem;background:transparent;color:inherit;box-sizing:border-box}
 .field textarea{resize:vertical}
+.mode-choice{margin:0 0 1.25rem;border:1px solid rgba(255,255,255,.2);border-radius:.5rem;padding:.9rem 1rem}
+.mode-choice legend{font-weight:600;font-size:.85rem;padding:0 .3rem}
+.mode-choice label{display:block;margin:.6rem 0;cursor:pointer}
+.mode-choice input[type=radio]{margin-right:.4rem}
+.mode-choice .hint{display:block;font-size:.8rem;opacity:.7;margin:.15rem 0 0 1.4rem}
 `;
