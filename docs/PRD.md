@@ -8268,6 +8268,61 @@ that does not trace to one of these is a process failure (see §12).
     route (`worker.fetch`, not the function called directly): a genuine, well-formed `200` comes back
     for an ordinary successful row, where building that exact `Response` used to throw.
 
+113. **`Test-PRD-P0-181-resubmit_matching_refinements`** — Refines `Test-PRD-P0-179-import_style_
+    number_matching`, immediately after shipping it, against the owner's own further words: import_
+    style_number alone only ever recognizes a resubmit of the EXACT text given at creation — it
+    cannot recognize a bulk-edit sheet keyed on an item's CURRENT, already-moved style_id, and it
+    cannot recognize an item whose style number was deliberately RENUMBERED (not merely re-filed).
+    Two more match attempts, tried in order, only once import_style_number itself finds nothing at
+    all:
+
+    - **The live `style_id`** (`productByStyleId`, `catalog-writer.js`, same shape as `productBy
+      ImportStyleNumber`) — "the most important match... our style ID... because that's how we want
+      to identify items externally... there may be situations where we want to bulk update a bunch
+      of items based on their style IDs," the owner's own words: a person bulk-editing prices types
+      the item's CURRENT style_id, which has already moved on from whatever import_style_number
+      still holds once a category correction reassigned it (`Test-PRD-P0-177-fluid_style_id`). The
+      two can never disagree about which product they name — `mirror_style_id_ledger` reserves a
+      style_id forever once assigned, so the exact text import_style_number still holds for one
+      product can never become some OTHER product's own live style_id later — so trying both is never
+      a reconciliation, just a second door to the same room.
+
+    - **Category + subcategory + title** (`productsByCategoryAndTitle`, `catalog-writer.js`) — "our
+      style ID numbers may be different, we may have changed them, but the categories and
+      subcategories and names have not... if you find the same item with the same title that we are
+      providing you, then that's a match, just update it," the owner's own words, for a sheet whose
+      style numbers were deliberately renumbered rather than merely moved. Scoped to the row's own
+      ALREADY-RESOLVED category (by name or number, same as ever — never a second, looser search),
+      an exact, case/whitespace-insensitive title match within it. Zero candidates means proceed to
+      create, exactly as before this existed. Exactly one is confident enough to update outright — no
+      price check required; title + category + subcategory alone is "fairly safe" (the owner's own
+      words) and price is never a gating condition, only a candidate's own supporting fact. MORE than
+      one is a genuine ambiguity this file has no safe way to resolve on its own: "if you have any
+      doubts, pop up a window... are these the correct items, should we update them... only if you
+      have a question about it though, if you're confident, then just update" — parked as an
+      ordinary, editable clash naming every candidate's own handle, never guessed at, never silently
+      picking the first one.
+
+    **Vendor auto-defaulting during an update.** "Make sure that when we're doing an update that you
+    populate the in-house because if there is no vendor specified, it's in-house. We want to make
+    sure that the cost fields are properly updated." `catalog.update_product`'s own `check()` refuses
+    `unit_cost_minor` on any variation when the product has no vendor AT ALL — every product this
+    codebase creates already has one (a real name, or the built-in "In-house" default assigned at
+    creation), so this only ever bites a LEGACY product that predates that default, one a resubmit's
+    own new cost could otherwise never actually reach. `draftProductUpdate` (`batch.js`) now checks
+    for exactly that case and fixes it inline — `catalog.set_square_attributes` with `clear_vendor:
+    true`, the same "check, then immediately re-run with the resulting token" pattern
+    `resolveOrCreateCategory` already uses for a missing category — before ever building the update's
+    own arguments, so the cost update that follows always has a real vendor to land on.
+
+    Confirmed against the real fixture DB and Square mock: a resubmit keyed on an item's CURRENT
+    style_id (after a real category move changed it) still finds and updates the same product; a
+    resubmit whose style number was completely renumbered still matches by category, subcategory and
+    title alone; two products genuinely sharing one title in one subcategory make a same-title
+    resubmit an ambiguous, parked clash rather than a guess at either one; and a legacy, vendor-less
+    product gets the built-in "In-house" vendor assigned automatically the moment a resubmit tries to
+    update its cost, so the cost actually lands rather than parking as an avoidable refusal.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
