@@ -6396,7 +6396,7 @@ check("test_PRD_P0_152_style_number_grouping__a_plan_rows_own_submission_is_sing
 
     const second = await submitBatchPlanRow({ id: outcome.checklist.id, row, identity, env });
     assert.equal(second.ok, false);
-    assert.equal(second.status, 404);
+    assert.equal(second.httpStatus, 404);
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -6427,7 +6427,7 @@ check("test_PRD_P0_152_style_number_grouping__a_plan_belongs_to_the_actor_who_ra
     const wrongActor = { email: "someone-else@vemians.com", groups: ["vemians-manager"] };
     const result = await submitBatchPlanRow({ id: outcome.checklist.id, row, identity: wrongActor, env });
     assert.equal(result.ok, false);
-    assert.equal(result.status, 403);
+    assert.equal(result.httpStatus, 403);
 
     /* And the plan survives that refused attempt -- the actor who actually
        raised it can still submit it normally afterward. */
@@ -7369,4 +7369,59 @@ check("test_PRD_P0_179_import_style_number_matching__the_preview_shows_a_matched
   const freshPreview = await previewBatch(f.env, csv3, "products");
   assert.equal("will_update" in freshPreview.sampleRows[0], false);
   assert.equal(freshPreview.sampleRows[0].sku, "(auto-generated)");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-180 — a real HTTP-level bug found while wiring "updated" through this
+ * same checklist submit path: submitBatchPlanRow's own success return used
+ * to be `{ ok: true, status: 200, ...result, done, total }`, and `result`
+ * (submitProductBatchRow's own return) ALREADY has its own `status`
+ * ("created"/"updated"/"parked"/"skipped") -- object-spread order let that
+ * string silently overwrite the literal 200, and index.js's own route
+ * handed it straight to `new Response(body, { status: out.status })`,
+ * which throws for anything but an integer 200-599. Every ordinary,
+ * successful row submission through the checklist's own progress bar hit
+ * this -- and no earlier test ever caught it, because every earlier test
+ * called submitBatchPlanRow directly (P0-63's own header comment has the
+ * identical shape of gap: a function-level test can never see a bug that
+ * only exists in how its caller turns the result into a real Response).
+ * Fixed by giving the real HTTP code its own name (`httpStatus`), which
+ * `result` never has, so it can never collide with `result`'s own
+ * `status` again.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_180_batch_submit_row_http_status__the_real_route_returns_a_real_200_not_a_thrown_response", async () => {
+  const f = await fixture();
+  const worker = (await import("../src/index.js")).default;
+  const csv = "title,category,price,style id\nWool Coat,Outerwear,100.00,01-04-008\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const outcome = await dispatch(
+      "catalog_draft_product_batch",
+      { asset_id: "ast_1" },
+      { actor: "mara@vemians.com", role: "manager", env: { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) }, allowed: new Set(["catalog_draft_product_batch"]) },
+    );
+    assert.equal(outcome.kind, "checklist", `expected a checklist, got: ${JSON.stringify(outcome)}`);
+    assert.equal(outcome.checklist.rows.length, 1);
+
+    const res = await worker.fetch(
+      new Request("http://localhost/agent/batch-submit-row", {
+        method: "POST",
+        headers: { "Cf-Access-Jwt-Assertion": assertion(MANAGER_CLAIMS), "content-type": "application/json" },
+        body: JSON.stringify({ id: outcome.checklist.id, row: outcome.checklist.rows[0].row }),
+      }),
+      { ...f.env, ...HTTP_ENV_EXTRA },
+    );
+    /* THE POINT: a real, well-formed 200, constructed without throwing --
+       before this fix, building this exact Response is what crashed. */
+    const text = await res.text();
+    assert.equal(res.status, 200, `expected a real 200, got ${res.status}: ${text}`);
+    const data = JSON.parse(text);
+    assert.equal(data.ok, true);
+    assert.equal(data.status, "created", "the JSON body's own semantic status is untouched by the HTTP-status fix");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });
