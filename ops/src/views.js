@@ -2935,23 +2935,23 @@ ${INPUT_BAR_CSS}
 .variant-group-label { flex: 0 0 auto; font-size: 11px; color: var(--muted); }
 .variant-group-body { display: none; margin-top: 4px; }
 .variant-group.expanded .variant-group-body { display: block; }
-/* REVISED YET AGAIN: "I want to have the SKU number on the left, and then
-   the add and remove quantity for each size to be on the far right...
-   a single row per size" — the owner's own words, going back from the
-   wrapping grid above to one full-width row per size, same shape
-   .variations-body's own flat .row already uses (the shared
-   .variations-body .row, .variant-group-body .row rule above), so the
-   stepper reads identically in both places. .variation-title-label's
-   own flex: 1 1 auto (its shared rule, above) is what pushes the stepper
-   to the far right — nothing extra needed here for that. */
-.variant-size-rows { display: flex; flex-direction: column; }
-/* A computed, human-readable DISPLAY label (styleIdVariantLabel, below —
-   "our old style-ID-based SKU," the owner's own words, not the real,
-   permanent, opaque sku) — it earns its own left-hand label rather than
-   reusing .variation-title-label's, which still shows the size name right
-   beside it. flex: 0 0 auto: never grows or shrinks, same as any other
-   fixed left-hand label in this file. */
-.variation-sku-label { flex: 0 0 auto; font-size: 10px; color: var(--muted); font-family: monospace; }
+/* REVISED YET AGAIN, THEN REVERTED: "I want to have the SKU number on the
+   left, and then the add and remove quantity for each size to be on the
+   far right... a single row per size" briefly replaced this wrapping grid
+   with one full-width row per size — then, on actually seeing it: "bring
+   back the other row layout for the sizes. I liked how it was just S M L
+   in a row. The new one doesn't look good." Back to a GRID, not a vertical
+   list: every size for the open color shares screen rows with its
+   siblings, wrapping only once the tile's own width runs out, so a
+   five-size color reads as one or two compact rows instead of five tall
+   ones. No SKU label here any more either — it only ever existed for the
+   one-row-per-size layout this reverts. */
+.variant-size-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+.variant-size-cell {
+  display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 56px;
+  padding: 4px 6px; border-radius: 6px; background: var(--ground);
+}
+.variant-size-cell .variation-title-label { flex: 0 0 auto; white-space: nowrap; }
 .variation-stock-step:hover { background: var(--image-ground); }
 .variation-stock-step:disabled { opacity: 0.5; cursor: default; }
 /* "An upload button on the right side" — the owner's own words. margin-left:
@@ -3278,11 +3278,11 @@ function renderVendorPickerOptions(vendors, selectedName) {
 }
 
 /* A small read-only field and two +/- buttons — one stock stepper, shared
-   between the flat variation list's own `.row` and each populated size
-   row of the grouped Variants view below (also a `.row`, same shape).
-   stepStock() walks up to that shared `.row` (button.closest(".row")) to
-   find its own count field and sibling buttons, so a stepper works
-   identically wherever it is placed. */
+   between the flat variation list's own `.row` and each populated
+   `.variant-size-cell` of the Variants grid below. stepStock() walks up
+   to whichever of the two wraps it (button.closest(".row, .variant-size-
+   cell")) to find its own count field and sibling buttons, so a stepper
+   works identically wherever it is placed. */
 function stockStepper(v) {
   return (
     `<span class="variation-stock-stepper">` +
@@ -3357,38 +3357,19 @@ function variantsGridAxes(variations, itemOptions) {
    header is the FIRST and only level, never a second dropdown nested
    inside a first one.
 
-   REVISED YET AGAIN: "I want to have the SKU number on the left, and
-   then the add and remove quantity for each size to be on the far
-   right... a single row per size" — the owner's own words, going back
-   from the wrapping grid to one full-width row per size (.variant-size-
-   rows, below) now that sku is a real, permanent, worth-seeing value
-   (Test-PRD-P0-177-fluid_style_id) rather than a Square-assigned string
-   nobody looked at — the same reason the flat single-dimension list
-   never needed a grid at all.
-
-   REVISED ONCE MORE: "I don't think we need to see this [hash]... it's
-   completely irrelevant to the user. This is what gets printed on the
-   ticket, and that's that... I wanted our old style-ID-based SKU on the
-   left side" — the owner's own words, immediately after seeing the real,
-   permanent, opaque `sku` there instead of the human-readable shape this
-   codebase used to actually mint as the real one (`skuFromStyleId`,
-   removed by this same P0-177). The real, permanent `sku` still IS what
-   reaches Square and prints on a ticket — nothing about THAT changes —
-   this is purely a DISPLAY label, computed fresh every render by
-   `styleIdVariantLabel` (below), never stored and never sent anywhere:
-   style_id, then this row's own Color/Size values, uppercased and
-   dash-joined, the exact shape `skuFromStyleId` used to build. */
-function styleIdVariantLabel(styleId, values) {
-  const word = (text) =>
-    String(text ?? "")
-      .toUpperCase()
-      .replace(/[^A-Z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "");
-  if (!styleId) return null;
-  const suffix = values.map(word).filter(Boolean).join("-");
-  return suffix ? `${styleId}-${suffix}` : styleId;
-}
-function variantsGroupedAccordionHtml(variations, axes, styleId) {
+   REVISED YET AGAIN, THEN REVERTED: "I want to have the SKU number on
+   the left, and then the add and remove quantity for each size to be on
+   the far right... a single row per size" briefly replaced the wrapping
+   grid with one full-width row per size, first showing the real,
+   permanent `sku`, then a computed style-ID-based display label once the
+   opaque hash turned out to be "completely irrelevant to the user." Then,
+   on actually seeing the row layout itself: "bring back the other row
+   layout for the sizes. I liked how it was just S M L in a row. The new
+   one doesn't look good." Back to the wrapping grid from REVISED AGAIN,
+   above, unchanged from before any of that — no SKU/style_id label of any
+   kind in this view, since that whole line of revisions is the one being
+   undone. */
+function variantsGroupedAccordionHtml(variations, axes) {
   const { rowsName, colsName, rowValues, colValues } = axes;
   const byKey = new Map(
     variations.filter((v) => v.options?.[rowsName] && v.options?.[colsName]).map((v) => [`${v.options[rowsName]}\u0000${v.options[colsName]}`, v]),
@@ -3404,14 +3385,11 @@ function variantsGroupedAccordionHtml(variations, axes, styleId) {
          variantLabelById resolves that variant's row-axis VALUE ("Red"),
          not its full title ("Red / M"), back out of it for display. */
       let anchorVariant = null;
-      const rows = colValues
+      const cells = colValues
         .map((c) => {
           const v = byKey.get(`${r}\u0000${c}`);
           if (v && !anchorVariant) anchorVariant = v;
-          const label = styleIdVariantLabel(styleId, [r, c]) ?? v?.sku ?? "";
-          return v
-            ? `<div class="row"><span class="variation-sku-label">${esc(label)}</span><span class="variation-title-label">${esc(c)}</span>${stockStepper(v)}</div>`
-            : "";
+          return v ? `<div class="variant-size-cell"><span class="variation-title-label">${esc(c)}</span>${stockStepper(v)}</div>` : "";
         })
         .join("");
       const photoUpload = anchorVariant
@@ -3423,7 +3401,7 @@ function variantsGroupedAccordionHtml(variations, axes, styleId) {
           <span class="variant-group-label">${esc(r)}</span>
           ${photoUpload}
         </div>
-        <div class="variant-group-body">${rows ? `<div class="variant-size-rows">${rows}</div>` : `<p class="item-empty">No ${esc(colsName)} yet.</p>`}</div>
+        <div class="variant-group-body">${cells ? `<div class="variant-size-grid">${cells}</div>` : `<p class="item-empty">No ${esc(colsName)} yet.</p>`}</div>
       </div>`;
     })
     .join("");
@@ -3582,7 +3560,7 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
   const groupAxes = variantsGridAxes(product.variations, allItemOptions);
   const variationsAccordion = canEdit
     ? groupAxes
-      ? `<div class="variant-groups">${variantsGroupedAccordionHtml(product.variations, groupAxes, product.style_id)}</div>`
+      ? `<div class="variant-groups">${variantsGroupedAccordionHtml(product.variations, groupAxes)}</div>`
       : `<div class="variations-accordion">
            <div class="variations-header">
              <button type="button" class="variations-toggle" aria-label="Show every variation" title="Show every variation">${CARET_ICON}</button>
@@ -4669,7 +4647,7 @@ async function saveTile(tile) {
    rapid repeat clicks, and reloading the whole page after every one of
    them would make receiving ten units one at a time unusable. */
 async function stepStock(button) {
-  const row = button.closest(".row");
+  const row = button.closest(".row, .variant-size-cell");
   const existingError = row.nextElementSibling;
   if (existingError?.classList.contains("item-edit-error")) existingError.remove();
   const countField = row.querySelector(".variation-stock-count");
