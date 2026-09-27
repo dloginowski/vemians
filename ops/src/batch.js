@@ -44,6 +44,8 @@ import {
   LEGACY_COST_FIELD_KEYS,
   LEGACY_MARGIN_FIELD_KEYS,
   productByImportStyleNumber,
+  productByStyleId,
+  productsByCategoryAndTitle,
   variantsWithOptionsOf,
 } from "./tools/catalog-writer.js";
 import { nearestCategory } from "./tools/catalog-write.js";
@@ -1131,7 +1133,8 @@ function sameOptions(a, b) {
  * never asked a resubmit to make), so a truly NEW size/color needs a
  * person, never a silent guess.
  */
-async function draftProductUpdate(env, existing, base, groupRows) {
+async function draftProductUpdate(env, existing, base, groupRows, ctx) {
+  const { actor, role, rate } = ctx;
   const first = groupRows[0].record;
   const firstRow = groupRows[0].rowNumber;
   const notes = [];
@@ -1149,6 +1152,37 @@ async function draftProductUpdate(env, existing, base, groupRows) {
     if (unitCostMinor === null) {
       notes.push(`unit cost "${unitCostRaw}" is not a plain number like 45.00 -- left unset`);
       unitCostMinor = undefined;
+    }
+  }
+
+  /* "Make sure that when we're doing an update that you populate the
+     in-house because if there is no vendor specified, it's in-house. We
+     want to make sure that the cost fields are properly updated" -- the
+     owner's own words. catalog.update_product's own check() refuses
+     unit_cost_minor on ANY variation when the product has no vendor at
+     all -- every product this codebase creates already has one (a real
+     name, or the built-in "In-house" default assigned at creation), so
+     this only ever bites a LEGACY product that predates that default.
+     Fixed inline, the same "check, then immediately re-run with the
+     resulting token" pattern resolveOrCreateCategory (above) already uses
+     for a missing category -- never a silent skip, and never a clash over
+     something this file can safely default on its own. */
+  if (unitCostMinor !== undefined && !existing.vendor) {
+    const vendorArgs = { handle: existing.handle, clear_vendor: true };
+    const gate = await runTool("catalog.set_square_attributes", vendorArgs, { actor, role, env, rate });
+    if (!gate?.needsApproval) {
+      clashes.push(
+        `"${existing.title}" (${existing.handle}) has no vendor yet and could not be defaulted to In-house: ${gate?.error || "could not be validated"} -- cost cannot be updated until it has one`,
+      );
+    } else {
+      const result = await runTool("catalog.set_square_attributes", vendorArgs, {
+        actor, role, env, rate, approvalToken: gate.data.approval.token,
+      });
+      if (result?.error || result?.denied) {
+        clashes.push(
+          `"${existing.title}" (${existing.handle}) has no vendor yet and could not be defaulted to In-house: ${result.error || result.denied} -- cost cannot be updated until it has one`,
+        );
+      }
     }
   }
 
@@ -1208,10 +1242,24 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
      the SAME product this way even if its category (and so its live,
      fluid style_id) has moved on since. Checked before any category
      resolution at all: an update never resends category_id, so there is
-     nothing here to resolve for this path. */
-  const existing = await productByImportStyleNumber(env.CATALOG_MIRROR, base);
+     nothing here to resolve for this path.
+
+     REVISED: "the most important match... our style ID... because that's
+     how we want to identify items externally... there may be situations
+     where we want to bulk update a bunch of items based on their style
+     IDs" -- the owner's own words, once import_style_number turned out to
+     be only HALF of what a real resubmit sheet uses: a person bulk-editing
+     prices types the item's CURRENT, live style_id, which has already
+     moved on from whatever import_style_number still holds if the item's
+     own category was corrected since creation. Tried only when
+     import_style_number itself finds nothing -- the two can never
+     disagree about which product they name (mirror_style_id_ledger
+     reserves a style_id forever once assigned, productByStyleId's own
+     comment has the full reasoning), so there is nothing to reconcile,
+     only a second door to the same room. */
+  const existing = (await productByImportStyleNumber(env.CATALOG_MIRROR, base)) ?? (await productByStyleId(env.CATALOG_MIRROR, base));
   if (existing) {
-    return draftProductUpdate(env, existing, base, groupRows);
+    return draftProductUpdate(env, existing, base, groupRows, ctx);
   }
 
   const [catCode, subCode] = base.split("-");
@@ -1330,6 +1378,40 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
   const rawTitle = (titleCol || descriptionCol).slice(0, 200);
   const title = rawTitle || nextAutoTitle(category);
   const description = titleCol ? descriptionCol : "";
+
+  /* FALLBACK MATCH: neither style-number lookup above (import_style_number,
+     then the live style_id) found anything at all, but this row's own
+     category and title might still recognize an existing product whose
+     style number was deliberately RENUMBERED rather than merely moved --
+     "our style ID numbers may be different, we may have changed them, but
+     the categories and subcategories and names have not... if you find
+     the same item with the same title that we are providing you, then
+     that's a match, just update it," the owner's own words. Only even
+     attempted with a REAL title (rawTitle, never the auto-generated
+     placeholder just above, which could never legitimately match
+     anything real) and a real, already-resolved category to scope the
+     search to -- productsByCategoryAndTitle's own comment has the full
+     "zero/one/many" reasoning. */
+  if (rawTitle && category) {
+    const candidates = await productsByCategoryAndTitle(env.CATALOG_MIRROR, category.id, rawTitle);
+    if (candidates.length === 1) {
+      return draftProductUpdate(env, candidates[0], base, groupRows, ctx);
+    }
+    if (candidates.length > 1) {
+      /* "If you have any doubts, pop up a window... are these the correct
+         items, should we update them... only if you have a question about
+         it though, if you're confident, then just update" -- the owner's
+         own words. More than one product shares this exact category and
+         title -- a real ambiguity this file has no safe way to pick
+         between on its own, parked for a person the same way any other
+         clash already is, naming every candidate so they have enough to
+         decide from. */
+      clashes.push(
+        `style number "${base}": "${rawTitle}" in "${category.name}" matches ${candidates.length} existing products ` +
+          `(${candidates.map((c) => c.handle).join(", ")}) -- too ambiguous to update automatically; confirm which one, if any, this row means`,
+      );
+    }
+  }
 
   /* Vendor/commission/unit cost/vendor code are PRODUCT-level facts (the
      tool's own schema has no per-variation home for any of them) — read

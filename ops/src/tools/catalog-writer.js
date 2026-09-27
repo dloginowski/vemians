@@ -251,6 +251,56 @@ export async function productByImportStyleNumber(db, importStyleNumber) {
     .first();
 }
 
+/* The SAME resubmit-matching job as productByImportStyleNumber, just the
+   other of the two identifiers a resubmitted row can carry — "the most
+   important match... our style ID... because that's how we want to
+   identify items externally... there may be situations where we want to
+   bulk update a bunch of items based on their style IDs," the owner's own
+   words, once import_style_number turned out not to be the only text a
+   real resubmit sheet uses to find an item: a person bulk-editing prices
+   types the CURRENT, live style_id shown on the item today, which has
+   moved on from whatever import_style_number still holds if the item's own
+   category was corrected since it was first created. batch.js tries
+   productByImportStyleNumber FIRST (immune to any later renumber at all,
+   so an ordinary "resubmit the same sheet" always finds it), then this ONLY
+   when that finds nothing — never both landing on two DIFFERENT products,
+   since mirror_style_id_ledger reserves a style_id forever once assigned
+   (Test-PRD-P0-177-fluid_style_id): the exact text import_style_number
+   still holds for THIS product can never become some OTHER product's own
+   live style_id later. */
+export async function productByStyleId(db, styleId) {
+  return db
+    .prepare(`${PRODUCT_WITH_VENDOR_SELECT} WHERE p.style_id = ?`)
+    .bind(styleId)
+    .first();
+}
+
+/* The FALLBACK resubmit match, tried only once NEITHER style-number lookup
+   above finds anything at all — "our style ID numbers may be different, we
+   may have changed them, but the categories and subcategories and names
+   have not... if you find the same item with the same title that we are
+   providing you, then that's a match, just update it," the owner's own
+   words, for a sheet whose style numbers were deliberately renumbered
+   (rather than merely moved, which import_style_number/style_id already
+   cover between them). Every row in this codebase's own CSV pipeline is
+   the same shape: EXACTLY one category (already resolved by the caller,
+   by name or number, same as ever) and one title — never a fuzzy text
+   search, just an exact, case/whitespace-insensitive title match scoped to
+   that one category, so "Wool Coat" in Outerwear can never accidentally
+   match an unrelated "Wool Coat" filed somewhere else. Returns every match,
+   not just one: batch.js's own caller treats ZERO as "no fallback match,
+   proceed to create," EXACTLY ONE as confident enough to update outright,
+   and MORE THAN ONE as a genuine ambiguity to park for a person — "if you
+   have any doubts, pop up a window... only if you have a question about it
+   though, if you're confident, then just update." */
+export async function productsByCategoryAndTitle(db, categoryId, title) {
+  const res = await db
+    .prepare(`${PRODUCT_WITH_VENDOR_SELECT} WHERE p.category_id = ? AND LOWER(TRIM(p.title)) = LOWER(TRIM(?))`)
+    .bind(categoryId, title)
+    .all();
+  return res.results ?? [];
+}
+
 /* Same shape, but archived rows too — catalog.set_active's own check(): a
    product it might RESTORE is by definition absent from mirror_product_index
    (that view excludes archived_at rows), so telling "already active" from

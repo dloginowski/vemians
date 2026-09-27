@@ -7425,3 +7425,185 @@ check("test_PRD_P0_180_batch_submit_row_http_status__the_real_route_returns_a_re
     globalThis.fetch = realFetch;
   }
 });
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-181 — refining P0-179's own resubmit-matching, immediately after
+ * shipping it: "our style ID numbers may be different, we may have changed
+ * them, but the categories and subcategories and names have not... if you
+ * find the same item with the same title that we are providing you, then
+ * that's a match, just update it," the owner's own words, plus "the most
+ * important match... our style ID... because that's how we want to
+ * identify items externally... there may be situations where we want to
+ * bulk update a bunch of items based on their style IDs" — import_style_
+ * number alone (P0-179) only ever recognizes a resubmit of the EXACT text
+ * given at creation; it cannot recognize a resubmit keyed on an item's
+ * CURRENT, already-moved style_id, and it cannot recognize an item whose
+ * style number was deliberately RENUMBERED (rather than merely re-filed).
+ * Two more, tried in order, only once import_style_number itself finds
+ * nothing: the live style_id (productByStyleId), then category+
+ * subcategory+title (productsByCategoryAndTitle) — confident when exactly
+ * one candidate turns up, parked as a clash ("if you have any doubts, pop
+ * up a window... if you're confident, then just update") when more than
+ * one does. Also: "make sure that when we're doing an update that you
+ * populate the in-house because if there is no vendor specified it's
+ * in-house — we want to make sure the cost fields are properly updated."
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_181_resubmit_matching_refinements__a_resubmit_matches_by_the_current_live_style_id_after_a_category_move", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  await approvedCall(f, "catalog.set_category_number", { category_id: outerwear.id, numeric_id: "01" });
+  const casual = (await approvedCall(f, "catalog.create_category", { name: "Casual", parent_id: outerwear.id, reason: "test" })).data
+    .category;
+  await approvedCall(f, "catalog.set_category_number", { category_id: casual.id, numeric_id: "04" });
+  const formal = (await approvedCall(f, "catalog.create_category", { name: "Formal", parent_id: outerwear.id, reason: "test" })).data
+    .category;
+  await approvedCall(f, "catalog.set_category_number", { category_id: formal.id, numeric_id: "06" });
+
+  const csv1 = "title,category,price,style id\nWool Coat,Casual,100.00,01-04-005\n";
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager" });
+    assert.equal(first.created.length, 1, `expected the first submission to create, got: ${JSON.stringify(first)}`);
+
+    const before = f.mirror("SELECT id, handle, style_id, import_style_number FROM mirror_product WHERE title = 'Wool Coat'")[0];
+    assert.equal(before.style_id, "01-04-001");
+
+    /* A real category move -- style_id becomes "01-06-001", import_style_
+       number stays "01-04-005" forever. A person now bulk-editing this
+       item types its CURRENT style_id, "01-06-001" -- not the stale
+       original text -- since that is what they actually see on the item
+       today. */
+    const moved = await approvedCall(f, "catalog.update_product", { handle: before.handle, category_id: formal.id });
+    assert.equal(moved.ok, true, moved.error);
+    const after = f.mirror("SELECT style_id, import_style_number FROM mirror_product WHERE id = ?", before.id)[0];
+    assert.equal(after.style_id, "01-06-001", "sanity: a real, different, non-null style_id after the move");
+    assert.equal(after.import_style_number, "01-04-005", "unchanged -- the whole point of the separate field");
+
+    /* Resubmitted keyed on the CURRENT style_id, not the stale original. */
+    const csv2 = "title,category,price,style id\nWool Coat,Formal,140.00,01-06-001\n";
+    const second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager" });
+    assert.equal(second.created.length, 1, `expected the resubmit to update, got: ${JSON.stringify(second)}`);
+    assert.equal(second.created[0].action, "updated");
+    assert.equal(second.created[0].handle, before.handle);
+
+    const products = f.mirror("SELECT id, style_id FROM mirror_product WHERE title = 'Wool Coat'");
+    assert.equal(products.length, 1, "still the one product -- found by its CURRENT live style_id, no duplicate created");
+    const variant = f.mirror("SELECT price_minor FROM mirror_variant WHERE product_id = ?", before.id)[0];
+    assert.equal(variant.price_minor, 14000);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_181_resubmit_matching_refinements__a_renumbered_style_number_still_matches_by_category_subcategory_and_title", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  await approvedCall(f, "catalog.set_category_number", { category_id: outerwear.id, numeric_id: "01" });
+  const casual = (await approvedCall(f, "catalog.create_category", { name: "Casual", parent_id: outerwear.id, reason: "test" })).data
+    .category;
+  await approvedCall(f, "catalog.set_category_number", { category_id: casual.id, numeric_id: "04" });
+
+  const csv1 = "title,category,subcategory,price,style id\nWool Coat,Outerwear,Casual,100.00,01-04-005\n";
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager" });
+    assert.equal(first.created.length, 1, `expected the first submission to create, got: ${JSON.stringify(first)}`);
+    const before = f.mirror("SELECT id, handle FROM mirror_product WHERE title = 'Wool Coat'")[0];
+
+    /* A COMPLETELY different style number -- deliberately renumbered, not
+       merely moved -- matches neither import_style_number nor the live
+       style_id at all. Same category/subcategory NAMES and same title,
+       though, so the fallback still finds it. */
+    const csv2 = "title,category,subcategory,price,style id\nWool Coat,Outerwear,Casual,155.00,77-77-001\n";
+    const second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager" });
+    assert.equal(second.created.length, 1, `expected the renumbered resubmit to update, got: ${JSON.stringify(second)}`);
+    assert.equal(second.created[0].action, "updated");
+    assert.equal(second.created[0].handle, before.handle);
+
+    const products = f.mirror("SELECT id FROM mirror_product WHERE title = 'Wool Coat'");
+    assert.equal(products.length, 1, "still the one product -- found by category/subcategory/title, no duplicate created");
+    const variant = f.mirror("SELECT price_minor FROM mirror_variant WHERE product_id = ?", before.id)[0];
+    assert.equal(variant.price_minor, 15500);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_181_resubmit_matching_refinements__an_ambiguous_title_match_parks_as_a_clash_not_a_guess", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  await approvedCall(f, "catalog.set_category_number", { category_id: outerwear.id, numeric_id: "01" });
+  const casual = (await approvedCall(f, "catalog.create_category", { name: "Casual", parent_id: outerwear.id, reason: "test" })).data
+    .category;
+  await approvedCall(f, "catalog.set_category_number", { category_id: casual.id, numeric_id: "04" });
+
+  /* Two GENUINELY DIFFERENT products that happen to share the exact same
+     title in the exact same subcategory (two different style numbers, so
+     two separate groups, two separate products). */
+  const csv1 =
+    "title,category,subcategory,price,style id\n" +
+    "Wool Coat,Outerwear,Casual,100.00,01-04-005\n" +
+    "Wool Coat,Outerwear,Casual,120.00,01-04-006\n";
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager" });
+    assert.equal(first.created.length, 2, `expected two separate products, got: ${JSON.stringify(first)}`);
+
+    /* A THIRD, unrelated style number, same category/subcategory/title --
+       matches neither existing product by style number, and now matches
+       BOTH of them by category+title. Too ambiguous to guess. */
+    const csv2 = "title,category,subcategory,price,style id\nWool Coat,Outerwear,Casual,999.00,01-04-007\n";
+    const second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager" });
+    assert.equal(second.created.length, 0, "never silently created a third, and never silently updated either");
+    assert.equal(second.ready.length, 1, "parked for a person, the same as any other clash");
+    assert.match(second.ready[0].summary, /matches 2 existing products/);
+
+    const products = f.mirror("SELECT id FROM mirror_product WHERE title = 'Wool Coat'");
+    assert.equal(products.length, 2, "neither existing product was touched, and no third one was created");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_181_resubmit_matching_refinements__a_legacy_vendor_less_product_gets_in_house_assigned_so_cost_can_update", async () => {
+  const f = await fixture();
+  const csv1 = "title,category,price,style id\nWool Coat,Outerwear,100.00,01-04-005\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager" });
+    assert.equal(first.created.length, 1);
+    const before = f.mirror("SELECT id, handle FROM mirror_product WHERE title = 'Wool Coat'")[0];
+
+    /* Simulates a LEGACY product from before every product always got a
+       real vendor -- cleared directly, since catalog.create_product itself
+       can no longer produce one this way any more. */
+    f.mirrorDb._raw.prepare("UPDATE mirror_variant SET vendor_id = NULL WHERE product_id = ?").run(before.id);
+    const vendorless = f.mirror(
+      "SELECT v.vendor_id FROM mirror_variant v WHERE v.product_id = ?",
+      before.id,
+    )[0];
+    assert.equal(vendorless.vendor_id, null, "sanity: genuinely no vendor at all, the legacy state this test means to prove");
+
+    /* Resubmitted with a real cost -- must not park as a clash over a
+       vendor this file can safely default on its own. */
+    const csv2 = "title,category,price,style id,cost\nWool Coat,Outerwear,100.00,01-04-005,42.00\n";
+    const second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager" });
+    assert.equal(second.created.length, 1, `expected the resubmit to update, got: ${JSON.stringify(second)}`);
+    assert.equal(second.created[0].action, "updated");
+
+    const after = f.mirror(
+      "SELECT v.unit_cost_minor, mv.name AS vendor FROM mirror_variant v JOIN mirror_vendor mv ON mv.id = v.vendor_id WHERE v.product_id = ?",
+      before.id,
+    )[0];
+    assert.equal(after.vendor, "In-house", "populated automatically -- no vendor named means In-house");
+    assert.equal(after.unit_cost_minor, 4200, "the cost actually landed, in the proper (vendor_information) location");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
