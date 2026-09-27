@@ -2214,12 +2214,13 @@ check("test_PRD_P0_147_variants_grid__each_color_header_keeps_the_same_one_pixel
 });
 
 check("test_PRD_P0_147_variants_grid__sizes_render_as_a_wrapping_grid_of_cells_not_one_row_each", async () => {
-  /* REVISED YET AGAIN (views.js's own comment on .variant-size-rows): "I
-     want to have the SKU number on the left, and then the add and remove
-     quantity for each size to be on the far right... a single row per
-     size" — the owner's own words, going back from the wrapping grid to
-     one full-width row per size, now that sku is a real, permanent,
-     worth-seeing value (Test-PRD-P0-177-fluid_style_id). */
+  /* REVISED YET AGAIN, THEN REVERTED (views.js's own comment on
+     variantsGroupedAccordionHtml): a one-full-width-row-per-size layout
+     (SKU or a style-ID-based label on the left, stepper on the far right)
+     briefly replaced this wrapping grid — the owner's own words, on
+     actually seeing it: "bring back the other row layout for the sizes.
+     I liked how it was just S M L in a row. The new one doesn't look
+     good." Back to the original wrapping-grid assertion. */
   const mirror = mirrorDb();
   seedGridProduct(mirror);
   const body = await (await get("/items", MANAGER, env(mirror))).text();
@@ -2229,8 +2230,8 @@ check("test_PRD_P0_147_variants_grid__sizes_render_as_a_wrapping_grid_of_cells_n
   const nextGroupStart = body.indexOf('<div class="variant-group">', redGroupStart + 1);
   const redGroup = body.slice(redGroupStart, nextGroupStart > 0 ? nextGroupStart : redGroupStart + 2000);
 
-  assert.match(redGroup, /<div class="variant-size-rows">/, "sizes under an open color must sit inside one column of full-width rows");
-  assert.match(redGroup, /<div class="row"><span class="variation-sku-label">[^<]*<\/span><span class="variation-title-label">S<\/span>/, "each size is its own row, sku then title then stepper");
+  assert.match(redGroup, /<div class="variant-size-grid">/, "sizes under an open color must tile in a wrapping grid, not stack as full-width rows");
+  assert.match(redGroup, /<div class="variant-size-cell"><span class="variation-title-label">S<\/span>/, "each size is its own cell, title then stepper, no sku/style_id label");
 });
 
 check("test_PRD_P0_147_variants_grid__opening_one_color_group_closes_every_other_one", async () => {
@@ -2243,17 +2244,16 @@ check("test_PRD_P0_147_variants_grid__opening_one_color_group_closes_every_other
 });
 
 check("test_PRD_P0_147_variants_grid__the_plus_and_minus_steppers_still_work_inside_a_grid_cell", async () => {
-  /* REVISED YET AGAIN: the grid-of-cells design (and its own `.closest(".row,
-     .variant-size-cell")` workaround) is gone -- the grouped Variants view's
-     own sizes are back to one full-width `.row` each, the exact same shape
-     the flat single-dimension list already uses, so stepStock() needs only
-     the one, shared `.closest(".row")` to find its own count field and
-     sibling buttons, wherever it is placed. */
+  /* REVISED YET AGAIN, THEN REVERTED: the one-full-width-row-per-size
+     layout (and its own single shared `.closest(".row")`) is gone --
+     the grouped Variants view is back to a wrapping grid of
+     `.variant-size-cell`s, so stepStock() needs its own wider selector
+     again to find either shape's count field and sibling buttons. */
   const body = await (await get("/items", MANAGER, env(mirrorDb()))).text();
   assert.match(
     body,
-    /const row = button\.closest\(".row"\);/,
-    "stepStock must walk up to the shared .row, identical in the flat list and the grouped view",
+    /const row = button\.closest\(".row, \.variant-size-cell"\);/,
+    "stepStock must walk up to whichever of .row or .variant-size-cell wraps it",
   );
 });
 

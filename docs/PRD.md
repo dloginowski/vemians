@@ -8160,6 +8160,15 @@ that does not trace to one of these is a process failure (see §12).
     Confirmed live (a real `worker.fetch` render, Playwright-driven): the label sits flush left, the
     stepper flush right, one row per size, inside each expanded color group.
 
+    **REVERTED, on actually seeing this row layout live**: "bring back the other row layout for the
+    sizes. I liked how it was just S M L in a row. The new one doesn't look good." Both REVISED rounds
+    above — the one-full-width-row-per-size layout, the SKU-on-the-left label, and the later
+    style-ID-based display label replacing it — are undone. `variantsGroupedAccordionHtml` (`views.js`)
+    is back to the original wrapping `.variant-size-grid` of small `.variant-size-cell` tiles (P0-147's
+    own first "REVISED AGAIN" shape, above this whole sub-history): title label and stepper only, no
+    sku or style_id label of any kind. `styleIdVariantLabel` and `.variation-sku-label` no longer exist.
+    Confirmed live: sizes tile left-to-right again, wrapping once the tile's own width runs out.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
