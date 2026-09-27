@@ -38,7 +38,14 @@
  * product.
  */
 import { runTool } from "./tools/index.js";
-import { listCategories, categoryProductCounts, LEGACY_COST_FIELD_KEYS, LEGACY_MARGIN_FIELD_KEYS } from "./tools/catalog-writer.js";
+import {
+  listCategories,
+  categoryProductCounts,
+  LEGACY_COST_FIELD_KEYS,
+  LEGACY_MARGIN_FIELD_KEYS,
+  productByImportStyleNumber,
+  variantsWithOptionsOf,
+} from "./tools/catalog-writer.js";
 import { nearestCategory } from "./tools/catalog-write.js";
 import { parkForApproval } from "./approvals.js";
 import { csvRecords, parseCsv } from "./tools/csv.js";
@@ -118,11 +125,11 @@ async function parkRows(env, { actor, role, toolName, rate, onProgress }, rows) 
  */
 const NOT_ROW_FIXABLE = /requires the .* role|^rate cap:|no tool '|cannot be passed as an argument|^bad_arguments/i;
 
-async function createRows(env, { actor, role, toolName, rate, onProgress }, rows) {
+async function createRows(env, { actor, role, rate, onProgress }, rows) {
   const created = [];
   const parked = [];
   const skipped = [];
-  const settle = async (rowNumber, title, args, reason) => {
+  const settle = async (rowNumber, title, toolName, args, reason) => {
     if (NOT_ROW_FIXABLE.test(reason)) {
       skipped.push({ row: rowNumber, title, reason });
       return "skipped";
@@ -131,18 +138,24 @@ async function createRows(env, { actor, role, toolName, rate, onProgress }, rows
     parked.push({ row: rowNumber, title, url, summary: reason });
     return "parked";
   };
-  for (const { rowNumber, title, args } of rows) {
+  /* toolName is now PER-ROW, not shared for the whole call — a resubmit
+     (Test-PRD-P0-179-import_style_number_matching) mints
+     catalog.update_product for a row draftGroupedProduct already matched to
+     an existing product, and catalog.create_product for every other row, in
+     the very same batch. */
+  for (const { rowNumber, title, args, toolName } of rows) {
     let status;
     const gate = await runTool(toolName, args, { actor, role, env, rate });
     if (!gate?.needsApproval) {
-      status = await settle(rowNumber, title, args, gate?.error || "could not be validated");
+      status = await settle(rowNumber, title, toolName, args, gate?.error || "could not be validated");
     } else {
       const result = await runTool(toolName, args, { actor, role, env, rate, approvalToken: gate.data.approval.token });
       if (result?.error || result?.denied) {
-        status = await settle(rowNumber, title, args, result.error || result.denied || "was refused");
+        status = await settle(rowNumber, title, toolName, args, result.error || result.denied || "was refused");
       } else {
-        created.push({ row: rowNumber, title, handle: result.data?.product?.handle, summary: gate.data.would });
-        status = "created";
+        const action = toolName === "catalog.update_product" ? "updated" : "created";
+        created.push({ row: rowNumber, title, handle: result.data?.product?.handle, summary: gate.data.would, action });
+        status = action;
       }
     }
     onProgress?.({ done: created.length + parked.length + skipped.length, total: rows.length, row: rowNumber, title, status });
@@ -170,17 +183,17 @@ async function createRows(env, { actor, role, toolName, rate, onProgress }, rows
 /* The single park-or-skip decision every "this row cannot proceed as is"
    path needs — parkClashRows (below) and planProductBatch's own gate-check
    loop (further down) both reduce to exactly this once a reason is known. */
-async function parkOrSkip(env, { actor, role, toolName }, { row, title, args, reason }) {
+async function parkOrSkip(env, { actor, role }, { row, title, args, reason, toolName }) {
   if (NOT_ROW_FIXABLE.test(reason)) return { bucket: "skipped", entry: { row, title, reason } };
   const { url } = await parkForApproval(env, { name: toolName, args, actor, role, tier: "T2", summary: reason });
   return { bucket: "parked", entry: { row, title, url, summary: reason } };
 }
 
-async function parkClashRows(env, { actor, role, toolName }, rows) {
+async function parkClashRows(env, { actor, role }, rows) {
   const parked = [];
   const skipped = [];
-  for (const { row, title, args, reason } of rows) {
-    const outcome = await parkOrSkip(env, { actor, role, toolName }, { row, title, args, reason });
+  for (const { row, title, args, reason, toolName } of rows) {
+    const outcome = await parkOrSkip(env, { actor, role }, { row, title, args, reason, toolName });
     (outcome.bucket === "skipped" ? skipped : parked).push(outcome.entry);
   }
   return { parked, skipped };
@@ -1059,14 +1072,148 @@ function draftNamedCategoryProduct(category, resolutionError, nextAutoTitle, rec
     ...(Object.keys(customFields).length ? { custom_fields: customFields } : {}),
   };
 
-  if (rowClashes.length) return { clash: { row: rowNumber, title, args, reason: rowClashes.join("; ") } };
-  return { row: { rowNumber, title, args } };
+  if (rowClashes.length) return { clash: { row: rowNumber, title, args, reason: rowClashes.join("; "), toolName: "catalog.create_product" } };
+  return { row: { rowNumber, title, args, toolName: "catalog.create_product" } };
+}
+
+/* Same key set, same values, trimmed and case-folded -- the same leniency
+   matchCategory's own comment already gives category NAMES, applied here
+   to a variation's own Color/Size instead. Both sides of this comparison
+   are only ever populated by THIS SAME importer (OPTION_KEYS' own two
+   names), so an exact key-set match reliably picks out the one existing
+   variation a row's own Color/Size combination already means. */
+function sameOptions(a, b) {
+  const norm = (o) =>
+    Object.fromEntries(Object.entries(o).map(([k, v]) => [k.trim().toLowerCase(), String(v).trim().toLowerCase()]));
+  const na = norm(a);
+  const nb = norm(b);
+  const keys = Object.keys(na);
+  return keys.length === Object.keys(nb).length && keys.every((k) => nb[k] === na[k]);
+}
+
+/*
+ * A resubmit of a group already matched to `existing` (draftGroupedProduct's
+ * own import_style_number lookup, just below) -- "all the sizes are the
+ * same, all the options are the same, you match them... if that all
+ * matches, then you just update," the owner's own words. Builds a
+ * catalog.update_product call instead of a fresh catalog.create_product one:
+ *
+ * - never `category_id` -- a category MOVE is its own separate, deliberate
+ *   edit; resending the same one here would only reassign style_id for no
+ *   reason (catalog.update_product's own no-op rule already guards this,
+ *   but this file never even tries).
+ * - never `quantity` -- this codebase's own inventory-ledger guarantee: no
+ *   write outside inventory.adjust ever silently changes stock, and a
+ *   resubmit is no exception.
+ * - `title`/`description` only when the sheet gives a REAL title column of
+ *   its own (titleCol) -- a sheet using its Description column as a title
+ *   STAND-IN (no title column at all, draftGroupedProduct's own create-path
+ *   comment) must not overwrite an already-named product's real title and
+ *   description with that guess.
+ * - `vendor`/`vendor_code`/`commission` are deliberately NEVER touched here
+ *   at all -- catalog.update_product has no home for them (they live on
+ *   catalog.set_square_attributes, a separate manager action with its own
+ *   business rules about a vendor's centrally-tracked commission rate);
+ *   reassigning a product's own vendor relationship mid-resubmit is a
+ *   heavier, rarer edit than "update the cost," and stays a deliberate,
+ *   separate call a person makes on purpose, never a silent side effect of
+ *   ingesting a spreadsheet.
+ * - `unit_cost_minor` -- what THIS shop paid -- ships on every matched
+ *   variation instead (VARIATION_WITH_ID's own per-variation field), the
+ *   sheet's one cost value for the whole group applied to each.
+ *
+ * Each CSV row is matched to one of `existing`'s OWN CURRENT variations by
+ * Color/Size (variantsWithOptionsOf, sameOptions above) -- never by
+ * position, never by a stored id the sheet itself could carry. A row whose
+ * Color/Size combination matches nothing already on the product is a
+ * genuine clash: catalog.update_product's own VARIATION_WITH_ID shape has
+ * no `option_values` at all (a materially different, larger edit the owner
+ * never asked a resubmit to make), so a truly NEW size/color needs a
+ * person, never a silent guess.
+ */
+async function draftProductUpdate(env, existing, base, groupRows) {
+  const first = groupRows[0].record;
+  const firstRow = groupRows[0].rowNumber;
+  const notes = [];
+  const clashes = [];
+
+  const existingVariants = await variantsWithOptionsOf(env.CATALOG_MIRROR, existing.id);
+
+  const titleCol = pick(first, TITLE_KEYS);
+  const descriptionCol = pick(first, DESCRIPTION_KEYS);
+
+  const unitCostRaw = pick(first, LEGACY_COST_FIELD_KEYS);
+  let unitCostMinor;
+  if (unitCostRaw) {
+    unitCostMinor = parsePriceToMinor(unitCostRaw);
+    if (unitCostMinor === null) {
+      notes.push(`unit cost "${unitCostRaw}" is not a plain number like 45.00 -- left unset`);
+      unitCostMinor = undefined;
+    }
+  }
+
+  const variations = [];
+  for (const { record, rowNumber, color, size } of groupRows) {
+    const optValues = Object.fromEntries(
+      Object.entries({ ...(color ? { Color: color } : {}), ...(size ? { Size: size } : {}), ...optionValues(record) }).filter(
+        ([, value]) => value.trim().toUpperCase() !== "TBD",
+      ),
+    );
+    const match = existingVariants.find((v) => sameOptions(optValues, v.options));
+    if (!match) {
+      clashes.push(
+        `row ${rowNumber}: "${Object.values(optValues).join(", ") || "(no size/color)"}" is not an existing variation on "${existing.title}" (${existing.handle}) -- a resubmit can only update sizes/colors that already exist; add a new one by hand first`,
+      );
+      continue;
+    }
+    const priceRaw = pick(record, PRICE_KEYS);
+    const priceMinor = parsePriceToMinor(priceRaw);
+    if (priceMinor === null) {
+      clashes.push(`row ${rowNumber}: price "${priceRaw}" is not a plain number like 45.00`);
+    }
+    const currency = (pick(record, CURRENCY_KEYS) || match.currency || "USD").toUpperCase();
+    variations.push({
+      variant_id: match.id,
+      title: match.title,
+      ...(priceMinor !== null ? { price_minor: priceMinor } : {}),
+      currency,
+      ...(unitCostMinor !== undefined ? { unit_cost_minor: unitCostMinor } : {}),
+    });
+  }
+
+  const args = {
+    handle: existing.handle,
+    ...(titleCol ? { title: titleCol.slice(0, 200) } : {}),
+    ...(titleCol && descriptionCol ? { description: descriptionCol } : {}),
+    ...(variations.length ? { variations } : {}),
+  };
+
+  const title = titleCol || existing.title;
+  if (clashes.length) {
+    return { clash: { row: firstRow, title, args, reason: clashes.join("; "), toolName: "catalog.update_product" } };
+  }
+  return { row: { rowNumber: firstRow, title, args, toolName: "catalog.update_product" } };
 }
 
 async function draftGroupedProduct(env, ctx, base, groupRows) {
   const { actor, role, categories, reservedNumericIds, reservedSubcategoryNumericIds, categoryCache, nextAutoTitle, rate } = ctx;
   const first = groupRows[0].record;
   const firstRow = groupRows[0].rowNumber;
+
+  /* "If that all matches, then you just update" / "you should be able to
+     determine which item is in there, and just find it and update it" --
+     the owner's own words. import_style_number is `base` itself, stamped
+     once at creation (catalog.create_product's own run()) and never
+     touched again by anything -- a resubmit of the exact same sheet finds
+     the SAME product this way even if its category (and so its live,
+     fluid style_id) has moved on since. Checked before any category
+     resolution at all: an update never resends category_id, so there is
+     nothing here to resolve for this path. */
+  const existing = await productByImportStyleNumber(env.CATALOG_MIRROR, base);
+  if (existing) {
+    return draftProductUpdate(env, existing, base, groupRows);
+  }
+
   const [catCode, subCode] = base.split("-");
   const categoryNameCol = pick(first, CATEGORY_KEYS);
   const subcategoryNameCol = pick(first, SUBCATEGORY_KEYS);
@@ -1305,6 +1452,12 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
     ...(commission !== undefined ? { commission } : {}),
     variations,
     ...(Object.keys(customFields).length ? { custom_fields: customFields } : {}),
+    /* Stamped once, here, at the only moment this product is ever created
+       -- so a LATER resubmit of this same row (draftGroupedProduct's own
+       productByImportStyleNumber lookup, above) finds it again by this,
+       never by the live, fluid style_id (Test-PRD-P0-179-
+       import_style_number_matching). */
+    import_style_number: base,
   };
 
   /* A real clash parks the whole group for a person to review and fix,
@@ -1312,10 +1465,10 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
      write already uses -- never silently picked one way, never a bare
      skip either. */
   if (clashes.length) {
-    return { clash: { row: firstRow, title, args, reason: clashes.join("; ") } };
+    return { clash: { row: firstRow, title, args, reason: clashes.join("; "), toolName: "catalog.create_product" } };
   }
 
-  return { row: { rowNumber: firstRow, title, args } };
+  return { row: { rowNumber: firstRow, title, args, toolName: "catalog.create_product" } };
 }
 
 /**
@@ -1439,14 +1592,10 @@ export async function draftProductBatch(env, { text, actor, role, onProgress }) 
 
   const { created: madeRows, parked: parkedFromDenials, skipped: refused } = await createRows(
     env,
-    { actor, role, toolName: "catalog.create_product", rate, onProgress },
+    { actor, role, rate, onProgress },
     rows,
   );
-  const { parked: parkedFromClashes, skipped: refusedClashes } = await parkClashRows(
-    env,
-    { actor, role, toolName: "catalog.create_product" },
-    clashes,
-  );
+  const { parked: parkedFromClashes, skipped: refusedClashes } = await parkClashRows(env, { actor, role }, clashes);
 
   return {
     created: madeRows,
@@ -1495,21 +1644,17 @@ export async function planProductBatch(env, { text, actor, role }) {
   const parkedFromGate = [];
   const skippedFromGate = [];
   for (const row of built) {
-    const gate = await runTool("catalog.create_product", row.args, { actor, role, env, rate });
+    const gate = await runTool(row.toolName, row.args, { actor, role, env, rate });
     if (gate?.needsApproval) {
       readyRows.push({ ...row, summary: gate.data.would });
       continue;
     }
     const reason = gate?.error || "could not be validated";
-    const outcome = await parkOrSkip(env, { actor, role, toolName: "catalog.create_product" }, { row: row.rowNumber, title: row.title, args: row.args, reason });
+    const outcome = await parkOrSkip(env, { actor, role }, { row: row.rowNumber, title: row.title, args: row.args, reason, toolName: row.toolName });
     (outcome.bucket === "skipped" ? skippedFromGate : parkedFromGate).push(outcome.entry);
   }
 
-  const { parked: parkedFromClashes, skipped: refusedClashes } = await parkClashRows(
-    env,
-    { actor, role, toolName: "catalog.create_product" },
-    clashes,
-  );
+  const { parked: parkedFromClashes, skipped: refusedClashes } = await parkClashRows(env, { actor, role }, clashes);
 
   return {
     rows: readyRows,
@@ -1547,8 +1692,8 @@ export async function planProductBatch(env, { text, actor, role }) {
  */
 export async function submitProductBatchRow(env, { actor, role, rate }, row, editedTitle) {
   const target = editedTitle ? { ...row, title: editedTitle, args: { ...row.args, title: editedTitle } } : row;
-  const { created, parked, skipped } = await createRows(env, { actor, role, toolName: "catalog.create_product", rate }, [target]);
-  if (created.length) return { status: "created", ...created[0] };
+  const { created, parked, skipped } = await createRows(env, { actor, role, rate }, [target]);
+  if (created.length) return { status: created[0].action, ...created[0] };
   if (parked.length) return { status: "parked", ...parked[0] };
   return { status: "skipped", ...skipped[0] };
 }
@@ -1748,7 +1893,16 @@ function positionalField(values) {
    facts, draftGroupedProduct's own comment on vendor/commission/unit cost
    applies here too) — "preserve all fields" means visible before
    confirming, not just kept silently in the background. */
-function mapProductGroup(groupRows) {
+/* `existing`, when given, is the product this group's own style number
+   ALREADY matches (import_style_number, Test-PRD-P0-179-
+   import_style_number_matching) — "you should be able to determine which
+   item is in there, and just find it and update it," the owner's own
+   words, shown here BEFORE the real batch runs so a person reviewing the
+   preview sees "this will update X" rather than assuming every row mints a
+   fresh product. sku/style_id stay "(unchanged)" rather than "(auto-
+   generated)" for a match: neither one is touched by catalog.update_product
+   at all. */
+function mapProductGroup(groupRows, existing = null) {
   const first = groupRows[0].record;
   const categoryName = pick(first, CATEGORY_KEYS);
   /* "Any time you see TBD, just use like a default or no option... it
@@ -1801,13 +1955,14 @@ function mapProductGroup(groupRows) {
      can actually keep. */
   return {
     title,
+    ...(existing ? { will_update: `${existing.title} (${existing.handle})` } : {}),
     category: categoryName || null,
     subcategory: pick(first, SUBCATEGORY_KEYS) || null,
     price: positionalField(groupRows.map(({ record }) => pick(record, PRICE_KEYS) || null)),
     currency: (pick(first, CURRENCY_KEYS) || "USD").toUpperCase(),
     description: titleCol ? descriptionCol || null : null,
-    sku: "(auto-generated)",
-    style_id: "(auto-generated)",
+    sku: existing ? "(unchanged)" : "(auto-generated)",
+    style_id: existing ? "(unchanged)" : "(auto-generated)",
     variants: groupRows.length,
     vendor: pick(first, VENDOR_KEYS) || null,
     vendor_code: pick(first, VENDOR_CODE_KEYS) || null,
@@ -1831,7 +1986,7 @@ function mapCustomerRow(record) {
   };
 }
 
-export function previewBatch(text, kind) {
+export async function previewBatch(env, text, kind) {
   const records = csvRecords(parseCsv(text));
   if (!records.length) return { headers: [], rowCount: 0, sampleRows: [] };
 
@@ -1858,7 +2013,17 @@ export function previewBatch(text, kind) {
     const namedRows = namedRecords.map(({ record, rowNumber }) =>
       mapProductGroup([{ record, rowNumber, color: undefined, size: undefined }]),
     );
-    mapped = [...groupOrder.map((base) => mapProductGroup(groups.get(base))), ...namedRows];
+    /* A read-only lookup, one per distinct style number -- never a write,
+       so this preview stays the same side-effect-free look it has always
+       been (this function's own header comment on category/subcategory
+       resolution), just no longer blind to a resubmit that already has a
+       real match on file. */
+    mapped = [
+      ...(await Promise.all(
+        groupOrder.map(async (base) => mapProductGroup(groups.get(base), await productByImportStyleNumber(env.CATALOG_MIRROR, base))),
+      )),
+      ...namedRows,
+    ];
   }
 
   /* mapProductGroup's extra (custom) fields are per-group: a sheet's own

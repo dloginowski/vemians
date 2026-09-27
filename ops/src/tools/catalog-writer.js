@@ -222,7 +222,7 @@ export const LEGACY_MARGIN_FIELD_KEYS = ["margin", "margin %", "margin pct", "gr
 
 const PRODUCT_WITH_VENDOR_COLUMNS = `
   p.id, p.handle, p.title, p.source_description, p.status, p.channel, p.custom_fields,
-  p.style_id, p.commission_pct, p.category_id,
+  p.import_style_number, p.style_id, p.commission_pct, p.category_id,
   mv.name AS vendor, v0.vendor_code, v0.unit_cost_minor, v0.unit_cost_currency
 `;
 const PRODUCT_WITH_VENDOR_JOIN = `
@@ -235,6 +235,19 @@ export async function productByHandle(db, handle) {
   return db
     .prepare(`${PRODUCT_WITH_VENDOR_SELECT} WHERE p.handle = ?`)
     .bind(handle)
+    .first();
+}
+
+/* A resubmitted CSV row's own way to find the product it already created,
+   last time — "if that all matches, then you just update," the owner's
+   own words, once style_id itself could no longer serve as that key
+   (Test-PRD-P0-179-import_style_number_matching has the full reasoning).
+   NULL is never searched for (every style-numbered CSV row has a real,
+   non-empty base) — batch.js only ever calls this with one. */
+export async function productByImportStyleNumber(db, importStyleNumber) {
+  return db
+    .prepare(`${PRODUCT_WITH_VENDOR_SELECT} WHERE p.import_style_number = ?`)
+    .bind(importStyleNumber)
     .first();
 }
 
@@ -268,26 +281,6 @@ export async function variantById(db, id) {
     .first();
 }
 
-/* catalog.create_product's own hard rule: "we must have a unique SKU number
-   or ID for each item that's unique to each variation and size... if that's
-   true, then add the product" — the owner's own words. validateProposal's
-   own "used twice in this product" check (catalog-write.js) only ever sees
-   ONE call's own variations; this is the other half, checking an explicitly
-   given SKU against every OTHER product already on file — the same join
-   variantById above already uses, just keyed by SKU rather than our own
-   variant id, since check() only ever has the SKU a caller is ABOUT to use,
-   not yet a variant id to look one up by. */
-export async function variantBySku(db, sku) {
-  return db
-    .prepare(
-      `SELECT v.id, p.title AS product_title
-         FROM mirror_variant_index v JOIN mirror_product_index p ON p.id = v.product_id
-        WHERE v.sku = ?`,
-    )
-    .bind(sku)
-    .first();
-}
-
 /* REVISED: "let's not force vendor's commission to be stated out loud [on
    every item]... we store it in essential locations per vendor so that
    their commission is recorded in a central location and automatically
@@ -315,6 +308,31 @@ export async function variantsOf(db, productId) {
     .bind(productId)
     .all();
   return res.results ?? [];
+}
+
+/* Same rows as variantsOf, plus each one's own already-resolved
+   option_values (name -> value, e.g. {"Color":"Red","Size":"M"}) — for a
+   caller that needs to recognize WHICH existing variation a row
+   corresponds to, not just list them. batch.js's own resubmit-matching
+   (Test-PRD-P0-179-import_style_number_matching) is the one caller: a
+   CSV row's own Color/Size only ever means anything against a product's
+   CURRENT variations, never a stored id the sheet itself could carry. */
+export async function variantsWithOptionsOf(db, productId) {
+  const res = await db
+    .prepare(
+      "SELECT id, sku, title, ordinal, price_minor, currency, options FROM mirror_variant_index WHERE product_id = ? ORDER BY ordinal",
+    )
+    .bind(productId)
+    .all();
+  return (res.results ?? []).map((v) => {
+    let options = {};
+    try {
+      options = JSON.parse(v.options || "{}");
+    } catch {
+      options = {};
+    }
+    return { ...v, options };
+  });
 }
 
 /* Marks a mirror_image row as ours, never Square's — shared by the insert
