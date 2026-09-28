@@ -1025,15 +1025,28 @@ async function draftNamedCategoryProduct(env, category, resolutionError, nextAut
      path uses (productsByCategoryAndTitle) -- reused wholesale via
      draftProductUpdate itself, wrapping this one record as a one-row
      "group" (a named row was always exactly one variation, never grouped
-     with siblings the way a shared style number groups several rows). */
-  if (mode === "update" && !resolutionError && category && rawTitle) {
-    const candidates = await productsByCategoryAndTitle(env.CATALOG_MIRROR, category.id, rawTitle);
+     with siblings the way a shared style number groups several rows).
+     Widened the same way draftGroupedProduct's own fallback was (the
+     "found no existing products" production report): a category-scoped
+     search that comes up empty tries once more, catalog-wide by title
+     alone, before this row gives up -- a real category move since
+     creation (catalog.update_product, a deliberate, separate edit) leaves
+     this row's own still-correct category NAME resolving to a real
+     category the product simply is not IN any more. */
+  if (mode === "update" && !resolutionError && rawTitle) {
+    let candidates = category ? await productsByCategoryAndTitle(env.CATALOG_MIRROR, category.id, rawTitle) : [];
+    let scoped = candidates.length > 0;
+    if (candidates.length === 0) {
+      candidates = await productsByTitle(env.CATALOG_MIRROR, rawTitle);
+      scoped = false;
+    }
     if (candidates.length === 1) {
       return draftProductUpdate(env, candidates[0], rawTitle, [{ record, rowNumber, color: undefined, size: undefined }], ctx);
     }
     if (candidates.length > 1) {
+      const scope = scoped ? `in "${category.name}"` : "anywhere in the catalog (no category match narrowed the search)";
       rowClashes.push(
-        `"${rawTitle}" in "${category.name}" matches ${candidates.length} existing products ` +
+        `"${rawTitle}" ${scope} matches ${candidates.length} existing products ` +
           `(${candidates.map((c) => c.handle).join(", ")}) -- too ambiguous to update automatically; confirm which one, if any, this row means`,
       );
     }
@@ -1460,13 +1473,43 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
      assumed could not happen (a real category to scope the title search
      to). Scoped to that category when one resolved, same as always;
      catalog-WIDE, by title alone, when nothing resolved at all -- the
-     last remaining signal a sheet like that has left. Still confident
-     only on exactly one candidate, still an ambiguous, named-candidates
-     clash on more than one, never a guess either way. */
+     last remaining signal a sheet like that has left.
+
+     REVISED AGAIN, the very next report: "it's the same [expletive]
+     spreadsheet I used to upload the items in the first place... you
+     should be able to find them just by their category, subcategory, and
+     name" -- the owner's own words, and a real, separate gap from the one
+     just above: `category` here is NOT null, it resolved to something
+     real, just the WRONG something. resolveCategoryByCode resolves a
+     style number's own numeric code BY NUMBER FIRST, deliberately, "you
+     don't have to think about the names... whatever we have configured,
+     you assign to that category using its ID" (Test-PRD-P0-152's own
+     category_and_subcategory_resolve_by_number test) -- exactly right for
+     CREATING, where a sheet's category text is decoration and the number
+     is what this shop actually configured. But a resubmit's own STALE
+     number, after this shop's own recurring renumbering, can land on a
+     DIFFERENT, unrelated category that happens to hold that number NOW --
+     silently misfiling the whole row under the wrong parent, where a
+     category-scoped title search can only ever find nothing, even though
+     the row's own Category/Subcategory NAME columns never changed at all
+     and still correctly name the real product's real home. Not a case
+     resolveCategoryByCode itself should second-guess -- ADD mode's own
+     test above depends on the number staying authoritative there, and
+     changing that would relitigate a deliberate, owner-requested,
+     already-shipped design. The fix belongs here instead, one level up:
+     an update's own title search never stops at an empty, wrongly-scoped
+     result -- it widens to the whole catalog by title alone before giving
+     up, the exact same last resort already used when there was no
+     category at all to scope by in the first place. Confident only on
+     exactly one candidate either way, still an ambiguous, named-candidates
+     clash on more than one, never a guess. */
   if (mode === "update" && rawTitle) {
-    const candidates = category
-      ? await productsByCategoryAndTitle(env.CATALOG_MIRROR, category.id, rawTitle)
-      : await productsByTitle(env.CATALOG_MIRROR, rawTitle);
+    let candidates = category ? await productsByCategoryAndTitle(env.CATALOG_MIRROR, category.id, rawTitle) : [];
+    let scoped = candidates.length > 0;
+    if (candidates.length === 0) {
+      candidates = await productsByTitle(env.CATALOG_MIRROR, rawTitle);
+      scoped = false;
+    }
     if (candidates.length === 1) {
       return draftProductUpdate(env, candidates[0], base, groupRows, ctx);
     }
@@ -1475,12 +1518,12 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
          items, should we update them... only if you have a question about
          it though, if you're confident, then just update" -- the owner's
          own words. More than one product shares this exact title (within
-         the same category, or across the whole catalog when there was no
-         category to scope to) -- a real ambiguity this file has no safe
-         way to pick between on its own, parked for a person the same way
-         any other clash already is, naming every candidate so they have
-         enough to decide from. */
-      const scope = category ? `in "${category.name}"` : "anywhere in the catalog (no category to narrow the search)";
+         the same category, or across the whole catalog when nothing
+         resolved there or the resolved category itself came up empty) -- a
+         real ambiguity this file has no safe way to pick between on its
+         own, parked for a person the same way any other clash already is,
+         naming every candidate so they have enough to decide from. */
+      const scope = scoped ? `in "${category.name}"` : "anywhere in the catalog (no category match narrowed the search)";
       clashes.push(
         `style number "${base}": "${rawTitle}" ${scope} matches ${candidates.length} existing products ` +
           `(${candidates.map((c) => c.handle).join(", ")}) -- too ambiguous to update automatically; confirm which one, if any, this row means`,
