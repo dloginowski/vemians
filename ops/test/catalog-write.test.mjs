@@ -6599,6 +6599,84 @@ check("test_PRD_P0_89_batch_preview_confirm__a_named_category_row_with_nothing_t
   assert.equal(row.subcategory, "Nonexistent Sub");
 });
 
+check("test_PRD_P0_181_resubmit_matching_refinements__a_named_category_row_still_matches_on_a_byte_identical_resubmit", async () => {
+  /* A sheet with no style-id column at all -- just Category/Subcategory/
+     Title, this shop's own other real convention (resolveNamedCategory) --
+     resubmitted completely unchanged. Never a hypothetical: the direct
+     "does the simplest possible resubmit even work" check underneath the
+     harder cases below. */
+  const f = await fixture({ actor: "keiko@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  const csv = "title,category,subcategory,price\nWhite Blazer,Jacket,Blazer,175.00\n";
+  let seed, result;
+  try {
+    seed = await draftProductBatch(f.env, { text: csv, actor: "keiko@vemians.com", role: "manager", mode: "add" });
+    assert.equal(seed.created.length, 1, `expected the seed upload to create, got: ${JSON.stringify(seed)}`);
+    result = await draftProductBatch(f.env, { text: csv, actor: "keiko@vemians.com", role: "manager", mode: "update" });
+    assert.equal(result.created.length, 1, `expected the identical resubmit to update, got: ${JSON.stringify(result)}`);
+    assert.equal(result.created[0].action, "updated");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_181_resubmit_matching_refinements__a_stale_style_number_code_reused_by_an_unrelated_category_still_matches_by_name", async () => {
+  /* "It's the same [expletive] spreadsheet I used to upload the items in
+     the first place... you should be able to find them just by their
+     category, subcategory, and name" -- the owner's own words, and the
+     real bug the PREVIOUS fix (productsByTitle, above) did not cover:
+     `category` is not null here -- resolveCategoryByCode resolves the
+     row's own STALE numeric code to a REAL, but UNRELATED, category that
+     happens to hold that number now (this shop's own recurring
+     renumbering, reusing a freed code), before the correct Category/
+     Subcategory NAME columns -- unchanged from the original upload -- ever
+     get a say. A category-scoped title search under that wrong category
+     can only ever find nothing. Widened exactly like the null-category
+     case already was: an empty category-scoped result tries once more,
+     catalog-wide by title alone, before giving up. */
+  const f = await fixture({ actor: "keiko@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  const csv = "title,category,subcategory,price,style id\nWhite Blazer,Jacket,Blazer,175.00,01-01-001\n";
+  let seed, result;
+  try {
+    seed = await draftProductBatch(f.env, { text: csv, actor: "keiko@vemians.com", role: "manager", mode: "add" });
+    assert.equal(seed.created.length, 1, `expected the seed upload to create, got: ${JSON.stringify(seed)}`);
+    const jacket = f.categories().find((c) => c.name === "Jackets");
+    assert.equal(jacket.numeric_id, "01", "sanity: Jackets really does hold the code this sheet's own style number claims");
+
+    /* Simulates a LEGACY product that predates import_style_number
+       entirely (this shop's real, already-live catalog, uploaded long
+       before this week's matching features existed) -- nulled directly,
+       since catalog.create_product itself can no longer produce one this
+       way any more. Without this, tier 1 (the exact, literal style-number
+       text) would trivially match regardless of anything below, and this
+       test would prove nothing. */
+    const before = f.mirror("SELECT id, handle FROM mirror_product WHERE title = 'White Blazer'")[0];
+    f.mirrorDb._raw.prepare("UPDATE mirror_product SET import_style_number = NULL WHERE id = ?").run(before.id);
+
+    /* Jackets itself gets renumbered away (freeing "01"), and a brand-new,
+       totally unrelated top-level category claims the freed code -- both
+       ordinary, previously-seen moves in this shop's own workflow, neither
+       one touching THIS row's own Category/Subcategory NAME columns at
+       all. */
+    await approvedCall(f, "catalog.set_category_number", { category_id: jacket.id, numeric_id: "55" });
+    const unrelated = (await approvedCall(f, "catalog.create_category", { name: "Handbags", reason: "test" })).data.category;
+    await approvedCall(f, "catalog.set_category_number", { category_id: unrelated.id, numeric_id: "01" });
+
+    result = await draftProductBatch(f.env, { text: csv, actor: "keiko@vemians.com", role: "manager", mode: "update" });
+    assert.equal(result.created.length, 1, `expected the resubmit to still find and update the real product, got: ${JSON.stringify(result)}`);
+    assert.equal(result.created[0].action, "updated");
+    assert.equal(result.created[0].handle, before.handle);
+
+    const products = f.mirror("SELECT id FROM mirror_product WHERE title = 'White Blazer'");
+    assert.equal(products.length, 1, "still the one product -- found by name despite the stale, now-reused code, no duplicate created");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 check("test_PRD_P0_152_style_number_grouping__a_style_number_that_does_not_match_the_pattern_is_ignored_outright", async () => {
   /* "Ignore any rows that do not match our style ID nomenclature... if
      they don't have that style ID pattern, then just ignore that" -- the

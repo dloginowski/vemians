@@ -8344,6 +8344,31 @@ that does not trace to one of these is a process failure (see §12).
     on an exact, catalog-wide title match; two unrelated products sharing one title, both similarly
     stranded, still park as an ambiguous clash naming both, never a silent guess at either.
 
+    **REVISED AGAIN**, the very next report, immediately: "It's the same [expletive] spreadsheet I
+    used to upload the items in the first place... how can it not resolve?... you should be able to
+    find them just by their category, subcategory, and name" — the owner's own words, and a real,
+    separate gap the fix just above did not cover: `category` was NOT null this time — it resolved to
+    something real, just the WRONG something. `resolveCategoryByCode` resolves a style number's own
+    numeric code BY NUMBER FIRST, deliberately (`Test-PRD-P0-152-style_number_grouping`'s own
+    `category_and_subcategory_resolve_by_number_ignoring_a_mismatched_name_column` test, "you don't
+    have to think about the names... whatever we have configured, you assign to that category using
+    its ID") — exactly right for CREATING, where a sheet's category text is decoration and the number
+    is what this shop actually configured. But a resubmit's own STALE number, after this shop's own
+    recurring renumbering, can land on a DIFFERENT, unrelated category that now happens to hold that
+    number — silently misfiling the whole row under the wrong parent, where a category-scoped title
+    search can only ever find nothing, even though the row's own Category/Subcategory NAME columns
+    never changed and still correctly name the real product's real home. Not a case
+    `resolveCategoryByCode` itself should second-guess — add mode's own test above depends on the
+    number staying authoritative there, and changing that would relitigate a deliberate, already-
+    shipped, owner-requested design. The fix belongs one level up instead: `draftGroupedProduct`'s
+    (and `draftNamedCategoryProduct`'s) own fallback never stops at an empty, wrongly-scoped result
+    any more — it widens to the whole catalog by title alone before giving up, the exact same last
+    resort already used when there was no category at all to scope by. Confirmed against the fixture
+    DB: a resubmit whose stale numeric code gets reused by a brand-new, unrelated category between
+    upload and resubmit — Category/Subcategory NAME columns completely unchanged throughout — still
+    finds and updates the real product by name; the simplest possible byte-identical resubmit of a
+    pure category/subcategory/title sheet (no style number at all) still matches on the first try.
+
 114. **`Test-PRD-P0-182-explicit_add_or_update_mode`** — "I think we should have two distinct
     commands. Add new products or update products, right? Update products will try to match products
     using the current spreadsheet... add new products will not try to match... it will only identify
