@@ -8323,6 +8323,27 @@ that does not trace to one of these is a process failure (see §12).
     product gets the built-in "In-house" vendor assigned automatically the moment a resubmit tries to
     update its cost, so the cost actually lands rather than parking as an avoidable refusal.
 
+    **REVISED**, a real production report the day after this shipped: "Just tried to update products
+    and it found no existing products???" — the owner's own words. A sheet carrying only a bare
+    numeric style-number code, no Category/Subcategory NAME columns, whose categories had since been
+    renumbered (this shop's own recurring workflow) defeated all three tiers above AT ONCE: import_
+    style_number is null for any product that predates `Test-PRD-P0-179` itself, the live style_id
+    had already moved on from the renumber, and `resolveCategoryByCode` had nothing left to resolve
+    `category` by — no name column, and the sheet's own numeric code no longer matched any CURRENT
+    category. `category` came back `null`, a plain, unresolved absence rather than an error — but the
+    category+subcategory+title fallback above required a resolved category to even attempt, so it
+    never ran either, and every tier failed together on a perfectly legitimate, pre-existing product.
+    `productsByTitle` (`catalog-writer.js`) closes that gap: the exact same case/whitespace-
+    insensitive title match as `productsByCategoryAndTitle`, just without a category to scope it to.
+    `draftGroupedProduct`'s own fallback now only requires a real title, never a resolved category —
+    scoped to the category when one resolved, catalog-WIDE by title alone when nothing did. Zero or
+    one candidate behaves exactly as before (proceed, or update outright); more than one is still an
+    ordinary, parked, named-candidates clash, not a guess, regardless of whether a category was there
+    to narrow the search. Confirmed against the fixture DB: a product with no import_style_number,
+    a category renumbered out from under it, and no name column to resolve by still updates correctly
+    on an exact, catalog-wide title match; two unrelated products sharing one title, both similarly
+    stranded, still park as an ambiguous clash naming both, never a silent guess at either.
+
 114. **`Test-PRD-P0-182-explicit_add_or_update_mode`** — "I think we should have two distinct
     commands. Add new products or update products, right? Update products will try to match products
     using the current spreadsheet... add new products will not try to match... it will only identify

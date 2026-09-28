@@ -7573,6 +7573,99 @@ check("test_PRD_P0_181_resubmit_matching_refinements__an_ambiguous_title_match_p
   }
 });
 
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-181, REVISED — a real production report the day after this shipped:
+ * "Just tried to update products and it found no existing products???" A
+ * sheet carrying only a bare numeric style-number code, no Category/
+ * Subcategory NAME columns, whose categories had since been renumbered
+ * (this shop's own recurring workflow) defeats every earlier tier at
+ * once: import_style_number is null (the product predates P0-179), the
+ * live style_id has moved on (the renumber), and resolveCategoryByCode
+ * has nothing left to resolve `category` by (no name column, and the
+ * code no longer matches any current category's number) -- so the
+ * category+title fallback, which required a resolved category, never
+ * even ran. Same "same title, same product" reasoning as the fallback
+ * above, just widened to search the whole catalog by title alone when
+ * there is no category left to scope it to.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_181_resubmit_matching_refinements__matches_by_title_alone_across_the_whole_catalog_when_category_resolution_itself_fails", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  await approvedCall(f, "catalog.set_category_number", { category_id: outerwear.id, numeric_id: "01" });
+  const casual = (await approvedCall(f, "catalog.create_category", { name: "Casual", parent_id: outerwear.id, reason: "test" })).data
+    .category;
+  await approvedCall(f, "catalog.set_category_number", { category_id: casual.id, numeric_id: "04" });
+
+  const csv1 = "title,category,subcategory,price,style id\nWool Coat,Outerwear,Casual,100.00,01-04-005\n";
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager", mode: "add" });
+    assert.equal(first.created.length, 1, `expected the first submission to create, got: ${JSON.stringify(first)}`);
+    const before = f.mirror("SELECT id, handle FROM mirror_product WHERE title = 'Wool Coat'")[0];
+
+    /* Categories renumbered since creation -- "01" is now free and belongs
+       to nothing "04" would still resolve, so a bare numeric code plus no
+       Category/Subcategory name column leaves resolveCategoryByCode with
+       nothing to match at all. `category` comes back null, not an error. */
+    await approvedCall(f, "catalog.set_category_number", { category_id: outerwear.id, numeric_id: "09" });
+    await approvedCall(f, "catalog.set_category_number", { category_id: casual.id, numeric_id: "02" });
+
+    const csv2 = "title,price,style id\nWool Coat,155.00,01-04-005\n";
+    const second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager", mode: "update" });
+    assert.equal(second.created.length, 1, `expected the title-only fallback to update, got: ${JSON.stringify(second)}`);
+    assert.equal(second.created[0].action, "updated");
+    assert.equal(second.created[0].handle, before.handle);
+
+    const products = f.mirror("SELECT id FROM mirror_product WHERE title = 'Wool Coat'");
+    assert.equal(products.length, 1, "still the one product -- found by title alone, no duplicate created");
+    const variant = f.mirror("SELECT price_minor FROM mirror_variant WHERE product_id = ?", before.id)[0];
+    assert.equal(variant.price_minor, 15500);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_181_resubmit_matching_refinements__an_ambiguous_catalog_wide_title_match_parks_as_a_clash_naming_every_candidate", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const accessories = f.categories().find((c) => c.name === "Accessories");
+  await approvedCall(f, "catalog.set_category_number", { category_id: outerwear.id, numeric_id: "01" });
+  await approvedCall(f, "catalog.set_category_number", { category_id: accessories.id, numeric_id: "02" });
+
+  /* Two GENUINELY DIFFERENT products, in two DIFFERENT top-level
+     categories, that happen to share the exact same title. */
+  const csv1 =
+    "title,category,price,style id\n" +
+    "Wool Coat,Outerwear,100.00,01-04-005\n" +
+    "Wool Coat,Accessories,120.00,02-04-006\n";
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager", mode: "add" });
+    assert.equal(first.created.length, 2, `expected two separate products, got: ${JSON.stringify(first)}`);
+
+    /* Renumbered out from under both categories, and no name column to
+       resolve either -- `category` is null, so the fallback searches the
+       WHOLE catalog by title and finds both products at once. */
+    await approvedCall(f, "catalog.set_category_number", { category_id: outerwear.id, numeric_id: "07" });
+    await approvedCall(f, "catalog.set_category_number", { category_id: accessories.id, numeric_id: "08" });
+
+    const csv2 = "title,price,style id\nWool Coat,999.00,01-04-007\n";
+    const second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager", mode: "update" });
+    assert.equal(second.created.length, 0, "never silently updated either, and never silently created a third");
+    assert.equal(second.ready.length, 1, "parked for a person, the same as any other clash");
+    assert.match(second.ready[0].summary, /matches 2 existing products/);
+    assert.match(second.ready[0].summary, /anywhere in the catalog/, "names the widened, category-less scope, not a specific category");
+
+    const products = f.mirror("SELECT id FROM mirror_product WHERE title = 'Wool Coat'");
+    assert.equal(products.length, 2, "neither existing product was touched, and no third one was created");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 check("test_PRD_P0_181_resubmit_matching_refinements__a_legacy_vendor_less_product_gets_in_house_assigned_so_cost_can_update", async () => {
   const f = await fixture();
   const csv1 = "title,category,price,style id\nWool Coat,Outerwear,100.00,01-04-005\n";
