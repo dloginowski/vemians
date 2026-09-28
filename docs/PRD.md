@@ -8242,6 +8242,21 @@ that does not trace to one of these is a process failure (see §12).
       `created` and `updated` outcomes separately, and the product-batch checklist's own instruction
       text no longer promises every ready row is a fresh create.
 
+    **REVISED**, a real production preview shown back to the owner: "What you're showing me is very
+    confusing. You should not do that." Preview never attempts the category/subcategory/title check at
+    all (it needs a real, live lookup this side-effect-free function stays out of) — so on an ordinary
+    multi-row update, EVERY row without a style-number match got `update_note: "no existing product
+    found by style number yet -- category/subcategory/title are also checked when this is actually
+    submitted"`, which reads as a wall of failures on every single row even though nothing has actually
+    been decided yet. Reworded (`mapProductGroup`, `batch.js`) to lead with what happens next, never
+    with an absence that sounds like a verdict: `"match check pending -- category/subcategory/title
+    will be checked when this is submitted"`. The chat tool description (`catalog_preview_update_
+    product_batch`, `agent.js`) had its own, separate inaccuracy in the same area — it claimed
+    `will_update` could fire "by category/subcategory/title" too, when the real preview code never even
+    attempts that check — corrected, and the agent is now told in plain terms never to present
+    `update_note` to a person as "will create a new product" or "no match," only as "not yet confirmed
+    in this quick preview."
+
     Confirmed against the real fixture DB and Square mock (`catalog-write.test.mjs`,
     `Test-PRD-P0-179-import_style_number_matching`): a resubmitted sheet updates the same product
     rather than duplicating it; each variation is matched by its own Color/Size even with the sheet's
