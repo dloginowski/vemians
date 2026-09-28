@@ -7453,6 +7453,27 @@ check("test_PRD_P0_179_import_style_number_matching__the_preview_shows_a_matched
   assert.equal(freshPreview.sampleRows[0].sku, "(auto-generated)");
 });
 
+check("test_PRD_P0_179_import_style_number_matching__the_pending_match_note_never_reads_as_a_negative_result", async () => {
+  /* "What you're showing me is very confusing. You should not do that" --
+     the owner's own words, about this exact note on a real 16-row update
+     preview, worded the way it used to be: "no existing product found...
+     yet". Every row without a style-number match shows this note in
+     preview (category/subcategory/title is never even attempted there --
+     see previewBatch's own header comment), so on an ordinary multi-row
+     update it appears on EVERY row, reading like a wall of failures even
+     though nothing has actually been checked yet. Reworded to lead with
+     what happens next, never with an absence that sounds like a verdict. */
+  const { previewBatch } = await import("../src/batch.js");
+  const f = await fixture();
+  const csv = "title,category,price,style id\nBrand New Style,Outerwear,80.00,01-04-999\n";
+  const preview = await previewBatch(f.env, csv, "products", "update");
+  const note = preview.sampleRows[0].update_note;
+  assert.ok(note, "a row with no style-number match still gets a note explaining why");
+  assert.doesNotMatch(note, /no existing product found/i, "must never lead with an absence that reads as a negative verdict");
+  assert.doesNotMatch(note, /\byet\b/i, "\"...yet\" reads as a countdown to failure, not a plain, calm pending state");
+  assert.match(note, /pending|will be checked|not yet (confirmed|decided)/i, "must say plainly that the real check still happens on submit");
+});
+
 /* ─────────────────────────────────────────────────────────────────────────
  * P0-180 — a real HTTP-level bug found while wiring "updated" through this
  * same checklist submit path: submitBatchPlanRow's own success return used

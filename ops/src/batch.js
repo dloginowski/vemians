@@ -2188,8 +2188,17 @@ function mapProductGroup(groupRows, existing = null, showNoMatchNote = false) {
     ...(existing ? { will_update: `${existing.title} (${existing.handle})` } : {}),
     ...(showNoMatchNote && !existing
       ? {
-          update_note:
-            "no existing product found by style number yet -- category/subcategory/title are also checked when this is actually submitted",
+          /* "What you're showing me is very confusing. You should not do
+             that" -- the owner's own words, about this exact note, worded
+             the way it used to be: "no existing product found... yet",
+             read as a negative result on every single row of a sheet this
+             preview simply has not fully checked. Reworded to lead with
+             what actually happens next, never with an absence that sounds
+             like a verdict -- this preview only ever tried the style
+             number; category/subcategory/title (this feature's own strongest
+             signal once a style number has drifted) is still to come, for
+             real, the moment this gets submitted. */
+          update_note: "match check pending -- category/subcategory/title will be checked when this is submitted",
         }
       : {}),
     category: categoryName || null,

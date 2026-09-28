@@ -452,11 +452,17 @@ const PREVIEW_TOOL_DEFS = [
       "UPDATE products this shop already sells, not add new ones — use this one when the person hands over " +
       "a sheet of already-existing items with corrected prices, costs, or other details. Each row's own " +
       "preview additionally shows `will_update: \"<title> (<handle>)\"` when it already, confidently matches " +
-      "an existing product (by style number, by its current style ID, or by category/subcategory/title), or " +
-      "an `update_note` when it does not — the real update run also tries matching by category/subcategory/" +
-      "title, a check this read-only preview does not attempt, so `update_note` means \"no confirmed match " +
-      "yet,\" never \"will fail.\" Call this FIRST, the same as the add-mode preview, and wait for the person " +
-      "to confirm before calling catalog_update_product_batch." +
+      "an existing product by style number or by its current style ID, or an `update_note` when it does not " +
+      "— the real update run also tries matching by category/subcategory/title, a check this read-only " +
+      "preview never attempts (it needs a real, live lookup this side-effect-free preview stays out of), so " +
+      "`update_note` on EVERY row is the ordinary, expected result whenever a sheet has no style-number " +
+      "column at all, or one that doesn't happen to match yet (a renumbered category, a corrected style " +
+      "ID) — it means \"not decided yet,\" never \"no match\" or \"will create a new product,\" and must " +
+      "never be presented to the person as either of those. Never tell the person these rows will create " +
+      "new products, will fail to match, or look like new items — say plainly that the style-number check " +
+      "alone did not confirm a match in this quick preview, and the fuller category/subcategory/title check " +
+      "still runs for real the moment they submit it. Call this FIRST, the same as the add-mode preview, and " +
+      "wait for the person to confirm before calling catalog_update_product_batch." +
       NO_TEXT_TABLE_NOTE,
     input_schema: {
       type: "object",
