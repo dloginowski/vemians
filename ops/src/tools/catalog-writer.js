@@ -301,6 +301,30 @@ export async function productsByCategoryAndTitle(db, categoryId, title) {
   return res.results ?? [];
 }
 
+/* The LAST-RESORT half of the same fallback, tried only when a resubmit's
+   own category could not be resolved to anything AT ALL -- a real
+   production report, the day after import_style_number/style_id matching
+   shipped: a shop whose sheet carries only a numeric style-number code
+   (no Category/Subcategory NAME columns) and whose categories have since
+   been renumbered (this shop's own recurring workflow, P0-138/P0-177)
+   has no code left to scope a search to -- resolveCategoryByCode finds
+   nothing by number, and there is no name to try either. Rather than give
+   up (every one of the three tiers this feature has would otherwise miss:
+   import_style_number is NULL for anything created before this feature
+   existed, style_id has moved since the sheet's own numbers were current,
+   and productsByCategoryAndTitle has no category to search within), this
+   searches every category by title alone -- still exactly ONE candidate
+   to be confident, still an ambiguous clash naming every one when more
+   than one product anywhere shares that exact title, same as the
+   category-scoped version. */
+export async function productsByTitle(db, title) {
+  const res = await db
+    .prepare(`${PRODUCT_WITH_VENDOR_SELECT} WHERE LOWER(TRIM(p.title)) = LOWER(TRIM(?))`)
+    .bind(title)
+    .all();
+  return res.results ?? [];
+}
+
 /* Same shape, but archived rows too — catalog.set_active's own check(): a
    product it might RESTORE is by definition absent from mirror_product_index
    (that view excludes archived_at rows), so telling "already active" from

@@ -46,6 +46,7 @@ import {
   productByImportStyleNumber,
   productByStyleId,
   productsByCategoryAndTitle,
+  productsByTitle,
   variantsWithOptionsOf,
 } from "./tools/catalog-writer.js";
 import { nearestCategory } from "./tools/catalog-write.js";
@@ -1446,11 +1447,26 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
      that's a match, just update it," the owner's own words. Only even
      attempted with a REAL title (rawTitle, never the auto-generated
      placeholder just above, which could never legitimately match
-     anything real) and a real, already-resolved category to scope the
-     search to -- productsByCategoryAndTitle's own comment has the full
-     "zero/one/many" reasoning. */
-  if (mode === "update" && rawTitle && category) {
-    const candidates = await productsByCategoryAndTitle(env.CATALOG_MIRROR, category.id, rawTitle);
+     anything real) -- productsByCategoryAndTitle's/productsByTitle's own
+     comments have the full "zero/one/many" reasoning.
+
+     REVISED, a real production report the day after this shipped: "just
+     tried to update products and it found no existing products" -- a
+     sheet carrying only a bare numeric style-number code, no Category/
+     Subcategory NAME columns, whose categories had since been renumbered
+     (this shop's own recurring workflow). With nothing left for
+     resolveCategoryByCode to match by number OR by name, `category`
+     itself is null here -- exactly the case every earlier tier already
+     assumed could not happen (a real category to scope the title search
+     to). Scoped to that category when one resolved, same as always;
+     catalog-WIDE, by title alone, when nothing resolved at all -- the
+     last remaining signal a sheet like that has left. Still confident
+     only on exactly one candidate, still an ambiguous, named-candidates
+     clash on more than one, never a guess either way. */
+  if (mode === "update" && rawTitle) {
+    const candidates = category
+      ? await productsByCategoryAndTitle(env.CATALOG_MIRROR, category.id, rawTitle)
+      : await productsByTitle(env.CATALOG_MIRROR, rawTitle);
     if (candidates.length === 1) {
       return draftProductUpdate(env, candidates[0], base, groupRows, ctx);
     }
@@ -1458,13 +1474,15 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
       /* "If you have any doubts, pop up a window... are these the correct
          items, should we update them... only if you have a question about
          it though, if you're confident, then just update" -- the owner's
-         own words. More than one product shares this exact category and
-         title -- a real ambiguity this file has no safe way to pick
-         between on its own, parked for a person the same way any other
-         clash already is, naming every candidate so they have enough to
-         decide from. */
+         own words. More than one product shares this exact title (within
+         the same category, or across the whole catalog when there was no
+         category to scope to) -- a real ambiguity this file has no safe
+         way to pick between on its own, parked for a person the same way
+         any other clash already is, naming every candidate so they have
+         enough to decide from. */
+      const scope = category ? `in "${category.name}"` : "anywhere in the catalog (no category to narrow the search)";
       clashes.push(
-        `style number "${base}": "${rawTitle}" in "${category.name}" matches ${candidates.length} existing products ` +
+        `style number "${base}": "${rawTitle}" ${scope} matches ${candidates.length} existing products ` +
           `(${candidates.map((c) => c.handle).join(", ")}) -- too ambiguous to update automatically; confirm which one, if any, this row means`,
       );
     }
