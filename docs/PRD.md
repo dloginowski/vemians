@@ -8459,6 +8459,56 @@ that does not trace to one of these is a process failure (see §12).
     with neither pre-selected, and a POST that skips the mode field entirely is refused with a plain
     reason naming the missing choice.
 
+115. **`Test-PRD-P0-183-durable_batch_bookkeeping`** — "You should not be losing files like this,"
+    the owner's own words, after several ordinary Worker redeploys inside one real working session
+    each discarded an in-progress spreadsheet preview or reviewed checklist mid-task, every time
+    forcing the same "please re-attach it" restart. The FILE itself was never actually lost — `asset`
+    (`shared/db/assets.sql`) has always been a durable, append-only D1 table — what WAS lost was only
+    two pieces of the chat agent's own bookkeeping, each a plain in-memory `Map` that a Worker
+    redeploy (or any ordinary isolate recycle) discards outright:
+
+    - **`LAST_PREVIEW`** — which asset an actor most recently previewed, so a later confirmation reply
+      could find the right file without the model ever recalling its id (`Test-PRD-P0-89-batch_
+      preview_confirm`'s own mechanism, added after real chat transcripts showed the model losing an
+      asset id across a turn boundary three separate times). Replaced by `agent_last_preview`
+      (`shared/db/assets.sql`), a plain, INSERT-ONLY table: `recordLastPreview`/`lastPreviewedAsset`
+      (`agent.js`) read and write it instead of the Map, keyed by actor + batch kind exactly as
+      before, ordered by `id DESC` for "the most recent." Failures here (the table missing on a
+      deployment that has not yet run the one-time schema addition, say) are caught and logged, never
+      thrown — the identical honest "please re-attach it" degrade the in-memory version already had
+      for a cold isolate, now also covering this one additional cause the same way, rather than
+      turning a best-effort convenience into a hard failure of the whole preview/draft call.
+
+    - **`BATCH_PLANS`** — a stashed, already-reviewed `catalog_add_product_batch`/`catalog_update_
+      product_batch` checklist, submitted one row at a time (`submitBatchPlanRow`). Replaced by
+      `agent_batch_plan` (`shared/db/assets.sql`): `rows` stored as JSON, updated in place — never
+      re-inserted — as each row is picked up and spent, the identical in-place shrinking
+      `plan.rows.splice(...)` already did. Unlike `LAST_PREVIEW`, a failure to stash or update a plan
+      is NOT swallowed: a real, in-progress write-workflow silently reverting to fragile in-memory
+      state would hide a real problem instead of surfacing it, so `dispatchProductBatchPlan`/
+      `submitBatchPlanRow` return a plain, honest error instead ("that batch was planned but could not
+      be saved for review," "that row could not be marked as submitted") and run nothing. `rate` — the
+      per-plan call-rate limiter (`createRateLimiter`, `tools/rate.js`) — is deliberately NOT
+      persisted: it has no serializable shape (a live counter with a closure), and a plan resuming
+      after a fresh isolate simply gets a fresh one, cached in memory per plan id for as long as this
+      isolate stays warm — a strictly more permissive reset, never a less safe one, for a limiter
+      whose whole job is bounding one isolate's own retry storms, not a security boundary.
+
+    **Neither table ever deletes a row.** "We want to make sure that we keep track of at least a few
+    files... in sequence... these are small spreadsheet files, so it's better to just have them than
+    get rid of them every time" — the owner's own words. A fresh preview does not erase an older one
+    for the same actor, it is simply a new, later row; a fully-submitted plan is left in place with an
+    empty `rows` array and `done == total`, never deleted, a real historical record rather than a gap.
+
+    Confirmed against the real fixture DB: a preview followed by a draft call using an ENTIRELY NEW
+    `env` object — sharing only the same underlying ASSETS binding, never the same JS object, the way
+    a fresh Worker isolate after a redeploy would still reach the identical durable database but start
+    with nothing of its own in memory — still finds and drafts the real, previewed file; two previews
+    by the same actor both still exist afterward, in sequence, neither one overwriting the other; a
+    two-row checklist submitted one row at a time, each through its own brand-new `env` object, still
+    finds the plan and completes both rows, and the fully-spent plan row survives afterward rather
+    than being deleted.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

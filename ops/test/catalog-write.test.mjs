@@ -7543,6 +7543,13 @@ check("test_PRD_P0_180_batch_submit_row_http_status__the_real_route_returns_a_re
   const f = await fixture();
   const worker = (await import("../src/index.js")).default;
   const csv = "title,category,price,style id\nWool Coat,Outerwear,100.00,01-04-008\n";
+  /* The SAME ASSETS binding for both calls below -- agent_batch_plan (the
+     stashed checklist) now lives there durably (Test-PRD-P0-183-durable_
+     batch_bookkeeping), not in a process-wide in-memory Map any more, so a
+     second call reusing a DIFFERENT (or absent) ASSETS binding would
+     genuinely no longer find the plan the first call just created -- the
+     real, intended behavior this test's own two separate calls must match. */
+  const assets = await assetsFixtureWithRow({ extracted_text: csv });
 
   const realFetch = globalThis.fetch;
   globalThis.fetch = f.square;
@@ -7550,7 +7557,7 @@ check("test_PRD_P0_180_batch_submit_row_http_status__the_real_route_returns_a_re
     const outcome = await dispatch(
       "catalog_add_product_batch",
       { asset_id: "ast_1" },
-      { actor: "mara@vemians.com", role: "manager", env: { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) }, allowed: new Set(["catalog_add_product_batch"]) },
+      { actor: "mara@vemians.com", role: "manager", env: { ...f.env, ASSETS: assets }, allowed: new Set(["catalog_add_product_batch"]) },
     );
     assert.equal(outcome.kind, "checklist", `expected a checklist, got: ${JSON.stringify(outcome)}`);
     assert.equal(outcome.checklist.rows.length, 1);
@@ -7561,7 +7568,7 @@ check("test_PRD_P0_180_batch_submit_row_http_status__the_real_route_returns_a_re
         headers: { "Cf-Access-Jwt-Assertion": assertion(MANAGER_CLAIMS), "content-type": "application/json" },
         body: JSON.stringify({ id: outcome.checklist.id, row: outcome.checklist.rows[0].row }),
       }),
-      { ...f.env, ...HTTP_ENV_EXTRA },
+      { ...f.env, ...HTTP_ENV_EXTRA, ASSETS: assets },
     );
     /* THE POINT: a real, well-formed 200, constructed without throwing --
        before this fix, building this exact Response is what crashed. */
@@ -7570,6 +7577,132 @@ check("test_PRD_P0_180_batch_submit_row_http_status__the_real_route_returns_a_re
     const data = JSON.parse(text);
     assert.equal(data.ok, true);
     assert.equal(data.status, "created", "the JSON body's own semantic status is untouched by the HTTP-status fix");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-183 — "you should not be losing files like this," the owner's own
+ * words, after several real Worker redeploys in one real working session
+ * each discarded an in-progress preview/checklist mid-task. Neither
+ * `agent_last_preview` (which asset an actor most recently previewed) nor
+ * `agent_batch_plan` (a stashed, reviewed checklist) was ever an in-memory
+ * Map keyed by JS object identity -- both are durable D1 tables now
+ * (shared/db/assets.sql) -- so the tests below deliberately build a BRAND
+ * NEW `env` object for the "later" call in each pair, sharing only the same
+ * underlying ASSETS binding, never the same JS object the first call used.
+ * A test that reused the identical `env` object throughout would not prove
+ * durability at all -- the old in-memory Map would have passed that test
+ * too, since it was keyed by actor, not by which object called it. "We want
+ * to make sure that we keep track of at least a few files... in sequence...
+ * it's better to just have them than get rid of them every time" -- the
+ * owner's own words, proven directly: nothing here ever deletes an older
+ * preview record or a fully-submitted plan.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_183_durable_batch_bookkeeping__a_last_preview_survives_an_entirely_new_env_object", async () => {
+  const f = await fixture({ actor: "noor@vemians.com", role: "manager" });
+  const csv = "title,category,price,style id,cost\nWool Coat,Outerwear,450.00,01-04-001,210.00\n";
+  const assets = await assetsFixtureWithRow({ extracted_text: csv });
+
+  const preview = await dispatch(
+    "catalog_preview_add_product_batch",
+    { asset_id: "ast_1" },
+    { actor: "noor@vemians.com", role: "manager", env: { ...f.env, ASSETS: assets }, allowed: new Set(["catalog_preview_add_product_batch"]) },
+  );
+  assert.equal(preview.block.is_error, false);
+
+  /* A BRAND NEW env object -- not the one the preview call used, only the
+     same underlying ASSETS db, the way a fresh Worker isolate after a
+     redeploy would still reach the same durable database but starts with
+     nothing of its own in memory. */
+  const freshEnv = { ...f.env, ASSETS: assets };
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let outcome;
+  try {
+    outcome = await dispatch(
+      "catalog_add_product_batch",
+      { asset_id: "a_guess_the_model_made_up" },
+      { actor: "noor@vemians.com", role: "manager", env: freshEnv, allowed: new Set(["catalog_add_product_batch"]) },
+    );
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(outcome.kind, "checklist", `expected the real, previewed file to still be found, got: ${JSON.stringify(outcome)}`);
+  assert.match(outcome.checklist.rows[0].title, /Wool Coat/);
+});
+
+check("test_PRD_P0_183_durable_batch_bookkeeping__an_older_preview_is_never_erased_by_a_newer_one", async () => {
+  const f = await fixture({ actor: "priya@vemians.com", role: "manager" });
+  const assets = await assetsFixtureWithRow({ extracted_text: "title,category,price\nFirst File,Outerwear,10.00\n", filename: "first.csv" });
+  const ctx = { actor: "priya@vemians.com", role: "manager", env: { ...f.env, ASSETS: assets }, allowed: new Set(["catalog_preview_add_product_batch"]) };
+
+  const firstPreview = await dispatch("catalog_preview_add_product_batch", { asset_id: "ast_1" }, ctx);
+  assert.equal(firstPreview.block.is_error, false);
+
+  const rows = assets._raw.prepare("SELECT actor, batch_kind, asset_id FROM agent_last_preview WHERE actor = 'priya@vemians.com'").all();
+  assert.equal(rows.length, 1, "the first preview really did get recorded");
+  assert.equal(rows[0].asset_id, "ast_1");
+
+  /* A second, later file previewed by the SAME actor -- the older record
+     above must still be sitting there afterward, untouched. */
+  await assets._raw
+    .prepare("INSERT INTO asset(id, store_key, filename, content_type, size_bytes, uploaded_by, extracted_text, text_truncated) VALUES (?, ?, ?, ?, ?, ?, ?, 0)")
+    .run("ast_2", "assets/ast_2", "second.csv", "text/csv", 50, "priya@vemians.com", "title,category,price\nSecond File,Outerwear,20.00\n");
+  const secondPreview = await dispatch("catalog_preview_add_product_batch", { asset_id: "ast_2" }, ctx);
+  assert.equal(secondPreview.block.is_error, false);
+
+  const after = assets._raw.prepare("SELECT asset_id FROM agent_last_preview WHERE actor = 'priya@vemians.com' ORDER BY id").all();
+  assert.deepEqual(
+    after.map((r) => r.asset_id),
+    ["ast_1", "ast_2"],
+    "both previews are still there, in sequence -- the older one was never deleted or overwritten",
+  );
+});
+
+check("test_PRD_P0_183_durable_batch_bookkeeping__a_checklist_survives_an_entirely_new_env_object_across_two_row_submissions", async () => {
+  const f = await fixture({ actor: "keiko@vemians.com", role: "manager" });
+  const csv =
+    "title,category,price,style id,cost\n" +
+    "Wool Coat,Outerwear,450.00,01-04-001,210.00\n" +
+    "Silk Scarf,Outerwear,80.00,01-04-002,20.00\n";
+  const assets = await assetsFixtureWithRow({ extracted_text: csv });
+  const identity = { email: "keiko@vemians.com", groups: ["vemians-manager"] };
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const outcome = await dispatch(
+      "catalog_add_product_batch",
+      { asset_id: "ast_1" },
+      { actor: "keiko@vemians.com", role: "manager", env: { ...f.env, ASSETS: assets }, allowed: new Set(["catalog_add_product_batch"]) },
+    );
+    assert.equal(outcome.kind, "checklist");
+    assert.equal(outcome.checklist.rows.length, 2);
+    const [rowA, rowB] = outcome.checklist.rows;
+
+    /* Two ENTIRELY SEPARATE env objects, one per row -- "each its own fresh
+       Cloudflare invocation" (this mechanism's own header comment), sharing
+       only the same underlying ASSETS db, never any JS object in common. */
+    const first = await submitBatchPlanRow({ id: outcome.checklist.id, row: rowA.row, identity, env: { ...f.env, ASSETS: assets } });
+    assert.equal(first.ok, true, JSON.stringify(first));
+    assert.equal(first.done, 1);
+    assert.equal(first.total, 2);
+
+    const second = await submitBatchPlanRow({ id: outcome.checklist.id, row: rowB.row, identity, env: { ...f.env, ASSETS: assets } });
+    assert.equal(second.ok, true, JSON.stringify(second));
+    assert.equal(second.done, 2);
+    assert.equal(second.total, 2);
+
+    /* "It's better to just have them than get rid of them every time" --
+       the completed plan is still a real row, not deleted, just spent. */
+    const planRow = assets._raw.prepare("SELECT rows, done, total FROM agent_batch_plan WHERE id = ?").get(outcome.checklist.id);
+    assert.ok(planRow, "a fully-submitted plan must still exist, never deleted");
+    assert.deepEqual(JSON.parse(planRow.rows), [], "every row was spent");
+    assert.equal(planRow.done, 2);
+    assert.equal(planRow.total, 2);
   } finally {
     globalThis.fetch = realFetch;
   }
