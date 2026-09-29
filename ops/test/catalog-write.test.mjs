@@ -5253,11 +5253,24 @@ check("test_PRD_P0_89_batch_preview_confirm__previews_the_first_rows_and_heading
   assert.equal(outcome.table.rows[1][titleCol], "Another Coat");
 
   /* "Instead of using not found, just use the dash... indicate that it's
-     not there, it's not available" — the owner's own words. Neither row
-     gives a vendor at all. */
-  const vendorCol = outcome.table.columns.indexOf("vendor");
-  assert.equal(outcome.table.rows[0][vendorCol], "—");
+     not there, it's not available" — the owner's own words, for a genuinely
+     blank/unknown field with no real value behind it. `commission` has no
+     such value here, so it still gets the plain dash this rule asks for. */
+  const commissionCol = outcome.table.columns.indexOf("commission");
+  assert.equal(outcome.table.rows[0][commissionCol], "—");
   assert.doesNotMatch(outcome.block.content + JSON.stringify(outcome.table), /not found/i, "the wordier, more alarming phrase must be gone entirely");
+
+  /* REVISED — "shouldn't you be doing an in-house instead of a dash? Since
+     if a vendor is not provided, then it must be in-house" — the owner's
+     own words, a later, more informed instruction than the plain-dash rule
+     above: a blank vendor cell is not "unknown" the way a blank commission
+     is, it is a real, resolved fact the moment this row actually creates
+     (vendorRefOrInHouse, catalog-writer.js) — so this preview says so
+     instead of a dash that would understate the real outcome, the same
+     reasoning that already gave sku/style_id their own "(auto-generated)"
+     treatment above rather than a bare dash. */
+  const vendorCol = outcome.table.columns.indexOf("vendor");
+  assert.equal(outcome.table.rows[0][vendorCol], "In-house", "a blank vendor cell really does become In-house at creation, not an unresolved dash");
 });
 
 check("test_PRD_P0_89_batch_preview_confirm__the_draft_tool_uses_the_actors_own_most_recently_previewed_asset", async () => {
@@ -7472,6 +7485,39 @@ check("test_PRD_P0_179_import_style_number_matching__the_pending_match_note_neve
   assert.doesNotMatch(note, /no existing product found/i, "must never lead with an absence that reads as a negative verdict");
   assert.doesNotMatch(note, /\byet\b/i, "\"...yet\" reads as a countdown to failure, not a plain, calm pending state");
   assert.match(note, /pending|will be checked|not yet (confirmed|decided)/i, "must say plainly that the real check still happens on submit");
+});
+
+check("test_PRD_P0_179_import_style_number_matching__a_blank_vendor_previews_as_in_house_on_add_but_unchanged_on_update", async () => {
+  /* "Shouldn't you be doing an in-house instead of a dash? Since if a
+     vendor is not provided, then it must be in-house" -- the owner's own
+     words. True only for CREATE (vendorRefOrInHouse, catalog-writer.js) --
+     draftProductUpdate's own header comment is explicit that vendor/
+     vendor_code/commission are never touched by an update at all, matched
+     or not, so a blank cell means something different in each mode, and
+     the preview must say the one that is actually true for the row it is
+     showing. */
+  const { previewBatch } = await import("../src/batch.js");
+  const f = await fixture();
+
+  const addPreview = await previewBatch(f.env, "title,category,price,style id\nWool Coat,Outerwear,100.00,01-04-005\n", "products", "add");
+  assert.equal(addPreview.sampleRows[0].vendor, "In-house", "a genuinely new product really does get In-house automatically");
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const created = await draftProductBatch(f.env, {
+      text: "title,category,price,style id\nWool Coat,Outerwear,100.00,01-04-005\n",
+      actor: "mara@vemians.com",
+      role: "manager",
+      mode: "add",
+    });
+    assert.equal(created.created.length, 1);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  const updatePreview = await previewBatch(f.env, "title,category,price,style id\nWool Coat,Outerwear,130.00,01-04-005\n", "products", "update");
+  assert.equal(updatePreview.sampleRows[0].vendor, "(unchanged)", "an update never touches vendor at all -- a blank cell here is not a future In-house assignment");
 });
 
 /* ─────────────────────────────────────────────────────────────────────────

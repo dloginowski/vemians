@@ -2209,9 +2209,25 @@ function mapProductGroup(groupRows, existing = null, showNoMatchNote = false) {
     sku: existing ? "(unchanged)" : "(auto-generated)",
     style_id: existing ? "(unchanged)" : "(auto-generated)",
     variants: groupRows.length,
-    vendor: pick(first, VENDOR_KEYS) || null,
-    vendor_code: pick(first, VENDOR_CODE_KEYS) || null,
-    commission: pick(first, COMMISSION_KEYS) || null,
+    /* "Shouldn't you be doing an in-house instead of a dash? Since if a
+       vendor is not provided, then it must be in-house" -- the owner's own
+       words, and correct: a blank vendor cell is never really blank once
+       catalog.create_product actually runs (vendorRefOrInHouse resolves no
+       name at all straight to the built-in "In-house" vendor), so a bare
+       "—" here understated the real outcome the exact same way a blank SKU
+       column once did, before SKU/style_id got their own "(auto-generated)"
+       treatment above. But that default is a CREATE-time rule only --
+       draftProductUpdate's own header comment is explicit that vendor/
+       vendor_code/commission are "deliberately never touched" by an
+       update, matched or not (a vendor reassignment is its own separate,
+       deliberate action, catalog.set_square_attributes, never a side
+       effect of a spreadsheet). So a blank cell means two different real
+       things depending on mode, and this preview now says the one that is
+       actually true for the row it is showing, instead of the one flat
+       dash that used to stand in for both. */
+    vendor: showNoMatchNote ? pick(first, VENDOR_KEYS) || "(unchanged)" : pick(first, VENDOR_KEYS) || "In-house",
+    vendor_code: showNoMatchNote ? pick(first, VENDOR_CODE_KEYS) || "(unchanged)" : pick(first, VENDOR_CODE_KEYS) || null,
+    commission: showNoMatchNote ? pick(first, COMMISSION_KEYS) || "(unchanged)" : pick(first, COMMISSION_KEYS) || null,
     /* Unlike price, a blank quantity cell has a real, known answer already
        ("when quantity not specified use 1") -- never a placeholder. */
     quantity: groupRows.map(({ record }) => pick(record, QUANTITY_KEYS) || "1").join(" | "),
