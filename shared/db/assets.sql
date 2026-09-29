@@ -36,3 +36,67 @@ BEGIN SELECT RAISE(ABORT, 'assets are never deleted -- drop a newer file instead
 
 CREATE TRIGGER asset_no_edit BEFORE UPDATE ON asset
 BEGIN SELECT RAISE(ABORT, 'an asset row is append-only'); END;
+
+-- Durable bookkeeping for the chat agent's own in-progress batch-import
+-- workflow (preview -> confirm -> checklist -> submit). Added after several
+-- Worker redeploys in one real working session wiped this out from under the
+-- owner mid-task -- "you should not be losing files like this," their own
+-- words. The FILE itself was never actually lost (the `asset` table above is
+-- durable and always was); what WAS lost was only the chat's own in-memory
+-- notes of which asset was currently active and what its already-reviewed
+-- row plan was, kept in a plain per-isolate Map that a redeploy (or any
+-- ordinary isolate recycle) discards outright. These two tables replace
+-- those two Maps with the identical shape, just durable.
+--
+-- UNLIKE `asset` ABOVE, THESE ARE NOT STRICTLY APPEND-ONLY.
+--   `asset` is a business record of a file someone dropped; these are this
+--   Worker's own internal notes about an in-progress chat turn, closer in
+--   kind to the in-memory approval/rate-limit state elsewhere in this
+--   codebase than to a record anything downstream reads. `agent_batch_plan`
+--   rows ARE updated in place as a person submits checklist rows one at a
+--   time (the previous in-memory shape spliced `plan.rows` the same way) --
+--   but a fully-submitted plan is never deleted, only left with an empty
+--   `rows` array: "these are small spreadsheet files, so it's better to just
+--   have them than get rid of them every time," the owner's own words.
+
+-- Which asset an actor most recently previewed, per batch kind ("products" or
+-- "customers") -- catalog_add_product_batch/catalog_update_product_batch/
+-- customer_draft_customer_batch all resolve "the file this draft call means"
+-- from this, never the model's own (easily forgotten) copy of the asset id.
+-- INSERT-ONLY: a fresh preview never erases an earlier one, it simply becomes
+-- the new most-recent row for that actor+kind (MAX(created_at), or just
+-- MAX(id) -- cheaper, and id is already monotonic). "We want to make sure
+-- that we keep track of at least a few files... in sequence... it's better
+-- to just have them than get rid of them every time" -- the owner's own
+-- words: nothing here ever deletes an older preview record.
+CREATE TABLE agent_last_preview (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  actor      TEXT NOT NULL,
+  batch_kind TEXT NOT NULL CHECK (batch_kind IN ('products', 'customers')),
+  asset_id   TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_agent_last_preview_lookup ON agent_last_preview (actor, batch_kind, id DESC);
+
+-- A stashed catalog_add_product_batch/catalog_update_product_batch plan --
+-- the reviewed checklist a person is submitting row by row
+-- (submitBatchPlanRow, agent.js). `rows` is the JSON-encoded array of
+-- not-yet-submitted rows, shrinking (never growing) as each is picked up and
+-- spent -- the exact in-place mutation the previous in-memory Map's own
+-- `plan.rows.splice(...)` already did, just persisted here instead of lost
+-- the moment the isolate holding it goes away. `rate` is deliberately NOT
+-- stored: it is a live, in-memory call-rate counter with no serializable
+-- shape (createRateLimiter, tools/rate.js), and a plan resuming after a
+-- fresh isolate simply gets a fresh one -- a strictly more permissive reset,
+-- never a less safe one, for a limiter whose whole job is bounding one
+-- isolate's own retry storms, not a security boundary.
+CREATE TABLE agent_batch_plan (
+  id         TEXT PRIMARY KEY,
+  actor      TEXT NOT NULL,
+  role       TEXT NOT NULL,
+  rows       TEXT NOT NULL,   -- JSON array, planProductBatch's own row shape
+  done       INTEGER NOT NULL DEFAULT 0,
+  total      INTEGER NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_agent_batch_plan_actor ON agent_batch_plan (actor, created_at DESC);

@@ -36,6 +36,7 @@
 
 import { TOOLS, runTool, CAPS } from "./tools/index.js";
 import { draftProductBatch, draftCustomerBatch, previewBatch, planProductBatch, submitProductBatchRow } from "./batch.js";
+import { createRateLimiter } from "./tools/rate.js";
 
 const MODEL = "claude-sonnet-5";
 const API_BASE = "https://api.anthropic.com";
@@ -330,21 +331,30 @@ function skillsReadResult(role, name) {
  * same failure recurred, unchanged. The asset id now survives the turn
  * boundary a different way, one the model cannot forget to do right because
  * it never has to do anything: `dispatchBatchPreview` records, SERVER-SIDE,
- * which asset this exact actor most recently previewed (`LAST_PREVIEW`,
- * below — the identical in-memory, per-isolate, TTL'd pattern `PENDING`
- * already uses for approvals, with the identical accepted limitation: a
- * cold isolate loses it, and that fails closed into the honest "please
- * re-attach it" outcome, never a wrong file). `dispatch()`'s own
- * catalog_draft_product_batch/customer_draft_customer_batch handling now
- * prefers that server-side record over whatever asset_id the model's own
- * call happens to carry — correct precisely because both tools' own
- * descriptions already require preview to be called on the same asset
- * immediately before draft, so "the actor's own most recent preview" and
- * "the asset this draft call means" are the same fact by construction. This
- * is the THIRD time this exact failure has been diagnosed (see
- * precheckBatchDraft's own comment below for the first, narrower fix — the
- * approval click itself needing no model memory of the id — which never
- * covered the model successfully making that first call at all).
+ * which asset this exact actor most recently previewed (`recordLastPreview`,
+ * below). `dispatch()`'s own catalog_draft_product_batch/customer_draft_
+ * customer_batch handling now prefers that server-side record over whatever
+ * asset_id the model's own call happens to carry — correct precisely because
+ * both tools' own descriptions already require preview to be called on the
+ * same asset immediately before draft, so "the actor's own most recent
+ * preview" and "the asset this draft call means" are the same fact by
+ * construction. This is the THIRD time this exact failure has been
+ * diagnosed (see precheckBatchDraft's own comment below for the first,
+ * narrower fix — the approval click itself needing no model memory of the
+ * id — which never covered the model successfully making that first call at
+ * all).
+ *
+ * REVISED A FOURTH TIME — the fix above was itself only "per-isolate,
+ * TTL'd," the identical in-memory shape `PENDING` (below) still uses for
+ * approvals, with an "accepted limitation" of losing the record on a cold
+ * isolate. In real use, that turned out not academic: several ordinary
+ * Worker redeploys inside one real working session each discarded it mid-
+ * task, every time forcing the identical "please re-attach it" degrade —
+ * "you should not be losing files like this," the owner's own words.
+ * `recordLastPreview`/`lastPreviewedAsset` (below) are now backed by
+ * `agent_last_preview` (shared/db/assets.sql), the same durable database the
+ * asset itself already lived in — a deploy no longer severs the connection
+ * between a live conversation and a file that was never actually lost.
  *
  * REVISED AGAIN — "I shouldn't need to do that," the owner's own words,
  * looking at the approval card catalog_draft_product_batch used to stash
@@ -714,7 +724,13 @@ async function dispatchProductBatchPlan(args, { actor, role, env, mode }) {
     return { isError: false, text: formatBatchDraft("products", result), table: batchDraftTable("products", result) };
   }
 
-  const id = stashBatchPlan({ actor, role, rows: plan.rows, rate: plan.rate, total: plan.rows.length });
+  let id;
+  try {
+    id = await stashBatchPlan(env, { actor, role, rows: plan.rows, rate: plan.rate });
+  } catch (err) {
+    console.error(`ERROR agent: stashing the catalog_${mode}_product_batch plan failed — ${err.message}`);
+    return { isError: true, text: "That batch was planned but could not be saved for review. Nothing was created — try again." };
+  }
   const readyCount = plan.rows.length;
   const lines = [
     `${readyCount} products ready to submit, ${plan.ready.length} need a person's decision, ${plan.skipped.length} skipped.`,
@@ -886,11 +902,11 @@ async function dispatchBatchPreview(name, args, { actor, role, env }) {
     const preview = await previewBatch(env, asset.row.extracted_text, kind, mode);
     /* Recorded on a SUCCESSFUL preview only — a bad asset_id must never
        overwrite a real, earlier preview this same actor could still go on
-       to confirm. See LAST_PREVIEW's own header comment for why this,
+       to confirm. See recordLastPreview's own header comment for why this,
        rather than a tag in this call's own reply text, is what actually
        carries the id across the turn boundary to the confirming draft
        call. */
-    recordLastPreview(actor, kind, args.asset_id);
+    await recordLastPreview(env, actor, kind, args.asset_id);
     return { isError: false, text: formatBatchPreview(kind, preview), table: previewTable(kind, preview) };
   } catch (err) {
     console.error(`ERROR agent: ${name} failed — ${err.message}`);
@@ -986,30 +1002,35 @@ function stashPending(rec) {
  * resolves every row's category/subcategory once, together, then stops —
  * the checklist offered back is genuinely ready to submit, one row per
  * later, SEPARATE request (submitBatchPlanRow, below), each its own fresh
- * Cloudflare invocation and subrequest budget. The identical in-memory,
- * per-isolate, TTL'd shape PENDING (above) already uses, keyed by a minted
- * id the same way — this is not one durable "the batch" record either, it
- * shrinks as rows are submitted (submitBatchPlanRow splices the row it just
- * ran out of `rows`) and is deleted outright once none are left, the same
- * "single use" property PENDING already has, just spent N times instead of
- * once. `rate` rides along whole: every one of a plan's own later, separate
- * submit requests still spends from the ONE budget planProductBatch's own
- * header comment sized for the whole batch, never a fresh one per row.
+ * Cloudflare invocation and subrequest budget. It shrinks as rows are
+ * submitted (submitBatchPlanRow removes the row it just ran from `rows`),
+ * but a fully-spent plan is never deleted, only left with an empty `rows` --
+ * "these are small spreadsheet files, so it's better to just have them than
+ * get rid of them every time," the owner's own words.
+ *
+ * REVISED — this used to be the identical in-memory, per-isolate, TTL'd
+ * shape PENDING (above) still uses for approvals. For a single approval
+ * click, losing that on a cold isolate degrades to "please click approve
+ * again," a minor inconvenience; for a whole REVIEWED checklist a person
+ * might be working through row by row over several minutes, real Worker
+ * redeploys during one real working session turned that same degrade into
+ * losing the entire checklist mid-review — "you should not be losing files
+ * like this," the owner's own words. `agent_batch_plan` (shared/db/
+ * assets.sql) replaces the Map: `rows` is stored as JSON and updated in
+ * place as each is submitted, in the same database the source asset already
+ * lives in durably. `rate` is deliberately NOT persisted (see the table's
+ * own header comment) -- submitBatchPlanRow mints a fresh limiter per plan
+ * id, cached for this isolate's own lifetime only, exactly the harmless
+ * reset a cold isolate would force anyway.
  */
-const BATCH_PLANS = new Map();
-const BATCH_PLAN_TTL_MS = 15 * 60 * 1000;
-const BATCH_PLAN_MAX = 64;
+const PLAN_RATE_LIMITERS = new Map(); /* planId -> limiter, THIS isolate only -- never persisted, see above */
 
-function sweepBatchPlans(now) {
-  for (const [id, rec] of BATCH_PLANS) if (now - rec.at > BATCH_PLAN_TTL_MS) BATCH_PLANS.delete(id);
-  while (BATCH_PLANS.size >= BATCH_PLAN_MAX) BATCH_PLANS.delete(BATCH_PLANS.keys().next().value);
-}
-
-function stashBatchPlan(rec) {
-  const now = Date.now();
-  sweepBatchPlans(now);
+async function stashBatchPlan(env, rec) {
   const id = crypto.randomUUID();
-  BATCH_PLANS.set(id, { ...rec, at: now });
+  await env.ASSETS.prepare("INSERT INTO agent_batch_plan (id, actor, role, rows, total) VALUES (?, ?, ?, ?, ?)")
+    .bind(id, rec.actor, rec.role, JSON.stringify(rec.rows), rec.rows.length)
+    .run();
+  PLAN_RATE_LIMITERS.set(id, rec.rate);
   return id;
 }
 
@@ -1020,37 +1041,54 @@ function stashBatchPlan(rec) {
  * header comment, above PREVIEW_TOOL_DEFS, for the two things this replaced
  * (a chat turn's own stripped-down history; a tag in a tool result the
  * model was never going to relay to the person on its own) and why both
- * failed for the same underlying reason. The identical in-memory,
- * per-isolate, TTL'd shape PENDING (above) already uses for approvals, with
- * the identical accepted limitation: a cold isolate loses the record, and a
- * later confirmation then falls back to whatever asset_id the model's own
- * call happens to carry (usually none, or a guess) — the same honest
- * "please re-attach it" outcome this always degraded to before, never a
- * wrong file drafted by mistake. Keyed by actor+kind, not by any per-file
- * or per-conversation id, on purpose: catalog_draft_product_batch's own
- * description already requires preview to be called on the very same asset
- * immediately before draft, so "the actor's own most recent preview of this
- * kind" and "the asset this draft call means" are the same fact by
+ * failed for the same underlying reason. Keyed by actor+kind, not by any
+ * per-file or per-conversation id, on purpose: catalog_draft_product_batch's
+ * own description already requires preview to be called on the very same
+ * asset immediately before draft, so "the actor's own most recent preview of
+ * this kind" and "the asset this draft call means" are the same fact by
  * construction, not a guess.
+ *
+ * REVISED — this used to be a plain in-memory Map, the exact "per-isolate,
+ * TTL'd" shape PENDING (above) still uses for approvals, with an "accepted
+ * limitation" of losing the record on a cold isolate. That limitation
+ * stopped being academic: several real Worker redeploys inside one real
+ * working session (routine for this app, not rare) each wiped it out from
+ * under the owner mid-task, every time forcing the same "please re-attach
+ * it" degrade — "you should not be losing files like this," their own
+ * words. `agent_last_preview` (shared/db/assets.sql) is the durable
+ * replacement, in the SAME database the asset itself already lives in
+ * durably. Failures here are caught and swallowed, on purpose, never
+ * thrown — this is the identical honest "please re-attach it" degrade the
+ * in-memory version already had for a cold isolate, now ALSO covering "the
+ * table does not exist yet on this deployment" (before a human has run the
+ * one-time schema addition) the exact same way, rather than turning a
+ * best-effort convenience into a hard failure of the whole preview/draft
+ * call. Unlike PENDING, no TTL/cap sweep at all: "we want to make sure
+ * that we keep track of at least a few files... in sequence... it's
+ * better to just have them than get rid of them every time" — the owner's
+ * own words, and the table's own header comment has the full reasoning.
  */
-const LAST_PREVIEW = new Map();
-const LAST_PREVIEW_TTL_MS = 15 * 60 * 1000;
-const LAST_PREVIEW_MAX = 256;
-
-function sweepLastPreview(now) {
-  for (const [key, rec] of LAST_PREVIEW) if (now - rec.at > LAST_PREVIEW_TTL_MS) LAST_PREVIEW.delete(key);
-  while (LAST_PREVIEW.size >= LAST_PREVIEW_MAX) LAST_PREVIEW.delete(LAST_PREVIEW.keys().next().value);
+async function recordLastPreview(env, actor, kind, assetId) {
+  try {
+    await env.ASSETS.prepare("INSERT INTO agent_last_preview (actor, batch_kind, asset_id) VALUES (?, ?, ?)")
+      .bind(actor, kind, assetId)
+      .run();
+  } catch (err) {
+    console.error(`ERROR agent: recording last preview for ${actor}/${kind} failed — ${err.message}`);
+  }
 }
 
-function recordLastPreview(actor, kind, assetId) {
-  const now = Date.now();
-  sweepLastPreview(now);
-  LAST_PREVIEW.set(`${actor}::${kind}`, { assetId, at: now });
-}
-
-function lastPreviewedAsset(actor, kind) {
-  sweepLastPreview(Date.now());
-  return LAST_PREVIEW.get(`${actor}::${kind}`)?.assetId ?? null;
+async function lastPreviewedAsset(env, actor, kind) {
+  try {
+    const row = await env.ASSETS
+      .prepare("SELECT asset_id FROM agent_last_preview WHERE actor = ? AND batch_kind = ? ORDER BY id DESC LIMIT 1")
+      .bind(actor, kind)
+      .first();
+    return row?.asset_id ?? null;
+  } catch (err) {
+    console.error(`ERROR agent: reading last preview for ${actor}/${kind} failed — ${err.message}`);
+    return null;
+  }
 }
 
 /*
@@ -1060,10 +1098,13 @@ function lastPreviewedAsset(actor, kind) {
  * (batch.js) already run every row to completion, several real Square writes
  * each, before dispatchBatchDraft (below) returns anything at all — nothing
  * reaches the chat until that ONE call the browser is already blocked on
- * finally resolves. This is a third record in the identical in-memory,
- * per-isolate, TTL'd shape PENDING/LAST_PREVIEW (above) already use, keyed by
- * actor alone like LAST_PREVIEW: the one batch an actor could plausibly have
- * running right now is the one this record means, by the same construction.
+ * finally resolves. This is the identical in-memory, per-isolate, TTL'd
+ * shape PENDING (above) already uses for approvals, keyed by actor alone:
+ * the one batch an actor could plausibly have running right now is the one
+ * this record means, by the same construction. Unlike recordLastPreview
+ * (above), this one stays in memory on purpose — it only ever matters while
+ * the one blocking POST it describes is still in flight in THIS isolate, so
+ * there is nothing for a later, different isolate to usefully persist.
  * index.js's own GET /agent/batch-progress is a separate, cheap route the
  * client polls while the one real POST is still in flight; the same "a cold
  * isolate loses the record" limitation PENDING already accepts degrades this
@@ -1237,10 +1278,10 @@ export async function dispatch(name, args, { actor, role, env, allowed }) {
        did. A row-level CLASH still parks its OWN, genuinely necessary
        approval link either way (createRows, batch.js) — nothing about
        THAT changed.
-       `resolvedArgs` prefers LAST_PREVIEW's own record of what this actor
-       most recently previewed over whatever asset_id the model's own call
-       happens to carry — see LAST_PREVIEW's header comment for why that is
-       the reliable one and the model's own copy is not.
+       `resolvedArgs` prefers recordLastPreview's own durable record of what
+       this actor most recently previewed over whatever asset_id the
+       model's own call happens to carry — see its header comment for why
+       that is the reliable one and the model's own copy is not.
        REVISED AGAIN — no longer creates anything itself at all. "Too many
        subrequests" from a single call creating every row is what
        dispatchProductBatchPlan/planProductBatch (above/batch.js) exist to
@@ -1250,7 +1291,7 @@ export async function dispatch(name, args, { actor, role, env, allowed }) {
        rather than the finished result a single dispatchBatchDraft call
        used to return here. Actually creating anything now happens later,
        one row per request, through submitBatchPlanRow. */
-    const resolvedArgs = { ...args, asset_id: lastPreviewedAsset(actor, "products") ?? args?.asset_id };
+    const resolvedArgs = { ...args, asset_id: (await lastPreviewedAsset(env, actor, "products")) ?? args?.asset_id };
     const pre = await precheckBatchDraft(name, resolvedArgs, { role, env });
     if (pre.isError || pre.tooMany) {
       return { kind: "result", table: null, block: { type: "tool_result", tool_use_id: null, content: pre.text, is_error: pre.isError } };
@@ -1267,9 +1308,9 @@ export async function dispatch(name, args, { actor, role, env, allowed }) {
        gate here is not a redundant SECOND click on the same yes the way the
        product one was; it is still the only place a bulk customer import is
        ever actually approved at all. Left exactly as it was; only the same
-       LAST_PREVIEW preference for the real asset_id is new, matching the
-       product path immediately above. */
-    const resolvedArgs = { ...args, asset_id: lastPreviewedAsset(actor, "customers") ?? args?.asset_id };
+       recordLastPreview preference for the real asset_id is new, matching
+       the product path immediately above. */
+    const resolvedArgs = { ...args, asset_id: (await lastPreviewedAsset(env, actor, "customers")) ?? args?.asset_id };
     const pre = await precheckBatchDraft(name, resolvedArgs, { role, env });
     if (pre.isError || pre.tooMany) {
       return { kind: "result", table: null, block: { type: "tool_result", tool_use_id: null, content: pre.text, is_error: pre.isError } };
@@ -1583,8 +1624,8 @@ export async function agentTurn({ q, identity, env, attachment = null, history =
            META-tool like a batch draft, not a real TOOLS[] entry), win over
            the ordinary TOOLS-derived description/stores below. `outcome.args`,
            when dispatch() set it (customer_draft_customer_batch's own
-           LAST_PREVIEW-resolved asset_id, never the model's raw copy — see
-           LAST_PREVIEW's header comment), wins over the model's own `use.input`
+           lastPreviewedAsset-resolved asset_id, never the model's raw copy —
+           see its header comment), wins over the model's own `use.input`
            too, so the record a person actually clicks Approve on — and the
            real draft that record later runs — both use the SAME, correct
            asset id regardless of what the model itself supplied. */
@@ -1795,7 +1836,7 @@ export async function approve({ id, identity, env }) {
 }
 
 /*
- * ONE row of a stashed planProductBatch checklist (BATCH_PLANS, above),
+ * ONE row of a stashed planProductBatch checklist (agent_batch_plan, above),
  * actually created — index.js's own POST /agent/batch-submit-row, called
  * once per checked row, sequentially, by the browser's own submit loop.
  * Deliberately not run through dispatch()/runTool's usual approvalToken
@@ -1823,26 +1864,42 @@ export async function submitBatchPlanRow({ id, row, title, identity, env }) {
   const actor = identity.email;
   const role = await roleFor(identity, env);
 
-  sweepBatchPlans(Date.now());
-  const plan = BATCH_PLANS.get(id);
-  if (!plan) return { ok: false, httpStatus: 404, reply: "That batch is unknown or has expired. Nothing was run." };
+  let planRow;
+  try {
+    planRow = await env.ASSETS.prepare("SELECT actor, role, rows, done, total FROM agent_batch_plan WHERE id = ?").bind(id).first();
+  } catch (err) {
+    console.error(`ERROR agent: reading batch plan ${id} failed — ${err.message}`);
+    return { ok: false, httpStatus: 404, reply: "That batch is unknown or has expired. Nothing was run." };
+  }
+  if (!planRow) return { ok: false, httpStatus: 404, reply: "That batch is unknown or has expired. Nothing was run." };
 
-  if (plan.actor !== actor) {
-    console.error(`ERROR agent: batch plan ${id} raised by ${plan.actor} but submitted by ${actor}; refused`);
+  if (planRow.actor !== actor) {
+    console.error(`ERROR agent: batch plan ${id} raised by ${planRow.actor} but submitted by ${actor}; refused`);
     return { ok: false, httpStatus: 403, reply: "That batch belongs to a different person." };
   }
 
-  const idx = plan.rows.findIndex((r) => r.rowNumber === row);
+  const rows = JSON.parse(planRow.rows);
+  const idx = rows.findIndex((r) => r.rowNumber === row);
   if (idx === -1) {
     return { ok: false, httpStatus: 404, reply: "That row is unknown, already submitted, or was never part of this batch." };
   }
   /* Spent the moment it is picked up, whatever createRows goes on to do with
      it — the same "single use" property PENDING's own approve() already
-     has, just per-row here instead of per-record. */
-  const [target] = plan.rows.splice(idx, 1);
-  plan.done = (plan.done ?? 0) + 1;
-  const total = plan.total;
-  if (plan.rows.length === 0) BATCH_PLANS.delete(id);
+     has, just per-row here instead of per-record. Written back to the
+     durable row immediately, before submitProductBatchRow even runs, for
+     the identical reason: a row must never be submittable twice just
+     because the write recording it as spent came later. */
+  const [target] = rows.splice(idx, 1);
+  const done = (planRow.done ?? 0) + 1;
+  const total = planRow.total;
+  try {
+    await env.ASSETS.prepare("UPDATE agent_batch_plan SET rows = ?, done = ? WHERE id = ?")
+      .bind(JSON.stringify(rows), done, id)
+      .run();
+  } catch (err) {
+    console.error(`ERROR agent: batch plan ${id} could not record row ${row} as spent — ${err.message}`);
+    return { ok: false, httpStatus: 502, reply: `Row ${row} could not be marked as submitted. Nothing was run.`, done: planRow.done, total };
+  }
 
   /* "The only thing the user might want to tweak is the title" — the
      owner's own words, reviewing the checklist. Trimmed and length-capped
@@ -1853,13 +1910,23 @@ export async function submitBatchPlanRow({ id, row, title, identity, env }) {
      no ceiling at all. */
   const editedTitle = typeof title === "string" && title.trim() ? title.trim().slice(0, CAPS.CATALOG_TITLE_MAX) : null;
 
-  let result;
-  try {
-    result = await submitProductBatchRow(env, { actor, role, rate: plan.rate }, target, editedTitle);
-  } catch (err) {
-    console.error(`ERROR agent: batch plan ${id} row ${row} failed — ${err.message}`);
-    return { ok: false, httpStatus: 502, reply: `Row ${row} failed while running.`, done: plan.done, total };
+  /* `rate` rides along per plan id, never persisted (agent_batch_plan's own
+     header comment) — the same limiter reused across this plan's own later
+     rows for as long as this isolate stays warm, a fresh one the moment it
+     is not, always a safe, more-permissive reset, never a less safe one. */
+  let rate = PLAN_RATE_LIMITERS.get(id);
+  if (!rate) {
+    rate = createRateLimiter();
+    PLAN_RATE_LIMITERS.set(id, rate);
   }
 
-  return { ok: true, httpStatus: 200, ...result, done: plan.done, total };
+  let result;
+  try {
+    result = await submitProductBatchRow(env, { actor, role, rate }, target, editedTitle);
+  } catch (err) {
+    console.error(`ERROR agent: batch plan ${id} row ${row} failed — ${err.message}`);
+    return { ok: false, httpStatus: 502, reply: `Row ${row} failed while running.`, done, total };
+  }
+
+  return { ok: true, httpStatus: 200, ...result, done, total };
 }
