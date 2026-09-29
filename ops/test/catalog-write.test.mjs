@@ -5703,6 +5703,94 @@ check("test_PRD_P0_185_ambiguous_item_option_name__an_update_resolves_to_the_opt
   );
 });
 
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-185 (REVISED) — the SAME "Expected ItemVariation to have Item Option
+ * at index 0..." error, still live after the ambiguous-name fix above,
+ * across products spanning entirely unrelated categories (coats, blazers,
+ * vests, dress pants) and the SAME two option ids every time — evidence the
+ * duplicate-name drift was never the only cause. `mirror_product_item_
+ * option` (schema.sql) carries no ordinal column at all, so `currentItem
+ * OptionExternalRefs`'s own plain JOIN, with no ORDER BY, returns this
+ * product's item-level `item_options` in WHATEVER order SQLite's query
+ * planner happens to produce -- entirely unrelated to the order a
+ * variation's own `option_values` (JSON round-tripped from Square, one
+ * shared shape, `mirror_variant.options`) happens to iterate in.
+ * Square's own contract for ItemVariationData.item_option_values is
+ * POSITIONAL: index k of a variation's own list must name the SAME
+ * item_option as index k of the item's own `item_options` list, not merely
+ * one that appears somewhere in it. Two shared Option Sets (Size and
+ * Color, the common case across nearly this whole catalog) built by two
+ * unrelated processes will only align by accident -- which is exactly why
+ * the SAME two ids recur, byte-identical, on every affected product: this
+ * shop's whole catalog shares the one Size option and the one Color
+ * option, so every product hits the identical ordering mismatch.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_185_ambiguous_item_option_name__variation_option_values_stay_index_aligned_with_the_items_own_option_order", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+
+  /* Size and Color, each unambiguous on its own (a single row per name --
+     this is NOT the duplicate-name condition P0-185's first test covers).
+     Inserted SIZE FIRST, so a plain, unordered JOIN returns
+     [SQ_OPT_SIZE, SQ_OPT_COLOR] for this product's own item-level list. */
+  f.mirrorDb._raw.prepare("INSERT INTO mirror_item_option (id, external_ref, name) VALUES ('opt-size','SQ_OPT_SIZE','Size')").run();
+  f.mirrorDb._raw
+    .prepare("INSERT INTO mirror_item_option_value (id, external_ref, item_option_id, name, ordinal) VALUES ('optval-m','SQ_OPTVAL_M','opt-size','M',0)")
+    .run();
+  f.mirrorDb._raw.prepare("INSERT INTO mirror_item_option (id, external_ref, name) VALUES ('opt-color','SQ_OPT_COLOR','Color')").run();
+  f.mirrorDb._raw
+    .prepare("INSERT INTO mirror_item_option_value (id, external_ref, item_option_id, name, ordinal) VALUES ('optval-gray','SQ_OPTVAL_GRAY','opt-color','Gray',0)")
+    .run();
+
+  f.mirrorDb._raw
+    .prepare(
+      "INSERT INTO mirror_product (id, external_ref, handle, title, category_id, source_version) VALUES" +
+        " ('prod-target','SQ_ITEM_TARGET','blazer-target','Blazer Target', ?, 5)",
+    )
+    .run(outerwear.id);
+  /* Square's own order for THIS variation's item_option_values, as a real
+     sync would have recorded it -- Size first, Color second. mirror_
+     product_item_option's own PRIMARY KEY is (product_id, item_option_id),
+     so a plain, unordered JOIN against it comes back sorted by
+     item_option_id, an opaque internal id with no relation to either
+     option's own name or Square's real declared order -- here, "opt-color"
+     sorts before "opt-size" lexicographically, the OPPOSITE of this
+     variation's own order below. mirror_variant.options is a plain JSON
+     object; key order round-trips through JSON.parse exactly as written,
+     the same as Object.entries would read it back. */
+  f.mirrorDb._raw
+    .prepare(
+      "INSERT INTO mirror_variant (id, external_ref, product_id, sku, title, ordinal, price_minor, currency, options, vendor_id, unit_cost_minor, unit_cost_currency)" +
+        " VALUES ('var-target','SQ_VAR_TARGET','prod-target','SKU-TARGET','Blazer Target',0,10000,'USD','{\"Size\":\"M\",\"Color\":\"Gray\"}',NULL,0,'USD')",
+    )
+    .run();
+  f.mirrorDb._raw.prepare("INSERT INTO mirror_product_item_option (product_id, item_option_id) VALUES ('prod-target','opt-size')").run();
+  f.mirrorDb._raw.prepare("INSERT INTO mirror_product_item_option (product_id, item_option_id) VALUES ('prod-target','opt-color')").run();
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const res = await approvedCall(f, "catalog.set_square_attributes", { handle: "blazer-target", clear_vendor: true });
+    assert.equal(res.ok, true, res.error);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  const itemWrite = f.calls().find((c) => c.upsert === "ITEM" && c.body.object.id === "SQ_ITEM_TARGET");
+  assert.ok(itemWrite, "the product's own ITEM must actually be resent");
+  const itemOptions = itemWrite.body.object.item_data.item_options.map((o) => o.item_option_id);
+  const variationOptionValues = itemWrite.body.object.item_data.variations[0].item_variation_data.item_option_values;
+  assert.equal(variationOptionValues.length, itemOptions.length, "every declared item option needs a value on the variation");
+  itemOptions.forEach((optionId, i) => {
+    assert.equal(
+      variationOptionValues[i].item_option_id,
+      optionId,
+      `index ${i}: the variation's own item_option_values must name the SAME option the item declares at that same index`,
+    );
+  });
+});
+
 check("test_PRD_P0_146_dynamic_option_values__a_csv_size_or_color_column_reaches_create_product", async () => {
   const f = await fixture({ actor: "noor@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");

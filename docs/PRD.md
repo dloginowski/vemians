@@ -8580,6 +8580,29 @@ that does not trace to one of these is a process failure (see §12).
     never the duplicate. Confirmed to actually fail without the fix, reproducing the exact wrong-id
     shape of the real Square 400 (a temporary revert of the fix, run directly against this same test).
 
+    REVISED — the identical Square 400, byte-identical option ids, still live after the fix above,
+    now spanning products in entirely unrelated categories (blazers, vests, dress pants, coats) — proof
+    the name-ambiguity drift was never the only way these two facts could disagree. `mirror_product_
+    item_option`'s own PRIMARY KEY is `(product_id, item_option_id)`; a plain JOIN against it with no
+    `ORDER BY` (`currentItemOptionExternalRefs`) comes back sorted by that opaque internal id, which has
+    no relation to a variation's own `option_values` object-key order (JSON round-tripped straight off
+    Square, `mirror_variant.options`) or to Square's own real declared order. Square's own contract for
+    `ItemVariationData.item_option_values` is POSITIONAL — index *k* must name the SAME item_option as
+    index *k* of the item's own `item_options`, not merely one that appears in it somewhere — so two
+    lists built by two unrelated processes only line up by accident. This shop's whole catalog sharing
+    one Size option and one Color option across nearly every category is exactly why the same two ids
+    kept recurring identically everywhere: every product hit the identical accident.
+
+    `updateProduct` and `createProduct` (`catalog-writer.js`) now build each variation's own
+    `item_option_values` into a `Map` keyed by resolved item-option ref first, then reorder it to
+    follow the SAME order as the item's own `item_options` list (`resolvedItemOptionExternalRefs` for
+    an update, the first-seen order across all variations for a brand-new item) — never `Object.
+    entries`' own order, which was never meaningful to Square. Confirmed to actually fail without the
+    fix: a product with two real, unambiguous options (Size, Color, no duplicate names at all) whose
+    item-level list sorts one way by internal id and whose variation carries its values the other way
+    reproduces the exact "index 0" mismatch; the reorder makes the two lists agree regardless of which
+    order either one happens to start in.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

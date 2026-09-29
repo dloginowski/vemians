@@ -1411,17 +1411,30 @@ export function createSquareCatalogWriter(env, opts = {}) {
          itself, or just a new value on an option that already exists) is
          missing — see ensureItemOptionValue's own comment. One at a time,
          never in parallel: two rows in the same batch both minting the
-         SAME brand-new value would otherwise race to create it twice. */
+         SAME brand-new value would otherwise race to create it twice.
+         Two Option Sets on the same item (Size AND Color) only ever stay
+         index-aligned with item_options below (Square's own POSITIONAL
+         contract for item_option_values — see updateProduct's own
+         identical comment, where this was first caught live) if every
+         variation's own pairs are reordered to the SAME option order —
+         Object.entries' own order is per-variation and means nothing to
+         Square. A raw pairs-per-option map first, reordered once
+         itemOptionRefSet's own final order is known, below. */
       const variationOptionValueRefs = [];
       const itemOptionRefSet = new Set();
+      const variationOptionRefMaps = [];
       for (const v of resolvedVariations) {
-        const pairs = [];
+        const byOptionRef = new Map();
         for (const [optionName, valueName] of Object.entries(v.option_values ?? {})) {
           const { itemOptionRef, itemOptionValueRef } = await ensureItemOptionValue(optionName, valueName);
           itemOptionRefSet.add(itemOptionRef);
-          pairs.push({ item_option_id: itemOptionRef, item_option_value_id: itemOptionValueRef });
+          byOptionRef.set(itemOptionRef, { item_option_id: itemOptionRef, item_option_value_id: itemOptionValueRef });
         }
-        variationOptionValueRefs.push(pairs);
+        variationOptionRefMaps.push(byOptionRef);
+      }
+      const itemOptionOrder = [...itemOptionRefSet];
+      for (const byOptionRef of variationOptionRefMaps) {
+        variationOptionValueRefs.push(itemOptionOrder.map((ref) => byOptionRef.get(ref)).filter(Boolean));
       }
       const body = {
         idempotency_key: idempotencyKey(`catalog.create:${title}:${JSON.stringify(variations)}`),
@@ -1544,15 +1557,36 @@ export function createSquareCatalogWriter(env, opts = {}) {
          createProduct's own loop does. Nothing here is EXPECTED to
          mint a brand-new value — every name/value reaching this call
          already exists — but ensureItemOptionValue's own tolerance for
-         "not on file yet" costs nothing to reuse rather than duplicate. */
+         "not on file yet" costs nothing to reuse rather than duplicate.
+         REVISED — a real production 400, caught live, still happening
+         AFTER the ambiguous-name fix above and across products spanning
+         unrelated categories with the SAME two option ids every time:
+         "Expected ItemVariation to have Item Option at index 0...".
+         `resolvedItemOptionExternalRefs` — resent below as `itemOptionRefs`,
+         the item's own item_options list — comes back from a plain JOIN
+         against `mirror_product_item_option`, whose own PRIMARY KEY is
+         (product_id, item_option_id): with no ORDER BY, it comes back
+         sorted by that opaque internal id, which has nothing to do with
+         either a variation's own `option_values` object-key order (JSON-
+         round-tripped straight from Square) or Square's own real
+         declared order. Square's own contract for item_option_values is
+         POSITIONAL — index k must name the SAME item_option as index k of
+         item_options, not merely one that appears in it somewhere — so two
+         lists built by two unrelated processes only line up by accident.
+         Every product in this shop sharing the same two Option Sets
+         (Size, Color) hits the identical mismatch, which is exactly why
+         the same two ids kept recurring after the name-ambiguity fix: that
+         fix never touched ordering. Built into a Map first, then reordered
+         to follow itemOptionRefs' own order below — never Object.entries'
+         own, which is meaningless to Square. */
       const variationOptionValueRefs = [];
       for (const v of keep) {
-        const pairs = [];
+        const byOptionRef = new Map();
         for (const [optionName, valueName] of Object.entries(v.option_values ?? {})) {
           const { itemOptionRef, itemOptionValueRef } = await ensureItemOptionValue(optionName, valueName, resolvedItemOptionExternalRefs);
-          pairs.push({ item_option_id: itemOptionRef, item_option_value_id: itemOptionValueRef });
+          byOptionRef.set(itemOptionRef, { item_option_id: itemOptionRef, item_option_value_id: itemOptionValueRef });
         }
-        variationOptionValueRefs.push(pairs);
+        variationOptionValueRefs.push(resolvedItemOptionExternalRefs.map((ref) => byOptionRef.get(ref)).filter(Boolean));
       }
 
       /* Undefined means "this call is not about that field" for commission —
