@@ -5621,6 +5621,88 @@ check("test_PRD_P0_146_dynamic_option_values__an_existing_value_is_reused_case_i
   ]);
 });
 
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-185 — a real production error, caught live: "Expected ItemVariation to
+ * have Item Option at index 0 with ID '...', got '...'." `mirror_item_
+ * option.name` carries no UNIQUE constraint (schema.sql's own comment) --
+ * this shop's real Square account genuinely has more than one ITEM_OPTION
+ * sharing the same name ("Color"), a plausible leftover from before
+ * Test-PRD-P0-178 removed category-level Option Set assignment.
+ * `ensureItemOptionValue`'s own plain `WHERE name = ?` picked an arbitrary
+ * one of them for a variation being resent on update, which could -- and,
+ * live, did -- disagree with the ONE this specific product's own
+ * `item_options` already declares to Square (a real, synced fact,
+ * `mirror_product_item_option`), producing exactly this Square refusal on
+ * every future edit to that product, including the auto-in-house-vendor
+ * assignment (draftProductUpdate, batch.js) a resubmit's own cost update
+ * depends on.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_185_ambiguous_item_option_name__an_update_resolves_to_the_option_this_product_actually_has_not_an_unrelated_duplicate", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+
+  /* TWO real Square ITEM_OPTION objects, both named "Color" -- the exact
+     data-integrity condition schema.sql's own comment says this shop's
+     account can be in. OPT_A is a wholly unrelated one that merely happens
+     to exist and come first; the product below is wired to OPT_B, never
+     OPT_A, matching what a real sync from Square actually recorded. */
+  f.mirrorDb._raw.prepare("INSERT INTO mirror_item_option (id, external_ref, name) VALUES ('opt-color-a','SQ_OPT_COLOR_A','Color')").run();
+  f.mirrorDb._raw
+    .prepare("INSERT INTO mirror_item_option_value (id, external_ref, item_option_id, name, ordinal) VALUES ('optval-gray-a','SQ_OPTVAL_GRAY_A','opt-color-a','Gray',0)")
+    .run();
+  f.mirrorDb._raw.prepare("INSERT INTO mirror_item_option (id, external_ref, name) VALUES ('opt-color-b','SQ_OPT_COLOR_B','Color')").run();
+  f.mirrorDb._raw
+    .prepare("INSERT INTO mirror_item_option_value (id, external_ref, item_option_id, name, ordinal) VALUES ('optval-gray-b','SQ_OPTVAL_GRAY_B','opt-color-b','Gray',0)")
+    .run();
+
+  /* A pre-existing product -- built directly, the way a real sync from
+     Square already populated it, rather than through catalog.create_product
+     (which would only ever resolve ONE of the two ambiguous options,
+     proving nothing about an update disagreeing with what is already on
+     file). No vendor at all, the exact legacy shape draftProductUpdate's
+     own inline auto-in-house-assignment exists for. */
+  f.mirrorDb._raw
+    .prepare(
+      "INSERT INTO mirror_product (id, external_ref, handle, title, category_id, source_version) VALUES" +
+        " ('prod-target','SQ_ITEM_TARGET','winter-coat-target','Winter Coat Target', ?, 5)",
+    )
+    .run(outerwear.id);
+  f.mirrorDb._raw
+    .prepare(
+      "INSERT INTO mirror_variant (id, external_ref, product_id, sku, title, ordinal, price_minor, currency, options, vendor_id, unit_cost_minor, unit_cost_currency)" +
+        " VALUES ('var-target','SQ_VAR_TARGET','prod-target','SKU-TARGET','Winter Coat Target',0,10000,'USD','{\"Color\":\"Gray\"}',NULL,0,'USD')",
+    )
+    .run();
+  /* The REAL fact, as if a sync from Square had already recorded it: this
+     product's own item_options is OPT_B, never OPT_A. */
+  f.mirrorDb._raw.prepare("INSERT INTO mirror_product_item_option (product_id, item_option_id) VALUES ('prod-target','opt-color-b')").run();
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    /* The exact call draftProductUpdate itself makes inline when a resubmit
+       tries to set cost on a vendor-less legacy product. */
+    const res = await approvedCall(f, "catalog.set_square_attributes", { handle: "winter-coat-target", clear_vendor: true });
+    assert.equal(res.ok, true, res.error);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  const itemWrite = f.calls().find((c) => c.upsert === "ITEM" && c.body.object.id === "SQ_ITEM_TARGET");
+  assert.ok(itemWrite, "the product's own ITEM must actually be resent");
+  assert.deepEqual(
+    itemWrite.body.object.item_data.item_options,
+    [{ item_option_id: "SQ_OPT_COLOR_B" }],
+    "the item's own declared option must stay the one this product actually has",
+  );
+  assert.deepEqual(
+    itemWrite.body.object.item_data.variations[0].item_variation_data.item_option_values,
+    [{ item_option_id: "SQ_OPT_COLOR_B", item_option_value_id: "SQ_OPTVAL_GRAY_B" }],
+    "the resent variation must reference the SAME option the item itself just declared, never the unrelated duplicate",
+  );
+});
+
 check("test_PRD_P0_146_dynamic_option_values__a_csv_size_or_color_column_reaches_create_product", async () => {
   const f = await fixture({ actor: "noor@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
