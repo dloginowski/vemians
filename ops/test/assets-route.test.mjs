@@ -150,6 +150,90 @@ check("test_PRD_P0_65_asset_drop_site__uploading_a_text_file_makes_it_downloadab
   assert.match(await list.text(), /vendor-notes\.txt/);
 });
 
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-184 — "we should have separate file locations for chat files... if I
+ * upload items spreadsheets, they should go into an items spreadsheets
+ * folder... if I upload invoices or expenses, they should go into their own
+ * separate folder so we don't mix" -- the owner's own words. Expenses
+ * already have their own completely separate flow (receiptUploadPage, its
+ * own FINANCE store) that never touches `asset` at all -- the real mixing
+ * this addresses is narrower: a chat-dropped spreadsheet that turned out to
+ * be a product or customer import sat in the exact same flat list as any
+ * other random dropped file on /assets. `agent_last_preview` (Test-PRD-
+ * P0-183-durable_batch_bookkeeping) already records, durably, the moment a
+ * spreadsheet is actually previewed as one or the other -- /assets now
+ * joins against it read-only (no new column, no edit to the append-only
+ * `asset` table) and groups the page into three sections instead of one.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_184_grouped_asset_browsing__a_file_never_previewed_as_a_batch_lands_in_other_files", async () => {
+  const e = env();
+  await postFile("/assets/new", STAFF, e, { filename: "vendor-notes.txt", content: "Ships net 30." });
+
+  const list = await get("/assets", STAFF, e);
+  const body = await list.text();
+  assert.match(body, /Other files/, "a plain dropped file gets the honest default group, never guessed into a spreadsheet category");
+  assert.match(body, /vendor-notes\.txt/);
+  assert.doesNotMatch(body, /Item spreadsheets[\s\S]*vendor-notes\.txt/, "must not appear under Item spreadsheets");
+});
+
+check("test_PRD_P0_184_grouped_asset_browsing__a_spreadsheet_previewed_as_a_product_batch_is_grouped_separately", async () => {
+  const e = env();
+  const up = await postFile("/assets/new", STAFF, e, { filename: "fall-collection.csv", content: "title,category,price\nCoat,Outerwear,100\n", type: "text/csv" });
+  const link = /href="(\/assets\/[^"]+)"/.exec(await up.text())?.[1];
+  const assetId = link.split("/").pop();
+
+  /* Simulates the moment catalog_preview_add_product_batch actually
+     previews this exact file (recordLastPreview, agent.js) -- this test is
+     about /assets's own grouping, not about re-proving the preview
+     mechanism itself (already covered by Test-PRD-P0-183). */
+  await e.ASSETS.prepare("INSERT INTO agent_last_preview (actor, batch_kind, asset_id) VALUES (?, ?, ?)")
+    .bind("ana@example.test", "products", assetId)
+    .run();
+
+  const list = await get("/assets", STAFF, e);
+  const body = await list.text();
+  assert.match(body, /Item spreadsheets[\s\S]*fall-collection\.csv/, "grouped under Item spreadsheets, not left in the general pile");
+  assert.doesNotMatch(body, /Other files[\s\S]*fall-collection\.csv/);
+});
+
+check("test_PRD_P0_184_grouped_asset_browsing__a_customer_spreadsheet_and_a_product_spreadsheet_never_mix", async () => {
+  const e = env();
+  const productUp = await postFile("/assets/new", STAFF, e, { filename: "products.csv", content: "a", type: "text/csv" });
+  const productId = /href="\/assets\/([^"]+)"/.exec(await productUp.text())[1];
+  const customerUp = await postFile("/assets/new", STAFF, e, { filename: "customers.csv", content: "b", type: "text/csv" });
+  const customerId = /href="\/assets\/([^"]+)"/.exec(await customerUp.text())[1];
+
+  await e.ASSETS.prepare("INSERT INTO agent_last_preview (actor, batch_kind, asset_id) VALUES (?, 'products', ?)").bind("ana@example.test", productId).run();
+  await e.ASSETS.prepare("INSERT INTO agent_last_preview (actor, batch_kind, asset_id) VALUES (?, 'customers', ?)").bind("ana@example.test", customerId).run();
+
+  const body = await (await get("/assets", STAFF, e)).text();
+  /* Each section's own slice, up to the NEXT <h2> or the end of the page --
+     a plain [\s\S]* match here would happily "find" a later section's own
+     text too, since nothing stops a greedy match at a section boundary. */
+  const section = (title) => new RegExp(`${title}[\\s\\S]*?(?=<h2>|<p><a href="/assets/new")`).exec(body)?.[0] ?? "";
+  assert.match(section("Item spreadsheets"), /products\.csv/);
+  assert.doesNotMatch(section("Item spreadsheets"), /customers\.csv/, "a customer sheet must never appear grouped as an item sheet");
+  assert.match(section("Customer spreadsheets"), /customers\.csv/);
+  assert.doesNotMatch(section("Customer spreadsheets"), /products\.csv/, "an item sheet must never appear grouped as a customer sheet");
+});
+
+check("test_PRD_P0_184_grouped_asset_browsing__the_grouped_query_failing_falls_back_to_a_flat_list_not_a_500", async () => {
+  /* A deployment that has not yet run Test-PRD-P0-183's own one-time schema
+     addition has no agent_last_preview table at all -- the grouped query
+     must fail closed to the plain list this page always showed, never a
+     500 the whole page is unreachable behind. */
+  const e = env();
+  await postFile("/assets/new", STAFF, e, { filename: "vendor-notes.txt", content: "Ships net 30." });
+  e.ASSETS._raw.exec("DROP TABLE agent_last_preview");
+
+  const res = await get("/assets", STAFF, e);
+  assert.equal(res.status, 200);
+  const body = await res.text();
+  assert.match(body, /vendor-notes\.txt/);
+  assert.match(body, /Other files/, "everything falls back into the one honest default group");
+});
+
 check("test_PRD_P0_65_asset_drop_site__an_unaccepted_file_type_is_refused_before_it_is_stored", async () => {
   const e = env();
   const res = await postFile("/assets/new", STAFF, e, { filename: "install.exe", content: "x", type: "application/octet-stream" });

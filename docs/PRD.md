@@ -8509,6 +8509,41 @@ that does not trace to one of these is a process failure (see §12).
     finds the plan and completes both rows, and the fully-spent plan row survives afterward rather
     than being deleted.
 
+116. **`Test-PRD-P0-184-grouped_asset_browsing`** — "We should have separate file locations for chat
+    files... if I upload items spreadsheets, they should go into an items spreadsheets folder... if I
+    upload invoices or expenses, they should go into their own separate folder so we don't mix" — the
+    owner's own words. Expenses/invoices already have their own completely separate flow
+    (`receiptUploadPage`, its own `finance` D1 store and `RECEIPT_FILES` bucket, `Test-PRD-P0-19`
+    through `P0-20`) that never touches `asset` at all — the real mixing this addresses is narrower: a
+    chat-dropped spreadsheet that turned out to be a product or customer import sat in the exact same
+    flat `/assets` list as any other random dropped file, with nothing distinguishing one from another
+    at a glance.
+
+    `asset` (`shared/db/assets.sql`) is append-only and immutable by trigger — a "kind" column set once
+    at upload time could never be corrected or backfilled, and for a chat attachment the kind is not
+    even KNOWN yet at upload time (the model decides later whether it's a products batch, a customers
+    batch, or neither). `agent_last_preview` (`Test-PRD-P0-183-durable_batch_bookkeeping`, above)
+    already records that exact fact durably, the moment a spreadsheet is actually previewed one way or
+    the other — so `/assets` (`index.js`) now LEFT JOINs against it, read-only, no new column and no
+    edit to the immutable `asset` table at all: `(SELECT batch_kind FROM agent_last_preview WHERE
+    asset_id = a.id ORDER BY id DESC LIMIT 1)`. `assetListPage` (`views.js`) groups the result into
+    three sections — "Item spreadsheets," "Customer spreadsheets," "Other files" — instead of one flat
+    list; a file with no matching preview at all (a vendor note, a policy PDF, a spreadsheet nobody has
+    previewed yet) lands in "Other files," the same honest default it already got before this, never
+    guessed into a category it was never actually run through.
+
+    The grouped query is wrapped in a `try`/`catch`: on a deployment that has not yet run
+    `Test-PRD-P0-183`'s own one-time schema addition, `agent_last_preview` does not exist yet, and the
+    route falls back to the plain, ungrouped list rather than a 500 — the identical "fails closed to
+    today's existing behavior" degrade that table's other readers already use.
+
+    Confirmed against the real fixture DB and HTTP route (`worker.fetch`): a plain dropped file lands
+    in "Other files"; a spreadsheet previewed as a product batch is grouped under "Item spreadsheets"
+    and never appears under "Other files"; a product spreadsheet and a customer spreadsheet uploaded in
+    the same session never cross into each other's section; dropping the `agent_last_preview` table
+    outright still returns a real 200 with every file correctly falling back into "Other files," never
+    an error page.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

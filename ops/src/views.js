@@ -6694,21 +6694,57 @@ export function assetUploadedPage({ id, filename, hasText }) {
   );
 }
 
-export function assetListPage(rows) {
+/*
+ * "We should have separate file locations for chat files... if I upload
+ * items spreadsheets, they should go into an items spreadsheets folder"
+ * -- the owner's own words. Expenses/invoices already have their own
+ * completely separate flow (receiptUploadPage, below, its own FINANCE store
+ * and RECEIPT_FILES bucket) that never touches `asset` at all -- the real
+ * mixing this addresses is narrower: a chat-dropped spreadsheet that turned
+ * out to be a product or customer import sat in the exact same flat list as
+ * any other random dropped file. Grouped into three sections instead (the
+ * route above does the actual classification, via agent_last_preview) --
+ * still one page, still one list underneath, just no longer one undivided
+ * pile a person has to scan through by eye to find the one spreadsheet they
+ * actually meant.
+ */
+function assetGroupList(rows) {
+  if (!rows.length) return "";
+  return `<ul>${rows
+    .map(
+      (r) =>
+        `<li><a href="/assets/${esc(r.id)}">${esc(r.filename)}</a>
+           <span class="fine">${esc(r.uploaded_by)} &middot; ${esc(r.uploaded_at)}</span></li>`,
+    )
+    .join("")}</ul>`;
+}
+
+export function assetListPage(groups) {
+  const products = groups.products ?? [];
+  const customers = groups.customers ?? [];
+  const other = groups.other ?? [];
+  const total = products.length + customers.length + other.length;
+  const sections = [
+    ["Item spreadsheets", "a sheet previewed as a product add or update", products],
+    ["Customer spreadsheets", "a sheet previewed as a customer import", customers],
+    ["Other files", "anything else dropped for the team", other],
+  ];
   return page(
     "Files dropped for the team",
     `<main class="wrap">
-       <p class="eyebrow">${rows.length} file${rows.length === 1 ? "" : "s"}</p>
+       <p class="eyebrow">${total} file${total === 1 ? "" : "s"}</p>
        <h1>Files dropped for the team</h1>
        ${
-         rows.length
-           ? `<ul>${rows
+         total
+           ? sections
+               .filter(([, , rows]) => rows.length)
                .map(
-                 (r) =>
-                   `<li><a href="/assets/${esc(r.id)}">${esc(r.filename)}</a>
-                      <span class="fine">${esc(r.uploaded_by)} &middot; ${esc(r.uploaded_at)}</span></li>`,
+                 ([title, hint, rows]) =>
+                   `<h2>${esc(title)} <span class="fine">(${rows.length})</span></h2>
+                    <p class="fine">${esc(hint)}</p>
+                    ${assetGroupList(rows)}`,
                )
-               .join("")}</ul>`
+               .join("")
            : "<p>Nothing has been dropped yet.</p>"
        }
        <p><a href="/assets/new">Drop a file</a> &middot; <a href="/">Back to ops</a></p>

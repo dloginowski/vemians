@@ -1441,12 +1441,48 @@ async function ops(request, env, path) {
 
     if (path === "/assets") {
       if (!env.ASSETS) return html(refusalPage(503, "The asset drop site is not configured on this deployment yet."), 503);
-      const { results } = await env.ASSETS.prepare(
-        "SELECT id, filename, content_type, size_bytes, uploaded_by, uploaded_at FROM asset ORDER BY uploaded_at DESC LIMIT ?",
-      )
-        .bind(CAPS.ASSET_LIST_MAX_ROWS)
-        .all();
-      return html(assetListPage(results ?? []));
+      /* "We should have separate file locations for chat files... if I
+         upload items spreadsheets, they should go into an items
+         spreadsheets folder" -- the owner's own words. `asset` itself never
+         records what a file turned out to BE (it is append-only, see its
+         own header comment) -- but agent_last_preview already does, the
+         moment a chat-dropped spreadsheet is actually previewed as a
+         product or customer batch (Test-PRD-P0-183-durable_batch_
+         bookkeeping). Joined in here read-only, no schema change to `asset`
+         needed: a file with no matching preview at all was never run
+         through either batch tool, so it stays in the plain "other" group,
+         the same honest default a receipt or a vendor price list already
+         gets today. */
+      let rows;
+      try {
+        const { results } = await env.ASSETS.prepare(
+          "SELECT a.id, a.filename, a.content_type, a.size_bytes, a.uploaded_by, a.uploaded_at," +
+            " (SELECT p.batch_kind FROM agent_last_preview p WHERE p.asset_id = a.id ORDER BY p.id DESC LIMIT 1) AS kind" +
+            " FROM asset a ORDER BY a.uploaded_at DESC LIMIT ?",
+        )
+          .bind(CAPS.ASSET_LIST_MAX_ROWS)
+          .all();
+        rows = results ?? [];
+      } catch (err) {
+        /* agent_last_preview does not exist yet on a deployment that has
+           not run Test-PRD-P0-183's own one-time schema addition -- falls
+           back to the plain, ungrouped list rather than a 500, the same
+           "fails closed to today's existing behavior" the table's own
+           other readers already do. */
+        console.error(`ERROR ops/assets: grouped list query failed, falling back to a flat list — ${err.message}`);
+        const { results } = await env.ASSETS.prepare(
+          "SELECT id, filename, content_type, size_bytes, uploaded_by, uploaded_at FROM asset ORDER BY uploaded_at DESC LIMIT ?",
+        )
+          .bind(CAPS.ASSET_LIST_MAX_ROWS)
+          .all();
+        rows = results ?? [];
+      }
+      const groups = {
+        products: rows.filter((r) => r.kind === "products"),
+        customers: rows.filter((r) => r.kind === "customers"),
+        other: rows.filter((r) => r.kind == null),
+      };
+      return html(assetListPage(groups));
     }
 
     if (path === "/assets/new") {
