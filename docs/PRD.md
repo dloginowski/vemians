@@ -8257,6 +8257,21 @@ that does not trace to one of these is a process failure (see §12).
     `update_note` to a person as "will create a new product" or "no match," only as "not yet confirmed
     in this quick preview."
 
+    **REVISED AGAIN**, the very next question: "Shouldn't you be doing an in-house instead of a dash?
+    Since if a vendor is not provided, then it must be in-house." Correct, but only half the story — the
+    earlier, still-standing `Test-PRD-P0-89-batch_preview_confirm` rule ("instead of using not found,
+    just use the dash... indicate that it's not there, it's not available") was written for a genuinely
+    unknown value, before this shop's own "no vendor named means In-house" default (`vendorRefOrInHouse`,
+    `catalog-writer.js`) existed to make a blank vendor cell resolved rather than unknown. A blank vendor
+    previews as `"In-house"` in ADD mode now, the same reasoning that already gave `sku`/`style_id` their
+    own `"(auto-generated)"` over a bare dash — but `draftProductUpdate`'s own header comment is just as
+    explicit that vendor (and `vendor_code`, `commission` alongside it) are "deliberately never touched"
+    by an UPDATE at all, matched or not — so the identical blank cell previews as `"(unchanged)"` there
+    instead, never `"In-house"`, since an update never actually assigns one. `commission`, which has no
+    such default in either mode, keeps the plain dash the P0-89 rule asked for. Confirmed against the
+    fixture DB: a fresh add-mode preview shows a blank vendor as `"In-house"`; the identical sheet,
+    resubmitted as an update against the now-real product, shows the same blank cell as `"(unchanged)"`.
+
     Confirmed against the real fixture DB and Square mock (`catalog-write.test.mjs`,
     `Test-PRD-P0-179-import_style_number_matching`): a resubmitted sheet updates the same product
     rather than duplicating it; each variation is matched by its own Color/Size even with the sheet's
