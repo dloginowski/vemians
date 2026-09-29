@@ -8544,6 +8544,42 @@ that does not trace to one of these is a process failure (see §12).
     outright still returns a real 200 with every file correctly falling back into "Other files," never
     an error page.
 
+117. **`Test-PRD-P0-185-ambiguous_item_option_name`** — A real production error, caught live: "Expected
+    ItemVariation to have Item Option at index 0 with ID '...', got '...'" — Square's own 400 refusal,
+    surfacing indirectly as `"Winter coat, gray with print" ... has no vendor yet and could not be
+    defaulted to In-house` on a resubmit's own inline auto-vendor-assignment
+    (`draftProductUpdate`, `batch.js`, `Test-PRD-P0-181-resubmit_matching_refinements`'s own mechanism).
+
+    `mirror_item_option.name` (`shared/commerce/square/schema.sql`) carries no UNIQUE constraint —
+    only `external_ref` (Square's own id) is unique, by design, and this shop's real Square account
+    genuinely has more than one ITEM_OPTION sharing the same name ("Color"), plausibly a leftover from
+    before `Test-PRD-P0-178-remove_category_item_options` removed category-level Option Set assignment.
+    `ensureItemOptionValue` (`catalog-writer.js`) resolved a variation's own Color/Size reference with a
+    plain `WHERE name = ?` and no other qualifier — an ARBITRARY pick among the duplicates — entirely
+    independent of `updateProduct`'s own `resolvedItemOptionExternalRefs`, which reads the SAME
+    product's own `item_options` back from `mirror_product_item_option`, a real, already-synced fact
+    about that exact item. Two independent paths resolving what must be the identical id is exactly how
+    they drift: the ITEM's own top-level declaration named one duplicate, the VARIATION's own
+    `item_option_values` named the other, and Square rejected the mismatch outright — on every future
+    edit to that product, not just the one that first exposed it.
+
+    `ensureItemOptionValue` now takes an optional `preferredExternalRefs` list; when more than one
+    `mirror_item_option` row shares a name, the one already known to belong to this product wins,
+    falling back to the first match only when nothing is preferred. `updateProduct`'s own call site
+    passes `resolvedItemOptionExternalRefs` — the product's own real, synced fact — as that preference.
+    `createProduct`'s own call site is deliberately unaffected: a brand-new item's own `item_options`
+    list is BUILT from these same resolutions, never a separate, independently-sourced fact to disagree
+    with, so there is nothing to prefer and no way for the two to drift apart there.
+
+    Confirmed against the real fixture DB: a product built directly (the way a real sync from Square
+    already populated it, not through `catalog.create_product`, which could only ever resolve ONE of
+    two ambiguous options and prove nothing about an update disagreeing with what is already on file),
+    wired to a deliberately non-first `mirror_item_option` row sharing its name with an unrelated,
+    earlier-inserted duplicate — an update resolves the SAME option this product actually has, and the
+    resent variation's own `item_option_values` agrees with the item's own top-level declaration,
+    never the duplicate. Confirmed to actually fail without the fix, reproducing the exact wrong-id
+    shape of the real Square 400 (a temporary revert of the fix, run directly against this same test).
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

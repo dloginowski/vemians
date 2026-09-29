@@ -833,12 +833,33 @@ export function createSquareCatalogWriter(env, opts = {}) {
    * matchCategory already gives a spreadsheet that was not typed to a
    * spec. Nothing to resolve, and no Square write at all, for a value
    * already on file.
+   *
+   * REVISED — a real production error, caught live: "Expected ItemVariation
+   * to have Item Option at index 0 with ID '...', got '...'." `mirror_item_
+   * option.name` carries no UNIQUE constraint (schema.sql's own comment:
+   * only `external_ref`, Square's own id, is unique) — this shop's real
+   * Square account genuinely has more than one ITEM_OPTION sharing the same
+   * name (plausibly a leftover from before Test-PRD-P0-178 removed
+   * category-level Option Set assignment). `WHERE name = ?` with no other
+   * qualifier picked an arbitrary one of them, which can — and, live,
+   * did — differ from the ONE this specific product's own `item_options`
+   * already declares to Square (updateProduct's own `resolvedItemOption
+   * ExternalRefs`, read back from `mirror_product_item_option`, a REAL,
+   * synced fact about this exact item). Two independent paths resolving
+   * what must be the identical id is exactly how they drift: `preferred
+   * ExternalRefs`, when given, biases the match toward one already known to
+   * belong to this product, falling back to the first match only when
+   * nothing on file yet is preferred — createProduct's own call site (a
+   * brand-new item, nothing to prefer, self-consistent either way — its
+   * own item_options list is BUILT from these same resolutions, never a
+   * separate, independently-sourced fact to disagree with) is unaffected.
    */
-  async function ensureItemOptionValue(optionName, valueName) {
-    const option = await mirrorDb
+  async function ensureItemOptionValue(optionName, valueName, preferredExternalRefs = []) {
+    const candidates = await mirrorDb
       .prepare("SELECT id, external_ref FROM mirror_item_option_index WHERE name = ? COLLATE NOCASE")
       .bind(optionName)
-      .first();
+      .all();
+    const option = (candidates.results ?? []).find((o) => preferredExternalRefs.includes(o.external_ref)) ?? (candidates.results ?? [])[0];
 
     if (option) {
       const value = await mirrorDb
@@ -1528,7 +1549,7 @@ export function createSquareCatalogWriter(env, opts = {}) {
       for (const v of keep) {
         const pairs = [];
         for (const [optionName, valueName] of Object.entries(v.option_values ?? {})) {
-          const { itemOptionRef, itemOptionValueRef } = await ensureItemOptionValue(optionName, valueName);
+          const { itemOptionRef, itemOptionValueRef } = await ensureItemOptionValue(optionName, valueName, resolvedItemOptionExternalRefs);
           pairs.push({ item_option_id: itemOptionRef, item_option_value_id: itemOptionValueRef });
         }
         variationOptionValueRefs.push(pairs);
