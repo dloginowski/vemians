@@ -159,8 +159,14 @@ async function createRows(env, { actor, role, rate, onProgress }, rows) {
      (Test-PRD-P0-179-import_style_number_matching) mints
      catalog.update_product for a row draftGroupedProduct already matched to
      an existing product, and catalog.create_product for every other row, in
-     the very same batch. */
-  for (const { rowNumber, title, args, toolName } of rows) {
+     the very same batch. catalog.set_square_attributes joins those two
+     (draftProductUpdate's own "make them all in-house and update their
+     costs" fallback, when nothing on a resubmit's own sheet matched any
+     existing variation at all) — an EXISTING handle, same as update_product,
+     never a freshly created one, so `handle` falls back to `args.handle`
+     rather than a `result.data.product` shape only create/update actually
+     return. */
+  for (const { rowNumber, title, args, toolName, note } of rows) {
     let status;
     const gate = await runTool(toolName, args, { actor, role, env, rate });
     if (!gate?.needsApproval) {
@@ -170,8 +176,9 @@ async function createRows(env, { actor, role, rate, onProgress }, rows) {
       if (result?.error || result?.denied) {
         status = await settle(rowNumber, title, toolName, args, result.error || result.denied || "was refused");
       } else {
-        const action = toolName === "catalog.update_product" ? "updated" : "created";
-        created.push({ row: rowNumber, title, handle: result.data?.product?.handle, summary: gate.data.would, action });
+        const action = toolName === "catalog.create_product" ? "created" : "updated";
+        const summary = note ? `${gate.data.would} -- ${note}` : gate.data.would;
+        created.push({ row: rowNumber, title, handle: result.data?.product?.handle ?? args.handle, summary, action });
         status = action;
       }
     }
@@ -1271,6 +1278,43 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
     });
   }
 
+  const title = titleCol || existing.title;
+
+  /* "I just want you to resubmit the existing CSV and update the products
+     to make them all in-house and update their costs" -- the owner's own
+     words, after a whole group got blocked outright because NOT ONE of its
+     rows named a size/color this product has on file (a legacy product
+     with no real Size/Color structure at all is the common case, not a
+     partial mismatch). Vendor and unit_cost_minor do not actually depend
+     on any variation matching at all -- catalog.set_square_attributes
+     applies both UNIFORMLY across whatever variations the product already
+     has, whatever the sheet happens to call them -- so falling all the way
+     back to a clash here throws away a real, safe update the owner
+     explicitly asked this resubmit to make, over a size/color mismatch
+     that update has nothing to do with. Only when EVERY row missed (never
+     when SOME matched and some did not -- that stays a genuine clash a
+     person should look at, since part of the sheet clearly expected
+     variations that are not there) and only when the sheet actually gave a
+     cost to apply (nothing to fall back to otherwise, and forcing vendor
+     alone was never asked for). The specific new sizes/colors still need a
+     person to add them by hand -- unchanged -- but that no longer blocks
+     the vendor/cost update the rest of the sheet was clearly also asking
+     for. */
+  if (variations.length === 0 && clashes.length > 0 && unitCostMinor !== undefined) {
+    const newOnes = groupRows.map(({ record, color, size }) =>
+      Object.values({ ...(color ? { Color: color } : {}), ...(size ? { Size: size } : {}), ...optionValues(record) }).join(", ") || "(no size/color)",
+    );
+    return {
+      row: {
+        rowNumber: firstRow,
+        title,
+        args: { handle: existing.handle, unit_cost_minor: unitCostMinor, ...(existing.vendor ? {} : { clear_vendor: true }) },
+        toolName: "catalog.set_square_attributes",
+        note: `new sizes/colors on this sheet (${newOnes.join(", ")}) were not added -- add them by hand, then resubmit to price them`,
+      },
+    };
+  }
+
   const args = {
     handle: existing.handle,
     ...(titleCol ? { title: titleCol.slice(0, 200) } : {}),
@@ -1278,7 +1322,6 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
     ...(variations.length ? { variations } : {}),
   };
 
-  const title = titleCol || existing.title;
   if (clashes.length) {
     return { clash: { row: firstRow, title, args, reason: clashes.join("; "), toolName: "catalog.update_product" } };
   }
@@ -1866,7 +1909,7 @@ export async function planProductBatch(env, { text, actor, role, mode }) {
   for (const row of built) {
     const gate = await runTool(row.toolName, row.args, { actor, role, env, rate });
     if (gate?.needsApproval) {
-      readyRows.push({ ...row, summary: gate.data.would });
+      readyRows.push({ ...row, summary: row.note ? `${gate.data.would} -- ${row.note}` : gate.data.would });
       continue;
     }
     const reason = gate?.error || "could not be validated";

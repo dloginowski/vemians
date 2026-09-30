@@ -3581,6 +3581,37 @@ check("test_PRD_P0_136_square_custom_attributes__clear_vendor_reassigns_to_the_i
   assert.equal(variant.vendor_code, null);
 });
 
+check("test_PRD_P0_136_square_custom_attributes__revised_clear_vendor_with_a_fresh_cost_in_the_same_call_applies_that_cost_not_zero", async () => {
+  /* REVISED — a real bug, caught live by draftProductUpdate's own fallback
+     (batch.js, "make them all in-house and update their costs" -- the
+     owner's own words): this SAME tool's own describe text already
+     promises "clearing it also... resets unit_cost_minor to 0 UNLESS THIS
+     SAME CALL ALSO GIVES A FRESH ONE" — but run() unconditionally forced
+     unit_cost_minor to 0 whenever clear_vendor was given, silently
+     discarding a unit_cost_minor given in that SAME call. check()'s own
+     preview (`gate.data.would`) already computed the right answer — the
+     bug was only in what actually got sent to Square — so a caller
+     trusting the "would" preview would have seen the correct new cost,
+     then watched it silently NOT land. */
+  const f = await fixture();
+  const res = await approvedCall(f, "catalog.set_square_attributes", {
+    handle: COAT_HANDLE,
+    clear_vendor: true,
+    unit_cost_minor: 4200,
+  });
+  assert.equal(res.ok, true, res.error);
+  assert.equal(res.data.vendor, "In-house");
+  assert.equal(res.data.unit_cost_minor, 4200, "the fresh cost given alongside clear_vendor must win, never the 0 reset");
+
+  const upsert = f.calls().find((c) => c.path === "/v2/catalog/object" && c.upsert === "ITEM");
+  const vendorInfo = upsert.body.object.item_data.variations[0].item_variation_data.vendor_information[0];
+  assert.deepEqual(vendorInfo.unit_cost_money, { amount: 4200, currency: "USD" }, "Square itself must actually receive the fresh cost");
+
+  const product = f.mirror(`SELECT id FROM mirror_product WHERE handle = '${COAT_HANDLE}'`)[0];
+  const variant = f.mirror("SELECT unit_cost_minor FROM mirror_variant WHERE product_id = ?", product.id)[0];
+  assert.equal(variant.unit_cost_minor, 4200);
+});
+
 check("test_PRD_P0_136_square_custom_attributes__clear_vendor_and_vendor_together_is_refused", async () => {
   const f = await fixture();
   const res = await runTool(
@@ -7515,6 +7546,65 @@ check("test_PRD_P0_179_import_style_number_matching__a_genuinely_new_size_on_a_r
   const product = f.mirror("SELECT id FROM mirror_product WHERE title = 'Wool Coat'")[0];
   const variants = f.mirror("SELECT options FROM mirror_variant WHERE product_id = ?", product.id);
   assert.equal(variants.length, 1, "the existing product is untouched -- no size was silently added");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-179, REVISED AGAIN — "I just want you to resubmit the existing CSV and
+ * update the products to make them all in-house and update their costs. Why
+ * is it such a fucking problem?" -- the owner's own words, after a whole
+ * resubmit group got blocked outright because NOT ONE of its rows named a
+ * size/color the product had on file (a legacy product with no real
+ * Size/Color structure yet, the common real case, not a partial mismatch).
+ * Vendor and cost do not depend on any variation match at all --
+ * catalog.set_square_attributes applies both UNIFORMLY to whatever
+ * variations a product already has -- so draftProductUpdate now falls back
+ * to it, rather than a blocking clash, when EVERY row missed and the sheet
+ * actually gave a cost. The genuinely new size/color still needs a person
+ * to add it by hand -- unchanged -- it just no longer blocks the vendor/cost
+ * update the rest of the sheet was clearly also asking for.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_179_import_style_number_matching__revised_a_wholly_new_color_still_gets_vendor_and_cost_applied", async () => {
+  const f = await fixture();
+  const csv1 = "title,category,price,style id,size\nWool Coat,Outerwear,100.00,01-04-006,S\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let second;
+  try {
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager", mode: "add" });
+    assert.equal(first.created.length, 1);
+
+    /* A LEGACY product, predating the "every product gets a real vendor"
+       default -- vendor_id nulled by hand, the way a real pre-existing
+       Square item can genuinely be on file (P0-185's own tests seed the
+       same way, for the same reason: a real, already-synced fact, not
+       something any code path here could itself have produced). */
+    const product = f.mirror("SELECT id FROM mirror_product WHERE title = 'Wool Coat'")[0];
+    f.mirrorDb._raw.prepare("UPDATE mirror_variant SET vendor_id = NULL WHERE product_id = ?").run(product.id);
+
+    /* Resubmitted with a wholly different size this product has never had
+       at all -- NOTHING here matches an existing variation -- but a real
+       cost is given. */
+    const csv2 = "title,category,price,style id,size,cost\nWool Coat,Outerwear,100.00,01-04-006,XL,42.00\n";
+    second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager", mode: "update" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.equal(second.ready.length, 0, "no longer blocked outright -- vendor/cost do not depend on any variation matching");
+  assert.equal(second.created.length, 1, `expected the vendor/cost update to go through, got: ${JSON.stringify(second)}`);
+  assert.equal(second.created[0].action, "updated");
+  assert.match(second.created[0].summary, /In-house/i, "the vendor-less legacy product still gets defaulted to In-house");
+  assert.match(second.created[0].summary, /XL/, "the specific new size is still named, so a person knows what still needs adding by hand");
+
+  const product = f.mirror("SELECT id FROM mirror_product WHERE title = 'Wool Coat'")[0];
+  const variants = f.mirror("SELECT options, unit_cost_minor, vendor_id FROM mirror_variant WHERE product_id = ?", product.id);
+  assert.equal(variants.length, 1, "the ORIGINAL size is untouched -- XL was never silently added");
+  assert.equal(JSON.parse(variants[0].options).Size, "S");
+  assert.equal(variants[0].unit_cost_minor, 4200, "cost still landed on the product's own existing variation");
+  const vendor = f.mirror("SELECT name FROM mirror_vendor WHERE id = ?", variants[0].vendor_id)[0];
+  assert.equal(vendor.name, "In-house");
 });
 
 check("test_PRD_P0_179_import_style_number_matching__stock_quantity_is_never_touched_by_a_resubmit", async () => {
