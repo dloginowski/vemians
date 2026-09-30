@@ -53,6 +53,22 @@ on:
           and safe to trigger from a phone browser with no CLI at hand.
         type: boolean
         default: false
+      widen_agent_last_preview_batch_kind:
+        description: >-
+          One-off: widen agent_last_preview.batch_kind's own CHECK constraint
+          to also allow 'attached', for a database that already has this
+          table from add_agent_bookkeeping_tables above but predates
+          agentTurn recording a spreadsheet attachment the moment it arrives
+          (a fresh database, or one bootstrapped after this change, gets the
+          wider constraint for free from apply_schemas/add_agent_bookkeeping_
+          tables above). SQLite cannot ALTER a CHECK constraint in place, so
+          this renames the table, recreates it with the wider constraint,
+          copies every existing row across untouched, and drops the old one
+          — checks the current constraint text first, safe to leave on by
+          mistake, and safe to trigger from a phone browser with no CLI at
+          hand.
+        type: boolean
+        default: false
 
 concurrency:
   group: bootstrap-d1
@@ -225,7 +241,7 @@ jobs:
               CREATE TABLE agent_last_preview (
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
                 actor      TEXT NOT NULL,
-                batch_kind TEXT NOT NULL CHECK (batch_kind IN ('products', 'customers')),
+                batch_kind TEXT NOT NULL CHECK (batch_kind IN ('products', 'customers', 'attached')),
                 asset_id   TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
               );
@@ -242,6 +258,39 @@ jobs:
               CREATE INDEX idx_agent_batch_plan_actor ON agent_batch_plan (actor, created_at DESC);
             " || { echo "::error::could not create the agent bookkeeping tables"; exit 1; }
             echo "agent_last_preview and agent_batch_plan created — spreadsheet previews and batch checklists now survive a redeploy (Test-PRD-P0-183-durable_batch_bookkeeping)."
+          fi
+
+      - name: Widen agent_last_preview.batch_kind to also allow 'attached'
+        if: inputs.widen_agent_last_preview_batch_kind
+        working-directory: ops
+        run: |
+          npx wrangler d1 execute vemians-assets --remote --yes --json \
+            --command "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'agent_last_preview'" \
+            > /tmp/ddl.json 2>/tmp/ddl.err || {
+              cat /tmp/ddl.err; echo "::error::could not read vemians-assets"; exit 1; }
+
+          if python3 -c "import json,sys; r=json.load(open('/tmp/ddl.json'))[0]['results']; sys.exit(1 if not r else (0 if \"'attached'\" in r[0]['sql'] else 1))"; then
+            echo "agent_last_preview.batch_kind already allows 'attached' — nothing to do."
+          else
+            # SQLite cannot ALTER a CHECK constraint in place -- rename, recreate
+            # with the wider constraint, copy every existing row across
+            # untouched (all satisfy it already, having only ever held
+            # 'products'/'customers'), then drop the renamed original.
+            npx wrangler d1 execute vemians-assets --remote --yes --command "
+              ALTER TABLE agent_last_preview RENAME TO agent_last_preview_pre_attached;
+              CREATE TABLE agent_last_preview (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                actor      TEXT NOT NULL,
+                batch_kind TEXT NOT NULL CHECK (batch_kind IN ('products', 'customers', 'attached')),
+                asset_id   TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+              );
+              CREATE INDEX idx_agent_last_preview_lookup ON agent_last_preview (actor, batch_kind, id DESC);
+              INSERT INTO agent_last_preview (id, actor, batch_kind, asset_id, created_at)
+                SELECT id, actor, batch_kind, asset_id, created_at FROM agent_last_preview_pre_attached;
+              DROP TABLE agent_last_preview_pre_attached;
+            " || { echo "::error::could not widen agent_last_preview.batch_kind"; exit 1; }
+            echo "agent_last_preview.batch_kind now also allows 'attached', every existing row preserved — a spreadsheet attachment's own asset id now survives an intervening clarifying question, not just an intervening preview confirmation (Test-PRD-P0-183-durable_batch_bookkeeping, revised)."
           fi
 
       - name: Commit the ids

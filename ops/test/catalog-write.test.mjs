@@ -5356,6 +5356,36 @@ check("test_PRD_P0_89_batch_preview_confirm__the_draft_tool_uses_the_actors_own_
   assert.match(outcome.checklist.rows[0].title, /Wool Coat/);
 });
 
+check("test_PRD_P0_183_durable_batch_bookkeeping__the_preview_tool_itself_uses_the_actors_own_most_recently_attached_asset", async () => {
+  /* A real transcript, one step EARLIER than P0-89's own identical proof
+     just above: attached, asked "is this new stock or an update?" (P0-182's
+     own "ask outright if it is not already obvious" instruction), answered
+     on the NEXT turn -- and by then the model had lost the asset id
+     entirely: "refused assets.list", "refused catalog_preview_add_product_
+     batch", "I don't have the actual asset id for that file yet." Every
+     earlier fix for this exact class of bug only ever covered the DRAFT
+     call surviving to ITS later turn -- this is the very FIRST batch tool
+     call on a file, which used to have nothing at all to fall back on.
+     agentTurn now records a spreadsheet attachment durably the moment it
+     arrives (agent_last_preview, batch_kind 'attached') -- proven directly
+     here, the same way P0-89's test proves the draft side: preview must
+     resolve to the asset that was actually ATTACHED, even when the call
+     itself carries a wrong or missing asset_id. */
+  const csv = "title,category,price,style id,cost\nWool Coat,Outerwear,450.00,01-04-001,210.00\n";
+  const env = { ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
+  await env.ASSETS.prepare("INSERT INTO agent_last_preview (actor, batch_kind, asset_id) VALUES (?, 'attached', ?)")
+    .bind("yuki@vemians.com", "ast_1")
+    .run();
+
+  const outcome = await dispatch(
+    "catalog_preview_add_product_batch",
+    { asset_id: "ast_does_not_exist" },
+    { actor: "yuki@vemians.com", role: "manager", env, allowed: new Set(["catalog_preview_add_product_batch"]) },
+  );
+  assert.equal(outcome.block.is_error, false, `expected the preview to resolve to the attached asset, got: ${outcome.block.content}`);
+  assert.equal(outcome.table.rows.length, 1);
+});
+
 check("test_PRD_P0_117_batch_preview_one_row_fits_without_scrolling__the_preview_table_is_marked_compact", async () => {
   /* Compact tables (this one) are what let views.js's tableCard() skip the
      fixed max-height clip entirely — "the height fits all the data" —

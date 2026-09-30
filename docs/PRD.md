@@ -8543,6 +8543,46 @@ that does not trace to one of these is a process failure (see §12).
     finds the plan and completes both rows, and the fully-spent plan row survives afterward rather
     than being deleted.
 
+    **REVISED** — a real transcript proved the asset id could go missing even EARLIER than any of the
+    above ever covered: attached, asked "is this new stock or an update?"
+    (`Test-PRD-P0-182-explicit_add_or_update_mode`'s own "ask outright if it is not already obvious"
+    instruction), answered on the NEXT turn — and by then the model had lost the asset id entirely:
+    "refused assets.list", "refused catalog_preview_add_product_batch", "I don't have the actual asset
+    id for that file yet." Every fix above assumed the FIRST batch tool call — the preview itself —
+    always happens in the SAME turn as the attachment, which is exactly what P0-182's own clarifying
+    question can (and, live, did) break: the model reasonably asks its question INSTEAD of previewing
+    immediately, deferring the one call that used to be the only place an asset id ever got recorded at
+    all.
+
+    `agentTurn` (`agent.js`) now records a spreadsheet attachment a manager+ role could actually batch
+    the moment it arrives — before the model has done anything with it, before any preview has run —
+    reusing `agent_last_preview` under a third `batch_kind`, `'attached'`, rather than a second table.
+    `dispatchBatchPreview` now resolves its own asset id the same way the draft call already resolves
+    its own (`lastPreviewedAsset`, preferring the durable record over the model's copy), so the very
+    first batch tool call on a file has something real to fall back on for the first time. A staff
+    attachment (no batch tools reachable at all) records nothing — a row nothing could ever read.
+
+    SQLite cannot widen a `CHECK` constraint in place, so `agent_last_preview.batch_kind`'s own
+    constraint needed a real migration, not just a `shared/db/assets.sql` edit: `bootstrap-d1.yml` gets
+    one more one-off `workflow_dispatch` checkbox (the same "phone-friendly, no CLI needed" pattern
+    `add_agent_bookkeeping_tables` already established) that renames the table, recreates it with the
+    wider constraint, copies every existing row across untouched, and drops the renamed original.
+
+    `/assets`'s own grouping query (`Test-PRD-P0-184-grouped_asset_browsing`) reads the SAME table, most
+    recent row per asset — an `'attached'`-only row (a spreadsheet someone dropped and then abandoned,
+    never actually previewed) does not match `'products'` or `'customers'`, so the group computation now
+    treats anything OTHER than those two as "Other files," rather than assuming a `kind` column reading
+    anything but `null` must be a real group — the exact silent-disappearing-row bug a first version of
+    this fix reproduced live (an attached-and-abandoned file rendered as "0 files" on the whole page).
+
+    Confirmed against the real fixture DB and the real HTTP route: a manager attaching a spreadsheet
+    records an `'attached'` row with the real asset id before any model call happens at all (a staff
+    attachment records nothing); a preview call carrying a wrong or missing `asset_id` still resolves to
+    the actually-attached file; an attached-but-never-previewed spreadsheet still renders under Other
+    files rather than vanishing from every group. Confirmed to actually fail without each half of the
+    fix (a temporary revert of `agent.js`, then of `index.js`, each run directly against its own new
+    test).
+
 116. **`Test-PRD-P0-184-grouped_asset_browsing`** — "We should have separate file locations for chat
     files... if I upload items spreadsheets, they should go into an items spreadsheets folder... if I
     upload invoices or expenses, they should go into their own separate folder so we don't mix" — the

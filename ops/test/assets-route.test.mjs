@@ -218,6 +218,32 @@ check("test_PRD_P0_184_grouped_asset_browsing__a_customer_spreadsheet_and_a_prod
   assert.doesNotMatch(section("Customer spreadsheets"), /products\.csv/, "an item sheet must never appear grouped as a customer sheet");
 });
 
+check("test_PRD_P0_184_grouped_asset_browsing__a_spreadsheet_attached_but_never_actually_previewed_still_lands_in_other_files", async () => {
+  /* REVISED -- agent_last_preview now also carries an 'attached' row,
+     recorded the moment a spreadsheet is dropped in chat (agent.js's own
+     agentTurn), before it is ever actually previewed as a product or
+     customer batch (Test-PRD-P0-183-durable_batch_bookkeeping, revised: the
+     asset id now has to survive an intervening clarifying question, not
+     just an intervening preview confirmation). A spreadsheet someone
+     attached and then abandoned -- never previewed at all -- carries ONLY
+     this 'attached' row, never a 'products'/'customers' one; it must still
+     land in Other files, the same honest default a file with no
+     agent_last_preview row at all already gets, never its own silent
+     third bucket that vanishes from every rendered group. */
+  const e = env();
+  const up = await postFile("/assets/new", STAFF, e, { filename: "maybe-later.csv", content: "a", type: "text/csv" });
+  const assetId = /href="\/assets\/([^"]+)"/.exec(await up.text())[1];
+  await e.ASSETS.prepare("INSERT INTO agent_last_preview (actor, batch_kind, asset_id) VALUES (?, 'attached', ?)")
+    .bind("ana@example.test", assetId)
+    .run();
+
+  const list = await get("/assets", STAFF, e);
+  const body = await list.text();
+  assert.match(body, /Other files[\s\S]*maybe-later\.csv/, "an attached-but-never-previewed file still shows up, grouped as Other");
+  assert.doesNotMatch(body, /Item spreadsheets[\s\S]*maybe-later\.csv/);
+  assert.doesNotMatch(body, /Customer spreadsheets[\s\S]*maybe-later\.csv/);
+});
+
 check("test_PRD_P0_184_grouped_asset_browsing__the_grouped_query_failing_falls_back_to_a_flat_list_not_a_500", async () => {
   /* A deployment that has not yet run Test-PRD-P0-183's own one-time schema
      addition has no agent_last_preview table at all -- the grouped query
