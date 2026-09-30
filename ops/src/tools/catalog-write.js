@@ -2047,8 +2047,17 @@ export const catalogWriteTools = {
            per-variation cost left over from the OLD vendor would leak
            onto "In-house" instead of starting at 0 — updateProduct's own
            describe text already promises a fresh vendor relationship
-           never carries the old one's cost over. */
-        unitCostMinor: args.clear_vendor ? 0 : args.unit_cost_minor,
+           never carries the old one's cost over. REVISED — a real bug,
+           caught live by draftProductUpdate's own fallback (batch.js:
+           "make them all in-house and update their costs" in the SAME
+           call, the owner's own words): this describe text ALSO promises
+           "clearing it... resets unit_cost_minor to 0 UNLESS THIS SAME
+           CALL ALSO GIVES A FRESH ONE" — but the fresh one was being
+           silently discarded whenever clear_vendor was also given, the
+           exact combination that fallback needs. An explicit
+           unit_cost_minor now always wins; only bare clear_vendor, with
+           no fresh cost of its own, resets to 0. */
+        unitCostMinor: args.unit_cost_minor !== undefined ? args.unit_cost_minor : args.clear_vendor ? 0 : undefined,
         commissionPct,
       });
       /* An EXPLICITLY given commission becomes this vendor's own new

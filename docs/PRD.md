@@ -8281,6 +8281,40 @@ that does not trace to one of these is a process failure (see §12).
     resubmit's own match, since it was never keyed on style_id to begin with; and the preview shows
     the update outcome before a person ever confirms anything.
 
+    **REVISED YET AGAIN** — "I just want you to resubmit the existing CSV and update the products to
+    make them all in-house and update their costs. Why is it such a fucking problem?" — the owner's own
+    words, live, after a real resubmit group got blocked outright because NOT ONE of its rows named a
+    size/color the product had on file (a legacy product with no real Size/Color structure at all — the
+    common real case, not a partial mismatch: every row in the group missed, none matched). Vendor and
+    cost do not depend on any variation match at all — `catalog.set_square_attributes` applies both
+    UNIFORMLY across whatever variations a product already has, regardless of what the sheet calls them
+    — so blocking the whole group on a size/color mismatch threw away a real, safe update the sheet was
+    also clearly asking for. `draftProductUpdate` now falls back to `catalog.set_square_attributes`
+    instead of a clash, but only when EVERY row in the group misses (never when some match and some do
+    not — a genuine partial mismatch, `Test-PRD-P0-179-import_style_number_matching`'s own existing "a
+    genuinely new size is a clash" case, still parks exactly as before) and only when the sheet actually
+    gives a cost to apply. Vendor defaults to In-house exactly as it already does for a vendor-less
+    legacy product elsewhere in this same function; the given cost lands on the product's own existing
+    variation(s); the specific new size/color still needs a person to add it by hand, unchanged — a note
+    on the result says so — but that no longer blocks the vendor/cost update the rest of the sheet was
+    also asking for.
+
+    Fixing this surfaced a second, independent, real bug in `Test-PRD-P0-136-square_custom_attributes`
+    itself: `catalog.set_square_attributes`'s own describe text already promised "clearing it also...
+    resets unit_cost_minor to 0 UNLESS THIS SAME CALL ALSO GIVES A FRESH ONE" — but `run()`
+    unconditionally forced `unit_cost_minor` to 0 whenever `clear_vendor` was given, silently discarding
+    a `unit_cost_minor` given in that SAME call. Only `check()`'s own preview computed the promised,
+    correct value — the bug was only in what actually reached Square, so the "would" preview a caller
+    sees was already right while the real write silently was not. No existing caller had ever combined
+    `clear_vendor` with a fresh `unit_cost_minor` in one call before this fallback needed to. An explicit
+    `unit_cost_minor` now always wins; only a bare `clear_vendor`, given with no fresh cost of its own,
+    still resets to 0.
+
+    Confirmed to actually fail without either fix: a legacy, vendor-less product resubmitted with a
+    wholly new size and a real cost reproduces the original all-or-nothing block; with the block lifted
+    but the `set_square_attributes` bug still in place, the same scenario applies vendor but a cost of 0,
+    not the sheet's own figure.
+
 112. **`Test-PRD-P0-180-batch_submit_row_http_status`** — A real bug found while wiring "updated"
     through the checklist submit path just above: `submitBatchPlanRow`'s own success return was
     `{ ok: true, status: 200, ...result, done, total }`, and `result` (`submitProductBatchRow`'s own
