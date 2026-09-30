@@ -264,6 +264,49 @@ jobs:
         if: inputs.widen_agent_last_preview_batch_kind
         working-directory: ops
         run: |
+          # REVISED -- a real run of this exact step failed partway through,
+          # live: `ALTER TABLE ... RENAME TO` renames the TABLE but leaves its
+          # own index (idx_agent_last_preview_lookup) attached to the RENAMED
+          # table under its ORIGINAL name -- SQLite indexes live in a schema-
+          # global namespace, not a per-table one, so the very next `CREATE
+          # INDEX idx_agent_last_preview_lookup` collided with itself and
+          # aborted ("index idx_agent_last_preview_lookup already exists").
+          # By then RENAME and CREATE TABLE had already run, so the database
+          # was left with BOTH agent_last_preview_pre_attached (the real data,
+          # under the OLD index) AND a fresh, empty agent_last_preview (the
+          # new constraint, no index, no data yet) -- neither the safe
+          # "never touched" state the idempotency check above assumed, nor
+          # the finished one. This step now detects and finishes that exact
+          # half-done state too, not just the two it already knew about.
+          npx wrangler d1 execute vemians-assets --remote --yes --json \
+            --command "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('agent_last_preview', 'agent_last_preview_pre_attached')" \
+            > /tmp/tbls.json 2>/tmp/tbls.err || {
+              cat /tmp/tbls.err; echo "::error::could not read vemians-assets"; exit 1; }
+          names=$(python3 -c "import json; print(','.join(sorted(r['name'] for r in json.load(open('/tmp/tbls.json'))[0]['results'])))")
+          echo "tables present: ${names:-none}"
+
+          if [ "$names" = "agent_last_preview,agent_last_preview_pre_attached" ]; then
+            echo "resuming a previously interrupted migration — finishing it."
+            # The old index is still attached to the renamed-away table under
+            # the name this step needs next; drop it first (IF EXISTS, in case
+            # an even earlier partial attempt already got this far), then make
+            # every remaining statement safe to repeat.
+            npx wrangler d1 execute vemians-assets --remote --yes --command "
+              DROP INDEX IF EXISTS idx_agent_last_preview_lookup;
+              CREATE INDEX IF NOT EXISTS idx_agent_last_preview_lookup ON agent_last_preview (actor, batch_kind, id DESC);
+              INSERT OR IGNORE INTO agent_last_preview (id, actor, batch_kind, asset_id, created_at)
+                SELECT id, actor, batch_kind, asset_id, created_at FROM agent_last_preview_pre_attached;
+              DROP TABLE agent_last_preview_pre_attached;
+            " || { echo "::error::could not finish widening agent_last_preview.batch_kind"; exit 1; }
+            echo "finished — agent_last_preview.batch_kind now also allows 'attached', every existing row preserved."
+            exit 0
+          fi
+
+          if [ "$names" = "agent_last_preview_pre_attached" ]; then
+            echo "::error::agent_last_preview is missing but agent_last_preview_pre_attached exists — an unexpected state this step does not know how to recover from automatically. Needs a human to look at vemians-assets directly."
+            exit 1
+          fi
+
           npx wrangler d1 execute vemians-assets --remote --yes --json \
             --command "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'agent_last_preview'" \
             > /tmp/ddl.json 2>/tmp/ddl.err || {
@@ -272,12 +315,15 @@ jobs:
           if python3 -c "import json,sys; r=json.load(open('/tmp/ddl.json'))[0]['results']; sys.exit(1 if not r else (0 if \"'attached'\" in r[0]['sql'] else 1))"; then
             echo "agent_last_preview.batch_kind already allows 'attached' — nothing to do."
           else
-            # SQLite cannot ALTER a CHECK constraint in place -- rename, recreate
-            # with the wider constraint, copy every existing row across
-            # untouched (all satisfy it already, having only ever held
+            # SQLite cannot ALTER a CHECK constraint in place -- rename, drop
+            # the now-misplaced old index (see the header comment above for
+            # exactly why that has to happen before the new one is created),
+            # recreate with the wider constraint, copy every existing row
+            # across untouched (all satisfy it already, having only ever held
             # 'products'/'customers'), then drop the renamed original.
             npx wrangler d1 execute vemians-assets --remote --yes --command "
               ALTER TABLE agent_last_preview RENAME TO agent_last_preview_pre_attached;
+              DROP INDEX idx_agent_last_preview_lookup;
               CREATE TABLE agent_last_preview (
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
                 actor      TEXT NOT NULL,
