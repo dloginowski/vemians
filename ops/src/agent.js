@@ -375,6 +375,22 @@ function skillsReadResult(role, name) {
  * Manager+ only for both, matching catalog.create_product's and
  * customer.create's own tier — offered only to roles that could actually
  * approve what the draft tools mint.
+ *
+ * REVISED A FIFTH TIME — a real transcript proved the asset id could still
+ * go missing even earlier than any fix above ever covered: attached, asked
+ * "is this new stock or an update?" (the "ask outright if it is not already
+ * obvious" instruction just below), answered on the NEXT turn — "refused
+ * assets.list", "refused catalog_preview_add_product_batch", "I don't have
+ * the actual asset id for that file yet." Every fix above assumed the FIRST
+ * batch tool call (the preview itself) always happens in the SAME turn as
+ * the attachment, since that was true before this file's own add/update
+ * clarifying question existed to genuinely intervene. `agentTurn` now
+ * records a spreadsheet attachment the same durable way the moment it
+ * arrives — before the model has done anything with it at all — and
+ * `dispatchBatchPreview` prefers that record over the model's own asset_id
+ * the same way the draft call already prefers `lastPreviewedAsset`. The
+ * clarifying question can now intervene anywhere it likes; the asset id
+ * never depended on the model remembering it in the first place.
  */
 /* "Dont rely on text to try to explain table structure. Thats why you have
    a scrolling preview... This is useless" — the owner's own words, after
@@ -893,7 +909,15 @@ async function dispatchBatchPreview(name, args, { actor, role, env }) {
   if (!canDraftBatches(role)) {
     return { isError: true, text: "Your role cannot approve what this would create — a manager or owner has to do this one." };
   }
-  const asset = await readAssetText(env, args?.asset_id);
+  /* agentTurn's own "attached" record (above) beats whatever asset_id the
+     model's own call happens to carry — the same "durable record over the
+     model's own copy" reasoning dispatch()'s resolvedArgs already applies
+     one step later, for the confirming draft call. This is the call that
+     used to have NOTHING to fall back on at all: a clarifying question
+     between the attachment and this, the very FIRST batch tool call on it,
+     used to lose the asset id outright. */
+  const assetId = (await lastPreviewedAsset(env, actor, "attached")) ?? args?.asset_id;
+  const asset = await readAssetText(env, assetId);
   if (asset.isError) return asset;
 
   const mode = PRODUCT_BATCH_MODE_BY_TOOL[name];
@@ -905,8 +929,9 @@ async function dispatchBatchPreview(name, args, { actor, role, env }) {
        to confirm. See recordLastPreview's own header comment for why this,
        rather than a tag in this call's own reply text, is what actually
        carries the id across the turn boundary to the confirming draft
-       call. */
-    await recordLastPreview(env, actor, kind, args.asset_id);
+       call. The RESOLVED id, never the model's own raw copy — the whole
+       point above is that the model's own copy can be missing or stale. */
+    await recordLastPreview(env, actor, kind, assetId);
     return { isError: false, text: formatBatchPreview(kind, preview), table: previewTable(kind, preview) };
   } catch (err) {
     console.error(`ERROR agent: ${name} failed — ${err.message}`);
@@ -1511,6 +1536,27 @@ export async function agentTurn({ q, identity, env, attachment = null, history =
      in env — without it every caller resolved to no role and the model was
      handed an empty tool list. */
   const role = await roleFor(identity, env);
+
+  /* REVISED — a real transcript: attached, asked "is this new stock or an
+     update?" (Test-PRD-P0-182-explicit_add_or_update_mode's own "ask
+     outright if it is not already obvious"), answered on the NEXT turn —
+     and by then the model had lost the asset id entirely ("refused
+     assets.list", "refused catalog_preview_add_product_batch", "I don't
+     have the actual asset id"). Every earlier fix for this exact class of
+     bug (recordLastPreview's own header comment has the full history) only
+     ever covered a LATER step surviving to its own later turn — the PREVIEW
+     call itself was always assumed to happen in the SAME turn as the
+     attachment, which the add/update clarifying question breaks outright.
+     Recorded here, the moment a spreadsheet a person could actually batch
+     is attached — reusing agent_last_preview verbatim, under its own
+     "attached" bucket, rather than a second table: dispatchBatchPreview
+     (below) now prefers this over whatever asset_id the model's own call
+     happens to carry, the identical "durable record beats the model's own
+     copy" reasoning already applied one step later, in dispatch()'s own
+     resolvedArgs for the draft call. */
+  if (attachment && looksLikeSpreadsheet(attachment) && canDraftBatches(role)) {
+    await recordLastPreview(env, actor, "attached", attachment.id);
+  }
 
   if (!env.ANTHROPIC_API_KEY) {
     /* Benign, configured fallback: no key, no model. Quiet, per RULES.md. */

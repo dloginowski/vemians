@@ -1477,10 +1477,22 @@ async function ops(request, env, path) {
           .all();
         rows = results ?? [];
       }
+      /* REVISED — agent_last_preview now also carries an "attached" row,
+         recorded the moment a spreadsheet is dropped in chat, before it is
+         ever actually previewed as a product or customer batch (agent.js's
+         own header comment on agentTurn has the full reasoning: the
+         earlier fix here read only the LATEST agent_last_preview row per
+         asset, which a spreadsheet someone attached and then abandoned —
+         never previewed at all — would otherwise surface as its own
+         un-grouped "kind", neither a real group nor "other"). Only an
+         actual "products"/"customers" preview counts as a real group; any
+         other value (today, only "attached") is exactly the same "never
+         actually run through a batch tool" case a file with no
+         agent_last_preview row at all already lands in. */
       const groups = {
         products: rows.filter((r) => r.kind === "products"),
         customers: rows.filter((r) => r.kind === "customers"),
-        other: rows.filter((r) => r.kind == null),
+        other: rows.filter((r) => r.kind !== "products" && r.kind !== "customers"),
       };
       return html(assetListPage(groups));
     }

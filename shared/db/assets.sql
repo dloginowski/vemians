@@ -69,10 +69,20 @@ BEGIN SELECT RAISE(ABORT, 'an asset row is append-only'); END;
 -- that we keep track of at least a few files... in sequence... it's better
 -- to just have them than get rid of them every time" -- the owner's own
 -- words: nothing here ever deletes an older preview record.
+--
+-- REVISED -- a third batch_kind, 'attached': a real transcript showed the
+-- asset id could go missing even BEFORE the first preview, when the add/
+-- update mode question (Test-PRD-P0-182) genuinely intervenes between the
+-- attachment and the model's first batch tool call on it. agentTurn (agent.js)
+-- now records a spreadsheet attachment under this same table, this bucket,
+-- the moment it arrives -- before the model has done anything with it at
+-- all -- so dispatchBatchPreview has something real to fall back on for
+-- that very first call, the same way the draft call already falls back to
+-- a 'products'/'customers' row one step later.
 CREATE TABLE agent_last_preview (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   actor      TEXT NOT NULL,
-  batch_kind TEXT NOT NULL CHECK (batch_kind IN ('products', 'customers')),
+  batch_kind TEXT NOT NULL CHECK (batch_kind IN ('products', 'customers', 'attached')),
   asset_id   TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

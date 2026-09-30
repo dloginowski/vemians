@@ -42,6 +42,8 @@ function check(name, fn) {
 
 const STAFF_POLICY = "f6e1649c-0000-4000-8000-000000000002";
 const STAFF = { email: "ana@example.test", policy_id: STAFF_POLICY };
+const MANAGER_POLICY = "56e4eee0-0000-4000-8000-000000000003";
+const MANAGER = { email: "mara@example.test", policy_id: MANAGER_POLICY };
 
 function assertion(claims) {
   const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
@@ -120,14 +122,14 @@ function env(overrides = {}) {
 
 const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4, 5, 6, 7, 8]);
 
-function postAttachment(e, { q = "", filename = "coat.png", bytes = PNG_BYTES, type = "image/png" } = {}) {
+function postAttachment(e, { q = "", filename = "coat.png", bytes = PNG_BYTES, type = "image/png", identity = STAFF } = {}) {
   const form = new FormData();
   if (q) form.set("q", q);
   form.set("file", new File([bytes], filename, { type }));
   return worker.fetch(
     new Request("http://localhost/agent", {
       method: "POST",
-      headers: { "Cf-Access-Jwt-Assertion": assertion(STAFF) },
+      headers: { "Cf-Access-Jwt-Assertion": assertion(identity) },
       body: form,
     }),
     e,
@@ -191,6 +193,49 @@ check("test_PRD_P0_77_chat_attachments__a_text_file_is_stored_as_an_asset_with_i
   const row = await e.ASSETS.prepare("SELECT filename, extracted_text FROM asset").first();
   assert.equal(row.filename, "vendor-notes.txt");
   assert.equal(row.extracted_text, "Ships net 30.");
+});
+
+check("test_PRD_P0_183_durable_batch_bookkeeping__a_spreadsheet_a_manager_can_batch_is_recorded_as_attached_the_moment_it_arrives", async () => {
+  /* A real transcript: attached, asked "is this new stock or an update?"
+     (P0-182's own "ask outright" instruction), answered on the NEXT turn --
+     and by then the model had lost the asset id entirely. Every earlier fix
+     for this class of bug only ever helped the model's OWN later call
+     survive to ITS later turn; this proves the fix is unconditional and
+     happens before the model (there is no model at all in this stub-mode
+     test) does anything with the file: the attachment alone, for a role
+     that could actually batch it, is enough. */
+  const e = env({ ASSETS: assetsDb(), ASSET_FILES: fakeKv(), MANAGER_POLICY_ID: MANAGER_POLICY });
+  const res = await postAttachment(e, {
+    identity: MANAGER,
+    filename: "fall-collection.csv",
+    bytes: new TextEncoder().encode("title,category,price\nCoat,Outerwear,100\n"),
+    type: "text/csv",
+  });
+  assert.equal(res.status, 200);
+  const assetRow = await e.ASSETS.prepare("SELECT id FROM asset WHERE filename = 'fall-collection.csv'").first();
+  const preview = await e.ASSETS
+    .prepare("SELECT batch_kind, asset_id FROM agent_last_preview WHERE actor = ?")
+    .bind(MANAGER.email)
+    .first();
+  assert.ok(preview, "the attachment must be recorded durably before the model ever sees it");
+  assert.equal(preview.batch_kind, "attached");
+  assert.equal(preview.asset_id, assetRow.id);
+});
+
+check("test_PRD_P0_183_durable_batch_bookkeeping__a_staff_attachment_is_not_recorded_since_staff_cannot_batch_it_anyway", async () => {
+  /* canDraftBatches(role) gates this the same way it gates the attachment
+     note's own spreadsheet branch -- recording an id nothing can ever use
+     (staff has no preview/draft batch tools at all) would just be a stray
+     row with no reader. */
+  const e = env({ ASSETS: assetsDb(), ASSET_FILES: fakeKv() });
+  await postAttachment(e, {
+    identity: STAFF,
+    filename: "fall-collection.csv",
+    bytes: new TextEncoder().encode("title,category,price\nCoat,Outerwear,100\n"),
+    type: "text/csv",
+  });
+  const n = await e.ASSETS.prepare("SELECT count(*) AS n FROM agent_last_preview").first("n");
+  assert.equal(n, 0);
 });
 
 check("test_PRD_P0_77_chat_attachments__an_unrecognised_file_type_is_refused_before_it_is_stored", async () => {
