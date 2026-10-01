@@ -4153,6 +4153,38 @@ check("test_PRD_P0_31_inventory_ledger__a_negative_or_fractional_quantity_is_ref
   assert.match(res.error, /quantity '-1' must be a non-negative whole number/);
 });
 
+check("test_PRD_P0_31_inventory_ledger__creating_a_brand_new_item_with_zero_units_is_refused", async () => {
+  /* "Adding an item that has zero units, that's a failure point" -- the
+     owner's own words, after a real batch-uploaded product landed with 0
+     on hand. A brand-new item is never deliberately listed with nothing to
+     sell -- refused here, the same preflight gate a bad price already
+     uses, so a batch row like this becomes a clash for a person to review
+     rather than a silently created product nobody can actually buy. */
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const res = await runTool(
+    "catalog.create_product",
+    { title: "Cotton Robe", category_id: outerwear.id, variations: [{ title: "One size", price_minor: 6000, currency: "USD", quantity: 0 }] },
+    { actor: "mara@vemians.com", role: "manager", env: f.env },
+  );
+  assert.equal(res.ok, false);
+  assert.match(res.error, /quantity is 0 -- a brand-new item is never created with nothing to sell/);
+});
+
+check("test_PRD_P0_31_inventory_ledger__omitting_quantity_entirely_still_defaults_to_one_not_refused", async () => {
+  /* The zero-quantity refusal above must never be confused with "quantity
+     not given at all" -- "quantity is not required at all... assume 1" is
+     unchanged; only an EXPLICIT 0 is refused. */
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const res = await runTool(
+    "catalog.create_product",
+    { title: "Cotton Robe", category_id: outerwear.id, variations: [{ title: "One size", price_minor: 6000, currency: "USD" }] },
+    { actor: "mara@vemians.com", role: "manager", env: f.env },
+  );
+  assert.equal(res.needsApproval, true, res.error);
+});
+
 check("test_PRD_P0_136_square_custom_attributes__create_vendor_makes_a_real_square_vendor_with_a_commission_on_file_immediately", async () => {
   const f = await fixture();
   const res = await approvedCall(f, "catalog.create_vendor", { name: "Acme Mills", commission: 20, reason: "test" });
