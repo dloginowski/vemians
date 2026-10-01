@@ -3322,6 +3322,32 @@ function stockStepper(v) {
  */
 function variantsGridAxes(variations, itemOptions) {
   const namesUsed = [...new Set(variations.flatMap((v) => Object.keys(v.options ?? {})))];
+  const axisValues = (name) => {
+    const used = new Set(variations.map((v) => v.options?.[name]).filter(Boolean));
+    const ordered = (itemOptions.find((o) => o.name === name)?.values ?? [])
+      .map((v) => v.name)
+      .filter((n) => used.has(n));
+    const extra = [...used].filter((n) => !ordered.includes(n));
+    return [...ordered, ...extra];
+  };
+  /* REVISED — "we don't want to upload a photo for each size, we just want
+     to upload for each option" — the owner's own words. A product using
+     Size ALONE (no Color, no third axis) has nothing a photo could
+     actually differ BY across its own sizes — every size is the same
+     garment — so the flat per-variant list below, which gives every size
+     its own separately-uploaded photo, was never right for this case to
+     begin with. Folded into the exact same one-header-per-group shape the
+     two-axis case below already renders, just a single, generically-
+     labelled group holding every size: one photo upload for the whole
+     product, sizes listed in the one row inside (variantsGroupedAccordion
+     Html's own `rowsName === null` branch). A single axis that is anything
+     OTHER than Size (Color alone, say) is left alone, unchanged: each of
+     ITS values already differs visually, so one photo per variant (the
+     flat list) already IS "one per option" — nothing here should group
+     those away into a single, falsely-shared photo. */
+  if (namesUsed.length === 1 && namesUsed[0].toLowerCase() === "size") {
+    return { rowsName: null, colsName: namesUsed[0], rowValues: [null], colValues: axisValues(namesUsed[0]) };
+  }
   if (namesUsed.length !== 2) return null;
   /* Ordered the way the shop's own Option Sets are (allItemOptions,
      catalog.item_options' own alphabetical-by-name order), not however
@@ -3331,14 +3357,6 @@ function variantsGridAxes(variations, itemOptions) {
      sync first. */
   const known = itemOptions.map((o) => o.name).filter((n) => namesUsed.includes(n));
   const [rowsName, colsName] = known.length === 2 ? known : namesUsed;
-  const axisValues = (name) => {
-    const used = new Set(variations.map((v) => v.options?.[name]).filter(Boolean));
-    const ordered = (itemOptions.find((o) => o.name === name)?.values ?? [])
-      .map((v) => v.name)
-      .filter((n) => used.has(n));
-    const extra = [...used].filter((n) => !ordered.includes(n));
-    return [...ordered, ...extra];
-  };
   return { rowsName, colsName, rowValues: axisValues(rowsName), colValues: axisValues(colsName) };
 }
 
@@ -3380,6 +3398,36 @@ function variantsGridAxes(variations, itemOptions) {
    undone. */
 function variantsGroupedAccordionHtml(variations, axes) {
   const { rowsName, colsName, rowValues, colValues } = axes;
+  /* `rowsName === null` is variantsGridAxes' own single-axis-Size shape —
+     one implicit group for every size, no per-group VALUE to key or label
+     by (there is no Color, or anything else, to tell photos apart by at
+     all). Keyed on colsName alone instead of the usual row+col pair, and
+     labelled with colsName itself ("Size") rather than a row value that
+     does not exist — everything else about the markup is identical to the
+     real two-axis group below, on purpose, so this collapses to exactly
+     ONE of those groups rather than a visually different third shape. */
+  if (rowsName === null) {
+    const byCol = new Map(variations.filter((v) => v.options?.[colsName]).map((v) => [v.options[colsName], v]));
+    let anchorVariant = null;
+    const cells = colValues
+      .map((c) => {
+        const v = byCol.get(c);
+        if (v && !anchorVariant) anchorVariant = v;
+        return v ? `<div class="variant-size-cell"><span class="variation-title-label">${esc(c)}</span>${stockStepper(v)}</div>` : "";
+      })
+      .join("");
+    const photoUpload = anchorVariant
+      ? `<button type="button" class="variant-photo-upload" data-variant-id="${esc(anchorVariant.id)}" aria-label="Add a photo" title="Add a photo">${CAMERA_ICON}</button>`
+      : "";
+    return `<div class="variant-group">
+      <div class="variant-group-header">
+        <button type="button" class="variant-group-toggle" aria-label="Show ${esc(colsName)}" title="Show ${esc(colsName)}">${CARET_ICON}</button>
+        <span class="variant-group-label">${esc(colsName)}</span>
+        ${photoUpload}
+      </div>
+      <div class="variant-group-body">${cells ? `<div class="variant-size-grid">${cells}</div>` : `<p class="item-empty">No ${esc(colsName)} yet.</p>`}</div>
+    </div>`;
+  }
   const byKey = new Map(
     variations.filter((v) => v.options?.[rowsName] && v.options?.[colsName]).map((v) => [`${v.options[rowsName]}\u0000${v.options[colsName]}`, v]),
   );
