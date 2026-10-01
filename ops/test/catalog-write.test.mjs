@@ -5444,11 +5444,19 @@ check("test_PRD_P0_186_batch_duplicate_safety_check__a_genuinely_different_price
   assert.ok(!outcome.checklist.rows[1].possibleDuplicate, "a genuinely different price must never be flagged as a duplicate");
 });
 
-check("test_PRD_P0_186_batch_duplicate_safety_check__re_uploading_the_same_sheet_flags_against_the_existing_catalog", async () => {
-  /* "Sometimes maybe somebody might re-upload the same file" — the real
-     scenario the within-batch check above cannot catch at all: the first
-     upload already finished (a real product now sits in the mirror), and
-     the SAME sheet comes in again later as its own, separate batch. */
+check("test_PRD_P0_186_batch_duplicate_safety_check__re_uploading_the_same_sheet_with_a_style_number_updates_instead_of_flagging", async () => {
+  /* REVISED: "I think if we have the system to do style IDs as our main
+     differentiator, it should be like one operation... we're just updating
+     information if what we're submitting is different than what we have"
+     -- the owner's own words, retiring the add/update mode split. A
+     resubmit carrying the SAME style number this shop already assigned is
+     now caught by the real, authoritative mechanism (import_style_number
+     matching, always attempted regardless of which tool ran) before the
+     fuzzy duplicate-content check ever gets a chance to merely flag it --
+     a strictly better outcome than the old "flag it, still let someone
+     accidentally create a duplicate by checking the box" behavior. The
+     duplicate-content check below still matters for exactly the case it
+     was built for: a resubmit with no reliable style number at all. */
   const f = await fixture({ actor: "ember@vemians.com", role: "manager" });
   const csv = "title,category,price,style id,cost,quantity\nWool Coat,Outerwear,450.00,01-04-001,210.00,5\n";
 
@@ -5468,27 +5476,61 @@ check("test_PRD_P0_186_batch_duplicate_safety_check__re_uploading_the_same_sheet
   );
   assert.equal(second.kind, "checklist");
   assert.equal(second.checklist.rows.length, 1);
-  assert.ok(second.checklist.rows[0].possibleDuplicate, "re-uploading the identical sheet must flag against the product already in the catalog");
-  assert.match(second.checklist.rows[0].duplicateReason, /already has the same title, category, vendor, cost, options and price/);
+  assert.ok(!second.checklist.rows[0].possibleDuplicate, "a style-number match is resolved outright, never left as a mere flag");
+  assert.match(second.checklist.rows[0].summary, /^edit /, "the matched row must be an update to the existing product, not a fresh create");
 });
 
-check("test_PRD_P0_186_batch_duplicate_safety_check__update_mode_never_flags_anything", async () => {
-  /* Update mode's whole point is finding and matching an existing product —
-     never a problem to flag, and flagLikelyDuplicates (batch.js) returns
-     immediately for any mode other than "add". */
+check("test_PRD_P0_186_batch_duplicate_safety_check__a_matched_update_is_never_flagged_but_a_genuine_miss_still_is", async () => {
+  /* REVISED: this used to prove update mode never flags anything, because
+     update mode used to refuse to create at all (a miss was always a
+     clash, never a checklist row). That refusal is gone now -- "we're just
+     updating information if what we're submitting is different than what
+     we have," the owner's own words, retiring the mode split's own
+     "update never creates" guarantee. The real invariant worth proving
+     now: a row a real style-ID match resolves to an UPDATE is never a
+     duplicate candidate (it is a confirmed identity, not a guess) -- but a
+     row that genuinely creates something new is STILL eligible for the
+     content-based duplicate check, scoped by what the row itself actually
+     resolved to (toolName), never by which tool a person happened to call
+     the whole batch with. */
   const f = await fixture({ actor: "lark@vemians.com", role: "manager" });
-  const csv = "title,category,price,style id,cost,quantity\nWool Coat,Outerwear,450.00,01-04-001,210.00,5\n";
-  const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
 
-  const outcome = await dispatch(
+  /* Seeds a real product first, via ADD, the same way any product gets
+     into this shop's catalog at all. */
+  const seedCsv = "title,category,price,style id,cost,quantity\nWool Coat,Outerwear,450.00,01-04-001,210.00,5\n";
+  const seedEnv = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: seedCsv }) };
+  const seeded = await draftProductBatchViaChat(
+    "catalog_add_product_batch",
+    { asset_id: "ast_1" },
+    { actor: "lark@vemians.com", role: "manager", env: seedEnv, square: f.square },
+  );
+  assert.equal(seeded.created.length, 1);
+
+  /* A real style-ID match: the exact same sheet, resubmitted through
+     "update" mode this time -- never a duplicate flag, a confirmed update. */
+  const matchedEnv = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: seedCsv }) };
+  const matched = await dispatch(
     "catalog_update_product_batch",
     { asset_id: "ast_1" },
-    { actor: "lark@vemians.com", role: "manager", env, allowed: new Set(["catalog_update_product_batch"]) },
+    { actor: "lark@vemians.com", role: "manager", env: matchedEnv, allowed: new Set(["catalog_update_product_batch"]) },
   );
-  /* Nothing exists yet to update -- a clash, parked, never a checklist row
-     at all; this only needs to prove no possibleDuplicate flag shows up
-     anywhere in that outcome. */
-  assert.doesNotMatch(JSON.stringify(outcome), /possibleDuplicate":true/);
+  assert.equal(matched.checklist.rows.length, 1);
+  assert.ok(!matched.checklist.rows[0].possibleDuplicate, "a real style-ID match is a confirmed identity, never a mere flag");
+
+  /* A genuine miss through ADD: a DIFFERENT, never-before-seen style
+     number (so nothing matches by ID, and the name-based fallback is
+     deliberately never attempted for "add" -- see draftGroupedProduct's
+     own comment on why), but otherwise identical content -- a real create,
+     still eligible for the same content-based duplicate check. */
+  const missCsv = "title,category,price,style id,cost,quantity\nWool Coat,Outerwear,450.00,01-04-002,210.00,5\n";
+  const missEnv = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: missCsv }) };
+  const missed = await dispatch(
+    "catalog_add_product_batch",
+    { asset_id: "ast_1" },
+    { actor: "lark@vemians.com", role: "manager", env: missEnv, allowed: new Set(["catalog_add_product_batch"]) },
+  );
+  assert.equal(missed.checklist.rows.length, 1, `expected this miss to fall through to a real create, got: ${JSON.stringify(missed)}`);
+  assert.ok(missed.checklist.rows[0].possibleDuplicate, "a genuine new create that still matches the catalog by content must be flagged");
 });
 
 /* Wraps a d1FromSql-shaped store to count real queries by SQL SHAPE, not
@@ -8218,7 +8260,13 @@ check("test_PRD_P0_179_import_style_number_matching__each_size_is_matched_by_its
   assert.equal(variants.length, 3, "still exactly the three original variations, none added or removed");
 });
 
-check("test_PRD_P0_179_import_style_number_matching__a_genuinely_new_size_on_a_resubmit_is_a_clash_not_a_silent_add", async () => {
+check("test_PRD_P0_179_import_style_number_matching__a_genuinely_new_size_on_a_resubmit_is_added_not_a_clash", async () => {
+  /* REVISED: "if there is additional options or additional sizes added to
+     the same style ID, we're just adding more to the existing item... we're
+     not rejecting them, we're adding to them" -- the owner's own words.
+     This used to park the whole row as a clash ("XL is not an existing
+     variation... add a new one by hand first"); catalog.update_product can
+     now actually add it, given a real price to add it with. */
   const f = await fixture();
   const csv1 = "title,category,price,style id,size\nWool Coat,Outerwear,100.00,01-04-003,S\n";
 
@@ -8233,19 +8281,24 @@ check("test_PRD_P0_179_import_style_number_matching__a_genuinely_new_size_on_a_r
     const csv2 =
       "title,category,price,style id,size\n" +
       "Wool Coat,Outerwear,100.00,01-04-003,S\n" +
-      "Wool Coat,Outerwear,100.00,01-04-003,XL\n";
+      "Wool Coat,Outerwear,120.00,01-04-003,XL\n";
     second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager" , mode: "update"});
   } finally {
     globalThis.fetch = realFetch;
   }
 
-  assert.equal(second.created.length, 0, "never silently created/updated when a row cannot be matched");
-  assert.equal(second.ready.length, 1, "parked for a person, the same as any other clash");
-  assert.match(second.ready[0].summary, /XL.*not an existing variation/i);
+  assert.equal(second.ready.length, 0, "a real price means there is nothing left for a person to resolve by hand");
+  assert.equal(second.created.length, 1, `expected the new size to actually be added, got: ${JSON.stringify(second)}`);
+  assert.equal(second.created[0].action, "updated");
 
   const product = f.mirror("SELECT id FROM mirror_product WHERE title = 'Wool Coat'")[0];
-  const variants = f.mirror("SELECT options FROM mirror_variant WHERE product_id = ?", product.id);
-  assert.equal(variants.length, 1, "the existing product is untouched -- no size was silently added");
+  const variants = f.mirror("SELECT options, price_minor FROM mirror_variant WHERE product_id = ?", product.id);
+  assert.equal(variants.length, 2, "the original S must survive, and the new XL must actually land");
+  const xl = variants.find((v) => JSON.parse(v.options).Size === "XL");
+  assert.ok(xl, "XL must actually exist as a real variation now");
+  assert.equal(xl.price_minor, 12000);
+  const s = variants.find((v) => JSON.parse(v.options).Size === "S");
+  assert.equal(s.price_minor, 10000, "the original S variation must be untouched");
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -8257,14 +8310,19 @@ check("test_PRD_P0_179_import_style_number_matching__a_genuinely_new_size_on_a_r
  * Size/Color structure yet, the common real case, not a partial mismatch).
  * Vendor and cost do not depend on any variation match at all --
  * catalog.set_square_attributes applies both UNIFORMLY to whatever
- * variations a product already has -- so draftProductUpdate now falls back
- * to it, rather than a blocking clash, when EVERY row missed and the sheet
- * actually gave a cost. The genuinely new size/color still needs a person
- * to add it by hand -- unchanged -- it just no longer blocks the vendor/cost
- * update the rest of the sheet was clearly also asking for.
+ * variations a product already has -- so draftProductUpdate falls back to
+ * it, rather than a blocking clash, when EVERY row missed and gave no real
+ * price to add a new variation with either.
+ *
+ * REVISED ONCE MORE — "we're not rejecting them, we're adding to them."
+ * A wholly new color/size with a REAL PRICE is no longer a miss needing a
+ * person at all: it is simply added, cost and all (see the test directly
+ * below). The vendor/cost-only fallback here now only matters for the
+ * narrower case it was always really about: every row missing AND no real
+ * price given to add any of them with either.
  * ───────────────────────────────────────────────────────────────────────── */
 
-check("test_PRD_P0_179_import_style_number_matching__revised_a_wholly_new_color_still_gets_vendor_and_cost_applied", async () => {
+check("test_PRD_P0_179_import_style_number_matching__a_wholly_new_color_with_a_real_price_is_added_with_vendor_and_cost", async () => {
   const f = await fixture();
   const csv1 = "title,category,price,style id,size\nWool Coat,Outerwear,100.00,01-04-006,S\n";
 
@@ -8284,9 +8342,49 @@ check("test_PRD_P0_179_import_style_number_matching__revised_a_wholly_new_color_
     f.mirrorDb._raw.prepare("UPDATE mirror_variant SET vendor_id = NULL WHERE product_id = ?").run(product.id);
 
     /* Resubmitted with a wholly different size this product has never had
-       at all -- NOTHING here matches an existing variation -- but a real
-       cost is given. */
-    const csv2 = "title,category,price,style id,size,cost\nWool Coat,Outerwear,100.00,01-04-006,XL,42.00\n";
+       at all, a real price, and a real cost. */
+    const csv2 = "title,category,price,style id,size,cost\nWool Coat,Outerwear,130.00,01-04-006,XL,42.00\n";
+    second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager", mode: "update" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.equal(second.ready.length, 0, "a real price means there is nothing for a person to resolve by hand");
+  assert.equal(second.created.length, 1, `expected XL to actually be added, got: ${JSON.stringify(second)}`);
+  assert.equal(second.created[0].action, "updated");
+
+  const product = f.mirror("SELECT id FROM mirror_product WHERE title = 'Wool Coat'")[0];
+  const variants = f.mirror("SELECT options, price_minor, unit_cost_minor, vendor_id FROM mirror_variant WHERE product_id = ?", product.id);
+  assert.equal(variants.length, 2, "the original S must survive, and XL must actually be added");
+  const xl = variants.find((v) => JSON.parse(v.options).Size === "XL");
+  assert.ok(xl, "XL must actually exist as a real variation now, not merely be named in a note");
+  assert.equal(xl.price_minor, 13000);
+  assert.equal(xl.unit_cost_minor, 4200, "the given cost lands on the new variation itself");
+  const vendor = f.mirror("SELECT name FROM mirror_vendor WHERE id = ?", xl.vendor_id)[0];
+  assert.equal(vendor.name, "In-house");
+});
+
+check("test_PRD_P0_179_import_style_number_matching__every_row_missing_with_no_real_price_still_falls_back_to_vendor_and_cost_only", async () => {
+  /* The narrower case the fallback above was always really for: nothing to
+     ADD a new variation with (no real price given), but a real cost still
+     ought to land somewhere -- applied uniformly to whatever the product
+     already has, same as catalog.set_square_attributes always does. */
+  const f = await fixture();
+  const csv1 = "title,category,price,style id,size\nWool Coat,Outerwear,100.00,01-04-007,S\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let second;
+  try {
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager", mode: "add" });
+    assert.equal(first.created.length, 1);
+
+    const product = f.mirror("SELECT id FROM mirror_product WHERE title = 'Wool Coat'")[0];
+    f.mirrorDb._raw.prepare("UPDATE mirror_variant SET vendor_id = NULL WHERE product_id = ?").run(product.id);
+
+    /* A new size, a real cost, but NO price at all for the new size --
+       nothing to add a new variation with. */
+    const csv2 = "title,style id,size,cost\nWool Coat,01-04-007,XL,42.00\n";
     second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager", mode: "update" });
   } finally {
     globalThis.fetch = realFetch;
@@ -8300,7 +8398,7 @@ check("test_PRD_P0_179_import_style_number_matching__revised_a_wholly_new_color_
 
   const product = f.mirror("SELECT id FROM mirror_product WHERE title = 'Wool Coat'")[0];
   const variants = f.mirror("SELECT options, unit_cost_minor, vendor_id FROM mirror_variant WHERE product_id = ?", product.id);
-  assert.equal(variants.length, 1, "the ORIGINAL size is untouched -- XL was never silently added");
+  assert.equal(variants.length, 1, "the ORIGINAL size is untouched -- XL was never silently added with no real price");
   assert.equal(JSON.parse(variants[0].options).Size, "S");
   assert.equal(variants[0].unit_cost_minor, 4200, "cost still landed on the product's own existing variation");
   const vendor = f.mirror("SELECT name FROM mirror_vendor WHERE id = ?", variants[0].vendor_id)[0];
