@@ -5480,11 +5480,17 @@ check("test_PRD_P0_186_batch_duplicate_safety_check__re_uploading_the_same_sheet
      a strictly better outcome than the old "flag it, still let someone
      accidentally create a duplicate by checking the box" behavior. The
      duplicate-content check below still matters for exactly the case it
-     was built for: a resubmit with no reliable style number at all. */
+     was built for: a resubmit with no reliable style number at all.
+     REVISED AGAIN: a real price CHANGE on the resubmit (Test-PRD-P0-194-
+     resubmit_no_op_suppression now suppresses a byte-identical one
+     entirely, which would leave nothing here to assert against) -- the
+     point this test actually proves (a style-number match resolves to a
+     real update, never a duplicate create) still needs a checklist row to
+     exist at all. */
   const f = await fixture({ actor: "ember@vemians.com", role: "manager" });
-  const csv = "title,category,price,style id,cost,quantity\nWool Coat,Outerwear,450.00,01-04-001,210.00,5\n";
+  const csv1 = "title,category,price,style id,cost,quantity\nWool Coat,Outerwear,450.00,01-04-001,210.00,5\n";
 
-  const firstEnv = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
+  const firstEnv = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv1 }) };
   const first = await draftProductBatchViaChat(
     "catalog_add_product_batch",
     { asset_id: "ast_1" },
@@ -5492,7 +5498,8 @@ check("test_PRD_P0_186_batch_duplicate_safety_check__re_uploading_the_same_sheet
   );
   assert.equal(first.created.length, 1, `expected the first upload to actually create the product: ${JSON.stringify(first)}`);
 
-  const secondEnv = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
+  const csv2 = "title,category,price,style id,cost,quantity\nWool Coat,Outerwear,475.00,01-04-001,210.00,5\n";
+  const secondEnv = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv2 }) };
   const second = await dispatch(
     "catalog_add_product_batch",
     { asset_id: "ast_1" },
@@ -5530,9 +5537,14 @@ check("test_PRD_P0_186_batch_duplicate_safety_check__a_matched_update_is_never_f
   );
   assert.equal(seeded.created.length, 1);
 
-  /* A real style-ID match: the exact same sheet, resubmitted through
-     "update" mode this time -- never a duplicate flag, a confirmed update. */
-  const matchedEnv = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: seedCsv }) };
+  /* A real style-ID match, resubmitted through "update" mode this time --
+     never a duplicate flag, a confirmed update. A real price change (never
+     the byte-identical seedCsv -- Test-PRD-P0-194-resubmit_no_op_
+     suppression now suppresses that into nothing to assert against at
+     all), since the point here is proving a MATCH resolves to a real
+     checklist row, never a duplicate flag. */
+  const matchedCsv = "title,category,price,style id,cost,quantity\nWool Coat,Outerwear,475.00,01-04-001,210.00,5\n";
+  const matchedEnv = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: matchedCsv }) };
   const matched = await dispatch(
     "catalog_update_product_batch",
     { asset_id: "ast_1" },
@@ -7581,20 +7593,24 @@ check("test_PRD_P0_89_batch_preview_confirm__a_named_category_row_with_nothing_t
 
 check("test_PRD_P0_181_resubmit_matching_refinements__a_named_category_row_still_matches_on_a_byte_identical_resubmit", async () => {
   /* A sheet with no style-id column at all -- just Category/Subcategory/
-     Title, this shop's own other real convention (resolveNamedCategory) --
-     resubmitted completely unchanged. Never a hypothetical: the direct
-     "does the simplest possible resubmit even work" check underneath the
-     harder cases below. */
+     Title, this shop's own other real convention (resolveNamedCategory).
+     Never a hypothetical: the direct "does the simplest possible resubmit
+     even work" check underneath the harder cases below. REVISED: a real
+     price CHANGE on the resubmit, never byte-identical -- Test-PRD-P0-194-
+     resubmit_no_op_suppression now correctly suppresses a truly unchanged
+     resubmit into nothing to assert against at all; the match mechanism
+     this test actually proves still needs a real row to land. */
   const f = await fixture({ actor: "keiko@vemians.com", role: "manager" });
   const realFetch = globalThis.fetch;
   globalThis.fetch = f.square;
-  const csv = "title,category,subcategory,price\nWhite Blazer,Jacket,Blazer,175.00\n";
+  const csv1 = "title,category,subcategory,price\nWhite Blazer,Jacket,Blazer,175.00\n";
+  const csv2 = "title,category,subcategory,price\nWhite Blazer,Jacket,Blazer,185.00\n";
   let seed, result;
   try {
-    seed = await draftProductBatch(f.env, { text: csv, actor: "keiko@vemians.com", role: "manager", mode: "add" });
+    seed = await draftProductBatch(f.env, { text: csv1, actor: "keiko@vemians.com", role: "manager", mode: "add" });
     assert.equal(seed.created.length, 1, `expected the seed upload to create, got: ${JSON.stringify(seed)}`);
-    result = await draftProductBatch(f.env, { text: csv, actor: "keiko@vemians.com", role: "manager", mode: "update" });
-    assert.equal(result.created.length, 1, `expected the identical resubmit to update, got: ${JSON.stringify(result)}`);
+    result = await draftProductBatch(f.env, { text: csv2, actor: "keiko@vemians.com", role: "manager", mode: "update" });
+    assert.equal(result.created.length, 1, `expected the resubmit to update, got: ${JSON.stringify(result)}`);
     assert.equal(result.created[0].action, "updated");
   } finally {
     globalThis.fetch = realFetch;
@@ -7619,6 +7635,11 @@ check("test_PRD_P0_181_resubmit_matching_refinements__a_stale_style_number_code_
   const realFetch = globalThis.fetch;
   globalThis.fetch = f.square;
   const csv = "title,category,subcategory,price,style id\nWhite Blazer,Jacket,Blazer,175.00,01-01-001\n";
+  /* A real price CHANGE on the resubmit, never byte-identical -- Test-PRD-
+     P0-194-resubmit_no_op_suppression now correctly suppresses a truly
+     unchanged resubmit into nothing to assert against; the category/name
+     matching mechanism this test actually proves still needs a real row. */
+  const csv2 = "title,category,subcategory,price,style id\nWhite Blazer,Jacket,Blazer,185.00,01-01-001\n";
   let seed, result;
   try {
     seed = await draftProductBatch(f.env, { text: csv, actor: "keiko@vemians.com", role: "manager", mode: "add" });
@@ -7645,7 +7666,7 @@ check("test_PRD_P0_181_resubmit_matching_refinements__a_stale_style_number_code_
     const unrelated = (await approvedCall(f, "catalog.create_category", { name: "Handbags", reason: "test" })).data.category;
     await approvedCall(f, "catalog.set_category_number", { category_id: unrelated.id, numeric_id: "01" });
 
-    result = await draftProductBatch(f.env, { text: csv, actor: "keiko@vemians.com", role: "manager", mode: "update" });
+    result = await draftProductBatch(f.env, { text: csv2, actor: "keiko@vemians.com", role: "manager", mode: "update" });
     assert.equal(result.created.length, 1, `expected the resubmit to still find and update the real product, got: ${JSON.stringify(result)}`);
     assert.equal(result.created[0].action, "updated");
     assert.equal(result.created[0].handle, before.handle);
@@ -8188,6 +8209,95 @@ check("test_PRD_P0_89_batch_preview_confirm__a_style_id_less_row_in_a_mixed_shee
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
+ * P0-194 — "If I upload a CSV file and you see nothing to update because
+ * all the values match existing, don't even show me these as an option...
+ * you're giving me all of these options that I have to uncheck manually" —
+ * the owner's own words. A matched row used to ALWAYS produce its own
+ * catalog.update_product checklist entry, even one that would write back
+ * the exact same price, cost and title already on file — a true no-op,
+ * but still one more item a person had to notice and either approve (for
+ * nothing) or uncheck.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_194_resubmit_no_op_suppression__a_byte_identical_resubmit_produces_no_row_at_all", async () => {
+  const f = await fixture({ withCommerce: true });
+  const csv = "title,category,price,cost,style id,quantity\nWool Coat,Outerwear,450.00,210.00,01-04-060,5\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let second;
+  try {
+    const first = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager", mode: "add" });
+    assert.equal(first.created.length, 1);
+
+    second = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager", mode: "update" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.equal(second.created.length, 0, `a byte-identical resubmit must produce nothing at all, got: ${JSON.stringify(second)}`);
+  assert.equal(second.ready.length, 0, `expected no clash either, got: ${JSON.stringify(second)}`);
+  assert.equal(second.skipped.length, 0);
+});
+
+check("test_PRD_P0_194_resubmit_no_op_suppression__a_real_price_change_still_shows_up_normally", async () => {
+  const f = await fixture();
+  const csv1 = "title,category,price,style id\nWool Coat,Outerwear,450.00,01-04-061\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let second;
+  try {
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager", mode: "add" });
+    assert.equal(first.created.length, 1);
+
+    const csv2 = "title,category,price,style id\nWool Coat,Outerwear,475.00,01-04-061\n";
+    second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager", mode: "update" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.equal(second.created.length, 1, `a real price change must still show up, got: ${JSON.stringify(second)}`);
+  assert.equal(second.created[0].action, "updated");
+});
+
+check("test_PRD_P0_194_resubmit_no_op_suppression__the_checklist_itself_carries_no_entry_for_a_no_op_row", async () => {
+  /* The real production path (dispatch -> stashed plan -> submit -> a
+     second dispatch), not a direct draftProductBatch call -- proving the
+     suppression happens before a person would ever see a checkbox to
+     uncheck, not merely in the after-the-fact results table. */
+  const f = await fixture({ actor: "priya@vemians.com", role: "manager" });
+  const csv = "title,category,price,style id\nWool Coat,Outerwear,450.00,01-04-062\n";
+  const identity = { email: "priya@vemians.com", groups: ["vemians-manager"] };
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let outcome;
+  try {
+    const env1 = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
+    const first = await dispatch(
+      "catalog_add_product_batch",
+      { asset_id: "ast_1" },
+      { actor: "priya@vemians.com", role: "manager", env: env1, allowed: new Set(["catalog_add_product_batch"]) },
+    );
+    assert.equal(first.kind, "checklist");
+    const submitted = await submitBatchPlanRow({ id: first.checklist.id, row: first.checklist.rows[0].row, identity, env: env1 });
+    assert.equal(submitted.status, "created", JSON.stringify(submitted));
+
+    const env2 = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
+    outcome = await dispatch(
+      "catalog_update_product_batch",
+      { asset_id: "ast_1" },
+      { actor: "priya@vemians.com", role: "manager", env: env2, allowed: new Set(["catalog_update_product_batch"]) },
+    );
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.equal(outcome.kind, "result", `a sheet with nothing to update must never produce a checklist, got: ${JSON.stringify(outcome)}`);
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
  * P0-179 — "If I resubmit all of the the um, the item like spreadsheet,
  * will you update all of the costs in a proper location and all the
  * missing information that matches?" — the owner's own question, which
@@ -8600,9 +8710,13 @@ check("test_PRD_P0_190_quantity_reconciliation_on_resubmit__a_different_quantity
   }
 
   assert.equal(second.skipped.length, 0, `expected no skips, got: ${JSON.stringify(second.skipped)}`);
-  assert.equal(second.created.length, 2, `expected the catalog update AND its own separate stock adjustment, got: ${JSON.stringify(second)}`);
+  /* REVISED: price is unchanged between the two sheets -- Test-PRD-P0-194-
+     resubmit_no_op_suppression now correctly suppresses the catalog edit
+     itself (a true no-op on its own), leaving only the one row that
+     represents a real change: the stock adjustment. */
+  assert.equal(second.created.length, 1, `expected only the real stock adjustment, got: ${JSON.stringify(second)}`);
   const stockRow = second.created.find((r) => /stock by/.test(r.summary));
-  assert.ok(stockRow, `expected one row to be the inventory.adjust itself, got: ${JSON.stringify(second.created)}`);
+  assert.ok(stockRow, `expected the row to be the inventory.adjust itself, got: ${JSON.stringify(second.created)}`);
   assert.match(stockRow.summary, /stock by \+4 \(3 -> 7\)/, "a +4 delta, from the CURRENT real count, never a guess");
   assert.equal(f.onHand(sku), 7, "the real ledger now reflects the sheet's own corrected count");
 });
@@ -8674,14 +8788,20 @@ check("test_PRD_P0_190_quantity_reconciliation_on_resubmit__an_unparseable_quant
     const product = f.mirror("SELECT id FROM mirror_product WHERE title = 'Wool Coat'")[0];
     sku = f.mirror("SELECT sku FROM mirror_variant WHERE product_id = ?", product.id)[0].sku;
 
-    const csv2 = "title,category,price,style id,quantity\nWool Coat,Outerwear,100.00,01-04-023,some\n";
+    /* REVISED: a real price change alongside the typo'd quantity --
+       Test-PRD-P0-194-resubmit_no_op_suppression now correctly suppresses
+       a row with NEITHER a real price change NOR a real quantity change,
+       leaving nothing to assert "still goes through" against; a real price
+       change is what proves the garbage quantity cell did not block it. */
+    const csv2 = "title,category,price,style id,quantity\nWool Coat,Outerwear,120.00,01-04-023,some\n";
     second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager", mode: "update" });
   } finally {
     globalThis.fetch = realFetch;
   }
 
   assert.equal(second.skipped.length, 0, "a typo'd quantity cell is not a reason to skip the row");
-  assert.equal(second.created.length, 1, `the real update must still go through, got: ${JSON.stringify(second)}`);
+  assert.equal(second.created.length, 1, `the real price update must still go through, got: ${JSON.stringify(second)}`);
+  assert.equal(second.created[0].action, "updated");
   assert.equal(f.onHand(sku), 6, "an unparseable cell is never guessed at -- stock stays exactly where it was");
 });
 
@@ -8700,13 +8820,17 @@ check("test_PRD_P0_190_quantity_reconciliation_on_resubmit__with_no_commerce_bin
     const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager", mode: "add" });
     assert.equal(first.created.length, 1);
 
-    const csv2 = "title,category,price,style id,quantity\nWool Coat,Outerwear,100.00,01-04-024,9\n";
+    /* REVISED: a real price change alongside the quantity column --
+       Test-PRD-P0-194-resubmit_no_op_suppression now correctly suppresses
+       a row with no commerce binding AND no other real change, leaving
+       nothing to assert "still goes through" against. */
+    const csv2 = "title,category,price,style id,quantity\nWool Coat,Outerwear,120.00,01-04-024,9\n";
     second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager", mode: "update" });
   } finally {
     globalThis.fetch = realFetch;
   }
 
-  assert.equal(second.created.length, 1, "with no commerce binding, nothing can be reconciled -- the catalog update alone still goes through");
+  assert.equal(second.created.length, 1, "with no commerce binding, nothing can be reconciled -- the real price update alone still goes through");
   assert.equal(second.created[0].action, "updated");
 });
 
@@ -8749,7 +8873,11 @@ check("test_PRD_P0_190_quantity_reconciliation_on_resubmit__the_real_checklist_s
       { actor: "mara@vemians.com", role: "manager", env: { ...f.env, ASSETS: assets }, allowed: new Set(["catalog_update_product_batch"]) },
     );
     assert.equal(outcome.kind, "checklist", `expected a checklist, got: ${JSON.stringify(outcome)}`);
-    assert.equal(outcome.checklist.rows.length, 2, `expected the catalog update AND its own stock row, got: ${JSON.stringify(outcome.checklist.rows)}`);
+    /* REVISED: price is unchanged between the two sheets -- Test-PRD-P0-194-
+       resubmit_no_op_suppression now correctly suppresses the catalog edit
+       itself as a no-op, leaving only the one row this test is actually
+       about: the stock adjustment. */
+    assert.equal(outcome.checklist.rows.length, 1, `expected only the stock row, got: ${JSON.stringify(outcome.checklist.rows)}`);
     const stockRow = outcome.checklist.rows.find((r) => /stock by/.test(r.summary));
     assert.ok(stockRow, `expected a stock-adjustment row in the checklist, got: ${JSON.stringify(outcome.checklist.rows)}`);
 
@@ -8844,10 +8972,12 @@ check("test_PRD_P0_191_all_zero_resubmit_refused__one_sold_out_size_among_others
   }
 
   assert.equal(second.ready.length, 0, `a partial stockout must never be flagged as all-zero, got: ${JSON.stringify(second)}`);
-  /* The catalog edit AND the real, legitimate S-only stock correction
-     (3 -> 0) both go through -- a genuine single-size stockout, never
-     withheld just because ONE size among several reads 0. */
-  assert.equal(second.created.length, 2, `expected the update AND its real stock correction, got: ${JSON.stringify(second)}`);
+  /* REVISED: price is unchanged between the two sheets -- Test-PRD-P0-194-
+     resubmit_no_op_suppression now correctly suppresses the catalog edit
+     itself as a no-op, leaving only the one real thing that changed: S's
+     own genuine, legitimate stockout (3 -> 0) -- never withheld just
+     because ONE size among several reads 0. */
+  assert.equal(second.created.length, 1, `expected S's own real stock correction, got: ${JSON.stringify(second)}`);
   const stockRow = second.created.find((r) => /stock by/.test(r.summary));
   assert.match(stockRow.summary, /stock by -3 \(3 -> 0\)/, `expected S's own real reduction, got: ${JSON.stringify(stockRow)}`);
 });
@@ -8922,8 +9052,14 @@ check("test_PRD_P0_192_legacy_tbd_option_matching__a_variant_with_a_literal_stor
   }
 
   assert.equal(result.ready.length, 0, `expected a clean match, never a clash over the stored "TBD", got: ${JSON.stringify(result)}`);
-  assert.equal(result.created.length, 2, `expected the catalog edit AND its own real stock correction, got: ${JSON.stringify(result)}`);
-  assert.equal(result.created[0].handle, "embellished-blazer", "the SAME existing product -- never a second, duplicate one");
+  /* REVISED: the sheet's own price (125.00) already matches what is
+     seeded -- Test-PRD-P0-194-resubmit_no_op_suppression now correctly
+     suppresses the catalog edit itself as a no-op, leaving only the one
+     real change: the never-yet-stocked legacy variant's own real count.
+     "Never a second, duplicate product" is verified below instead, via the
+     mirror itself, now that there is no catalog.update_product row of its
+     own to read a handle off of. */
+  assert.equal(result.created.length, 1, `expected only the real stock correction, got: ${JSON.stringify(result)}`);
   const stockRow = result.created.find((r) => /stock by/.test(r.summary));
   assert.match(stockRow.summary, /stock by \+4 \(0 -> 4\)/, "the real, never-yet-stocked legacy variant's own count actually lands");
   assert.equal(f.onHand("SKU-LEGACY-S"), 4, "the ledger now reflects the sheet's own real count for this exact legacy variant");

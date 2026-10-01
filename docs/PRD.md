@@ -9264,6 +9264,28 @@ that does not trace to one of these is a process failure (see §12).
     `check()`'s own new, scoped refusal, parked as an ordinary editable clash — because a brand-new
     size/color is never deliberately added with nothing to sell.
 
+126. **`Test-PRD-P0-194-resubmit_no_op_suppression`** — "If I upload a CSV file and you see nothing to
+    update because all the values match existing, don't even show me these as an option... you're giving me
+    all of these options that I have to uncheck manually" — the owner's own words. A matched row used to
+    ALWAYS produce its own `catalog.update_product` checklist entry, even one that would write back the
+    exact same price, cost and title already on file — a true no-op, but still one more item a person had
+    to notice and either approve (for nothing) or uncheck.
+
+    **`draftProductUpdate` now compares every field it would actually send against what is already on
+    file** for the matched variant(s) — price, unit cost, and (when the sheet gives a real column for
+    either) title and description — before ever building the row. A brand-new variation (no `variant_id`
+    at all) is never a no-op by definition, since adding a size that does not exist yet is always a real
+    change. When NONE of this would actually change anything, the function returns neither a `row` nor a
+    `clash` at all — the group simply produces nothing, never a checkbox a person has to notice and uncheck
+    for themselves. The quantity reconciliation a matched row may separately queue (`Test-PRD-P0-190`,
+    `extraRows`) is entirely independent and still shows up on its own when it represents a real change —
+    this only ever suppresses the CATALOG edit itself, never a genuine stock correction riding alongside a
+    no-op price/title.
+
+    **`variantsWithOptionsOf` (`catalog-writer.js`) now also selects `unit_cost_minor`** — the one field this
+    comparison needed that it did not already carry — so a matched variation's own current cost is available
+    to compare against without a second, separate query.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

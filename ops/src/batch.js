@@ -1535,6 +1535,39 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
   if (clashes.length) {
     return { clash: { row: firstRow, title, args, reason: clashes.join("; "), toolName: "catalog.update_product" }, extraRows: quantityAdjustments };
   }
+
+  /* "If you see nothing to update because all the values match existing,
+     don't even show me these as an option... you're giving me all of these
+     options that I have to uncheck manually" -- the owner's own words. A
+     matched row used to ALWAYS produce its own catalog.update_product
+     checklist entry, even one that would write back the exact same price,
+     cost and title it already has -- a true no-op, but still one more item
+     a person had to notice and either approve (for nothing) or uncheck. A
+     brand-new variation (no variant_id at all) is never a no-op by
+     definition; an existing one only skips when EVERY field this call
+     would actually send (price, unit cost) matches what is already on
+     file for it -- title/description are checked the same way, but only
+     when the sheet gave a real column for either (titleCol gates both the
+     same way args' own construction above already does). The quantity
+     reconciliation this same row may have queued (extraRows) is entirely
+     independent and still shows up on its own when it represents a real
+     change -- this only ever suppresses the CATALOG edit itself. */
+  const hasRealCatalogChange =
+    (titleCol && titleCol.slice(0, 200) !== existing.title) ||
+    (titleCol && descriptionCol && descriptionCol !== existing.source_description) ||
+    variations.some((v) => {
+      if (!v.variant_id) return true;
+      const current = existingVariants.find((ev) => ev.id === v.variant_id);
+      if (!current) return true;
+      if (v.price_minor !== undefined && v.price_minor !== current.price_minor) return true;
+      if (v.unit_cost_minor !== undefined && v.unit_cost_minor !== current.unit_cost_minor) return true;
+      return false;
+    });
+
+  if (!hasRealCatalogChange) {
+    return { extraRows: quantityAdjustments };
+  }
+
   return { row: { rowNumber: firstRow, title, args, toolName: "catalog.update_product" }, extraRows: quantityAdjustments };
 }
 
@@ -2062,7 +2095,7 @@ async function resolveProductRows(env, { actor, role, mode }, records) {
   for (const base of groupOrder) {
     const outcome = await draftGroupedProduct(env, { actor, role, categories, reservedNumericIds, reservedSubcategoryNumericIds, categoryCache, nextAutoTitle, rate, mode }, base, groups.get(base));
     if (outcome.clash) clashes.push(outcome.clash);
-    else rows.push(outcome.row);
+    else if (outcome.row) rows.push(outcome.row);
     if (outcome.extraRows?.length) rows.push(...outcome.extraRows);
   }
 
@@ -2075,7 +2108,7 @@ async function resolveProductRows(env, { actor, role, mode }, records) {
     if (!resolved.category && !resolved.error) continue; /* neither name was even given -- nothing to build from */
     const outcome = await draftNamedCategoryProduct(env, resolved.category ?? null, resolved.error, nextAutoTitle, record, rowNumber, mode, { actor, role, rate });
     if (outcome.clash) clashes.push(outcome.clash);
-    else rows.push(outcome.row);
+    else if (outcome.row) rows.push(outcome.row);
     if (outcome.extraRows?.length) rows.push(...outcome.extraRows);
   }
 
