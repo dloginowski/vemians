@@ -2282,6 +2282,33 @@ check("test_PRD_P0_147_variants_grid__each_color_header_keeps_the_same_one_pixel
   );
 });
 
+check("test_PRD_P0_147_variants_grid__a_color_headers_own_label_reads_in_the_same_bright_color_as_every_other_heading", async () => {
+  /* "Make the font color in the header the same as all the other text, so
+     it's not like a dimmer version. It's all like the same bright color,
+     just like the other headings" — the owner's own words, comparing this
+     against every other real heading in the tile. --ink is the default,
+     bright text color; --muted is for genuinely secondary/de-emphasized
+     text (the toggle's own caret icon, say) -- the label itself is neither
+     of those things. */
+  const mirror = mirrorDb();
+  seedGridProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.match(body, /\.variant-group-label \{ flex: 0 0 auto; font-size: 11px; color: var\(--ink\); \}/);
+  assert.doesNotMatch(body, /\.variant-group-label \{[^}]*color: var\(--muted\)/, "must never read as dimmed/secondary text");
+});
+
+check("test_PRD_P0_147_variants_grid__the_flat_accordions_own_variations_label_matches_the_same_bright_color", async () => {
+  /* The same fix, the same reasoning, for the OTHER accordion header this
+     file renders (zero, one-non-Size, or three-plus Option Set names) --
+     one heading style, consistently, regardless of which shape a given
+     product's own variations happen to take. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.match(body, /\.variations-label \{ flex: 0 0 auto; font-size: 11px; color: var\(--ink\); \}/);
+  assert.doesNotMatch(body, /\.variations-label \{[^}]*color: var\(--muted\)/, "must never read as dimmed/secondary text");
+});
+
 check("test_PRD_P0_147_variants_grid__sizes_render_as_a_wrapping_grid_of_cells_not_one_row_each", async () => {
   /* REVISED YET AGAIN, THEN REVERTED (views.js's own comment on
      variantsGroupedAccordionHtml): a one-full-width-row-per-size layout

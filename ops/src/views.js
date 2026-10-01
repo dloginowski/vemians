@@ -2746,8 +2746,16 @@ ${INPUT_BAR_CSS}
 /* "The expandable header [needs] the label in it on the left, right next
    to the chevron, variations, so it makes sense, so people know what
    they're looking for" — a plain word, not another control, so it never
-   competes with the fields beside it for width. */
-.variations-label { flex: 0 0 auto; font-size: 11px; color: var(--muted); }
+   competes with the fields beside it for width.
+   REVISED — "make the font color in the header the same as all the other
+   text... not like a dimmer version... the same bright color, just like
+   the other headings" — the owner's own words, comparing this against
+   every other real heading in the tile (.admin-section-label, a field's
+   own value text), which all use --ink, the default/bright text color,
+   never --muted — the dimmed color this one and .variant-group-label
+   (below) were given by mistake, with nothing about either ever being
+   meant to read as secondary or de-emphasized text. */
+.variations-label { flex: 0 0 auto; font-size: 11px; color: var(--ink); }
 /* "The variation label itself is fine, it could be long... but indent
    them a little so it's clearer it's underneath the accordion it belongs
    to" — the body sits visibly inset from the header bar above it. */
@@ -2941,7 +2949,10 @@ ${INPUT_BAR_CSS}
   transition: transform 0.15s;
 }
 .variant-group.expanded .variant-group-toggle { transform: rotate(90deg); }
-.variant-group-label { flex: 0 0 auto; font-size: 11px; color: var(--muted); }
+/* See .variations-label's own identical comment, above — the same dimmed
+   color, the same mistake, the same fix: a color/option header reads as a
+   real heading, not secondary text. */
+.variant-group-label { flex: 0 0 auto; font-size: 11px; color: var(--ink); }
 .variant-group-body { display: none; margin-top: 4px; }
 .variant-group.expanded .variant-group-body { display: block; }
 /* REVISED YET AGAIN, THEN REVERTED: "I want to have the SKU number on the
