@@ -8610,6 +8610,70 @@ check("test_PRD_P0_190_quantity_reconciliation_on_resubmit__with_no_commerce_bin
   assert.equal(second.created[0].action, "updated");
 });
 
+check("test_PRD_P0_190_quantity_reconciliation_on_resubmit__the_real_checklist_submit_path_does_not_reject_the_stock_row_over_an_unrelated_title_resend", async () => {
+  /* A REAL production bug, found live: the browser's own checklistCard()
+     (views.js) always resends the title box's CURRENT value on submit, for
+     EVERY row, whether or not a person actually edited it (checkedItems()
+     reads every li's own title input unconditionally). submitProductBatchRow
+     used to fold that into `args` for every row regardless of its tool --
+     fine for catalog.create_product/catalog.update_product, which both
+     genuinely have a `title` field, but inventory.adjust's own schema is a
+     closed { variant_id, delta }. Every stock-adjustment row was refused
+     ("unknown argument 'title'") and silently parked as "needs a person"
+     instead of ever moving stock -- the owner's own report, resubmitting a
+     corrected sheet and the unit count still not moving. Reproduced here
+     through the REAL chat dispatch -> checklist -> HTTP submit-row path
+     (not a direct draftProductBatch call, which never touches editedTitle
+     at all and could never have caught this -- the identical shape of gap
+     Test-PRD-P0-180's own header comment already describes). */
+  const f = await fixture({ withCommerce: true });
+  const worker = (await import("../src/index.js")).default;
+  const csv1 = "title,category,price,style id,quantity\nWool Coat,Outerwear,100.00,01-04-030,3\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let sku;
+  try {
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager", mode: "add" });
+    assert.equal(first.created.length, 1);
+    const product = f.mirror("SELECT id FROM mirror_product WHERE title = 'Wool Coat'")[0];
+    sku = f.mirror("SELECT sku FROM mirror_variant WHERE product_id = ?", product.id)[0].sku;
+    assert.equal(f.onHand(sku), 3);
+
+    const csv2 = "title,category,price,style id,quantity\nWool Coat,Outerwear,100.00,01-04-030,8\n";
+    const assets = await assetsFixtureWithRow({ extracted_text: csv2 });
+
+    const outcome = await dispatch(
+      "catalog_update_product_batch",
+      { asset_id: "ast_1" },
+      { actor: "mara@vemians.com", role: "manager", env: { ...f.env, ASSETS: assets }, allowed: new Set(["catalog_update_product_batch"]) },
+    );
+    assert.equal(outcome.kind, "checklist", `expected a checklist, got: ${JSON.stringify(outcome)}`);
+    assert.equal(outcome.checklist.rows.length, 2, `expected the catalog update AND its own stock row, got: ${JSON.stringify(outcome.checklist.rows)}`);
+    const stockRow = outcome.checklist.rows.find((r) => /stock by/.test(r.summary));
+    assert.ok(stockRow, `expected a stock-adjustment row in the checklist, got: ${JSON.stringify(outcome.checklist.rows)}`);
+
+    /* The real browser always sends `title`, unconditionally -- THE POINT
+       of this test is that this must no longer matter for this row. */
+    const res = await worker.fetch(
+      new Request("http://localhost/agent/batch-submit-row", {
+        method: "POST",
+        headers: { "Cf-Access-Jwt-Assertion": assertion(MANAGER_CLAIMS), "content-type": "application/json" },
+        body: JSON.stringify({ id: outcome.checklist.id, row: stockRow.row, title: stockRow.title }),
+      }),
+      { ...f.env, ...HTTP_ENV_EXTRA, ASSETS: assets },
+    );
+    const text = await res.text();
+    assert.equal(res.status, 200, `expected a real 200, got ${res.status}: ${text}`);
+    const data = JSON.parse(text);
+    assert.equal(data.ok, true);
+    assert.equal(data.status, "updated", `the stock row must actually apply, never park over an unrelated title resend, got: ${text}`);
+    assert.equal(f.onHand(sku), 8, "the real ledger must reflect the sheet's own corrected count");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 check("test_PRD_P0_179_import_style_number_matching__a_later_category_move_never_breaks_a_future_resubmits_own_match", async () => {
   /* "We have very specific categories... you should be able to determine
      which item is in there, and just find it and update it" -- the owner's

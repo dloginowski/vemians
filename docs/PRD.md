@@ -9168,6 +9168,31 @@ that does not trace to one of these is a process failure (see §12).
     `catalog.create_product` (`Test-PRD-P0-186`'s own filter), so these `inventory.adjust` rows were never
     at risk of being flagged as a duplicate product in the first place.
 
+    **REVISED — a real production bug, found live:** the owner resubmitted a corrected sheet and the unit
+    count never actually moved. Two compounding causes, both in the checklist/plan path only (never in
+    `/products/batch`'s own direct, immediate-apply upload, which has no per-row addressable submission
+    step to get this wrong): (1) the browser's own checklist (`checklistCard`, `views.js`) always resends
+    its title box's CURRENT value on submit, for every row, whether or not a person actually edited it —
+    harmless for `catalog.create_product`/`catalog.update_product`, which both genuinely have a `title`
+    field, but `inventory.adjust`'s own schema is a closed `{ variant_id, delta }`; every stock row was
+    refused outright (`unknown argument 'title'`) and silently parked as "needs a person" instead of ever
+    moving stock. Fixed by only merging an edited title into a row's own `args` when that row's tool
+    actually has one (`submitProductBatchRow`'s own `TITLE_EDITABLE_TOOLS`, `batch.js`). (2) The checklist's
+    own per-row HTTP submission (`POST /agent/batch-submit-row`) addresses ONE stashed row by `rowNumber`
+    alone (`submitBatchPlanRow`'s own `rows.findIndex`) — fine when every row's own number is unique, no
+    longer true once a single CSV line could produce TWO independent actions (the catalog edit and its own
+    stock correction) sharing the SAME source row number: submitting either one by number could silently
+    find and consume whichever happened to still be first in the stored array, not necessarily the one
+    actually requested. Fixed with `EXTRA_ROW_ID_OFFSET` (`batch.js`) — a quantity-reconciliation row's own
+    `rowNumber` is offset well past `CAPS.BATCH_MAX_ROWS`, the largest a real CSV row number can ever be, so
+    it can never collide with its own parent row; a separate `displayRow` field (the real CSV line) rides
+    alongside purely for what a person sees afterward (the results table), threaded through
+    `dispatchProductBatchPlan`/`openBatchPlanFor` (`agent.js`) and the checklist's own DOM dataset/submit
+    loop (`views.js`), so the offset is never something a person has to look at. Reproduced through the
+    REAL chat dispatch → checklist → HTTP submit-row path, not a direct `draftProductBatch` call, which
+    never touches `editedTitle` or per-row addressing at all and could never have caught either bug — the
+    identical shape of gap `Test-PRD-P0-180`'s own header comment already describes.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

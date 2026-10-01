@@ -769,6 +769,13 @@ async function dispatchProductBatchPlan(args, { actor, role, env, mode }) {
       id,
       rows: plan.rows.map((r) => ({
         row: r.rowNumber,
+        /* "Row" as shown back to a person (the results table, once this
+           row is actually submitted) — the real CSV line, never the
+           synthetic, offset rowNumber a quantity-reconciliation row
+           (Test-PRD-P0-190-quantity_reconciliation_on_resubmit) actually
+           submits BY, which must stay unique from its own parent row's
+           number (EXTRA_ROW_ID_OFFSET, batch.js's own header comment). */
+        displayRow: r.displayRow ?? r.rowNumber,
         title: r.title,
         summary: r.summary,
         possibleDuplicate: Boolean(r.possibleDuplicate),
@@ -2031,6 +2038,7 @@ export async function openBatchPlanFor(env, actor) {
     total: planRow.total,
     rows: rows.map((r) => ({
       row: r.rowNumber,
+      displayRow: r.displayRow ?? r.rowNumber,
       title: r.title,
       summary: r.summary,
       possibleDuplicate: Boolean(r.possibleDuplicate),

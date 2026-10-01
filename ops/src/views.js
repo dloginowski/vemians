@@ -1868,6 +1868,7 @@ function checklistCard(c) {
     const li = document.createElement("li");
     li.className = r.possibleDuplicate ? "checklist-row checklist-row-duplicate" : "checklist-row";
     li.dataset.row = String(r.row);
+    li.dataset.displayRow = String(r.displayRow);
     const box = document.createElement("input");
     box.type = "checkbox";
     box.checked = !r.possibleDuplicate;
@@ -1944,7 +1945,7 @@ function checklistCard(c) {
     let parked = 0;
     let skipped = 0;
     const rows = [];
-    for (const { row, title } of items) {
+    for (const { row, displayRow, title } of items) {
       status.textContent = "Submitting " + (bar.value + 1) + " of " + planTotal + "…";
       let result;
       try {
@@ -1963,20 +1964,29 @@ function checklistCard(c) {
          import_style_number_matching) -- its own outcome, counted and shown
          separately from a fresh "created" rather than falling through to
          the "skipped" bucket below, which is what an unrecognized status
-         used to mean. */
+         used to mean. displayRow, never the raw row value this fetch
+         submits by -- a quantity-reconciliation row submits under its own,
+         deliberately offset rowNumber (batch.js's own EXTRA_ROW_ID_OFFSET)
+         so it can never be confused with the catalog edit riding alongside
+         it from the SAME csv line; displayRow carries that original line
+         back through so this results table still reads as "Row N" the
+         person's own spreadsheet agrees with. No backtick code-formatting
+         in this comment on purpose -- this whole script block is plain
+         text inside the page's own outer template literal, and a literal
+         backtick anywhere in it would close that one early. */
       if (result.ok && (result.status === "created" || result.status === "updated")) {
         if (result.status === "updated") updated += 1;
         else created += 1;
-        rows.push([String(row), result.title, result.status, result.summary]);
+        rows.push([String(displayRow), result.title, result.status, result.summary]);
       } else if (result.ok && result.status === "parked") {
         parked += 1;
-        rows.push([String(row), result.title, "needs a person", (result.summary || "") + (result.url ? " — " + result.url : "")]);
+        rows.push([String(displayRow), result.title, "needs a person", (result.summary || "") + (result.url ? " — " + result.url : "")]);
       } else if (result.ok) {
         skipped += 1;
-        rows.push([String(row), result.title, "skipped", result.reason || ""]);
+        rows.push([String(displayRow), result.title, "skipped", result.reason || ""]);
       } else {
         skipped += 1;
-        rows.push([String(row), title, "skipped", result.reply || "failed"]);
+        rows.push([String(displayRow), title, "skipped", result.reply || "failed"]);
       }
     }
 
@@ -1997,7 +2007,7 @@ function checklistCard(c) {
   function checkedItems() {
     return [...list.querySelectorAll("li.checklist-row")]
       .filter((li) => li.querySelector(".checklist-check").checked)
-      .map((li) => ({ row: Number(li.dataset.row), title: li.querySelector(".checklist-title").value }));
+      .map((li) => ({ row: Number(li.dataset.row), displayRow: Number(li.dataset.displayRow), title: li.querySelector(".checklist-title").value }));
   }
 
   el.querySelector("[data-a=submit]").addEventListener("click", () => runSubmit(checkedItems()));
