@@ -3453,10 +3453,17 @@ function variantsGroupedAccordionHtml(variations, axes) {
   }
   /* `colsName === null` is the mirror image, variantsGridAxes' own
      single-axis-NOT-Size shape (Color alone, say) — one group PER VALUE,
-     same as the real two-axis case below, just with no second axis to list
-     inside: each group's body holds the one variation's own stepper alone,
-     no per-cell label (the group's own header, labelled with the value
-     itself, already says what this is). */
+     same as the real two-axis case below. "Every item needs to have one
+     expandable header for each option. Inside of the expandable header is
+     a row of sizes... that has to be like that everywhere" — the owner's
+     own words: even here, with no real Size option on this particular
+     item at all, the body still reads as the identical row-of-sizes shape
+     every other group already has, never a bare stepper with no size row.
+     Labelled "OS" — the owner's own blanket default (P0-146 REVISED ONCE
+     MORE) for "we don't specify a size" — a DISPLAY-ONLY label here, since
+     this item's own variation genuinely carries no Size option value to
+     read back; a real resubmit would stamp one and promote this to a true
+     two-axis product instead. */
   if (colsName === null) {
     return rowValues
       .map((r) => {
@@ -3464,13 +3471,16 @@ function variantsGroupedAccordionHtml(variations, axes) {
         const photoUpload = v
           ? `<button type="button" class="variant-photo-upload" data-variant-id="${esc(v.id)}" aria-label="Add a photo for ${esc(r)}" title="Add a photo for ${esc(r)}">${CAMERA_ICON}</button>`
           : "";
+        const cell = v
+          ? `<div class="variant-size-grid"><div class="variant-size-cell"><span class="variation-title-label">OS</span>${stockStepper(v)}</div></div>`
+          : `<p class="item-empty">No ${esc(r)} variation.</p>`;
         return `<div class="variant-group">
         <div class="variant-group-header">
           <button type="button" class="variant-group-toggle" aria-label="Show ${esc(r)}" title="Show ${esc(r)}">${CARET_ICON}</button>
           <span class="variant-group-label">${esc(r)}</span>
           ${photoUpload}
         </div>
-        <div class="variant-group-body">${v ? `<div class="variant-size-grid"><div class="variant-size-cell">${stockStepper(v)}</div></div>` : `<p class="item-empty">No ${esc(r)} variation.</p>`}</div>
+        <div class="variant-group-body">${cell}</div>
       </div>`;
       })
       .join("");
