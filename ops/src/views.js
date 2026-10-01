@@ -504,7 +504,15 @@ const TABLE_CARD_CSS = `
   text-align: center; padding: 1px 2px; border: 1px solid var(--rule);
   vertical-align: top; font-size: 12px;
 }
-.table-card td { overflow-wrap: anywhere; word-break: break-word; min-width: 6em; }
+/* "Make the preview side scrollable. Don't wrap into the text. I don't want
+   to see triple height cells... if I wanted to read its status, I'll scroll
+   sideways" -- the owner's own words, looking at a long status/detail value
+   wrapped across several lines. Supersedes the earlier "data cells keep
+   wrapping" (Test-PRD-P0-119): data now stays on one line exactly like
+   headers already do, and the card's own overflow: auto (above) is what
+   carries a wide row sideways. min-width stays as the floor for a short or
+   empty value. */
+.table-card td { white-space: nowrap; min-width: 6em; }
 .table-card th { color: var(--ink); font-weight: 700; background: var(--ground); white-space: nowrap; }
 .table-card a { color: var(--accent); overflow-wrap: anywhere; }
 .table-card button {

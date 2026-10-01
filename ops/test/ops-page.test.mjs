@@ -764,8 +764,23 @@ check("test_PRD_P0_119_table_headers_never_wrap__headers_stay_on_one_line_and_ex
   assert.doesNotMatch(body, /\.table-card table\s*\{[^}]*table-layout:\s*fixed/s, "fixed layout is what squeezed headers to begin with; it must be gone");
   assert.doesNotMatch(body, /\.table-card table\s*\{[^}]*width:\s*100%/s, "forcing the table to the card's own width defeats letting headers expand past it");
   assert.match(body, /\.table-card th\s*\{[^}]*white-space:\s*nowrap/s, "headers must never wrap onto a second line");
-  assert.match(body, /\.table-card td\s*\{[^}]*overflow-wrap:\s*anywhere; word-break:\s*break-word/s, "data cells keep wrapping — the owner's own words, this round: \"the data I don't care so much about\"");
+  /* REVISED by Test-PRD-P0-197-table_data_never_wraps: data cells used to keep
+     wrapping here ("the data I don't care so much about"); the owner has since
+     reversed that -- see that test below. */
+  assert.match(body, /\.table-card td\s*\{[^}]*white-space:\s*nowrap/s, "data cells no longer wrap either -- Test-PRD-P0-197");
   assert.doesNotMatch(body, /\.table-card th\s*\{[^}]*overflow-wrap/s, "a header must never wrap, so it has no need of overflow-wrap either");
+});
+
+check("test_PRD_P0_197_table_data_never_wraps__a_long_value_scrolls_sideways_instead_of_growing_a_cell_taller", async () => {
+  /* "Make the preview side scrollable. Don't wrap into the text. I don't want
+     to see like triple height cells when, you know, if I wanted to read its
+     status, I'll scroll sideways" -- the owner's own words, after a long
+     status/detail value wrapped across several lines of a results table. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.table-card td\s*\{[^}]*white-space:\s*nowrap/s, "a data cell must stay on one line");
+  assert.doesNotMatch(body, /\.table-card td\s*\{[^}]*overflow-wrap:\s*anywhere/s, "the old break-anywhere wrapping must be gone from the base data cell");
+  assert.doesNotMatch(body, /\.table-card td\s*\{[^}]*word-break:\s*break-word/s, "the old word-break wrapping must be gone from the base data cell");
+  assert.match(body, /\.table-card\s*\{[^}]*overflow:\s*auto/s, "the card's own overflow is what carries a wide row sideways");
 });
 
 check("test_PRD_P0_123_table_everything_centered__headers_and_data_are_both_centered", async () => {
