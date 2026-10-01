@@ -970,7 +970,17 @@ export const catalogWriteTools = {
          there is no conflict to resolve either. */
       const resolved = await resolveStyleId(t.db.catalog_mirror, { categoryId: chosen?.id ?? null });
 
-      const total = args.variations.map((v) => `${v.title} ${v.price_minor} ${v.currency}`).join(", ");
+      /* "I'm seeing wildly high prices... they have two extra zeros added to
+         them" -- a real report, traced to exactly this line: price_minor is
+         CENTS (14000 for $140.00), and this used to print that raw integer
+         straight into the preview text with no division by 100 at all --
+         "140.00 USD" became "14000 USD", reading as two extra zeros to
+         anyone glancing at it. Nothing about the actual price was ever
+         wrong -- parsePriceToMinor (batch.js) and moneyToSquare (money.js)
+         both already treat price_minor correctly as minor units throughout
+         the real create path -- this was purely cosmetic, but it was the
+         ONE place a person actually looks before confirming a batch. */
+      const total = args.variations.map((v) => `${v.title} ${(v.price_minor / 100).toFixed(2)} ${v.currency}`).join(", ");
       const categoryNote = chosen ? `in ${chosen.name}` : "with no category";
       const styleIdNote = resolved.note ? ` (${resolved.note})` : "";
       const withQuantity = args.variations.filter((v) => v.quantity !== undefined);

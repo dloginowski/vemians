@@ -619,6 +619,25 @@ async function approvedCall(f, name, args, ctx) {
  * issue-then-consume dance a same-session caller does.
  * ───────────────────────────────────────────────────────────────────────── */
 
+check("test_PRD_P0_35_approval_never_in_band__the_preview_price_is_dollars_never_raw_minor_units", async () => {
+  /* A real report: "I'm seeing wildly high prices for some of these items,
+     like $14,000... all prices in queue right now... look like they have
+     two extra zeros added to them." Traced to catalog.create_product's own
+     check() printing price_minor (cents) straight into its preview summary
+     with no division by 100 at all -- $1,890.00 (189000 minor units) read
+     as "189000 USD" to anyone reviewing the batch checklist before Submit,
+     exactly two zeros too many. The actual price sent to Square was never
+     wrong (parsePriceToMinor/moneyToSquare both already treat price_minor
+     correctly) -- only this one preview string was. */
+  const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+
+  const gate = await runTool("catalog.create_product", { ...COAT, category_id: outerwear.id }, f.ctx);
+  assert.equal(gate.needsApproval, true);
+  assert.match(gate.data.would, /1890\.00 USD/, `expected dollars, got: ${gate.data.would}`);
+  assert.doesNotMatch(gate.data.would, /189000/, `raw minor units must never reach the preview: ${gate.data.would}`);
+});
+
 check("test_PRD_P0_35_approval_never_in_band__clicking_approve_actually_creates_the_product", async () => {
   const f = await fixture({ actor: "assistant-for-mara@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
