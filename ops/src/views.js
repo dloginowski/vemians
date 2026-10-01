@@ -3615,18 +3615,25 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
      never sees that edit surface either way (canEdit-gated, like
      everything else on this tile), so it stays here, read-only, exactly
      as before — otherwise a staff member would lose visibility of it
-     entirely. vendor/vendor_code/commission are unaffected either way:
-     still their own Square Vendor entity (Retail Plus/Premium, P0-136
-     revised), shown in their own rows, blank rather than an empty-state
-     paragraph when none is set yet (an empty text field already says
-     that, the same way the edit form below will). */
+     entirely.
+     REVISED: "I see redundant row on the bottom below variations that says
+     the vendor name, but we don't need that. We already have the drop down
+     with the vendor selected. So why do we need a separate vendor row on
+     the bottom?" — the owner's own words. A manager's own titleVendorForms
+     (above) already shows vendor (the picker's own button label),
+     vendor_code (its own editable input, right there), and commission (its
+     own badge next to the picker) — these read-only rows duplicated all
+     three for a manager, the only role that could ever see both at once.
+     Staff gets no edit form at all, so these stay the ONLY place staff
+     ever sees vendor/vendor_code/commission — now gated !canEdit like
+     unit_cost_minor already was, not unconditional. */
   const attrRows =
-    (product.vendor ? `<div><span>Vendor</span><span>${esc(product.vendor)}</span></div>` : "") +
-    (product.vendor_code ? `<div><span>Vendor code</span><span>${esc(product.vendor_code)}</span></div>` : "") +
+    (!canEdit && product.vendor ? `<div><span>Vendor</span><span>${esc(product.vendor)}</span></div>` : "") +
+    (!canEdit && product.vendor_code ? `<div><span>Vendor code</span><span>${esc(product.vendor_code)}</span></div>` : "") +
     (!canEdit && product.unit_cost_minor
       ? `<div><span>Unit cost</span><span>${esc(money(product.unit_cost_minor, product.unit_cost_currency ?? "USD"))}</span></div>`
       : "") +
-    (product.commission_pct != null ? `<div><span>Commission</span><span>${esc(String(product.commission_pct))}%</span></div>` : "");
+    (!canEdit && product.commission_pct != null ? `<div><span>Commission</span><span>${esc(String(product.commission_pct))}%</span></div>` : "");
 
   /* REVISED: "remove add fields from items... if I'm adding custom
      fields, I'm adding them to all items... this is done inside of the

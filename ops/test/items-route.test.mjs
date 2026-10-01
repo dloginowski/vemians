@@ -1512,6 +1512,25 @@ check("test_PRD_P0_136_square_custom_attributes__the_tile_shows_vendor_code_and_
   assert.match(body, /<span>Unit cost<\/span><span>\$ 42\.50<\/span>/);
 });
 
+check("test_PRD_P0_136_square_custom_attributes__a_manager_never_sees_the_redundant_read_only_rows", async () => {
+  /* "I see redundant row on the bottom below variations that says the
+     vendor name, but we don't need that. We already have the drop down
+     with the vendor selected. So why do we need a separate vendor row on
+     the bottom?" — the owner's own words. A manager's own vendor picker
+     (titleVendorForms) already shows vendor (the button's own label),
+     vendor_code (its own editable input), and commission (its own badge)
+     — these read-only rows duplicated all three. Staff gets no edit form
+     at all, so it still sees them (the test above, on STAFF). */
+  const mirror = mirrorDb();
+  seedProduct(mirror, { vendor: "Acme Mills", vendor_code: "ACME-4471", unit_cost_minor: 4250, commission_pct: 15 });
+  const res = await get("/items", MANAGER, env(mirror));
+  const body = await res.text();
+  assert.doesNotMatch(body, /<span>Vendor<\/span>/, "a manager already has the vendor picker's own label");
+  assert.doesNotMatch(body, /<span>Vendor code<\/span>/, "a manager already has the editable vendor_code input");
+  assert.doesNotMatch(body, /<span>Commission<\/span>/, "a manager already has the commission badge next to the picker");
+  assert.match(body, /vendor-picker-btn-label">Acme Mills</, "the picker itself still shows the real vendor name");
+});
+
 check("test_PRD_P0_136_square_custom_attributes__neither_row_renders_when_unset", async () => {
   const mirror = mirrorDb();
   seedProduct(mirror);
