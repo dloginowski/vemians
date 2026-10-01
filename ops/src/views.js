@@ -1859,9 +1859,24 @@ function checklistCard(c) {
   const bar = el.querySelector("progress");
   const status = el.querySelector(".checklist-status");
 
+  /* REVISED: "I would have to hit cancel to actually clear a job in
+     progress" — the owner's own words, already assuming this did that. It
+     only ever cleared the local panel before — the plan row stayed in
+     agent_batch_plan regardless, genuinely resumable, just invisible. Now a
+     real server call, so cancelling actually means cancelling: nothing left
+     for a later reload (or the open-plan check on this very page, below)
+     to resume. Fire-and-forget on the response — the local panel clears
+     either way, the same honest "nothing was submitted" is true whether or
+     not this specific call succeeds, and a failed cancel just leaves the
+     row to expire the ordinary way a person never returns to. */
   el.querySelector("[data-a=cancel]").addEventListener("click", () => {
     gate.textContent = "";
     entry("tool", "Cancelled. Nothing was submitted.");
+    fetch("/ops/agent/batch-cancel", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: c.id }),
+    }).catch(() => {});
   });
 
   el.querySelector("[data-a=submit]").addEventListener("click", async () => {
@@ -2135,6 +2150,30 @@ document.getElementById("chat").addEventListener("submit", async (e) => {
     entry("agent", "Request failed: " + err.message);
   }
 });
+
+/* "An ingestion in progress should be persistent if I reload a page... any
+   existing jobs should persist even on reload... you should be able to
+   resume a job without having to rerun the whole process" — the owner's
+   own words, after a real 78-product batch review. The plan itself was
+   already durable (agent_batch_plan, agent.js) — this is the one thing that
+   was missing: checking, once, whether this actor's own last batch upload
+   is still sitting there unfinished, and resuming it with the identical
+   checklistCard() a freshly-planned one already renders, rather than
+   leaving it invisible until someone reads the database directly. A
+   missed/failed check is silent, on purpose, the same tolerance every
+   other best-effort poll on this page already has (pollBatchProgress's own
+   comment) — a person who never had an open batch should see nothing
+   different at all. */
+(async () => {
+  try {
+    const res = await fetch("/ops/agent/batch-open-plan");
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.checklist && data.checklist.rows && data.checklist.rows.length) checklistCard(data.checklist);
+  } catch {
+    /* Nothing to resume is not an error worth a person seeing. */
+  }
+})();
 </script>`,
     OPS_CSS,
   );

@@ -76,7 +76,7 @@ import { normaliseCatalog } from "../../shared/commerce/square/catalog.js";
 register("../../shared/test/text-modules.mjs", import.meta.url);
 const { approvePending, parkForApproval } = await import("../src/approvals.js");
 const { draftProductBatch } = await import("../src/batch.js");
-const { dispatch, agentTurn, approve, NO_TEXT_TABLE_NOTE, readBatchProgress, submitBatchPlanRow } = await import("../src/agent.js");
+const { dispatch, agentTurn, approve, NO_TEXT_TABLE_NOTE, readBatchProgress, submitBatchPlanRow, openBatchPlanFor, cancelBatchPlan } = await import("../src/agent.js");
 const http = await import("node:http");
 
 /*
@@ -7025,6 +7025,163 @@ check("test_PRD_P0_152_style_number_grouping__a_plan_rows_own_submission_is_sing
   } finally {
     globalThis.fetch = realFetch;
   }
+});
+
+check("test_PRD_P0_152_style_number_grouping__an_open_plan_survives_and_is_found_again_after_a_reload", async () => {
+  /* "An ingestion in progress should be persistent if I reload a page...
+     any existing jobs should persist even on reload" -- the owner's own
+     words. agent_batch_plan was already durable (a prior real incident's
+     own fix); openBatchPlanFor is the piece that was missing -- the page
+     reload itself, simulated here by simply calling it again with nothing
+     else changed, must find the SAME unfinished plan, shaped exactly like
+     a freshly-planned checklist. */
+  const f = await fixture({ actor: "zeynep@vemians.com", role: "manager" });
+  const csv =
+    "title,category,price,style id,cost\n" + "Wool Coat,Outerwear,450.00,01-04-001,210.00\n" + "Silk Scarf,Outerwear,99.00,01-04-002,20.00\n";
+  const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
+
+  const outcome = await dispatch(
+    "catalog_add_product_batch",
+    { asset_id: "ast_1" },
+    { actor: "zeynep@vemians.com", role: "manager", env, allowed: new Set(["catalog_add_product_batch"]) },
+  );
+  assert.equal(outcome.kind, "checklist");
+  assert.equal(outcome.checklist.rows.length, 2);
+
+  const resumed = await openBatchPlanFor(env, "zeynep@vemians.com");
+  assert.ok(resumed, "the plan must still be found after a simulated reload");
+  assert.equal(resumed.id, outcome.checklist.id);
+  assert.equal(resumed.rows.length, 2);
+  assert.deepEqual(
+    resumed.rows.map((r) => r.title).sort(),
+    ["Silk Scarf", "Wool Coat"],
+  );
+
+  /* A DIFFERENT actor's own reload must never see someone else's plan. */
+  const other = await openBatchPlanFor(env, "someone-else@vemians.com");
+  assert.equal(other, null);
+});
+
+check("test_PRD_P0_152_style_number_grouping__a_partially_submitted_plan_resumes_with_only_the_remaining_rows", async () => {
+  /* "You should be able to resume a job without having to rerun the whole
+     process and possibly have duplicates" -- the owner's own words. One row
+     of a two-row plan submitted, then "reloaded" -- the resumed checklist
+     must show ONLY the one row still left, never the one already created
+     (which would risk a real duplicate if submitted again). */
+  const f = await fixture({ actor: "zeynep@vemians.com", role: "manager" });
+  const csv =
+    "title,category,price,style id,cost\n" + "Wool Coat,Outerwear,450.00,01-04-001,210.00\n" + "Silk Scarf,Outerwear,99.00,01-04-002,20.00\n";
+  const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
+  const identity = { email: "zeynep@vemians.com", groups: ["vemians-manager"] };
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const outcome = await dispatch(
+      "catalog_add_product_batch",
+      { asset_id: "ast_1" },
+      { actor: "zeynep@vemians.com", role: "manager", env, allowed: new Set(["catalog_add_product_batch"]) },
+    );
+    const woolRow = outcome.checklist.rows.find((r) => r.title === "Wool Coat").row;
+    const submitted = await submitBatchPlanRow({ id: outcome.checklist.id, row: woolRow, identity, env });
+    assert.equal(submitted.status, "created", JSON.stringify(submitted));
+
+    const resumed = await openBatchPlanFor(env, "zeynep@vemians.com");
+    assert.ok(resumed, "the plan is still open -- one row remains");
+    assert.equal(resumed.rows.length, 1);
+    assert.equal(resumed.rows[0].title, "Silk Scarf");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_152_style_number_grouping__a_fully_submitted_plan_is_no_longer_open", async () => {
+  const f = await fixture({ actor: "zeynep@vemians.com", role: "manager" });
+  const csv = "title,category,price,style id,cost\nWool Coat,Outerwear,450.00,01-04-001,210.00\n";
+  const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
+  const identity = { email: "zeynep@vemians.com", groups: ["vemians-manager"] };
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const outcome = await dispatch(
+      "catalog_add_product_batch",
+      { asset_id: "ast_1" },
+      { actor: "zeynep@vemians.com", role: "manager", env, allowed: new Set(["catalog_add_product_batch"]) },
+    );
+    const row = outcome.checklist.rows[0].row;
+    const submitted = await submitBatchPlanRow({ id: outcome.checklist.id, row, identity, env });
+    assert.equal(submitted.status, "created", JSON.stringify(submitted));
+
+    assert.equal(await openBatchPlanFor(env, "zeynep@vemians.com"), null, "nothing left to resume once every row is spent");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_152_style_number_grouping__cancel_actually_deletes_the_plan_never_just_the_local_panel", async () => {
+  /* "I would have to hit cancel to actually clear a job in progress" -- the
+     owner's own words, already assuming Cancel did this; it never reached
+     the server before. Proven directly: cancel a plan, then confirm it is
+     genuinely gone -- not resumable, not re-submittable. */
+  const f = await fixture({ actor: "zeynep@vemians.com", role: "manager" });
+  const csv = "title,category,price,style id,cost\nWool Coat,Outerwear,450.00,01-04-001,210.00\n";
+  const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
+  const identity = { email: "zeynep@vemians.com", groups: ["vemians-manager"] };
+
+  const outcome = await dispatch(
+    "catalog_add_product_batch",
+    { asset_id: "ast_1" },
+    { actor: "zeynep@vemians.com", role: "manager", env, allowed: new Set(["catalog_add_product_batch"]) },
+  );
+  assert.equal(outcome.kind, "checklist");
+
+  const cancelled = await cancelBatchPlan({ id: outcome.checklist.id, identity, env });
+  assert.equal(cancelled.ok, true, JSON.stringify(cancelled));
+
+  assert.equal(await openBatchPlanFor(env, "zeynep@vemians.com"), null, "a cancelled plan must never be resumable");
+
+  const row = outcome.checklist.rows[0].row;
+  const result = await submitBatchPlanRow({ id: outcome.checklist.id, row, identity, env });
+  assert.equal(result.ok, false, "a cancelled plan's own rows must never still be submittable");
+  assert.equal(result.httpStatus, 404);
+});
+
+check("test_PRD_P0_152_style_number_grouping__cancel_refuses_a_different_actors_plan", async () => {
+  const f = await fixture({ actor: "zeynep@vemians.com", role: "manager" });
+  const csv = "title,category,price,style id,cost\nWool Coat,Outerwear,450.00,01-04-001,210.00\n";
+  const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
+
+  const outcome = await dispatch(
+    "catalog_add_product_batch",
+    { asset_id: "ast_1" },
+    { actor: "zeynep@vemians.com", role: "manager", env, allowed: new Set(["catalog_add_product_batch"]) },
+  );
+  const wrongActor = { email: "someone-else@vemians.com", groups: ["vemians-manager"] };
+  const result = await cancelBatchPlan({ id: outcome.checklist.id, identity: wrongActor, env });
+  assert.equal(result.ok, false);
+  assert.equal(result.httpStatus, 403);
+
+  /* And it survives that refused attempt -- the real owner can still
+     resume or cancel it normally afterward. */
+  assert.ok(await openBatchPlanFor(env, "zeynep@vemians.com"), "the plan must still exist after a refused cancel attempt");
+});
+
+check("test_PRD_P0_152_style_number_grouping__cancelling_twice_is_harmless", async () => {
+  const f = await fixture({ actor: "zeynep@vemians.com", role: "manager" });
+  const csv = "title,category,price,style id,cost\nWool Coat,Outerwear,450.00,01-04-001,210.00\n";
+  const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
+  const identity = { email: "zeynep@vemians.com", groups: ["vemians-manager"] };
+
+  const outcome = await dispatch(
+    "catalog_add_product_batch",
+    { asset_id: "ast_1" },
+    { actor: "zeynep@vemians.com", role: "manager", env, allowed: new Set(["catalog_add_product_batch"]) },
+  );
+  const first = await cancelBatchPlan({ id: outcome.checklist.id, identity, env });
+  assert.equal(first.ok, true);
+  const second = await cancelBatchPlan({ id: outcome.checklist.id, identity, env });
+  assert.equal(second.ok, true, "cancelling something already gone must never be treated as an error");
 });
 
 check("test_PRD_P0_152_style_number_grouping__a_plan_belongs_to_the_actor_who_raised_it", async () => {

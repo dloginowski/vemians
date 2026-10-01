@@ -8920,6 +8920,48 @@ that does not trace to one of these is a process failure (see §12).
     2 real categories cost exactly 2 `productsInCategory` calls and at most 1 bulk variant call, never
     anything proportional to the 20 rows.
 
+119. **`Test-PRD-P0-187-batch_plan_survives_reload`** — The owner's own words, after a real 78-product
+    batch review: "an ingestion in progress should be persistent if I reload a page... are you cancelling
+    progress if I reload the agent panel?... any existing jobs should persist even on reload... you
+    should be able to resume a job without having to rerun the whole process and possibly have
+    duplicates." Also, assuming Cancel already did the opposite: "I would have to hit cancel to actually
+    clear a job in progress."
+
+    **The underlying durability the owner was asking for already existed.** `agent_batch_plan`
+    (`shared/db/assets.sql`) was built for exactly this reason during an earlier real incident — several
+    Worker redeploys inside one working session wiping out an in-memory checklist mid-review, "you should
+    not be losing files like this." A plan's own `rows` (JSON, `planProductBatch`'s own row shape) is
+    persisted the moment it is stashed and updated in place as each row is submitted
+    (`submitBatchPlanRow`), surviving a cold isolate or a real redeploy fine — reloading the page was
+    never actually cancelling anything, and a real root-cause check (traced directly, not assumed)
+    confirmed the row sits in the database completely intact either way. **What was genuinely missing: the
+    page itself never asked whether one still existed.** The data survived every reload, invisibly, with
+    no way back to it short of reading the database directly — indistinguishable, from the owner's own
+    side of the screen, from having actually lost it.
+
+    `openBatchPlanFor(env, actor)` (`agent.js`) is the one new read: the most recent plan this actor has
+    not finished submitting (`done < total`), shaped identically to `dispatchProductBatchPlan`'s own
+    checklist mapping so the client feeds it straight into the SAME `checklistCard()` a freshly-planned
+    batch already renders — no second rendering path to maintain, no risk of a resumed view ever looking
+    different from a brand new one. `GET /agent/batch-open-plan` (`index.js`) exposes it, the identical
+    cheap, actor-scoped GET shape `/agent/batch-progress` already uses; the chat page's own script
+    (`views.js`) calls it once on load, silently doing nothing when there is nothing to resume — the same
+    tolerance every other best-effort poll on this page already has. A partially-submitted plan resumes
+    with ONLY the rows still left — the already-submitted ones are already spliced out of the persisted
+    `rows` by `submitBatchPlanRow`, so a resumed checklist can never re-offer, and therefore never
+    re-create, something already made; this is what actually answers "possibly have duplicates," not a
+    new mechanism of its own.
+
+    **Cancel is now real.** `checklistCard`'s own Cancel button previously only cleared the local chat
+    panel — the plan row was never told anything at all, surviving in the database regardless, genuinely
+    resumable (exactly what `openBatchPlanFor` now surfaces) but with no way back to it either. A person
+    who explicitly cancels means to abandon the batch, not merely navigate away from it: `cancelBatchPlan`
+    (`agent.js`) deletes the row outright — never left around the way a fully-SPENT plan deliberately is
+    (`agent_batch_plan`'s own header comment; there is nothing to resume once it is spent either, but it
+    stays as a cheap historical record) — reached by `POST /agent/batch-cancel`, ownership-checked the
+    same way `/agent/batch-submit-row` already is. Cancelling something already gone (a double click, a
+    stale tab) is harmless, never an error.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

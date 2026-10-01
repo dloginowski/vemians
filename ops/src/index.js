@@ -27,7 +27,7 @@
 
 import { notFoundPage } from "../../shared/view/html.js";
 import { explainRole, readAccessIdentity } from "./access.js";
-import { agentTurn, approve, roleFor, searchIntent, readBatchProgress, submitBatchPlanRow } from "./agent.js";
+import { agentTurn, approve, roleFor, searchIntent, readBatchProgress, submitBatchPlanRow, openBatchPlanFor, cancelBatchPlan } from "./agent.js";
 import { approvePending, peekPending } from "./approvals.js";
 import { CAPS } from "./tools/caps.js";
 import { roleAtLeast } from "./tools/roles.js";
@@ -104,7 +104,15 @@ function servesOps(hostname, env) {
 
 /* Both agent endpoints answer JSON, so a refusal on them must be JSON too —
    the composer's fetch() has no use for a login page. */
-const AGENT_PATHS = new Set(["/agent", "/agent/approve", "/agent/batch-progress", "/agent/batch-submit-row", "/media/upload"]);
+const AGENT_PATHS = new Set([
+  "/agent",
+  "/agent/approve",
+  "/agent/batch-progress",
+  "/agent/batch-submit-row",
+  "/agent/batch-open-plan",
+  "/agent/batch-cancel",
+  "/media/upload",
+]);
 
 /*
  * The other half of catalog.upload_image.
@@ -1840,6 +1848,43 @@ async function ops(request, env, path) {
     if (!Number.isInteger(row)) return json({ error: "row must be a whole number." }, 400);
 
     const out = await submitBatchPlanRow({ id, row, title, identity, env });
+    return json({ verified: identity.verified, ...out }, out.httpStatus);
+  }
+
+  /*
+   * GET /agent/batch-open-plan — "an ingestion in progress should be
+   * persistent if I reload a page... any existing jobs should persist even
+   * on reload" — the owner's own words. Checked once, on page load
+   * (views.js), the same cheap, actor-scoped GET shape /agent/batch-progress
+   * already uses: hands back only THIS actor's own unfinished plan, if one
+   * exists, in the identical shape a freshly-planned batch's own checklist
+   * already has, so the page can resume it with no second rendering path.
+   */
+  if (path === "/agent/batch-open-plan") {
+    if (request.method !== "GET") return json({ error: "GET only" }, 405);
+    const checklist = await openBatchPlanFor(env, identity.email);
+    return json({ checklist });
+  }
+
+  /*
+   * POST /agent/batch-cancel — "I would have to hit cancel to actually
+   * clear a job in progress" — the owner's own words, already assuming
+   * Cancel did this; it never reached the server before now (checklistCard's
+   * own Cancel button, views.js, only ever cleared the local chat panel).
+   * The id is the whole of what the client sends, same as
+   * /agent/batch-submit-row above — ownership is checked server-side, never
+   * trusted from the request.
+   */
+  if (path === "/agent/batch-cancel") {
+    if (request.method !== "POST") return json({ error: "POST only" }, 405);
+    let id = "";
+    try {
+      id = String((await body(request)).id || "");
+    } catch (err) {
+      console.error(`ERROR ops/agent/batch-cancel: unreadable body — ${err.message}`);
+      return json({ error: "Unreadable request body." }, 400);
+    }
+    const out = await cancelBatchPlan({ id, identity, env });
     return json({ verified: identity.verified, ...out }, out.httpStatus);
   }
 
