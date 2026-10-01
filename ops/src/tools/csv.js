@@ -67,3 +67,22 @@ export function csvRecords(rows) {
     Object.fromEntries(headers.map((h, i) => [h, (r[i] ?? "").trim()])),
   );
 }
+
+/* The write side of the same RFC 4180 dialect parseCsv (above) already
+   reads — "any employee... should be able to pull the latest CSV... and
+   use the existing structure to intelligently update or add items," the
+   owner's own words, the whole reason an export needs to come back out in
+   EXACTLY the shape a re-upload already expects. A field is only ever
+   quoted when it actually needs to be (a comma, a quote, or a newline) —
+   an unquoted field is unambiguous under this same dialect, and quoting
+   everything regardless would just make the common case (a plain price or
+   title) harder for a person to read in a spreadsheet than it needs to
+   be. CRLF line endings: the one line ending Excel's own CSV import never
+   second-guesses, on any platform. */
+export function stringifyCsv(rows) {
+  const field = (value) => {
+    const s = String(value ?? "");
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  return rows.map((row) => row.map(field).join(",")).join("\r\n") + "\r\n";
+}

@@ -9101,6 +9101,44 @@ that does not trace to one of these is a process failure (see §12).
     so `.chat-top` (already `flex: 1 1 auto`) reclaims the freed vertical space immediately, the same
     flex relationship P0-161 already relies on elsewhere on this exact page.
 
+121. **`Test-PRD-P0-189-inventory_csv_export`** — "Any one of our employees that has the rights to add or
+    see the inventory should be able to pull the latest CSV... as long as they're logged in, they have
+    access to it... that way there is never a disconnect. They're never creating a brand new CSV file
+    from scratch. There's always a structure we have that's very specific, maintained through multiple
+    agent sessions. I should be able to tell my agent... go to ops.vemians.com and update inventory...
+    it knows it can go into ops.vemians.com, grab the current CSV... and intelligently update or add
+    items" — the owner's own words.
+
+    **No new auth surface at all.** `GET /products/export.csv` (`index.js`) is reached through the
+    identical Cloudflare Access session and `manager` role gate `/products/batch` already requires —
+    "logged in" already means something real on this domain, so a person's own separate agent (browsing
+    with their own already-authenticated session, or the person downloading it by hand and handing the
+    file to whichever agent they use) needs no separate token or credential to pull the file out than they
+    already need to push a batch back in.
+
+    **`exportProductsCsv` (`batch.js`) builds the file in the identical column shape a real upload sheet
+    already has** — `title, category, subcategory, style id, price, cost, quantity, vendor, vendor code,
+    commission`, each header the exact canonical (first) entry of this file's own `PRICE_KEYS`/
+    `QUANTITY_KEYS`/etc. synonym lists, so a round trip through this export and straight back into
+    `/products/batch` or either batch chat tool needs no column renamed, nothing re-typed by hand. One row
+    per VARIATION, never per product — the identical shape a real upload sheet already has, so "same
+    style, different size" is never a grouping convention the reader has to invent. `style id` carries
+    `import_style_number` — the PERMANENT identifier a resubmit matches by FIRST, never the live, fluid
+    `style_id`, which can move with a later category change — with each variation's own Color/Size riding
+    along as a suffix, one dash each, color before size: the exact inverse of `parseStyleNumber`'s own
+    read side. A leaf category splits into its own two columns (the real parent's name in `category`, the
+    leaf's own name in `subcategory`) by walking `listCategories`' own `parent_id`, the same tree this
+    file's own category resolution already reads.
+
+    **Three bulk reads, never one per product or per row** — the identical, already-proven shape
+    `/items`'s own aggregate view uses: `listAllProducts` (products + variants + vendor ids), `listCategories`
+    (the whole tree, to split a leaf into category/subcategory), and one read of the whole, small
+    `inventory_level` view for every SKU's own on-hand count (the same tolerant "a missing or failed stock
+    read still exports every other column" `/items` already has, rather than refusing the whole file over
+    quantity alone). `import_style_number` itself is the one field `listAllProducts` does not already
+    carry (it reads the live `style_id` instead, for the Items tab's own display) — one more small, bulk,
+    bounded-by-product-count read, never a query per row.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
