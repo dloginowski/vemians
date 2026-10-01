@@ -5137,6 +5137,17 @@ that does not trace to one of these is a process failure (see §12).
     category assignment the other way. commission/vendor/vendor_code/unit_cost_minor, everything else
     this entry describes, are unaffected.
 
+    **REVISED AGAIN**: "I see redundant row on the bottom below variations that says the vendor name,
+    but we don't need that. We already have the drop down with the vendor selected. So why do we need
+    a separate vendor row on the bottom?" — the owner's own words. A manager's own vendor picker
+    (`titleVendorForms`, `views.js`) already shows vendor (the picker button's own label), vendor_code
+    (its own editable input, right there), and commission (its own badge next to the picker) — the
+    separate read-only Vendor/Vendor code/Commission rows below the Variants view duplicated all three,
+    the only role that could ever see both at once. Staff gets no edit form at all, so those rows are
+    now gated `!canEdit` — the same gate `unit_cost_minor`'s own row already had — rather than
+    unconditional: staff still sees them (the only place staff ever sees this data), a manager no
+    longer does.
+
 72. **`Test-PRD-P0-137-item_active_toggle`** — The owner's own words, in the same request that moved
     Web and the newly-added Active checkbox beside the item's own name: "move the web and the active
     buttons... make them the same style as the rest of the fields... have the same style like
