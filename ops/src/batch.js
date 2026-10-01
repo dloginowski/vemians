@@ -3019,6 +3019,14 @@ function mapProductGroup(groupRows, existing = null, showNoMatchNote = false) {
   const titleCol = pick(first, TITLE_KEYS);
   const descriptionCol = pick(first, DESCRIPTION_KEYS);
   const title = titleCol || descriptionCol || "(auto-generated from its category)";
+  /* "It's being supplied. It's in the first column. Why is it being
+     auto-generated?" -- the owner's own words. A row that carries a style
+     number on the sheet must never be previewed as if it had none: the
+     sheet's own ID is shown, and the note says what is true -- the shop's
+     style_id is built from the category it lands in (the sheet's number is
+     kept as the key a resubmit matches by). Only a row with no style number
+     at all still reads "(auto-generated)". */
+  const sheetStyleId = groupRows[0].styleIdRaw ? parseStyleNumber(groupRows[0].styleIdRaw).base : "";
   /* "It should never be looking, expecting an SKU in our spreadsheets,
      because the SKU is something that is generated automatically" — the
      owner's own words; no column is ever read as an explicit SKU (there is
@@ -3059,7 +3067,7 @@ function mapProductGroup(groupRows, existing = null, showNoMatchNote = false) {
     currency: (pick(first, CURRENCY_KEYS) || "USD").toUpperCase(),
     description: titleCol ? descriptionCol || null : null,
     sku: existing ? "(unchanged)" : "(auto-generated)",
-    style_id: existing ? "(unchanged)" : "(auto-generated)",
+    style_id: existing ? "(unchanged)" : sheetStyleId ? `${sheetStyleId} (from the sheet; the shop ID follows its category)` : "(auto-generated)",
     variants: groupRows.length,
     /* "Shouldn't you be doing an in-house instead of a dash? Since if a
        vendor is not provided, then it must be in-house" -- the owner's own
