@@ -7329,6 +7329,65 @@ check("test_PRD_P0_152_style_number_grouping__a_fully_submitted_plan_is_no_longe
   }
 });
 
+check("test_PRD_P0_196_unconfirmed_rows_never_resurface__a_plan_left_with_only_needs_confirmation_rows_is_not_resumable", async () => {
+  /* Live bug: "it seems to be in an upload cycle, it's stuck, it keeps on
+     re-submitting things" -- the owner's own words. A needsConfirmation row
+     (P0-195) is NEVER checked by default, so it can never remove itself
+     from the plan's own `rows` the way every other row does on submit --
+     openBatchPlanFor's own `done < total` query stayed true forever, and
+     the checklist resurfaced, freshly rendered, on every single page load
+     from then on, exactly the behavior P0-152's own "survives a reload"
+     feature was built to provide for a GENUINELY interrupted batch, never
+     for one a person already finished reviewing and chose to leave alone. */
+  const f = await fixture({ actor: "zeynep@vemians.com", role: "manager", withCommerce: true });
+  const csv1 = "title,category,price,style id,quantity\nWool Coat,Outerwear,100.00,01-04-070,3\n";
+  const identity = { email: "zeynep@vemians.com", groups: ["vemians-manager"] };
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "zeynep@vemians.com", role: "manager", mode: "add" });
+    assert.equal(first.created.length, 1);
+
+    /* A real price change (so a normal, checked-by-default row exists
+       alongside the needsConfirmation one) plus a nonzero-current quantity
+       disagreement (9 on the sheet, 3 on hand). */
+    const csv2 = "title,category,price,style id,quantity\nWool Coat,Outerwear,120.00,01-04-070,9\n";
+    const assets = await assetsFixtureWithRow({ extracted_text: csv2 });
+    const outcome = await dispatch(
+      "catalog_update_product_batch",
+      { asset_id: "ast_1" },
+      { actor: "zeynep@vemians.com", role: "manager", env: { ...f.env, ASSETS: assets }, allowed: new Set(["catalog_update_product_batch"]) },
+    );
+    assert.equal(outcome.kind, "checklist", `expected a checklist, got: ${JSON.stringify(outcome)}`);
+    assert.equal(outcome.checklist.rows.length, 2, `expected the price row and the stock row, got: ${JSON.stringify(outcome.checklist.rows)}`);
+    const priceRow = outcome.checklist.rows.find((r) => !r.needsConfirmation);
+    const stockRow = outcome.checklist.rows.find((r) => r.needsConfirmation);
+    assert.ok(priceRow && stockRow, `expected one of each, got: ${JSON.stringify(outcome.checklist.rows)}`);
+
+    const env = { ...f.env, ASSETS: assets };
+    /* The checklist's own real behavior: only the checked (non-flagged) row
+       is ever submitted automatically -- the needsConfirmation row is left
+       exactly as a person leaving it unchecked on purpose would. */
+    const submitted = await submitBatchPlanRow({ id: outcome.checklist.id, row: priceRow.row, identity, env });
+    assert.equal(submitted.status, "updated", JSON.stringify(submitted));
+
+    /* THE POINT: once a person has reviewed the checklist once (done > 0)
+       and left every remaining row exactly where a deliberate non-checkbox
+       choice would leave it, reloading the page must never resurface the
+       SAME checklist again -- that is a fresh, separate "I want this
+       applied" decision (a brand-new resubmit), never an interrupted job
+       still genuinely in flight. */
+    assert.equal(
+      await openBatchPlanFor(env, "zeynep@vemians.com"),
+      null,
+      "a plan left with only needs-confirmation rows must never keep resurfacing on reload",
+    );
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 check("test_PRD_P0_152_style_number_grouping__cancel_actually_deletes_the_plan_never_just_the_local_panel", async () => {
   /* "I would have to hit cancel to actually clear a job in progress" -- the
      owner's own words, already assuming Cancel did this; it never reached

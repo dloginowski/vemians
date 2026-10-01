@@ -2043,6 +2043,25 @@ export async function openBatchPlanFor(env, actor) {
   if (!planRow) return null;
   const rows = JSON.parse(planRow.rows);
   if (!rows.length) return null;
+
+  /* "It seems to be in an upload cycle, it's stuck, it keeps on
+     re-submitting things" -- a real, live report. possibleDuplicate and
+     needsConfirmation rows are NEVER checked by default (checklistCard,
+     views.js) -- a person who leaves one unchecked on purpose has no other
+     way to remove it from `rows` the way every other row does on submit, so
+     `done < total` (this function's own caller query) stayed true forever
+     and this SAME checklist kept resurfacing, freshly rendered, on every
+     single page load from then on -- exactly the behavior this function's
+     own "survives a reload" feature was built to give a genuinely
+     INTERRUPTED batch, never one a person already finished reviewing once
+     (done > 0) and chose to leave alone. Only when at least one remaining
+     row is NOT flagged this way -- still a real candidate for "the browser
+     closed mid-submit" -- is resurfacing it automatically still correct;
+     wanting a left-alone row applied later is a fresh "I mean this on
+     purpose" decision, the same resubmit that raised it in the first place,
+     never an old plan nagging on its own. */
+  if (planRow.done > 0 && rows.every((r) => r.possibleDuplicate || r.needsConfirmation)) return null;
+
   return {
     id: planRow.id,
     done: planRow.done,
