@@ -6498,6 +6498,95 @@ check("test_PRD_P0_152_style_number_grouping__category_and_subcategory_resolve_b
   assert.equal(f.categories().some((c) => c.name === "Not Outerwear At All"), false, "the mismatched name column is never used when the number already resolves to something real");
 });
 
+check("test_PRD_P0_152_style_number_grouping__two_different_named_categories_sharing_one_leading_code_by_mistake_get_a_visible_note", async () => {
+  /* A real production report: "I saw a bunch of failures where you couldn't
+     create a subcategory because it exists, but a category under Dress
+     called Oversized is not the same as a subcategory under Pants that's
+     Oversized." Traced to a genuine, separate bug: two BRAND NEW top-level
+     categories ("Dress", "Pants") whose rows happened to share the same
+     leading style-number code (a spreadsheet mistake, not a real-world
+     intent) got silently merged into ONE category -- whichever name
+     resolved first -- since resolveCategoryByCode's own "the number wins,
+     never second-guessed" rule (the test above, by design) applies just as
+     much to a number collision between two rows that were never actually
+     the same category at all. The merge itself was invisible; the only
+     symptom was a LATER, confusing "subcategory already exists" clash once
+     a second row tried to create a subcategory under what it thought was a
+     different parent. The number still wins here -- that rule is correct
+     and stays -- but a genuine name mismatch now leaves a plain, visible
+     note on the product it actually landed on, so the real cause is
+     obvious immediately instead of several steps downstream. */
+  const f = await fixture({ actor: "priya@vemians.com", role: "manager" });
+  const csv =
+    "Style #,Category,Subcategory,Description,Price\n" +
+    "90-01-001,Dress,Oversized,Oversized Dress,100.00\n" +
+    "90-01-002,Pants,Oversized,Oversized Pants,100.00\n";
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager", mode: "add" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.created.length, 2, `expected both rows to still create cleanly, got: ${JSON.stringify(result)}`);
+
+  /* Both products land under the SAME real category ("Dresses," the one
+     that claimed code "90" first) -- the number's own source of truth, same
+     as the pre-existing test above, unchanged by this fix. */
+  const categories = f.categories();
+  assert.equal(categories.filter((c) => !c.parent_id && c.numeric_id === "90").length, 1, "still only ONE top-level category claims code 90");
+  assert.equal(categories.some((c) => c.name === "Pants"), false, "a genuinely separate \"Pants\" category must never get silently created either");
+
+  /* The row whose own Category column disagreed gets a visible note on the
+     real product Square actually created -- never silent. */
+  const pantsRow = f.mirror("SELECT custom_fields FROM mirror_product WHERE title = 'Oversized Pants'")[0];
+  const notes = JSON.parse(pantsRow.custom_fields)["import notes"];
+  assert.match(notes, /category code "90" already belongs to "Dresses", not "Pants"/);
+
+  /* The FIRST row, whose own Category column agreed with the number, gets
+     no such note at all -- nothing here was ever wrong about it. */
+  const dressRow = f.mirror("SELECT custom_fields FROM mirror_product WHERE title = 'Oversized Dress'")[0];
+  assert.doesNotMatch(JSON.stringify(dressRow.custom_fields ?? "{}"), /already belongs to/);
+});
+
+check("test_PRD_P0_152_style_number_grouping__two_different_leading_codes_never_produce_a_mismatch_note", async () => {
+  /* The clean, correct-sheet case, confirmed unaffected: two genuinely
+     different top-level codes each get their own real category, and their
+     own, independent "Oversized" subcategory underneath -- no note, no
+     collision, exactly as it already worked before this fix. */
+  const f = await fixture({ actor: "priya@vemians.com", role: "manager" });
+  const csv =
+    "Style #,Category,Subcategory,Description,Price\n" +
+    "90-01-001,Dress,Oversized,Oversized Dress,100.00\n" +
+    "91-01-001,Pants,Oversized,Oversized Pants,100.00\n";
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager", mode: "add" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.created.length, 2, `expected both rows to create cleanly, got: ${JSON.stringify(result)}`);
+
+  const categories = f.categories();
+  assert.equal(categories.filter((c) => c.name === "Dresses").length, 1);
+  assert.equal(categories.filter((c) => c.name === "Pants").length, 1);
+  const oversizedUnderDress = categories.find((c) => c.name === "Oversizeds" && c.parent_id === categories.find((p) => p.name === "Dresses").id);
+  const oversizedUnderPants = categories.find((c) => c.name === "Oversizeds" && c.parent_id === categories.find((p) => p.name === "Pants").id);
+  assert.ok(oversizedUnderDress, "Dress gets its own real Oversized subcategory");
+  assert.ok(oversizedUnderPants, "Pants gets its own, SEPARATE real Oversized subcategory -- the two must never collide");
+  assert.notEqual(oversizedUnderDress.id, oversizedUnderPants.id);
+
+  for (const title of ["Oversized Dress", "Oversized Pants"]) {
+    const row = f.mirror("SELECT custom_fields FROM mirror_product WHERE title = ?", title)[0];
+    assert.doesNotMatch(JSON.stringify(row.custom_fields ?? "{}"), /already belongs to/, `${title} must carry no mismatch note at all`);
+  }
+});
+
 check("test_PRD_P0_152_style_number_grouping__a_number_with_no_match_creates_a_new_category_named_from_the_column", async () => {
   const f = await fixture({ actor: "priya@vemians.com", role: "manager" });
   const csv = "Style #,Category,Subcategory,Description,Color,Size,Cost (USD),Retail Price\n" + "004-002-002-MLT-OS,Coat,Winter Coat,Winter coat with a polka dot print,Multi,OS,40,295\n";
