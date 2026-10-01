@@ -27,7 +27,7 @@
 
 import { notFoundPage } from "../../shared/view/html.js";
 import { explainRole, readAccessIdentity } from "./access.js";
-import { agentTurn, approve, roleFor, searchIntent, readBatchProgress, startBatchRun, submitBatchPlanRow, openBatchPlanFor, cancelBatchPlan } from "./agent.js";
+import { agentTurn, approve, roleFor, searchIntent, readBatchProgress, startBatchRun, finishBatchRun, submitBatchPlanRow, openBatchPlanFor, cancelBatchPlan } from "./agent.js";
 import { approvePending, peekPending } from "./approvals.js";
 import { CAPS } from "./tools/caps.js";
 import { roleAtLeast } from "./tools/roles.js";
@@ -118,6 +118,7 @@ const AGENT_PATHS = new Set([
   "/agent/approve",
   "/agent/batch-progress",
   "/agent/batch-start",
+  "/agent/batch-finish",
   "/agent/batch-submit-row",
   "/agent/batch-open-plan",
   "/agent/batch-cancel",
@@ -1887,6 +1888,27 @@ async function ops(request, env, path) {
       return json({ error: "Unreadable request body." }, 400);
     }
     const out = await startBatchRun({ id, rows, identity, env });
+    return json({ verified: identity.verified, ...out }, out.httpStatus);
+  }
+
+  /*
+   * POST /agent/batch-finish — the browser's loop for one Submit click is over.
+   * Ends the run it names so a row whose bookkeeping could not be written
+   * cannot hold the upload locked; never starts anything.
+   */
+  if (path === "/agent/batch-finish") {
+    if (request.method !== "POST") return json({ error: "POST only" }, 405);
+    let id = "";
+    let runId = "";
+    try {
+      const parsed = await body(request);
+      id = String(parsed.id || "");
+      runId = String(parsed.runId || "");
+    } catch (err) {
+      console.error(`ERROR ops/agent/batch-finish: unreadable body — ${err.message}`);
+      return json({ error: "Unreadable request body." }, 400);
+    }
+    const out = await finishBatchRun({ id, runId, identity, env });
     return json({ verified: identity.verified, ...out }, out.httpStatus);
   }
 

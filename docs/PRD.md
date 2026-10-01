@@ -9423,6 +9423,17 @@ that does not trace to one of these is a process failure (see §12).
     keeps its rows as history. `Test-PRD-P0-196`'s rule (a job whose only remaining rows are ones nobody checks
     by default is settled, not paused) is kept.
 
+    **Failure paths found by an independent review, all closed.** A claim whose UPDATE commits but whose reply
+    is lost is retried with the same per-request claim token and handed the row back, instead of finding it
+    "already claimed" and silently never running it (a different request's token never matches, so a row still
+    runs at most once). `POST /agent/batch-finish` (`finishBatchRun`) ends the run a click was given when its
+    loop is over, so a row whose claim or check-off could not be written cannot hold the upload locked for the
+    two-minute stale window; it only ends the run it names and never starts anything. A start that fails after
+    taking the job gives it back. Planning the same file again does not hand back a job the page itself would
+    treat as settled (`Test-PRD-P0-196`). The checklist returned at planning is built from the rows already in
+    memory (identical to what a reload reads back), and rows are saved in chunks of 100 so neither one oversized
+    value nor one query per row is ever needed.
+
     **No manual migration.** The assets database has no automated migration, so `ingest.js` creates its own
     tables (`CREATE ... IF NOT EXISTS`) the first time a query finds them missing; a test pins that definition to
     `assets.sql`'s. The whole sheet is saved in one statement (`json_each`), falling back to one statement per

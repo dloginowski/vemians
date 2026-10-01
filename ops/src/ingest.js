@@ -76,6 +76,7 @@ export const INGEST_SCHEMA = [
   payload            TEXT NOT NULL,
   queued_run         TEXT,
   claimed_at         TEXT,
+  claim_token        TEXT,
   submitted          INTEGER NOT NULL DEFAULT 0 CHECK (submitted IN (0, 1)),
   outcome            TEXT CHECK (outcome IN ('created', 'updated', 'unchanged', 'parked', 'skipped', 'failed')),
   detail             TEXT,
@@ -141,36 +142,43 @@ const rowRecord = (r) => ({
 const INSERT_COLUMNS =
   "job_id, row_key, display_row, title, sheet_style_id, category, subcategory, changes, summary, flag, flag_reason, payload";
 
+const INSERT_CHUNK = 100;
+
 async function insertRows(db, jobId, rows) {
   const records = rows.map(rowRecord);
-  /* One statement for the whole sheet: the plan request that makes this
-     already spends most of its per-request query budget, so it must not add
-     a query per row. */
-  try {
-    await db
-      .prepare(
-        `INSERT INTO ingest_row (${INSERT_COLUMNS})
-         SELECT ?, json_extract(value, '$.key'), json_extract(value, '$.display'), json_extract(value, '$.title'),
-                json_extract(value, '$.style'), json_extract(value, '$.category'), json_extract(value, '$.subcategory'),
-                json_extract(value, '$.changes'), json_extract(value, '$.summary'), json_extract(value, '$.flag'),
-                json_extract(value, '$.flagReason'), json_extract(value, '$.payload')
-           FROM json_each(?)`,
-      )
-      .bind(jobId, JSON.stringify(records))
-      .run();
-    return;
-  } catch (err) {
-    if (isMissingTable(err)) throw err;
-    console.error(`ERROR ingest: bulk row insert failed, falling back to one statement per row -- ${err.message}`);
-  }
-  /* Slower, never wrong: the same rows, one statement each. A partial failure
-     part-way through leaves some rows behind, which the caller's own failure
-     handling (createJob) cancels as a whole. */
-  for (const r of records) {
-    await db
-      .prepare(`INSERT INTO ingest_row (${INSERT_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind(jobId, r.key, r.display, r.title, r.style, r.category, r.subcategory, r.changes, r.summary, r.flag, r.flagReason, JSON.stringify(r.payload))
-      .run();
+  /* A statement per CHUNK of rows, not per row (the plan request that makes
+     this already spends most of its per-request query budget) and not one for
+     the whole sheet (one bound value must stay well inside the database's
+     per-value size limit, which a few hundred rows of full product payloads
+     could otherwise approach). */
+  for (let i = 0; i < records.length; i += INSERT_CHUNK) {
+    const chunk = records.slice(i, i + INSERT_CHUNK);
+    try {
+      await db
+        .prepare(
+          `INSERT INTO ingest_row (${INSERT_COLUMNS})
+           SELECT ?, json_extract(value, '$.key'), json_extract(value, '$.display'), json_extract(value, '$.title'),
+                  json_extract(value, '$.style'), json_extract(value, '$.category'), json_extract(value, '$.subcategory'),
+                  json_extract(value, '$.changes'), json_extract(value, '$.summary'), json_extract(value, '$.flag'),
+                  json_extract(value, '$.flagReason'), json_extract(value, '$.payload')
+             FROM json_each(?)`,
+        )
+        .bind(jobId, JSON.stringify(chunk))
+        .run();
+      continue;
+    } catch (err) {
+      if (isMissingTable(err)) throw err;
+      console.error(`ERROR ingest: bulk row insert failed, falling back to one statement per row -- ${err.message}`);
+    }
+    /* Slower, never wrong: the same rows, one statement each. A partial
+       failure part-way through leaves some rows behind, which the caller's
+       own failure handling (createJob) cancels as a whole. */
+    for (const r of chunk) {
+      await db
+        .prepare(`INSERT INTO ingest_row (${INSERT_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .bind(jobId, r.key, r.display, r.title, r.style, r.category, r.subcategory, r.changes, r.summary, r.flag, r.flagReason, JSON.stringify(r.payload))
+        .run();
+    }
   }
 }
 
@@ -205,7 +213,11 @@ export async function createJob(db, { actor, role, assetId, filename, mode, rows
 }
 
 /* The open job (if any) for exactly this upload: same person, same stored
-   file, same mode, with at least one row nobody has claimed yet. */
+   file, same mode, with at least one row nobody has claimed yet -- and not one
+   that openJobFor would already treat as settled (something done from it,
+   only rows nobody checks by default left): handing THAT back would show a
+   stale plan the page itself no longer shows, with no visible way to cancel
+   it. */
 export async function findOpenJob(db, { actor, assetId, mode }) {
   const row = await readOr(null, () =>
     db
@@ -213,12 +225,44 @@ export async function findOpenJob(db, { actor, assetId, mode }) {
         `SELECT j.id FROM ingest_job j
           WHERE j.actor = ? AND j.asset_id = ? AND j.mode = ? AND j.status IN ('ready', 'running')
             AND EXISTS (SELECT 1 FROM ingest_row r WHERE r.job_id = j.id AND r.claimed_at IS NULL)
+            AND (NOT EXISTS (SELECT 1 FROM ingest_row r WHERE r.job_id = j.id AND r.claimed_at IS NOT NULL)
+                 OR EXISTS (SELECT 1 FROM ingest_row r WHERE r.job_id = j.id AND r.claimed_at IS NULL AND r.flag IS NULL))
           ORDER BY j.created_at DESC, j.rowid DESC LIMIT 1`,
       )
       .bind(actor, assetId, mode)
       .first(),
   );
   return row?.id ?? null;
+}
+
+/* The checklist for a job that was JUST planned, built from the rows already
+   in memory -- the same shape checklistFor reads back, without three more
+   queries on the request that has just spent its budget planning. (A test
+   pins the two to be identical.) */
+export function checklistFromPlan(id, rows) {
+  return {
+    id,
+    done: 0,
+    total: rows.length,
+    rows: rows.map((r) => {
+      const flag = flagOf(r);
+      const reason = flagReasonOf(r) ?? undefined;
+      return {
+        row: r.rowNumber,
+        displayRow: r.displayRow ?? r.rowNumber,
+        title: r.title ?? "",
+        summary: r.summary ?? "",
+        sheetStyleId: r.sheetStyleId ?? "",
+        category: r.category ?? "",
+        subcategory: r.subcategory ?? "",
+        changes: r.changes ?? "",
+        possibleDuplicate: flag === "duplicate",
+        duplicateReason: flag === "duplicate" ? reason : undefined,
+        needsConfirmation: flag === "confirm",
+        confirmReason: flag === "confirm" ? reason : undefined,
+      };
+    }),
+  };
 }
 
 /* The checklist a person sees for a job: every row nobody has claimed yet,
@@ -363,8 +407,20 @@ export async function startRun(db, { id, actor, keys }) {
       );
     }
 
-    await db.prepare("UPDATE ingest_row SET queued_run = NULL WHERE job_id = ? AND queued_run IS NOT NULL").bind(id).run();
-    const count = await selectRows(db, { id, runId, keys });
+    let count;
+    try {
+      await db.prepare("UPDATE ingest_row SET queued_run = NULL WHERE job_id = ? AND queued_run IS NOT NULL").bind(id).run();
+      count = await selectRows(db, { id, runId, keys });
+    } catch (err) {
+      /* The job was taken above; do not leave it held by a run that never got
+         its rows, locking the person out until the stale window passes. */
+      await db
+        .prepare("UPDATE ingest_job SET status = 'ready', run_id = NULL WHERE id = ? AND run_id = ?")
+        .bind(id, runId)
+        .run()
+        .catch(() => {});
+      throw err;
+    }
     if (count === 0) await settleRun(db, { id, runId });
     return { ok: true, httpStatus: 200, runId, queued: count };
   });
@@ -377,17 +433,23 @@ export async function startRun(db, { id, actor, keys }) {
  * planned row to execute. When it does not succeed, a second, read-only
  * lookup says why (the common path stays one query).
  */
-export async function claimRow(db, { id, runId, key, actor }) {
+export async function claimRow(db, { id, runId, key, actor, token }) {
   return withSchema(db, async () => {
+    /* `token` is minted once per request. If a claim's UPDATE commits but its
+       reply is lost, the retry within that SAME request carries the same token
+       and gets the row back, instead of finding it "already claimed" and the
+       row's work silently never happening. A token from any other request
+       never matches, so a row still runs at most once. */
     const res = await db
       .prepare(
-        `UPDATE ingest_row SET claimed_at = datetime('now')
-          WHERE job_id = ? AND row_key = ? AND queued_run = ? AND claimed_at IS NULL
+        `UPDATE ingest_row SET claimed_at = COALESCE(claimed_at, datetime('now')), claim_token = ?
+          WHERE job_id = ? AND row_key = ? AND queued_run = ? AND submitted = 0
+            AND (claimed_at IS NULL OR claim_token = ?)
             AND EXISTS (SELECT 1 FROM ingest_job j
                          WHERE j.id = ingest_row.job_id AND j.actor = ? AND j.status = 'running' AND j.run_id = ?)
         RETURNING payload`,
       )
-      .bind(id, key, runId, actor, runId)
+      .bind(token ?? null, id, key, runId, token ?? null, actor, runId)
       .all();
     const claimed = (res.results ?? [])[0];
     if (claimed) return { ok: true, payload: JSON.parse(claimed.payload) };
@@ -434,6 +496,36 @@ export async function settleRun(db, { id, runId }) {
       .bind(id, id, runId, id, runId)
       .run(),
   );
+}
+
+/*
+ * The end of ONE click's run, called by the browser when its loop is over. The
+ * normal path ends a run by itself (settleRun, after the last selected row is
+ * checked off), but a row whose claim or check-off could not be written leaves
+ * that unreached -- and the person would be locked out of retrying for the
+ * stale window. This is the idempotent close: it never starts anything, only
+ * ends the run it names, clears its selection, and leaves the job ready for
+ * another click (or done, when nothing is left unclaimed). A row that was
+ * claimed but never finished stays claimed -- never retried on its own.
+ */
+export async function finishRun(db, { id, actor, runId }) {
+  return withSchema(db, async () => {
+    const job = await db.prepare("SELECT actor FROM ingest_job WHERE id = ?").bind(id).first();
+    if (!job) return { ok: true, httpStatus: 200 };
+    if (job.actor !== actor) return refusal(403, "That batch belongs to a different person.");
+    await db
+      .prepare(
+        `UPDATE ingest_job
+            SET status = CASE WHEN EXISTS (SELECT 1 FROM ingest_row WHERE job_id = ? AND claimed_at IS NULL)
+                              THEN 'ready' ELSE 'done' END,
+                run_id = NULL, updated_at = datetime('now')
+          WHERE id = ? AND run_id = ? AND status = 'running'`,
+      )
+      .bind(id, id, runId)
+      .run();
+    await db.prepare("UPDATE ingest_row SET queued_run = NULL WHERE job_id = ? AND queued_run = ?").bind(id, runId).run();
+    return { ok: true, httpStatus: 200 };
+  });
 }
 
 /* Cancel keeps the rows (the history of what was in the file stays); the job

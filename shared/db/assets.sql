@@ -165,6 +165,7 @@ CREATE TABLE ingest_row (
   payload            TEXT NOT NULL,
   queued_run         TEXT,
   claimed_at         TEXT,
+  claim_token        TEXT,
   submitted          INTEGER NOT NULL DEFAULT 0 CHECK (submitted IN (0, 1)),
   outcome            TEXT CHECK (outcome IN ('created', 'updated', 'unchanged', 'parked', 'skipped', 'failed')),
   detail             TEXT,

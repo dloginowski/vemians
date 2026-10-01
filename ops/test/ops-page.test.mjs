@@ -823,6 +823,9 @@ check("test_PRD_P0_202_upload_ledger__the_submit_click_starts_one_run_and_every_
   assert.ok(startAt < rowAt, "the run is started before any row is submitted");
   assert.match(script, /JSON\.stringify\(\{ id: c\.id, runId, row, title \}\)/, "every row submission carries the run id");
   assert.match(script, /if \(!started\.ok\)/, "a refused start runs nothing and tells the person why");
+  assert.match(script, /if \(!started\.queued\)/, "a click that selected no rows runs nothing");
+  assert.match(script, /result\.httpStatus === 409/, "a run that is over stops the loop instead of being refused row by row");
+  assert.match(script, /"\/ops\/agent\/batch-finish"/, "the loop closes its own run when it ends");
 });
 
 check("test_PRD_P0_123_table_everything_centered__headers_and_data_are_both_centered", async () => {

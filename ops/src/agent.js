@@ -36,7 +36,7 @@
 
 import { TOOLS, runTool, CAPS } from "./tools/index.js";
 import { draftProductBatch, draftCustomerBatch, previewBatch, planProductBatch, submitProductBatchRow } from "./batch.js";
-import { createJob, findOpenJob, checklistFor, openJobFor, startRun, claimRow, finishRow, settleRun, cancelJob } from "./ingest.js";
+import { createJob, findOpenJob, checklistFor, checklistFromPlan, openJobFor, startRun, finishRun, claimRow, finishRow, settleRun, cancelJob } from "./ingest.js";
 import { createRateLimiter } from "./tools/rate.js";
 
 const MODEL = "claude-sonnet-5";
@@ -793,7 +793,7 @@ async function dispatchProductBatchPlan(args, { actor, role, env, mode }) {
     isError: false,
     text: lines.join("\n"),
     table: batchDraftTable("products", { ready: plan.ready, skipped: plan.skipped }),
-    checklist: await checklistFor(env.ASSETS, id),
+    checklist: checklistFromPlan(id, plan.rows),
   };
 }
 
@@ -1906,6 +1906,17 @@ export async function startBatchRun({ id, rows, identity, env }) {
   }
 }
 
+/* The browser's loop is over: end the run it was given (ingest.js finishRun).
+   Never starts anything. */
+export async function finishBatchRun({ id, runId, identity, env }) {
+  try {
+    return await finishRun(env.ASSETS, { id, actor: identity.email, runId: typeof runId === "string" ? runId : "" });
+  } catch (err) {
+    console.error(`ERROR agent: ending a run on batch ${id} failed — ${err.message}`);
+    return { ok: false, httpStatus: 502, reply: "Could not close that run." };
+  }
+}
+
 /* The row's own outcome, in the words the ledger stores, and the check. Never
    throws: a row has already run by now, and failing to write its bookkeeping
    must not turn a real result into an error the person cannot act on. A row
@@ -1979,15 +1990,17 @@ export async function submitBatchPlanRow({ id, row, title, runId: givenRunId, id
   /* "Row 40 could not be marked as submitted. Nothing was run" -- a real
      report, on SEVERAL rows of one run from a single tab. The claim used to
      be attempted exactly once, so any one-request storage blip cost a whole
-     row. The row only becomes claimable again if the write never landed, so
-     repeating is safe: it either lands the first time or is refused as
-     already claimed. Only after every attempt fails does the row report,
-     still failing closed: nothing ran. */
+     row. Every attempt of THIS request carries the same claim token, so
+     repeating is safe both ways: a write that never landed simply lands now,
+     and one that landed but whose reply was lost hands the row back to the
+     retry instead of leaving it claimed and never run. Only after every
+     attempt fails does the row report, still failing closed: nothing ran. */
   let claim = null;
   let claimError = null;
+  const claimToken = crypto.randomUUID();
   for (let attempt = 1; attempt <= MARK_SPENT_ATTEMPTS; attempt += 1) {
     try {
-      claim = await claimRow(env.ASSETS, { id, runId, key: row, actor });
+      claim = await claimRow(env.ASSETS, { id, runId, key: row, actor, token: claimToken });
       claimError = null;
       break;
     } catch (err) {
