@@ -7478,6 +7478,130 @@ function db_passthrough(db) {
   return { ASSETS: db };
 }
 
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-200 / P0-201 — a checklist row says what the sheet called it, where it
+ * lands and exactly what would change; and a row is re-checked against the
+ * catalog at the moment it is submitted. "I want to see style IDs that are
+ * being provided by the table... and I want to see our result category and
+ * subcategory that's actually being applied to... a way for me to confirm
+ * where the things are being updated" / "If there's nothing changed, why is
+ * this job even triggering? The only thing that I should see are real
+ * changes" -- the owner's own words.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+async function createdCoatThenPlannedPriceChange(styleId, { newPrice = "120.00" } = {}) {
+  const f = await fixture({ actor: "zeynep@vemians.com", role: "manager", withCommerce: true });
+  const identity = { email: "zeynep@vemians.com", groups: ["vemians-manager"] };
+  const csv1 = `title,category,price,style id,quantity\nWool Coat,Outerwear,100.00,${styleId},3\n`;
+  const csv2 = `title,category,price,style id,quantity\nWool Coat,Outerwear,${newPrice},${styleId},3\n`;
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "zeynep@vemians.com", role: "manager", mode: "add" });
+    assert.equal(first.created.length, 1, JSON.stringify(first));
+    const assets = await assetsFixtureWithRow({ extracted_text: csv2 });
+    const env = { ...f.env, ASSETS: assets };
+    const outcome = await dispatch(
+      "catalog_update_product_batch",
+      { asset_id: "ast_1" },
+      { actor: "zeynep@vemians.com", role: "manager", env, allowed: new Set(["catalog_update_product_batch"]) },
+    );
+    return { f, env, identity, outcome, realFetch };
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+
+check("test_PRD_P0_200_checklist_shows_placement_and_changes__a_row_says_its_sheet_style_id_where_it_lands_and_what_changes", async () => {
+  const { f, outcome } = await createdCoatThenPlannedPriceChange("01-04-090");
+  assert.equal(outcome.kind, "checklist", JSON.stringify(outcome));
+  assert.equal(outcome.checklist.rows.length, 1, JSON.stringify(outcome.checklist.rows));
+  const row = outcome.checklist.rows[0];
+
+  assert.equal(row.sheetStyleId, "01-04-090", "the style ID the SHEET gave, verbatim");
+  const product = f.mirror(
+    "SELECT c.name AS leaf, pc.name AS parent FROM mirror_product p JOIN mirror_category_index c ON c.id = p.category_id LEFT JOIN mirror_category_index pc ON pc.id = c.parent_id WHERE p.title = 'Wool Coat'",
+  )[0];
+  const expectedCategory = product.parent ?? product.leaf;
+  const expectedSub = product.parent ? product.leaf : "";
+  assert.ok(expectedCategory, "sanity: the product really sits in a category");
+  assert.equal(row.category, expectedCategory, "the category the row actually lands in");
+  assert.equal(row.subcategory, expectedSub, "and its subcategory");
+  assert.match(row.changes, /price 100\.00 -> 120\.00/, `the exact change, old to new, got: ${row.changes}`);
+});
+
+check("test_PRD_P0_200_checklist_shows_placement_and_changes__the_submitted_result_reports_where_the_row_actually_landed", async () => {
+  const { f, env, identity, outcome, realFetch } = await createdCoatThenPlannedPriceChange("01-04-091");
+  const row = outcome.checklist.rows[0];
+  globalThis.fetch = f.square;
+  try {
+    const result = await submitBatchPlanRow({ id: outcome.checklist.id, row: row.row, identity, env });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(result.status, "updated", JSON.stringify(result));
+    assert.equal(result.sheetStyleId, "01-04-091");
+    assert.equal(result.category, row.category, "read back from the catalog after the write");
+    assert.equal(result.subcategory, row.subcategory);
+    const live = f.mirror("SELECT style_id FROM mirror_product WHERE title = 'Wool Coat'")[0].style_id ?? "";
+    assert.equal(result.styleId, live, "the style ID the product carries on file right now (a product filed directly under a top-level category has none yet)");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_200_checklist_shows_placement_and_changes__the_cost_only_fallback_row_is_also_suppressed_when_the_cost_already_matches", async () => {
+  /* The vendor/cost fallback (every size on the sheet clashed, so only the
+     product-level cost is applied) used to be offered even when every
+     variation already carried exactly that cost on a product that already
+     has a vendor -- a no-op like any other. It now falls through to the
+     ordinary clash, which still tells a person about the unadded sizes. */
+  const f = await fixture({ actor: "zeynep@vemians.com", role: "manager", withCommerce: true });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const csv1 = "title,category,price,style id,cost,quantity\nWool Coat,Outerwear,450.00,01-04-093,210.00,3\n";
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "zeynep@vemians.com", role: "manager", mode: "add" });
+    assert.equal(first.created.length, 1, JSON.stringify(first));
+
+    /* A new size with no usable price clashes; the cost on the sheet is the
+       one the product already has. */
+    const csv2 = "title,category,price,style id,cost,size,quantity\nWool Coat,Outerwear,n/a,01-04-093,210.00,XL,3\n";
+    const second = await draftProductBatch(f.env, { text: csv2, actor: "zeynep@vemians.com", role: "manager", mode: "update" });
+    assert.equal(second.created.length, 0, `a cost the product already carries must not be rewritten, got: ${JSON.stringify(second)}`);
+    assert.equal(second.ready.length, 1, `the unadded size still surfaces as a clash, got: ${JSON.stringify(second)}`);
+    assert.match(second.ready[0].summary, /needs a real price/);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_201_submit_time_recheck__a_row_the_catalog_already_matches_is_not_written_again", async () => {
+  /* A plan can be older than the catalog it was made against. Plan a price
+     change, then let the catalog reach that price some other way before the
+     row is submitted: submitting must report "unchanged" and make no write. */
+  const { f, env, identity, outcome, realFetch } = await createdCoatThenPlannedPriceChange("01-04-092");
+  const row = outcome.checklist.rows[0];
+  globalThis.fetch = f.square;
+  try {
+    const applied = await draftProductBatch(f.env, {
+      text: "title,category,price,style id,quantity\nWool Coat,Outerwear,120.00,01-04-092,3\n",
+      actor: "zeynep@vemians.com",
+      role: "manager",
+      mode: "update",
+    });
+    assert.equal(applied.created.length, 1, `sanity: the price really changed out of band, got: ${JSON.stringify(applied)}`);
+
+    const writesBefore = f.calls().filter((c) => c.path === "/v2/catalog/object").length;
+    const result = await submitBatchPlanRow({ id: outcome.checklist.id, row: row.row, identity, env });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(result.status, "unchanged", `expected no write, got: ${JSON.stringify(result)}`);
+    assert.match(result.reason, /nothing to change/);
+    assert.equal(f.calls().filter((c) => c.path === "/v2/catalog/object").length, writesBefore, "no catalog write may be made for a row that already matches");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 check("test_PRD_P0_152_style_number_grouping__cancel_actually_deletes_the_plan_never_just_the_local_panel", async () => {
   /* "I would have to hit cancel to actually clear a job in progress" -- the
      owner's own words, already assuming Cancel did this; it never reached

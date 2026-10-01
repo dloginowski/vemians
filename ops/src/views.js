@@ -1238,6 +1238,8 @@ ${TABLE_CARD_CSS}
 .gate .checklist-fields { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
 .gate .checklist-title { font: inherit; color: inherit; background: transparent; border: 1px solid var(--rule); border-radius: 6px; padding: 3px 6px; }
 .gate .checklist-summary { color: var(--muted); font-size: 12px; }
+.gate .checklist-meta { color: var(--muted); font-size: 12px; }
+.gate .checklist-changes { font-size: 12px; }
 /* "That should be a flag saying, hey, are you sure?" — the owner's own
    words. The same --accent this whole panel already reserves for "needs
    your attention, unlike the field beside it" (a dirty save button, a
@@ -1889,6 +1891,9 @@ function checklistCard(c) {
     li.className = r.possibleDuplicate || r.needsConfirmation ? "checklist-row checklist-row-duplicate" : "checklist-row";
     li.dataset.row = String(r.row);
     li.dataset.displayRow = String(r.displayRow);
+    li.dataset.sheetStyle = r.sheetStyleId || "";
+    li.dataset.category = r.category || "";
+    li.dataset.subcategory = r.subcategory || "";
     const box = document.createElement("input");
     box.type = "checkbox";
     box.checked = !r.possibleDuplicate && !r.needsConfirmation;
@@ -1903,7 +1908,22 @@ function checklistCard(c) {
     const summary = document.createElement("span");
     summary.className = "checklist-summary";
     summary.textContent = r.summary;
+    /* "I want to see style IDs that are being provided by the table... and
+       our result category and subcategory that's actually being applied
+       to" -- the owner's own words: the style ID the sheet gave, and the
+       category and subcategory this row lands in, right under the title. */
+    const where = [r.category, r.subcategory].filter(Boolean).join(" › ");
+    const meta = document.createElement("span");
+    meta.className = "checklist-meta";
+    meta.textContent = (r.sheetStyleId ? "Style " + r.sheetStyleId : "No style ID on the sheet") + " · " + (where ? "goes to " + where : "no category");
     fields.appendChild(titleInput);
+    fields.appendChild(meta);
+    if (r.changes) {
+      const changesEl = document.createElement("span");
+      changesEl.className = "checklist-changes";
+      changesEl.textContent = "Changes: " + r.changes;
+      fields.appendChild(changesEl);
+    }
     fields.appendChild(summary);
     if (r.possibleDuplicate) {
       const warning = document.createElement("span");
@@ -1998,8 +2018,9 @@ function checklistCard(c) {
     let updated = 0;
     let parked = 0;
     let skipped = 0;
+    let unchanged = 0;
     const rows = [];
-    for (const { row, displayRow, title } of items) {
+    for (const { row, displayRow, title, sheetStyle, category, subcategory } of items) {
       if (cancelRequested) break;
       status.textContent = "Submitting " + (bar.value + 1) + " of " + planTotal + "…";
       let result;
@@ -2029,19 +2050,29 @@ function checklistCard(c) {
          in this comment on purpose -- this whole script block is plain
          text inside the page's own outer template literal, and a literal
          backtick anywhere in it would close that one early. */
+      /* Where this row landed: the sheet's own style ID, the category and
+         subcategory it was filed under, and the style ID it now carries.
+         A request that failed outright never reached the server's own
+         answer, so it falls back to what the checklist itself showed. */
+      const place = result.ok
+        ? [result.sheetStyleId || "", result.category || "", result.subcategory || "", result.styleId || ""]
+        : [sheetStyle || "", category || "", subcategory || "", ""];
       if (result.ok && (result.status === "created" || result.status === "updated")) {
         if (result.status === "updated") updated += 1;
         else created += 1;
-        rows.push([String(displayRow), result.title, result.status, result.summary]);
+        rows.push([String(displayRow), result.title, ...place, result.status, result.summary]);
+      } else if (result.ok && result.status === "unchanged") {
+        unchanged += 1;
+        rows.push([String(displayRow), result.title, ...place, "no change", result.reason || ""]);
       } else if (result.ok && result.status === "parked") {
         parked += 1;
-        rows.push([String(displayRow), result.title, "needs a person", (result.summary || "") + (result.url ? " — " + result.url : "")]);
+        rows.push([String(displayRow), result.title, ...place, "needs a person", (result.summary || "") + (result.url ? " — " + result.url : "")]);
       } else if (result.ok) {
         skipped += 1;
-        rows.push([String(displayRow), result.title, "skipped", result.reason || ""]);
+        rows.push([String(displayRow), result.title, ...place, "skipped", result.reason || ""]);
       } else {
         skipped += 1;
-        rows.push([String(displayRow), title, "skipped", result.reply || "failed"]);
+        rows.push([String(displayRow), title, ...place, "skipped", result.reply || "failed"]);
       }
     }
     running = false;
@@ -2061,12 +2092,12 @@ function checklistCard(c) {
     }
 
     gate.textContent = "";
-    const updatedNote = updated ? updated + " updated, " : "";
+    const updatedNote = (updated ? updated + " updated, " : "") + (unchanged ? unchanged + " already up to date, " : "");
     const cancelNote = cancelRequested ? " Cancelled before the rest." : "";
     entry("agent", created + " created, " + updatedNote + parked + " need a person's decision, " + skipped + " skipped." + cancelNote);
     tableCard({
       title: "Products: " + created + " created, " + updatedNote + parked + " need a person's decision, " + skipped + " skipped" + cancelNote,
-      columns: ["Row", "Title", "Status", "Detail"],
+      columns: ["Row", "Title", "Sheet style ID", "Category", "Subcategory", "Style ID now", "Status", "Detail"],
       rows,
       /* Same "9 need a person's decision... collapsed" complaint this
          checklist itself was built to answer — see .table-card.tall's own
@@ -2078,7 +2109,14 @@ function checklistCard(c) {
   function checkedItems() {
     return [...list.querySelectorAll("li.checklist-row")]
       .filter((li) => li.querySelector(".checklist-check").checked)
-      .map((li) => ({ row: Number(li.dataset.row), displayRow: Number(li.dataset.displayRow), title: li.querySelector(".checklist-title").value }));
+      .map((li) => ({
+        row: Number(li.dataset.row),
+        displayRow: Number(li.dataset.displayRow),
+        title: li.querySelector(".checklist-title").value,
+        sheetStyle: li.dataset.sheetStyle,
+        category: li.dataset.category,
+        subcategory: li.dataset.subcategory,
+      }));
   }
 
   submitBtn.addEventListener("click", () => runSubmit(checkedItems()));

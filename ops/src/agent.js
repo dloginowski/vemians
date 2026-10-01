@@ -778,6 +778,14 @@ async function dispatchProductBatchPlan(args, { actor, role, env, mode }) {
         displayRow: r.displayRow ?? r.rowNumber,
         title: r.title,
         summary: r.summary,
+        /* What the sheet itself called this row, where it lands, and exactly
+           what would change -- shown beside the checkbox so a person can
+           confirm a row is going where they expect, and that it is a REAL
+           change, before pressing Submit. */
+        sheetStyleId: r.sheetStyleId ?? "",
+        category: r.category ?? "",
+        subcategory: r.subcategory ?? "",
+        changes: r.changes ?? "",
         possibleDuplicate: Boolean(r.possibleDuplicate),
         duplicateReason: r.duplicateReason,
         /* "They should show up but unchecked... I should tell you
@@ -2091,6 +2099,10 @@ export async function openBatchPlanFor(env, actor) {
       displayRow: r.displayRow ?? r.rowNumber,
       title: r.title,
       summary: r.summary,
+      sheetStyleId: r.sheetStyleId ?? "",
+      category: r.category ?? "",
+      subcategory: r.subcategory ?? "",
+      changes: r.changes ?? "",
       possibleDuplicate: Boolean(r.possibleDuplicate),
       duplicateReason: r.duplicateReason,
       needsConfirmation: Boolean(r.needsConfirmation),

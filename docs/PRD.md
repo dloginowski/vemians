@@ -9368,6 +9368,30 @@ that does not trace to one of these is a process failure (see §12).
     contract (the plan survives a reload and reports how far it got) is unchanged — only the automatic
     run it used to trigger is gone.
 
+132. **`Test-PRD-P0-200-checklist_shows_placement_and_changes`** — "I want to see style IDs that are being
+    provided by the table, like the submission table. And I want to see our result category and
+    subcategory that's actually being applied to. This is a way for me to confirm... where the things are
+    being updated" — the owner's own words. Every planned row now carries `sheetStyleId` (the style ID the
+    SHEET gave, verbatim), `category`/`subcategory` (where it lands: the category its `category_id` names for a
+    create, the category the matched product already sits in for an update) and `changes` (one short line per
+    real difference, "price 100.00 -> 120.00"), stamped in `resolveProductRows` (`batch.js`) and carried by
+    `dispatchProductBatchPlan`/`openBatchPlanFor` (`agent.js`). `checklistCard` (`views.js`) shows them under
+    each title; the results table gains "Sheet style ID", "Category", "Subcategory" and "Style ID now"
+    columns, read back from the catalog AFTER the write (`appliedPlacement`) so it reports what is on file, not
+    what was hoped for. `changes` comes from the same function that decides whether a row appears at all
+    (`catalogChangesFor`), so the lines a person reads are exactly the reasons the row exists — an empty list
+    is the single definition of a no-op. The vendor/cost-only fallback row, which used to skip that check, is
+    now suppressed the same way when every variation already carries that cost on a product that already has a
+    vendor, falling through to the ordinary clash that still names any unadded sizes.
+
+133. **`Test-PRD-P0-201-submit_time_recheck`** — "If there's nothing changed, why is this job even triggering?
+    The only thing that I should see are real changes" — the owner's own words. A plan can be older than the
+    catalog it was made against (a first run already applied part of it, an item was edited by hand, a sheet was
+    resubmitted). `submitProductBatchRow` now compares a `catalog.update_product` row against what is on file
+    RIGHT NOW, with the same `catalogChangesFor` that decided it was worth showing, and returns status
+    "unchanged" without any write when nothing is left to change; the results table reports it as "no change"
+    and counts it as "already up to date" instead of hiding it or calling it a failure.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

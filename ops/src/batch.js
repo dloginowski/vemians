@@ -45,6 +45,7 @@ import {
   categoryProductCounts,
   LEGACY_COST_FIELD_KEYS,
   LEGACY_MARGIN_FIELD_KEYS,
+  productByHandle,
   productByImportStyleNumber,
   productByStyleId,
   productsByCategoryAndTitle,
@@ -1231,6 +1232,65 @@ function stripTbdOptions(options) {
   return Object.fromEntries(Object.entries(options ?? {}).filter(([, value]) => String(value).trim().toUpperCase() !== "TBD"));
 }
 
+
+/* Plain money text for a change line: 12000 -> "120.00". */
+const moneyText = (minor) => (minor === null || minor === undefined ? "none" : (Number(minor) / 100).toFixed(2));
+
+/* "Black / M", or "one size" for a variation with no options at all. */
+function variationLabel(options) {
+  const values = Object.values(options ?? {}).filter(Boolean);
+  return values.length ? values.join(" / ") : "one size";
+}
+
+/*
+ * Every REAL difference between what a matched row would send to
+ * catalog.update_product and what is already on file -- one short line each,
+ * "price 100.00 -> 120.00". An empty list is the single definition of "this
+ * row is a no-op" (Test-PRD-P0-194-resubmit_no_op_suppression), so the lines
+ * a person reads in the checklist are exactly the reasons the row exists at
+ * all -- "the only thing I should see are real changes," the owner's own
+ * words -- and the same function re-checks a row at the moment it is about
+ * to be submitted, so a plan made earlier can never write back values the
+ * catalog already holds. title/description only count when the sheet gave a
+ * real column for them (titleCol gates both, the same way the args' own
+ * construction does); a variation with no variant_id is a brand-new size/
+ * color and always a real change.
+ */
+export function catalogChangesFor({ existing, existingVariants, titleCol, descriptionCol, variations }) {
+  const changes = [];
+  if (titleCol && titleCol.slice(0, 200) !== existing.title) {
+    changes.push(`title "${existing.title}" -> "${titleCol.slice(0, 200)}"`);
+  }
+  if (titleCol && descriptionCol && descriptionCol !== existing.source_description) {
+    changes.push("description");
+  }
+  for (const v of variations ?? []) {
+    const current = v.variant_id ? existingVariants.find((ev) => ev.id === v.variant_id) : null;
+    if (!current) {
+      changes.push(`new variation ${variationLabel(v.option_values)}`);
+      continue;
+    }
+    const label = existingVariants.length > 1 ? `${variationLabel(current.options)}: ` : "";
+    if (v.price_minor !== undefined && v.price_minor !== current.price_minor) {
+      changes.push(`${label}price ${moneyText(current.price_minor)} -> ${moneyText(v.price_minor)}`);
+    }
+    if (v.unit_cost_minor !== undefined && v.unit_cost_minor !== current.unit_cost_minor) {
+      changes.push(`${label}cost ${moneyText(current.unit_cost_minor)} -> ${moneyText(v.unit_cost_minor)}`);
+    }
+  }
+  return changes;
+}
+
+/* The top-level category and (when there is one) subcategory NAMES a
+   category id lands in -- "I want to see our result category and
+   subcategory that's actually being applied," the owner's own words. */
+export function categoryLabels(categories, categoryId) {
+  const leaf = categoryId ? categories.find((c) => c.id === categoryId) : null;
+  if (!leaf) return { category: "", subcategory: "" };
+  const parent = leaf.parent_id ? categories.find((c) => c.id === leaf.parent_id) : null;
+  return parent ? { category: parent.name, subcategory: leaf.name } : { category: leaf.name, subcategory: "" };
+}
+
 /*
  * A resubmit of a group already matched to `existing` (draftGroupedProduct's
  * own import_style_number lookup, just below) -- "all the sizes are the
@@ -1468,6 +1528,8 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
                 args: { variant_id: match.id, delta: parsedQuantity - current },
                 toolName: "inventory.adjust",
                 note: `resubmit corrected stock from ${current} to ${parsedQuantity}`,
+                changes: `stock ${current} -> ${parsedQuantity}`,
+                categoryId: existing.category_id ?? null,
                 ...(needsConfirmation
                   ? {
                       needsConfirmation: true,
@@ -1537,7 +1599,21 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
      person to add them by hand -- unchanged -- but that no longer blocks
      the vendor/cost update the rest of the sheet was clearly also asking
      for. */
-  if (variations.length === 0 && clashes.length > 0 && unitCostMinor !== undefined && !allZeroStock) {
+  /* Only worth a row when it would actually change something: a cost every
+     variation already carries, on a product that already has a vendor, is a
+     no-op like any other -- falls through to the ordinary clash below
+     instead, which still tells a person about the sizes that were not
+     added. */
+  const fallbackChanges =
+    unitCostMinor === undefined
+      ? []
+      : [
+          ...(!existing.vendor ? ["vendor none -> In-house"] : []),
+          ...(existingVariants.some((ev) => ev.unit_cost_minor !== unitCostMinor)
+            ? [`cost ${moneyText(existingVariants[0]?.unit_cost_minor)} -> ${moneyText(unitCostMinor)}`]
+            : []),
+        ];
+  if (variations.length === 0 && clashes.length > 0 && unitCostMinor !== undefined && !allZeroStock && fallbackChanges.length > 0) {
     const newOnes = groupRows.map(({ record, color, size }) =>
       Object.values({ ...(color ? { Color: color } : {}), ...(size ? { Size: size } : {}), ...optionValues(record) }).join(", ") || "(no size/color)",
     );
@@ -1548,6 +1624,8 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
         args: { handle: existing.handle, unit_cost_minor: unitCostMinor, ...(existing.vendor ? {} : { clear_vendor: true }) },
         toolName: "catalog.set_square_attributes",
         note: `new sizes/colors on this sheet (${newOnes.join(", ")}) were not added -- add them by hand, then resubmit to price them`,
+        changes: fallbackChanges.join("; "),
+        categoryId: existing.category_id ?? null,
       },
       extraRows: quantityAdjustments,
     };
@@ -1580,23 +1658,23 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
      reconciliation this same row may have queued (extraRows) is entirely
      independent and still shows up on its own when it represents a real
      change -- this only ever suppresses the CATALOG edit itself. */
-  const hasRealCatalogChange =
-    (titleCol && titleCol.slice(0, 200) !== existing.title) ||
-    (titleCol && descriptionCol && descriptionCol !== existing.source_description) ||
-    variations.some((v) => {
-      if (!v.variant_id) return true;
-      const current = existingVariants.find((ev) => ev.id === v.variant_id);
-      if (!current) return true;
-      if (v.price_minor !== undefined && v.price_minor !== current.price_minor) return true;
-      if (v.unit_cost_minor !== undefined && v.unit_cost_minor !== current.unit_cost_minor) return true;
-      return false;
-    });
+  const changes = catalogChangesFor({ existing, existingVariants, titleCol, descriptionCol, variations });
 
-  if (!hasRealCatalogChange) {
+  if (changes.length === 0) {
     return { extraRows: quantityAdjustments };
   }
 
-  return { row: { rowNumber: firstRow, title, args, toolName: "catalog.update_product" }, extraRows: quantityAdjustments };
+  return {
+    row: {
+      rowNumber: firstRow,
+      title,
+      args,
+      toolName: "catalog.update_product",
+      changes: changes.join("; "),
+      categoryId: existing.category_id ?? null,
+    },
+    extraRows: quantityAdjustments,
+  };
 }
 
 async function draftGroupedProduct(env, ctx, base, groupRows) {
@@ -2122,6 +2200,10 @@ async function resolveProductRows(env, { actor, role, mode }, records) {
 
   for (const base of groupOrder) {
     const outcome = await draftGroupedProduct(env, { actor, role, categories, reservedNumericIds, reservedSubcategoryNumericIds, categoryCache, nextAutoTitle, rate, mode }, base, groups.get(base));
+    /* The style ID the SHEET itself gave this group, kept on every row it
+       produces (the catalog edit and any stock row alongside it) so the
+       checklist and results can show it next to where the row lands. */
+    for (const r of [outcome.row, ...(outcome.extraRows ?? [])]) if (r) r.sheetStyleId = base;
     if (outcome.clash) clashes.push(outcome.clash);
     else if (outcome.row) rows.push(outcome.row);
     if (outcome.extraRows?.length) rows.push(...outcome.extraRows);
@@ -2138,6 +2220,20 @@ async function resolveProductRows(env, { actor, role, mode }, records) {
     if (outcome.clash) clashes.push(outcome.clash);
     else if (outcome.row) rows.push(outcome.row);
     if (outcome.extraRows?.length) rows.push(...outcome.extraRows);
+  }
+
+  /* "I want to see style IDs that are being provided by the table... and I
+     want to see our result category and subcategory that's actually being
+     applied to... a way for me to confirm where the things are being
+     updated" -- the owner's own words. A create lands in the category its
+     args name; a matched update lands in the category the existing product
+     already sits in (categoryId, set by draftProductUpdate). */
+  for (const row of rows) {
+    const labels = categoryLabels(categories, row.categoryId ?? row.args?.category_id);
+    row.category = labels.category;
+    row.subcategory = labels.subcategory;
+    row.sheetStyleId ??= "";
+    if (!row.changes) row.changes = row.toolName === "catalog.create_product" ? "new product" : "";
   }
 
   return { rows, clashes, rate };
@@ -2459,15 +2555,72 @@ export async function planProductBatch(env, { text, actor, role, mode }) {
  */
 const TITLE_EDITABLE_TOOLS = new Set(["catalog.create_product", "catalog.update_product"]);
 
+/* What a result row shows next to its status: the style ID the sheet gave,
+   and the category/subcategory the row landed in. The planned values are the
+   fallback (a parked or skipped row never landed anywhere, so showing where
+   it WOULD have gone is the useful answer); a row that really wrote reads
+   the product back, so what is shown is what is now on file, not what was
+   hoped for. */
+async function appliedPlacement(env, handle, planned) {
+  const fallback = { styleId: "", category: planned.category ?? "", subcategory: planned.subcategory ?? "" };
+  if (!handle) return fallback;
+  try {
+    const product = await productByHandle(env.CATALOG_MIRROR, handle);
+    if (!product) return fallback;
+    const labels = categoryLabels(await listCategories(env.CATALOG_MIRROR), product.category_id);
+    return { styleId: product.style_id ?? "", category: labels.category, subcategory: labels.subcategory };
+  } catch (err) {
+    console.error(`ERROR batch.js: could not read back where "${handle}" landed -- ${err.message}`);
+    return fallback;
+  }
+}
+
 export async function submitProductBatchRow(env, { actor, role, rate }, row, editedTitle) {
   const target =
     editedTitle && TITLE_EDITABLE_TOOLS.has(row.toolName)
       ? { ...row, title: editedTitle, args: { ...row.args, title: editedTitle } }
       : row;
+  const planned = { sheetStyleId: target.sheetStyleId ?? "", category: target.category ?? "", subcategory: target.subcategory ?? "" };
+
+  /* "If there's nothing changed, why is this job even triggering?" -- the
+     owner's own words. A plan can be older than the catalog it was made
+     against (a first run already applied part of it, a person edited the
+     item by hand, a sheet was resubmitted), so a catalog edit is compared
+     against what is on file RIGHT NOW, with the very same function that
+     decided it was worth showing, and skipped without any write when there
+     is nothing left to change. */
+  if (target.toolName === "catalog.update_product" && target.args?.handle) {
+    const current = await productByHandle(env.CATALOG_MIRROR, target.args.handle);
+    if (current) {
+      const variants = await variantsWithOptionsOf(env.CATALOG_MIRROR, current.id);
+      const changes = catalogChangesFor({
+        existing: current,
+        existingVariants: variants,
+        titleCol: target.args.title,
+        descriptionCol: target.args.description,
+        variations: target.args.variations ?? [],
+      });
+      if (changes.length === 0) {
+        const placement = await appliedPlacement(env, target.args.handle, planned);
+        return {
+          status: "unchanged",
+          row: target.displayRow ?? target.rowNumber,
+          title: target.title,
+          reason: "already matches what is on file -- nothing to change",
+          ...planned,
+          ...placement,
+        };
+      }
+    }
+  }
+
   const { created, parked, skipped } = await createRows(env, { actor, role, rate }, [target]);
-  if (created.length) return { status: created[0].action, ...created[0] };
-  if (parked.length) return { status: "parked", ...parked[0] };
-  return { status: "skipped", ...skipped[0] };
+  if (created.length) {
+    const placement = await appliedPlacement(env, created[0].handle, planned);
+    return { status: created[0].action, ...created[0], ...planned, ...placement };
+  }
+  if (parked.length) return { status: "parked", ...parked[0], ...planned, styleId: "" };
+  return { status: "skipped", ...skipped[0], ...planned, styleId: "" };
 }
 
 /* ── export ───────────────────────────────────────────────────────────── */
