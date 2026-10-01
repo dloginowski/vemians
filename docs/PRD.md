@@ -9500,6 +9500,17 @@ that does not trace to one of these is a process failure (see §12).
     s, only the "s" is the plural ("Oversizes" -> oversize, "Purses" -> purse); "-sses", "-xes", "-ches" and
     "-shes" still lose "es". It also stops `pluralize("Purses")` producing "Purss".
 
+140. **`Test-PRD-P0-208-every_variation_has_every_option`** — a row of the owner's upload (47, "Evening dress",
+    style 001-004-002) came back "needs a person": `Square POST /v2/catalog/object failed with 400 —
+    INVALID_REQUEST_ERROR/BAD_REQUEST: Expected ItemVariation to have 2 Item Option Values, got 0`. Square
+    refuses an item whose variations do not all carry a value for every option the item declares. Rows of one
+    product that name a colour and a size, only a size, or neither produced variations with different numbers
+    of option values. `catalog-writer.js` now gives a variation missing one of the item's options that
+    option's neutral value ("OS" for a size, the shop's existing convention; "N/A" for anything else), on
+    create (the options used by any variation of the new item) and on update (the options the item already
+    declares, for existing and added variations alike). The test Square now enforces the same rule, so any
+    write path that breaks it fails a test instead of reaching a shop.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

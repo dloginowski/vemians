@@ -865,6 +865,29 @@ export function createSquareCatalogWriter(env, opts = {}) {
     return (res.results ?? []).map((r) => r.external_ref);
   }
 
+  /* The option NAME behind each of an item's declared option refs, in the
+     order given. Used to give a variation that lacks one of the item's
+     options a value for it (see fillOptionValue). */
+  async function optionNamesFor(refs) {
+    const names = new Map();
+    for (const ref of refs) {
+      const row = await mirrorDb.prepare("SELECT name FROM mirror_item_option_index WHERE external_ref = ?").bind(ref).first();
+      if (row?.name) names.set(ref, row.name);
+    }
+    return names;
+  }
+
+  /* Square rejects an item whose variations do not ALL carry a value for
+     EVERY option the item declares ("Expected ItemVariation to have 2 Item
+     Option Values, got 1"). A sheet whose rows for one product differ (one
+     row has a colour, another only a size, another neither) used to send
+     exactly that. A variation lacking an option takes that option's neutral
+     value: "OS" for a size (the shop's existing convention), "N/A" for
+     anything else. */
+  function neutralOptionValue(optionName) {
+    return String(optionName).trim().toLowerCase() === "size" ? "OS" : "N/A";
+  }
+
   /*
    * "If we are adding a set of items and we specify its size or color, and
    * this size or color is not already defined in our option, add this size
@@ -1450,9 +1473,17 @@ export function createSquareCatalogWriter(env, opts = {}) {
          external_ref exists yet for a product that does not exist yet)
          plus each variation's own title/option_values, so two variations
          on the same new item never collide with each other. */
+      const usedOptionNames = [...new Set(variations.flatMap((v) => Object.keys(v.option_values ?? {})))];
       const resolvedVariations = variations.map((v) => ({
         ...v,
         sku: generateSku(`${title}|${v.title}|${JSON.stringify(v.option_values ?? {})}`),
+        ...(usedOptionNames.length
+          ? {
+              option_values: Object.fromEntries(
+                usedOptionNames.map((name) => [name, (v.option_values ?? {})[name] ?? neutralOptionValue(name)]),
+              ),
+            }
+          : {}),
       }));
       /* A variation naming a Size/Color (etc.) it wants is resolved to
          Square's own refs here, minting whichever half (the option
@@ -1628,11 +1659,20 @@ export function createSquareCatalogWriter(env, opts = {}) {
          to follow itemOptionRefs' own order below — never Object.entries'
          own, which is meaningless to Square. */
       const variationOptionValueRefs = [];
+      const declaredOptionNames = await optionNamesFor(resolvedItemOptionExternalRefs);
       for (const v of keep) {
         const byOptionRef = new Map();
         for (const [optionName, valueName] of Object.entries(v.option_values ?? {})) {
           const { itemOptionRef, itemOptionValueRef } = await ensureItemOptionValue(optionName, valueName, resolvedItemOptionExternalRefs);
           byOptionRef.set(itemOptionRef, { item_option_id: itemOptionRef, item_option_value_id: itemOptionValueRef });
+        }
+        /* A variation missing one of the item's declared options takes that
+           option's neutral value, or Square refuses the whole item. */
+        for (const ref of resolvedItemOptionExternalRefs) {
+          const name = declaredOptionNames.get(ref);
+          if (byOptionRef.has(ref) || !name) continue;
+          const filled = await ensureItemOptionValue(name, neutralOptionValue(name), resolvedItemOptionExternalRefs);
+          byOptionRef.set(filled.itemOptionRef, { item_option_id: filled.itemOptionRef, item_option_value_id: filled.itemOptionValueRef });
         }
         variationOptionValueRefs.push(resolvedItemOptionExternalRefs.map((ref) => byOptionRef.get(ref)).filter(Boolean));
       }
