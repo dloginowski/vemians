@@ -8735,6 +8735,44 @@ that does not trace to one of these is a process failure (see §12).
     with neither pre-selected, and a POST that skips the mode field entirely is refused with a plain
     reason naming the missing choice.
 
+    **REVISED: the mode split itself is retired.** "I think if we have the system to do style IDs as
+    our main differentiator, it should be like one operation... we're just updating information if
+    what we're submitting is different than what we have" — the owner's own words. The PRIMARY match
+    (`import_style_number`, then live `style_id`) now runs unconditionally in `draftGroupedProduct` and
+    `draftNamedCategoryProduct`, regardless of which of the two tools/buttons a caller used — a style
+    ID either names a real product or it does not, never a guess, so there is no longer any reason to
+    gate it behind an explicit choice. A match always becomes an update; a genuine miss always falls
+    through to a fresh create (the "update never silently creates" refusal from above is gone with
+    it — a miss now simply means a new item, the one thing "add" always meant). `flagLikelyDuplicates`
+    moved from gating on the whole batch's own mode to gating on each ROW's own resolved `toolName`
+    (`catalog.create_product` only) — the correct, finer-grained scope now that a single "add"-labeled
+    batch can contain both real creates and matched updates side by side.
+
+    **One piece deliberately NOT unified, flagged rather than guessed past:** the category+subcategory
+    +title NAME fallback (used only when the primary ID-based match finds nothing) still only runs for
+    "update"-labeled calls. "Make sure you're not just blindly matching for naming matches... the style
+    ID is your source of truth" — the owner's own words, this same session, after this exact fallback's
+    own risk became obvious live: a brand-new style number for a product that merely happens to share a
+    title and category with an existing one would otherwise be silently merged into it by name alone —
+    the PRD-023 boundary violated to resolve one legitimate case (a resubmit sheet that regenerates its
+    own style numbers from category+subcategory+index, so a category renumbering changes the number a
+    real, unchanged product carries) by potentially breaking a very different one (two real,
+    intentionally-different items that happen to share a name). Left exactly where it already was
+    rather than extending its reach without a safe way to tell those two cases apart — the one open
+    question left for the owner to weigh in on before this fallback's own scope changes any further.
+
+    **`catalog.update_product` grows a brand-new, option-bearing variation (not just an edit to one that
+    already exists).** "If there is additional options or additional sizes added to the same style ID,
+    we're just adding more to the existing item... we're not rejecting them, we're adding to them" —
+    the owner's own words, after a real resubmit was refused for naming a size the matched product did
+    not have yet. `draftProductUpdate`'s own per-row loop used to clash outright on any size/color that
+    did not already exist on the matched product ("add a new one by hand first"); it now pushes a new
+    variation entry instead (`option_values`-bearing, no `variant_id` — `catalog.update_product`'s own
+    schema accepts this now, its own entry has the full reasoning), as long as the row gives it a real
+    price to be added with. A genuinely new size/color with NO valid price is still a clash — exactly
+    as it always was for a MATCHED row's own price — there is simply no safe default to add a brand-new
+    variation with none at all.
+
 115. **`Test-PRD-P0-183-durable_batch_bookkeeping`** — "You should not be losing files like this,"
     the owner's own words, after several ordinary Worker redeploys inside one real working session
     each discarded an in-progress spreadsheet preview or reviewed checklist mid-task, every time

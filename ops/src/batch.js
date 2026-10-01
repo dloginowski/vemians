@@ -1049,23 +1049,31 @@ async function draftNamedCategoryProduct(env, category, resolutionError, nextAut
   const rowClashes = [];
   if (resolutionError) rowClashes.push(resolutionError);
 
-  /* "Update products will try to match... add new products will not" -- a
-     named row (a plain Category/Subcategory NAME pair, no style number at
-     all -- resolveNamedCategory's own header comment) has nothing else to
-     match an existing product by, so update mode's only tool here is the
-     SAME category+title fallback draftGroupedProduct's own style-numbered
-     path uses (productsByCategoryAndTitle) -- reused wholesale via
-     draftProductUpdate itself, wrapping this one record as a one-row
-     "group" (a named row was always exactly one variation, never grouped
-     with siblings the way a shared style number groups several rows).
-     Widened the same way draftGroupedProduct's own fallback was (the
-     "found no existing products" production report): a category-scoped
-     search that comes up empty tries once more, catalog-wide by title
-     alone, before this row gives up -- a real category move since
-     creation (catalog.update_product, a deliberate, separate edit) leaves
-     this row's own still-correct category NAME resolving to a real
-     category the product simply is not IN any more. */
-  if (mode === "update" && !resolutionError && rawTitle) {
+  /* REVISED: "I think if we have the system to do style IDs as our main
+     differentiator, it should be like one operation... we're just updating
+     information if what we're submitting is different than what we have" --
+     the owner's own words, retiring the add/update mode split this file
+     used to gate matching behind entirely (Test-PRD-P0-182). A named row (a
+     plain Category/Subcategory NAME pair, no style number at all --
+     resolveNamedCategory's own header comment) has nothing else to match an
+     existing product by, so this always tries the same category+title
+     fallback draftGroupedProduct's own style-numbered path uses
+     (productsByCategoryAndTitle) -- reused wholesale via draftProductUpdate
+     itself, wrapping this one record as a one-row "group" (a named row was
+     always exactly one variation, never grouped with siblings the way a
+     shared style number groups several rows). Widened the same way
+     draftGroupedProduct's own fallback was (the "found no existing
+     products" production report): a category-scoped search that comes up
+     empty tries once more, catalog-wide by title alone, before this row
+     gives up -- a real category move since creation (catalog.update_product,
+     a deliberate, separate edit) leaves this row's own still-correct
+     category NAME resolving to a real category the product simply is not
+     IN any more. No match at all is no longer a clash here either -- it
+     simply means this really is a new item, and falls straight through to
+     creating one, the one behavior "add" always had; mode no longer changes
+     what a miss means, only whether a match was ever looked for at all used
+     to. */
+  if (!resolutionError && rawTitle) {
     let candidates = category ? await productsByCategoryAndTitle(env.CATALOG_MIRROR, category.id, rawTitle) : [];
     let scoped = candidates.length > 0;
     if (candidates.length === 0) {
@@ -1082,12 +1090,6 @@ async function draftNamedCategoryProduct(env, category, resolutionError, nextAut
           `(${candidates.map((c) => c.handle).join(", ")}) -- too ambiguous to update automatically; confirm which one, if any, this row means`,
       );
     }
-  }
-  if (mode === "update" && rowClashes.length === 0) {
-    rowClashes.push(
-      `no existing product found matching "${rawTitle || "(untitled row)"}" by category/subcategory/title -- expected to ` +
-        `update an existing product, but nothing matches; use "add new products" instead if this is meant to be a new item`,
-    );
   }
 
   const title = rawTitle || nextAutoTitle(category);
@@ -1298,18 +1300,40 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
     const match =
       existingVariants.find((v) => sameOptions(optValues, v.options)) ??
       (optValues.Size === "OS" && !rawOptValues.Size ? existingVariants.find((v) => sameOptions(rawOptValues, v.options)) : undefined);
-    if (!match) {
-      clashes.push(
-        `row ${rowNumber}: "${Object.values(optValues).join(", ") || "(no size/color)"}" is not an existing variation on "${existing.title}" (${existing.handle}) -- a resubmit can only update sizes/colors that already exist; add a new one by hand first`,
-      );
-      continue;
-    }
     const priceRaw = pick(record, PRICE_KEYS);
     const priceMinor = parsePriceToMinor(priceRaw);
+    const currency = (pick(record, CURRENCY_KEYS) || match?.currency || "USD").toUpperCase();
+    if (!match) {
+      /* REVISED: "if there is additional options or additional sizes added
+         to the same style ID, we're just adding more to the existing
+         item... we're not rejecting them, we're adding to them" -- the
+         owner's own words, after a real resubmit was refused for naming a
+         size the product did not have yet. catalog.update_product's own
+         variations schema now accepts option_values on an entry with no
+         variant_id (its header comment has the full reasoning) -- the SAME
+         shape catalog.create_product's own variations already use, so a
+         genuinely new size/color is simply added alongside whatever this
+         product already had, never silently dropped or forced into a
+         manual, out-of-band step first. A brand-new variation still needs
+         a real price, the same way one would at creation -- that is a
+         clash, not a default, same as it always was for a MATCHED row's
+         own price below. */
+      if (priceMinor === null) {
+        clashes.push(`row ${rowNumber}: "${Object.values(optValues).join(", ") || "(no size/color)"}" is new on "${existing.title}" (${existing.handle}) and needs a real price to be added -- "${priceRaw}" is not a plain number like 45.00`);
+        continue;
+      }
+      variations.push({
+        title: [optValues.Color, optValues.Size].filter(Boolean).join(", ") || existing.title,
+        price_minor: priceMinor,
+        currency,
+        option_values: optValues,
+        ...(unitCostMinor !== undefined ? { unit_cost_minor: unitCostMinor } : {}),
+      });
+      continue;
+    }
     if (priceMinor === null) {
       clashes.push(`row ${rowNumber}: price "${priceRaw}" is not a plain number like 45.00`);
     }
-    const currency = (pick(record, CURRENCY_KEYS) || match.currency || "USD").toUpperCase();
     variations.push({
       variant_id: match.id,
       title: match.title,
@@ -1374,47 +1398,44 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
   const first = groupRows[0].record;
   const firstRow = groupRows[0].rowNumber;
 
-  /* "I think we should have two distinct commands. Add new products or
-     update products... update products will try to match products using
-     the current spreadsheet... add new products will not try to match...
-     it will only identify clashes, but it's not seeking to update existing
-     products" -- the owner's own words, retiring the earlier design
-     (Test-PRD-P0-179/180/181) where every row implicitly tried to match
-     before falling back to create. Matching is now gated entirely behind
-     an explicit `mode` the caller chose up front (Test-PRD-P0-182-
-     explicit_add_or_update_mode): "add" skips every match attempt below
-     and reproduces this function's own original, pre-matching behavior
-     exactly; "update" always attempts them, and -- see the bottom of this
-     function, past the category/title fallback -- never falls through to
-     a silent create when nothing matches at all. */
-  if (mode === "update") {
-    /* "If that all matches, then you just update" / "you should be able to
-       determine which item is in there, and just find it and update it" --
-       the owner's own words. import_style_number is `base` itself, stamped
-       once at creation (catalog.create_product's own run()) and never
-       touched again by anything -- a resubmit of the exact same sheet
-       finds the SAME product this way even if its category (and so its
-       live, fluid style_id) has moved on since. Checked before any
-       category resolution at all: an update never resends category_id, so
-       there is nothing here to resolve for this path.
+  /* REVISED: "I think if we have the system to do style IDs as our main
+     differentiator, it should be like one operation... we're just updating
+     information if what we're submitting is different than what we have" --
+     the owner's own words, retiring the earlier add/update mode split
+     (Test-PRD-P0-182-explicit_add_or_update_mode), itself retiring an even
+     earlier design (Test-PRD-P0-179/180/181) where every row implicitly
+     tried to match before falling back to create -- which is exactly where
+     this lands again, deliberately: a style number ALWAYS tries to match an
+     existing product first, regardless of which tool or button a caller
+     used to get here. "If that all matches, then you just update" / "you
+     should be able to determine which item is in there, and just find it
+     and update it" -- the owner's own words. import_style_number is `base`
+     itself, stamped once at creation (catalog.create_product's own run())
+     and never touched again by anything -- a resubmit of the exact same
+     sheet finds the SAME product this way even if its category (and so its
+     live, fluid style_id) has moved on since. Checked before any category
+     resolution at all: an update never resends category_id, so there is
+     nothing here to resolve for this path.
 
-       REVISED: "the most important match... our style ID... because
-       that's how we want to identify items externally... there may be
-       situations where we want to bulk update a bunch of items based on
-       their style IDs" -- the owner's own words, once import_style_number
-       turned out to be only HALF of what a real resubmit sheet uses: a
-       person bulk-editing prices types the item's CURRENT, live style_id,
-       which has already moved on from whatever import_style_number still
-       holds if the item's own category was corrected since creation.
-       Tried only when import_style_number itself finds nothing -- the two
-       can never disagree about which product they name
-       (mirror_style_id_ledger reserves a style_id forever once assigned,
-       productByStyleId's own comment has the full reasoning), so there is
-       nothing to reconcile, only a second door to the same room. */
-    const existing = (await productByImportStyleNumber(env.CATALOG_MIRROR, base)) ?? (await productByStyleId(env.CATALOG_MIRROR, base));
-    if (existing) {
-      return draftProductUpdate(env, existing, base, groupRows, ctx);
-    }
+     REVISED: "the most important match... our style ID... because that's
+     how we want to identify items externally... there may be situations
+     where we want to bulk update a bunch of items based on their style
+     IDs" -- the owner's own words, once import_style_number turned out to
+     be only HALF of what a real resubmit sheet uses: a person bulk-editing
+     prices types the item's CURRENT, live style_id, which has already
+     moved on from whatever import_style_number still holds if the item's
+     own category was corrected since creation. Tried only when
+     import_style_number itself finds nothing -- the two can never disagree
+     about which product they name (mirror_style_id_ledger reserves a
+     style_id forever once assigned, productByStyleId's own comment has the
+     full reasoning), so there is nothing to reconcile, only a second door
+     to the same room. No match at all is simply a new item now, the same
+     "add" has always meant -- see the bottom of this function, past the
+     category/title fallback, for the one place that used to turn a miss
+     into a clash and no longer does. */
+  const existingByStyle = (await productByImportStyleNumber(env.CATALOG_MIRROR, base)) ?? (await productByStyleId(env.CATALOG_MIRROR, base));
+  if (existingByStyle) {
+    return draftProductUpdate(env, existingByStyle, base, groupRows, ctx);
   }
 
   const [catCode, subCode] = base.split("-");
@@ -1587,7 +1608,29 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
      up, the exact same last resort already used when there was no
      category at all to scope by in the first place. Confident only on
      exactly one candidate either way, still an ambiguous, named-candidates
-     clash on more than one, never a guess. */
+     clash on more than one, never a guess.
+
+     DELIBERATELY STILL GATED, even after the rest of this function's own
+     match attempt went unconditional: "make sure you're not just blindly
+     matching for naming matches... the style ID is your source of truth"
+     -- the owner's own words, the same session this very fallback's risk
+     became obvious live. The PRIMARY match above (import_style_number,
+     then live style_id) is always safe to run unconditionally -- it is
+     never a guess, a style number either names a real product or it does
+     not. This one is a genuine judgment call by NAME, built for a real,
+     narrower case (a resubmit sheet that regenerates its own style number
+     from category+subcategory+index on every export, so a category
+     renumbering changes the NUMBER a real, unchanged product carries on
+     its next resubmit, even though import_style_number/live style_id both
+     correctly still point at nothing new). Running it unconditionally
+     would also catch the opposite, genuinely dangerous case this same
+     conversation raised: a BRAND NEW style number, never seen before, for
+     a product that simply happens to share a title and category with an
+     existing one -- two real, intentionally-different items silently
+     merged into one by name alone. Left asking for the caller's own
+     intent (mode) until there is a safe way to tell those two cases apart
+     automatically, rather than guessing which one a oneoff removal of
+     this gate would actually be. */
   if (mode === "update" && rawTitle) {
     let candidates = category ? await productsByCategoryAndTitle(env.CATALOG_MIRROR, category.id, rawTitle) : [];
     let scoped = candidates.length > 0;
@@ -1616,23 +1659,17 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
     }
   }
 
-  /* "When I'm updating products, I'm expecting there to be matching
-     products, and I expect you to be looking for matches" -- the owner's
-     own words. Every match attempt this mode makes (import_style_number,
-     live style_id, category+subcategory+title, all above) has now run and
-     found nothing -- update mode must never silently fall through to
-     creating a brand-new product instead, the one thing "add" is for.
-     `clashes` already carries a more specific reason when one exists (an
-     unresolvable category, an ambiguous title match) -- this is only the
-     GENERIC catch-all for a row that resolved cleanly but simply matched
-     no existing product at all. */
-  if (mode === "update" && clashes.length === 0) {
-    clashes.push(
-      `style number "${base}": no existing product found matching this style number, its current style ID, or its ` +
-        `category/subcategory/title -- expected to update an existing product, but nothing matches; use "add new ` +
-        `products" instead if this is meant to be a new item`,
-    );
-  }
+  /* REVISED: every match attempt above (import_style_number, live
+     style_id, category+subcategory+title) has now run and found nothing --
+     this used to turn into a forced clash under "update" mode ("expected
+     to update an existing product, but nothing matches"), since that mode
+     promised never to silently create. That promise no longer applies: a
+     genuine miss now simply means this is a new item, the same thing it
+     always meant for "add" -- falls straight through below to creating
+     one, matching the owner's own words retiring the mode split ("we're
+     just updating information if what we're submitting is different than
+     what we have" -- implying creating it fresh is exactly right when
+     nothing already exists to update). */
 
   /* Vendor/commission/unit cost/vendor code are PRODUCT-level facts (the
      tool's own schema has no per-variation home for any of them) — read
@@ -1982,8 +2019,9 @@ function productVariationsSignature(variations, { includeQty }) {
  * variant names, same cost and price, that's a flag... offer to skip it...
  * sometimes maybe somebody might enter the same value twice or re-upload
  * the same file" — the owner's own words. Two kinds of duplicate, checked
- * separately, ADD mode only ("update" mode's whole point is finding and
- * matching an existing product, never a problem to flag):
+ * separately, scoped to rows that are actually about to CREATE something
+ * (never a row already resolved to an update by a real style-ID match —
+ * that is a confirmed identity, not a problem to flag):
  *
  * 1. WITHIN THIS SAME UPLOAD — two different rows (different style numbers,
  *    or two different named-category rows) that resolve to the exact same
@@ -1994,7 +2032,19 @@ function productVariationsSignature(variations, { includeQty }) {
  *
  * 2. AGAINST THE EXISTING CATALOG — the same product already exists (same
  *    title, category, vendor, cost, and variation options/price), most
- *    often from resubmitting a file ADD mode already created once before.
+ *    often from resubmitting a file with a style number that failed to
+ *    match (missing, or genuinely never assigned one) when the product it
+ *    describes already exists under a different one.
+ *
+ * REVISED: this used to be gated on the whole BATCH's own "add"/"update"
+ * mode — correct back when mode was the only thing that decided whether a
+ * row would even attempt to create anything at all, now that style-ID
+ * matching always runs regardless of which tool a caller used
+ * (Test-PRD-P0-182's own mode split retired). Scoped per ROW instead, by
+ * each row's own resolved toolName: a row a real style-ID match already
+ * turned into an update is never a candidate here, whatever the batch as a
+ * whole was called; a row that is genuinely about to create something
+ * always is, whatever it was called too.
  *
  * Never blocks anything on its own: `possibleDuplicate`/`duplicateReason`
  * ride along on the row, read by the checklist (views.js' own
@@ -2003,8 +2053,9 @@ function productVariationsSignature(variations, { includeQty }) {
  * asked for, reusing the checklist's own existing checkbox rather than
  * inventing a second mechanism beside it.
  */
-async function flagLikelyDuplicates(env, mode, builtRows) {
-  if (mode !== "add") return;
+async function flagLikelyDuplicates(env, allRows) {
+  const builtRows = allRows.filter((row) => row.toolName === "catalog.create_product");
+  if (!builtRows.length) return;
 
   /* WITHIN-THIS-UPLOAD pass first -- pure in-memory comparison, no store
      access at all, so it costs nothing extra regardless of how many rows a
@@ -2107,7 +2158,7 @@ export async function planProductBatch(env, { text, actor, role, mode }) {
     return { rows: [], ready: [], skipped: [], tooMany: records.length };
   }
   const { rows: built, clashes, rate } = await resolveProductRows(env, { actor, role, mode }, records);
-  await flagLikelyDuplicates(env, mode, built);
+  await flagLikelyDuplicates(env, built);
 
   const readyRows = [];
   const parkedFromGate = [];
