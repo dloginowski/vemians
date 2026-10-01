@@ -1235,6 +1235,7 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
   const firstRow = groupRows[0].rowNumber;
   const notes = [];
   const clashes = [];
+  const quantityAdjustments = [];
 
   const existingVariants = await variantsWithOptionsOf(env.CATALOG_MIRROR, existing.id);
 
@@ -1343,6 +1344,45 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
       currency,
       ...(unitCostMinor !== undefined ? { unit_cost_minor: unitCostMinor } : {}),
     });
+
+    /* "If there are discrepancies, I should upload the same file again, and
+       you should be able to match all of the existing items, and the items
+       that do not match with the spreadsheet should be updated... you should
+       just be updating the number of units, because that's the only change"
+       -- the owner's own words. A resubmit's own quantity cell is compared
+       against this variant's CURRENT live stock (never catalog.update_product
+       itself, same ledger guarantee this function's own header comment
+       already states) -- a mismatch becomes its OWN separate
+       inventory.adjust row, gated and approved exactly like any other T2
+       stock movement, never folded into the catalog.update_product call
+       above. A blank cell still means "no change," same as it always has:
+       only a REAL number the sheet actually gives, that disagrees with what
+       is on hand right now, is ever a reason to move stock. */
+    const quantityRaw = pick(record, QUANTITY_KEYS);
+    if (quantityRaw && env.COMMERCE) {
+      const parsedQuantity = parseQuantity(quantityRaw);
+      if (parsedQuantity === null) {
+        notes.push(`row ${rowNumber}: quantity "${quantityRaw}" is not a plain whole number like 5 -- stock left unchanged`);
+      } else {
+        try {
+          const stockRow = match.sku
+            ? await env.COMMERCE.prepare("SELECT on_hand FROM inventory_level WHERE sku = ?").bind(match.sku).first()
+            : null;
+          const current = Number(stockRow?.on_hand ?? 0);
+          if (current !== parsedQuantity) {
+            quantityAdjustments.push({
+              rowNumber,
+              title: match.title && match.title !== existing.title ? `${existing.title} — ${match.title}` : existing.title,
+              args: { variant_id: match.id, delta: parsedQuantity - current },
+              toolName: "inventory.adjust",
+              note: `resubmit corrected stock from ${current} to ${parsedQuantity}`,
+            });
+          }
+        } catch (err) {
+          console.error(`ERROR batch.js draftProductUpdate: could not read stock for sku ${match.sku} — ${err.message}`);
+        }
+      }
+    }
   }
 
   const title = titleCol || existing.title;
@@ -1379,6 +1419,7 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
         toolName: "catalog.set_square_attributes",
         note: `new sizes/colors on this sheet (${newOnes.join(", ")}) were not added -- add them by hand, then resubmit to price them`,
       },
+      extraRows: quantityAdjustments,
     };
   }
 
@@ -1390,9 +1431,9 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
   };
 
   if (clashes.length) {
-    return { clash: { row: firstRow, title, args, reason: clashes.join("; "), toolName: "catalog.update_product" } };
+    return { clash: { row: firstRow, title, args, reason: clashes.join("; "), toolName: "catalog.update_product" }, extraRows: quantityAdjustments };
   }
-  return { row: { rowNumber: firstRow, title, args, toolName: "catalog.update_product" } };
+  return { row: { rowNumber: firstRow, title, args, toolName: "catalog.update_product" }, extraRows: quantityAdjustments };
 }
 
 async function draftGroupedProduct(env, ctx, base, groupRows) {
@@ -1920,6 +1961,7 @@ async function resolveProductRows(env, { actor, role, mode }, records) {
     const outcome = await draftGroupedProduct(env, { actor, role, categories, reservedNumericIds, reservedSubcategoryNumericIds, categoryCache, nextAutoTitle, rate, mode }, base, groups.get(base));
     if (outcome.clash) clashes.push(outcome.clash);
     else rows.push(outcome.row);
+    if (outcome.extraRows?.length) rows.push(...outcome.extraRows);
   }
 
   for (const { record, rowNumber } of namedRecords) {
@@ -1932,6 +1974,7 @@ async function resolveProductRows(env, { actor, role, mode }, records) {
     const outcome = await draftNamedCategoryProduct(env, resolved.category ?? null, resolved.error, nextAutoTitle, record, rowNumber, mode, { actor, role, rate });
     if (outcome.clash) clashes.push(outcome.clash);
     else rows.push(outcome.row);
+    if (outcome.extraRows?.length) rows.push(...outcome.extraRows);
   }
 
   return { rows, clashes, rate };

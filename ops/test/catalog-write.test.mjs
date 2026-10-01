@@ -282,6 +282,7 @@ function d1FromSql(sql) {
 
 const MIRROR_SQL = fs.readFileSync(path.join(SQUARE_DIR, "schema.sql"), "utf8");
 const AUDIT_SQL = fs.readFileSync(path.join(DB_DIR, "audit.sql"), "utf8");
+const COMMERCE_SQL = fs.readFileSync(path.join(DB_DIR, "commerce.sql"), "utf8");
 
 /* ── the stub Square ────────────────────────────────────────────────────── */
 
@@ -449,13 +450,24 @@ function fakeSquare(seed = SEED, { vendors = [], failSearch = false, failUpsert 
     /* Just enough of the inventory API for catalog.create_product's own
        initial-quantity push (VARIATION_WITH_OPTIONS' own `quantity`,
        catalog-write.js) to round-trip — the same two calls
-       inventory.adjust's own run() makes (push, then pull to sync). */
+       inventory.adjust's own run() makes (push, then pull to sync).
+       Each push mints its OWN globally unique physical-count id (`mint`,
+       the same ever-incrementing counter this fake already uses for every
+       other Square-minted id) rather than one synthesized from the
+       retrieve call's own array position — a real PHYSICAL_COUNT id is
+       unique per EVENT, never replayed, and syncInventoryChanges derives
+       its own ledger row's id from exactly this field
+       (NS_SQUARE_INVENTORY_CHANGE, mirror.js); a position-based id would
+       collide across two separate push/pull round trips on the SAME
+       catalog object (a create's own initial stock, then a LATER
+       inventory.adjust on that same variant) and the second write would be
+       silently dropped as a duplicate of the first. */
     if (p === "/v2/inventory/changes/batch-create") {
       const body = JSON.parse(init.body);
       record.body = body;
       for (const c of body.changes ?? []) {
         if (c.type !== "PHYSICAL_COUNT") continue;
-        inventoryCounts.set(c.physical_count.catalog_object_id, Number(c.physical_count.quantity));
+        inventoryCounts.set(c.physical_count.catalog_object_id, { id: mint("PC"), quantity: Number(c.physical_count.quantity) });
       }
       return jsonRes({ counts: [] });
     }
@@ -465,10 +477,10 @@ function fakeSquare(seed = SEED, { vendors = [], failSearch = false, failUpsert 
       const ids = body.catalog_object_ids ?? [];
       const changes = ids
         .filter((id) => inventoryCounts.has(id))
-        .map((id, i) => ({
-          type: "PHYSICAL_COUNT",
-          physical_count: { id: `PC_${i}`, catalog_object_id: id, quantity: String(inventoryCounts.get(id)) },
-        }));
+        .map((id) => {
+          const entry = inventoryCounts.get(id);
+          return { type: "PHYSICAL_COUNT", physical_count: { id: entry.id, catalog_object_id: id, quantity: String(entry.quantity) } };
+        });
       return jsonRes({ changes });
     }
 
@@ -517,22 +529,29 @@ function squareEnv() {
     SQUARE_ACCESS_TOKEN: "fixture-token",
     SQUARE_ENV: "sandbox",
     SQUARE_LOCATION_ID: SQUARE_LOCATION,
+    /* OUR OWN internal location key (inventory_adjustment.location_id),
+       never Square's own id above -- only load-bearing for a test that asks
+       for the `withCommerce` fixture and actually writes to the ledger
+       (commerce.test.mjs's own identical squareEnv() already needs this for
+       the same reason). */
+    LOCATION_ID: "main",
     MEDIA_SIGNING_KEY: SIGNING_KEY,
     OPS_HOST: "ops.vemians.com",
   };
 }
 
 /* One place to build a ctx, so no check can accidentally invent an actor. */
-async function fixture({ actor = "mara@vemians.com", role = "manager", seedMirror = true, failSearch = false, failUpsert = null, extraSeed = [] } = {}) {
+async function fixture({ actor = "mara@vemians.com", role = "manager", seedMirror = true, failSearch = false, failUpsert = null, extraSeed = [], withCommerce = false } = {}) {
   const square = fakeSquare([...SEED, ...extraSeed], { failSearch, failUpsert });
   const mirrorDb = d1FromSql(MIRROR_SQL);
   const auditDb = d1FromSql(AUDIT_SQL);
+  const commerceDb = withCommerce ? d1FromSql(COMMERCE_SQL) : null;
   const bucket = fakeR2();
-  const env = { CATALOG_MIRROR: mirrorDb, AUDIT: auditDb, ...squareEnv() };
+  const env = { CATALOG_MIRROR: mirrorDb, AUDIT: auditDb, ...(commerceDb ? { COMMERCE: commerceDb } : {}), ...squareEnv() };
 
   const writer = createSquareCatalogWriter(squareEnv(), {
     mirrorDb,
-    commerceDb: null,
+    commerceDb,
     /* No retry sleeping in a test run; the client's backoff is proven in the
        adapter's own suite. */
     clientOptions: { fetchImpl: square, sleep: async () => {}, maxAttempts: 1 },
@@ -549,6 +568,7 @@ async function fixture({ actor = "mara@vemians.com", role = "manager", seedMirro
     square,
     mirrorDb,
     auditDb,
+    commerceDb,
     bucket,
     media,
     writer,
@@ -568,6 +588,10 @@ async function fixture({ actor = "mara@vemians.com", role = "manager", seedMirro
     mirror: (sql, ...params) => mirrorDb._raw.prepare(sql).all(...params),
     categories: () =>
       mirrorDb._raw.prepare("SELECT id, name, parent_id, numeric_id FROM mirror_category_index ORDER BY name").all(),
+    onHand: (sku) => {
+      const row = commerceDb?._raw.prepare("SELECT on_hand FROM inventory_level WHERE sku = ?").get(sku);
+      return row?.on_hand ?? 0;
+    },
   };
 }
 
@@ -8406,6 +8430,15 @@ check("test_PRD_P0_179_import_style_number_matching__every_row_missing_with_no_r
 });
 
 check("test_PRD_P0_179_import_style_number_matching__stock_quantity_is_never_touched_by_a_resubmit", async () => {
+  /* REVISED: still true exactly as stated -- catalog.update_product itself
+     never pushes a second inventory count, here or anywhere. A real stock
+     DISCREPANCY on a matched row is now reconciled too, but only via its
+     OWN separate, gated inventory.adjust row (Test-PRD-P0-190-
+     quantity_reconciliation_on_resubmit's own suite, below) -- never folded
+     into this call. This fixture has no COMMERCE binding at all (the
+     reconciliation's own `env.COMMERCE` guard), so that separate row is
+     never even considered here; the two are independent regression suites
+     on purpose. */
   const f = await fixture();
   const csv1 = "title,category,price,style id,quantity\nWool Coat,Outerwear,100.00,01-04-004,7\n";
 
@@ -8430,6 +8463,151 @@ check("test_PRD_P0_179_import_style_number_matching__stock_quantity_is_never_tou
   } finally {
     globalThis.fetch = realFetch;
   }
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-190 — a matched resubmit's own quantity discrepancy is reconciled, via
+ * its OWN separate inventory.adjust row, never folded into
+ * catalog.update_product. "If there are discrepancies, I should upload the
+ * same file again... you should just be updating the number of units,
+ * because that's the only change" -- the owner's own words, after a real
+ * item went live with zero units (now Test-PRD-P0-31's own creation-time
+ * guard) and a resubmit alone could not fix it.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_190_quantity_reconciliation_on_resubmit__a_different_quantity_on_a_matched_row_queues_its_own_inventory_adjust", async () => {
+  const f = await fixture({ withCommerce: true });
+  const csv1 = "title,category,price,style id,quantity\nWool Coat,Outerwear,100.00,01-04-020,3\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let second;
+  let sku;
+  try {
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager", mode: "add" });
+    assert.equal(first.created.length, 1, `expected a create, got: ${JSON.stringify(first)}`);
+
+    const product = f.mirror("SELECT id FROM mirror_product WHERE title = 'Wool Coat'")[0];
+    sku = f.mirror("SELECT sku FROM mirror_variant WHERE product_id = ?", product.id)[0].sku;
+    assert.equal(f.onHand(sku), 3, "the initial create's own quantity really landed in the ledger");
+
+    /* Resubmitted: same style number, same everything else, a REAL
+       quantity discrepancy (3 on file, 7 on the sheet). */
+    const csv2 = "title,category,price,style id,quantity\nWool Coat,Outerwear,100.00,01-04-020,7\n";
+    second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager", mode: "update" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.equal(second.skipped.length, 0, `expected no skips, got: ${JSON.stringify(second.skipped)}`);
+  assert.equal(second.created.length, 2, `expected the catalog update AND its own separate stock adjustment, got: ${JSON.stringify(second)}`);
+  const stockRow = second.created.find((r) => /stock by/.test(r.summary));
+  assert.ok(stockRow, `expected one row to be the inventory.adjust itself, got: ${JSON.stringify(second.created)}`);
+  assert.match(stockRow.summary, /stock by \+4 \(3 -> 7\)/, "a +4 delta, from the CURRENT real count, never a guess");
+  assert.equal(f.onHand(sku), 7, "the real ledger now reflects the sheet's own corrected count");
+});
+
+check("test_PRD_P0_190_quantity_reconciliation_on_resubmit__a_resubmit_with_the_same_quantity_queues_no_adjustment_at_all", async () => {
+  const f = await fixture({ withCommerce: true });
+  const csv1 = "title,category,price,style id,quantity\nWool Coat,Outerwear,100.00,01-04-021,5\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let second;
+  let sku;
+  try {
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager", mode: "add" });
+    assert.equal(first.created.length, 1);
+    const product = f.mirror("SELECT id FROM mirror_product WHERE title = 'Wool Coat'")[0];
+    sku = f.mirror("SELECT sku FROM mirror_variant WHERE product_id = ?", product.id)[0].sku;
+
+    /* Resubmitted with the IDENTICAL quantity -- "if everything was
+       matching exactly, then you just skip it," the owner's own words. */
+    const csv2 = "title,category,price,style id,quantity\nWool Coat,Outerwear,120.00,01-04-021,5\n";
+    second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager", mode: "update" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.equal(second.created.length, 1, `an unchanged quantity must queue nothing extra, got: ${JSON.stringify(second)}`);
+  assert.equal(second.created[0].action, "updated");
+  assert.equal(f.onHand(sku), 5, "stock is untouched when the sheet already agrees with it");
+});
+
+check("test_PRD_P0_190_quantity_reconciliation_on_resubmit__a_blank_quantity_cell_on_resubmit_still_means_no_change", async () => {
+  const f = await fixture({ withCommerce: true });
+  const csv1 = "title,category,price,style id,quantity\nWool Coat,Outerwear,100.00,01-04-022,4\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let second;
+  let sku;
+  try {
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager", mode: "add" });
+    assert.equal(first.created.length, 1);
+    const product = f.mirror("SELECT id FROM mirror_product WHERE title = 'Wool Coat'")[0];
+    sku = f.mirror("SELECT sku FROM mirror_variant WHERE product_id = ?", product.id)[0].sku;
+
+    /* Resubmitted with NO quantity column at all -- a price-only correction,
+       never a reason to touch stock on its own. */
+    const csv2 = "title,category,price,style id\nWool Coat,Outerwear,130.00,01-04-022\n";
+    second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager", mode: "update" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.equal(second.created.length, 1, `a blank quantity cell must queue nothing extra, got: ${JSON.stringify(second)}`);
+  assert.equal(f.onHand(sku), 4, "a blank cell is never a reason to zero out or otherwise move real stock");
+});
+
+check("test_PRD_P0_190_quantity_reconciliation_on_resubmit__an_unparseable_quantity_leaves_stock_alone_without_blocking_the_row", async () => {
+  const f = await fixture({ withCommerce: true });
+  const csv1 = "title,category,price,style id,quantity\nWool Coat,Outerwear,100.00,01-04-023,6\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let second;
+  let sku;
+  try {
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager", mode: "add" });
+    assert.equal(first.created.length, 1);
+    const product = f.mirror("SELECT id FROM mirror_product WHERE title = 'Wool Coat'")[0];
+    sku = f.mirror("SELECT sku FROM mirror_variant WHERE product_id = ?", product.id)[0].sku;
+
+    const csv2 = "title,category,price,style id,quantity\nWool Coat,Outerwear,100.00,01-04-023,some\n";
+    second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager", mode: "update" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.equal(second.skipped.length, 0, "a typo'd quantity cell is not a reason to skip the row");
+  assert.equal(second.created.length, 1, `the real update must still go through, got: ${JSON.stringify(second)}`);
+  assert.equal(f.onHand(sku), 6, "an unparseable cell is never guessed at -- stock stays exactly where it was");
+});
+
+check("test_PRD_P0_190_quantity_reconciliation_on_resubmit__with_no_commerce_binding_configured_nothing_is_queued_or_blocked", async () => {
+  /* The exact fixture every OTHER P0-179 test already uses -- no COMMERCE
+     binding at all. A real deployment always has one; this only proves the
+     feature degrades to its old behavior rather than throwing when it does
+     not, matching exportProductsCsv's own same tolerance. */
+  const f = await fixture();
+  const csv1 = "title,category,price,style id,quantity\nWool Coat,Outerwear,100.00,01-04-024,2\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let second;
+  try {
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager", mode: "add" });
+    assert.equal(first.created.length, 1);
+
+    const csv2 = "title,category,price,style id,quantity\nWool Coat,Outerwear,100.00,01-04-024,9\n";
+    second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager", mode: "update" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.equal(second.created.length, 1, "with no commerce binding, nothing can be reconciled -- the catalog update alone still goes through");
+  assert.equal(second.created[0].action, "updated");
 });
 
 check("test_PRD_P0_179_import_style_number_matching__a_later_category_move_never_breaks_a_future_resubmits_own_match", async () => {

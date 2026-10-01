@@ -9139,6 +9139,35 @@ that does not trace to one of these is a process failure (see §12).
     carry (it reads the live `style_id` instead, for the Items tab's own display) — one more small, bulk,
     bounded-by-product-count read, never a query per row.
 
+122. **`Test-PRD-P0-190-quantity_reconciliation_on_resubmit`** — "If there are discrepancies, I should
+    upload the same file again, and you should be able to match all of the existing items, and the items
+    that do not match with the spreadsheet should be updated... you should just be updating the number of
+    units, because that's the only change" — the owner's own words, closing the one gap
+    `Test-PRD-P0-179-import_style_number_matching` explicitly left open: a matched resubmit's own quantity
+    cell used to never be read at all (`draftProductUpdate`'s own header comment, "never quantity — this
+    codebase's own inventory-ledger guarantee"), so a real stock discrepancy (the owner's own example: an
+    item that went live with zero units because of what is now `Test-PRD-P0-31`'s own creation-time guard)
+    had no way to self-correct on a later resubmit.
+
+    **Still never written by `catalog.update_product`.** The ledger guarantee is unchanged — a
+    discrepancy becomes its OWN separate `inventory.adjust` row, gated and approved exactly like any other
+    T2 stock movement (its own checklist card, its own approval, in the same batch plan), never folded
+    into the catalog write. `draftProductUpdate` compares the sheet's own quantity cell, for a row matched
+    to an EXISTING variation only (`match.sku`'s current `inventory_level.on_hand`, defaulting to 0 for a
+    variation never yet mirrored into stock, the same assumption `inventory.adjust`'s own `check()`
+    already makes) — a disagreement queues `{ variant_id, delta }`; agreement queues nothing at all. A
+    genuinely NEW size/color added on the same resubmit (`Test-PRD-P0-179`, revised) is deliberately out
+    of scope here — its own variant id does not exist until `catalog.update_product` itself creates it, so
+    there is nothing yet to reconcile against; it keeps starting from zero exactly as a brand-new
+    `catalog.create_product` variation already does.
+
+    **A blank cell still means "no change," exactly as it always has** — only a REAL number the sheet
+    actually gives, that disagrees with what is on hand right now, is ever a reason to move stock. An
+    unparseable cell (not blank, not a whole number) leaves stock untouched rather than guessing or
+    blocking the row's own real update. `flagLikelyDuplicates` already ignores every row that is not
+    `catalog.create_product` (`Test-PRD-P0-186`'s own filter), so these `inventory.adjust` rows were never
+    at risk of being flagged as a duplicate product in the first place.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
