@@ -6683,6 +6683,19 @@ that does not trace to one of these is a process failure (see §12).
     the unpatched code falls to the flat list entirely (no `.variant-group` markup at all, one upload
     button per size), reproducing the exact behavior described live.
 
+    REVISED A SEVENTH TIME: "make the font color in the header the same as all the other text, so it's
+    not like a dimmer version. It's all like the same bright color, just like the other headings" — the
+    owner's own words, after actually seeing the deployed result. `.variant-group-label` and
+    `.variations-label` (the identical heading for the OTHER accordion shape, zero/one-non-Size/three-plus
+    Option Set names) had both been given `color: var(--muted)` since they first shipped — the same dimmed
+    gray this file reserves for genuinely secondary text (a toggle's own caret icon, a field's own
+    placeholder), never for a real heading. Every other heading in the tile (`.admin-section-label`, a
+    field's own value text) already uses `--ink`, the default, bright text color — these two were simply
+    never given it. Both now read `color: var(--ink)`, matching every other heading on the page; nothing
+    else about either rule changed. The photo-upload button's own position — "on the right side" — was
+    already correct (`margin-left: auto`, shipped with the original grouped-accordion work) and needed no
+    change.
+
 82. **`Test-PRD-P0-148-auto_generate_variations`** — RETIRED by `Test-PRD-P0-178-
     remove_category_item_options`. Used to auto-generate any missing Size/Color variation combinations
     for every product in a category (a cross product of the category's own assigned Option Set values),
