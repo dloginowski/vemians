@@ -162,7 +162,11 @@ function tokens(text) {
    "Accessories" -> accessory, "Coats" -> coat, "Dresses" -> dress. */
 function singular(t) {
   if (t.length > 4 && t.endsWith("ies")) return `${t.slice(0, -3)}y`;
-  if (t.length > 4 && /(?:s|x|z|ch|sh)es$/.test(t)) return t.slice(0, -2);
+  if (t.length > 4 && /(?:ss|x|ch|sh)es$/.test(t)) return t.slice(0, -2);
+  /* "Oversizes" -> oversize, "Purses" -> purse: the "e" belongs to the
+     singular here, only the "s" is the plural. Stripping "es" gave "oversiz",
+     which never equals the singular "oversize" someone types. */
+  if (t.length > 4 && /(?:[^s]s|z)es$/.test(t)) return t.slice(0, -1);
   if (t.length > 3 && t.endsWith("s") && !t.endsWith("ss")) return t.slice(0, -1);
   return t;
 }
@@ -188,7 +192,8 @@ function pluralize(name) {
   const lower = name.toLowerCase();
   let base = name;
   if (name.length > 4 && lower.endsWith("ies")) base = `${name.slice(0, -3)}y`;
-  else if (name.length > 4 && /(?:s|x|z|ch|sh)es$/.test(lower)) base = name.slice(0, -2);
+  else if (name.length > 4 && /(?:ss|x|ch|sh)es$/.test(lower)) base = name.slice(0, -2);
+  else if (name.length > 4 && /(?:[^s]s|z)es$/.test(lower)) base = name.slice(0, -1);
   else if (name.length > 3 && lower.endsWith("s") && !lower.endsWith("ss")) base = name.slice(0, -1);
 
   const baseLower = base.toLowerCase();

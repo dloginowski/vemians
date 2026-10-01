@@ -9485,6 +9485,21 @@ that does not trace to one of these is a process failure (see §12).
     before. The sheet's number is kept as the key a resubmit matches by. Only a row with no style number at all
     still reads `(auto-generated)`.
 
+139. **`Test-PRD-P0-207-daily_limit_and_plurals`** — "Why am I exceeding daily limits? Aren't you using batching and
+    python calls to stay under limits?" — the owner's own words, followed by a results table in which about
+    seventy rows read "needs a person" with `D1_ERROR: Your account has exceeded D1's free tier daily row write
+    limit`. Two fixes. (1) The submit loop in the chat checklist recognises that refusal (it is not per-row:
+    every later row is refused the same way) and stops at the first one, instead of sending the rest one request
+    and one long error apiece. It says once, in plain words, that Cloudflare's free database plan has used up its
+    daily write limit, that it resets at midnight UTC, how many rows were not attempted, that everything before
+    that point is saved, and that sending the file again afterwards reports the saved rows as no change. (2) The
+    same table showed five rows failing with 'subcategory "Oversize" ... could not be created: "Oversizes"
+    already exists under "Jackets". Use it.' The plural-to-singular fold (`singularCategoryWord` in `batch.js`,
+    `singular` and `pluralize` in `catalog-write.js`) stripped "es" from any "-zes" or "-ses" ending, so
+    "Oversizes" became "oversiz" and never equalled "oversize". For "-zes" and "-ses" after a letter other than
+    s, only the "s" is the plural ("Oversizes" -> oversize, "Purses" -> purse); "-sses", "-xes", "-ches" and
+    "-shes" still lose "es". It also stops `pluralize("Purses")` producing "Purss".
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

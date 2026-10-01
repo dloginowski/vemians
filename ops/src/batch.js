@@ -584,7 +584,8 @@ function productRecords(text) {
    "Accessories" -> accessory, "Coats" -> coat, "Dresses" -> dress. */
 function singularCategoryWord(t) {
   if (t.length > 4 && t.endsWith("ies")) return `${t.slice(0, -3)}y`;
-  if (t.length > 4 && /(?:s|x|z|ch|sh)es$/.test(t)) return t.slice(0, -2);
+  if (t.length > 4 && /(?:ss|x|ch|sh)es$/.test(t)) return t.slice(0, -2);
+  if (t.length > 4 && /(?:[^s]s|z)es$/.test(t)) return t.slice(0, -1);
   if (t.length > 3 && t.endsWith("s") && !t.endsWith("ss")) return t.slice(0, -1);
   return t;
 }

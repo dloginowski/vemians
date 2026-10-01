@@ -2065,6 +2065,8 @@ function checklistCard(c) {
     let parked = 0;
     let skipped = 0;
     let unchanged = 0;
+    let quotaStopped = 0;
+    const QUOTA_HIT = /daily row write limit|exceeded D1/i;
     const rows = [];
     for (const { row, displayRow, title, sheetStyle, category, subcategory } of items) {
       if (cancelRequested) break;
@@ -2081,6 +2083,16 @@ function checklistCard(c) {
         result = { ok: false, reply: "Request failed: " + err.message };
       }
       bar.value += 1;
+      /* Cloudflare refusing every database write for the rest of the day
+         (the free plan's daily row-write limit) is not a per-row problem:
+         each remaining row would be refused the same way, one request and
+         one long error each. Stop at the first, and say it once, plainly. */
+      if (QUOTA_HIT.test([result.summary, result.reply, result.reason, result.detail].join(" "))) {
+        quotaStopped = planTotal - bar.value + 1;
+        skipped += 1;
+        rows.push([String(displayRow), title, sheetStyle || "", category || "", subcategory || "", "", "not saved", "Cloudflare's daily database write limit was reached"]);
+        break;
+      }
       /* "That run is over" (409): a newer click replaced this run, or the
          upload was cancelled. Every remaining row would be refused the same
          way, one request each -- stop, and say so. */
@@ -2156,6 +2168,9 @@ function checklistCard(c) {
     gate.textContent = "";
     const updatedNote = (updated ? updated + " updated, " : "") + (unchanged ? unchanged + " already up to date, " : "");
     const cancelNote = cancelRequested ? " Cancelled before the rest." : "";
+    if (quotaStopped) {
+      entry("agent", "Stopped. Cloudflare's free database plan has used up its daily write limit (it resets at midnight UTC), so nothing more can be saved today. " + quotaStopped + " row(s) from here on were not attempted. Everything before this point is saved. Once the limit resets, send the file again: rows already saved show as no change.");
+    }
     entry("agent", created + " created, " + updatedNote + parked + " need a person's decision, " + skipped + " skipped." + cancelNote);
     tableCard({
       title: "Products: " + created + " created, " + updatedNote + parked + " need a person's decision, " + skipped + " skipped" + cancelNote,

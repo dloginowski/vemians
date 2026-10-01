@@ -7020,6 +7020,38 @@ check("test_PRD_P0_152_style_number_grouping__matching_a_named_category_folds_pl
   assert.equal(row.style_id, "71-00-002");
 });
 
+check("test_PRD_P0_207_daily_limit_and_plurals__a_singular_subcategory_matches_its_existing_plural_when_the_plural_ends_in_ze_or_se", async () => {
+  /* A real sheet: rows naming the subcategory "Oversize" all failed with
+     'could not be created: "Oversizes" already exists under "Jackets". Use it.'
+     Folding "Oversizes" back to a singular stripped "es" and gave "oversiz",
+     which never equals "oversize". The "e" belongs to the singular here. */
+  const f = await fixture({ actor: "keiko@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let first, second;
+  try {
+    first = await draftProductBatch(f.env, {
+      text: "title,category,subcategory,price\nOversize Dress,Jackets,Oversize,90.00\nLeather Bag,Accessories,Purse,60.00\n",
+      actor: "keiko@vemians.com",
+      role: "manager", mode: "add",
+    });
+    assert.equal(first.created.length, 2, JSON.stringify(first));
+    const before = f.categories().length;
+    second = await draftProductBatch(f.env, {
+      text: "title,category,subcategory,price\nOversize Coat,Jackets,Oversize,120.00\nRed Bag,Accessories,Purses,45.00\n",
+      actor: "keiko@vemians.com",
+      role: "manager", mode: "add",
+    });
+    assert.equal(second.ready.length, 0, `expected no clashes, got: ${JSON.stringify(second.ready)}`);
+    assert.equal(second.created.length, 2, JSON.stringify(second));
+    assert.equal(f.categories().length, before, "no second category was made beside the existing plural");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.ok(f.categories().find((c) => c.name === "Oversizes"));
+  assert.ok(f.categories().find((c) => c.name === "Purses"), "a name already plural round-trips unchanged");
+});
+
 check("test_PRD_P0_152_style_number_grouping__a_named_category_or_subcategory_matching_nothing_is_created_on_the_fly", async () => {
   /* REVISED AGAIN: "if [a category or subcategory does] not match anything
      we already have, provided that they are properly spelled, go ahead and

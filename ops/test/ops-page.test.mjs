@@ -828,6 +828,19 @@ check("test_PRD_P0_202_upload_ledger__the_submit_click_starts_one_run_and_every_
   assert.match(script, /"\/ops\/agent\/batch-finish"/, "the loop closes its own run when it ends");
 });
 
+check("test_PRD_P0_207_daily_limit_and_plurals__the_submit_loop_stops_at_the_first_daily_write_limit_refusal_and_says_so_once", async () => {
+  /* Cloudflare refusing every write for the rest of the day hit ~70 rows,
+     each printing the same long error. The loop stops at the first. */
+  const { body } = await frontPage(OWNER);
+  const script = body.slice(body.indexOf("<script>"), body.lastIndexOf("</script>"));
+  assert.match(script, /daily row write limit\|exceeded D1/, "the refusal is recognised by its own wording");
+  const hitAt = script.indexOf("QUOTA_HIT.test(");
+  const conflictAt = script.indexOf("result.httpStatus === 409");
+  assert.ok(hitAt > -1 && hitAt < conflictAt, "checked straight after each row's answer");
+  assert.match(script.slice(hitAt, conflictAt), /break;/, "and the loop stops there");
+  assert.match(script, /resets at midnight UTC/, "the one message says when it comes back");
+});
+
 check("test_PRD_P0_203_table_columns_fit_content__no_column_is_wider_than_its_own_data", async () => {
   /* "Make sure you fit the cells to content too. There is no reason for row
      to be so wide. Like fit to data inside, each column. Don't waste space.
