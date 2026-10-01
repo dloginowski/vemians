@@ -1271,7 +1271,7 @@ const CAMERA_ICON = `<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden
    REVISED: "tighten all of the paddings on all of the chevrons and the
    indentation so that it's not so horizontally heavy" — down from 18,
    still comfortably wider than CARET_ICON's own 12px so the glyph isn't
-   clipped, but noticeably tighter per nesting level; .variations-toggle
+   clipped, but noticeably tighter per nesting level; .variant-group-toggle
    (below) sizes off this same constant instead of its own separate
    hardcoded 18px, so every chevron on this tile stays the same size by
    construction, not by numbers happening to agree today. */
@@ -2600,7 +2600,7 @@ ${INPUT_BAR_CSS}
    pointing to the right... when you press it, it will expand, aiming
    down" — the chevron is not a static down-arrow after all; it is the
    SAME right-pointing-until-expanded convention every other caret on
-   this tile already uses (.variations-toggle, .category-picker-toggle),
+   this tile already uses (.variant-group-toggle, .category-picker-toggle),
    just on the LEFT of the label instead of the right, rotating 90°
    only once its own .category-picker wrapper carries .expanded. */
 .category-title-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
@@ -2635,7 +2635,7 @@ ${INPUT_BAR_CSS}
    hover, none of them tied to any actual unsaved-change state. All
    removed outright below, each at its own declaration; orange now means
    exactly one thing anywhere in this panel: a real .field-dirty marker
-   on the field itself, or on some field inside a .variations-accordion
+   on the field itself, or on some field inside a .variant-groups group
    with one — never a hover cue on its own. */
 .category-picker { position: relative; flex: 0 0 auto; }
 .category-picker-btn {
@@ -2713,54 +2713,6 @@ ${INPUT_BAR_CSS}
 .item-variants span:first-child, .item-fields span:first-child { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .item-fields span:last-child { color: var(--ink); text-align: right; overflow-wrap: anywhere; }
 .item-empty { color: var(--muted); font-style: italic; }
-/* The variations accordion — the owner's own words: "an expandable
-   accordion header for the variations." Collapsed by default
-   (.variations-body hidden until .variations-accordion carries
-   .expanded) — nothing inside it is editable any more ("get rid of the
-   whole variants setup... we'll do variations from Square"), only each
-   variation's own read-only name and its stock stepper, so the header
-   itself carries no fields at all, just the toggle and a label. */
-/* "Remove all horizontal bars from the details panel, except the one
-   right above the admin dropdown" — the top border is gone; the spacing
-   above it (margin-top/padding-top) stays, so sections still read as
-   distinct without a drawn line between every one of them. */
-.variations-accordion { margin-top: 2px; padding-top: 6px; }
-/* "Decorate the header so it's obvious it's an expandable accordion...
-   a different color header... not just a chevron" — a plain bar (same
-   --image-ground/--rule "second surface" pattern .ticket-tile already
-   uses) that visibly INVITES a click, since the whole thing now toggles
-   the body below, not just the caret. Always this same gray border —
-   nothing inside this accordion is ever tracked as dirty any more (the
-   stock stepper posts immediately, never through the tile's own Save),
-   so there is nothing left for it to turn orange over. */
-.variations-header {
-  display: flex; align-items: center; gap: 6px; cursor: pointer;
-  background: var(--image-ground); border: 1px solid var(--rule); border-radius: 6px; padding: 5px 4px;
-}
-.variations-toggle {
-  flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; padding: 0; display: inline-flex; align-items: center;
-  justify-content: center; border: none; background: transparent; color: var(--muted); cursor: pointer;
-  transition: transform 0.15s;
-}
-.variations-accordion.expanded .variations-toggle { transform: rotate(90deg); }
-/* "The expandable header [needs] the label in it on the left, right next
-   to the chevron, variations, so it makes sense, so people know what
-   they're looking for" — a plain word, not another control, so it never
-   competes with the fields beside it for width.
-   REVISED — "make the font color in the header the same as all the other
-   text... not like a dimmer version... the same bright color, just like
-   the other headings" — the owner's own words, comparing this against
-   every other real heading in the tile (.admin-section-label, a field's
-   own value text), which all use --ink, the default/bright text color,
-   never --muted — the dimmed color this one and .variant-group-label
-   (below) were given by mistake, with nothing about either ever being
-   meant to read as secondary or de-emphasized text. */
-.variations-label { flex: 0 0 auto; font-size: 11px; color: var(--ink); }
-/* "The variation label itself is fine, it could be long... but indent
-   them a little so it's clearer it's underneath the accordion it belongs
-   to" — the body sits visibly inset from the header bar above it. */
-.variations-body { display: none; flex-direction: column; margin-top: 6px; padding-left: 10px; }
-.variations-accordion.expanded .variations-body { display: flex; }
 /* "Too much vertical padding! Needs to match side padding. Reduce by
    2px" — 5px read as more than the row's own fields' own side padding
    (.item-edit input's own 3px 5px), so this comes down to 3px vertical,
@@ -2770,7 +2722,7 @@ ${INPUT_BAR_CSS}
    REVISED: "tighten all of the paddings on all of the chevrons and the
    indentation" — this and the header's own horizontal padding came down
    together, still matched to each other for the same reason. */
-.variations-body .row, .variant-group-body .row { display: flex; gap: 6px; align-items: center; padding: 3px 4px 3px 0; }
+.variant-group-body .row { display: flex; gap: 6px; align-items: center; padding: 3px 4px 3px 0; }
 /* The one thing left in a variation row besides its stock stepper — a
    plain, read-only name, styled like the muted labels in .item-variants/
    .item-fields rather than an input, since there is nothing left here to
@@ -2813,7 +2765,7 @@ ${INPUT_BAR_CSS}
    flexible/grow sizing below; everything short and format-bounded
    (commission, a vendor code, a custom field's own name, style_id) stays
    a fixed, content-sized width instead. */
-.item-edit input, .item-edit select, .variations-body input {
+.item-edit input, .item-edit select, .variant-group-body input {
   flex: 0 1 auto; min-width: 0; width: 10em; font: inherit; font-size: 11px; padding: 3px 5px;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
 }
@@ -2872,14 +2824,6 @@ ${INPUT_BAR_CSS}
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
 }
 .item-edit textarea::placeholder { font-size: 10px; }
-/* Absorbs the header's own leftover width so the toggle/label sit flush
-   left, matching every other accordion header's own spacer on this
-   page — nothing ever sits after it (style_id, Cost and MSRP have all
-   since moved out of this header entirely, the last of them for good:
-   "get rid of the whole variants setup... we'll do variations from
-   Square"), kept anyway, matching the other accordion headers' own
-   shape. */
-.variations-header-spacer { flex: 1 1 auto; }
 /* Stock — "a row of 3 small components [-][##][+], then [COST][MSRP]" —
    the stepper sits right after the variation's own name, ahead of its
    cost/price, since it is a command, not a fact about the variation the
@@ -2949,9 +2893,11 @@ ${INPUT_BAR_CSS}
   transition: transform 0.15s;
 }
 .variant-group.expanded .variant-group-toggle { transform: rotate(90deg); }
-/* See .variations-label's own identical comment, above — the same dimmed
-   color, the same mistake, the same fix: a color/option header reads as a
-   real heading, not secondary text. */
+/* "Make the font color in the header the same as all the other text... not
+   like a dimmer version... the same bright color, just like the other
+   headings" — the owner's own words, comparing this against every other
+   real heading in the tile (.admin-section-label, a field's own value
+   text), which all use --ink, the default/bright text color. */
 .variant-group-label { flex: 0 0 auto; font-size: 11px; color: var(--ink); }
 .variant-group-body { display: none; margin-top: 4px; }
 .variant-group.expanded .variant-group-body { display: block; }
@@ -3333,14 +3279,15 @@ function stockStepper(v) {
  */
 function variantsGridAxes(variations, itemOptions) {
   const namesUsed = [...new Set(variations.flatMap((v) => Object.keys(v.options ?? {})))];
-  const axisValues = (name) => {
-    const used = new Set(variations.map((v) => v.options?.[name]).filter(Boolean));
+  const axisValuesOf = (vs, name) => {
+    const used = new Set(vs.map((v) => v.options?.[name]).filter(Boolean));
     const ordered = (itemOptions.find((o) => o.name === name)?.values ?? [])
       .map((v) => v.name)
       .filter((n) => used.has(n));
     const extra = [...used].filter((n) => !ordered.includes(n));
     return [...ordered, ...extra];
   };
+  const axisValues = (name) => axisValuesOf(variations, name);
   /* REVISED — "we don't want to upload a photo for each size, we just want
      to upload for each option" — the owner's own words. A product using
      Size ALONE (no Color, no third axis) has nothing a photo could
@@ -3357,7 +3304,7 @@ function variantsGridAxes(variations, itemOptions) {
      flat list) already IS "one per option" — nothing here should group
      those away into a single, falsely-shared photo. */
   if (namesUsed.length === 1 && namesUsed[0].toLowerCase() === "size") {
-    return { rowsName: null, colsName: namesUsed[0], rowValues: [null], colValues: axisValues(namesUsed[0]) };
+    return { rowsName: null, colsName: namesUsed[0], rowValues: [null], colValues: axisValues(namesUsed[0]), variations };
   }
   /* REVISED: "I don't want to see black. I don't want to see variations
      header. I want to see black and then add photos in the header... one
@@ -3369,18 +3316,79 @@ function variantsGridAxes(variations, itemOptions) {
      variantsGroupedAccordionHtml's own sentinel for that, the mirror image
      of rowsName: null above. */
   if (namesUsed.length === 1) {
-    return { rowsName: namesUsed[0], colsName: null, rowValues: axisValues(namesUsed[0]), colValues: [null] };
+    return { rowsName: namesUsed[0], colsName: null, rowValues: axisValues(namesUsed[0]), colValues: [null], variations };
   }
-  if (namesUsed.length !== 2) return null;
-  /* Ordered the way the shop's own Option Sets are (allItemOptions,
-     catalog.item_options' own alphabetical-by-name order), not however
-     namesUsed happened to collect them — the same pair of dimensions
-     reads in the same row/column order on every item, not in a
-     different order per item depending on which variation happened to
-     sync first. */
-  const known = itemOptions.map((o) => o.name).filter((n) => namesUsed.includes(n));
-  const [rowsName, colsName] = known.length === 2 ? known : namesUsed;
-  return { rowsName, colsName, rowValues: axisValues(rowsName), colValues: axisValues(colsName) };
+  if (namesUsed.length >= 2) {
+    /* Ordered the way the shop's own Option Sets are (allItemOptions,
+       catalog.item_options' own alphabetical-by-name order), not however
+       namesUsed happened to collect them — the same pair of dimensions
+       reads in the same row/column order on every item, not in a
+       different order per item depending on which variation happened to
+       sync first. */
+    const known = itemOptions.map((o) => o.name).filter((n) => namesUsed.includes(n));
+    const ordered = known.length === namesUsed.length ? known : namesUsed;
+    const [rowsName, ...restNames] = ordered;
+    if (restNames.length === 1) {
+      const colsName = restNames[0];
+      return { rowsName, colsName, rowValues: axisValues(rowsName), colValues: axisValues(colsName), variations };
+    }
+    /* REVISED: "No item should be any different. All items must have this
+       layout. All items." — the owner's own words. Three-or-more Option Set
+       names used to fall out to the flat list entirely; now every axis past
+       the first folds into one composite label (joined " / "), keyed the
+       identical way a real two-axis pair already is — EXISTING SKUS ONLY
+       still holds, just against a joined value instead of a single one.
+       Synthesized into each variation's own `options` under that composite
+       name, never written back to Square or the mirror — a read-only
+       reshaping for this one view, the same discipline the title-parsed
+       fallback below follows for the zero-axis case. */
+    const colsName = restNames.join(" / ");
+    const prepped = variations.map((v) => ({
+      ...v,
+      options: { ...v.options, [colsName]: restNames.map((n) => v.options?.[n]).filter(Boolean).join(" / ") },
+    }));
+    return { rowsName, colsName, rowValues: axisValuesOf(prepped, rowsName), colValues: axisValuesOf(prepped, colsName), variations: prepped };
+  }
+  /* namesUsed.length === 0: this item declares no real Square Option Set at
+     all on any of its own variations — a legacy product, created before
+     this shop's own catalog used Option Sets, whose variations were simply
+     named by hand ("Black, S", "Black, M", "Black, L"). The owner's own
+     words, on seeing this exact real item still fall to the flat list
+     verbatim: "No item should be any different. All items must have this
+     layout. All items." Parsed from each variation's own title — never
+     written back to Square or the mirror, purely a last-resort READ for
+     this one view — only when EVERY variation's title follows the identical
+     "<group>, <row>" shape; one that does not is left to the single-
+     variation-per-group fallback below instead of half-parsing some and
+     guessing at the rest. */
+  if (variations.length > 1 && variations.every((v) => typeof v.title === "string" && v.title.includes(","))) {
+    const parsed = variations.map((v) => {
+      const idx = v.title.lastIndexOf(",");
+      return { ...v, options: { Option: v.title.slice(0, idx).trim(), Size: v.title.slice(idx + 1).trim() } };
+    });
+    return {
+      rowsName: "Option",
+      colsName: "Size",
+      rowValues: axisValuesOf(parsed, "Option"),
+      colValues: axisValuesOf(parsed, "Size"),
+      variations: parsed,
+    };
+  }
+  /* The absolute last resort — no Option Set data, and no parseable
+     "<group>, <row>" title shape either (a single variation with nothing to
+     group, or inconsistent legacy titles). "If we don't have those sizes,
+     then you don't show those buttons" — the owner's own words: one group
+     PER VARIATION, headed by its own real title (never a manufactured
+     name), reusing the identical single-row-body shape the Color-only case
+     above already has — a single synthetic "OS" row and stepper, since
+     there is still nothing to break a real size out of. */
+  return {
+    rowsName: "__variant__",
+    colsName: null,
+    rowValues: variations.map((v) => v.title),
+    colValues: [null],
+    variations: variations.map((v) => ({ ...v, options: { __variant__: v.title } })),
+  };
 }
 
 /* REVISED: "I want to see two headers, expandable, just like you had
@@ -3655,36 +3663,16 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
      and never part of any <form> or the tile's own big Save; each +/-
      posts its own immediate /inventory delta (stepStock, below) the
      moment it's clicked, exactly as it always has. */
-  const variationRows = product.variations
-    .map(
-      (v) =>
-        `<div class="row"><span class="variation-title-label">${esc(v.title)}</span>${stockStepper(v)}` +
-        `<button type="button" class="variant-photo-upload" data-variant-id="${esc(v.id)}" aria-label="Add a photo for ${esc(v.title)}" title="Add a photo for ${esc(v.title)}">${CAMERA_ICON}</button></div>`,
-    )
-    .join("");
-  /* "I want to see one header per option. No variations header." — the
-     owner's own words. A product whose variations use one or two Option
-     Set names (Size alone, Color alone, or any two-axis pair) skips the
-     outer "Variations" accordion entirely — its own per-value groups
-     (variantsGroupedAccordionHtml) ARE the first and only level, not a
-     second dropdown nested inside a first one; only the genuinely
-     unopinionated shapes (no options at all, or three-plus axes, which
-     variantsGridAxes doesn't attempt to lay out at all) keep the ordinary
-     "Variations" accordion + flat list. */
+  /* "No item should be any different. All items must have this layout. All
+     items." — the owner's own words. variantsGridAxes never returns null
+     any more (REVISED, below) — every product, regardless of how many real
+     Option Set names its variations use, or whether it has any structured
+     option data at all, renders through the identical one-header-per-
+     option, row-of-sizes-inside shape. The old outer "Variations"
+     accordion + flat per-variant list is gone entirely from this branch. */
   const groupAxes = variantsGridAxes(product.variations, allItemOptions);
   const variationsAccordion = canEdit
-    ? groupAxes
-      ? `<div class="variant-groups">${variantsGroupedAccordionHtml(product.variations, groupAxes)}</div>`
-      : `<div class="variations-accordion">
-           <div class="variations-header">
-             <button type="button" class="variations-toggle" aria-label="Show every variation" title="Show every variation">${CARET_ICON}</button>
-             <span class="variations-label">Variations</span>
-             <span class="variations-header-spacer"></span>
-           </div>
-           <div class="variations-body">
-             ${product.variations.length ? variationRows : `<p class="item-empty">No variations.</p>`}
-           </div>
-         </div>`
+    ? `<div class="variant-groups">${variantsGroupedAccordionHtml(groupAxes.variations, groupAxes)}</div>`
     : `<div class="item-variants">${variantRows}</div>`;
 
   /* REVISED: "the two buttons for active and web have the same style like
@@ -4471,11 +4459,6 @@ document.getElementById("items-grid").addEventListener("click", async (e) => {
     shareLink(shareBtn);
     return;
   }
-  const caret = e.target.closest(".variations-toggle");
-  if (caret) {
-    caret.closest(".variations-accordion")?.classList.toggle("expanded");
-    return;
-  }
   /* "Accordion style, only one open at a time" — the owner's own words.
      Unlike the outer "Variations" toggle above, these per-color (etc.)
      groups (variantsGroupedAccordionHtml, views.js) are siblings under
@@ -4491,15 +4474,6 @@ document.getElementById("items-grid").addEventListener("click", async (e) => {
   const groupHeader = e.target.closest(".variant-group-header");
   if (groupHeader && !e.target.closest("input, button")) {
     toggleVariantGroupExclusive(groupHeader.closest(".variant-group"));
-    return;
-  }
-  /* "Decorate the header so it's obvious it's an expandable accordion...
-     not just a chevron" — the whole header bar looks and now acts like
-     one, matching the caret's own toggle, except for a click that lands
-     on the caret itself (handled above). */
-  const header = e.target.closest(".variations-header");
-  if (header && !e.target.closest("input, button")) {
-    header.closest(".variations-accordion")?.classList.toggle("expanded");
     return;
   }
   const saveBtn = e.target.closest(".item-save-all");
@@ -4537,7 +4511,7 @@ document.getElementById("items-grid").addEventListener("click", async (e) => {
     return;
   }
   const tile = e.target.closest(".item-tile");
-  if (!tile || e.target.closest(".item-edit, .item-badges, .variations-accordion") || tile.classList.contains("full")) return;
+  if (!tile || e.target.closest(".item-edit, .item-badges, .variant-groups") || tile.classList.contains("full")) return;
   tile.classList.add("full");
   setDeepLinkHash(tile);
 });
@@ -5120,7 +5094,7 @@ ${OPS_DARK_CSS}
 .admin-save-all:disabled { border-color: var(--muted); background: transparent; color: var(--muted); cursor: not-allowed; }
 .admin-section { margin: 0 0 20px; }
 /* An expanding header bar, the SAME shape every other accordion on this
-   app already uses (.variations-header, the old .categories-header) —
+   app already uses (.variant-group-header, the old .categories-header) —
    "vendors should be an expanding header just like all the other
    headers. Keep it consistent." Orange only when something inside is
    actually dirty, never on a plain hover — the same rule established

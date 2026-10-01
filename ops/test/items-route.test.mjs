@@ -649,18 +649,28 @@ check("test_PRD_P0_173_variant_photo_upload__grouped_view_upload_button_carries_
   );
 });
 
-check("test_PRD_P0_173_variant_photo_upload__flat_list_upload_button_carries_its_own_variant_id", async () => {
-  /* A single-dimension (or dimensionless) product has no group to anchor
-     to at all — each flat row already IS one whole variant, so its own
-     upload button points directly at it, no anchor-picking needed. */
+check("test_PRD_P0_173_variant_photo_upload__a_dimensionless_product_still_groups_with_its_own_variant_id", async () => {
+  /* REVISED: "No item should be any different. All items must have this
+     layout. All items." A single-variation product with no real Option Set
+     data and nothing to parse from its own title (seedProduct's own "One
+     size") now renders through the LAST-RESORT branch of variantsGridAxes
+     instead of a flat row — one group headed by its own title, upload
+     button anchored directly to its own variant id, no anchor-picking
+     needed since there is only ever the one. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
+  assert.match(body, /<span class="variant-group-label">One size<\/span>/);
   assert.match(
     body,
-    /<span class="variation-title-label">One size<\/span>[^<]*<span class="variation-stock-stepper">.*?<button type="button" class="variant-photo-upload" data-variant-id="v1" aria-label="Add a photo for One size"/s,
-    "the flat row's own upload button must carry that row's own variant id",
+    /<span class="variant-group-label">One size<\/span>[^<]*<button type="button" class="variant-photo-upload" data-variant-id="v1" aria-label="Add a photo for One size"/s,
+    "the group's own upload button must carry that variant's own id",
+  );
+  assert.match(
+    body,
+    /variant-size-cell"><span class="variation-title-label">OS<\/span><span class="variation-stock-stepper">.*?data-variant-id="v1"/s,
+    "the body still carries the one real stepper for that variant",
   );
 });
 
@@ -1893,7 +1903,7 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_variations_accordion_h
   assert.doesNotMatch(body, /name="variant_id_0"/, "no per-variation form field survives -- nothing here is ever resent through a <form>");
   assert.doesNotMatch(body, /class="variation-title"|class="variation-unit-cost"|class="variation-price"/, "title/cost/price editing is gone");
   assert.doesNotMatch(body, /action="\/items\/wool-coat\/variations"/, "the variations accordion body posts nowhere any more");
-  assert.match(body, /<span class="variation-title-label">One size<\/span>/, "the variation's own name is still shown, read-only");
+  assert.match(body, /<span class="variant-group-label">One size<\/span>/, "the variation's own name is still shown, read-only, now as its own group header");
   assert.match(body, /<input type="text" class="variation-stock-count" value="0" readonly aria-label="Current stock">/, "the stock stepper survives untouched");
   /* REVISED AGAIN: style_id has no form field anywhere at all any more --
      Test-PRD-P0-176-style_id_display_only's own comment has the full
@@ -1908,46 +1918,19 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_variations_accordion_h
   assert.match(body, /data-sku="VEM-100"/);
 });
 
-check("test_PRD_P0_135_item_edit_applies_immediately__the_accordion_header_is_decorated_and_the_body_is_indented", async () => {
-  /* "Decorate the header so it's obvious it's an expandable accordion...
-     not just a chevron" and "indent [the variation rows] a little so
-     it's clearer it's underneath the accordion it belongs to." */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  const res = await get("/items", MANAGER, env(mirror));
-  const body = await res.text();
-  assert.match(body, /\.variations-header\s*\{[^}]*background: var\(--image-ground\)/);
-  assert.match(body, /\.variations-body\s*\{[^}]*padding-left: 10px/);
-  assert.match(body, /<span class="variations-label">Variations<\/span>/, "the header names the section it belongs to, next to the chevron");
-});
-
-check("test_PRD_P0_135_item_edit_applies_immediately__the_header_spacer_is_the_last_thing_in_it", async () => {
+check("test_PRD_P0_135_item_edit_applies_immediately__no_cost_or_price_field_survives_anywhere_on_the_page", async () => {
+  /* "Get rid of the whole variants setup... we'll do variations from
+     Square" — Cost/MSRP, briefly at the end of the vendor row, are gone
+     from the page entirely. The decorated-header/indented-body shape this
+     used to check on the old flat "Variations" accordion is now covered by
+     the grouped Variants view's own tests instead (Test-PRD-P0-147-
+     variants_grid), since that accordion no longer exists at all — every
+     item, including a single, dimensionless variation like seedProduct's
+     own "One size," now renders through the identical grouped shape. */
   const mirror = mirrorDb();
   seedProduct(mirror, { vendor: "Acme Mills" });
   const res = await get("/items", MANAGER, env(mirror));
   const body = await res.text();
-  assert.match(body, /<span class="variations-header-spacer"><\/span>/, "an invisible spacer absorbs the header's own leftover width, the same way each row's own title does");
-  assert.match(body, /\.variations-header-spacer\s*\{\s*flex: 1 1 auto;\s*\}/);
-  assert.match(
-    body,
-    /\.variations-body \.row, \.variant-group-body \.row\s*\{[^}]*padding: 3px 4px 3px 0/,
-    "a right inset matches the header's own right padding, shared with the grouped Variants view's own rows",
-  );
-  /* "Get rid of the whole variants setup... we'll do variations from
-     Square" — Cost/MSRP, briefly at the end of the vendor row, are gone
-     from the page entirely now; nothing follows the header's own spacer
-     any more, and no per-variation cost/price field exists anywhere. */
-  const spacerMarkup = body.indexOf('<span class="variations-header-spacer">');
-  const headerEnd = body.indexOf("</div>", spacerMarkup);
-  assert.ok(
-    body.indexOf('<span class="variations-label">Variations</span>') < spacerMarkup,
-    "the spacer must still follow the Variations label",
-  );
-  assert.doesNotMatch(
-    body.slice(spacerMarkup, headerEnd),
-    /variations-unit-cost|variations-msrp/,
-    "Cost/MSRP no longer live inside this header at all",
-  );
   assert.doesNotMatch(body, /variations-unit-cost|variations-msrp|variation-unit-cost|variation-price/, "no cost/price field survives anywhere on the page");
 });
 
@@ -1962,21 +1945,21 @@ check("test_PRD_P0_135_item_edit_applies_immediately__title_and_description_are_
   assert.match(body, /<input class="item-title-input" name="title" value="Wool Coat" placeholder="Title">/);
   assert.match(body, /<textarea name="description" placeholder="Description">A warm winter coat\.<\/textarea>/);
   /* "Move the title, description, and the vendor fields up above the
-     variants" — both forms now render before the accordion, and custom
-     fields still come after it. */
-  const accordionMarkup = body.indexOf('<div class="variations-accordion">');
+     variants" — both forms now render before the grouped Variants view, and
+     custom fields still come after it. */
+  const accordionMarkup = body.indexOf('<div class="variant-groups">');
   assert.ok(accordionMarkup > -1);
   assert.ok(
     body.indexOf('action="/items/wool-coat/details"') < accordionMarkup,
-    "title/description form comes before the variations accordion",
+    "title/description form comes before the grouped Variants view",
   );
   assert.ok(
     body.indexOf('name="vendor" value=') < accordionMarkup,
-    "the vendor form comes before the variations accordion",
+    "the vendor form comes before the grouped Variants view",
   );
   assert.ok(
     accordionMarkup < body.indexOf('action="/items/wool-coat/custom-fields"'),
-    "custom fields still come after the variations accordion",
+    "custom fields still come after the grouped Variants view",
   );
 });
 
@@ -2326,18 +2309,6 @@ check("test_PRD_P0_147_variants_grid__a_color_headers_own_label_reads_in_the_sam
   assert.doesNotMatch(body, /\.variant-group-label \{[^}]*color: var\(--muted\)/, "must never read as dimmed/secondary text");
 });
 
-check("test_PRD_P0_147_variants_grid__the_flat_accordions_own_variations_label_matches_the_same_bright_color", async () => {
-  /* The same fix, the same reasoning, for the OTHER accordion header this
-     file renders (zero Option Set names, or three-plus) -- one heading
-     style, consistently, regardless of which shape a given product's own
-     variations happen to take. */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  const body = await (await get("/items", MANAGER, env(mirror))).text();
-  assert.match(body, /\.variations-label \{ flex: 0 0 auto; font-size: 11px; color: var\(--ink\); \}/);
-  assert.doesNotMatch(body, /\.variations-label \{[^}]*color: var\(--muted\)/, "must never read as dimmed/secondary text");
-});
-
 check("test_PRD_P0_147_variants_grid__sizes_render_as_a_wrapping_grid_of_cells_not_one_row_each", async () => {
   /* REVISED YET AGAIN, THEN REVERTED (views.js's own comment on
      variantsGroupedAccordionHtml): a one-full-width-row-per-size layout
@@ -2382,15 +2353,101 @@ check("test_PRD_P0_147_variants_grid__the_plus_and_minus_steppers_still_work_ins
   );
 });
 
-check("test_PRD_P0_147_variants_grid__zero_dimensions_keeps_the_flat_list", async () => {
-  /* seedProduct's own single "One size" variation carries no options at
-     all — zero dimensions, nothing to group by, so the nested groups must
-     not even try to render. */
+check("test_PRD_P0_147_variants_grid__zero_dimensions_with_a_single_variation_still_groups_by_its_own_title", async () => {
+  /* REVISED: "No item should be any different. All items must have this
+     layout. All items." seedProduct's own single "One size" variation
+     carries no Option Set data at all and has no comma to parse a group
+     out of either — the absolute last resort, one group headed by its own
+     title, still rendered through the identical grouped shape, never the
+     old flat list. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const body = await (await get("/items", MANAGER, env(mirror))).text();
-  assert.doesNotMatch(body, /class="variant-group"/);
-  assert.match(body, /<span class="variation-title-label">One size<\/span>/);
+  assert.match(body, /class="variant-group"/);
+  assert.match(body, /<span class="variant-group-label">One size<\/span>/);
+  assert.doesNotMatch(body, /class="variations-accordion"/);
+});
+
+check("test_PRD_P0_147_variants_grid__a_legacy_item_with_no_real_option_data_is_grouped_from_its_own_variation_titles", async () => {
+  /* The owner's own real product: "Black hand-painted blazer," created
+     before this shop's catalog used real Square Option Sets at all, whose
+     three variations were simply named by hand ("Black, S", "Black, M",
+     "Black, L") with no structured Color/Size option data behind them at
+     all. Seeing this fall straight through to the old flat "Variations"
+     list, one camera icon per row: "I see black, comma, S. That's wrong...
+     the letter S for size... with the plus and minus button... You had
+     this working before." Parsed from each variation's own title into the
+     identical one-header-per-option, row-of-sizes-inside shape every other
+     product already gets — never written back to Square or the mirror. */
+  const mirror = mirrorDb();
+  mirror.db.exec("INSERT INTO mirror_category (id, external_ref, name) VALUES ('cat1', 'sqcat1', 'Blazers')");
+  mirror.db.exec(
+    "INSERT INTO mirror_product (id, external_ref, handle, title, source_description, status, channel, custom_fields, category_id)" +
+      " VALUES ('p1', 'sqitem1', 'black-hand-painted-blazer', 'Black hand-painted blazer', '', 'active', 'direct_link', '{}', 'cat1')",
+  );
+  const variations = [
+    ["v1", "sqvar1", "VEM-1", "Black, S"],
+    ["v2", "sqvar2", "VEM-2", "Black, M"],
+    ["v3", "sqvar3", "VEM-3", "Black, L"],
+  ];
+  for (const [id, ref, sku, title] of variations) {
+    mirror.db
+      .prepare(
+        "INSERT INTO mirror_variant (id, external_ref, product_id, sku, title, price_minor, currency, options)" +
+          " VALUES (?, ?, 'p1', ?, ?, 16500, 'USD', '{}')",
+      )
+      .run(id, ref, sku, title);
+  }
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+
+  assert.doesNotMatch(body, /class="variations-accordion"/, "must never fall to the old flat Variations list");
+  const groups = body.match(/<div class="variant-group">/g) ?? [];
+  assert.equal(groups.length, 1, "all three variations share one color, so exactly one group");
+  assert.match(body, /<span class="variant-group-label">Black<\/span>/, "the header reads just the color, never the full \"Black, S\" title");
+
+  const groupStart = body.indexOf('<div class="variant-group">');
+  const group = body.slice(groupStart, groupStart + 3000);
+  assert.match(group, /<span class="variation-title-label">S<\/span>/, "the row reads just the size letter, never the full title");
+  assert.match(group, /<span class="variation-title-label">M<\/span>/);
+  assert.match(group, /<span class="variation-title-label">L<\/span>/);
+  assert.match(group, /variation-stock-step" data-variant-id="v1"/, "S must still carry its own real stepper");
+  assert.match(group, /variation-stock-step" data-variant-id="v3"/, "L must still carry its own real stepper");
+});
+
+check("test_PRD_P0_147_variants_grid__three_or_more_options_still_groups_by_the_first_axis_with_the_rest_joined_inside", async () => {
+  /* "No item should be any different. All items must have this layout. All
+     items." Three-plus real Option Set names used to fall to the old flat
+     list entirely; now the first axis (canonical shop order) still becomes
+     the header, with every other axis folded into one composite row label. */
+  const mirror = mirrorDb();
+  mirror.db.exec("INSERT INTO mirror_category (id, external_ref, name) VALUES ('cat1', 'sqcat1', 'Outerwear')");
+  mirror.db.exec(
+    "INSERT INTO mirror_product (id, external_ref, handle, title, source_description, status, channel, custom_fields, category_id)" +
+      " VALUES ('p1', 'sqitem1', 'trim-coat', 'Trim Coat', '', 'active', 'direct_link', '{}', 'cat1')",
+  );
+  mirror.db.exec(
+    "INSERT INTO mirror_item_option (id, external_ref, name) VALUES ('opt-size', 'sqopt-size', 'Size'), ('opt-color', 'sqopt-color', 'Color'), ('opt-trim', 'sqopt-trim', 'Trim')",
+  );
+  const variations = [
+    ["v1", "sqvar1", "VEM-1", "Red / S / Gold", { Size: "S", Color: "Red", Trim: "Gold" }],
+    ["v2", "sqvar2", "VEM-2", "Red / M / Silver", { Size: "M", Color: "Red", Trim: "Silver" }],
+  ];
+  for (const [id, ref, sku, title, options] of variations) {
+    mirror.db
+      .prepare(
+        "INSERT INTO mirror_variant (id, external_ref, product_id, sku, title, price_minor, currency, options)" +
+          " VALUES (?, ?, 'p1', ?, ?, 20000, 'USD', ?)",
+      )
+      .run(id, ref, sku, title, JSON.stringify(options));
+  }
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+
+  assert.doesNotMatch(body, /class="variations-accordion"/, "must never fall to the old flat Variations list");
+  assert.match(body, /<span class="variant-group-label">Red<\/span>/, "the header is the first canonical axis (Color), same as a real two-axis pair");
+  const groupStart = body.indexOf('<div class="variant-group">');
+  const group = body.slice(groupStart, groupStart + 3000);
+  assert.match(group, /<span class="variation-title-label">S \/ Gold<\/span>/, "the remaining axes join into one composite row label");
+  assert.match(group, /<span class="variation-title-label">M \/ Silver<\/span>/);
 });
 
 check("test_PRD_P0_147_variants_grid__color_alone_with_no_size_still_gets_one_group_per_color_not_the_flat_variations_list", async () => {
@@ -2769,7 +2826,12 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_two_outer_bars_stay_re
      removed, from the very first pass.
      REVISED AGAIN: the Categories header/accordion this test used to
      also check moved out to the global /admin page entirely — see
-     adminPage's own tests instead. */
+     adminPage's own tests instead.
+     REVISED ONCE MORE: the Variants header this test also checked here
+     was the old flat ".variations-header" — gone along with the rest of
+     that accordion (Test-PRD-P0-147-variants_grid's own REVISED entry).
+     Its replacement, .variant-group-header, keeps its own identical
+     1px outline — already its own dedicated test, below. */
   const mirror = mirrorDb();
   seedProduct(mirror, { style_id: "01-04-001", vendor: "Acme Mills", commission_pct: 20 });
   const res = await get("/items", MANAGER, env(mirror));
@@ -2786,28 +2848,6 @@ check("test_PRD_P0_135_item_edit_applies_immediately__the_two_outer_bars_stay_re
     /\.item-edit \{ margin-top: 2px; padding-top: 6px; cursor: default; display: flex; flex-direction: column; gap: 6px; \}/,
     "the base class itself still never draws a border of its own",
   );
-
-  assert.match(
-    body,
-    /\.variations-header \{\s*\n\s*display: flex; align-items: center; gap: 6px; cursor: pointer;\s*\n\s*background: var\(--image-ground\); border: 1px solid var\(--rule\); border-radius: 6px; padding: 5px 4px;\s*\n\}/,
-    "the Variants header must keep its own full border, gray by default",
-  );
-  assert.match(body, /\.variations-accordion \{ margin-top: 2px; padding-top: 6px; \}/, "the Variations ACCORDION's own separate top border stays removed");
-});
-
-check("test_PRD_P0_135_item_edit_applies_immediately__the_variants_header_never_turns_orange_any_more_nothing_left_inside_it_can_go_dirty", async () => {
-  /* "Get rid of the whole variants setup... we'll do variations from
-     Square" -- the dirty-highlight rule this header once had
-     (.variations-accordion:has(.field-dirty)) is gone along with the
-     last editable field it was ever watching for: a variation's own
-     name is read-only now, and the stock stepper is deliberately never
-     marked dirty (it posts immediately, its own event, never batched
-     into the tile's one big Save). Always the same plain gray border. */
-  const mirror = mirrorDb();
-  seedProduct(mirror);
-  const body = await (await get("/items", MANAGER, env(mirror))).text();
-  assert.doesNotMatch(body, /\.variations-accordion:has\(\.field-dirty\)/);
-  assert.match(body, /\.variations-header \{\s*\n\s*display: flex; align-items: center; gap: 6px; cursor: pointer;\s*\n\s*background: var\(--image-ground\); border: 1px solid var\(--rule\); border-radius: 6px; padding: 5px 4px;\s*\n\s*\}/);
 });
 
 check("test_PRD_P0_71_items_tab__custom_field_rows_come_from_the_global_registered_list_no_add_field_disclosure", async () => {
@@ -2957,7 +2997,7 @@ check("test_PRD_P0_130_item_tile_photo__no_dedicated_expand_button_a_click_anywh
   assert.doesNotMatch(body, /item-expand/);
   assert.match(
     body,
-    /const tile = e\.target\.closest\("\.item-tile"\);\s*\n\s*if \(!tile \|\| e\.target\.closest\("\.item-edit, \.item-badges, \.variations-accordion"\) \|\| tile\.classList\.contains\("full"\)\) return;/,
+    /const tile = e\.target\.closest\("\.item-tile"\);\s*\n\s*if \(!tile \|\| e\.target\.closest\("\.item-edit, \.item-badges, \.variant-groups"\) \|\| tile\.classList\.contains\("full"\)\) return;/,
     "a click anywhere on a COLLAPSED tile expands it, except inside an edit control or once already expanded",
   );
 });

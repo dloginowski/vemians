@@ -6734,6 +6734,45 @@ that does not trace to one of these is a process failure (see §12).
     instead. Every expandable group, regardless of which single axis or pair of axes a product's own
     variations use, now reads as the one consistent shape: a header per option, a row of sizes inside.
 
+    REVISED A TENTH TIME — a real production screenshot, after the owner flatly rejected every
+    cache/sync explanation offered for why a genuinely real item ("Black hand-painted blazer") still
+    showed the old flat "Variations" accordion, one camera icon per row, after confirming the deploy had
+    succeeded: "I see black, comma, S. That's wrong. I should have the word S... with the plus and minus
+    button and a row of them... whatever option, whatever sizes we have for the item... No item should be
+    any different. All items must have this layout. All items." Root cause, finally confirmed from the
+    screenshot's own exact markup (per-row camera icons, raw variation titles as the row label — precisely
+    the pre-REVISED-A-SIXTH-TIME flat list, not a caching artifact): this real item has NO Square Option
+    Set data on any of its own variations at all — a legacy product, created before this shop's catalog
+    used Option Sets, whose three variations were simply named by hand ("Black, S", "Black, M", "Black,
+    L"). `variantsGridAxes`' own `namesUsed.length === 0` case had never been handled at all — it fell
+    through to `return null`, and the flat list was *itself* the fallback for that `null`, exactly as it
+    was for three-or-more Option Set names. Both gaps are now closed, and `variantsGridAxes` never returns
+    null:
+
+    - **Zero Option Set names, titles following a consistent "`<group>, <row>`" shape** (this exact real
+      item): each variation's own title is parsed on its LAST comma into a group label ("Black") and a row
+      label ("S"/"M"/"L") — never written back to Square or the mirror, a read-only reshaping for this one
+      view only, attempted only when EVERY variation's title has a comma (one that does not falls to the
+      next case below rather than half-parsing some and guessing at the rest). Fed into the identical
+      two-axis rendering path as a synthetic `{Option: group, Size: row}` options object, so a shop-wide
+      real "Size" Option Set's own ordinal ordering (S before M before L) still applies even though this
+      item itself has no real link to it.
+    - **Zero Option Set names, no consistent title shape** (a single variation with nothing to parse, or
+      inconsistent legacy titles): the absolute last resort — one group PER VARIATION, headed by its own
+      real title, with a single synthetic "OS" row inside (the identical shape the Color-only case already
+      uses) — "if we don't have those sizes, then you don't show those buttons," the owner's own words.
+    - **Three-or-more real Option Set names** (previously also fell to the flat list): the first axis, in
+      the shop's own canonical order, still becomes the header; every other axis folds into one composite
+      row label (joined " / "), synthesized into each variation's own options under that composite name —
+      the identical two-axis rendering path again, never new rendering code.
+
+    The old flat "Variations" accordion — `.variations-accordion`/`.variations-header`/`.variations-
+    toggle`/`.variations-label`/`.variations-body`/`.variations-header-spacer`, and their own click
+    handlers — is deleted outright from `itemTile`'s manager/editable branch: with `variantsGridAxes`
+    never returning null, it was dead code. A staff member's own READ-ONLY view (`.item-variants`,
+    `canEdit` false) is a deliberate, separate, simpler rendering by role and is unaffected — this rule is
+    about the one interactive Variants layout a manager edits, not staff's own plain summary.
+
 82. **`Test-PRD-P0-148-auto_generate_variations`** — RETIRED by `Test-PRD-P0-178-
     remove_category_item_options`. Used to auto-generate any missing Size/Color variation combinations
     for every product in a category (a cross product of the category's own assigned Option Set values),
