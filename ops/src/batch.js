@@ -136,7 +136,7 @@ const NOT_ROW_FIXABLE = /requires the .* role|^rate cap:|no tool '|cannot be pas
 
 /*
  * A real production bug, found live: the checklist/plan mechanism
- * (planProductBatch's own readyRows, stashed in agent_batch_plan) addresses
+ * (planProductBatch's own readyRows, stored as ingest_row records) addresses
  * ONE row for its own later, separate HTTP submission (POST /agent/batch-
  * submit-row) by `rowNumber` ALONE (submitBatchPlanRow's own
  * `rows.findIndex((r) => r.rowNumber === row)`, agent.js) -- fine as long as

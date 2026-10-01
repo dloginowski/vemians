@@ -110,3 +110,68 @@ CREATE TABLE agent_batch_plan (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX idx_agent_batch_plan_actor ON agent_batch_plan (actor, created_at DESC);
+
+-- The upload ledger (ops/src/ingest.js): one ingest_job per uploaded file
+-- being applied, one ingest_row per row in it, each with its own "submitted"
+-- check. Replaces agent_batch_plan above for new uploads (that table is left
+-- as history; nothing reads it any more).
+--
+--   "We need to have an upload database, like an ingest table that matches,
+--    that is based on file name that's being uploaded. And it needs to have
+--    its own submitted check field... it will never run more than once per
+--    submit click." -- the owner's own words.
+--
+-- ONE LIVE JOB PER FILE: creating a job supersedes any other open job for the
+-- same actor + filename. ONE RUN PER SUBMIT CLICK: a click mints job.run_id
+-- and selects rows into queued_run; a row can only be claimed (claimed_at)
+-- under the current run id, exactly once, and is "submitted" only after its
+-- outcome is written. A row claimed but never finished stays claimed and
+-- unchecked -- shown as outcome unknown, never retried on its own.
+--
+-- ops/src/ingest.js creates these same tables itself (CREATE ... IF NOT
+-- EXISTS) the first time it finds them missing, because this database has no
+-- automated migration; a test pins that definition to this one.
+
+CREATE TABLE ingest_job (
+  id         TEXT PRIMARY KEY,
+  actor      TEXT NOT NULL,
+  role       TEXT NOT NULL,
+  asset_id   TEXT NOT NULL,
+  filename   TEXT NOT NULL,
+  mode       TEXT NOT NULL CHECK (mode IN ('add', 'update')),
+  status     TEXT NOT NULL DEFAULT 'ready'
+               CHECK (status IN ('ready', 'running', 'done', 'cancelled', 'superseded')),
+  run_id     TEXT,
+  runs       INTEGER NOT NULL DEFAULT 0,
+  total      INTEGER NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_ingest_job_file ON ingest_job (actor, filename, created_at DESC);
+CREATE INDEX idx_ingest_job_asset ON ingest_job (actor, asset_id, mode, created_at DESC);
+
+CREATE TABLE ingest_row (
+  job_id             TEXT NOT NULL REFERENCES ingest_job (id),
+  row_key            INTEGER NOT NULL,
+  display_row        INTEGER NOT NULL,
+  title              TEXT NOT NULL,
+  sheet_style_id     TEXT NOT NULL DEFAULT '',
+  category           TEXT NOT NULL DEFAULT '',
+  subcategory        TEXT NOT NULL DEFAULT '',
+  changes            TEXT NOT NULL DEFAULT '',
+  summary            TEXT NOT NULL DEFAULT '',
+  flag               TEXT CHECK (flag IN ('duplicate', 'confirm')),
+  flag_reason        TEXT,
+  payload            TEXT NOT NULL,
+  queued_run         TEXT,
+  claimed_at         TEXT,
+  submitted          INTEGER NOT NULL DEFAULT 0 CHECK (submitted IN (0, 1)),
+  outcome            TEXT CHECK (outcome IN ('created', 'updated', 'unchanged', 'parked', 'skipped', 'failed')),
+  detail             TEXT,
+  result_style_id    TEXT,
+  result_category    TEXT,
+  result_subcategory TEXT,
+  submitted_at       TEXT,
+  PRIMARY KEY (job_id, row_key)
+);
+CREATE INDEX idx_ingest_row_open ON ingest_row (job_id, claimed_at);

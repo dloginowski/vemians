@@ -76,7 +76,7 @@ import { normaliseCatalog } from "../../shared/commerce/square/catalog.js";
 register("../../shared/test/text-modules.mjs", import.meta.url);
 const { approvePending, parkForApproval } = await import("../src/approvals.js");
 const { draftProductBatch } = await import("../src/batch.js");
-const { dispatch, agentTurn, approve, NO_TEXT_TABLE_NOTE, readBatchProgress, submitBatchPlanRow, openBatchPlanFor, cancelBatchPlan } = await import("../src/agent.js");
+const { dispatch, agentTurn, approve, NO_TEXT_TABLE_NOTE, readBatchProgress, startBatchRun, submitBatchPlanRow, openBatchPlanFor, cancelBatchPlan } = await import("../src/agent.js");
 const http = await import("node:http");
 
 /*
@@ -182,6 +182,34 @@ async function draftBatchViaChatButton(name, args, { actor = "mara@vemians.com",
  * clash or skip at plan time) still returns `kind: "result"` directly,
  * exactly as it always did — that path is unchanged.
  */
+/* The HTTP half of one Submit click: POST /agent/batch-start for the rows
+   checked, returning the run id every row submission must then carry. */
+async function httpStartRun(worker, workerEnv, id, rows) {
+  const res = await worker.fetch(
+    new Request("http://localhost/agent/batch-start", {
+      method: "POST",
+      headers: { "Cf-Access-Jwt-Assertion": assertion(MANAGER_CLAIMS), "content-type": "application/json" },
+      body: JSON.stringify({ id, rows }),
+    }),
+    workerEnv,
+  );
+  const text = await res.text();
+  assert.equal(res.status, 200, `the run must start, got ${res.status}: ${text}`);
+  const data = JSON.parse(text);
+  assert.equal(data.ok, true, text);
+  return data.runId;
+}
+
+/* One Submit click for ONE row of a planned upload: start a run selecting just
+   that row, then submit it under that run -- exactly what the browser does,
+   for a person who checked a single box. A refused start (the upload is
+   finished, belongs to someone else) is returned as-is. */
+async function submitRow({ id, row, title, identity, env }) {
+  const started = await startBatchRun({ id, rows: [row], identity, env });
+  if (!started.ok) return started;
+  return submitBatchPlanRow({ id, row, title, runId: started.runId, identity, env });
+}
+
 async function draftProductBatchViaChat(name, args, { actor = "mara@vemians.com", role = "manager", env, square = null }) {
   const realFetch = globalThis.fetch;
   if (square) globalThis.fetch = square;
@@ -195,8 +223,12 @@ async function draftProductBatchViaChat(name, args, { actor = "mara@vemians.com"
     const created = [];
     const parked = [];
     const skipped = [];
+    /* ONE Submit click for every row the plan offered, as the browser's own
+       loop does: one run, every row under it. */
+    const started = await startBatchRun({ id: outcome.checklist.id, rows: outcome.checklist.rows.map((r) => r.row), identity, env });
+    assert.equal(started.ok, true, `the run must start: ${JSON.stringify(started)}`);
     for (const row of outcome.checklist.rows) {
-      const result = await submitBatchPlanRow({ id: outcome.checklist.id, row: row.row, identity, env });
+      const result = await submitBatchPlanRow({ id: outcome.checklist.id, row: row.row, runId: started.runId, identity, env });
       assert.equal(result.ok, true, `row ${row.row} failed to submit: ${JSON.stringify(result)}`);
       if (result.status === "created") created.push(result);
       else if (result.status === "parked") parked.push(result);
@@ -7181,11 +7213,11 @@ check("test_PRD_P0_152_style_number_grouping__a_plan_rows_own_submission_is_sing
     assert.equal(outcome.checklist.rows.length, 1);
     const row = outcome.checklist.rows[0].row;
 
-    const first = await submitBatchPlanRow({ id: outcome.checklist.id, row, identity, env });
+    const first = await submitRow({ id: outcome.checklist.id, row, identity, env });
     assert.equal(first.ok, true, JSON.stringify(first));
     assert.equal(first.status, "created");
 
-    const second = await submitBatchPlanRow({ id: outcome.checklist.id, row, identity, env });
+    const second = await submitRow({ id: outcome.checklist.id, row, identity, env });
     assert.equal(second.ok, false);
     assert.equal(second.httpStatus, 404);
   } finally {
@@ -7249,7 +7281,7 @@ check("test_PRD_P0_152_style_number_grouping__a_partially_submitted_plan_resumes
       { actor: "zeynep@vemians.com", role: "manager", env, allowed: new Set(["catalog_add_product_batch"]) },
     );
     const woolRow = outcome.checklist.rows.find((r) => r.title === "Wool Coat").row;
-    const submitted = await submitBatchPlanRow({ id: outcome.checklist.id, row: woolRow, identity, env });
+    const submitted = await submitRow({ id: outcome.checklist.id, row: woolRow, identity, env });
     assert.equal(submitted.status, "created", JSON.stringify(submitted));
 
     const resumed = await openBatchPlanFor(env, "zeynep@vemians.com");
@@ -7294,7 +7326,7 @@ check("test_PRD_P0_187_batch_plan_survives_reload__a_resumed_plan_reports_how_fa
     assert.equal(freshlyPlanned.total, 3);
 
     const woolRow = outcome.checklist.rows.find((r) => r.title === "Wool Coat").row;
-    await submitBatchPlanRow({ id: outcome.checklist.id, row: woolRow, identity, env });
+    await submitRow({ id: outcome.checklist.id, row: woolRow, identity, env });
 
     const resumed = await openBatchPlanFor(env, "zeynep@vemians.com");
     assert.equal(resumed.done, 1, "one row already went through before the reload");
@@ -7320,7 +7352,7 @@ check("test_PRD_P0_152_style_number_grouping__a_fully_submitted_plan_is_no_longe
       { actor: "zeynep@vemians.com", role: "manager", env, allowed: new Set(["catalog_add_product_batch"]) },
     );
     const row = outcome.checklist.rows[0].row;
-    const submitted = await submitBatchPlanRow({ id: outcome.checklist.id, row, identity, env });
+    const submitted = await submitRow({ id: outcome.checklist.id, row, identity, env });
     assert.equal(submitted.status, "created", JSON.stringify(submitted));
 
     assert.equal(await openBatchPlanFor(env, "zeynep@vemians.com"), null, "nothing left to resume once every row is spent");
@@ -7369,7 +7401,7 @@ check("test_PRD_P0_196_unconfirmed_rows_never_resurface__a_plan_left_with_only_n
     /* The checklist's own real behavior: only the checked (non-flagged) row
        is ever submitted automatically -- the needsConfirmation row is left
        exactly as a person leaving it unchecked on purpose would. */
-    const submitted = await submitBatchPlanRow({ id: outcome.checklist.id, row: priceRow.row, identity, env });
+    const submitted = await submitRow({ id: outcome.checklist.id, row: priceRow.row, identity, env });
     assert.equal(submitted.status, "updated", JSON.stringify(submitted));
 
     /* THE POINT: once a person has reviewed the checklist once (done > 0)
@@ -7388,20 +7420,23 @@ check("test_PRD_P0_196_unconfirmed_rows_never_resurface__a_plan_left_with_only_n
   }
 });
 
-/* A D1 binding whose UPDATE on agent_batch_plan throws for its first N calls,
-   everything else passing straight through -- the shape of a one-request
-   storage blip landing on a single row of a long run. */
+/* A D1 binding whose "claim this row" UPDATE (ingest_row.claimed_at) throws
+   for its first N calls, everything else passing straight through -- the
+   shape of a one-request storage blip landing on a single row of a long run. */
 function flakyPlanWrites(db, failures) {
   let remaining = failures;
   const attempts = { updates: 0 };
   return {
     attempts,
     prepare(sql) {
-      if (/UPDATE agent_batch_plan/.test(sql)) {
+      if (/UPDATE ingest_row SET claimed_at/.test(sql)) {
         attempts.updates += 1;
         if (remaining > 0) {
           remaining -= 1;
-          return { bind: () => ({ run: async () => { throw new Error("D1_ERROR: transient write failure"); } }) };
+          const fail = async () => {
+            throw new Error("D1_ERROR: transient write failure");
+          };
+          return { bind: () => ({ run: fail, all: fail, first: fail }) };
         }
       }
       return db.prepare(sql);
@@ -7432,7 +7467,7 @@ check("test_PRD_P0_198_mark_spent_retries__a_one_off_storage_blip_on_a_rows_spen
     flaky.attempts.updates = 0;
     const row = outcome.checklist.rows[0].row;
 
-    const result = await submitBatchPlanRow({ id: outcome.checklist.id, row, identity, env });
+    const result = await submitRow({ id: outcome.checklist.id, row, identity, env });
     assert.equal(result.ok, true, `two blips then success must go through, got: ${JSON.stringify(result)}`);
     assert.equal(result.status, "created");
     assert.equal(flaky.attempts.updates, 3, "two failed attempts, then the one that landed");
@@ -7460,7 +7495,7 @@ check("test_PRD_P0_198_mark_spent_retries__a_write_that_never_lands_still_fails_
     flaky.attempts.updates = 0;
     const row = outcome.checklist.rows[0].row;
 
-    const result = await submitBatchPlanRow({ id: outcome.checklist.id, row, identity, env });
+    const result = await submitRow({ id: outcome.checklist.id, row, identity, env });
     assert.equal(result.ok, false);
     assert.equal(result.httpStatus, 502);
     assert.match(result.reply, /could not be marked as submitted\. Nothing was run/);
@@ -7536,7 +7571,7 @@ check("test_PRD_P0_200_checklist_shows_placement_and_changes__the_submitted_resu
   const row = outcome.checklist.rows[0];
   globalThis.fetch = f.square;
   try {
-    const result = await submitBatchPlanRow({ id: outcome.checklist.id, row: row.row, identity, env });
+    const result = await submitRow({ id: outcome.checklist.id, row: row.row, identity, env });
     assert.equal(result.ok, true, JSON.stringify(result));
     assert.equal(result.status, "updated", JSON.stringify(result));
     assert.equal(result.sheetStyleId, "01-04-091");
@@ -7592,11 +7627,298 @@ check("test_PRD_P0_201_submit_time_recheck__a_row_the_catalog_already_matches_is
     assert.equal(applied.created.length, 1, `sanity: the price really changed out of band, got: ${JSON.stringify(applied)}`);
 
     const writesBefore = f.calls().filter((c) => c.path === "/v2/catalog/object").length;
-    const result = await submitBatchPlanRow({ id: outcome.checklist.id, row: row.row, identity, env });
+    const result = await submitRow({ id: outcome.checklist.id, row: row.row, identity, env });
     assert.equal(result.ok, true, JSON.stringify(result));
     assert.equal(result.status, "unchanged", `expected no write, got: ${JSON.stringify(result)}`);
     assert.match(result.reason, /nothing to change/);
     assert.equal(f.calls().filter((c) => c.path === "/v2/catalog/object").length, writesBefore, "no catalog write may be made for a row that already matches");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-202 — the upload ledger. "We need to have an upload database, like an
+ * ingest table that matches, that is based on file name that's being
+ * uploaded. And it needs to have its own submitted check field. And so every
+ * time you hit submit, it goes through this once... as it finishes the job,
+ * it checks off every one of these fields, and then you know the job is
+ * done. But it will never run more than once per submit click." -- the
+ * owner's own words, after the same sheet kept being planned and run over
+ * and over.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+const LEDGER_CSV =
+  "title,category,price,style id,cost\n" +
+  "Wool Coat,Outerwear,450.00,01-04-001,210.00\n" +
+  "Silk Scarf,Outerwear,80.00,01-04-002,20.00\n";
+
+async function ledgerFixture(csv = LEDGER_CSV) {
+  const f = await fixture({ actor: "zeynep@vemians.com", role: "manager" });
+  const assets = await assetsFixtureWithRow({ extracted_text: csv });
+  const env = { ...f.env, ASSETS: assets };
+  const identity = { email: "zeynep@vemians.com", groups: ["vemians-manager"] };
+  const plan = () =>
+    dispatch(
+      "catalog_add_product_batch",
+      { asset_id: "ast_1" },
+      { actor: "zeynep@vemians.com", role: "manager", env, allowed: new Set(["catalog_add_product_batch"]) },
+    );
+  return { f, assets, env, identity, plan };
+}
+
+check("test_PRD_P0_202_upload_ledger__planning_the_same_file_again_hands_back_the_open_upload_instead_of_planning_it_twice", async () => {
+  const { f, assets, plan } = await ledgerFixture();
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const first = await plan();
+    assert.equal(first.kind, "checklist", JSON.stringify(first));
+    const productsAfterFirst = f.mirror("SELECT COUNT(*) AS n FROM mirror_product")[0].n;
+
+    const second = await plan();
+    assert.equal(second.kind, "checklist", JSON.stringify(second));
+    assert.equal(second.checklist.id, first.checklist.id, "the SAME upload, not a second plan of the same file");
+    assert.equal(second.checklist.rows.length, 2);
+    assert.match(second.text, /already open/i, "and it says so rather than pretending to have planned it");
+
+    const jobs = assets._raw.prepare("SELECT COUNT(*) AS n FROM ingest_job").get().n;
+    assert.equal(jobs, 1, "one job for one file, however many times it is asked for");
+    assert.equal(f.mirror("SELECT COUNT(*) AS n FROM mirror_product")[0].n, productsAfterFirst, "planning twice created nothing");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_202_upload_ledger__sending_the_same_file_name_again_supersedes_the_older_open_upload", async () => {
+  const { f, assets, env, identity, plan } = await ledgerFixture();
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const older = await plan();
+    /* A corrected file with the SAME name: a second stored asset. */
+    assets._raw
+      .prepare(
+        "INSERT INTO asset(id, store_key, filename, content_type, size_bytes, uploaded_by, extracted_text, text_truncated) VALUES ('ast_2', 'assets/ast_2', 'products.csv', 'text/csv', 100, 'mara@vemians.com', ?, 0)",
+      )
+      .run("title,category,price,style id,cost\nDenim Jacket,Outerwear,120.00,01-04-003,55.00\n");
+    const newer = await dispatch(
+      "catalog_add_product_batch",
+      { asset_id: "ast_2" },
+      { actor: "zeynep@vemians.com", role: "manager", env, allowed: new Set(["catalog_add_product_batch"]) },
+    );
+    assert.equal(newer.kind, "checklist", JSON.stringify(newer));
+    assert.notEqual(newer.checklist.id, older.checklist.id);
+
+    const status = (id) => assets._raw.prepare("SELECT status FROM ingest_job WHERE id = ?").get(id).status;
+    assert.equal(status(older.checklist.id), "superseded", "only one live job per file name");
+    assert.equal(status(newer.checklist.id), "ready");
+    const open = await openBatchPlanFor(env, "zeynep@vemians.com");
+    assert.equal(open.id, newer.checklist.id, "a reload shows only the current file's upload");
+    const refused = await submitRow({ id: older.checklist.id, row: older.checklist.rows[0].row, identity, env });
+    assert.equal(refused.ok, false, "the superseded upload can no longer be run");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_202_upload_ledger__a_second_submit_click_cannot_start_while_a_run_is_going_and_an_old_run_cannot_claim_rows", async () => {
+  const { f, assets, env, identity, plan } = await ledgerFixture();
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const outcome = await plan();
+    const id = outcome.checklist.id;
+    const [rowA, rowB] = outcome.checklist.rows;
+    const products = () => f.mirror("SELECT COUNT(*) AS n FROM mirror_product")[0].n;
+    const baseline = products();
+
+    const runA = await startBatchRun({ id, rows: [rowA.row, rowB.row], identity, env });
+    assert.equal(runA.ok, true, JSON.stringify(runA));
+    assert.equal(runA.queued, 2);
+
+    const doubleTap = await startBatchRun({ id, rows: [rowA.row, rowB.row], identity, env });
+    assert.equal(doubleTap.ok, false, "a second click while the first run is going starts nothing");
+    assert.equal(doubleTap.httpStatus, 409);
+
+    /* The first run's own tab goes quiet (a phone asleep); nothing has moved
+       for longer than the stale window, so a person can take the job over. */
+    assets._raw.exec("UPDATE ingest_job SET updated_at = datetime('now', '-10 minutes')");
+    const runB = await startBatchRun({ id, rows: [rowA.row], identity, env });
+    assert.equal(runB.ok, true, `a quiet run can be taken over, got: ${JSON.stringify(runB)}`);
+    assert.notEqual(runB.runId, runA.runId);
+
+    const stale = await submitBatchPlanRow({ id, row: rowA.row, runId: runA.runId, identity, env });
+    assert.equal(stale.ok, false, "the replaced run cannot run rows any more");
+    assert.equal(stale.httpStatus, 409);
+    assert.equal(products(), baseline, "nothing was created by the stale run");
+
+    const unselected = await submitBatchPlanRow({ id, row: rowB.row, runId: runB.runId, identity, env });
+    assert.equal(unselected.ok, false, "a row this click did not select is not part of the run");
+    assert.equal(unselected.httpStatus, 404);
+
+    const live = await submitBatchPlanRow({ id, row: rowA.row, runId: runB.runId, identity, env });
+    assert.equal(live.ok, true, JSON.stringify(live));
+    assert.equal(live.status, "created");
+
+    const afterOver = await submitBatchPlanRow({ id, row: rowB.row, runId: runB.runId, identity, env });
+    assert.equal(afterOver.ok, false, "once the run's own rows are done the run is over");
+    assert.equal(afterOver.httpStatus, 409);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_202_upload_ledger__rows_are_checked_off_with_their_outcome_and_the_job_is_done_only_when_none_is_left", async () => {
+  const { f, assets, env, identity, plan } = await ledgerFixture();
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const outcome = await plan();
+    const id = outcome.checklist.id;
+    const [rowA, rowB] = outcome.checklist.rows;
+    const baseline = f.mirror("SELECT COUNT(*) AS n FROM mirror_product")[0].n;
+    const job = () => assets._raw.prepare("SELECT status, runs, run_id FROM ingest_job WHERE id = ?").get(id);
+    const rowsNow = () => assets._raw.prepare("SELECT row_key, submitted, outcome, claimed_at, result_category FROM ingest_row WHERE job_id = ? ORDER BY rowid").all(id);
+
+    assert.deepEqual(rowsNow().map((r) => r.submitted), [0, 0], "nothing is checked before any click");
+    assert.equal(job().status, "ready");
+
+    /* Click 1 checks only the first box. */
+    const run1 = await startBatchRun({ id, rows: [rowA.row], identity, env });
+    assert.equal(job().status, "running");
+    const done1 = await submitBatchPlanRow({ id, row: rowA.row, runId: run1.runId, identity, env });
+    assert.equal(done1.status, "created", JSON.stringify(done1));
+    assert.equal(job().status, "ready", "the run is over and one row is still waiting for another click, so the job is not done");
+    assert.equal(job().run_id, null, "no run is current between clicks");
+    const afterOne = rowsNow();
+    assert.deepEqual(afterOne.map((r) => r.submitted), [1, 0]);
+    assert.equal(afterOne[0].outcome, "created");
+    assert.ok(afterOne[0].claimed_at);
+    assert.ok(afterOne[0].result_category, "where it landed is recorded with the check");
+
+    /* Click 2 takes the rest; only now is the job done. */
+    const run2 = await startBatchRun({ id, rows: [rowA.row, rowB.row], identity, env });
+    assert.equal(run2.queued, 1, "a row already checked off is never selected again");
+    const done2 = await submitBatchPlanRow({ id, row: rowB.row, runId: run2.runId, identity, env });
+    assert.equal(done2.status, "created", JSON.stringify(done2));
+    assert.equal(job().status, "done");
+    assert.equal(job().runs, 2);
+    assert.deepEqual(rowsNow().map((r) => r.submitted), [1, 1]);
+    assert.equal(f.mirror("SELECT COUNT(*) AS n FROM mirror_product")[0].n, baseline + 2, "each row was created exactly once");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_202_upload_ledger__a_row_submitted_with_no_run_is_refused_and_nothing_runs", async () => {
+  const { f, env, identity, plan } = await ledgerFixture();
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const outcome = await plan();
+    const baseline = f.mirror("SELECT COUNT(*) AS n FROM mirror_product")[0].n;
+    for (const runId of [undefined, "", "not-a-real-run"]) {
+      const result = await submitBatchPlanRow({ id: outcome.checklist.id, row: outcome.checklist.rows[0].row, runId, identity, env });
+      assert.equal(result.ok, false, `runId ${JSON.stringify(runId)} must not run anything`);
+      assert.ok([404, 409].includes(result.httpStatus), JSON.stringify(result));
+    }
+    assert.equal(f.mirror("SELECT COUNT(*) AS n FROM mirror_product")[0].n, baseline, "no Submit click, no product");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_202_upload_ledger__the_tables_create_themselves_and_match_the_schema_file", async () => {
+  /* The assets database has no automated migration, so ingest.js creates its
+     own tables the first time it finds them missing -- and the definition it
+     uses must be the one shared/db/assets.sql holds. */
+  const { INGEST_SCHEMA } = await import("../src/ingest.js");
+  const columns = (db, table) => db.prepare(`PRAGMA table_info(${table})`).all().map((c) => `${c.name}:${c.type}:${c.notnull}:${c.dflt_value}:${c.pk}`);
+
+  const fromFile = new DatabaseSync(":memory:");
+  fromFile.exec(ASSETS_SQL);
+  const lazy = new DatabaseSync(":memory:");
+  for (const statement of INGEST_SCHEMA) lazy.exec(statement);
+  for (const table of ["ingest_job", "ingest_row"]) {
+    assert.deepEqual(columns(lazy, table), columns(fromFile, table), `${table}: ingest.js and assets.sql must define the same columns`);
+  }
+  const indexes = (db) => db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'idx_ingest_%' ORDER BY name").all().map((r) => r.name);
+  assert.deepEqual(indexes(lazy), indexes(fromFile));
+
+  /* And a database that predates the tables works on first use. */
+  const { f, assets, env, identity, plan } = await ledgerFixture();
+  assets._raw.exec("DROP TABLE ingest_row; DROP TABLE ingest_job;");
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    assert.equal(await openBatchPlanFor(env, "zeynep@vemians.com"), null, "nothing to show, and no error, before the tables exist");
+    const outcome = await plan();
+    assert.equal(outcome.kind, "checklist", `first use must create the tables, got: ${JSON.stringify(outcome)}`);
+    const done = await submitRow({ id: outcome.checklist.id, row: outcome.checklist.rows[0].row, identity, env });
+    assert.equal(done.status, "created", JSON.stringify(done));
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_202_upload_ledger__if_the_one_statement_row_insert_is_refused_the_rows_are_still_saved_one_by_one", async () => {
+  const { f, assets, identity } = await ledgerFixture();
+  const refuseBulk = {
+    prepare(sql) {
+      if (/json_each/.test(sql) && /INSERT INTO ingest_row/.test(sql)) {
+        const fail = async () => {
+          throw new Error("D1_ERROR: no such function: json_each");
+        };
+        return { bind: () => ({ run: fail, all: fail, first: fail }) };
+      }
+      return assets.prepare(sql);
+    },
+  };
+  const env = { ...f.env, ASSETS: refuseBulk };
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const outcome = await dispatch(
+      "catalog_add_product_batch",
+      { asset_id: "ast_1" },
+      { actor: "zeynep@vemians.com", role: "manager", env, allowed: new Set(["catalog_add_product_batch"]) },
+    );
+    assert.equal(outcome.kind, "checklist", JSON.stringify(outcome));
+    assert.equal(outcome.checklist.rows.length, 2, "both rows saved through the per-row fallback");
+    assert.equal(assets._raw.prepare("SELECT COUNT(*) AS n FROM ingest_row").get().n, 2);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_202_upload_ledger__if_the_one_statement_row_selection_is_refused_the_click_still_selects_its_rows", async () => {
+  const { f, assets, identity } = await ledgerFixture();
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const env = { ...f.env, ASSETS: assets };
+    const outcome = await dispatch(
+      "catalog_add_product_batch",
+      { asset_id: "ast_1" },
+      { actor: "zeynep@vemians.com", role: "manager", env, allowed: new Set(["catalog_add_product_batch"]) },
+    );
+    const refuseJson = {
+      prepare(sql) {
+        if (/UPDATE ingest_row SET queued_run = \?/.test(sql) && /json_each/.test(sql)) {
+          const fail = async () => {
+            throw new Error("D1_ERROR: no such function: json_each");
+          };
+          return { bind: () => ({ run: fail, all: fail, first: fail }) };
+        }
+        return assets.prepare(sql);
+      },
+    };
+    const started = await startBatchRun({ id: outcome.checklist.id, rows: outcome.checklist.rows.map((r) => r.row), identity, env: { ...f.env, ASSETS: refuseJson } });
+    assert.equal(started.ok, true, JSON.stringify(started));
+    assert.equal(started.queued, 2, "both rows selected through the chunked fallback");
+    const done = await submitBatchPlanRow({ id: outcome.checklist.id, row: outcome.checklist.rows[0].row, runId: started.runId, identity, env });
+    assert.equal(done.status, "created", JSON.stringify(done));
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -7625,7 +7947,7 @@ check("test_PRD_P0_152_style_number_grouping__cancel_actually_deletes_the_plan_n
   assert.equal(await openBatchPlanFor(env, "zeynep@vemians.com"), null, "a cancelled plan must never be resumable");
 
   const row = outcome.checklist.rows[0].row;
-  const result = await submitBatchPlanRow({ id: outcome.checklist.id, row, identity, env });
+  const result = await submitRow({ id: outcome.checklist.id, row, identity, env });
   assert.equal(result.ok, false, "a cancelled plan's own rows must never still be submittable");
   assert.equal(result.httpStatus, 404);
 });
@@ -7690,14 +8012,14 @@ check("test_PRD_P0_152_style_number_grouping__a_plan_belongs_to_the_actor_who_ra
     const row = outcome.checklist.rows[0].row;
 
     const wrongActor = { email: "someone-else@vemians.com", groups: ["vemians-manager"] };
-    const result = await submitBatchPlanRow({ id: outcome.checklist.id, row, identity: wrongActor, env });
+    const result = await submitRow({ id: outcome.checklist.id, row, identity: wrongActor, env });
     assert.equal(result.ok, false);
     assert.equal(result.httpStatus, 403);
 
     /* And the plan survives that refused attempt -- the actor who actually
        raised it can still submit it normally afterward. */
     const identity = { email: "zeynep@vemians.com", groups: ["vemians-manager"] };
-    const retry = await submitBatchPlanRow({ id: outcome.checklist.id, row, identity, env });
+    const retry = await submitRow({ id: outcome.checklist.id, row, identity, env });
     assert.equal(retry.ok, true, JSON.stringify(retry));
     assert.equal(retry.status, "created");
   } finally {
@@ -7729,7 +8051,7 @@ check("test_PRD_P0_152_style_number_grouping__the_checklists_own_title_can_be_ed
     assert.match(outcome.checklist.rows[0].title, /Wool Coat/, "the checklist itself still shows the originally planned title");
     const row = outcome.checklist.rows[0].row;
 
-    const result = await submitBatchPlanRow({ id: outcome.checklist.id, row, title: "Winter Parka", identity, env });
+    const result = await submitRow({ id: outcome.checklist.id, row, title: "Winter Parka", identity, env });
     assert.equal(result.ok, true, JSON.stringify(result));
     assert.equal(result.status, "created");
     assert.equal(result.title, "Winter Parka", "the result itself must reflect the edited title, not the planned one");
@@ -7764,7 +8086,7 @@ check("test_PRD_P0_152_style_number_grouping__a_blank_edited_title_falls_back_to
     );
     const row = outcome.checklist.rows[0].row;
 
-    const result = await submitBatchPlanRow({ id: outcome.checklist.id, row, title: "   ", identity, env });
+    const result = await submitRow({ id: outcome.checklist.id, row, title: "   ", identity, env });
     assert.equal(result.ok, true, JSON.stringify(result));
     assert.equal(result.title, "Wool Coat", "a blank edit must fall back to the row's own planned title");
   } finally {
@@ -8554,7 +8876,7 @@ check("test_PRD_P0_194_resubmit_no_op_suppression__the_checklist_itself_carries_
       { actor: "priya@vemians.com", role: "manager", env: env1, allowed: new Set(["catalog_add_product_batch"]) },
     );
     assert.equal(first.kind, "checklist");
-    const submitted = await submitBatchPlanRow({ id: first.checklist.id, row: first.checklist.rows[0].row, identity, env: env1 });
+    const submitted = await submitRow({ id: first.checklist.id, row: first.checklist.rows[0].row, identity, env: env1 });
     assert.equal(submitted.status, "created", JSON.stringify(submitted));
 
     const env2 = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
@@ -9159,11 +9481,12 @@ check("test_PRD_P0_190_quantity_reconciliation_on_resubmit__the_real_checklist_s
 
     /* The real browser always sends `title`, unconditionally -- THE POINT
        of this test is that this must no longer matter for this row. */
+    const runId = await httpStartRun(worker, { ...f.env, ...HTTP_ENV_EXTRA, ASSETS: assets }, outcome.checklist.id, [stockRow.row]);
     const res = await worker.fetch(
       new Request("http://localhost/agent/batch-submit-row", {
         method: "POST",
         headers: { "Cf-Access-Jwt-Assertion": assertion(MANAGER_CLAIMS), "content-type": "application/json" },
-        body: JSON.stringify({ id: outcome.checklist.id, row: stockRow.row, title: stockRow.title }),
+        body: JSON.stringify({ id: outcome.checklist.id, runId, row: stockRow.row, title: stockRow.title }),
       }),
       { ...f.env, ...HTTP_ENV_EXTRA, ASSETS: assets },
     );
@@ -9381,11 +9704,12 @@ check("test_PRD_P0_195_quantity_confirmation_required__the_checklist_path_shows_
        browser's own batch-submit-row call, driven here exactly the way
        Test-PRD-P0-190's own checklist-submit-path test already does. */
     const worker = (await import("../src/index.js")).default;
+    const runId = await httpStartRun(worker, { ...f.env, ...HTTP_ENV_EXTRA, ASSETS: assets }, outcome.checklist.id, [stockRow.row]);
     const res = await worker.fetch(
       new Request("http://localhost/agent/batch-submit-row", {
         method: "POST",
         headers: { "Cf-Access-Jwt-Assertion": assertion(MANAGER_CLAIMS), "content-type": "application/json" },
-        body: JSON.stringify({ id: outcome.checklist.id, row: stockRow.row, title: stockRow.title }),
+        body: JSON.stringify({ id: outcome.checklist.id, runId, row: stockRow.row, title: stockRow.title }),
       }),
       { ...f.env, ...HTTP_ENV_EXTRA, ASSETS: assets },
     );
@@ -9686,11 +10010,12 @@ check("test_PRD_P0_180_batch_submit_row_http_status__the_real_route_returns_a_re
     assert.equal(outcome.kind, "checklist", `expected a checklist, got: ${JSON.stringify(outcome)}`);
     assert.equal(outcome.checklist.rows.length, 1);
 
+    const runId = await httpStartRun(worker, { ...f.env, ...HTTP_ENV_EXTRA, ASSETS: assets }, outcome.checklist.id, [outcome.checklist.rows[0].row]);
     const res = await worker.fetch(
       new Request("http://localhost/agent/batch-submit-row", {
         method: "POST",
         headers: { "Cf-Access-Jwt-Assertion": assertion(MANAGER_CLAIMS), "content-type": "application/json" },
-        body: JSON.stringify({ id: outcome.checklist.id, row: outcome.checklist.rows[0].row }),
+        body: JSON.stringify({ id: outcome.checklist.id, runId, row: outcome.checklist.rows[0].row }),
       }),
       { ...f.env, ...HTTP_ENV_EXTRA, ASSETS: assets },
     );
@@ -9810,23 +10135,23 @@ check("test_PRD_P0_183_durable_batch_bookkeeping__a_checklist_survives_an_entire
     /* Two ENTIRELY SEPARATE env objects, one per row -- "each its own fresh
        Cloudflare invocation" (this mechanism's own header comment), sharing
        only the same underlying ASSETS db, never any JS object in common. */
-    const first = await submitBatchPlanRow({ id: outcome.checklist.id, row: rowA.row, identity, env: { ...f.env, ASSETS: assets } });
+    const first = await submitRow({ id: outcome.checklist.id, row: rowA.row, identity, env: { ...f.env, ASSETS: assets } });
     assert.equal(first.ok, true, JSON.stringify(first));
-    assert.equal(first.done, 1);
-    assert.equal(first.total, 2);
 
-    const second = await submitBatchPlanRow({ id: outcome.checklist.id, row: rowB.row, identity, env: { ...f.env, ASSETS: assets } });
+    const second = await submitRow({ id: outcome.checklist.id, row: rowB.row, identity, env: { ...f.env, ASSETS: assets } });
     assert.equal(second.ok, true, JSON.stringify(second));
-    assert.equal(second.done, 2);
-    assert.equal(second.total, 2);
 
     /* "It's better to just have them than get rid of them every time" --
-       the completed plan is still a real row, not deleted, just spent. */
-    const planRow = assets._raw.prepare("SELECT rows, done, total FROM agent_batch_plan WHERE id = ?").get(outcome.checklist.id);
-    assert.ok(planRow, "a fully-submitted plan must still exist, never deleted");
-    assert.deepEqual(JSON.parse(planRow.rows), [], "every row was spent");
-    assert.equal(planRow.done, 2);
-    assert.equal(planRow.total, 2);
+       the completed upload is still a real job with every row checked off,
+       not deleted, just spent. */
+    const job = assets._raw.prepare("SELECT status, total, runs FROM ingest_job WHERE id = ?").get(outcome.checklist.id);
+    assert.ok(job, "a fully-submitted upload must still exist, never deleted");
+    assert.equal(job.status, "done");
+    assert.equal(job.total, 2);
+    assert.equal(job.runs, 2, "each Submit click was its own run");
+    const rows = assets._raw.prepare("SELECT submitted, outcome, claimed_at FROM ingest_row WHERE job_id = ? ORDER BY rowid").all(outcome.checklist.id);
+    assert.deepEqual(rows.map((r) => [r.submitted, r.outcome]), [[1, "created"], [1, "created"]], "every row checked off with its outcome");
+    assert.ok(rows.every((r) => r.claimed_at), "and claimed");
   } finally {
     globalThis.fetch = realFetch;
   }

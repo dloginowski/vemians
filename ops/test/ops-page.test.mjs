@@ -810,6 +810,21 @@ check("test_PRD_P0_200_checklist_shows_placement_and_changes__the_page_script_sh
   assert.match(script, /result\.status === "unchanged"/, "a row found already matching at submit time is reported, not hidden");
 });
 
+check("test_PRD_P0_202_upload_ledger__the_submit_click_starts_one_run_and_every_row_carries_its_run_id", async () => {
+  /* "It will never run more than once per submit click" -- the owner's own
+     words. The page asks the server to start ONE run for the rows checked
+     (and runs nothing if that is refused), then submits each row under the
+     run id it was given. */
+  const { body } = await frontPage(OWNER);
+  const script = body.slice(body.indexOf("<script>"), body.lastIndexOf("</script>"));
+  const startAt = script.indexOf('"/ops/agent/batch-start"');
+  const rowAt = script.indexOf('"/ops/agent/batch-submit-row"');
+  assert.ok(startAt > -1 && rowAt > -1, "both calls are made by the page");
+  assert.ok(startAt < rowAt, "the run is started before any row is submitted");
+  assert.match(script, /JSON\.stringify\(\{ id: c\.id, runId, row, title \}\)/, "every row submission carries the run id");
+  assert.match(script, /if \(!started\.ok\)/, "a refused start runs nothing and tells the person why");
+});
+
 check("test_PRD_P0_123_table_everything_centered__headers_and_data_are_both_centered", async () => {
   /* P0-122 centered headers only, leaving data left-aligned — the owner's
      own words right after seeing that: "make the data center aligned

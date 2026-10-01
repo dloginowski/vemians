@@ -2009,6 +2009,36 @@ function checklistCard(c) {
     running = true;
     submitBtn.disabled = true;
     list.querySelectorAll("input").forEach((b) => (b.disabled = true));
+    status.textContent = "Starting…";
+
+    /* One Submit click is one run. The server mints the run id and selects
+       exactly the rows checked here; every row below must carry it, so a
+       second tab, a retry or a reload cannot run rows this click owns. If it
+       will not start (a run is already going, the upload was cancelled),
+       nothing runs and the person is told why. */
+    let runId = "";
+    try {
+      const startRes = await fetch("/ops/agent/batch-start", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: c.id, rows: items.map((i) => i.row) }),
+      });
+      const started = await startRes.json();
+      if (!started.ok) {
+        running = false;
+        submitBtn.disabled = false;
+        list.querySelectorAll("input").forEach((b) => (b.disabled = false));
+        status.textContent = started.reply || "Could not start. Nothing was run.";
+        return;
+      }
+      runId = started.runId;
+    } catch (err) {
+      running = false;
+      submitBtn.disabled = false;
+      list.querySelectorAll("input").forEach((b) => (b.disabled = false));
+      status.textContent = "Could not start: " + err.message + ". Nothing was run.";
+      return;
+    }
     bar.hidden = false;
     const planTotal = startDone + items.length;
     bar.max = planTotal;
@@ -2028,7 +2058,7 @@ function checklistCard(c) {
         const res = await fetch("/ops/agent/batch-submit-row", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ id: c.id, row, title }),
+          body: JSON.stringify({ id: c.id, runId, row, title }),
         });
         result = await res.json();
       } catch (err) {
