@@ -36,6 +36,7 @@
 
 import { TOOLS, runTool, CAPS } from "./tools/index.js";
 import { draftProductBatch, draftCustomerBatch, previewBatch, planProductBatch, submitProductBatchRow } from "./batch.js";
+import { createJob, findOpenJob, checklistFor, checklistFromPlan, openJobFor, startRun, finishRun, claimRow, finishRow, settleRun, cancelJob } from "./ingest.js";
 import { createRateLimiter } from "./tools/rate.js";
 
 const MODEL = "claude-sonnet-5";
@@ -722,6 +723,32 @@ async function dispatchProductBatchPlan(args, { actor, role, env, mode }) {
   const asset = await readAssetText(env, args?.asset_id);
   if (asset.isError) return asset;
 
+  /* "All of the rows are being resubmitted over and over" -- the owner's own
+     words. This same file may already be open as an upload: the model asking
+     again (or the person re-sending the same message) must hand back THAT
+     upload, never plan the whole sheet a second time -- planning is not free
+     (it resolves categories and mints a fresh approval link for every
+     clash), so a second plan of the same file is a second pile of everything.
+     To get a fresh plan: cancel the open one, or send a new file. */
+  let openJobId = null;
+  try {
+    openJobId = await findOpenJob(env.ASSETS, { actor, assetId: args.asset_id, mode });
+  } catch (err) {
+    console.error(`ERROR agent: looking for an open upload of ${args?.asset_id} failed -- planning anew: ${err.message}`);
+  }
+  if (openJobId) {
+    const existing = await checklistFor(env.ASSETS, openJobId);
+    if (existing?.rows.length) {
+      return {
+        isError: false,
+        text:
+          `"${asset.row.filename}" is already open: ${existing.rows.length} rows are waiting (${existing.done} of ${existing.total} done). ` +
+          "It was not planned again. Press Submit on it, or Cancel it first to plan this file afresh.",
+        checklist: existing,
+      };
+    }
+  }
+
   let plan;
   try {
     plan = await planProductBatch(env, { text: asset.row.extracted_text, actor, role, mode });
@@ -742,7 +769,8 @@ async function dispatchProductBatchPlan(args, { actor, role, env, mode }) {
 
   let id;
   try {
-    id = await stashBatchPlan(env, { actor, role, rows: plan.rows, rate: plan.rate });
+    id = await createJob(env.ASSETS, { actor, role, assetId: args.asset_id, filename: asset.row.filename, mode, rows: plan.rows });
+    PLAN_RATE_LIMITERS.set(id, plan.rate);
   } catch (err) {
     console.error(`ERROR agent: stashing the catalog_${mode}_product_batch plan failed — ${err.message}`);
     return { isError: true, text: "That batch was planned but could not be saved for review. Nothing was created — try again." };
@@ -765,42 +793,7 @@ async function dispatchProductBatchPlan(args, { actor, role, env, mode }) {
     isError: false,
     text: lines.join("\n"),
     table: batchDraftTable("products", { ready: plan.ready, skipped: plan.skipped }),
-    checklist: {
-      id,
-      rows: plan.rows.map((r) => ({
-        row: r.rowNumber,
-        /* "Row" as shown back to a person (the results table, once this
-           row is actually submitted) — the real CSV line, never the
-           synthetic, offset rowNumber a quantity-reconciliation row
-           (Test-PRD-P0-190-quantity_reconciliation_on_resubmit) actually
-           submits BY, which must stay unique from its own parent row's
-           number (EXTRA_ROW_ID_OFFSET, batch.js's own header comment). */
-        displayRow: r.displayRow ?? r.rowNumber,
-        title: r.title,
-        summary: r.summary,
-        /* What the sheet itself called this row, where it lands, and exactly
-           what would change -- shown beside the checkbox so a person can
-           confirm a row is going where they expect, and that it is a REAL
-           change, before pressing Submit. */
-        sheetStyleId: r.sheetStyleId ?? "",
-        category: r.category ?? "",
-        subcategory: r.subcategory ?? "",
-        changes: r.changes ?? "",
-        possibleDuplicate: Boolean(r.possibleDuplicate),
-        duplicateReason: r.duplicateReason,
-        /* "They should show up but unchecked... I should tell you
-           specifically I want to update these" -- the owner's own words.
-           A quantity-reconciliation row whose current stock is not a
-           known-wrong 0 (draftProductUpdate's own needsConfirmation,
-           batch.js) needs the identical unchecked-by-default treatment
-           possibleDuplicate already has, for the identical reason: a real
-           sale since the sheet was made is the ordinary explanation for
-           ANY non-zero disagreement, never something to overwrite without
-           a person saying so on purpose. */
-        needsConfirmation: Boolean(r.needsConfirmation),
-        confirmReason: r.confirmReason,
-      })),
-    },
+    checklist: checklistFromPlan(id, plan.rows),
   };
 }
 
@@ -1052,44 +1045,26 @@ function stashPending(rec) {
 }
 
 /*
- * A planned, not-yet-submitted product batch — "have the agent check
- * everything and fill everything out and then just do a straight submit
- * ... with the progress bar," the owner's own words, and the actual fix
- * for the earlier "too many subrequests" report: planProductBatch (batch.js)
- * resolves every row's category/subcategory once, together, then stops —
- * the checklist offered back is genuinely ready to submit, one row per
- * later, SEPARATE request (submitBatchPlanRow, below), each its own fresh
- * Cloudflare invocation and subrequest budget. It shrinks as rows are
- * submitted (submitBatchPlanRow removes the row it just ran from `rows`),
- * but a fully-spent plan is never deleted, only left with an empty `rows` --
- * "these are small spreadsheet files, so it's better to just have them than
- * get rid of them every time," the owner's own words.
+ * A planned, not-yet-submitted product batch lives in the upload ledger
+ * (ingest.js: ingest_job / ingest_row, shared/db/assets.sql) -- one job per
+ * uploaded file, one row per planned row, each with its own "submitted"
+ * check. planProductBatch (batch.js) resolves every row's category/
+ * subcategory once, together, then stops; the checklist offered back is
+ * genuinely ready to submit, one row per later, SEPARATE request
+ * (submitBatchPlanRow, below), each its own fresh Cloudflare invocation and
+ * subrequest budget. A fully-spent job is never deleted -- "these are small
+ * spreadsheet files, so it's better to just have them than get rid of them
+ * every time," the owner's own words.
  *
- * REVISED — this used to be the identical in-memory, per-isolate, TTL'd
- * shape PENDING (above) still uses for approvals. For a single approval
- * click, losing that on a cold isolate degrades to "please click approve
- * again," a minor inconvenience; for a whole REVIEWED checklist a person
- * might be working through row by row over several minutes, real Worker
- * redeploys during one real working session turned that same degrade into
- * losing the entire checklist mid-review — "you should not be losing files
- * like this," the owner's own words. `agent_batch_plan` (shared/db/
- * assets.sql) replaces the Map: `rows` is stored as JSON and updated in
- * place as each is submitted, in the same database the source asset already
- * lives in durably. `rate` is deliberately NOT persisted (see the table's
- * own header comment) -- submitBatchPlanRow mints a fresh limiter per plan
- * id, cached for this isolate's own lifetime only, exactly the harmless
- * reset a cold isolate would force anyway.
+ * This used to be one agent_batch_plan row holding every remaining planned
+ * row as a single JSON value, rewritten whole each time a row finished (and
+ * before that a per-isolate Map a redeploy wiped). `rate` is deliberately
+ * NOT persisted: it is a live, in-memory call-rate counter with no
+ * serializable shape (createRateLimiter, tools/rate.js), and a job resuming
+ * after a fresh isolate simply gets a fresh one -- a strictly more
+ * permissive reset, never a less safe one.
  */
-const PLAN_RATE_LIMITERS = new Map(); /* planId -> limiter, THIS isolate only -- never persisted, see above */
-
-async function stashBatchPlan(env, rec) {
-  const id = crypto.randomUUID();
-  await env.ASSETS.prepare("INSERT INTO agent_batch_plan (id, actor, role, rows, total) VALUES (?, ?, ?, ?, ?)")
-    .bind(id, rec.actor, rec.role, JSON.stringify(rec.rows), rec.rows.length)
-    .run();
-  PLAN_RATE_LIMITERS.set(id, rec.rate);
-  return id;
-}
+const PLAN_RATE_LIMITERS = new Map(); /* jobId -> limiter, THIS isolate only -- never persisted, see above */
 
 /*
  * Which asset THIS ACTOR most recently previewed, for THIS kind of batch —
@@ -1914,90 +1889,131 @@ export async function approve({ id, identity, env }) {
 }
 
 /*
- * ONE row of a stashed planProductBatch checklist (agent_batch_plan, above),
- * actually created — index.js's own POST /agent/batch-submit-row, called
- * once per checked row, sequentially, by the browser's own submit loop.
- * Deliberately not run through dispatch()/runTool's usual approvalToken
- * dance a second time here: submitProductBatchRow (batch.js) already does
- * the real gate-then-execute pair against Square, the identical mechanism
- * createRows always has; this function's own job is only the same
- * authorization PENDING/approve() already enforce — the plan belongs to
- * the actor asking to spend it, and one submitted row is spent once.
+ * One Submit click: start ONE run of an upload, selecting exactly the rows
+ * that click checked. index.js's own POST /agent/batch-start. "It will never
+ * run more than once per submit click" -- the owner's own words: this mints
+ * the run id every later row submission must carry, and refuses while a
+ * fresh run is still going, so a double tap, a second tab or a page reload
+ * can never start another one (ingest.js has the full rules).
+ */
+export async function startBatchRun({ id, rows, identity, env }) {
+  const keys = Array.isArray(rows) ? rows.filter((n) => Number.isInteger(n)) : [];
+  try {
+    return await startRun(env.ASSETS, { id, actor: identity.email, keys });
+  } catch (err) {
+    console.error(`ERROR agent: starting a run on batch ${id} failed — ${err.message}`);
+    return { ok: false, httpStatus: 502, reply: "Could not start that run. Nothing was run." };
+  }
+}
+
+/* The browser's loop is over: end the run it was given (ingest.js finishRun).
+   Never starts anything. */
+export async function finishBatchRun({ id, runId, identity, env }) {
+  try {
+    return await finishRun(env.ASSETS, { id, actor: identity.email, runId: typeof runId === "string" ? runId : "" });
+  } catch (err) {
+    console.error(`ERROR agent: ending a run on batch ${id} failed — ${err.message}`);
+    return { ok: false, httpStatus: 502, reply: "Could not close that run." };
+  }
+}
+
+/* The row's own outcome, in the words the ledger stores, and the check. Never
+   throws: a row has already run by now, and failing to write its bookkeeping
+   must not turn a real result into an error the person cannot act on. A row
+   whose outcome could not be written stays claimed and unchecked -- shown as
+   unknown, never retried on its own. */
+async function recordRowOutcome(env, { id, runId, key, result, failed }) {
+  const outcome = failed ? "failed" : result.status;
+  const detail = failed
+    ? failed
+    : result.status === "created" || result.status === "updated"
+      ? result.summary
+      : result.status === "parked"
+        ? `${result.summary ?? ""}${result.url ? ` — ${result.url}` : ""}`
+        : result.reason;
+  for (let attempt = 1; attempt <= MARK_SPENT_ATTEMPTS; attempt += 1) {
+    try {
+      await finishRow(env.ASSETS, {
+        id,
+        key,
+        outcome,
+        detail,
+        styleId: result?.styleId,
+        category: result?.category,
+        subcategory: result?.subcategory,
+      });
+      break;
+    } catch (err) {
+      console.error(`ERROR agent: batch ${id} could not check off row ${key} (attempt ${attempt} of ${MARK_SPENT_ATTEMPTS}) — ${err.message}`);
+      if (attempt < MARK_SPENT_ATTEMPTS) await new Promise((resolve) => setTimeout(resolve, 150 * attempt));
+    }
+  }
+  try {
+    await settleRun(env.ASSETS, { id, runId });
+  } catch (err) {
+    console.error(`ERROR agent: batch ${id} could not settle its run — ${err.message}`);
+  }
+}
+
+const MARK_SPENT_ATTEMPTS = 3;
+
+/*
+ * ONE row of an upload, actually run -- index.js's own POST
+ * /agent/batch-submit-row, called once per checked row, sequentially, by the
+ * browser's own submit loop, always under the run id its Submit click was
+ * given. Deliberately not run through dispatch()/runTool's usual
+ * approvalToken dance a second time here: submitProductBatchRow (batch.js)
+ * already does the real gate-then-execute pair against Square, the identical
+ * mechanism createRows always has; this function's own job is the ledger's:
+ * claim the row for the current run (ingest.js claimRow -- one conditional
+ * UPDATE, so a row runs at most once), run it, then check it off with its
+ * outcome.
  */
 /* `httpStatus` is the real HTTP status code index.js's own route hands
    straight to Response — kept under its OWN name, deliberately never
    `status`, because `result` (submitProductBatchRow's own return, spread in
    below on success) already uses `status` for its own outcome enum
-   ("created"/"updated"/"parked"/"skipped", read by name in views.js's own
-   checklist submit loop and by several tests that call this function
-   directly). `{ status: 200, ...result }` used to put the literal 200
-   FIRST, so object-spread order let result.status silently overwrite it —
-   `out.status` reaching index.js's `new Response(body, { status: out.status
-   })` as the STRING "created" (or "updated"/"parked"/"skipped") rather
-   than a number, which throws ("init[\"status\"] must be in the range of
-   200 to 599"). Every successful row submission hit this. `httpStatus`
-   cannot collide the same way: nothing submitProductBatchRow returns ever
-   uses that name. */
-export async function submitBatchPlanRow({ id, row, title, identity, env }) {
+   ("created"/"updated"/"unchanged"/"parked"/"skipped", read by name in
+   views.js's own checklist submit loop and by several tests that call this
+   function directly). `{ status: 200, ...result }` used to put the literal
+   200 FIRST, so object-spread order let result.status silently overwrite it
+   — `out.status` reaching index.js's `new Response(body, { status:
+   out.status })` as the STRING "created" rather than a number, which throws
+   ("init[\"status\"] must be in the range of 200 to 599"). Every
+   successful row submission hit this. `httpStatus` cannot collide the same
+   way: nothing submitProductBatchRow returns ever uses that name. */
+export async function submitBatchPlanRow({ id, row, title, runId: givenRunId, identity, env }) {
+  const runId = typeof givenRunId === "string" ? givenRunId : "";
   const actor = identity.email;
   const role = await roleFor(identity, env);
 
-  let planRow;
-  try {
-    planRow = await env.ASSETS.prepare("SELECT actor, role, rows, done, total FROM agent_batch_plan WHERE id = ?").bind(id).first();
-  } catch (err) {
-    console.error(`ERROR agent: reading batch plan ${id} failed — ${err.message}`);
-    return { ok: false, httpStatus: 404, reply: "That batch is unknown or has expired. Nothing was run." };
-  }
-  if (!planRow) return { ok: false, httpStatus: 404, reply: "That batch is unknown or has expired. Nothing was run." };
-
-  if (planRow.actor !== actor) {
-    console.error(`ERROR agent: batch plan ${id} raised by ${planRow.actor} but submitted by ${actor}; refused`);
-    return { ok: false, httpStatus: 403, reply: "That batch belongs to a different person." };
-  }
-
-  const rows = JSON.parse(planRow.rows);
-  const idx = rows.findIndex((r) => r.rowNumber === row);
-  if (idx === -1) {
-    return { ok: false, httpStatus: 404, reply: "That row is unknown, already submitted, or was never part of this batch." };
-  }
-  /* Spent the moment it is picked up, whatever createRows goes on to do with
-     it — the same "single use" property PENDING's own approve() already
-     has, just per-row here instead of per-record. Written back to the
-     durable row immediately, before submitProductBatchRow even runs, for
-     the identical reason: a row must never be submittable twice just
-     because the write recording it as spent came later. */
-  const [target] = rows.splice(idx, 1);
-  const done = (planRow.done ?? 0) + 1;
-  const total = planRow.total;
   /* "Row 40 could not be marked as submitted. Nothing was run" -- a real
-     report, on SEVERAL rows of one 68-row run from a single tab. Nothing
-     here distinguishes a one-request storage blip from a real fault, and a
-     long sequential run is exactly where a blip is likely to land on some
-     row or other; with no retry, every one of them cost a whole row for
-     nothing. The write sets absolute values (never increments), so
-     repeating the identical statement is always safe -- it either lands the
-     first time or lands the same way the second. Only after every attempt
-     fails does the row get reported, still failing closed exactly as
-     before: nothing ran, and the row is still in the stored plan. */
-  const MARK_SPENT_ATTEMPTS = 3;
-  let markError = null;
+     report, on SEVERAL rows of one run from a single tab. The claim used to
+     be attempted exactly once, so any one-request storage blip cost a whole
+     row. Every attempt of THIS request carries the same claim token, so
+     repeating is safe both ways: a write that never landed simply lands now,
+     and one that landed but whose reply was lost hands the row back to the
+     retry instead of leaving it claimed and never run. Only after every
+     attempt fails does the row report, still failing closed: nothing ran. */
+  let claim = null;
+  let claimError = null;
+  const claimToken = crypto.randomUUID();
   for (let attempt = 1; attempt <= MARK_SPENT_ATTEMPTS; attempt += 1) {
     try {
-      await env.ASSETS.prepare("UPDATE agent_batch_plan SET rows = ?, done = ? WHERE id = ?")
-        .bind(JSON.stringify(rows), done, id)
-        .run();
-      markError = null;
+      claim = await claimRow(env.ASSETS, { id, runId, key: row, actor, token: claimToken });
+      claimError = null;
       break;
     } catch (err) {
-      markError = err;
-      console.error(`ERROR agent: batch plan ${id} could not record row ${row} as spent (attempt ${attempt} of ${MARK_SPENT_ATTEMPTS}) — ${err.message}`);
+      claimError = err;
+      console.error(`ERROR agent: batch ${id} could not claim row ${row} (attempt ${attempt} of ${MARK_SPENT_ATTEMPTS}) — ${err.message}`);
       if (attempt < MARK_SPENT_ATTEMPTS) await new Promise((resolve) => setTimeout(resolve, 150 * attempt));
     }
   }
-  if (markError) {
-    return { ok: false, httpStatus: 502, reply: `Row ${row} could not be marked as submitted. Nothing was run.`, done: planRow.done, total };
+  if (claimError) {
+    return { ok: false, httpStatus: 502, reply: `Row ${row} could not be marked as submitted. Nothing was run.` };
   }
+  if (!claim.ok) return claim;
+  const target = claim.payload;
 
   /* "The only thing the user might want to tweak is the title" — the
      owner's own words, reviewing the checklist. Trimmed and length-capped
@@ -2008,10 +2024,10 @@ export async function submitBatchPlanRow({ id, row, title, identity, env }) {
      no ceiling at all. */
   const editedTitle = typeof title === "string" && title.trim() ? title.trim().slice(0, CAPS.CATALOG_TITLE_MAX) : null;
 
-  /* `rate` rides along per plan id, never persisted (agent_batch_plan's own
-     header comment) — the same limiter reused across this plan's own later
-     rows for as long as this isolate stays warm, a fresh one the moment it
-     is not, always a safe, more-permissive reset, never a less safe one. */
+  /* `rate` rides along per job id, never persisted -- the same limiter
+     reused across this job's own later rows for as long as this isolate
+     stays warm, a fresh one the moment it is not, always a safe,
+     more-permissive reset, never a less safe one. */
   let rate = PLAN_RATE_LIMITERS.get(id);
   if (!rate) {
     rate = createRateLimiter();
@@ -2022,129 +2038,51 @@ export async function submitBatchPlanRow({ id, row, title, identity, env }) {
   try {
     result = await submitProductBatchRow(env, { actor, role, rate }, target, editedTitle);
   } catch (err) {
-    console.error(`ERROR agent: batch plan ${id} row ${row} failed — ${err.message}`);
-    return { ok: false, httpStatus: 502, reply: `Row ${row} failed while running.`, done, total };
+    console.error(`ERROR agent: batch ${id} row ${row} failed — ${err.message}`);
+    await recordRowOutcome(env, { id, runId, key: row, failed: err.message });
+    return { ok: false, httpStatus: 502, reply: `Row ${row} failed while running.` };
   }
 
-  return { ok: true, httpStatus: 200, ...result, done, total };
+  await recordRowOutcome(env, { id, runId, key: row, result });
+  return { ok: true, httpStatus: 200, ...result };
 }
 
 /*
  * "An ingestion in progress should be persistent if I reload a page... any
- * existing jobs should persist even on reload... I feel like when I submit
- * a job it should be... continue until it is completed" — the owner's own
- * words, after a real 78-product batch review. agent_batch_plan (above) was
- * ALREADY durable — the whole point of its own REVISED header comment, a
- * real past incident losing an in-memory checklist mid-review — surviving a
- * cold isolate or a redeploy fine. What was actually missing: nothing on
- * the PAGE ITSELF ever asked whether one still existed after a reload; the
- * data survived every time, silently, with no way back to it short of
- * reading the database directly. index.js's own GET /agent/batch-open-plan
- * calls this once, on page load, the same "cheap, actor-scoped GET" shape
- * /agent/batch-progress already uses. Shaped identically to
- * dispatchProductBatchPlan's own checklist mapping, so the client feeds it
- * straight into the SAME checklistCard() a freshly-planned batch already
- * uses — no second rendering path to maintain, no risk of the resumed view
- * ever looking different from a brand new one.
- *
- * `done`/`total` ride along so the client can tell the two cases apart:
- * `done === 0` is a plan nobody has confirmed yet ("Ready to submit"),
- * while `done > 0` means Submit was already clicked once before the reload
- * ("Paused — N of M already done"). REVISED (Test-PRD-P0-199-no_run_
- * without_a_click): neither case runs anything by itself any more — the
- * page only shows where the plan stands, and a run starts only when Submit
- * is pressed. This used to auto-resume on load, which turned every reload
- * and phone tab restore into another unrequested run.
+ * existing jobs should persist even on reload" — the owner's own words.
+ * index.js's own GET /agent/batch-open-plan calls this once, on page load:
+ * this person's own unfinished upload, if one is worth showing again, shaped
+ * identically to a freshly-planned checklist so the client feeds it into the
+ * SAME checklistCard() -- no second rendering path to maintain.
+ * `done`/`total` ride along so the client can say how far it got: `done ===
+ * 0` is an upload nobody has submitted yet ("Ready to submit"), `done > 0` is
+ * one already partly done ("Paused — N of M already done"). Neither case
+ * runs anything by itself (Test-PRD-P0-199-no_run_without_a_click): the page
+ * only shows where the upload stands, and a run starts only when Submit is
+ * pressed.
  */
 export async function openBatchPlanFor(env, actor) {
-  let planRow;
   try {
-    planRow = await env.ASSETS.prepare(
-      "SELECT id, rows, done, total FROM agent_batch_plan WHERE actor = ? AND done < total ORDER BY created_at DESC LIMIT 1",
-    )
-      .bind(actor)
-      .first();
+    return await openJobFor(env.ASSETS, actor);
   } catch (err) {
-    console.error(`ERROR agent: looking up an open batch plan for ${actor} failed — ${err.message}`);
+    console.error(`ERROR agent: looking up an open batch for ${actor} failed — ${err.message}`);
     return null;
   }
-  if (!planRow) return null;
-  const rows = JSON.parse(planRow.rows);
-  if (!rows.length) return null;
-
-  /* "It seems to be in an upload cycle, it's stuck, it keeps on
-     re-submitting things" -- a real, live report. possibleDuplicate and
-     needsConfirmation rows are NEVER checked by default (checklistCard,
-     views.js) -- a person who leaves one unchecked on purpose has no other
-     way to remove it from `rows` the way every other row does on submit, so
-     `done < total` (this function's own caller query) stayed true forever
-     and this SAME checklist kept resurfacing, freshly rendered, on every
-     single page load from then on -- exactly the behavior this function's
-     own "survives a reload" feature was built to give a genuinely
-     INTERRUPTED batch, never one a person already finished reviewing once
-     (done > 0) and chose to leave alone. Only when at least one remaining
-     row is NOT flagged this way -- still a real candidate for "the browser
-     closed mid-submit" -- is resurfacing it automatically still correct;
-     wanting a left-alone row applied later is a fresh "I mean this on
-     purpose" decision, the same resubmit that raised it in the first place,
-     never an old plan nagging on its own. */
-  if (planRow.done > 0 && rows.every((r) => r.possibleDuplicate || r.needsConfirmation)) return null;
-
-  return {
-    id: planRow.id,
-    done: planRow.done,
-    total: planRow.total,
-    rows: rows.map((r) => ({
-      row: r.rowNumber,
-      displayRow: r.displayRow ?? r.rowNumber,
-      title: r.title,
-      summary: r.summary,
-      sheetStyleId: r.sheetStyleId ?? "",
-      category: r.category ?? "",
-      subcategory: r.subcategory ?? "",
-      changes: r.changes ?? "",
-      possibleDuplicate: Boolean(r.possibleDuplicate),
-      duplicateReason: r.duplicateReason,
-      needsConfirmation: Boolean(r.needsConfirmation),
-      confirmReason: r.confirmReason,
-    })),
-  };
 }
 
 /*
  * "I would have to hit cancel to actually clear a job in progress" — the
- * owner's own words, already assuming Cancel did this. It never did:
- * checklistCard's own Cancel button (views.js) only ever cleared the local
- * chat panel, never telling the server anything at all — the plan row sat
- * in agent_batch_plan forever either way, genuinely resumable (this is
- * exactly what openBatchPlanFor, above, now surfaces), just with no way
- * back to it. A person who actually means to abandon a batch, not merely
- * navigate away from it, needs that to be real: this deletes the row
- * outright, never left around the way a fully-SPENT plan deliberately is
- * (agent_batch_plan's own header comment) — there is nothing left here
- * worth resuming once a person has said so explicitly.
+ * owner's own words, already assuming Cancel did this. It only ever cleared
+ * the local panel before, so the upload stayed genuinely resumable, just
+ * invisible. Now a real server call: the job stops being open, nothing
+ * resumes it and no run can claim from it. Its rows are kept as history.
+ * Cancelling twice (a double click, a stale tab) is harmless.
  */
 export async function cancelBatchPlan({ id, identity, env }) {
-  const actor = identity.email;
-  let planRow;
   try {
-    planRow = await env.ASSETS.prepare("SELECT actor FROM agent_batch_plan WHERE id = ?").bind(id).first();
+    return await cancelJob(env.ASSETS, { id, actor: identity.email });
   } catch (err) {
-    console.error(`ERROR agent: reading batch plan ${id} for cancel failed — ${err.message}`);
-    return { ok: false, httpStatus: 404, reply: "That batch is unknown or has expired." };
-  }
-  /* Already gone -- cancelling twice (a double click, a stale tab) is
-     harmless, never an error the person asking needs to see. */
-  if (!planRow) return { ok: true, httpStatus: 200 };
-  if (planRow.actor !== actor) {
-    console.error(`ERROR agent: batch plan ${id} raised by ${planRow.actor} but cancelled by ${actor}; refused`);
-    return { ok: false, httpStatus: 403, reply: "That batch belongs to a different person." };
-  }
-  try {
-    await env.ASSETS.prepare("DELETE FROM agent_batch_plan WHERE id = ?").bind(id).run();
-  } catch (err) {
-    console.error(`ERROR agent: cancelling batch plan ${id} failed — ${err.message}`);
+    console.error(`ERROR agent: cancelling batch ${id} failed — ${err.message}`);
     return { ok: false, httpStatus: 502, reply: "Could not cancel that batch — try again." };
   }
-  return { ok: true, httpStatus: 200 };
 }

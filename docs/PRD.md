@@ -9392,6 +9392,55 @@ that does not trace to one of these is a process failure (see §12).
     "unchanged" without any write when nothing is left to change; the results table reports it as "no change"
     and counts it as "already up to date" instead of hiding it or calling it a failure.
 
+134. **`Test-PRD-P0-202-upload_ledger`** — "We need to have an upload database, like an ingest table that
+    matches, that is based on file name that's being uploaded. And it needs to have its own submitted check
+    field. And so every time you hit submit, it goes through this once. It basically, when it hits submit, you
+    clear those fields, and as it finishes the job, it checks off every one of these fields, and then you know
+    the job is done. But it will never run more than once per submit click" — the owner's own words, after the
+    same sheet kept being planned and run over and over. `ingest.js` keeps one `ingest_job` per uploaded file
+    and one `ingest_row` per planned row in the assets database (`shared/db/assets.sql`), replacing the single
+    `agent_batch_plan` JSON blob that was rewritten whole every time a row finished.
+
+    **One live job per file.** Planning a file that already has an open upload for the same person, stored file
+    and mode hands that upload back ("already open... it was not planned again") instead of planning it a second
+    time — planning resolves categories and mints a fresh approval link for every clash, so a second plan of the
+    same file was a second pile of everything. Sending a corrected file with the SAME file name supersedes the
+    older open job, so a reload only ever shows the current one.
+
+    **One run per Submit click.** The click calls `POST /agent/batch-start` (`startBatchRun`), which clears the
+    previous click's selection, selects exactly the rows checked, and mints a run id; every row submission must
+    carry it. A second click while a run is going is refused (409), a run that has made no progress for two
+    minutes (a closed tab, a sleeping phone) can be taken over, and a replaced run can no longer claim rows. A
+    row submitted with no run, or a wrong one, runs nothing.
+
+    **A row runs at most once, and is checked off when it has finished.** Claiming a row is a single conditional
+    UPDATE (`claimed_at IS NULL`, selected by this run, job running) — the claim is the lock — so a row already
+    claimed is never selected again by any later click, whatever became of it. Only after the row has run is it
+    marked `submitted` with its outcome (`created`/`updated`/`unchanged`/`parked`/`skipped`/`failed`), detail, and
+    the style ID, category and subcategory it landed in. A row claimed but never finished stays claimed and
+    unchecked — outcome unknown, never retried on its own, since it may well have been applied. The job is
+    `done` only when no unclaimed row is left; between clicks it is `ready`. Cancel stops the job being open and
+    keeps its rows as history. `Test-PRD-P0-196`'s rule (a job whose only remaining rows are ones nobody checks
+    by default is settled, not paused) is kept.
+
+    **Failure paths found by an independent review, all closed.** A claim whose UPDATE commits but whose reply
+    is lost is retried with the same per-request claim token and handed the row back, instead of finding it
+    "already claimed" and silently never running it (a different request's token never matches, so a row still
+    runs at most once). `POST /agent/batch-finish` (`finishBatchRun`) ends the run a click was given when its
+    loop is over, so a row whose claim or check-off could not be written cannot hold the upload locked for the
+    two-minute stale window; it only ends the run it names and never starts anything. A start that fails after
+    taking the job gives it back. Planning the same file again does not hand back a job the page itself would
+    treat as settled (`Test-PRD-P0-196`). The checklist returned at planning is built from the rows already in
+    memory (identical to what a reload reads back), and rows are saved in chunks of 100 so neither one oversized
+    value nor one query per row is ever needed.
+
+    **No manual migration.** The assets database has no automated migration, so `ingest.js` creates its own
+    tables (`CREATE ... IF NOT EXISTS`) the first time a query finds them missing; a test pins that definition to
+    `assets.sql`'s. The whole sheet is saved in one statement (`json_each`), falling back to one statement per
+    row if that is refused, so planning does not spend a query per row. An upload planned before this change
+    lives in the old table and is not carried over: re-sending the file plans afresh, and now lists only the
+    rows that still differ from the catalog.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

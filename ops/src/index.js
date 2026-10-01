@@ -27,7 +27,7 @@
 
 import { notFoundPage } from "../../shared/view/html.js";
 import { explainRole, readAccessIdentity } from "./access.js";
-import { agentTurn, approve, roleFor, searchIntent, readBatchProgress, submitBatchPlanRow, openBatchPlanFor, cancelBatchPlan } from "./agent.js";
+import { agentTurn, approve, roleFor, searchIntent, readBatchProgress, startBatchRun, finishBatchRun, submitBatchPlanRow, openBatchPlanFor, cancelBatchPlan } from "./agent.js";
 import { approvePending, peekPending } from "./approvals.js";
 import { CAPS } from "./tools/caps.js";
 import { roleAtLeast } from "./tools/roles.js";
@@ -117,6 +117,8 @@ const AGENT_PATHS = new Set([
   "/agent",
   "/agent/approve",
   "/agent/batch-progress",
+  "/agent/batch-start",
+  "/agent/batch-finish",
   "/agent/batch-submit-row",
   "/agent/batch-open-plan",
   "/agent/batch-cancel",
@@ -1866,8 +1868,53 @@ async function ops(request, env, path) {
   }
 
   /*
+   * POST /agent/batch-start — the Submit click. "It will never run more than
+   * once per submit click" — the owner's own words. Starts ONE run of an
+   * upload, selecting exactly the rows that click checked, and hands back the
+   * run id every row submission below must carry. A second start while a
+   * fresh run is still going is refused (409), so a double tap, a second tab
+   * or a reload cannot start another one.
+   */
+  if (path === "/agent/batch-start") {
+    if (request.method !== "POST") return json({ error: "POST only" }, 405);
+    let id = "";
+    let rows = [];
+    try {
+      const parsed = await body(request);
+      id = String(parsed.id || "");
+      rows = Array.isArray(parsed.rows) ? parsed.rows.map(Number) : [];
+    } catch (err) {
+      console.error(`ERROR ops/agent/batch-start: unreadable body — ${err.message}`);
+      return json({ error: "Unreadable request body." }, 400);
+    }
+    const out = await startBatchRun({ id, rows, identity, env });
+    return json({ verified: identity.verified, ...out }, out.httpStatus);
+  }
+
+  /*
+   * POST /agent/batch-finish — the browser's loop for one Submit click is over.
+   * Ends the run it names so a row whose bookkeeping could not be written
+   * cannot hold the upload locked; never starts anything.
+   */
+  if (path === "/agent/batch-finish") {
+    if (request.method !== "POST") return json({ error: "POST only" }, 405);
+    let id = "";
+    let runId = "";
+    try {
+      const parsed = await body(request);
+      id = String(parsed.id || "");
+      runId = String(parsed.runId || "");
+    } catch (err) {
+      console.error(`ERROR ops/agent/batch-finish: unreadable body — ${err.message}`);
+      return json({ error: "Unreadable request body." }, 400);
+    }
+    const out = await finishBatchRun({ id, runId, identity, env });
+    return json({ verified: identity.verified, ...out }, out.httpStatus);
+  }
+
+  /*
    * POST /agent/batch-submit-row — one row of a planned product batch
-   * (agent.js's own BATCH_PLANS), actually created. "Have the agent check
+   * (an ingest_row of the upload ledger, ingest.js), actually run. "Have the agent check
    * everything and fill everything out and then just do a straight
    * submit... with the progress bar" — the owner's own words: the browser
    * calls this once per checked row, sequentially, each its own request and
@@ -1882,11 +1929,13 @@ async function ops(request, env, path) {
   if (path === "/agent/batch-submit-row") {
     if (request.method !== "POST") return json({ error: "POST only" }, 405);
     let id = "";
+    let runId = "";
     let row = NaN;
     let title;
     try {
       const parsed = await body(request);
       id = String(parsed.id || "");
+      runId = String(parsed.runId || "");
       row = Number(parsed.row);
       /* Optional: "the only thing the user might want to tweak is the
          title" — the owner's own words. Absent or blank means "submit the
@@ -1898,7 +1947,7 @@ async function ops(request, env, path) {
     }
     if (!Number.isInteger(row)) return json({ error: "row must be a whole number." }, 400);
 
-    const out = await submitBatchPlanRow({ id, row, title, identity, env });
+    const out = await submitBatchPlanRow({ id, row, title, runId, identity, env });
     return json({ verified: identity.verified, ...out }, out.httpStatus);
   }
 

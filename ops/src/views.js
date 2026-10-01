@@ -2009,6 +2009,45 @@ function checklistCard(c) {
     running = true;
     submitBtn.disabled = true;
     list.querySelectorAll("input").forEach((b) => (b.disabled = true));
+    status.textContent = "Starting…";
+
+    /* One Submit click is one run. The server mints the run id and selects
+       exactly the rows checked here; every row below must carry it, so a
+       second tab, a retry or a reload cannot run rows this click owns. If it
+       will not start (a run is already going, the upload was cancelled),
+       nothing runs and the person is told why. */
+    let runId = "";
+    try {
+      const startRes = await fetch("/ops/agent/batch-start", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: c.id, rows: items.map((i) => i.row) }),
+      });
+      const started = await startRes.json();
+      if (!started.ok) {
+        running = false;
+        submitBtn.disabled = false;
+        list.querySelectorAll("input").forEach((b) => (b.disabled = false));
+        status.textContent = started.reply || "Could not start. Nothing was run.";
+        return;
+      }
+      runId = started.runId;
+      /* Nothing selected (every box already done, or checked rows that were
+         finished by an earlier click): there is no run to make. */
+      if (!started.queued) {
+        running = false;
+        submitBtn.disabled = false;
+        list.querySelectorAll("input").forEach((b) => (b.disabled = false));
+        status.textContent = "Those rows were already done. Nothing was run.";
+        return;
+      }
+    } catch (err) {
+      running = false;
+      submitBtn.disabled = false;
+      list.querySelectorAll("input").forEach((b) => (b.disabled = false));
+      status.textContent = "Could not start: " + err.message + ". Nothing was run.";
+      return;
+    }
     bar.hidden = false;
     const planTotal = startDone + items.length;
     bar.max = planTotal;
@@ -2028,13 +2067,21 @@ function checklistCard(c) {
         const res = await fetch("/ops/agent/batch-submit-row", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ id: c.id, row, title }),
+          body: JSON.stringify({ id: c.id, runId, row, title }),
         });
         result = await res.json();
       } catch (err) {
         result = { ok: false, reply: "Request failed: " + err.message };
       }
       bar.value += 1;
+      /* "That run is over" (409): a newer click replaced this run, or the
+         upload was cancelled. Every remaining row would be refused the same
+         way, one request each -- stop, and say so. */
+      if (!result.ok && result.httpStatus === 409) {
+        skipped += 1;
+        rows.push([String(displayRow), title, sheetStyle || "", category || "", subcategory || "", "", "skipped", result.reply || "this run is over"]);
+        break;
+      }
       /* "updated" is a resubmit matched to a product this same batch tool
          already made (import_style_number, Test-PRD-P0-179-
          import_style_number_matching) -- its own outcome, counted and shown
@@ -2088,6 +2135,14 @@ function checklistCard(c) {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ id: c.id }),
+      }).catch(() => {});
+    } else {
+      /* This click's loop is over: close its run, so a row whose bookkeeping
+         could not be written never leaves the upload locked. */
+      fetch("/ops/agent/batch-finish", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: c.id, runId }),
       }).catch(() => {});
     }
 
