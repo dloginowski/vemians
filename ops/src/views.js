@@ -1866,12 +1866,12 @@ function checklistCard(c) {
   const list = el.querySelector("ul.checklist");
   c.rows.forEach((r) => {
     const li = document.createElement("li");
-    li.className = r.possibleDuplicate ? "checklist-row checklist-row-duplicate" : "checklist-row";
+    li.className = r.possibleDuplicate || r.needsConfirmation ? "checklist-row checklist-row-duplicate" : "checklist-row";
     li.dataset.row = String(r.row);
     li.dataset.displayRow = String(r.displayRow);
     const box = document.createElement("input");
     box.type = "checkbox";
-    box.checked = !r.possibleDuplicate;
+    box.checked = !r.possibleDuplicate && !r.needsConfirmation;
     box.className = "checklist-check";
     const fields = document.createElement("div");
     fields.className = "checklist-fields";
@@ -1889,6 +1889,18 @@ function checklistCard(c) {
       const warning = document.createElement("span");
       warning.className = "checklist-duplicate-warning";
       warning.textContent = "Possible duplicate — " + r.duplicateReason + ". Unchecked by default; check the box to create it anyway.";
+      fields.appendChild(warning);
+    }
+    /* "They should show up but unchecked... I should tell you specifically
+       I want to update these" -- the owner's own words, about a quantity
+       correction whose current count is not a known-wrong 0 -- a real sale
+       since the sheet was made is the ordinary explanation, so this is
+       never checked by default the way a plain price/title fix already
+       safely is. */
+    if (r.needsConfirmation) {
+      const warning = document.createElement("span");
+      warning.className = "checklist-duplicate-warning";
+      warning.textContent = "Needs confirmation — " + r.confirmReason + ". Unchecked by default; check the box to apply it anyway.";
       fields.appendChild(warning);
     }
     li.appendChild(box);

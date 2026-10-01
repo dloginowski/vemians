@@ -1439,6 +1439,28 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
               : null;
             const current = Number(stockRow?.on_hand ?? 0);
             if (current !== parsedQuantity) {
+              /* "If we have a product and we sold it and the quantity
+                 decreased, and then I upload the original CSV file that
+                 has the original quantities, we don't necessarily want to
+                 update them because they may have been sold already... the
+                 only products we want to be updating by default are the
+                 ones that are wrong, like zero quantities. All the other
+                 ones should show up but unchecked -- I should tell you
+                 specifically I want to update these" -- the owner's own
+                 words. A real sale between the sheet being made and this
+                 resubmit is the ordinary case for ANY non-zero disagreement
+                 -- the sheet's own number is no more likely to be right
+                 than the live count is, so this is never auto-applied the
+                 way a genuine 0 (always wrong, Test-PRD-P0-31's own
+                 standing rule) still is. needsConfirmation/confirmReason
+                 mirrors flagLikelyDuplicates' own possibleDuplicate/
+                 duplicateReason shape exactly -- shown in the SAME
+                 checklist, unchecked by default, a person opts in by
+                 checking the box; the direct, no-checkbox /products/batch
+                 upload (draftProductBatch, below) reclassifies this into a
+                 clash instead, since there is no checkbox there to default
+                 unchecked in the first place. */
+              const needsConfirmation = current !== 0;
               quantityAdjustments.push({
                 rowNumber: EXTRA_ROW_ID_OFFSET + rowNumber,
                 displayRow: rowNumber,
@@ -1446,6 +1468,12 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
                 args: { variant_id: match.id, delta: parsedQuantity - current },
                 toolName: "inventory.adjust",
                 note: `resubmit corrected stock from ${current} to ${parsedQuantity}`,
+                ...(needsConfirmation
+                  ? {
+                      needsConfirmation: true,
+                      confirmReason: `on hand is already ${current}, not 0 -- this may already reflect real sales since the sheet was made; check the box only if you mean to overwrite it with ${parsedQuantity}`,
+                    }
+                  : {}),
               });
             }
           } catch (err) {
@@ -2121,14 +2149,37 @@ export async function draftProductBatch(env, { text, actor, role, onProgress, mo
   if (records.length > CAPS.BATCH_MAX_ROWS) {
     return { created: [], ready: [], skipped: [], tooMany: records.length };
   }
-  const { rows, clashes, rate } = await resolveProductRows(env, { actor, role, mode }, records);
+  const { rows: resolvedRows, clashes, rate } = await resolveProductRows(env, { actor, role, mode }, records);
+
+  /* "They should show up but unchecked -- I should tell you specifically I
+     want to update these" -- the owner's own words, about a quantity
+     reconciliation row whose CURRENT stock is not a known-wrong 0 (a real
+     sale since the sheet was made is the ordinary explanation, never less
+     likely to be right than the sheet's own stale number). This direct,
+     immediate-apply upload has no checkbox at all to default unchecked in
+     the first place -- draftProductUpdate's own needsConfirmation flag is
+     reclassified into an ordinary clash here instead, the same "a person
+     has to open the link and say yes" gate every other low-confidence row
+     already gets, rather than silently auto-applying a stock overwrite
+     nothing here can actually confirm is correct. The checklist path
+     (planProductBatch, below) needs no equivalent: it already has a real
+     checkbox, left unchecked, for exactly this. */
+  const rows = [];
+  const needsConfirmationClashes = [];
+  for (const row of resolvedRows) {
+    if (row.needsConfirmation) {
+      needsConfirmationClashes.push({ row: row.displayRow ?? row.rowNumber, title: row.title, args: row.args, reason: row.confirmReason, toolName: row.toolName });
+    } else {
+      rows.push(row);
+    }
+  }
 
   const { created: madeRows, parked: parkedFromDenials, skipped: refused } = await createRows(
     env,
     { actor, role, rate, onProgress },
     rows,
   );
-  const { parked: parkedFromClashes, skipped: refusedClashes } = await parkClashRows(env, { actor, role }, clashes);
+  const { parked: parkedFromClashes, skipped: refusedClashes } = await parkClashRows(env, { actor, role }, [...clashes, ...needsConfirmationClashes]);
 
   return {
     created: madeRows,

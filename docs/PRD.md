@@ -9286,6 +9286,36 @@ that does not trace to one of these is a process failure (see §12).
     comparison needed that it did not already carry — so a matched variation's own current cost is available
     to compare against without a second, separate query.
 
+127. **`Test-PRD-P0-195-quantity_confirmation_required`** — "If we have a product and we sold it and the
+    quantities decreased, and then I upload the original CSV file that has the original quantities, we don't
+    necessarily want to update them because they may have been sold already. The only products that we want
+    to be updating are the ones that have wrong values, like if it's zero quantities we want to update those
+    by default. All the other ones they should show up but they should be unchecked, so I should tell you
+    specifically that I want to update these, because I intentionally want to update these — otherwise, by
+    default, they should not be checked" — the owner's own words. `Test-PRD-P0-190`'s own quantity
+    reconciliation always queued its real disagreement as an immediately-checked row, the identical trust a
+    price or title correction already earns — but a stale quantity is not the same kind of correction: current
+    on hand may already reflect a real sale that happened AFTER the sheet was made, so the sheet's own number
+    is never more likely to be right than the live count is, the one case `Test-PRD-P0-31`'s own standing
+    "0 is always a failure mode" rule does not cover.
+
+    **Exempted: current on hand already reading 0.** A known-bad 0 (`Test-PRD-P0-31`'s own creation-time
+    guarantee, extended here to a resubmit) is never a real count worth protecting, so correcting it off a
+    resubmit still auto-applies exactly as `Test-PRD-P0-190` always has — no person needs to confirm restoring
+    a number that was never plausible to begin with.
+
+    **Every other disagreement needs a person to say so on purpose.** `draftProductUpdate`'s own quantity
+    row (`batch.js`) now carries `needsConfirmation`/`confirmReason` — the identical shape
+    `flagLikelyDuplicates`'s own `possibleDuplicate`/`duplicateReason` already established — whenever current
+    on hand is nonzero and still disagrees with the sheet. On the checklist/chat path
+    (`dispatchProductBatchPlan`/`openBatchPlanFor` in `agent.js`, `checklistCard()` in `views.js`) the row
+    shows up in the SAME ready-to-submit list, just unchecked by default, with its own warning —
+    `possibleDuplicate`'s own exact treatment, extended rather than duplicated. The direct, no-checkbox
+    `/products/batch` upload (`draftProductBatch`) has no mechanism to default anything unchecked — nothing
+    there executes anything except immediately — so a needs-confirmation row is reclassified into an ordinary
+    clash instead, parked through the same `parkClashRows` gate every other low-confidence row on that path
+    already goes through: a person has to open the approval link and say yes.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
