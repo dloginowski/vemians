@@ -655,6 +655,21 @@ that does not trace to one of these is a process failure (see §12).
     agent to assume 1 rather than insist on one, adjusting it afterward with `inventory.adjust`
     only if the real count differs.
 
+    **REVISED:** "I'm seeing wildly high prices for some of these items, like $14,000... all
+    prices in queue right now... look like they have two extra zeros added to them" — a real
+    report, after a large batch upload. Traced to `catalog.create_product`'s own `check()`
+    (`catalog-write.js`): its preview `summary` — the exact text a person reads on the T2 approval
+    screen and the batch checklist alike, before anything is created — printed `price_minor`
+    (an integer count of CENTS, 14000 for $140.00) straight into that text with no division by
+    100 at all, so a $140.00 item read as "140 14000 USD" — two zeros too many, exactly as
+    reported. **Nothing about the actual price was ever wrong**: `parsePriceToMinor` (`batch.js`)
+    and `moneyToSquare` (`shared/commerce/square/money.js`) both already treat `price_minor`
+    correctly as minor units everywhere a real write happens — this was a display bug in the one
+    piece of text a person actually reads before confirming, not a pricing bug in what gets
+    created. Fixed by formatting it the same way every other money amount on this page already
+    is (`(minor / 100).toFixed(2)`, the same convention `views.js`'s own expense and payment-link
+    summaries use) before it ever reaches the preview string.
+
 29c'. **`Test-PRD-P0-70-flexible_spreadsheet_columns`** — A real spreadsheet is not typed to our
     sample file. `pick()` (`ops/src/batch.js`) now normalizes both the uploaded header and the
     synonym list to letters-and-digits only before comparing, so "Item Name", "item_name" and
