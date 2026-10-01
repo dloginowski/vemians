@@ -9441,6 +9441,16 @@ that does not trace to one of these is a process failure (see §12).
     lives in the old table and is not carried over: re-sending the file plans afresh, and now lists only the
     rows that still differ from the catalog.
 
+135. **`Test-PRD-P0-203-table_columns_fit_content`** — "Make sure you fit the cells to content too. There is no
+    reason for row to be so wide. Like fit to data inside, each column. Don't waste space. I hate when you
+    waste space" — the owner's own words. `.table-card td` (`TABLE_CARD_CSS`, `views.js`) carried a
+    `min-width: 6em` floor that `Test-PRD-P0-119` added to stop a WRAPPING cell being squeezed to a sliver beside a
+    no-wrap header; once data stopped wrapping (`Test-PRD-P0-197`) it did nothing except pad a two-digit "Row"
+    column, and every short or empty column, out to six characters. Removed, along with the same floor on the
+    full-screen preview card. Every column is now exactly as wide as its own longest value or its heading, an
+    empty column is just its padding, and the table is never stretched to the card (`table-layout: auto`, no
+    width). The CSV preview's 10em crop (`Test-PRD-P0-120`) is a ceiling, not a floor, and is unchanged.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

@@ -510,9 +510,16 @@ const TABLE_CARD_CSS = `
    wrapped across several lines. Supersedes the earlier "data cells keep
    wrapping" (Test-PRD-P0-119): data now stays on one line exactly like
    headers already do, and the card's own overflow: auto (above) is what
-   carries a wide row sideways. min-width stays as the floor for a short or
-   empty value. */
-.table-card td { white-space: nowrap; min-width: 6em; }
+   carries a wide row sideways.
+   REVISED: "make sure you fit the cells to content too. There is no reason
+   for row to be so wide... fit to data inside, each column. Don't waste
+   space" -- the owner's own words. The 6em floor existed only to stop a
+   WRAPPING cell being squeezed to a sliver beside a no-wrap header; now
+   that data does not wrap either, it did nothing except pad a two-digit Row
+   column out to six characters. Gone: every column is exactly as wide as
+   its own longest value (or its heading), and an empty column is just its
+   padding. */
+.table-card td { white-space: nowrap; }
 .table-card th { color: var(--ink); font-weight: 700; background: var(--ground); white-space: nowrap; }
 .table-card a { color: var(--accent); overflow-wrap: anywhere; }
 .table-card button {
@@ -599,7 +606,7 @@ const TABLE_CARD_CSS = `
    overflow: auto, untouched), exactly the trade-off this app has made
    everywhere else a table could get wide. */
 .table-card.preview.full td {
-  overflow-wrap: normal; word-break: normal; max-width: none; min-width: 6em;
+  overflow-wrap: normal; word-break: normal; max-width: none;
   white-space: nowrap; overflow: visible; text-overflow: clip;
 }
 `;
