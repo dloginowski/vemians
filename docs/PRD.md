@@ -8962,6 +8962,21 @@ that does not trace to one of these is a process failure (see §12).
     same way `/agent/batch-submit-row` already is. Cancelling something already gone (a double click, a
     stale tab) is harmless, never an error.
 
+    **REVISED:** "you should just resume and show me where it's at... this is not an agentic workflow at
+    this point, it's just a procedural ingest" — the owner's own words, clarifying what resuming should
+    actually look like. The first version of this fix resumed a partially-submitted plan into the SAME
+    "Ready to submit" review screen a brand new plan gets — correct for a plan nobody had confirmed yet,
+    but wrong for one Submit was already clicked on: that person already made the one decision this screen
+    exists to collect, and reloading mid-run is not a second chance to reconsider, it is the same
+    procedural job continuing. `openBatchPlanFor` now also returns the plan's own `done`/`total` counts
+    (already tracked, just never surfaced). `checklistCard` (`views.js`) branches on `done`: zero still
+    shows the ordinary review screen unchanged; a nonzero `done` skips straight to the submit loop itself
+    — the exact same loop a Submit click runs, pulled out into its own `runSubmit()` so there is only ever
+    one submission code path — with the progress bar already set to how far it got (`startDone` through
+    `startDone + remaining`) and the "Submitting N of M" text reading as a continuation, never a restart at
+    1. A reload that lands before anything was ever submitted still asks first, same as always; a reload
+    mid-run just keeps going.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

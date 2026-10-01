@@ -1797,13 +1797,24 @@ function checklistCard(c) {
   const el = document.createElement("div");
   el.className = "gate";
   const noun = c.rows.length === 1 ? "product" : "products";
+  /* "This is not an agentic workflow at this point, it's just a procedural
+     ingest" — the owner's own words. c.done (openBatchPlanFor, agent.js) is
+     0/absent for a plan nobody has confirmed yet, and > 0 once Submit was
+     already clicked before a reload interrupted it — the two header/auto-
+     resume branches below are exactly that distinction, nothing else. No
+     backtick code-formatting in this comment on purpose — this whole script
+     block is plain text inside the page's own outer template literal, and a
+     literal backtick anywhere in it would close that one early. */
+  const startDone = c.done || 0;
   el.innerHTML =
     "<h3></h3>" +
     "<ul class='checklist'></ul>" +
     "<div class='chat row'><button data-a=submit>Submit</button><button data-a=cancel>Cancel</button></div>" +
     "<progress hidden max='100' value='0'></progress>" +
     "<p class='checklist-status' hidden></p>";
-  el.querySelector("h3").textContent = "Ready to submit — " + c.rows.length + " " + noun;
+  el.querySelector("h3").textContent = startDone
+    ? "Resuming — " + startDone + " of " + (c.total || startDone + c.rows.length) + " already added, finishing the rest…"
+    : "Ready to submit — " + c.rows.length + " " + noun;
 
   /* "The only thing the user might want to tweak is the title" — the
      owner's own words, reviewing this exact checklist. Everything else
@@ -1879,20 +1890,25 @@ function checklistCard(c) {
     }).catch(() => {});
   });
 
-  el.querySelector("[data-a=submit]").addEventListener("click", async () => {
-    const items = [...list.querySelectorAll("li.checklist-row")]
-      .filter((li) => li.querySelector(".checklist-check").checked)
-      .map((li) => ({ row: Number(li.dataset.row), title: li.querySelector(".checklist-title").value }));
+  /* Pulled out of the Submit click handler so a resumed, already-in-progress
+     plan (startDone > 0, below) can drop straight into the same loop on
+     page load — "you should just resume and show me where it's at... it's
+     just a procedural ingest," the owner's own words. planTotal folds in
+     however many rows were already done before this page ever loaded, so
+     the bar and "Submitting N of M" text both read as a continuation of
+     the same job, not a fresh one starting over at 1. */
+  async function runSubmit(items) {
     status.hidden = false;
     if (!items.length) {
-      status.textContent = "Nothing checked — nothing to submit.";
+      status.textContent = startDone ? "Nothing left to submit automatically — review the rest below." : "Nothing checked — nothing to submit.";
       return;
     }
     buttons.forEach((b) => (b.disabled = true));
     list.querySelectorAll("input").forEach((b) => (b.disabled = true));
     bar.hidden = false;
-    bar.max = items.length;
-    bar.value = 0;
+    const planTotal = startDone + items.length;
+    bar.max = planTotal;
+    bar.value = startDone;
 
     let created = 0;
     let updated = 0;
@@ -1900,7 +1916,7 @@ function checklistCard(c) {
     let skipped = 0;
     const rows = [];
     for (const { row, title } of items) {
-      status.textContent = "Submitting " + (bar.value + 1) + " of " + items.length + "…";
+      status.textContent = "Submitting " + (bar.value + 1) + " of " + planTotal + "…";
       let result;
       try {
         const res = await fetch("/ops/agent/batch-submit-row", {
@@ -1947,9 +1963,24 @@ function checklistCard(c) {
          comment (TABLE_CARD_CSS, above). */
       tall: true,
     });
-  });
+  }
+
+  function checkedItems() {
+    return [...list.querySelectorAll("li.checklist-row")]
+      .filter((li) => li.querySelector(".checklist-check").checked)
+      .map((li) => ({ row: Number(li.dataset.row), title: li.querySelector(".checklist-title").value }));
+  }
+
+  el.querySelector("[data-a=submit]").addEventListener("click", () => runSubmit(checkedItems()));
 
   gate.appendChild(el);
+
+  /* "Just resume and show me where it's at" — once Submit has already been
+     clicked once (startDone > 0), a reload is not a second decision point;
+     it is this same procedural ingest continuing, so it starts itself
+     rather than waiting for another click on a button that already got
+     pressed in a tab that no longer exists. */
+  if (startDone) runSubmit(checkedItems());
 }
 
 /* ---- attachments ---------------------------------------------------------
@@ -2163,7 +2194,14 @@ document.getElementById("chat").addEventListener("submit", async (e) => {
    missed/failed check is silent, on purpose, the same tolerance every
    other best-effort poll on this page already has (pollBatchProgress's own
    comment) — a person who never had an open batch should see nothing
-   different at all. */
+   different at all.
+   REVISED: "you should just resume and show me where it's at... this is
+   not an agentic workflow at this point, it's just a procedural ingest" —
+   the owner's own words. checklistCard() itself now tells the two cases
+   apart by the checklist's own done count: a plan nobody confirmed yet
+   still shows the review screen exactly as before, but a plan Submit was
+   already clicked on starts itself right back up with the progress bar
+   already showing how far it got, no second click required. */
 (async () => {
   try {
     const res = await fetch("/ops/agent/batch-open-plan");

@@ -7095,6 +7095,50 @@ check("test_PRD_P0_152_style_number_grouping__a_partially_submitted_plan_resumes
   }
 });
 
+check("test_PRD_P0_187_batch_plan_survives_reload__a_resumed_plan_reports_how_far_it_already_got", async () => {
+  /* "You should just resume and show me where it's at... this is not an
+     agentic workflow at this point, it's just a procedural ingest" -- the
+     owner's own words, after confirming the plan itself already survives a
+     reload. What was still missing from openBatchPlanFor's own return value
+     was exactly this: done/total, so the resumed page can pick the
+     submission loop back up and show real progress instead of asking the
+     person to confirm a batch they already confirmed once in a tab that no
+     longer exists. */
+  const f = await fixture({ actor: "zeynep@vemians.com", role: "manager" });
+  const csv =
+    "title,category,price,style id,cost\n" +
+    "Wool Coat,Outerwear,450.00,01-04-001,210.00\n" +
+    "Silk Scarf,Outerwear,99.00,01-04-002,20.00\n" +
+    "Denim Jacket,Outerwear,120.00,01-04-003,55.00\n";
+  const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
+  const identity = { email: "zeynep@vemians.com", groups: ["vemians-manager"] };
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const outcome = await dispatch(
+      "catalog_add_product_batch",
+      { asset_id: "ast_1" },
+      { actor: "zeynep@vemians.com", role: "manager", env, allowed: new Set(["catalog_add_product_batch"]) },
+    );
+    assert.equal(outcome.checklist.rows.length, 3);
+
+    const freshlyPlanned = await openBatchPlanFor(env, "zeynep@vemians.com");
+    assert.equal(freshlyPlanned.done, 0, "nothing submitted yet -- Submit was never clicked");
+    assert.equal(freshlyPlanned.total, 3);
+
+    const woolRow = outcome.checklist.rows.find((r) => r.title === "Wool Coat").row;
+    await submitBatchPlanRow({ id: outcome.checklist.id, row: woolRow, identity, env });
+
+    const resumed = await openBatchPlanFor(env, "zeynep@vemians.com");
+    assert.equal(resumed.done, 1, "one row already went through before the reload");
+    assert.equal(resumed.total, 3, "total stays the original plan size, not just what's left");
+    assert.equal(resumed.rows.length, 2, "only the two not-yet-submitted rows come back");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 check("test_PRD_P0_152_style_number_grouping__a_fully_submitted_plan_is_no_longer_open", async () => {
   const f = await fixture({ actor: "zeynep@vemians.com", role: "manager" });
   const csv = "title,category,price,style id,cost\nWool Coat,Outerwear,450.00,01-04-001,210.00\n";

@@ -2000,12 +2000,21 @@ export async function submitBatchPlanRow({ id, row, title, identity, env }) {
  * straight into the SAME checklistCard() a freshly-planned batch already
  * uses — no second rendering path to maintain, no risk of the resumed view
  * ever looking different from a brand new one.
+ *
+ * REVISED: "this is not an agentic workflow at this point, it's just a
+ * procedural ingest" — the owner's own words. `done`/`total` ride along so
+ * the client can tell the two cases apart: `done === 0` is a plan nobody has
+ * confirmed yet (still needs the "Ready to submit" review, same as always),
+ * while `done > 0` means Submit was already clicked once before the reload
+ * — views.js auto-resumes the submit loop straight into these remaining
+ * rows instead of asking again, with the progress bar already showing how
+ * far it got.
  */
 export async function openBatchPlanFor(env, actor) {
   let planRow;
   try {
     planRow = await env.ASSETS.prepare(
-      "SELECT id, rows FROM agent_batch_plan WHERE actor = ? AND done < total ORDER BY created_at DESC LIMIT 1",
+      "SELECT id, rows, done, total FROM agent_batch_plan WHERE actor = ? AND done < total ORDER BY created_at DESC LIMIT 1",
     )
       .bind(actor)
       .first();
@@ -2018,6 +2027,8 @@ export async function openBatchPlanFor(env, actor) {
   if (!rows.length) return null;
   return {
     id: planRow.id,
+    done: planRow.done,
+    total: planRow.total,
     rows: rows.map((r) => ({
       row: r.rowNumber,
       title: r.title,
