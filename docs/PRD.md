@@ -9316,6 +9316,28 @@ that does not trace to one of these is a process failure (see §12).
     clash instead, parked through the same `parkClashRows` gate every other low-confidence row on that path
     already goes through: a person has to open the approval link and say yes.
 
+128. **`Test-PRD-P0-196-unconfirmed_rows_never_resurface`** — "It seems to be in an upload cycle, it's stuck,
+    it keeps on re-submitting things" — a real, live report, immediately following `Test-PRD-P0-195`'s own
+    `needsConfirmation` rows shipping. A `possibleDuplicate`/`needsConfirmation` row is NEVER checked by
+    default (`checklistCard`, `views.js`), so a person leaving one unchecked on purpose had no way to remove
+    it from a plan's own `rows` the way every other row does on submit — `openBatchPlanFor`'s own `done <
+    total` query (`agent.js`) stayed true forever, and the SAME checklist kept resurfacing, freshly rendered,
+    on every single later page load — exactly the behavior `Test-PRD-P0-152`'s own "an open plan survives a
+    reload" feature was built to give a genuinely INTERRUPTED batch, never one a person already finished
+    reviewing once and chose to leave alone.
+
+    **A plan is only still "open" for automatic resume when a real interruption is still plausible.**
+    `openBatchPlanFor` now also returns `null` — exactly as if nothing were there to resume — whenever Submit
+    has already been clicked at least once (`done > 0`) AND every one of the plan's own remaining rows is
+    flagged `possibleDuplicate` or `needsConfirmation`. Those rows were never candidates for "the browser
+    closed mid-submit" in the first place — nothing auto-checked them, so nothing could have been interrupted
+    mid-flight — so once a person has had the one real chance to decide on them, re-showing the identical
+    checklist on every later page load is only ever noise, never a genuine resume. Wanting a left-alone row
+    applied later is a fresh, deliberate decision — the same resubmit that raised it the first time, producing
+    a brand-new plan — never an old one nagging on its own. A plan still holding at least one ordinary,
+    default-checked row is untouched by this and still resumes exactly as `Test-PRD-P0-152`/`Test-PRD-P0-187`
+    already prove.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
