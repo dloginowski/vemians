@@ -770,6 +770,19 @@ that does not trace to one of these is a process failure (see §12).
     one per variation — the same trade vendor names and images already make), so each variation
     row in the Items tab shows its own current count.
 
+    **REVISED: "adding an item that has zero units, that's a failure point"** — the owner's own
+    words, after a real batch-uploaded product landed with 0 on hand. `catalog.create_product`'s own
+    `check()` now refuses outright when any variation carries an explicit `quantity: 0` — a
+    brand-new item is never deliberately listed with nothing to sell, almost always a misread
+    spreadsheet column rather than a real decision. Deliberately scoped to CREATE alone, not
+    `validateProposal` itself (shared with `catalog.update_product` and the draft/preview path): an
+    EXISTING item's count genuinely reaching 0 — a real sale, or a deliberate `inventory.adjust`
+    down to nothing — stays completely normal and unrefused. Quantity is still optional on create
+    (omitting it keeps defaulting to 1, "quantity is not required at all... assume 1" unchanged);
+    only an explicit 0 is refused. A batch row that fails this now becomes a clash for a person to
+    review (the same preflight gate a bad price already uses), rather than a silently created
+    product nobody can actually buy.
+
     **REVISED: a stepper, not a free-typed delta.** "A small read-only entry field and two small
     buttons on the sides, - and +." `.variation-stock-count` is a `readonly` (not `disabled` — a
     disabled field cannot even be selected or copied) text field showing the current count,

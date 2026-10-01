@@ -906,6 +906,26 @@ export const catalogWriteTools = {
       if (args.unit_cost_minor !== undefined && (!Number.isInteger(args.unit_cost_minor) || args.unit_cost_minor < 0)) {
         problems.push(`unit_cost_minor '${args.unit_cost_minor}' must be a non-negative integer minor amount`);
       }
+      /* "Adding an item that has zero units, that's a failure point" -- the
+         owner's own words, after a real product (a batch upload row) landed
+         with 0 on hand. Scoped to CREATE specifically, not validateProposal
+         itself (shared with catalog.update_product and the draft/preview
+         path, neither of which this applies to) -- an EXISTING item's count
+         reaching 0 through a real sale, or being driven there deliberately
+         via inventory.adjust's own ledger, is normal and must stay allowed;
+         a BRAND NEW item is never deliberately listed with nothing to sell.
+         Quantity is still optional here (omitting it defaults to 1 exactly
+         as before, "quantity is not required at all... assume 1"); this
+         only refuses the one case that is never a reasonable default: an
+         explicit 0, almost always a misread spreadsheet column rather than
+         a real decision. */
+      const zeroStock = (Array.isArray(args.variations) ? args.variations : []).filter((v) => v?.quantity === 0);
+      if (zeroStock.length) {
+        problems.push(
+          `${zeroStock.map((v) => v.title).join(", ")}: quantity is 0 -- a brand-new item is never created with ` +
+            "nothing to sell. Leave quantity unset to default to 1, or give the actual count received.",
+        );
+      }
       if (problems.length) {
         return {
           denied: `refused before Square saw it: ${problems.join(" | ")}`,
