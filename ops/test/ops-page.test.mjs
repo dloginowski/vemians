@@ -828,6 +828,22 @@ check("test_PRD_P0_202_upload_ledger__the_submit_click_starts_one_run_and_every_
   assert.match(script, /"\/ops\/agent\/batch-finish"/, "the loop closes its own run when it ends");
 });
 
+check("test_PRD_P0_203_table_columns_fit_content__no_column_is_wider_than_its_own_data", async () => {
+  /* "Make sure you fit the cells to content too. There is no reason for row
+     to be so wide. Like fit to data inside, each column. Don't waste space.
+     I hate when you waste space" -- the owner's own words. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /\.table-card table\s*\{[^}]*table-layout:\s*auto/s, "auto layout sizes each column to its own content");
+  assert.doesNotMatch(body, /\.table-card table\s*\{[^}]*(?:min-)?width:/s, "the table is never stretched to the card");
+  /* Anchored to the start of a line: an unanchored ".table-card td {" also matches inside the shared
+     "th, td" rule and would check that one three times over. */
+  for (const rule of [/^\.table-card th\s*\{[^}]*/m, /^\.table-card td\s*\{[^}]*/m, /^\.table-card th, \.table-card td\s*\{[^}]*/m]) {
+    const m = body.match(rule);
+    assert.ok(m, `rule ${rule} exists`);
+    assert.doesNotMatch(m[0], /min-width|(?<!max-)width:\s*\d/, "no width floor or fixed width on any cell");
+  }
+});
+
 check("test_PRD_P0_123_table_everything_centered__headers_and_data_are_both_centered", async () => {
   /* P0-122 centered headers only, leaving data left-aligned — the owner's
      own words right after seeing that: "make the data center aligned
@@ -856,7 +872,9 @@ check("test_PRD_P0_119_table_headers_never_wrap__a_wide_header_row_scrolls_sidew
      the sideways scroll for whatever a nowrap header pushes past the
      card's own edge. */
   const { body } = await frontPage(OWNER);
-  assert.match(body, /\.table-card td\s*\{[^}]*min-width:\s*6em/s, "data cells need a floor so a nowrap header doesn't squeeze them to nothing");
+  /* REVISED by Test-PRD-P0-203-table_columns_fit_content: the floor existed
+     for WRAPPING data cells; data no longer wraps, so it only wasted width. */
+  assert.doesNotMatch(body, /\.table-card td\s*\{[^}]*min-width/s, "no width floor on a data cell -- each column fits its content");
   assert.doesNotMatch(body, /\.table-card th\s*\{[^}]*min-width/s, "a nowrap header already has its own natural-width floor; it needs no separate one");
 });
 
@@ -895,7 +913,7 @@ check("test_PRD_P0_120_preview_data_ellipsis_not_wrap__full_screen_is_the_escape
   assert.match(body, /\.table-card\.preview\.full td\s*\{[^}]*white-space:\s*nowrap/s, "full screen must never wrap a cell onto more than one line");
   assert.match(body, /\.table-card\.preview\.full td\s*\{[^}]*overflow:\s*visible/s, "full screen must un-clip the cell");
   assert.match(body, /\.table-card\.preview\.full td\s*\{[^}]*max-width:\s*none/s, "full screen must remove the width cap the ellipsis crop depended on");
-  assert.match(body, /\.table-card\.preview\.full td\s*\{[^}]*min-width:\s*6em/s, "full screen must still carry a real width floor for a short or empty value");
+  assert.doesNotMatch(body, /\.table-card\.preview\.full td\s*\{[^}]*min-width/s, "full screen columns fit their content too -- no floor (Test-PRD-P0-203)");
 });
 
 check("test_PRD_P0_120_preview_data_ellipsis_not_wrap__full_screen_restores_a_width_floor_so_columns_cannot_collapse_to_nothing", async () => {
@@ -911,7 +929,11 @@ check("test_PRD_P0_120_preview_data_ellipsis_not_wrap__full_screen_restores_a_wi
      must read like the ordinary, non-preview .table-card (min-width:
      6em), not a narrower one. */
   const { body } = await frontPage(OWNER);
-  assert.match(body, /\.table-card\.preview\.full td\s*\{[^}]*min-width:\s*6em/s, "full screen must restore a real width floor, not the collapsed state's own 0");
+  /* REVISED by Test-PRD-P0-203-table_columns_fit_content: the floor guarded a
+     column against collapsing while cells could still wrap; full screen cells
+     are nowrap, so a column is exactly its longest value and nothing more. */
+  assert.doesNotMatch(body, /\.table-card\.preview\.full td\s*\{[^}]*min-width/s, "no floor: a column is its longest single-line value");
+  assert.match(body, /\.table-card\.preview\.full td\s*\{[^}]*white-space:\s*nowrap/s, "which is only safe because the cell cannot wrap");
 });
 
 check("test_PRD_P0_89_batch_preview_confirm__the_table_renders_right_under_its_own_tool_step_not_after_the_reply", async () => {
