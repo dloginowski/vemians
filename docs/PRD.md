@@ -6719,6 +6719,21 @@ that does not trace to one of these is a process failure (see §12).
     `.variant-group`s, never the flat "Variations" accordion; each carries its own add-photo button keyed
     to its own variation, and its own real stock stepper.
 
+    REVISED A NINTH TIME, on seeing the Color-only group expand to a bare stepper with no size row at
+    all: "Every item needs to have one expandable header for each option. Inside of the expandable header
+    is a row of sizes, right? That has to be like that everywhere... dress pants, option, black, header.
+    On the right side, upload button, expand the header, row of sizes." — the owner's own words. The
+    REVISED AN EIGHTH TIME fix (above) got the HEADER shape right but left the BODY wrong: a single bare
+    stepper, not the row-of-sizes shape every other group (Size-alone, or a real two-axis pair) already
+    has. `variantsGroupedAccordionHtml`'s `colsName === null` branch now wraps that one stepper in the
+    identical `.variant-size-grid`/`.variant-size-cell` markup the real size rows use, labelled "OS" — the
+    owner's own blanket default (P0-146 REVISED ONCE MORE) for "we don't specify a size." This label is
+    DISPLAY-ONLY: this item's own variation genuinely carries no Size option value to read back (it
+    predates the OS-default rule and was never resubmitted); a real resubmit would stamp a true `Size:
+    "OS"` option value and promote the item to an ordinary two-axis product, read by the branch above
+    instead. Every expandable group, regardless of which single axis or pair of axes a product's own
+    variations use, now reads as the one consistent shape: a header per option, a row of sizes inside.
+
 82. **`Test-PRD-P0-148-auto_generate_variations`** — RETIRED by `Test-PRD-P0-178-
     remove_category_item_options`. Used to auto-generate any missing Size/Color variation combinations
     for every product in a category (a cross product of the category's own assigned Option Set values),

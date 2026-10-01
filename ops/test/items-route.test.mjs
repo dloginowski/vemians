@@ -2424,6 +2424,34 @@ check("test_PRD_P0_147_variants_grid__color_alone_with_no_size_still_gets_one_gr
   assert.match(blackGroup, /variation-stock-step" data-variant-id="v1"/, "Black still carries its own real stepper");
 });
 
+check("test_PRD_P0_147_variants_grid__a_color_only_groups_body_still_reads_as_a_row_of_sizes_not_a_bare_stepper", async () => {
+  /* "Every item needs to have one expandable header for each option. Inside
+     of the expandable header is a row of sizes, right? That has to be like
+     that everywhere... dress pants, option, black, header. On the right
+     side, upload button, expand the header, row of sizes." — the owner's
+     own words, after seeing the Color-only group expand to just a bare
+     stepper with no size row at all. Even with no real Size option on this
+     item, the body must still read as the identical row-of-sizes shape
+     every other group already has, labelled with the owner's own blanket
+     default ("OS") for an unspecified size. */
+  const mirror = mirrorDb();
+  seedColorOnlyProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+
+  const blackIdx = body.indexOf('<span class="variant-group-label">Black</span>');
+  const blackGroupStart = body.lastIndexOf('<div class="variant-group">', blackIdx);
+  const blackGroupEnd = body.indexOf('<div class="variant-group">', blackGroupStart + 1);
+  const blackGroup = body.slice(blackGroupStart, blackGroupEnd > 0 ? blackGroupEnd : blackGroupStart + 1000);
+
+  assert.match(blackGroup, /<div class="variant-size-grid">/, "the body must be the same row-of-sizes grid every other group uses");
+  assert.match(
+    blackGroup,
+    /<div class="variant-size-cell"><span class="variation-title-label">OS<\/span>/,
+    "with no real Size option on this item, the one implicit row reads OS -- the owner's own blanket default",
+  );
+  assert.match(blackGroup, /variation-stock-step" data-variant-id="v1"/, "Black's own stepper still lives inside that one OS row");
+});
+
 check("test_PRD_P0_135_item_edit_applies_immediately__the_web_toggle_is_a_plain_checkbox_rendered_either_way", async () => {
   /* REVISED: "move the web and the active buttons... make them the same
      style as the rest of the fields... have the same style like checkboxes
