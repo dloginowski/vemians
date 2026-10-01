@@ -1908,21 +1908,45 @@ function checklistCard(c) {
     list.appendChild(li);
   });
 
-  const buttons = el.querySelectorAll("button");
+  const submitBtn = el.querySelector("[data-a=submit]");
+  const cancelBtn = el.querySelector("[data-a=cancel]");
   const bar = el.querySelector("progress");
   const status = el.querySelector(".checklist-status");
 
-  /* REVISED: "I would have to hit cancel to actually clear a job in
-     progress" — the owner's own words, already assuming this did that. It
-     only ever cleared the local panel before — the plan row stayed in
-     agent_batch_plan regardless, genuinely resumable, just invisible. Now a
-     real server call, so cancelling actually means cancelling: nothing left
-     for a later reload (or the open-plan check on this very page, below)
-     to resume. Fire-and-forget on the response — the local panel clears
-     either way, the same honest "nothing was submitted" is true whether or
-     not this specific call succeeds, and a failed cancel just leaves the
-     row to expire the ordinary way a person never returns to. */
-  el.querySelector("[data-a=cancel]").addEventListener("click", () => {
+  /* "I can't press the cancel button... when it's looping like that" — a
+     real, live report, watching a 68-row resume sit on "Submitting 35 of
+     68…" with no way out: the ORIGINAL cancel handler below (still exactly
+     right for a plan nobody has submitted anything from yet) disabled EVERY
+     button, Cancel included, the instant runSubmit's own per-row loop
+     started, and never re-enabled anything until that whole sequential
+     pass — several real Square writes each, for as many rows as the plan
+     has left — finished on its own. "running" is the one thing that
+     changes: Cancel reads it to tell "nothing started yet" (wipe and
+     server-cancel immediately, the original behavior) from "a pass is
+     actually mid-flight" (ask the loop to stop before its NEXT row instead
+     of ripping the panel out from under a write already in progress — a
+     fetch already sent can never be un-sent, only the ones still to come
+     skipped). */
+  let running = false;
+  let cancelRequested = false;
+
+  cancelBtn.addEventListener("click", () => {
+    if (running) {
+      cancelRequested = true;
+      cancelBtn.disabled = true;
+      status.textContent = "Cancelling — finishing the row already in progress, then stopping…";
+      return;
+    }
+    /* REVISED: "I would have to hit cancel to actually clear a job in
+       progress" — the owner's own words, already assuming this did that. It
+       only ever cleared the local panel before — the plan row stayed in
+       agent_batch_plan regardless, genuinely resumable, just invisible. Now a
+       real server call, so cancelling actually means cancelling: nothing left
+       for a later reload (or the open-plan check on this very page, below)
+       to resume. Fire-and-forget on the response — the local panel clears
+       either way, the same honest "nothing was submitted" is true whether or
+       not this specific call succeeds, and a failed cancel just leaves the
+       row to expire the ordinary way a person never returns to. */
     gate.textContent = "";
     entry("tool", "Cancelled. Nothing was submitted.");
     fetch("/ops/agent/batch-cancel", {
@@ -1945,7 +1969,8 @@ function checklistCard(c) {
       status.textContent = startDone ? "Nothing left to submit automatically — review the rest below." : "Nothing checked — nothing to submit.";
       return;
     }
-    buttons.forEach((b) => (b.disabled = true));
+    running = true;
+    submitBtn.disabled = true;
     list.querySelectorAll("input").forEach((b) => (b.disabled = true));
     bar.hidden = false;
     const planTotal = startDone + items.length;
@@ -1958,6 +1983,7 @@ function checklistCard(c) {
     let skipped = 0;
     const rows = [];
     for (const { row, displayRow, title } of items) {
+      if (cancelRequested) break;
       status.textContent = "Submitting " + (bar.value + 1) + " of " + planTotal + "…";
       let result;
       try {
@@ -2001,12 +2027,28 @@ function checklistCard(c) {
         rows.push([String(displayRow), title, "skipped", result.reply || "failed"]);
       }
     }
+    running = false;
+
+    /* Stopped partway through, on purpose -- whatever this pass itself
+       already did (rows, above) is real and stays reported exactly like a
+       natural finish; what is left in the plan (never attempted) is dropped
+       server-side the same way the not-yet-started cancel above already
+       does, so it cannot resurface on a later reload either. Fire-and-forget
+       for the identical reason that one already is. */
+    if (cancelRequested) {
+      fetch("/ops/agent/batch-cancel", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: c.id }),
+      }).catch(() => {});
+    }
 
     gate.textContent = "";
     const updatedNote = updated ? updated + " updated, " : "";
-    entry("agent", created + " created, " + updatedNote + parked + " need a person's decision, " + skipped + " skipped.");
+    const cancelNote = cancelRequested ? " Cancelled before the rest." : "";
+    entry("agent", created + " created, " + updatedNote + parked + " need a person's decision, " + skipped + " skipped." + cancelNote);
     tableCard({
-      title: "Products: " + created + " created, " + updatedNote + parked + " need a person's decision, " + skipped + " skipped",
+      title: "Products: " + created + " created, " + updatedNote + parked + " need a person's decision, " + skipped + " skipped" + cancelNote,
       columns: ["Row", "Title", "Status", "Detail"],
       rows,
       /* Same "9 need a person's decision... collapsed" complaint this
@@ -2022,7 +2064,7 @@ function checklistCard(c) {
       .map((li) => ({ row: Number(li.dataset.row), displayRow: Number(li.dataset.displayRow), title: li.querySelector(".checklist-title").value }));
   }
 
-  el.querySelector("[data-a=submit]").addEventListener("click", () => runSubmit(checkedItems()));
+  submitBtn.addEventListener("click", () => runSubmit(checkedItems()));
 
   gate.appendChild(el);
 
