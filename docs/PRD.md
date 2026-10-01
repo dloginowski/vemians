@@ -9511,6 +9511,23 @@ that does not trace to one of these is a process failure (see §12).
     declares, for existing and added variations alike). The test Square now enforces the same rule, so any
     write path that breaks it fails a test instead of reaching a shop.
 
+141. **`Test-PRD-P0-209-live_row_status`** — "Instead of giving me a separate like report, I just want you to update
+    the existing list. So when I hit submit, just go through them and pop their status in, immediately in that
+    preview... I want to see it failing, and I can cancel this or pause the submission. Keep things compact...
+    it either completed with a check box or it failed with an X and I can click on the X and see why. I should
+    be able to click on it to copy the entire line, the error, so I can give it to you. I shouldn't have to drag
+    around with my finger." — the owner's own words, after a whole upload failed and was only reported in a
+    table at the end. The checklist now updates in place while it runs: the row being submitted shows "…", a
+    row that went through shows a check (created, updated or no change), a row that did not shows an X with
+    its reason under it. Tapping an X, or its line, copies the whole line (row, title, style ID, where it
+    goes, outcome and reason, with the approval link if there is one) to the clipboard, with a hidden-textarea
+    fallback for browsers that refuse the clipboard API; tapping a check shows what happened. Pause stops
+    before the next row without cancelling the upload and Submit continues with the rest (one more run, as
+    ever); Cancel stops as before. There is no end-of-run table: the card stays, with one line of totals
+    ("4 done, 2 failed"), a "Copy N failed" button that copies every failed line from the whole job, and a
+    Close button. Counts and failed lines span a pause and a resume. The two stops that already existed (the
+    run is over, Cloudflare's daily write limit) still end the loop and now mark the row that hit them.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
