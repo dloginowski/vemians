@@ -1259,6 +1259,7 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
   const notes = [];
   const clashes = [];
   const quantityAdjustments = [];
+  const explicitQuantities = [];
 
   const existingVariants = await variantsWithOptionsOf(env.CATALOG_MIRROR, existing.id);
 
@@ -1382,31 +1383,65 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
        only a REAL number the sheet actually gives, that disagrees with what
        is on hand right now, is ever a reason to move stock. */
     const quantityRaw = pick(record, QUANTITY_KEYS);
-    if (quantityRaw && env.COMMERCE) {
+    if (quantityRaw) {
       const parsedQuantity = parseQuantity(quantityRaw);
       if (parsedQuantity === null) {
         notes.push(`row ${rowNumber}: quantity "${quantityRaw}" is not a plain whole number like 5 -- stock left unchanged`);
       } else {
-        try {
-          const stockRow = match.sku
-            ? await env.COMMERCE.prepare("SELECT on_hand FROM inventory_level WHERE sku = ?").bind(match.sku).first()
-            : null;
-          const current = Number(stockRow?.on_hand ?? 0);
-          if (current !== parsedQuantity) {
-            quantityAdjustments.push({
-              rowNumber: EXTRA_ROW_ID_OFFSET + rowNumber,
-              displayRow: rowNumber,
-              title: match.title && match.title !== existing.title ? `${existing.title} — ${match.title}` : existing.title,
-              args: { variant_id: match.id, delta: parsedQuantity - current },
-              toolName: "inventory.adjust",
-              note: `resubmit corrected stock from ${current} to ${parsedQuantity}`,
-            });
+        explicitQuantities.push(parsedQuantity);
+        if (env.COMMERCE) {
+          try {
+            const stockRow = match.sku
+              ? await env.COMMERCE.prepare("SELECT on_hand FROM inventory_level WHERE sku = ?").bind(match.sku).first()
+              : null;
+            const current = Number(stockRow?.on_hand ?? 0);
+            if (current !== parsedQuantity) {
+              quantityAdjustments.push({
+                rowNumber: EXTRA_ROW_ID_OFFSET + rowNumber,
+                displayRow: rowNumber,
+                title: match.title && match.title !== existing.title ? `${existing.title} — ${match.title}` : existing.title,
+                args: { variant_id: match.id, delta: parsedQuantity - current },
+                toolName: "inventory.adjust",
+                note: `resubmit corrected stock from ${current} to ${parsedQuantity}`,
+              });
+            }
+          } catch (err) {
+            console.error(`ERROR batch.js draftProductUpdate: could not read stock for sku ${match.sku} — ${err.message}`);
           }
-        } catch (err) {
-          console.error(`ERROR batch.js draftProductUpdate: could not read stock for sku ${match.sku} — ${err.message}`);
         }
       }
     }
+  }
+
+  /* "If we give you a spreadsheet and it says there's zero units for all
+     sizes, then don't add it, because there's something wrong with that...
+     why would we even add something that has no units" -- the owner's own
+     words, after a resubmit's own checklist reported "updating" while every
+     size still read 0 on the sheet itself. Test-PRD-P0-31's own create-time
+     guard already refuses this for a BRAND NEW product; a matched resubmit
+     had no equivalent at all -- quantity reconciliation only ever ACTS on a
+     real disagreement (the user's earlier, still-true words: "if everything
+     was matching exactly, then you just skip it"), so a sheet whose every
+     size already, consistently reads 0 was silently treated as "nothing to
+     reconcile" rather than the data problem it actually is. Scoped to the
+     WHOLE group, never a single row: one sold-out size among several in
+     stock is ordinary day-to-day inventory, never a reason to block a
+     legitimate update to every OTHER size on the same product -- only every
+     size on the sheet reading 0 is the red flag. A row giving no quantity
+     at all is simply not counted either way, same as it always means "no
+     opinion" -- this only fires when the sheet actually commits to "zero,"
+     everywhere it says anything. Parked as a clash like any other, not a
+     silent drop: the row's own real price/cost/title changes still need a
+     person's confirmation, exactly the same "complete, editable proposal"
+     every other clash already is -- and no stock move is queued at all,
+     never a silent reduction to zero on the strength of a sheet that may
+     simply have lost its own quantity column. */
+  const allZeroStock = explicitQuantities.length > 0 && explicitQuantities.every((q) => q === 0);
+  if (allZeroStock) {
+    clashes.push(
+      `every size on this sheet reads 0 units for "${existing.title}" (${existing.handle}) -- that's not something we'd ever actually submit; confirm the real counts, then resubmit`,
+    );
+    quantityAdjustments.length = 0;
   }
 
   const title = titleCol || existing.title;
@@ -1431,7 +1466,7 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
      person to add them by hand -- unchanged -- but that no longer blocks
      the vendor/cost update the rest of the sheet was clearly also asking
      for. */
-  if (variations.length === 0 && clashes.length > 0 && unitCostMinor !== undefined) {
+  if (variations.length === 0 && clashes.length > 0 && unitCostMinor !== undefined && !allZeroStock) {
     const newOnes = groupRows.map(({ record, color, size }) =>
       Object.values({ ...(color ? { Color: color } : {}), ...(size ? { Size: size } : {}), ...optionValues(record) }).join(", ") || "(no size/color)",
     );

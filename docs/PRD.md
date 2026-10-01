@@ -9193,6 +9193,29 @@ that does not trace to one of these is a process failure (see §12).
     never touches `editedTitle` or per-row addressing at all and could never have caught either bug — the
     identical shape of gap `Test-PRD-P0-180`'s own header comment already describes.
 
+123. **`Test-PRD-P0-191-all_zero_resubmit_refused`** — "If we give you a spreadsheet and it says there's
+    zero units for all sizes, then don't add it, because there's something wrong with that... why would we
+    even add something that has no units" — the owner's own words, after a resubmit's own checklist
+    reported "updating" Embellished Blazer while every size still read 0 on the sheet itself.
+    `Test-PRD-P0-31`'s own creation-time guard already refuses this for a BRAND NEW product; a matched
+    resubmit had none at all — `Test-PRD-P0-190`'s own quantity reconciliation only ever acts on a real
+    DISAGREEMENT ("if everything was matching exactly, then you just skip it," the owner's own still-true
+    words), so a sheet whose every size already, consistently read 0 looked identical to "nothing to
+    reconcile," correct for an unrelated price-only resubmit but wrong here.
+
+    **Scoped to the WHOLE group, never a single row.** `draftProductUpdate` (`batch.js`) collects every
+    row's own real, parsed quantity across the group; only when at least one is given AND every one of them
+    is exactly 0 is this a clash — one sold-out size among several still in stock is ordinary day-to-day
+    inventory, never a reason to block the update to every OTHER size on the same product. A row giving no
+    quantity at all still means "no opinion" either way, same as always; this only fires when the sheet
+    actually commits to zero, everywhere it says anything.
+
+    **A clash, never a silent drop or an unconditional block.** Parked exactly like any other clash this
+    file already raises: the row's own real price/cost/title changes still need a person's confirmation
+    ("a complete, editable proposal," not a discarded one), and no stock move is queued at all while the
+    all-zero condition holds — never a silent reduction to zero on the strength of a sheet that may simply
+    have lost its own quantity column.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

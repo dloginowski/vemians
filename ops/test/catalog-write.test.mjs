@@ -8674,6 +8674,108 @@ check("test_PRD_P0_190_quantity_reconciliation_on_resubmit__the_real_checklist_s
   }
 });
 
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-191 — "if we give you a spreadsheet and it says there's zero units for
+ * all sizes, then don't add it, because there's something wrong with
+ * that... why would we even add something that has no units" -- the
+ * owner's own words, after a resubmit's own checklist reported "updating"
+ * while Embellished Blazer still read 0 units for every size on the sheet
+ * itself. Test-PRD-P0-31's own creation-time guard already refuses this for
+ * a BRAND NEW product; a matched resubmit had no equivalent — quantity
+ * reconciliation (Test-PRD-P0-190) only ever acts on a real DISAGREEMENT,
+ * so a sheet whose every size already, consistently read 0 looked
+ * identical to "nothing to reconcile," the correct behavior for an
+ * unrelated price-only resubmit but the wrong one here.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_191_all_zero_resubmit_refused__every_size_reading_0_on_a_resubmit_is_a_clash_not_a_silent_update", async () => {
+  const f = await fixture({ withCommerce: true });
+  const csv1 = "title,category,price,style id,quantity\nWool Coat,Outerwear,100.00,01-04-040,3\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let second;
+  let sku;
+  try {
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager", mode: "add" });
+    assert.equal(first.created.length, 1);
+    const product = f.mirror("SELECT id FROM mirror_product WHERE title = 'Wool Coat'")[0];
+    sku = f.mirror("SELECT sku FROM mirror_variant WHERE product_id = ?", product.id)[0].sku;
+    assert.equal(f.onHand(sku), 3);
+
+    /* The exact live scenario: a resubmit whose own quantity column reads
+       0 -- whether that is a real reduction from stock on hand, or (as it
+       was for Embellished Blazer) already 0 and never actually fixed. */
+    const csv2 = "title,category,price,style id,quantity\nWool Coat,Outerwear,120.00,01-04-040,0\n";
+    second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager", mode: "update" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.equal(second.created.length, 0, `a 0-everywhere resubmit must never silently apply, got: ${JSON.stringify(second)}`);
+  assert.equal(second.ready.length, 1, `expected one parked clash, got: ${JSON.stringify(second)}`);
+  assert.match(second.ready[0].summary, /every size .* reads 0 units/i, `expected the all-zero reason, got: ${JSON.stringify(second.ready[0])}`);
+  assert.equal(f.onHand(sku), 3, "stock must stay exactly where it was -- never silently reduced to 0 on the strength of a suspect sheet");
+});
+
+check("test_PRD_P0_191_all_zero_resubmit_refused__one_sold_out_size_among_others_in_stock_is_never_flagged", async () => {
+  const f = await fixture({ withCommerce: true });
+  const csv1 =
+    "title,category,price,style id,size,quantity\n" +
+    "Wool Coat,Outerwear,100.00,01-04-041,S,3\n" +
+    "Wool Coat,Outerwear,100.00,01-04-041,M,5\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let second;
+  try {
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager", mode: "add" });
+    assert.equal(first.created.length, 1);
+
+    /* S has genuinely sold out; M is still in stock -- ordinary day-to-day
+       inventory, never a reason to block the update to either size. */
+    const csv2 =
+      "title,category,price,style id,size,quantity\n" +
+      "Wool Coat,Outerwear,100.00,01-04-041,S,0\n" +
+      "Wool Coat,Outerwear,100.00,01-04-041,M,5\n";
+    second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager", mode: "update" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.equal(second.ready.length, 0, `a partial stockout must never be flagged as all-zero, got: ${JSON.stringify(second)}`);
+  /* The catalog edit AND the real, legitimate S-only stock correction
+     (3 -> 0) both go through -- a genuine single-size stockout, never
+     withheld just because ONE size among several reads 0. */
+  assert.equal(second.created.length, 2, `expected the update AND its real stock correction, got: ${JSON.stringify(second)}`);
+  const stockRow = second.created.find((r) => /stock by/.test(r.summary));
+  assert.match(stockRow.summary, /stock by -3 \(3 -> 0\)/, `expected S's own real reduction, got: ${JSON.stringify(stockRow)}`);
+});
+
+check("test_PRD_P0_191_all_zero_resubmit_refused__the_real_price_change_is_never_half_applied", async () => {
+  const f = await fixture({ withCommerce: true });
+  const csv1 = "title,category,price,style id,quantity\nWool Coat,Outerwear,100.00,01-04-042,3\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let second;
+  try {
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager", mode: "add" });
+    assert.equal(first.created.length, 1);
+
+    const csv2 = "title,category,price,style id,quantity\nWool Coat,Outerwear,150.00,01-04-042,0\n";
+    second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager", mode: "update" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.equal(second.ready.length, 1, "expected an editable approval link, not a silent partial apply");
+  assert.ok(second.ready[0].url, "expected a real, openable approval link");
+  const product = f.mirror("SELECT id FROM mirror_product WHERE title = 'Wool Coat'")[0];
+  const variant = f.mirror("SELECT price_minor FROM mirror_variant WHERE product_id = ?", product.id)[0];
+  assert.equal(variant.price_minor, 10000, "the price must NOT have silently changed while quantity was held for review -- it's all one parked decision");
+});
+
 check("test_PRD_P0_179_import_style_number_matching__a_later_category_move_never_breaks_a_future_resubmits_own_match", async () => {
   /* "We have very specific categories... you should be able to determine
      which item is in there, and just find it and update it" -- the owner's
