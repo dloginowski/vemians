@@ -1862,7 +1862,7 @@ function checklistCard(c) {
     "<progress hidden max='100' value='0'></progress>" +
     "<p class='checklist-status' hidden></p>";
   el.querySelector("h3").textContent = startDone
-    ? "Resuming — " + startDone + " of " + (c.total || startDone + c.rows.length) + " already added, finishing the rest…"
+    ? "Paused — " + startDone + " of " + (c.total || startDone + c.rows.length) + " already done. Nothing runs until you press Submit."
     : "Ready to submit — " + c.rows.length + " " + noun;
 
   /* "The only thing the user might want to tweak is the title" — the
@@ -1976,17 +1976,14 @@ function checklistCard(c) {
     }).catch(() => {});
   });
 
-  /* Pulled out of the Submit click handler so a resumed, already-in-progress
-     plan (startDone > 0, below) can drop straight into the same loop on
-     page load — "you should just resume and show me where it's at... it's
-     just a procedural ingest," the owner's own words. planTotal folds in
-     however many rows were already done before this page ever loaded, so
-     the bar and "Submitting N of M" text both read as a continuation of
-     the same job, not a fresh one starting over at 1. */
+  /* Only ever called from the Submit click handler, below. planTotal folds
+     in however many rows were already done before this page ever loaded, so
+     the bar and "Submitting N of M" text read as a continuation of the same
+     job, not a fresh one starting over at 1. */
   async function runSubmit(items) {
     status.hidden = false;
     if (!items.length) {
-      status.textContent = startDone ? "Nothing left to submit automatically — review the rest below." : "Nothing checked — nothing to submit.";
+      status.textContent = "Nothing checked — nothing to submit.";
       return;
     }
     running = true;
@@ -2088,12 +2085,13 @@ function checklistCard(c) {
 
   gate.appendChild(el);
 
-  /* "Just resume and show me where it's at" — once Submit has already been
-     clicked once (startDone > 0), a reload is not a second decision point;
-     it is this same procedural ingest continuing, so it starts itself
-     rather than waiting for another click on a button that already got
-     pressed in a tab that no longer exists. */
-  if (startDone) runSubmit(checkedItems());
+  /* "All of the rows are being resubmitted over and over... it will never
+     run more than once per submit click" — the owner's own words. This used
+     to start the loop by itself whenever a plan with some rows already done
+     was found on page load, so every reload, phone tab restore or reconnect
+     quietly began another run nobody asked for. A page load now only SHOWS
+     where the plan stands; a run starts when, and only when, Submit is
+     pressed. */
 }
 
 /* ---- attachments ---------------------------------------------------------

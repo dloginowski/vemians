@@ -9358,6 +9358,16 @@ that does not trace to one of these is a process failure (see §12).
     same message as before, still failing closed — nothing ran, and because the write never committed the row
     is still in the stored plan, retryable on a reload.
 
+131. **`Test-PRD-P0-199-no_run_without_a_click`** — "All of the rows are being resubmitted over and over and
+    they're being... this is why it's cycling... it will never run more than once per submit click" — the
+    owner's own words. `checklistCard` (`views.js`) used to call its own submit loop on page load whenever
+    `openBatchPlanFor` returned a plan with some rows already done (`Test-PRD-P0-187`'s "resume"), so every
+    reload, phone tab restore or reconnect began another run nobody asked for. A page load now only SHOWS
+    where a plan stands ("Paused — N of M already done. Nothing runs until you press Submit."); the submit
+    loop is reachable from exactly one place, the Submit button's own click. `Test-PRD-P0-187`'s server
+    contract (the plan survives a reload and reports how far it got) is unchanged — only the automatic
+    run it used to trigger is gone.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
