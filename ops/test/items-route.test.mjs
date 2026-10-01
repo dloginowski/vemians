@@ -200,6 +200,35 @@ function seedSizeOnlyProduct(mirror) {
   }
 }
 
+/* A product using a single dimension that is NOT Size -- Color alone, say
+   ("black dress pants" with no Size option at all), the owner's own
+   real-world example on seeing this still fall back to the old flat
+   "Variations" accordion (Test-PRD-P0-147-variants_grid, revised again). */
+function seedColorOnlyProduct(mirror) {
+  mirror.db.exec("INSERT INTO mirror_category (id, external_ref, name) VALUES ('cat1', 'sqcat1', 'Bottoms')");
+  mirror.db.exec(
+    "INSERT INTO mirror_product (id, external_ref, handle, title, source_description, status, channel, custom_fields, category_id)" +
+      " VALUES ('p1', 'sqitem1', 'dress-pants', 'Dress Pants', '', 'active', 'direct_link', '{}', 'cat1')",
+  );
+  mirror.db.exec("INSERT INTO mirror_item_option (id, external_ref, name) VALUES ('opt-color', 'sqopt-color', 'Color')");
+  mirror.db.exec(
+    "INSERT INTO mirror_item_option_value (id, external_ref, item_option_id, name, ordinal) VALUES" +
+      " ('optval-black', 'sqval-black', 'opt-color', 'Black', 0), ('optval-navy', 'sqval-navy', 'opt-color', 'Navy', 1)",
+  );
+  const variations = [
+    ["v1", "sqvar1", "VEM-1", "Black", { Color: "Black" }],
+    ["v2", "sqvar2", "VEM-2", "Navy", { Color: "Navy" }],
+  ];
+  for (const [id, ref, sku, title, options] of variations) {
+    mirror.db
+      .prepare(
+        "INSERT INTO mirror_variant (id, external_ref, product_id, sku, title, price_minor, currency, options)" +
+          " VALUES (?, ?, 'p1', ?, ?, 4500, 'USD', ?)",
+      )
+      .run(id, ref, sku, title, JSON.stringify(options));
+  }
+}
+
 /* Every T2 call appends an INTENT audit row before it will even return
    needsApproval — runTool refuses outright with no AUDIT binding at all,
    same as it would in a real Worker missing one. */
@@ -2299,9 +2328,9 @@ check("test_PRD_P0_147_variants_grid__a_color_headers_own_label_reads_in_the_sam
 
 check("test_PRD_P0_147_variants_grid__the_flat_accordions_own_variations_label_matches_the_same_bright_color", async () => {
   /* The same fix, the same reasoning, for the OTHER accordion header this
-     file renders (zero, one-non-Size, or three-plus Option Set names) --
-     one heading style, consistently, regardless of which shape a given
-     product's own variations happen to take. */
+     file renders (zero Option Set names, or three-plus) -- one heading
+     style, consistently, regardless of which shape a given product's own
+     variations happen to take. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const body = await (await get("/items", MANAGER, env(mirror))).text();
@@ -2353,15 +2382,46 @@ check("test_PRD_P0_147_variants_grid__the_plus_and_minus_steppers_still_work_ins
   );
 });
 
-check("test_PRD_P0_147_variants_grid__a_single_dimension_or_none_keeps_the_flat_list", async () => {
+check("test_PRD_P0_147_variants_grid__zero_dimensions_keeps_the_flat_list", async () => {
   /* seedProduct's own single "One size" variation carries no options at
-     all — zero dimensions, so the nested groups must not even try to
-     render. */
+     all — zero dimensions, nothing to group by, so the nested groups must
+     not even try to render. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   const body = await (await get("/items", MANAGER, env(mirror))).text();
   assert.doesNotMatch(body, /class="variant-group"/);
   assert.match(body, /<span class="variation-title-label">One size<\/span>/);
+});
+
+check("test_PRD_P0_147_variants_grid__color_alone_with_no_size_still_gets_one_group_per_color_not_the_flat_variations_list", async () => {
+  /* "I'm still seeing black dress pants with variations header. I don't
+     want to see black. I don't want to see variations header. I want to
+     see black and then add photos in the header. That's it. I want to see
+     one header per option. No variations header." — the owner's own real
+     product, Color alone with no Size at all, still falling back to the
+     old flat "Variations" accordion. Now gets the exact same one-group-
+     per-value treatment two-axis and Size-alone products already get. */
+  const mirror = mirrorDb();
+  seedColorOnlyProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+
+  assert.doesNotMatch(body, /variations-label">Variations</, "must never show the outer flat Variations accordion");
+  assert.match(body, /<div class="variant-groups">/, "first and only level, same as every other grouped shape");
+
+  const groups = body.match(/<div class="variant-group">/g) ?? [];
+  assert.equal(groups.length, 2, "one group per color value, Black and Navy");
+
+  const blackIdx = body.indexOf('<span class="variant-group-label">Black</span>');
+  assert.notEqual(blackIdx, -1);
+  const blackGroupStart = body.lastIndexOf('<div class="variant-group">', blackIdx);
+  const blackGroupEnd = body.indexOf('<div class="variant-group">', blackGroupStart + 1);
+  const blackGroup = body.slice(blackGroupStart, blackGroupEnd > 0 ? blackGroupEnd : blackGroupStart + 1000);
+  assert.match(
+    blackGroup,
+    /variant-photo-upload" data-variant-id="v1"/,
+    "Black's own header carries its own add-photo button, keyed to its own variation",
+  );
+  assert.match(blackGroup, /variation-stock-step" data-variant-id="v1"/, "Black still carries its own real stepper");
 });
 
 check("test_PRD_P0_135_item_edit_applies_immediately__the_web_toggle_is_a_plain_checkbox_rendered_either_way", async () => {

@@ -6696,6 +6696,29 @@ that does not trace to one of these is a process failure (see §12).
     already correct (`margin-left: auto`, shipped with the original grouped-accordion work) and needed no
     change.
 
+    REVISED AN EIGHTH TIME: "I'm still seeing black dress pants with variations header. I don't want to
+    see black. I don't want to see variations header. I want to see black and then add photos in the
+    header. That's it. I want to see one header per option. No variations header." — the owner's own
+    real product: Color alone (Black/Navy), no Size option at all. REVISED A SIXTH TIME (above)
+    deliberately left this exact shape — a single axis that is NOT Size — on the old flat "Variations"
+    list, reasoning that each color value already differs visually so one photo per variant already read
+    as "one per option." Seeing it live proved that reasoning wrong: the owner wants the outer
+    "Variations" accordion gone for ANY single- or two-axis product, not just Size-alone or a real pair —
+    one option name, one header, full stop.
+
+    `variantsGridAxes` (`views.js`) now also returns a grouped shape for a single axis that is NOT Size,
+    mirroring the existing Size-alone sentinel: `{ rowsName: <axis name>, colsName: null, rowValues:
+    <axis values>, colValues: [null] }`. `variantsGroupedAccordionHtml`'s new `colsName === null` branch
+    renders one `.variant-group` PER VALUE of that axis (Black, Navy, …), each with its own header, its
+    own anchored `variant-photo-upload` button, and a body holding that one variation's own stock
+    stepper alone — no per-cell label, since the header itself already names the value. The outer
+    "Variations" accordion + flat list now only ever renders for the two genuinely unopinionated shapes
+    `variantsGridAxes` doesn't lay out at all: zero Option Set names, or three-plus.
+
+    Confirmed against the real fixture DB: a Color-only product (Black/Navy, no Size) renders exactly two
+    `.variant-group`s, never the flat "Variations" accordion; each carries its own add-photo button keyed
+    to its own variation, and its own real stock stepper.
+
 82. **`Test-PRD-P0-148-auto_generate_variations`** — RETIRED by `Test-PRD-P0-178-
     remove_category_item_options`. Used to auto-generate any missing Size/Color variation combinations
     for every product in a category (a cross product of the category's own assigned Option Set values),

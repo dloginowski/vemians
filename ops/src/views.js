@@ -3359,6 +3359,18 @@ function variantsGridAxes(variations, itemOptions) {
   if (namesUsed.length === 1 && namesUsed[0].toLowerCase() === "size") {
     return { rowsName: null, colsName: namesUsed[0], rowValues: [null], colValues: axisValues(namesUsed[0]) };
   }
+  /* REVISED: "I don't want to see black. I don't want to see variations
+     header. I want to see black and then add photos in the header... one
+     header per option. No variations header." — the owner's own words, on
+     seeing a Color-only product (no Size at all) still fall through to the
+     old flat "Variations" accordion below. A single axis that is NOT Size
+     gets the exact same one-group-per-value treatment as the two-axis case,
+     just with no second axis to list inside each group — colsName: null is
+     variantsGroupedAccordionHtml's own sentinel for that, the mirror image
+     of rowsName: null above. */
+  if (namesUsed.length === 1) {
+    return { rowsName: namesUsed[0], colsName: null, rowValues: axisValues(namesUsed[0]), colValues: [null] };
+  }
   if (namesUsed.length !== 2) return null;
   /* Ordered the way the shop's own Option Sets are (allItemOptions,
      catalog.item_options' own alphabetical-by-name order), not however
@@ -3438,6 +3450,30 @@ function variantsGroupedAccordionHtml(variations, axes) {
       </div>
       <div class="variant-group-body">${cells ? `<div class="variant-size-grid">${cells}</div>` : `<p class="item-empty">No ${esc(colsName)} yet.</p>`}</div>
     </div>`;
+  }
+  /* `colsName === null` is the mirror image, variantsGridAxes' own
+     single-axis-NOT-Size shape (Color alone, say) — one group PER VALUE,
+     same as the real two-axis case below, just with no second axis to list
+     inside: each group's body holds the one variation's own stepper alone,
+     no per-cell label (the group's own header, labelled with the value
+     itself, already says what this is). */
+  if (colsName === null) {
+    return rowValues
+      .map((r) => {
+        const v = variations.find((vv) => vv.options?.[rowsName] === r);
+        const photoUpload = v
+          ? `<button type="button" class="variant-photo-upload" data-variant-id="${esc(v.id)}" aria-label="Add a photo for ${esc(r)}" title="Add a photo for ${esc(r)}">${CAMERA_ICON}</button>`
+          : "";
+        return `<div class="variant-group">
+        <div class="variant-group-header">
+          <button type="button" class="variant-group-toggle" aria-label="Show ${esc(r)}" title="Show ${esc(r)}">${CARET_ICON}</button>
+          <span class="variant-group-label">${esc(r)}</span>
+          ${photoUpload}
+        </div>
+        <div class="variant-group-body">${v ? `<div class="variant-size-grid"><div class="variant-size-cell">${stockStepper(v)}</div></div>` : `<p class="item-empty">No ${esc(r)} variation.</p>`}</div>
+      </div>`;
+      })
+      .join("");
   }
   const byKey = new Map(
     variations.filter((v) => v.options?.[rowsName] && v.options?.[colsName]).map((v) => [`${v.options[rowsName]}\u0000${v.options[colsName]}`, v]),
@@ -3616,15 +3652,15 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
         `<button type="button" class="variant-photo-upload" data-variant-id="${esc(v.id)}" aria-label="Add a photo for ${esc(v.title)}" title="Add a photo for ${esc(v.title)}">${CAMERA_ICON}</button></div>`,
     )
     .join("");
-  /* "Two headers, expandable, one for each color... I don't want to see
-     variations dropdown that's nested" — the owner's own words. A
-     product whose variations use exactly two Option Set names (Size,
-     Color, or any other pair) skips the outer "Variations" accordion
-     entirely — its own per-color groups (variantsGroupedAccordionHtml)
-     ARE the first and only level, not a second dropdown nested inside a
-     first one; anything else (no options at all, one dimension, or
-     three-plus) keeps the ordinary "Variations" accordion + flat list,
-     which already reads fine on its own in those cases. */
+  /* "I want to see one header per option. No variations header." — the
+     owner's own words. A product whose variations use one or two Option
+     Set names (Size alone, Color alone, or any two-axis pair) skips the
+     outer "Variations" accordion entirely — its own per-value groups
+     (variantsGroupedAccordionHtml) ARE the first and only level, not a
+     second dropdown nested inside a first one; only the genuinely
+     unopinionated shapes (no options at all, or three-plus axes, which
+     variantsGridAxes doesn't attempt to lay out at all) keep the ordinary
+     "Variations" accordion + flat list. */
   const groupAxes = variantsGridAxes(product.variations, allItemOptions);
   const variationsAccordion = canEdit
     ? groupAxes
