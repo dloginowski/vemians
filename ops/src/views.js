@@ -1205,13 +1205,25 @@ ${TABLE_CARD_CSS}
 .gate dd { margin: 0; white-space: pre-wrap; word-break: break-word; }
 .gate .row { display: flex; gap: 8px; }
 .gate button[disabled] { color: var(--muted); border-color: var(--rule); cursor: default; }
-/* The product-batch checklist (checklistCard) — a scrollable list of
-   checkboxes, one per row planProductBatch already found genuinely ready,
-   pre-checked since everything shown already passed its own real gate
-   check; a person can still uncheck one before Submit, or fix its own
-   title — "the only thing the user might want to tweak," the owner's own
-   words — right in place. */
-.gate ul.checklist { list-style: none; margin: 8px 0; padding: 0; max-height: 240px; overflow-y: auto; }
+/* The product-batch checklist (checklistCard) — a list of checkboxes, one
+   per row planProductBatch already found genuinely ready, pre-checked
+   since everything shown already passed its own real gate check; a person
+   can still uncheck one before Submit, or fix its own title — "the only
+   thing the user might want to tweak," the owner's own words — right in
+   place.
+   REVISED: "that preview is still not taking up the entire chat view,
+   unlike the completed one" — the owner's own words, comparing this list's
+   own fixed 240px cap (with its own second, nested scrollbar) against the
+   completed results table (.table-card, TABLE_CARD_CSS above) sitting
+   right next to it with no height cap of its own at all — the identical
+   "I should never see vertically collapsed previews ever in chat" fix
+   .table-card already got, never carried over here. The surrounding .gate
+   panel (above) already has its own real ceiling for a genuinely tall card
+   (max-height: calc(100dvh - 70px), overflow-y: auto, "exactly like a real
+   dialog" — that rule's own comment) -- this list only ever needs to grow
+   to its own content within that one ceiling, never impose a second,
+   smaller one of its own underneath it. */
+.gate ul.checklist { list-style: none; margin: 8px 0; padding: 0; }
 .gate .checklist-row { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; border-bottom: 1px solid var(--rule); }
 .gate .checklist-row:last-child { border-bottom: none; }
 .gate .checklist-row input[type=checkbox] { margin-top: 4px; }
