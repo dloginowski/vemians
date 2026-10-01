@@ -4086,6 +4086,106 @@ check("test_PRD_P0_71_items_tab__a_direct_visit_to_admin_redirects_to_the_shell"
   assert.equal(res.headers.get("location"), "http://localhost/?tab=admin");
 });
 
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-189 — /products/export.csv: "any employee that has the rights to add
+ * or see the inventory should be able to pull the latest CSV... as long as
+ * they're logged in, they have access to it" — the owner's own words. Same
+ * route style as every other check above: a real worker.fetch, a real
+ * Access assertion, the real mirror schema.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_189_inventory_csv_export__staff_is_refused_the_manager_only_export", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/products/export.csv", STAFF, env(mirror));
+  assert.equal(res.status, 403);
+  assert.match(await res.text(), /manager role/);
+});
+
+check("test_PRD_P0_189_inventory_csv_export__a_stranger_with_no_mapped_role_is_refused", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const res = await get("/products/export.csv", STRANGER, env(mirror));
+  assert.equal(res.status, 403);
+});
+
+check("test_PRD_P0_189_inventory_csv_export__a_post_is_refused_this_is_a_file_to_download", async () => {
+  const mirror = mirrorDb();
+  const res = await worker.fetch(
+    new Request("http://localhost/products/export.csv", { method: "POST", headers: { "Cf-Access-Jwt-Assertion": assertion(MANAGER) } }),
+    env(mirror),
+  );
+  assert.equal(res.status, 405);
+});
+
+check("test_PRD_P0_189_inventory_csv_export__a_manager_gets_a_real_csv_file_download", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror, { vendor: "Acme Mills", vendor_code: "AC-100", unit_cost_minor: 21000 });
+  const commerce = commerceDb();
+  commerce._raw
+    .prepare("INSERT INTO inventory_adjustment (id, sku, location_id, delta, reason, actor) VALUES ('adj1', 'VEM-100', 'main', 7, 'receipt', 'mara@example.test')")
+    .run();
+
+  const res = await get("/products/export.csv", MANAGER, env(mirror, commerce));
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get("content-type"), /text\/csv/);
+  assert.match(res.headers.get("content-disposition"), /attachment; filename="vemians-inventory\.csv"/);
+
+  const body = await res.text();
+  const lines = body.trim().split("\r\n");
+  assert.equal(lines[0], "title,category,subcategory,style id,price,cost,quantity,vendor,vendor code,commission");
+  assert.equal(lines.length, 2, "one header row, one product row");
+  const row = lines[1].split(",");
+  assert.equal(row[0], "Wool Coat");
+  assert.equal(row[1], "Outerwear");
+  assert.equal(row[2], "", "a top-level-only product has no subcategory");
+  assert.equal(row[4], "450.00");
+  assert.equal(row[5], "210.00");
+  assert.equal(row[6], "7", "quantity comes from the real inventory_level read, not a guess");
+  assert.equal(row[7], "Acme Mills");
+  assert.equal(row[8], "AC-100");
+});
+
+check("test_PRD_P0_189_inventory_csv_export__a_subcategory_splits_into_its_own_two_columns", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror, { subcategoryName: "Trench Coats" });
+  const res = await get("/products/export.csv", MANAGER, env(mirror));
+  const body = await res.text();
+  const row = body.trim().split("\r\n")[1].split(",");
+  assert.equal(row[1], "Outerwear", "the TOP-LEVEL parent lands in category");
+  assert.equal(row[2], "Trench Coats", "the leaf itself lands in subcategory");
+});
+
+check("test_PRD_P0_189_inventory_csv_export__the_style_id_column_round_trips_the_permanent_import_style_number", async () => {
+  /* import_style_number, not the live (fluid) style_id -- the PERMANENT
+     identifier a resubmit matches by first, so downloading this file and
+     uploading it straight back (unchanged, or with new rows added) finds
+     the SAME product even if a category move has since changed its own
+     live style_id. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  mirror.db.prepare("UPDATE mirror_product SET import_style_number = '01-04-001' WHERE id = 'p1'").run();
+  const res = await get("/products/export.csv", MANAGER, env(mirror));
+  const body = await res.text();
+  const row = body.trim().split("\r\n")[1].split(",");
+  assert.equal(row[3], "01-04-001", "a single-variation product with no real Size/Color option carries the bare base number");
+});
+
+check("test_PRD_P0_189_inventory_csv_export__one_row_per_variation_with_its_own_color_size_suffix", async () => {
+  /* The exact inverse of parseStyleNumber (batch.js): color before size,
+     one dash each -- row N here must be exactly what row N of a real
+     upload sheet for this same product would say. */
+  const mirror = mirrorDb();
+  seedGridProduct(mirror);
+  mirror.db.prepare("UPDATE mirror_product SET import_style_number = '01-04-002' WHERE id = 'p1'").run();
+  const res = await get("/products/export.csv", MANAGER, env(mirror));
+  const body = await res.text();
+  const rows = body.trim().split("\r\n").slice(1).map((l) => l.split(","));
+  assert.equal(rows.length, 3, "one row per variation, never one per product");
+  const styleIds = rows.map((r) => r[3]).sort();
+  assert.deepEqual(styleIds, ["01-04-002-Blue-M", "01-04-002-Red-L", "01-04-002-Red-S"]);
+});
+
 test("test_PRD_P0_30_prd_traceability__every_label_used_in_this_file_exists_in_the_prd", async () => {
   const prd = fs.readFileSync(
     path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "docs", "PRD.md"),

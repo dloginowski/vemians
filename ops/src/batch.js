@@ -40,6 +40,8 @@
 import { runTool } from "./tools/index.js";
 import {
   listCategories,
+  listAllProducts,
+  listMirrorVendors,
   categoryProductCounts,
   LEGACY_COST_FIELD_KEYS,
   LEGACY_MARGIN_FIELD_KEYS,
@@ -54,7 +56,7 @@ import {
 } from "./tools/catalog-writer.js";
 import { nearestCategory } from "./tools/catalog-write.js";
 import { parkForApproval } from "./approvals.js";
-import { csvRecords, parseCsv } from "./tools/csv.js";
+import { csvRecords, parseCsv, stringifyCsv } from "./tools/csv.js";
 import { createRateLimiter } from "./tools/rate.js";
 import { CAPS } from "./tools/caps.js";
 
@@ -2216,6 +2218,101 @@ export async function submitProductBatchRow(env, { actor, role, rate }, row, edi
   if (created.length) return { status: created[0].action, ...created[0] };
   if (parked.length) return { status: "parked", ...parked[0] };
   return { status: "skipped", ...skipped[0] };
+}
+
+/* ── export ───────────────────────────────────────────────────────────── */
+
+/* The exact header row this file's own PRICE_KEYS/QUANTITY_KEYS/etc. synonym
+   lists already recognize as their FIRST, canonical entry — a round-trip
+   through this export and straight back into /products/batch or either
+   batch chat tool needs no column renamed, nothing re-typed by hand. */
+const EXPORT_HEADERS = ["title", "category", "subcategory", "style id", "price", "cost", "quantity", "vendor", "vendor code", "commission"];
+
+/*
+ * "Any one of our employees that has the rights to add or see the
+ * inventory should be able to pull the latest CSV or database into their
+ * phone using an endpoint... as long as they're logged in, they have
+ * access to it... that way there is never a disconnect. They're never
+ * creating a brand new CSV file from scratch. There's always a structure
+ * we have that's very specific, maintained through multiple agent
+ * sessions" — the owner's own words. No new auth system at all: this is
+ * reached through the SAME Cloudflare Access session and `manager`-role
+ * gate every other catalog write already requires (index.js's own route),
+ * never a separate token — "logged in" already means something real here.
+ *
+ * One row per VARIATION, not per product — the identical shape a real
+ * upload sheet already has, so a person's own agent reading this back can
+ * tell "same style, different size" apart without inventing a grouping
+ * convention of its own. Three bulk reads, the same bounded, never-one-
+ * per-row shape every other aggregate view on this page already uses
+ * (listAllProducts itself, index.js's own /items route): products+
+ * variants+vendor names, the full category tree (to split a leaf category
+ * into its own top-level/subcategory pair), and the whole, small
+ * inventory_level view for on-hand counts — never a query per product.
+ */
+export async function exportProductsCsv(env) {
+  const products = await listAllProducts(env.CATALOG_MIRROR, { limit: CAPS.CATALOG_ITEMS_PAGE_MAX_ROWS });
+  const categories = await listCategories(env.CATALOG_MIRROR);
+  const categoriesById = new Map(categories.map((c) => [c.id, c]));
+  const vendors = await listMirrorVendors(env.CATALOG_MIRROR);
+  const vendorNameById = new Map(vendors.map((v) => [v.id, v.name]));
+
+  /* import_style_number -- the PERMANENT identifier a resubmit matches by
+     FIRST (never the live, fluid style_id, which can move with a later
+     category change) -- is the one field listAllProducts itself does not
+     already carry (it reads the live style_id instead, for the Items tab's
+     own display). One extra bulk read, bounded by product count, the same
+     as everything else here. */
+  const styleNumbers = await env.CATALOG_MIRROR.prepare("SELECT id, import_style_number FROM mirror_product").bind().all();
+  const importStyleNumberById = new Map((styleNumbers.results ?? []).map((r) => [r.id, r.import_style_number]));
+
+  let stockBySku = new Map();
+  if (env.COMMERCE) {
+    try {
+      const stock = await env.COMMERCE.prepare("SELECT sku, on_hand FROM inventory_level").bind().all();
+      stockBySku = new Map((stock.results ?? []).map((r) => [r.sku, Number(r.on_hand)]));
+    } catch (err) {
+      /* Same tolerance /items already has for this exact read: a missing
+         or failed stock lookup still exports every other column, rather
+         than refusing the whole file over quantity alone. */
+      console.error(`ERROR ops/products/export: could not read stock levels — ${err.message}`);
+    }
+  }
+
+  const rows = [EXPORT_HEADERS];
+  for (const p of products) {
+    const leaf = p.category_id ? categoriesById.get(p.category_id) : null;
+    const parent = leaf?.parent_id ? categoriesById.get(leaf.parent_id) : null;
+    const category = parent ? parent.name : (leaf?.name ?? "");
+    const subcategory = parent ? leaf.name : "";
+    const importStyleNumber = importStyleNumberById.get(p.id) || "";
+
+    for (const v of p.variations) {
+      /* The exact inverse of parseStyleNumber (above): color before size,
+         one dash each, and only when there is actually an import_style_
+         number to hang a suffix off of at all -- a legacy or manually
+         created product with none still exports every other column fine,
+         just with no style number cell a resubmit could key off of
+         (title+category+price alone already carries enough for the
+         category+title fallback match, update mode's own last resort). */
+      const suffix = [v.options?.Color, v.options?.Size].filter(Boolean).join("-");
+      const styleId = importStyleNumber ? (suffix ? `${importStyleNumber}-${suffix}` : importStyleNumber) : "";
+      const vendorName = v.vendor_id ? (vendorNameById.get(v.vendor_id) ?? "") : "";
+      rows.push([
+        p.title,
+        category,
+        subcategory,
+        styleId,
+        (v.price_minor / 100).toFixed(2),
+        v.unit_cost_minor ? (v.unit_cost_minor / 100).toFixed(2) : "",
+        String(v.sku ? (stockBySku.get(v.sku) ?? 0) : 0),
+        vendorName,
+        v.vendor_code || "",
+        p.commission_pct != null ? String(p.commission_pct) : "",
+      ]);
+    }
+  }
+  return stringifyCsv(rows);
 }
 
 /* ── customers ────────────────────────────────────────────────────────── */

@@ -75,13 +75,22 @@ import {
   whoamiPage,
   MEDIA_BASE_URL,
 } from "./views.js";
-import { draftCustomerBatch, draftProductBatch, parsePriceToMinor } from "./batch.js";
+import { draftCustomerBatch, draftProductBatch, parsePriceToMinor, exportProductsCsv } from "./batch.js";
 
 const html = (body, status = 200) =>
   new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8" } });
 
 const json = (body, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8" } });
+
+const csvFile = (body, filename) =>
+  new Response(body, {
+    status: 200,
+    headers: {
+      "content-type": "text/csv; charset=utf-8",
+      "content-disposition": `attachment; filename="${filename}"`,
+    },
+  });
 
 const DEV_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "[::1]"]);
 
@@ -346,6 +355,48 @@ async function ops(request, env, path) {
   if (request.method === "GET" && request.headers.get("sec-fetch-dest") === "document") {
     const tab = SHELL_TABS.find((t) => t.src === path) || (path === "/admin" ? { href: "/?tab=admin" } : null);
     if (tab) return Response.redirect(new URL(tab.href, request.url), 302);
+  }
+
+  /*
+   * /products/export.csv — "any employee that has the rights to add or see
+   * the inventory should be able to pull the latest CSV... as long as
+   * they're logged in, they have access to it... there is never a
+   * disconnect, they're never creating a brand new CSV file from scratch" —
+   * the owner's own words. No new auth surface at all: the SAME Cloudflare
+   * Access session and `manager` role gate /products/batch already requires
+   * below, since a person (or their own separate agent, browsing with
+   * their own already-authenticated session) pulling the current catalog
+   * out needs exactly the same standing as one pushing a batch back in.
+   * exportProductsCsv (batch.js) builds the file in the identical column
+   * shape /products/batch and both batch chat tools already read, so what
+   * comes out round-trips straight back in with nothing renamed by hand.
+   */
+  if (path === "/products/export.csv") {
+    if (request.method !== "GET") {
+      return html(refusalPage(405, "This is a file to download, not a page to post to."), 405);
+    }
+    const email = identity.claims?.email;
+    if (typeof email !== "string" || !email.includes("@")) {
+      return html(refusalPage(403, "This surface requires signing in as a person, not a service token."), 403);
+    }
+    const role = await roleFor(identity, env);
+    if (!role) {
+      return html(refusalPage(403, "Your Access identity is in no group this application maps to a role."), 403);
+    }
+    if (!roleAtLeast(role, "manager")) {
+      return html(refusalPage(403, "Exporting inventory needs the manager role."), 403);
+    }
+    if (!env.CATALOG_MIRROR) {
+      return html(refusalPage(503, "The catalog mirror is not configured on this deployment yet."), 503);
+    }
+    let csv;
+    try {
+      csv = await exportProductsCsv(env);
+    } catch (err) {
+      console.error(`ERROR ops/products/export: exportProductsCsv failed — ${err.message}`);
+      return html(refusalPage(500, "The inventory export could not be built. Try again shortly."), 500);
+    }
+    return csvFile(csv, "vemians-inventory.csv");
   }
 
   /*
