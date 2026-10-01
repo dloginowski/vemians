@@ -1212,6 +1212,25 @@ function sameOptions(a, b) {
   return keys.length === Object.keys(nb).length && keys.every((k) => nb[k] === na[k]);
 }
 
+/* "Any time you see TBD, just use like a default or no option" — the
+   owner's own words, already applied to a RESUBMIT's own row (the
+   rawOptValues filter, draftProductUpdate below) before it is ever compared
+   against an existing variant. An EXISTING variant's own stored options
+   need the identical treatment before that same comparison, not just a
+   freshly-drafted row's — a legacy variant actually synced with a literal
+   "TBD" value (predating this filter, or carrying it in from Square some
+   other way) would otherwise never match a resubmit of the exact same
+   sheet ever again, every single time, since sameOptions' own strict
+   key-count check would see one more key on the stored side than the
+   filtered row ever has. TBD-stripping only — never the separate "default
+   a missing Size to OS" rule draftProductUpdate's own two match attempts
+   already apply (or deliberately do not) on the ROW's own side; this stays
+   neutral on that question so both the OS-defaulted and the raw/legacy
+   fallback attempt keep comparing like with like. */
+function stripTbdOptions(options) {
+  return Object.fromEntries(Object.entries(options ?? {}).filter(([, value]) => String(value).trim().toUpperCase() !== "TBD"));
+}
+
 /*
  * A resubmit of a group already matched to `existing` (draftGroupedProduct's
  * own import_style_number lookup, just below) -- "all the sizes are the
@@ -1325,8 +1344,10 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
        clash the moment this shipped. */
     const optValues = rawOptValues.Size ? rawOptValues : { ...rawOptValues, Size: "OS" };
     const match =
-      existingVariants.find((v) => sameOptions(optValues, v.options)) ??
-      (optValues.Size === "OS" && !rawOptValues.Size ? existingVariants.find((v) => sameOptions(rawOptValues, v.options)) : undefined);
+      existingVariants.find((v) => sameOptions(optValues, stripTbdOptions(v.options))) ??
+      (optValues.Size === "OS" && !rawOptValues.Size
+        ? existingVariants.find((v) => sameOptions(rawOptValues, stripTbdOptions(v.options)))
+        : undefined);
     const priceRaw = pick(record, PRICE_KEYS);
     const priceMinor = parsePriceToMinor(priceRaw);
     const currency = (pick(record, CURRENCY_KEYS) || match?.currency || "USD").toUpperCase();

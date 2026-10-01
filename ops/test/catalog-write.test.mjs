@@ -8776,6 +8776,62 @@ check("test_PRD_P0_191_all_zero_resubmit_refused__the_real_price_change_is_never
   assert.equal(variant.price_minor, 10000, "the price must NOT have silently changed while quantity was held for review -- it's all one parked decision");
 });
 
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-192 — "I see that embellished blazer has a TBD option name... we still
+ * want to update the number of different sizes... you can treat it as a
+ * generic option and still update the size quantities" -- the owner's own
+ * words, suspecting a literal stored "TBD" was why a resubmit kept failing
+ * to match. A fresh row's own "TBD" is already dropped before matching
+ * (draftProductUpdate's own rawOptValues filter); an EXISTING variant
+ * synced with a literal "TBD" (predating that filter, or carrying it in
+ * from Square some other way) got no such treatment on ITS side of the
+ * SAME comparison -- sameOptions' own strict key-count check would see one
+ * more key on the stored side than a freshly-filtered row ever has, so a
+ * legacy variant like this could never be recognized again.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_192_legacy_tbd_option_matching__a_variant_with_a_literal_stored_tbd_color_still_matches_on_resubmit", async () => {
+  const f = await fixture({ withCommerce: true });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+
+  /* Built directly, the way a real sync from Square (or an import that
+     predates the TBD filter) could actually have recorded it -- never
+     through catalog.create_product, which would already drop "TBD" and
+     so could never reproduce the exact legacy shape this test is about. */
+  f.mirrorDb._raw
+    .prepare(
+      "INSERT INTO mirror_product (id, external_ref, handle, title, category_id, source_version, import_style_number) VALUES" +
+        " ('prod-legacy','SQ_ITEM_LEGACY','embellished-blazer','Embellished blazer', ?, 1, '001-001-003')",
+    )
+    .run(outerwear.id);
+  f.mirrorDb._raw
+    .prepare(
+      "INSERT INTO mirror_variant (id, external_ref, product_id, sku, title, ordinal, price_minor, currency, options, vendor_id, unit_cost_minor, unit_cost_currency) VALUES" +
+        " ('var-legacy-s','SQ_VAR_S','prod-legacy','SKU-LEGACY-S','TBD, S',0,12500,'USD','{\"Color\":\"TBD\",\"Size\":\"S\"}',NULL,0,'USD')",
+    )
+    .run();
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    const csv = "Style #,Category,Description,Color,Size,Qty,Retail Price\n001-001-003-TBD-S,Outerwear,Embellished blazer,TBD,S,4,125.00\n";
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager", mode: "update" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.equal(result.ready.length, 0, `expected a clean match, never a clash over the stored "TBD", got: ${JSON.stringify(result)}`);
+  assert.equal(result.created.length, 2, `expected the catalog edit AND its own real stock correction, got: ${JSON.stringify(result)}`);
+  assert.equal(result.created[0].handle, "embellished-blazer", "the SAME existing product -- never a second, duplicate one");
+  const stockRow = result.created.find((r) => /stock by/.test(r.summary));
+  assert.match(stockRow.summary, /stock by \+4 \(0 -> 4\)/, "the real, never-yet-stocked legacy variant's own count actually lands");
+  assert.equal(f.onHand("SKU-LEGACY-S"), 4, "the ledger now reflects the sheet's own real count for this exact legacy variant");
+
+  const products = f.mirror("SELECT id FROM mirror_product WHERE handle = 'embellished-blazer'");
+  assert.equal(products.length, 1, "still only one product -- the legacy TBD shape never caused a duplicate to be created alongside it");
+});
+
 check("test_PRD_P0_179_import_style_number_matching__a_later_category_move_never_breaks_a_future_resubmits_own_match", async () => {
   /* "We have very specific categories... you should be able to determine
      which item is in there, and just find it and update it" -- the owner's

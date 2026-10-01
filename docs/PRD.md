@@ -9216,6 +9216,28 @@ that does not trace to one of these is a process failure (see §12).
     all-zero condition holds — never a silent reduction to zero on the strength of a sheet that may simply
     have lost its own quantity column.
 
+124. **`Test-PRD-P0-192-legacy_tbd_option_matching`** — "I see that embellished blazer has a TBD option
+    name... we still want to update the number of different sizes... you can treat it as a generic option
+    and still update the size quantities" — the owner's own words, suspecting a literal stored "TBD" was
+    why a resubmit kept failing to recognize the product it already matched by style number.
+
+    **Confirmed and fixed.** A fresh resubmit row's own "TBD" was already dropped before ever being
+    compared against an existing variant (`draftProductUpdate`'s own `rawOptValues` filter), but an
+    EXISTING variant's own stored options got no such treatment on its side of that SAME comparison —
+    `sameOptions`'s own strict key-count check saw one more key on the stored side (a real, literal `"TBD"`
+    value, carried in from whatever synced it before this filter existed) than a freshly-filtered row ever
+    has, so the two could never again be recognized as the same variation. Without this fix, the exact live
+    symptom reproduces: the catalog edit still goes through (nothing about matching the PRODUCT by style
+    number is affected), but the row silently becomes a brand-new, duplicate VARIATION on the same product
+    instead of recognizing the existing one — so its own stock correction (`Test-PRD-P0-190`) never fires at
+    all, and a second, near-identical variation now exists alongside the original.
+
+    **`stripTbdOptions`** (`batch.js`) applies the identical "TBD is not a real option value" treatment to
+    an existing variant's own stored `options` before every comparison `draftProductUpdate` makes — both
+    the OS-defaulted match attempt and the raw/legacy-no-size-axis fallback. TBD-stripping only, never the
+    separate "default a missing Size to OS" question those two attempts already settle on the ROW's own
+    side, so neither comparison's own existing behavior shifts for a variant that never had "TBD" in it.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
