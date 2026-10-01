@@ -1962,12 +1962,32 @@ export async function submitBatchPlanRow({ id, row, title, identity, env }) {
   const [target] = rows.splice(idx, 1);
   const done = (planRow.done ?? 0) + 1;
   const total = planRow.total;
-  try {
-    await env.ASSETS.prepare("UPDATE agent_batch_plan SET rows = ?, done = ? WHERE id = ?")
-      .bind(JSON.stringify(rows), done, id)
-      .run();
-  } catch (err) {
-    console.error(`ERROR agent: batch plan ${id} could not record row ${row} as spent — ${err.message}`);
+  /* "Row 40 could not be marked as submitted. Nothing was run" -- a real
+     report, on SEVERAL rows of one 68-row run from a single tab. Nothing
+     here distinguishes a one-request storage blip from a real fault, and a
+     long sequential run is exactly where a blip is likely to land on some
+     row or other; with no retry, every one of them cost a whole row for
+     nothing. The write sets absolute values (never increments), so
+     repeating the identical statement is always safe -- it either lands the
+     first time or lands the same way the second. Only after every attempt
+     fails does the row get reported, still failing closed exactly as
+     before: nothing ran, and the row is still in the stored plan. */
+  const MARK_SPENT_ATTEMPTS = 3;
+  let markError = null;
+  for (let attempt = 1; attempt <= MARK_SPENT_ATTEMPTS; attempt += 1) {
+    try {
+      await env.ASSETS.prepare("UPDATE agent_batch_plan SET rows = ?, done = ? WHERE id = ?")
+        .bind(JSON.stringify(rows), done, id)
+        .run();
+      markError = null;
+      break;
+    } catch (err) {
+      markError = err;
+      console.error(`ERROR agent: batch plan ${id} could not record row ${row} as spent (attempt ${attempt} of ${MARK_SPENT_ATTEMPTS}) — ${err.message}`);
+      if (attempt < MARK_SPENT_ATTEMPTS) await new Promise((resolve) => setTimeout(resolve, 150 * attempt));
+    }
+  }
+  if (markError) {
     return { ok: false, httpStatus: 502, reply: `Row ${row} could not be marked as submitted. Nothing was run.`, done: planRow.done, total };
   }
 

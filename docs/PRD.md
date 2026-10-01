@@ -9338,6 +9338,26 @@ that does not trace to one of these is a process failure (see §12).
     default-checked row is untouched by this and still resumes exactly as `Test-PRD-P0-152`/`Test-PRD-P0-187`
     already prove.
 
+129. **`Test-PRD-P0-197-table_data_never_wraps`** — "Make the preview side scrollable. Don't wrap into the
+    text. I don't want to see like triple height cells when, you know, if I wanted to read its status, I'll
+    scroll sideways" — the owner's own words, after a long status/detail value wrapped across several lines
+    of a results table. Reverses `Test-PRD-P0-119`'s own last decision ("the data I don't care so much
+    about" — data cells kept wrapping while headers did not): `.table-card td` (`TABLE_CARD_CSS`,
+    `views.js`) is now `white-space: nowrap`, exactly like its headers, instead of `overflow-wrap: anywhere;
+    word-break: break-word`. The card's own pre-existing `overflow: auto` is what carries a wide row
+    sideways; `min-width: 6em` stays as the floor for a short or empty value. The CSV preview card's own
+    ellipsis crop (`Test-PRD-P0-120`) is a separate, still-current rule and is untouched.
+
+130. **`Test-PRD-P0-198-mark_spent_retries`** — "Row 40 could not be marked as submitted. Nothing was run" —
+    a real report, on SEVERAL rows of one 68-row run from a single tab, so not a multi-tab race.
+    `submitBatchPlanRow` (`agent.js`) records a checklist row as spent (`UPDATE agent_batch_plan SET rows = ?,
+    done = ? WHERE id = ?`) before running it, and used to attempt that write exactly once: any one-request
+    storage blip cost a whole row, and a long sequential run is exactly where blips land. The write sets
+    absolute values, never increments, so repeating the identical statement is always safe. It is now
+    attempted up to three times with a short backoff. Only if every attempt fails does the row report the
+    same message as before, still failing closed — nothing ran, and because the write never committed the row
+    is still in the stored plan, retryable on a reload.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

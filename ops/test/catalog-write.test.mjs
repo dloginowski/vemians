@@ -7388,6 +7388,96 @@ check("test_PRD_P0_196_unconfirmed_rows_never_resurface__a_plan_left_with_only_n
   }
 });
 
+/* A D1 binding whose UPDATE on agent_batch_plan throws for its first N calls,
+   everything else passing straight through -- the shape of a one-request
+   storage blip landing on a single row of a long run. */
+function flakyPlanWrites(db, failures) {
+  let remaining = failures;
+  const attempts = { updates: 0 };
+  return {
+    attempts,
+    prepare(sql) {
+      if (/UPDATE agent_batch_plan/.test(sql)) {
+        attempts.updates += 1;
+        if (remaining > 0) {
+          remaining -= 1;
+          return { bind: () => ({ run: async () => { throw new Error("D1_ERROR: transient write failure"); } }) };
+        }
+      }
+      return db.prepare(sql);
+    },
+  };
+}
+
+check("test_PRD_P0_198_mark_spent_retries__a_one_off_storage_blip_on_a_rows_spent_write_no_longer_costs_the_row", async () => {
+  /* "Row 40 could not be marked as submitted. Nothing was run" -- a real
+     report, on SEVERAL rows of one 68-row run from a single tab. The write
+     that records a row as spent used to be attempted exactly once. */
+  const f = await fixture({ actor: "zeynep@vemians.com", role: "manager" });
+  const csv = "title,category,price,style id,cost\nWool Coat,Outerwear,450.00,01-04-001,210.00\n";
+  const db = await assetsFixtureWithRow({ extracted_text: csv });
+  const flaky = flakyPlanWrites(db, 2);
+  const env = { ...f.env, ASSETS: flaky };
+  const identity = { email: "zeynep@vemians.com", groups: ["vemians-manager"] };
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const outcome = await dispatch(
+      "catalog_add_product_batch",
+      { asset_id: "ast_1" },
+      { actor: "zeynep@vemians.com", role: "manager", env, allowed: new Set(["catalog_add_product_batch"]) },
+    );
+    assert.equal(outcome.kind, "checklist", JSON.stringify(outcome));
+    flaky.attempts.updates = 0;
+    const row = outcome.checklist.rows[0].row;
+
+    const result = await submitBatchPlanRow({ id: outcome.checklist.id, row, identity, env });
+    assert.equal(result.ok, true, `two blips then success must go through, got: ${JSON.stringify(result)}`);
+    assert.equal(result.status, "created");
+    assert.equal(flaky.attempts.updates, 3, "two failed attempts, then the one that landed");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_198_mark_spent_retries__a_write_that_never_lands_still_fails_closed_with_nothing_run_and_the_row_kept", async () => {
+  const f = await fixture({ actor: "zeynep@vemians.com", role: "manager" });
+  const csv = "title,category,price,style id,cost\nWool Coat,Outerwear,450.00,01-04-001,210.00\n";
+  const db = await assetsFixtureWithRow({ extracted_text: csv });
+  const flaky = flakyPlanWrites(db, 1000);
+  const env = { ...f.env, ASSETS: flaky };
+  const identity = { email: "zeynep@vemians.com", groups: ["vemians-manager"] };
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const outcome = await dispatch(
+      "catalog_add_product_batch",
+      { asset_id: "ast_1" },
+      { actor: "zeynep@vemians.com", role: "manager", env, allowed: new Set(["catalog_add_product_batch"]) },
+    );
+    flaky.attempts.updates = 0;
+    const row = outcome.checklist.rows[0].row;
+
+    const result = await submitBatchPlanRow({ id: outcome.checklist.id, row, identity, env });
+    assert.equal(result.ok, false);
+    assert.equal(result.httpStatus, 502);
+    assert.match(result.reply, /could not be marked as submitted\. Nothing was run/);
+    assert.equal(flaky.attempts.updates, 3, "gives up after the bounded number of attempts, never loops");
+    assert.equal(f.mirror("SELECT id FROM mirror_product WHERE title = 'Wool Coat'").length, 0, "nothing was created");
+
+    const resumed = await openBatchPlanFor(db_passthrough(db), "zeynep@vemians.com");
+    assert.ok(resumed && resumed.rows.length === 1, "the row is still in the stored plan, retryable on a reload");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+function db_passthrough(db) {
+  return { ASSETS: db };
+}
+
 check("test_PRD_P0_152_style_number_grouping__cancel_actually_deletes_the_plan_never_just_the_local_panel", async () => {
   /* "I would have to hit cancel to actually clear a job in progress" -- the
      owner's own words, already assuming Cancel did this; it never reached
