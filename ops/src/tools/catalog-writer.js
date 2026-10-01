@@ -434,11 +434,15 @@ export async function variantsOf(db, productId) {
    corresponds to, not just list them. batch.js's own resubmit-matching
    (Test-PRD-P0-179-import_style_number_matching) is the one caller: a
    CSV row's own Color/Size only ever means anything against a product's
-   CURRENT variations, never a stored id the sheet itself could carry. */
+   CURRENT variations, never a stored id the sheet itself could carry.
+   unit_cost_minor rides along too — draftProductUpdate's own no-op check
+   (Test-PRD-P0-194-resubmit_no_op_suppression) needs a matched variation's
+   CURRENT cost to tell a real change from a sheet that simply agrees with
+   what is already on file. */
 export async function variantsWithOptionsOf(db, productId) {
   const res = await db
     .prepare(
-      "SELECT id, sku, title, ordinal, price_minor, currency, options FROM mirror_variant_index WHERE product_id = ? ORDER BY ordinal",
+      "SELECT id, sku, title, ordinal, price_minor, currency, unit_cost_minor, options FROM mirror_variant_index WHERE product_id = ? ORDER BY ordinal",
     )
     .bind(productId)
     .all();
