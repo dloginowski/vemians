@@ -9451,6 +9451,23 @@ that does not trace to one of these is a process failure (see §12).
     empty column is just its padding, and the table is never stretched to the card (`table-layout: auto`, no
     width). The CSV preview's 10em crop (`Test-PRD-P0-120`) is a ceiling, not a floor, and is unchanged.
 
+136. **`Test-PRD-P0-204-style_ids_detected`** — "There is a style number column, the first column. It has the
+    full like style ID along with the variations and colors and sizes... the first three-digit sequences,
+    that's the style ID. So you need to detect style IDs better" — the owner's own words, after a checklist row
+    read "No style ID on the sheet" for a sheet that had one. Only the headers "Style ID", "Style #" and "Style"
+    were recognised (`normalizeKey` folds punctuation, so "Style Number" became `stylenumber`, which matched
+    nothing), so every row on such a sheet was matched by title alone and no style ID was claimed. Three
+    changes in `batch.js`. (1) `STYLE_ID_KEYS` also reads "Style Number", "Style No", "Style Num", "Style Nbr" and
+    "Style Code" ("Style Name" stays a title). (2) `withDetectedStyleColumn` finds the column by what its values
+    look like when no recognised header carries one: the leftmost column where at least half of the filled cells
+    are three short (1-3 digit) number groups joined by dashes, so a date column is never mistaken for it; the
+    value is copied under the canonical key and the original column is left alone. Applied at all three product
+    entry points (`draftProductBatch`, `planProductBatch`, `previewBatch`). (3) `parseStyleNumber` takes the style
+    ID as the first three runs of digits, whatever follows is the variation: nothing after is the whole ID, one
+    segment is the size, two or more are the colour then the size (so "001-001-010-OFF-WHT-M" is colour
+    "OFF-WHT", size "M"), and spaces around the dashes, and en/em dashes, are tolerated. A product with no
+    category on file yet now says so ("no category on file yet") instead of a bare "no category".
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

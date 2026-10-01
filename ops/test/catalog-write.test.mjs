@@ -8121,6 +8121,89 @@ check("test_PRD_P0_202_upload_ledger__a_big_sheet_is_saved_in_chunks_not_one_ove
   void f;
 });
 
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-204 — style numbers are detected, not just read from three header names.
+ * "There is a style number column, the first column. It has the full like
+ * style ID along with the variations and colors and sizes... the first
+ * three-digit sequences, that's the style ID. So you need to detect style IDs
+ * better" -- the owner's own words, after a sheet whose header read "Style
+ * Number" reported "no style ID on the sheet" for every row.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+async function plannedStyleSheet(csv) {
+  const f = await fixture({ actor: "zeynep@vemians.com", role: "manager" });
+  const assets = await assetsFixtureWithRow({ extracted_text: csv });
+  const env = { ...f.env, ASSETS: assets };
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const outcome = await dispatch(
+      "catalog_add_product_batch",
+      { asset_id: "ast_1" },
+      { actor: "zeynep@vemians.com", role: "manager", env, allowed: new Set(["catalog_add_product_batch"]) },
+    );
+    return { f, outcome };
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+
+check("test_PRD_P0_204_style_ids_detected__a_style_number_header_is_read_and_the_first_three_number_groups_are_the_style_id", async () => {
+  const csv =
+    "Style Number,Title,Category,Subcategory,Price\n" +
+    "001-001-005-BLK-S,Wool Coat,Jacket,Blazer,100.00\n" +
+    "001-001-005-BLK-M,Wool Coat,Jacket,Blazer,100.00\n";
+  const { f, outcome } = await plannedStyleSheet(csv);
+  assert.equal(outcome.kind, "checklist", JSON.stringify(outcome));
+  assert.equal(outcome.checklist.rows.length, 1, "both sizes are ONE product, grouped by the style ID");
+  assert.equal(outcome.checklist.rows[0].sheetStyleId, "001-001-005", "the style ID is the first three groups, not the whole cell");
+  void f;
+});
+
+check("test_PRD_P0_204_style_ids_detected__a_column_with_an_unfamiliar_header_is_found_by_what_its_values_look_like", async () => {
+  const csv =
+    "Ref,Title,Category,Subcategory,Price\n" +
+    "001-001-006-WHT-L,Silk Scarf,Jacket,Vest,80.00\n" +
+    "001-001-007-BLK-OS,Denim Cap,Jacket,Vest,40.00\n";
+  const { outcome } = await plannedStyleSheet(csv);
+  assert.equal(outcome.kind, "checklist", JSON.stringify(outcome));
+  assert.deepEqual(outcome.checklist.rows.map((r) => r.sheetStyleId).sort(), ["001-001-006", "001-001-007"]);
+});
+
+check("test_PRD_P0_204_style_ids_detected__a_date_column_is_never_mistaken_for_style_numbers", async () => {
+  const csv =
+    "Received,Title,Category,Subcategory,Price\n" +
+    "2026-10-01,Wool Coat,Jacket,Blazer,100.00\n" +
+    "2026-10-02,Silk Scarf,Jacket,Blazer,80.00\n";
+  const { outcome } = await plannedStyleSheet(csv);
+  /* No style column at all: rows go through by category + subcategory, with no style ID claimed. */
+  assert.equal(outcome.kind, "checklist", JSON.stringify(outcome));
+  assert.ok(outcome.checklist.rows.every((r) => r.sheetStyleId === ""), JSON.stringify(outcome.checklist.rows.map((r) => r.sheetStyleId)));
+});
+
+check("test_PRD_P0_204_style_ids_detected__the_variation_tail_is_whatever_follows_the_first_three_groups", async () => {
+  const csv =
+    "Style #,Title,Category,Subcategory,Price\n" +
+    "001 - 001 - 008,Wool Coat,Jacket,Blazer,100.00\n" +
+    "001-001-009-S,Silk Scarf,Jacket,Blazer,80.00\n" +
+    "001-001-010-OFF-WHT-M,Denim Cap,Jacket,Blazer,40.00\n";
+  const f = await fixture({ actor: "zeynep@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const result = await draftProductBatch(f.env, { text: csv, actor: "zeynep@vemians.com", role: "manager", mode: "add" });
+    assert.equal(result.created.length, 3, JSON.stringify(result));
+    const bases = f.mirror("SELECT import_style_number AS n FROM mirror_product WHERE import_style_number IS NOT NULL ORDER BY n").map((r) => r.n);
+    assert.deepEqual(bases, ["001-001-008", "001-001-009", "001-001-010"], "spaces around dashes, a size alone, and a two-part colour all leave the same three-group ID");
+    const options = f.mirror(
+      "SELECT v.options AS o FROM mirror_variant v JOIN mirror_product p ON p.id = v.product_id WHERE p.import_style_number = '001-001-010'",
+    ).map((r) => JSON.parse(r.o));
+    assert.deepEqual(options, [{ Color: "OFF-WHT", Size: "M" }]);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 check("test_PRD_P0_152_style_number_grouping__cancel_actually_deletes_the_plan_never_just_the_local_panel", async () => {
   /* "I would have to hit cancel to actually clear a job in progress" -- the
      owner's own words, already assuming Cancel did this; it never reached

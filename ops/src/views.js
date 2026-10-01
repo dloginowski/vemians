@@ -1922,7 +1922,7 @@ function checklistCard(c) {
     const where = [r.category, r.subcategory].filter(Boolean).join(" › ");
     const meta = document.createElement("span");
     meta.className = "checklist-meta";
-    meta.textContent = (r.sheetStyleId ? "Style " + r.sheetStyleId : "No style ID on the sheet") + " · " + (where ? "goes to " + where : "no category");
+    meta.textContent = (r.sheetStyleId ? "Style " + r.sheetStyleId : "No style ID on the sheet") + " · " + (where ? "goes to " + where : "no category on file yet");
     fields.appendChild(titleInput);
     fields.appendChild(meta);
     if (r.changes) {

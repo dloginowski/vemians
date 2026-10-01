@@ -329,7 +329,18 @@ const CURRENCY_KEYS = ["currency"];
    plus a color and/or a size riding along after it, one dash each
    (parseStyleNumber, above) — not just the bare NN-NN-NNN this shop's own
    style_id nomenclature is on its own. */
-const STYLE_ID_KEYS = ["style id", "style_id", "style #", "style"];
+/* "There is a style number column, the first column... the first three-digit
+   sequences, that's the style ID. So you need to detect style IDs better" --
+   the owner's own words, after a sheet whose header read "Style Number" was
+   not recognised at all (normalizeKey folds "style id", "style_id" and
+   "style #" onto the first two keys below, but "stylenumber" was never one of
+   them), so every row on it reported "no style ID on the sheet" and was
+   matched by title alone. detectStyleColumn (below) also finds the column by
+   what its VALUES look like when no header says so. "style name" is a TITLE
+   key and is deliberately not here. */
+const STYLE_ID_KEYS = [
+  "style id", "style_id", "style #", "style", "style number", "style no", "style num", "style nbr", "style code",
+];
 const VENDOR_KEYS = ["vendor", "vendor name", "supplier"];
 /* The vendor's OWN SKU/product code for this item — "an invoice-like
    identifier," the owner's own words — a real field on Square's own Vendor
@@ -518,10 +529,51 @@ function parseQuantity(raw) {
  */
 function parseStyleNumber(raw) {
   const trimmed = String(raw ?? "").trim();
-  const segments = trimmed.split("-");
-  if (segments.length === 4) return { base: segments.slice(0, 3).join("-"), color: undefined, size: segments[3] };
-  if (segments.length === 5) return { base: segments.slice(0, 3).join("-"), color: segments[3], size: segments[4] };
-  return { base: trimmed, color: undefined, size: undefined };
+  /* "The first three-digit sequences, that's the style ID" -- the owner's own
+     words: the style ID is the first three runs of digits, whatever follows
+     them is the variation. Dashes (and their longer cousins a spreadsheet
+     program likes to substitute) may have spaces around them. */
+  const m = STYLE_NUMBER_HEAD.exec(trimmed);
+  if (!m) return { base: trimmed, color: undefined, size: undefined };
+  const base = `${m[1]}-${m[2]}-${m[3]}`;
+  const tail = m[4] ? m[4].split(/\s*[-\u2013\u2014]\s*/).filter(Boolean) : [];
+  if (tail.length === 0) return { base, color: undefined, size: undefined };
+  if (tail.length === 1) return { base, color: undefined, size: tail[0] };
+  return { base, color: tail.slice(0, -1).join("-"), size: tail[tail.length - 1] };
+}
+
+const STYLE_NUMBER_HEAD = /^(\d+)\s*[-\u2013\u2014]\s*(\d+)\s*[-\u2013\u2014]\s*(\d+)(?:\s*[-\u2013\u2014]\s*(.*))?$/;
+
+/* What a style number CELL looks like when nothing names the column: three
+   short runs of digits joined by dashes, optionally followed by a variation.
+   Short (1-3 digits) on purpose -- a date column ("2026-10-01") is also three
+   dash-joined numbers, and must never be mistaken for one. */
+const STYLE_NUMBER_CELL = /^\d{1,3}\s*[-\u2013\u2014]\s*\d{1,3}\s*[-\u2013\u2014]\s*\d{1,3}(?:\s*[-\u2013\u2014].*)?$/;
+
+/*
+ * Make sure a product sheet's style numbers are found. If any recognised
+ * style header carries a value, nothing to do. Otherwise look for the column
+ * whose values (at least half of the filled ones) read like style numbers, the
+ * leftmost winning, and copy it under the canonical "style id" key so every
+ * reader downstream sees it. The original column stays as it was.
+ */
+function withDetectedStyleColumn(records) {
+  if (!records.length) return records;
+  if (records.some((r) => pick(r, STYLE_ID_KEYS))) return records;
+  for (const header of Object.keys(records[0])) {
+    const values = records.map((r) => String(r[header] ?? "").trim()).filter(Boolean);
+    if (!values.length) continue;
+    const hits = values.filter((v) => STYLE_NUMBER_CELL.test(v)).length;
+    if (hits > 0 && hits / values.length >= 0.5) {
+      return records.map((r) => ({ ...r, "style id": r[header] }));
+    }
+  }
+  return records;
+}
+
+/* Product sheets only (customers have no style numbers). */
+function productRecords(text) {
+  return withDetectedStyleColumn(csvRecords(parseCsv(text)));
 }
 
 /* Enough English to fold a category name onto its own plural, and no more —
@@ -2241,7 +2293,7 @@ async function resolveProductRows(env, { actor, role, mode }, records) {
 
 export async function draftProductBatch(env, { text, actor, role, onProgress, mode }) {
   assertBatchMode(mode);
-  const records = csvRecords(parseCsv(text));
+  const records = productRecords(text);
   if (records.length > CAPS.BATCH_MAX_ROWS) {
     return { created: [], ready: [], skipped: [], tooMany: records.length };
   }
@@ -2480,7 +2532,7 @@ async function flagLikelyDuplicates(env, allRows) {
 
 export async function planProductBatch(env, { text, actor, role, mode }) {
   assertBatchMode(mode);
-  const records = csvRecords(parseCsv(text));
+  const records = productRecords(text);
   if (records.length > CAPS.BATCH_MAX_ROWS) {
     return { rows: [], ready: [], skipped: [], tooMany: records.length };
   }
@@ -3049,7 +3101,7 @@ function mapCustomerRow(record) {
 
 export async function previewBatch(env, text, kind, mode) {
   if (kind !== "customers") assertBatchMode(mode);
-  const records = csvRecords(parseCsv(text));
+  const records = kind === "customers" ? csvRecords(parseCsv(text)) : productRecords(text);
   if (!records.length) return { headers: [], rowCount: 0, sampleRows: [] };
 
   const headers = Object.keys(records[0]);
