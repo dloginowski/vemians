@@ -47,7 +47,9 @@ import {
   productByStyleId,
   productsByCategoryAndTitle,
   productsByTitle,
+  productsInCategory,
   variantsWithOptionsOf,
+  variantsWithOptionsOfMany,
   INHOUSE_VENDOR_NAME,
 } from "./tools/catalog-writer.js";
 import { nearestCategory } from "./tools/catalog-write.js";
@@ -1980,7 +1982,12 @@ function productVariationsSignature(variations, { includeQty }) {
  */
 async function flagLikelyDuplicates(env, mode, builtRows) {
   if (mode !== "add") return;
+
+  /* WITHIN-THIS-UPLOAD pass first -- pure in-memory comparison, no store
+     access at all, so it costs nothing extra regardless of how many rows a
+     sheet has. */
   const seenInBatch = new Map();
+  const rowFacts = new Map();
   for (const row of builtRows) {
     const args = row.args;
     const title = (args.title ?? "").trim().toLowerCase();
@@ -1993,38 +2000,80 @@ async function flagLikelyDuplicates(env, mode, builtRows) {
        anything it already created. */
     const vendor = (args.vendor || INHOUSE_VENDOR_NAME).trim().toLowerCase();
     const unitCost = args.unit_cost_minor ?? null;
-    const variationsSigWithQty = productVariationsSignature(args.variations, { includeQty: true });
+    const sigWithQty = productVariationsSignature(args.variations, { includeQty: true });
+    const sigNoQty = productVariationsSignature(args.variations, { includeQty: false });
+    rowFacts.set(row, { title, vendor, unitCost, sigNoQty });
 
     const priorInBatch = seenInBatch.get(key) ?? [];
-    const batchMatch = priorInBatch.find((p) => p.sig === variationsSigWithQty && p.vendor === vendor && p.unitCost === unitCost);
+    const batchMatch = priorInBatch.find((p) => p.sig === sigWithQty && p.vendor === vendor && p.unitCost === unitCost);
     if (batchMatch) {
       row.possibleDuplicate = true;
       row.duplicateReason = `same title, category, vendor, cost, options, quantity and price as row ${batchMatch.rowNumber} in this same upload`;
+    }
+    priorInBatch.push({ rowNumber: row.rowNumber, sig: sigWithQty, vendor, unitCost });
+    seenInBatch.set(key, priorInBatch);
+  }
+
+  /* AGAINST-THE-EXISTING-CATALOG pass, for whatever rows the first pass
+     left unflagged. "Why does this need the 50 subrequest limit?" --
+     planProductBatch's own header comment, on the exact same class of
+     failure a query PER ROW would reproduce here: a 78-product sheet must
+     cost one query per DISTINCT category (or title, for a row with none),
+     never one per row -- category resolution just above already follows
+     this same bound, and a per-row duplicate check that didn't would undo
+     the whole reason that redesign exists. */
+  const remaining = builtRows.filter((row) => !row.possibleDuplicate);
+  if (!remaining.length) return;
+
+  const byCategory = new Map();
+  const byTitleOnly = new Map();
+  for (const row of remaining) {
+    const args = row.args;
+    if (args.category_id) {
+      if (!byCategory.has(args.category_id)) byCategory.set(args.category_id, []);
+      byCategory.get(args.category_id).push(row);
     } else {
-      const candidates = args.category_id
-        ? await productsByCategoryAndTitle(env.CATALOG_MIRROR, args.category_id, args.title)
-        : await productsByTitle(env.CATALOG_MIRROR, args.title);
-      const incomingSigNoQty = productVariationsSignature(args.variations, { includeQty: false });
-      for (const existing of candidates) {
-        if ((existing.vendor ?? "").trim().toLowerCase() !== vendor) continue;
-        if ((existing.unit_cost_minor ?? null) !== unitCost) continue;
-        /* variantsWithOptionsOf's own options are already parsed JSON --
-           never re-parse an object a second time, which only ever throws
-           and silently loses every real option value to the catch below. */
-        const existingVariants = await variantsWithOptionsOf(env.CATALOG_MIRROR, existing.id);
-        const existingSig = productVariationsSignature(
-          existingVariants.map((v) => ({ option_values: v.options, price_minor: v.price_minor })),
-          { includeQty: false },
-        );
-        if (existingSig === incomingSigNoQty) {
-          row.possibleDuplicate = true;
-          row.duplicateReason = `an existing product, "${existing.title}" (${existing.handle}), already has the same title, category, vendor, cost, options and price`;
-          break;
-        }
+      const title = rowFacts.get(row).title;
+      if (!byTitleOnly.has(title)) byTitleOnly.set(title, []);
+      byTitleOnly.get(title).push(row);
+    }
+  }
+
+  const candidatesByCategory = new Map();
+  for (const categoryId of byCategory.keys()) {
+    candidatesByCategory.set(categoryId, await productsInCategory(env.CATALOG_MIRROR, categoryId));
+  }
+  const candidatesByTitleOnly = new Map();
+  for (const title of byTitleOnly.keys()) {
+    candidatesByTitleOnly.set(title, await productsByTitle(env.CATALOG_MIRROR, title));
+  }
+
+  const allCandidateIds = [
+    ...new Set([
+      ...[...candidatesByCategory.values()].flat().map((p) => p.id),
+      ...[...candidatesByTitleOnly.values()].flat().map((p) => p.id),
+    ]),
+  ];
+  const variantsByProductId = await variantsWithOptionsOfMany(env.CATALOG_MIRROR, allCandidateIds);
+
+  for (const row of remaining) {
+    const { title, vendor, unitCost, sigNoQty } = rowFacts.get(row);
+    const candidates = row.args.category_id
+      ? (candidatesByCategory.get(row.args.category_id) ?? []).filter((p) => (p.title ?? "").trim().toLowerCase() === title)
+      : (candidatesByTitleOnly.get(title) ?? []);
+    for (const existing of candidates) {
+      if ((existing.vendor ?? "").trim().toLowerCase() !== vendor) continue;
+      if ((existing.unit_cost_minor ?? null) !== unitCost) continue;
+      const existingSig = productVariationsSignature(
+        (variantsByProductId.get(existing.id) ?? []).map((v) => ({ option_values: v.options, price_minor: v.price_minor })),
+        { includeQty: false },
+      );
+      if (existingSig === sigNoQty) {
+        row.possibleDuplicate = true;
+        row.duplicateReason = `an existing product, "${existing.title}" (${existing.handle}), already has the same title, category, vendor, cost, options and price`;
+        break;
       }
     }
-    priorInBatch.push({ rowNumber: row.rowNumber, sig: variationsSigWithQty, vendor, unitCost });
-    seenInBatch.set(key, priorInBatch);
   }
 }
 

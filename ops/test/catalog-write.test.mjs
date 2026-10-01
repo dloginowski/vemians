@@ -5403,6 +5403,90 @@ check("test_PRD_P0_186_batch_duplicate_safety_check__update_mode_never_flags_any
   assert.doesNotMatch(JSON.stringify(outcome), /possibleDuplicate":true/);
 });
 
+/* Wraps a d1FromSql-shaped store to count real queries by SQL SHAPE, not
+   just a single grand total — category resolution and the per-row
+   catalog.create_product gate check (runTool's own check()) legitimately
+   run their own queries too, unrelated to flagLikelyDuplicates, so a bare
+   total would be noisy. Keying by a recognizable fragment of the SQL text
+   isolates exactly the three queries this feature's own helpers run
+   (productsInCategory, productsByTitle, variantsWithOptionsOfMany). */
+function countingMirror(mirrorDb) {
+  const counts = {};
+  return {
+    prepare: (text) => {
+      const inner = mirrorDb.prepare(text);
+      return {
+        bind: (...args) => {
+          inner.bind(...args);
+          const tally = () => {
+            counts[text] = (counts[text] ?? 0) + 1;
+          };
+          return {
+            all: async () => {
+              tally();
+              return inner.all();
+            },
+            first: async (c) => {
+              tally();
+              return inner.first(c);
+            },
+            run: async () => {
+              tally();
+              return inner.run();
+            },
+          };
+        },
+      };
+    },
+    countFor: (predicate) => Object.entries(counts).reduce((sum, [text, n]) => (predicate(text) ? sum + n : sum), 0),
+    _raw: mirrorDb._raw,
+  };
+}
+
+check("test_PRD_P0_186_batch_duplicate_safety_check__the_existing_catalog_check_is_bounded_by_distinct_categories_never_by_row_count", async () => {
+  /* THE REAL BUG, caught live, the day this feature shipped: a real 100-row/
+     78-product sheet came back "refused catalog_add_product_batch... The
+     model service could not be reached" -- a query PER ROW (the original
+     shape of this check) reproduces the exact class of failure
+     planProductBatch's own header comment already warns about ("why does
+     this need the 50 subrequest limit?"), just moved from category
+     resolution into THIS check instead. 20 genuinely distinct products (no
+     two share a title, price, or style number -- nothing here should ever
+     flag as a duplicate) across only 2 real categories must cost roughly
+     one query per CATEGORY, never one per PRODUCT. */
+  const f = await fixture({ actor: "heron@vemians.com", role: "manager" });
+  const lines = ["title,category,price,style id,cost,quantity"];
+  for (let i = 1; i < 11; i++) {
+    lines.push(`Coat Style ${i},Outerwear,${100 + i}.00,01-01-0${String(i).padStart(2, "0")},10.00,1`);
+  }
+  for (let i = 1; i < 11; i++) {
+    lines.push(`Sweater Style ${i},Knitwear,${200 + i}.00,02-01-0${String(i).padStart(2, "0")},20.00,1`);
+  }
+  const csv = lines.join("\n") + "\n";
+
+  const mirror = countingMirror(f.mirrorDb);
+  const env = { ...f.env, CATALOG_MIRROR: mirror, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
+
+  const outcome = await dispatch(
+    "catalog_add_product_batch",
+    { asset_id: "ast_1" },
+    { actor: "heron@vemians.com", role: "manager", env, allowed: new Set(["catalog_add_product_batch"]) },
+  );
+  assert.equal(outcome.kind, "checklist");
+  assert.equal(outcome.checklist.rows.length, 20, `expected all 20 genuinely distinct rows ready: ${JSON.stringify(outcome)}`);
+  assert.doesNotMatch(JSON.stringify(outcome), /possibleDuplicate":true/, "none of these 20 genuinely distinct products should ever be flagged");
+
+  /* Isolated by SQL shape, not a bare grand total -- category resolution
+     and the per-row catalog.create_product gate check legitimately run
+     their own queries too, unrelated to this feature. */
+  const productsInCategoryCalls = mirror.countFor((t) => t.includes("WHERE p.category_id = ?") && !t.includes("AND LOWER"));
+  const productsByTitleCalls = mirror.countFor((t) => t.includes("LOWER(TRIM(p.title)) = LOWER(TRIM(?))") && !t.includes("category_id"));
+  const bulkVariantCalls = mirror.countFor((t) => t.includes("mirror_variant_index") && t.includes(" IN ("));
+  assert.equal(productsInCategoryCalls, 2, "one query per distinct category (2), never one per row (20)");
+  assert.equal(productsByTitleCalls, 0, "every row here has a real category, so the no-category path never runs at all");
+  assert.ok(bulkVariantCalls <= 1, "every candidate's variants are fetched in at most one bulk query, never one per candidate");
+});
+
 check("test_PRD_P0_89_batch_preview_confirm__the_draft_tool_uses_the_actors_own_most_recently_previewed_asset", async () => {
   /* TWO real chat transcripts showed the model itself cannot be trusted to
      carry the asset id across the turn boundary between a preview and its

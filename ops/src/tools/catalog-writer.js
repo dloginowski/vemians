@@ -325,6 +325,50 @@ export async function productsByTitle(db, title) {
   return res.results ?? [];
 }
 
+/* Every active product in ONE category, no title filter at all — batch.js's
+   own flagLikelyDuplicates is the one caller, and it needs this precisely
+   BECAUSE title still has to be checked, just never as a separate database
+   round trip per row: a sheet naming 78 products across a handful of
+   categories must cost one query per DISTINCT category, never one per row
+   (the exact "too many subrequests" shape planProductBatch's own category
+   resolution already avoids, above) — title matching happens in memory
+   afterward, against this one, already-fetched, category-scoped set. */
+export async function productsInCategory(db, categoryId) {
+  const res = await db.prepare(`${PRODUCT_WITH_VENDOR_SELECT} WHERE p.category_id = ?`).bind(categoryId).all();
+  return res.results ?? [];
+}
+
+/* The bulk form of variantsWithOptionsOf — every variant for every product
+   id given, in ONE query, grouped back by product_id. The same "bounded by
+   distinct values, never by row count" reasoning productsInCategory's own
+   comment gives: flagLikelyDuplicates needs a whole batch's worth of
+   candidate products' own variants, and a query per CANDIDATE (itself
+   already per ROW) is exactly the shape that overruns a Worker's own
+   subrequest budget on a real multi-dozen-row sheet. */
+export async function variantsWithOptionsOfMany(db, productIds) {
+  if (!productIds.length) return new Map();
+  const placeholders = productIds.map(() => "?").join(",");
+  const res = await db
+    .prepare(
+      `SELECT id, sku, title, ordinal, price_minor, currency, options, product_id FROM mirror_variant_index` +
+        ` WHERE product_id IN (${placeholders}) ORDER BY product_id, ordinal`,
+    )
+    .bind(...productIds)
+    .all();
+  const byProduct = new Map();
+  for (const v of res.results ?? []) {
+    let options = {};
+    try {
+      options = JSON.parse(v.options || "{}");
+    } catch {
+      options = {};
+    }
+    if (!byProduct.has(v.product_id)) byProduct.set(v.product_id, []);
+    byProduct.get(v.product_id).push({ ...v, options });
+  }
+  return byProduct;
+}
+
 /* Same shape, but archived rows too — catalog.set_active's own check(): a
    product it might RESTORE is by definition absent from mirror_product_index
    (that view excludes archived_at rows), so telling "already active" from

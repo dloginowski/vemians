@@ -8876,6 +8876,28 @@ that does not trace to one of these is a process failure (see §12).
     save button or a clash already uses) naming why — a person still decides, one checkbox at a time,
     never an automatic skip.
 
+    REVISED — a real 100-row/78-product sheet, the very first real use of this feature, came back
+    refused outright: "refused catalog_add_product_batch... The model service could not be reached."
+    `catalog_add_product_batch (refused)` meant `planProductBatch` itself threw before it ever reached a
+    checklist — this feature's own FIRST SHIPPED SHAPE queried the mirror once per ROW (a `productsBy
+    CategoryAndTitle`/`productsByTitle` call, then another `variantsWithOptionsOf` call per candidate
+    found) rather than once per DISTINCT value, reproducing the exact "too many subrequests" failure
+    class `planProductBatch`'s own header comment already names as the reason category resolution itself
+    is bounded by distinct categories, never by row count — just moved into this new check instead, on a
+    sheet large enough to actually hit it for the first time.
+
+    `flagLikelyDuplicates` now runs in two bounded passes: the WITHIN-THIS-UPLOAD check stays pure
+    in-memory (it always was — no store access, so it never cost anything regardless of row count); the
+    AGAINST-THE-EXISTING-CATALOG check, for whatever rows the first pass left unflagged, now costs
+    exactly one query per DISTINCT category named in the batch (`productsInCategory`, a new helper,
+    `catalog-writer.js`) — or one per distinct title for a row with no category at all
+    (`productsByTitle`, unchanged) — title matching against that one, already-fetched, category-scoped
+    set happens in memory afterward. Every CANDIDATE product's own variants across the WHOLE batch are
+    then fetched in a SINGLE bulk query (`variantsWithOptionsOfMany`, a new helper, one `WHERE product_id
+    IN (...)`), never one query per candidate. Confirmed directly: 20 genuinely distinct products across
+    2 real categories cost exactly 2 `productsInCategory` calls and at most 1 bulk variant call, never
+    anything proportional to the 20 rows.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
