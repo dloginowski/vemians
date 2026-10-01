@@ -1697,6 +1697,38 @@ check("test_PRD_P0_165_approval_card_never_hidden_behind_the_bar__gate_floats_ab
   assert.match(body, /\.gate\s*\{[^}]*max-height:\s*calc\(100dvh - 70px\)/s, "and prefer dvh where it's supported, same fallback order .ops.chat-page already uses");
 });
 
+check("test_PRD_P0_188_greet_collapses_on_scroll__the_welcome_line_hides_once_a_real_conversation_scrolls_away_from_the_top", async () => {
+  /* "That welcome line up above should not be permanently there... it's a
+     temporary thing that should only be there on a fresh chat... the same
+     way when we scroll in the main website, the heading kind of goes away
+     when you scroll down" — the owner's own words. */
+  const { body } = await frontPage(OWNER);
+
+  /* The chat page's own greet section needs a stable hook the client
+     script can target without touching Items' or the Dashboard's own
+     identical ".greet" class — neither of those pages' markup gets this id. */
+  assert.match(body, /<section class="greet" id="greet">/, "the chat page's own greet section must carry a targetable id");
+
+  /* The collapse itself: max-height/opacity/margin all drop to nothing, so
+     .chat-top (already flex: 1 1 auto) reclaims the freed space the moment
+     the class lands. */
+  assert.match(
+    body,
+    /\.ops\.chat-page \.greet\.greet-collapsed\s*\{[^}]*max-height:\s*0[^}]*opacity:\s*0[^}]*margin:\s*0/s,
+    "the collapsed state must zero out height, opacity and margin together",
+  );
+
+  /* The trigger: #log's own scroll position, not a one-shot "has a message
+     ever been sent" flag -- scrolling back to the very top of a long
+     conversation must bring the greeting back, the same two-way behaviour
+     the owner's own reference (a website header collapsing on scroll) has. */
+  assert.match(
+    body,
+    /log\.addEventListener\("scroll", \(\) => \{\s*greet\.classList\.toggle\("greet-collapsed", log\.scrollTop > 4\);/,
+    "the greeting must track #log's live scrollTop, not latch permanently once collapsed",
+  );
+});
+
 check("test_PRD_P0_167_gate_matches_the_real_bubble_size__every_text_node_in_the_card_is_14px_not_just_the_heading", async () => {
   /* "The fonts are still not matching anything in the chat box... it's too
      big" — a real transcript, reacting to the FIRST fix here, which was

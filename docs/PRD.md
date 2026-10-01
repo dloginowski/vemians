@@ -9003,6 +9003,30 @@ that does not trace to one of these is a process failure (see §12).
     1. A reload that lands before anything was ever submitted still asks first, same as always; a reload
     mid-run just keeps going.
 
+120. **`Test-PRD-P0-188-greet_collapses_on_scroll`** — The owner's own words: "that welcome line up above
+    should not be permanently there... it's a temporary thing that should only be there on a fresh
+    chat... the same way when we scroll in the main website, the heading kind of goes away when you
+    scroll down." `.greet` ("Hi Dimitri — what would you like to do?") sat as a permanent, always-shown
+    fixture above `.chat-top` since the page was first made a fixed-height flex column — correct and
+    unchanged for Items' and the Dashboard's own `.greet` (a persistent filter/status line, not a
+    one-time welcome, "always shown, never conditionally hidden" by design for those two) but never
+    actually right for the chat page's own welcome message once a real conversation exists to look at
+    instead.
+
+    Scoped to `.chat-page` only, the same way every other chat-specific layout rule in `OPS_CSS` already
+    is: `#log`'s own `scroll` listener (`views.js`'s client script) toggles a `greet-collapsed` class on
+    `#greet` purely off `log.scrollTop` — a fresh chat has nothing to scroll and sits at `0` by
+    construction (`.log > :first-child { margin-top: auto }`, P0-161, already pins a short conversation
+    to the bottom with no scrollable overflow at all), so the greeting only ever collapses once there is
+    enough real conversation to have scrolled away from the top of it — the chat log's own `entry()`
+    already auto-scrolls to the bottom on every new message, which is what moves `scrollTop` off `0` the
+    first time a reply comes back. Re-checked on every scroll event rather than latched once collapsed,
+    so scrolling back up to the very top of a long conversation brings the welcome line back too, the
+    same two-way show/hide the owner's own reference example (a website's header collapsing on scroll)
+    has. `max-height`/`opacity`/`margin` all transition together and collapse to `0` in the hidden state,
+    so `.chat-top` (already `flex: 1 1 auto`) reclaims the freed vertical space immediately, the same
+    flex relationship P0-161 already relies on elsewhere on this exact page.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

@@ -1059,7 +1059,25 @@ ${INPUT_BAR_CSS}
    use, for the identical reason: 100vh alone is measured against the
    largest possible mobile viewport, not the one actually visible. */
 .ops.chat-page { display: flex; flex-direction: column; height: 100vh; height: 100dvh; box-sizing: border-box; }
-.ops.chat-page .greet { flex: 0 0 auto; }
+.ops.chat-page .greet {
+  flex: 0 0 auto; overflow: hidden; max-height: 60px; opacity: 1;
+  transition: max-height .2s ease, opacity .15s ease, margin .2s ease;
+}
+/* "That welcome line up above should not be permanently there... it's a
+   temporary thing that should only be there on a fresh chat... the same
+   way when we scroll in the main website, the heading kind of goes away
+   when you scroll down" — the owner's own words. Scoped to .chat-page
+   specifically, the same way every other chat-only layout rule here
+   already is (.ops itself is shared by Items and the Dashboard too, and
+   their own .greet is a persistent filter/status line, not a one-time
+   welcome message -- "always shown, never conditionally hidden" for
+   THOSE two, unchanged, immediately above). #log's own scroll event
+   (below, the client script) toggles this class the moment a fresh
+   chat's own default scrollTop of 0 moves away from it; margin collapses
+   along with max-height so no gap is left behind once it is gone. 60px
+   is generous on purpose — enough for the greeting to wrap to two lines
+   at a narrow width without ever clipping mid-collapse. */
+.ops.chat-page .greet.greet-collapsed { max-height: 0; opacity: 0; margin: 0; }
 .ops.chat-page .chat-top { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .ops.chat-page .log { flex: 1 1 auto; min-height: 0; }
 /* REVISED, THEN REVISED AGAIN — a real transcript: "I can't click
@@ -1551,7 +1569,7 @@ export function opsPage(identity, { hasKey, role }) {
     `<main class="ops chat-page">
 ${id}
 
-  <section class="greet">
+  <section class="greet" id="greet">
     <h1>Hi ${esc(firstName)} — what would you like to do?</h1>
   </section>
 
@@ -1586,6 +1604,23 @@ ${COPY_JS}
 
 const log = document.getElementById("log");
 const gate = document.getElementById("gate");
+
+/* "That welcome line up above should not be permanently there... only on a
+   fresh chat... the same way when we scroll in the main website, the
+   heading kind of goes away" — the owner's own words. greet-collapsed
+   (OPS_CSS, above) does the actual hiding; this just tracks #log's own
+   scrollTop, the one thing that tells a fresh chat (nothing to scroll,
+   stuck at 0) apart from one with enough history to have scrolled away
+   from it. Re-checked on every scroll rather than latched permanently
+   once collapsed, so scrolling back up to the very top (reviewing the
+   start of a long conversation) brings the greeting back too, the same
+   two-way behaviour the owner's own reference example has. */
+const greet = document.getElementById("greet");
+if (greet) {
+  log.addEventListener("scroll", () => {
+    greet.classList.toggle("greet-collapsed", log.scrollTop > 4);
+  });
+}
 
 /* This tab's own memory of the conversation so far — the literal chat-bubble
    text, nothing more (no tool steps, no re-sent image bytes for a photo
