@@ -171,6 +171,35 @@ function seedGridProduct(mirror) {
   }
 }
 
+/* A product using Size ALONE -- no Color, no second dimension at all, the
+   common real shape for a garment this shop sells in one color only
+   (Test-PRD-P0-147-variants_grid, revised). */
+function seedSizeOnlyProduct(mirror) {
+  mirror.db.exec("INSERT INTO mirror_category (id, external_ref, name) VALUES ('cat1', 'sqcat1', 'Outerwear')");
+  mirror.db.exec(
+    "INSERT INTO mirror_product (id, external_ref, handle, title, source_description, status, channel, custom_fields, category_id)" +
+      " VALUES ('p1', 'sqitem1', 'dress-pants', 'Dress Pants', '', 'active', 'direct_link', '{}', 'cat1')",
+  );
+  mirror.db.exec("INSERT INTO mirror_item_option (id, external_ref, name) VALUES ('opt-size', 'sqopt-size', 'Size')");
+  mirror.db.exec(
+    "INSERT INTO mirror_item_option_value (id, external_ref, item_option_id, name, ordinal) VALUES" +
+      " ('optval-s', 'sqval-s', 'opt-size', 'S', 0), ('optval-m', 'sqval-m', 'opt-size', 'M', 1), ('optval-l', 'sqval-l', 'opt-size', 'L', 2)",
+  );
+  const variations = [
+    ["v1", "sqvar1", "VEM-1", "S", { Size: "S" }],
+    ["v2", "sqvar2", "VEM-2", "M", { Size: "M" }],
+    ["v3", "sqvar3", "VEM-3", "L", { Size: "L" }],
+  ];
+  for (const [id, ref, sku, title, options] of variations) {
+    mirror.db
+      .prepare(
+        "INSERT INTO mirror_variant (id, external_ref, product_id, sku, title, price_minor, currency, options)" +
+          " VALUES (?, ?, 'p1', ?, ?, 4500, 'USD', ?)",
+      )
+      .run(id, ref, sku, title, JSON.stringify(options));
+  }
+}
+
 /* Every T2 call appends an INTENT audit row before it will even return
    needsApproval — runTool refuses outright with no AUDIT binding at all,
    same as it would in a real Worker missing one. */
@@ -2194,6 +2223,46 @@ check("test_PRD_P0_147_variants_grid__two_dimensions_skip_the_outer_variations_a
 
   const between = body.slice(Math.max(0, groupsIdx - 2000), groupsIdx);
   assert.doesNotMatch(between, /variations-accordion/, "the two-dimension case must never render the outer Variations accordion at all");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-147 (REVISED YET AGAIN) — "we don't want to upload a photo for each
+ * size, we just want to upload for each option" — the owner's own words,
+ * on a product using Size alone (no Color at all, a garment this shop only
+ * carries in one color): the flat list gave every SIZE of that one real
+ * garment its own, separately-uploaded photo, since a single Size-only
+ * dimension never qualified for the two-axis grouped accordion above at
+ * all. There is nothing a photo could actually differ by across sizes of
+ * the same garment, so this collapses to exactly the same one-header-per-
+ * group shape the two-axis case already uses -- just a single group,
+ * holding every size, one photo for the whole product.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_147_variants_grid__size_alone_with_no_color_still_gets_one_shared_group_not_one_photo_per_size", async () => {
+  const mirror = mirrorDb();
+  seedSizeOnlyProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+
+  assert.match(body, /class="variant-group"/, "Size alone must still render as a group, not fall back to the flat per-variant list");
+  assert.match(body, /<div class="variant-groups">/, "first and only level, same as the two-axis case");
+
+  /* Exactly ONE group, not one per size. */
+  const firstGroup = body.indexOf('<div class="variant-group">');
+  const secondGroup = body.indexOf('<div class="variant-group">', firstGroup + 1);
+  assert.equal(secondGroup, -1, "Size alone must collapse to exactly one group, never one per size");
+
+  /* Exactly one photo-upload button for the whole product -- not one per
+     size, which is the entire bug being fixed here. */
+  const uploads = body.match(/class="variant-photo-upload"/g) ?? [];
+  assert.equal(uploads.length, 1, "exactly one upload button for the whole product, never one per size");
+
+  /* All three sizes still listed, as the one row inside that one group. */
+  const group = body.slice(firstGroup);
+  assert.match(group, /<span class="variation-title-label">S<\/span>/);
+  assert.match(group, /<span class="variation-title-label">M<\/span>/);
+  assert.match(group, /<span class="variation-title-label">L<\/span>/);
+  assert.match(group, /variation-stock-step" data-variant-id="v1"/, "S must still carry its own real stepper");
+  assert.match(group, /variation-stock-step" data-variant-id="v3"/, "L must still carry its own real stepper");
 });
 
 check("test_PRD_P0_147_variants_grid__each_color_header_keeps_the_same_one_pixel_outline_the_old_wrapper_had", async () => {

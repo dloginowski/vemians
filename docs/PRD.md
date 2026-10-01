@@ -6626,6 +6626,33 @@ that does not trace to one of these is a process failure (see §12).
     `button.closest(".row, .variant-size-cell")`, so a stepper works identically in the flat list and
     inside a grouped grid cell alike; no other stepper behavior changed.
 
+    REVISED A SIXTH TIME: "we don't want to upload a photo for each size, we just want to upload for
+    each option" — the owner's own words, on a product using Size ALONE, no Color at all (a garment this
+    shop only carries in one color — a real, common shape, not an edge case: several items from a real
+    resubmit sheet that same day had no Color column at all). `variantsGridAxes`' own "exactly two
+    dimensions" gate (above) meant a single Size-only axis never qualified for the grouped accordion at
+    all — it fell to the ordinary flat `Variations` list instead, which gives every ROW its own
+    `variant-photo-upload` button, one per SIZE of what is visually the exact same garment. There is
+    nothing a photo could actually differ by across sizes alone, so this was never "one photo per
+    option" the way the two-axis case already is — it was one photo per SIZE, the thing being fixed.
+
+    A product using Size alone now collapses into the identical one-group shape the two-axis case
+    already renders — `variantsGridAxes` returns a sentinel `rowsName: null` for this one case, and
+    `variantsGroupedAccordionHtml`'s own new branch for it keys by the Size axis alone (no row+col pair
+    to key by), labels the one header with the axis name itself ("Size," having no color value to show
+    instead), and anchors ONE photo-upload button to the first existing size, exactly as a color header
+    already anchors one to its own first existing size. Every size still lists as its own row inside, one
+    shared group, one shared photo. A single axis that is anything OTHER than Size (Color alone, with no
+    Size at all) is deliberately UNCHANGED: each of ITS values already differs visually from the next, so
+    one photo per variant (the flat list) already IS "one per option" there — grouping those away into a
+    single, falsely-shared photo would be the opposite mistake.
+
+    Confirmed against the real fixture DB: a Size-only product (S/M/L, no Color) renders exactly one
+    `.variant-group`, not three; exactly one `.variant-photo-upload` button for the whole product; every
+    size still lists, each with its own real stock stepper. Confirmed to actually fail without the fix —
+    the unpatched code falls to the flat list entirely (no `.variant-group` markup at all, one upload
+    button per size), reproducing the exact behavior described live.
+
 82. **`Test-PRD-P0-148-auto_generate_variations`** — RETIRED by `Test-PRD-P0-178-
     remove_category_item_options`. Used to auto-generate any missing Size/Color variation combinations
     for every product in a category (a cross product of the category's own assigned Option Set values),
