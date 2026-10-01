@@ -798,6 +798,18 @@ check("test_PRD_P0_199_no_run_without_a_click__a_page_load_never_starts_the_subm
   assert.match(script, /Nothing runs until you press Submit/, "a paused plan says so plainly");
 });
 
+check("test_PRD_P0_200_checklist_shows_placement_and_changes__the_page_script_shows_style_id_category_subcategory_and_changes", async () => {
+  /* "I want to see style IDs that are being provided by the table... and I
+     want to see our result category and subcategory that's actually being
+     applied to" -- the owner's own words. */
+  const { body } = await frontPage(OWNER);
+  const script = body.slice(body.indexOf("<script>"), body.lastIndexOf("</script>"));
+  assert.match(script, /"Sheet style ID", "Category", "Subcategory", "Style ID now", "Status", "Detail"/, "the results table carries all of them as columns");
+  assert.match(script, /checklist-meta/, "each checklist row shows its style ID and where it goes");
+  assert.match(script, /"Changes: " \+ r\.changes/, "and exactly what would change");
+  assert.match(script, /result\.status === "unchanged"/, "a row found already matching at submit time is reported, not hidden");
+});
+
 check("test_PRD_P0_123_table_everything_centered__headers_and_data_are_both_centered", async () => {
   /* P0-122 centered headers only, leaving data left-aligned — the owner's
      own words right after seeing that: "make the data center aligned
