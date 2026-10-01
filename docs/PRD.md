@@ -5183,6 +5183,22 @@ that does not trace to one of these is a process failure (see §12).
     unconditional: staff still sees them (the only place staff ever sees this data), a manager no
     longer does.
 
+    **REVISED ONCE MORE**: "if there is additional options or additional sizes added to the same
+    style ID, we're just adding more to the existing item... we're not rejecting them, we're adding
+    to them" — the owner's own words, after a real resubmit was refused for naming a size the
+    matched product did not have yet. `catalog.update_product`'s own `variations` schema
+    (`VARIATION_WITH_ID`) refused `option_values` outright until now, on the theory that growing an
+    EXISTING product with a brand-new size/color on a plain edit was "a materially different, larger
+    change the owner never actually asked for" — that theory no longer holds. The underlying merge
+    logic (`mergeVariations`, `catalog-writer.js`) already fully resolved an entry with no
+    `variant_id` as a new addition, `option_values` included, down to minting a genuinely new Option
+    Set value the same way `catalog.create_product` already does — it was only ever this tool's own
+    closed schema standing in the way. `quantity` deliberately stays off this shape even so:
+    restocking is `inventory.adjust`'s own job, a real ledger entry, never a silent side effect of an
+    unrelated variations edit landing a raw count straight onto a variation. This is the first piece
+    of a larger redesign already underway, folding the add/update split below (P0-182) back into one
+    style-ID-first operation — see that entry once it lands.
+
 72. **`Test-PRD-P0-137-item_active_toggle`** — The owner's own words, in the same request that moved
     Web and the newly-added Active checkbox beside the item's own name: "move the web and the active
     buttons... make them the same style as the rest of the fields... have the same style like

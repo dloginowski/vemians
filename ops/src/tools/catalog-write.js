@@ -467,21 +467,46 @@ const VARIATION_WITH_ID = {
        other optional field on this shape already uses. Only meaningful
        for a product that already has a vendor — see check() below. */
     unit_cost_minor: { type: "integer" },
+    /* REVISED: "if there is additional options or additional sizes added
+       to the same style ID, we're just adding more to the existing item...
+       we're not rejecting them, we're adding to them" — the owner's own
+       words, after a real resubmit was refused for naming a size the
+       product did not have yet. option_values was deliberately left off
+       this shape when update_product first shipped, on the theory that an
+       edit to an EXISTING product's variations was "a materially different,
+       larger change the owner never actually asked for" — that theory no
+       longer holds; this IS now something the owner has explicitly asked
+       for. Only meaningful on an entry with NO variant_id (a brand-new
+       size/color being added, never an edit to one that already exists —
+       mergeVariations, catalog-writer.js, already resolves it exactly like
+       catalog.create_product's own option_values does, down to minting a
+       genuinely new Option Set value if this shop has never used it
+       before); an entry carrying variant_id ignores it, the same way it
+       ignores anything else about a variation beyond what this shape lets
+       an edit actually change. */
+    option_values: {
+      type: "record",
+      maxKeys: CAPS.CATALOG_MAX_OPTION_VALUES_PER_VARIATION,
+      keyMaxLength: CAPS.CATALOG_OPTION_NAME_MAX,
+      valueMaxLength: CAPS.CATALOG_OPTION_VALUE_MAX,
+    },
   },
 };
 
-/* Only at creation, for now — "when I use agent input to ingest a CSV of
-   items, if the items specify size or color that is not currently a part
-   of our options, I want it to automatically create the option or size
-   dynamically and set those settings per item," the owner's own words.
-   field name -> value name (e.g. {"Size": "XL", "Color": "Red"}); an
-   Option Set or a value this shop has never used before is minted on the
-   spot rather than refused (catalog-writer.js's own ensureItemOptionValue
-   has the full write). Not on VARIATION_WITH_ID: an edit to an EXISTING
-   product's variations is a materially different, larger change (which
-   variation gets which value when some are kept and some are new) the
-   owner never actually asked for — catalog.update_product still refuses
-   this field outright rather than silently accepting and ignoring it. */
+/* "When I use agent input to ingest a CSV of items, if the items specify
+   size or color that is not currently a part of our options, I want it to
+   automatically create the option or size dynamically and set those
+   settings per item," the owner's own words. field name -> value name
+   (e.g. {"Size": "XL", "Color": "Red"}); an Option Set or a value this
+   shop has never used before is minted on the spot rather than refused
+   (catalog-writer.js's own ensureItemOptionValue has the full write).
+   REVISED: this used to be creation-only, on the theory that adding this
+   to VARIATION_WITH_ID too — letting an UPDATE introduce a brand-new
+   size/color — was "a materially different, larger change the owner
+   never actually asked for." The owner has now explicitly asked for
+   exactly that ("we're not rejecting them, we're adding to them") —
+   VARIATION_WITH_ID carries this same field now, its own comment has the
+   full reasoning. */
 const VARIATION_WITH_OPTIONS = {
   type: "object",
   schema: {
@@ -500,11 +525,11 @@ const VARIATION_WITH_OPTIONS = {
        count to protect yet, so there is nothing a second approval would
        be guarding against. Undefined leaves the variation at Square's own
        default (0, until someone counts it); only ever set here, at
-       creation — not on VARIATION_WITH_ID, the same "an edit to an
-       EXISTING variation is a materially different, larger decision"
-       reasoning option_values' own comment gives, one field up: restocking
-       an existing variation is inventory.adjust's own job, never a silent
-       side effect of an unrelated edit. */
+       creation — never on VARIATION_WITH_ID, unlike option_values one
+       field up (which moved there once the owner asked for it): restocking
+       an EXISTING variation is inventory.adjust's own job, a real ledger
+       entry, never a silent side effect of an unrelated edit landing a
+       raw count straight onto it. */
     quantity: { type: "integer" },
   },
 };
