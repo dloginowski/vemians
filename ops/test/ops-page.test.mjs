@@ -804,7 +804,8 @@ check("test_PRD_P0_200_checklist_shows_placement_and_changes__the_page_script_sh
      applied to" -- the owner's own words. */
   const { body } = await frontPage(OWNER);
   const script = body.slice(body.indexOf("<script>"), body.lastIndexOf("</script>"));
-  assert.match(script, /"Sheet style ID", "Category", "Subcategory", "Style ID now", "Status", "Detail"/, "the results table carries all of them as columns");
+  assert.match(script, /result\.sheetStyleId \|\| sheetStyle, category: result\.category \|\| category, subcategory: result\.subcategory \|\| subcategory/, "a finished row's own line carries the style ID, category and subcategory it actually landed in");
+  assert.match(script, /"style ID now " \+ result\.styleId/, "and the style ID it now carries");
   assert.match(script, /checklist-meta/, "each checklist row shows its style ID and where it goes");
   assert.match(script, /"Changes: " \+ r\.changes/, "and exactly what would change");
   assert.match(script, /result\.status === "unchanged"/, "a row found already matching at submit time is reported, not hidden");
@@ -839,6 +840,27 @@ check("test_PRD_P0_207_daily_limit_and_plurals__the_submit_loop_stops_at_the_fir
   assert.ok(hitAt > -1 && hitAt < conflictAt, "checked straight after each row's answer");
   assert.match(script.slice(hitAt, conflictAt), /break;/, "and the loop stops there");
   assert.match(script, /resets at midnight UTC/, "the one message says when it comes back");
+});
+
+check("test_PRD_P0_209_live_row_status__each_row_shows_a_check_or_an_x_in_place_and_the_x_copies_its_error", async () => {
+  /* "Instead of giving me a separate report... pop their status in,
+     immediately in that preview... I can cancel this or pause... a quick
+     little notification, it either completed with a check box or it failed
+     with an X and I can click on the X and see why... click on it to copy the
+     entire line, so I shouldn't have to drag around with my finger." */
+  const { body } = await frontPage(OWNER);
+  const script = body.slice(body.indexOf("<script>"), body.lastIndexOf("</script>"));
+  assert.match(script, /setRow\(it, "running"\)/, "a row shows it is being submitted");
+  assert.match(script, /kind === "fail" \? "✗"/, "a failed row shows an X");
+  assert.match(script, /: "✓"/, "a finished row shows a check");
+  assert.match(script, /navigator\.clipboard\.writeText/, "tapping copies the line");
+  assert.match(script, /data-a=pause/, "there is a Pause as well as a Cancel");
+  assert.match(script, /pauseRequested = true;/, "the Pause button asks the loop to stop");
+  assert.match(script, /if \(cancelRequested \|\| pauseRequested\) break;/, "the loop stops before the next row, not mid-row");
+  const runBody = script.slice(script.indexOf("async function runSubmit"), script.indexOf("function checkedItems"));
+  assert.ok(runBody.length > 500, "found the submit loop");
+  assert.doesNotMatch(runBody, /tableCard\(/, "no separate end-of-run report table");
+  assert.match(script, /Copy " \+ failedLines\.length \+ " failed/, "all failed lines can be copied in one tap");
 });
 
 check("test_PRD_P0_203_table_columns_fit_content__no_column_is_wider_than_its_own_data", async () => {

@@ -1254,6 +1254,13 @@ ${TABLE_CARD_CSS}
 .gate .checklist-row-duplicate { border: 1px solid var(--accent); border-radius: 6px; padding: 6px; }
 .gate .checklist-duplicate-warning { color: var(--accent); font-size: 12px; }
 .gate ul.checklist input[disabled] { cursor: default; opacity: 0.7; }
+/* Live per-row outcome: a small check or X where the checkbox was; the
+   full line (what to copy) sits under the row. */
+.gate .checklist-mark { flex: none; width: 26px; height: 26px; padding: 0; border-radius: 50%; border: 1px solid var(--rule); background: transparent; color: var(--muted); font: inherit; font-size: 14px; line-height: 1; cursor: pointer; }
+.gate .checklist-mark-ok { color: var(--ink); }
+.gate .checklist-mark-fail { color: var(--accent); border-color: var(--accent); font-weight: 700; }
+.gate .checklist-result { font-size: 12px; color: var(--muted); word-break: break-word; cursor: pointer; }
+.gate .checklist-row[data-state=fail] .checklist-result { color: var(--accent); }
 .gate progress { width: 100%; margin: 8px 0; accent-color: var(--ink); }
 .gate .checklist-status { margin: 0; color: var(--muted); font-size: 13px; }
 /*
@@ -1867,7 +1874,7 @@ function checklistCard(c) {
   el.innerHTML =
     "<h3></h3>" +
     "<ul class='checklist'></ul>" +
-    "<div class='chat row'><button data-a=submit>Submit</button><button data-a=cancel>Cancel</button></div>" +
+    "<div class='chat row'><button data-a=submit>Submit</button><button data-a=pause hidden>Pause</button><button data-a=cancel>Cancel</button></div>" +
     "<progress hidden max='100' value='0'></progress>" +
     "<p class='checklist-status' hidden></p>";
   el.querySelector("h3").textContent = startDone
@@ -1950,13 +1957,26 @@ function checklistCard(c) {
       warning.textContent = "Needs confirmation — " + r.confirmReason + ". Unchecked by default; check the box to apply it anyway.";
       fields.appendChild(warning);
     }
+    /* Live outcome, in place: a check when the row went through, an X when
+       it did not. The X (and the line under it) copies the whole row's
+       error when tapped, so nobody has to drag-select it. */
+    const result = document.createElement("div");
+    result.className = "checklist-result";
+    result.hidden = true;
+    fields.appendChild(result);
+    const mark = document.createElement("button");
+    mark.type = "button";
+    mark.className = "checklist-mark";
+    mark.hidden = true;
     li.appendChild(box);
     li.appendChild(fields);
+    li.appendChild(mark);
     list.appendChild(li);
   });
 
   const submitBtn = el.querySelector("[data-a=submit]");
   const cancelBtn = el.querySelector("[data-a=cancel]");
+  const pauseBtn = el.querySelector("[data-a=pause]");
   const bar = el.querySelector("progress");
   const status = el.querySelector(".checklist-status");
 
@@ -1976,8 +1996,22 @@ function checklistCard(c) {
      skipped). */
   let running = false;
   let cancelRequested = false;
+  let pauseRequested = false;
+  let finished = false;
+  /* Counts and the failed lines belong to the whole card, not one click: a
+     pause and a resume are one job, and Copy failed covers both halves. */
+  let okCount = 0;
+  let failCount = 0;
+  let processed = startDone;
+  const failedLines = [];
 
   cancelBtn.addEventListener("click", () => {
+    /* After the run has ended this button reads Close: it only puts the
+       panel away, there is nothing left to cancel. */
+    if (finished) {
+      gate.textContent = "";
+      return;
+    }
     if (running) {
       cancelRequested = true;
       cancelBtn.disabled = true;
@@ -2056,21 +2090,53 @@ function checklistCard(c) {
       return;
     }
     bar.hidden = false;
-    const planTotal = startDone + items.length;
+    const planTotal = c.total || startDone + c.rows.length;
     bar.max = planTotal;
-    bar.value = startDone;
+    bar.value = processed;
 
-    let created = 0;
-    let updated = 0;
-    let parked = 0;
-    let skipped = 0;
-    let unchanged = 0;
-    let quotaStopped = 0;
     const QUOTA_HIT = /daily row write limit|exceeded D1/i;
-    const rows = [];
-    for (const { row, displayRow, title, sheetStyle, category, subcategory } of items) {
-      if (cancelRequested) break;
-      status.textContent = "Submitting " + (bar.value + 1) + " of " + planTotal + "…";
+    let stoppedNote = "";
+    pauseBtn.hidden = false;
+    pauseBtn.disabled = false;
+
+    function lineOf(it, outcome, detail) {
+      const where = [it.category, it.subcategory].filter(Boolean).join(" › ");
+      const shown = outcome + (detail ? " — " + detail : "");
+      /* full is what a tap copies (the row's own identity plus the reason, so
+         it can be pasted on its own); short is all that fits under the row. */
+      return { full: "Row " + it.displayRow + " · " + it.title + (it.sheetStyle ? " · Style " + it.sheetStyle : "") + (where ? " · " + where : "") + " · " + shown, short: shown };
+    }
+
+    /* kind: running, ok or fail. The checkbox gives way to the mark; the
+       full line lives under the row, hidden until the mark is tapped. */
+    function setRow(it, kind, line) {
+      const li = list.querySelector("li.checklist-row[data-row='" + it.row + "']");
+      if (!li) return;
+      const mark = li.querySelector(".checklist-mark");
+      const out = li.querySelector(".checklist-result");
+      li.dataset.state = kind;
+      li.querySelector(".checklist-check").hidden = true;
+      mark.hidden = false;
+      mark.className = "checklist-mark checklist-mark-" + kind;
+      mark.textContent = kind === "running" ? "…" : kind === "fail" ? "✗" : "✓";
+      mark.title = kind === "fail" ? "Tap to see why and copy it" : kind === "ok" ? "Tap for details" : "Submitting";
+      if (line !== undefined) {
+        li.dataset.line = line.full;
+        out.textContent = line.short;
+      }
+      if (kind === "fail") out.hidden = false;
+      if (kind === "running") li.scrollIntoView({ block: "nearest" });
+    }
+
+    function refreshStatus() {
+      status.textContent = "Submitting " + (processed + 1) + " of " + planTotal + " — " + okCount + " done" + (failCount ? ", " + failCount + " failed" : "") + "…";
+    }
+
+    for (const it of items) {
+      if (cancelRequested || pauseRequested) break;
+      const { row, displayRow, title, sheetStyle, category, subcategory } = it;
+      setRow(it, "running");
+      refreshStatus();
       let result;
       try {
         const res = await fetch("/ops/agent/batch-submit-row", {
@@ -2082,73 +2148,56 @@ function checklistCard(c) {
       } catch (err) {
         result = { ok: false, reply: "Request failed: " + err.message };
       }
-      bar.value += 1;
-      /* Cloudflare refusing every database write for the rest of the day
-         (the free plan's daily row-write limit) is not a per-row problem:
-         each remaining row would be refused the same way, one request and
-         one long error each. Stop at the first, and say it once, plainly. */
-      if (QUOTA_HIT.test([result.summary, result.reply, result.reason, result.detail].join(" "))) {
-        quotaStopped = planTotal - bar.value + 1;
-        skipped += 1;
-        rows.push([String(displayRow), title, sheetStyle || "", category || "", subcategory || "", "", "not saved", "Cloudflare's daily database write limit was reached"]);
+      processed += 1;
+      bar.value = processed;
+      const text = [result.summary, result.reply, result.reason, result.detail].filter(Boolean).join(" ");
+      /* Cloudflare refusing every database write for the rest of the day is
+         not a per-row problem: stop at the first, and say it once. */
+      if (QUOTA_HIT.test(text)) {
+        failCount += 1;
+        const line = lineOf(it, "FAILED", "Cloudflare's daily database write limit was reached. It resets at midnight UTC. Nothing after this row was attempted.");
+        failedLines.push(line.full);
+        setRow(it, "fail", line);
+        stoppedNote = " Stopped: Cloudflare's daily write limit was reached (resets at midnight UTC).";
         break;
       }
       /* "That run is over" (409): a newer click replaced this run, or the
          upload was cancelled. Every remaining row would be refused the same
-         way, one request each -- stop, and say so. */
+         way, one request each -- stop. */
       if (!result.ok && result.httpStatus === 409) {
-        skipped += 1;
-        rows.push([String(displayRow), title, sheetStyle || "", category || "", subcategory || "", "", "skipped", result.reply || "this run is over"]);
+        failCount += 1;
+        const line = lineOf(it, "FAILED", result.reply || "this run is over");
+        failedLines.push(line.full);
+        setRow(it, "fail", line);
+        stoppedNote = " Stopped: this run is over.";
         break;
       }
-      /* "updated" is a resubmit matched to a product this same batch tool
-         already made (import_style_number, Test-PRD-P0-179-
-         import_style_number_matching) -- its own outcome, counted and shown
-         separately from a fresh "created" rather than falling through to
-         the "skipped" bucket below, which is what an unrecognized status
-         used to mean. displayRow, never the raw row value this fetch
-         submits by -- a quantity-reconciliation row submits under its own,
-         deliberately offset rowNumber (batch.js's own EXTRA_ROW_ID_OFFSET)
-         so it can never be confused with the catalog edit riding alongside
-         it from the SAME csv line; displayRow carries that original line
-         back through so this results table still reads as "Row N" the
-         person's own spreadsheet agrees with. No backtick code-formatting
-         in this comment on purpose -- this whole script block is plain
-         text inside the page's own outer template literal, and a literal
-         backtick anywhere in it would close that one early. */
-      /* Where this row landed: the sheet's own style ID, the category and
-         subcategory it was filed under, and the style ID it now carries.
-         A request that failed outright never reached the server's own
-         answer, so it falls back to what the checklist itself showed. */
-      const place = result.ok
-        ? [result.sheetStyleId || "", result.category || "", result.subcategory || "", result.styleId || ""]
-        : [sheetStyle || "", category || "", subcategory || "", ""];
+      /* Where the row actually landed, read back from the catalog after the
+         write, beats what the checklist planned. */
+      const landed = { ...it, sheetStyle: result.sheetStyleId || sheetStyle, category: result.category || category, subcategory: result.subcategory || subcategory };
       if (result.ok && (result.status === "created" || result.status === "updated")) {
-        if (result.status === "updated") updated += 1;
-        else created += 1;
-        rows.push([String(displayRow), result.title, ...place, result.status, result.summary]);
+        okCount += 1;
+        setRow(it, "ok", lineOf(landed, result.status, [result.summary, result.styleId ? "style ID now " + result.styleId : ""].filter(Boolean).join(" · ")));
       } else if (result.ok && result.status === "unchanged") {
-        unchanged += 1;
-        rows.push([String(displayRow), result.title, ...place, "no change", result.reason || ""]);
-      } else if (result.ok && result.status === "parked") {
-        parked += 1;
-        rows.push([String(displayRow), result.title, ...place, "needs a person", (result.summary || "") + (result.url ? " — " + result.url : "")]);
-      } else if (result.ok) {
-        skipped += 1;
-        rows.push([String(displayRow), result.title, ...place, "skipped", result.reason || ""]);
+        okCount += 1;
+        setRow(it, "ok", lineOf(landed, "no change", result.reason || "already up to date"));
       } else {
-        skipped += 1;
-        rows.push([String(displayRow), title, ...place, "skipped", result.reply || "failed"]);
+        failCount += 1;
+        let line;
+        if (result.ok && result.status === "parked") line = lineOf(it, "needs a person", (result.summary || "") + (result.url ? " — " + result.url : ""));
+        else if (result.ok) line = lineOf(it, "skipped", result.reason || "");
+        else line = lineOf(it, "FAILED", result.reply || "failed");
+        failedLines.push(line.full);
+        setRow(it, "fail", line);
       }
     }
     running = false;
+    pauseBtn.hidden = true;
 
-    /* Stopped partway through, on purpose -- whatever this pass itself
-       already did (rows, above) is real and stays reported exactly like a
-       natural finish; what is left in the plan (never attempted) is dropped
-       server-side the same way the not-yet-started cancel above already
-       does, so it cannot resurface on a later reload either. Fire-and-forget
-       for the identical reason that one already is. */
+    /* Stopped partway on purpose: cancel drops what is left server-side so it
+       cannot resurface on a reload. A pause or a natural finish just closes
+       this click's run (a row whose bookkeeping could not be written never
+       leaves the upload locked); a pause leaves the rest for the next Submit. */
     if (cancelRequested) {
       fetch("/ops/agent/batch-cancel", {
         method: "POST",
@@ -2156,8 +2205,6 @@ function checklistCard(c) {
         body: JSON.stringify({ id: c.id }),
       }).catch(() => {});
     } else {
-      /* This click's loop is over: close its run, so a row whose bookkeeping
-         could not be written never leaves the upload locked. */
       fetch("/ops/agent/batch-finish", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -2165,27 +2212,83 @@ function checklistCard(c) {
       }).catch(() => {});
     }
 
-    gate.textContent = "";
-    const updatedNote = (updated ? updated + " updated, " : "") + (unchanged ? unchanged + " already up to date, " : "");
-    const cancelNote = cancelRequested ? " Cancelled before the rest." : "";
-    if (quotaStopped) {
-      entry("agent", "Stopped. Cloudflare's free database plan has used up its daily write limit (it resets at midnight UTC), so nothing more can be saved today. " + quotaStopped + " row(s) from here on were not attempted. Everything before this point is saved. Once the limit resets, send the file again: rows already saved show as no change.");
+    const summaryText = okCount + " done" + (failCount ? ", " + failCount + " failed" : "") + ".";
+    if (pauseRequested && !cancelRequested) {
+      pauseRequested = false;
+      status.textContent = "Paused — " + summaryText + " Press Submit to continue with the rest.";
+      submitBtn.textContent = "Resume";
+      submitBtn.disabled = false;
+      cancelBtn.disabled = false;
+      list.querySelectorAll("li.checklist-row:not([data-state]) input").forEach((b) => (b.disabled = false));
+      return;
     }
-    entry("agent", created + " created, " + updatedNote + parked + " need a person's decision, " + skipped + " skipped." + cancelNote);
-    tableCard({
-      title: "Products: " + created + " created, " + updatedNote + parked + " need a person's decision, " + skipped + " skipped" + cancelNote,
-      columns: ["Row", "Title", "Sheet style ID", "Category", "Subcategory", "Style ID now", "Status", "Detail"],
-      rows,
-      /* Same "9 need a person's decision... collapsed" complaint this
-         checklist itself was built to answer — see .table-card.tall's own
-         comment (TABLE_CARD_CSS, above). */
-      tall: true,
-    });
+    finished = true;
+    el.querySelector("h3").textContent = cancelRequested ? "Cancelled" : "Finished";
+    status.textContent = summaryText + (cancelRequested ? " Cancelled before the rest." : "") + stoppedNote + (failCount ? " Tap an ✗ to see why and copy it." : "");
+    submitBtn.hidden = true;
+    cancelBtn.textContent = "Close";
+    cancelBtn.disabled = false;
+    if (failedLines.length) {
+      const copyAll = document.createElement("button");
+      copyAll.textContent = "Copy " + failedLines.length + " failed";
+      copyAll.addEventListener("click", () => copyText(failedLines.join(String.fromCharCode(10)), "All " + failedLines.length + " failed lines copied."));
+      cancelBtn.parentNode.insertBefore(copyAll, cancelBtn);
+    }
   }
+
+  /* Copy without selecting: the clipboard API where the page may use it, a
+     hidden textarea otherwise (some phone browsers refuse the first). */
+  function copyText(text, doneMessage) {
+    const finish = () => {
+      status.hidden = false;
+      status.textContent = doneMessage;
+    };
+    const fallback = () => {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand("copy");
+        finish();
+      } catch (err) {
+        status.hidden = false;
+        status.textContent = "Could not copy. Press and hold the line to select it.";
+      }
+      ta.remove();
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(finish, fallback);
+    } else {
+      fallback();
+    }
+  }
+
+  pauseBtn.addEventListener("click", () => {
+    pauseRequested = true;
+    pauseBtn.disabled = true;
+    status.textContent = "Pausing after the row in progress…";
+  });
+
+  list.addEventListener("click", (e) => {
+    const target = e.target.closest ? e.target.closest(".checklist-mark, .checklist-result") : null;
+    if (!target) return;
+    const li = target.closest("li.checklist-row");
+    if (!li || !li.dataset.state || li.dataset.state === "running") return;
+    const out = li.querySelector(".checklist-result");
+    if (target.classList.contains("checklist-mark") && li.dataset.state === "ok") {
+      out.hidden = !out.hidden;
+      return;
+    }
+    out.hidden = false;
+    copyText(li.dataset.line || "", "Copied: " + (li.dataset.line || "").slice(0, 80));
+  });
 
   function checkedItems() {
     return [...list.querySelectorAll("li.checklist-row")]
-      .filter((li) => li.querySelector(".checklist-check").checked)
+      .filter((li) => !li.dataset.state && li.querySelector(".checklist-check").checked)
       .map((li) => ({
         row: Number(li.dataset.row),
         displayRow: Number(li.dataset.displayRow),
