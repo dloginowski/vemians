@@ -336,16 +336,22 @@ const INPUT_BAR_CSS = `
    it wins the tie while a checked button is also being hovered — the
    only state orange should ever mean here is "checked." */
 .category-menu .category-item.active { border-color: var(--accent); color: var(--accent); background: rgba(217, 119, 87, 0.14); }
-/* The "Hi Dimitri" spot (opsPage(), formerly OPS_CSS only) — moved here so
-   Items' own category status and the Dashboard's own mode status can sit
+/* The "Hi Dimitri" spot (opsPage(), formerly OPS_CSS only; moved here so
+   Items' own category status and the Dashboard's own mode status could sit
    in the exact same place and font, rather than floating in a line above
-   the search/compose bar the way both used to. The owner's own words:
+   the search/compose bar the way both used to). The owner's own words:
    "put the categories in there, in the top... use that same font, same
    kind of layout... so that all of these tabs have kinda matching
    layouts." Centred and quiet on purpose — a status line, not the thing
-   on the page asking to be read first. Always shown, never conditionally
-   hidden: "Hi Dimitri" is there whether or not you have typed anything
-   yet, and so is "All categories"/"Showing: All" here.
+   on the page asking to be read first. Still always shown, never
+   conditionally hidden, for Items' "All categories" and the Dashboard's
+   "Showing: All": a persistent filter/status line a person may check at
+   any point, not a one-time greeting. The chat page no longer has a
+   .greet section of its own at all — "Hi Dimitri" moved into #log itself
+   as that conversation's own first message (views.js's own chat-page
+   markup, OPS_CSS's .ops.chat-page rules above), since a welcome line is
+   exactly the kind of thing that should scroll away with the rest of an
+   old conversation, not sit pinned above it forever.
    15px on every one of the three, not just Dashboard's own — the owner's
    own words: "make sure that the agents and the items also have the
    bigger font size for the top header... just so it's all consistent."
@@ -1058,26 +1064,21 @@ ${INPUT_BAR_CSS}
    same 100vh fallback SHELL_CSS's own .shell and .ops.items-page already
    use, for the identical reason: 100vh alone is measured against the
    largest possible mobile viewport, not the one actually visible. */
+/* REVISED: "it really could be part of the main chat... when the chat
+   fills the screen it just kind of scrolls away" — the owner's own words,
+   right after the first version of this shipped. That version kept the
+   greeting as its own section floating above .chat-top, with a scroll
+   listener toggling a collapsed class on it — a second mechanism bolted
+   on next to #log's own ordinary scrolling, when #log already scrolls
+   its own content away exactly like this every time a conversation grows
+   past one screen. The chat page no longer renders a .greet section of
+   its own at all (Items' and the Dashboard's own .greet, a persistent
+   filter/status line rather than a one-time welcome, is untouched —
+   still exactly where it was, two sections below). The greeting is now
+   simply the FIRST BUBBLE in #log (below) — an ordinary .log p.agent
+   message, scrolling out of view the same way the oldest message in any
+   real conversation already does, with no JS of its own needed at all. */
 .ops.chat-page { display: flex; flex-direction: column; height: 100vh; height: 100dvh; box-sizing: border-box; }
-.ops.chat-page .greet {
-  flex: 0 0 auto; overflow: hidden; max-height: 60px; opacity: 1;
-  transition: max-height .2s ease, opacity .15s ease, margin .2s ease;
-}
-/* "That welcome line up above should not be permanently there... it's a
-   temporary thing that should only be there on a fresh chat... the same
-   way when we scroll in the main website, the heading kind of goes away
-   when you scroll down" — the owner's own words. Scoped to .chat-page
-   specifically, the same way every other chat-only layout rule here
-   already is (.ops itself is shared by Items and the Dashboard too, and
-   their own .greet is a persistent filter/status line, not a one-time
-   welcome message -- "always shown, never conditionally hidden" for
-   THOSE two, unchanged, immediately above). #log's own scroll event
-   (below, the client script) toggles this class the moment a fresh
-   chat's own default scrollTop of 0 moves away from it; margin collapses
-   along with max-height so no gap is left behind once it is gone. 60px
-   is generous on purpose — enough for the greeting to wrap to two lines
-   at a narrow width without ever clipping mid-collapse. */
-.ops.chat-page .greet.greet-collapsed { max-height: 0; opacity: 0; margin: 0; }
 .ops.chat-page .chat-top { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .ops.chat-page .log { flex: 1 1 auto; min-height: 0; }
 /* REVISED, THEN REVISED AGAIN — a real transcript: "I can't click
@@ -1103,7 +1104,6 @@ ${INPUT_BAR_CSS}
    no pending approval), or it floats as its own layer strictly above
    the composer, with its own bounded height and scroll for a card too
    tall to fit above it. */
-.log:empty { display: none; }
 .log p {
   margin: 0; padding: 8px 12px; border-radius: 14px;
   max-width: 82%; font-size: 14px; line-height: 1.4;
@@ -1569,13 +1569,9 @@ export function opsPage(identity, { hasKey, role }) {
     `<main class="ops chat-page">
 ${id}
 
-  <section class="greet" id="greet">
-    <h1>Hi ${esc(firstName)} — what would you like to do?</h1>
-  </section>
-
   <section class="key chat-top">
     ${hasKey ? "" : '<p class="hint">No model connected &mdash; set <code>ANTHROPIC_API_KEY</code> to turn this on.</p>'}
-    <div class="log" id="log"></div>
+    <div class="log" id="log"><p class="agent">Hi ${esc(firstName)} — what would you like to do?</p></div>
     <div id="gate"></div>
   </section>
 
@@ -1604,23 +1600,6 @@ ${COPY_JS}
 
 const log = document.getElementById("log");
 const gate = document.getElementById("gate");
-
-/* "That welcome line up above should not be permanently there... only on a
-   fresh chat... the same way when we scroll in the main website, the
-   heading kind of goes away" — the owner's own words. greet-collapsed
-   (OPS_CSS, above) does the actual hiding; this just tracks #log's own
-   scrollTop, the one thing that tells a fresh chat (nothing to scroll,
-   stuck at 0) apart from one with enough history to have scrolled away
-   from it. Re-checked on every scroll rather than latched permanently
-   once collapsed, so scrolling back up to the very top (reviewing the
-   start of a long conversation) brings the greeting back too, the same
-   two-way behaviour the owner's own reference example has. */
-const greet = document.getElementById("greet");
-if (greet) {
-  log.addEventListener("scroll", () => {
-    greet.classList.toggle("greet-collapsed", log.scrollTop > 4);
-  });
-}
 
 /* This tab's own memory of the conversation so far — the literal chat-bubble
    text, nothing more (no tool steps, no re-sent image bytes for a photo
