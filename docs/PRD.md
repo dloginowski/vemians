@@ -9475,6 +9475,16 @@ that does not trace to one of these is a process failure (see §12).
     from there. It now says to attach the CSV right in the chat with the paperclip, that the column mapping is
     shown before anything is created, and never to send the person to another page for the upload.
 
+138. **`Test-PRD-P0-206-sheet_style_id_shown`** — "It's being supplied. It's in the first column. Why is it being
+    auto-generated?" — the owner's own words, after the column-mapping preview showed `(auto-generated)` for
+    the style ID of a row whose sheet carried one. The preview printed that literal for every new product
+    regardless of the sheet (`Test-PRD-P0-177-fluid_style_id`: the shop's `style_id` is built from the category
+    it lands in plus the next free number, never the sheet's own text). That is still how the real ID is made,
+    but the preview now shows what the sheet gave: a row with a style number reads "123-04-007 (from the sheet;
+    the shop ID follows its category)", the first three digit groups only, the colour and size split off as
+    before. The sheet's number is kept as the key a resubmit matches by. Only a row with no style number at all
+    still reads `(auto-generated)`.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

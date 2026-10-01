@@ -6473,9 +6473,22 @@ check("test_PRD_P0_146_dynamic_option_values__the_preview_splits_a_full_style_nu
   const { previewBatch } = await import("../src/batch.js");
   const f = await fixture();
   const preview = await previewBatch(f.env, "title,category,price,style id\nWool Coat,Outerwear,450.00,01-04-001-BLK-M\n", "products", "add");
-  assert.equal(preview.sampleRows[0].style_id, "(auto-generated)");
+  assert.equal(preview.sampleRows[0].style_id, "01-04-001 (from the sheet; the shop ID follows its category)");
   assert.equal(preview.sampleRows[0].color, "BLK");
   assert.equal(preview.sampleRows[0].size, "M");
+});
+
+check("test_PRD_P0_206_sheet_style_id_shown__a_row_with_a_style_number_is_never_previewed_as_auto_generated", async () => {
+  /* "It's being supplied. It's in the first column. Why is it being
+     auto-generated?" A sheet that carries a style number shows it; only a row
+     with none at all still reads "(auto-generated)". */
+  const { previewBatch } = await import("../src/batch.js");
+  const f = await fixture();
+  const withId = await previewBatch(f.env, "Style Number,title,category,price\n123-04-007-RED-M,Wool Coat,Outerwear,450.00\n", "products", "add");
+  assert.match(withId.sampleRows[0].style_id, /^123-04-007 /);
+  assert.doesNotMatch(withId.sampleRows[0].style_id, /auto-generated/);
+  const without = await previewBatch(f.env, "title,category,subcategory,price\nWhite Blazer,Jacket,Blazer,175.00\n", "products", "add");
+  assert.equal(without.sampleRows[0].style_id, "(auto-generated)");
 });
 
 check("test_PRD_P0_146_dynamic_option_values__a_bare_style_id_with_no_suffix_still_derives_no_color_or_size", async () => {
@@ -6485,7 +6498,7 @@ check("test_PRD_P0_146_dynamic_option_values__a_bare_style_id_with_no_suffix_sti
   const { previewBatch } = await import("../src/batch.js");
   const f = await fixture();
   const preview = await previewBatch(f.env, "title,category,price,style id\nWool Coat,Outerwear,450.00,01-04-001\n", "products", "add");
-  assert.equal(preview.sampleRows[0].style_id, "(auto-generated)");
+  assert.equal(preview.sampleRows[0].style_id, "01-04-001 (from the sheet; the shop ID follows its category)");
   assert.equal(preview.sampleRows[0].color, null);
   assert.equal(preview.sampleRows[0].size, null);
 });
@@ -8946,7 +8959,7 @@ check("test_PRD_P0_152_style_number_grouping__the_preview_shows_the_same_sku_fal
     "add",
   );
   assert.equal(preview.sampleRows[0].sku, "(auto-generated)");
-  assert.equal(preview.sampleRows[0].style_id, "(auto-generated)");
+  assert.equal(preview.sampleRows[0].style_id, "001-001-001 (from the sheet; the shop ID follows its category)");
 });
 
 check("test_PRD_P0_152_style_number_grouping__the_preview_drops_a_tbd_color_or_size_the_same_way_the_real_draft_does", async () => {
@@ -9017,7 +9030,7 @@ check("test_PRD_P0_89_batch_preview_confirm__a_style_numbered_group_previews_siz
      a real, already-known value at preview time any more, so the old
      "never not found" guarantee is moot: there is no per-variant sku list
      to show at all. */
-  assert.equal(row.style_id, "(auto-generated)");
+  assert.equal(row.style_id, "001-001-001 (from the sheet; the shop ID follows its category)");
   assert.equal(row.sku, "(auto-generated)");
   assert.equal(row.title, "Black hand-painted blazer");
   assert.equal(row.variants, 3, "the plainest possible confirmation that grouping actually happened");
@@ -9076,7 +9089,7 @@ check("test_PRD_P0_89_batch_preview_confirm__a_style_id_less_row_in_a_mixed_shee
      its own real, distinguishing field (color) instead. */
   const grouped = preview.sampleRows.find((r) => r.color === "Blue | Blue");
   assert.ok(grouped, "the style-numbered group must still be there");
-  assert.equal(grouped.style_id, "(auto-generated)");
+  assert.equal(grouped.style_id, "001-001-003 (from the sheet; the shop ID follows its category)");
   assert.equal(grouped.variants, 2);
   assert.equal(grouped.size, "S | M");
   assert.equal(grouped.sku, "(auto-generated)");
