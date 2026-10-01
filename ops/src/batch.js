@@ -133,6 +133,28 @@ async function parkRows(env, { actor, role, toolName, rate, onProgress }, rows) 
  */
 const NOT_ROW_FIXABLE = /requires the .* role|^rate cap:|no tool '|cannot be passed as an argument|^bad_arguments/i;
 
+/*
+ * A real production bug, found live: the checklist/plan mechanism
+ * (planProductBatch's own readyRows, stashed in agent_batch_plan) addresses
+ * ONE row for its own later, separate HTTP submission (POST /agent/batch-
+ * submit-row) by `rowNumber` ALONE (submitBatchPlanRow's own
+ * `rows.findIndex((r) => r.rowNumber === row)`, agent.js) -- fine as long as
+ * every stashed row's own rowNumber is unique, true before a single CSV row
+ * could ever produce more than one independent action. A matched row's own
+ * quantity reconciliation (Test-PRD-P0-190-quantity_reconciliation_on_
+ * resubmit) is the first thing that breaks that: its own inventory.adjust
+ * row and the catalog.update_product row it rides alongside both come from
+ * the SAME CSV line, so without this offset both would stash under the
+ * IDENTICAL rowNumber -- submitting either one by number would silently
+ * find and consume WHICHEVER of the two happens to still be first in the
+ * stored array, not necessarily the one actually requested. Offset well
+ * past CAPS.BATCH_MAX_ROWS, the largest a real CSV row number can ever be,
+ * so a synthetic row's own rowNumber can never collide with a real one;
+ * `displayRow` (set alongside, below) carries the ORIGINAL csv line back
+ * through for anything that shows "Row N" to a person, so this offset is
+ * never something they see. */
+const EXTRA_ROW_ID_OFFSET = CAPS.BATCH_MAX_ROWS * 10;
+
 /* "I think we should have two distinct commands. Add new products or
    update products" -- the owner's own words. Every caller into this
    file's own product-batch entry points (draftProductBatch, planProductBatch,
@@ -151,13 +173,13 @@ async function createRows(env, { actor, role, rate, onProgress }, rows) {
   const created = [];
   const parked = [];
   const skipped = [];
-  const settle = async (rowNumber, title, toolName, args, reason) => {
+  const settle = async (displayRow, title, toolName, args, reason) => {
     if (NOT_ROW_FIXABLE.test(reason)) {
-      skipped.push({ row: rowNumber, title, reason });
+      skipped.push({ row: displayRow, title, reason });
       return "skipped";
     }
     const { url } = await parkForApproval(env, { name: toolName, args, actor, role, tier: "T2", summary: reason });
-    parked.push({ row: rowNumber, title, url, summary: reason });
+    parked.push({ row: displayRow, title, url, summary: reason });
     return "parked";
   };
   /* toolName is now PER-ROW, not shared for the whole call — a resubmit
@@ -171,23 +193,24 @@ async function createRows(env, { actor, role, rate, onProgress }, rows) {
      never a freshly created one, so `handle` falls back to `args.handle`
      rather than a `result.data.product` shape only create/update actually
      return. */
-  for (const { rowNumber, title, args, toolName, note } of rows) {
+  for (const { rowNumber, displayRow, title, args, toolName, note } of rows) {
+    const display = displayRow ?? rowNumber;
     let status;
     const gate = await runTool(toolName, args, { actor, role, env, rate });
     if (!gate?.needsApproval) {
-      status = await settle(rowNumber, title, toolName, args, gate?.error || "could not be validated");
+      status = await settle(display, title, toolName, args, gate?.error || "could not be validated");
     } else {
       const result = await runTool(toolName, args, { actor, role, env, rate, approvalToken: gate.data.approval.token });
       if (result?.error || result?.denied) {
-        status = await settle(rowNumber, title, toolName, args, result.error || result.denied || "was refused");
+        status = await settle(display, title, toolName, args, result.error || result.denied || "was refused");
       } else {
         const action = toolName === "catalog.create_product" ? "created" : "updated";
         const summary = note ? `${gate.data.would} -- ${note}` : gate.data.would;
-        created.push({ row: rowNumber, title, handle: result.data?.product?.handle ?? args.handle, summary, action });
+        created.push({ row: display, title, handle: result.data?.product?.handle ?? args.handle, summary, action });
         status = action;
       }
     }
-    onProgress?.({ done: created.length + parked.length + skipped.length, total: rows.length, row: rowNumber, title, status });
+    onProgress?.({ done: created.length + parked.length + skipped.length, total: rows.length, row: display, title, status });
   }
   return { created, parked, skipped };
 }
@@ -1371,7 +1394,8 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
           const current = Number(stockRow?.on_hand ?? 0);
           if (current !== parsedQuantity) {
             quantityAdjustments.push({
-              rowNumber,
+              rowNumber: EXTRA_ROW_ID_OFFSET + rowNumber,
+              displayRow: rowNumber,
               title: match.title && match.title !== existing.title ? `${existing.title} — ${match.title}` : existing.title,
               args: { variant_id: match.id, delta: parsedQuantity - current },
               toolName: "inventory.adjust",
@@ -2254,9 +2278,30 @@ export async function planProductBatch(env, { text, actor, role, mode }) {
  * meant by "the title." Whatever a person types still has to clear
  * catalog.create_product's own real checks (CATALOG_TITLE_MAX included) —
  * nothing here validates it twice.
+ *
+ * REVISED: only for a row whose own tool actually HAS a `title` field —
+ * catalog.create_product and catalog.update_product, the only two this
+ * whole mechanism was ever built for. The checklist's own title box is
+ * always populated and always resent on submit (checklistCard(), views.js),
+ * whether or not a person actually touched it, so `editedTitle` is
+ * effectively always "present" from here on out: a real production bug this
+ * exact gap caused once inventory.adjust (Test-PRD-P0-190-
+ * quantity_reconciliation_on_resubmit) became the first OTHER row type a
+ * resubmit could ever produce — its own schema is a closed { variant_id,
+ * delta }, no `title` at all, so every one of its rows was unconditionally
+ * refused ("unknown argument 'title'") and silently parked as "needs a
+ * person" instead of actually moving stock, exactly the kind of row a
+ * batch's own quantity reconciliation (and catalog.set_square_attributes's
+ * own vendor/cost-only fallback, draftProductUpdate above, the SAME latent
+ * exposure) was supposed to apply on its own.
  */
+const TITLE_EDITABLE_TOOLS = new Set(["catalog.create_product", "catalog.update_product"]);
+
 export async function submitProductBatchRow(env, { actor, role, rate }, row, editedTitle) {
-  const target = editedTitle ? { ...row, title: editedTitle, args: { ...row.args, title: editedTitle } } : row;
+  const target =
+    editedTitle && TITLE_EDITABLE_TOOLS.has(row.toolName)
+      ? { ...row, title: editedTitle, args: { ...row.args, title: editedTitle } }
+      : row;
   const { created, parked, skipped } = await createRows(env, { actor, role, rate }, [target]);
   if (created.length) return { status: created[0].action, ...created[0] };
   if (parked.length) return { status: "parked", ...parked[0] };
