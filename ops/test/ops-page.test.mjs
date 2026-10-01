@@ -985,19 +985,24 @@ check("test_PRD_P0_91_quiet_greeting__the_heading_shrank_to_the_smallest_meta_te
   assert.doesNotMatch(body, /\.greet h1\s*\{[^}]*font-size:\s*var\(--type\)/s, "must not still be base body size");
 });
 
-check("test_PRD_P0_125_status_headings_all_match__the_agent_greeting_and_items_status_share_the_bumped_size", async () => {
+check("test_PRD_P0_125_status_headings_all_match__items_and_dashboard_status_lines_share_the_bumped_size", async () => {
   /* The owner's own words: "make sure that the agents and the items
      also have the bigger font size for the top header, the one that
      says like Hi Dimitri, what you'd like to do today, just so it's all
      consistent." Dashboard's own #dash-status-heading (Test-PRD-P0-116-dashboard_status_line_refinements)
-     had already been bumped to 15px on its own; rather than leave
-     opsPage's "Hi Dimitri" and Items' "All categories" smaller, the
-     SHARED .greet h1 rule itself now carries that same 15px — one size,
-     one place to look, not the same number declared on a second,
-     page-specific selector. */
-  const { body: opsBody } = await frontPage(OWNER);
-  assert.match(opsBody, /<h1>Hi \S+ — what would you like to do\?<\/h1>/, "sanity check: this is really the greeting heading");
-  assert.match(opsBody, /\.greet h1\s*\{[^}]*font-size:\s*15px/s, "the greeting must share the Dashboard's own 15px");
+     had already been bumped to 15px on its own; the SHARED .greet h1 rule
+     itself carries that same 15px for Items' and the Dashboard's own
+     status lines — one size, one place to look, not the same number
+     declared on a second, page-specific selector.
+     REVISED (P0-188): the chat page's own "Hi Dimitri" is no longer a
+     .greet h1 status heading at all -- it moved into #log as that
+     conversation's own first message, an ordinary chat bubble reading at
+     the SAME size every other bubble does (14px), not this 15px. This
+     test now covers only the two pages that still have a persistent
+     status line: Items and the Dashboard, both still sharing .greet h1. */
+  const { body } = await frontPage(OWNER);
+  assert.doesNotMatch(body, /<h1>Hi \S+ — what would you like to do\?<\/h1>/, "the greeting must no longer be a .greet h1 heading");
+  assert.match(body, /\.greet h1\s*\{[^}]*font-size:\s*15px/s, "Items' and the Dashboard's own status heading must still share 15px");
 });
 
 check("test_PRD_P0_91_quiet_greeting__the_ask_the_ops_assistant_line_is_gone", async () => {
@@ -1697,36 +1702,33 @@ check("test_PRD_P0_165_approval_card_never_hidden_behind_the_bar__gate_floats_ab
   assert.match(body, /\.gate\s*\{[^}]*max-height:\s*calc\(100dvh - 70px\)/s, "and prefer dvh where it's supported, same fallback order .ops.chat-page already uses");
 });
 
-check("test_PRD_P0_188_greet_collapses_on_scroll__the_welcome_line_hides_once_a_real_conversation_scrolls_away_from_the_top", async () => {
-  /* "That welcome line up above should not be permanently there... it's a
-     temporary thing that should only be there on a fresh chat... the same
-     way when we scroll in the main website, the heading kind of goes away
-     when you scroll down" — the owner's own words. */
+check("test_PRD_P0_188_greet_collapses_on_scroll__the_welcome_line_is_the_logs_own_first_message_not_a_separate_section", async () => {
+  /* "It really could be part of the main chat... when the chat fills the
+     screen it just kind of scrolls away" — the owner's own words, revising
+     the first version of this fix (a separate .greet section with its own
+     scroll listener toggling a collapsed class). That mechanism is gone
+     entirely now: the greeting is simply #log's own first bubble, scrolling
+     out of view the same way the oldest message in any real conversation
+     already does, with no JS of its own needed. */
   const { body } = await frontPage(OWNER);
 
-  /* The chat page's own greet section needs a stable hook the client
-     script can target without touching Items' or the Dashboard's own
-     identical ".greet" class — neither of those pages' markup gets this id. */
-  assert.match(body, /<section class="greet" id="greet">/, "the chat page's own greet section must carry a targetable id");
+  assert.doesNotMatch(body, /<section class="greet" id="greet">/, "the chat page must no longer render its own separate greet section");
+  assert.doesNotMatch(body, /greet-collapsed/, "the now-unused collapse mechanism must be gone entirely, not just unreachable");
+  assert.doesNotMatch(body, /document\.getElementById\("greet"\)/, "the client script must carry no leftover reference to a #greet that no longer exists");
 
-  /* The collapse itself: max-height/opacity/margin all drop to nothing, so
-     .chat-top (already flex: 1 1 auto) reclaims the freed space the moment
-     the class lands. */
+  /* The greeting itself, now seeded as #log's own first child -- an
+     ordinary .log p.agent bubble, which .log > :first-child's own
+     margin-top: auto (P0-161) already pins to the bottom of a short/fresh
+     conversation exactly where "Hi Dimitri" used to sit. */
   assert.match(
     body,
-    /\.ops\.chat-page \.greet\.greet-collapsed\s*\{[^}]*max-height:\s*0[^}]*opacity:\s*0[^}]*margin:\s*0/s,
-    "the collapsed state must zero out height, opacity and margin together",
+    /<div class="log" id="log"><p class="agent">Hi [^<]+— what would you like to do\?<\/p><\/div>/,
+    "the welcome line must be #log's own first real message, not markup outside it",
   );
 
-  /* The trigger: #log's own scroll position, not a one-shot "has a message
-     ever been sent" flag -- scrolling back to the very top of a long
-     conversation must bring the greeting back, the same two-way behaviour
-     the owner's own reference (a website header collapsing on scroll) has. */
-  assert.match(
-    body,
-    /log\.addEventListener\("scroll", \(\) => \{\s*greet\.classList\.toggle\("greet-collapsed", log\.scrollTop > 4\);/,
-    "the greeting must track #log's live scrollTop, not latch permanently once collapsed",
-  );
+  /* Items' and the Dashboard's own .greet (a persistent filter/status line,
+     never a one-time welcome) must be completely unaffected by any of this. */
+  assert.match(body, /\.greet \{ margin: 0 0 6px; text-align: center; \}/, "the shared base .greet rule Items/Dashboard still use must be untouched");
 });
 
 check("test_PRD_P0_167_gate_matches_the_real_bubble_size__every_text_node_in_the_card_is_14px_not_just_the_heading", async () => {

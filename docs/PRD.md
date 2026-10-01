@@ -3761,6 +3761,13 @@ that does not trace to one of these is a process failure (see §12).
     it, a second selector declaring the identical value is a number to keep in sync in two places
     instead of one.
 
+    **REVISED (P0-188):** the chat page's own "Hi Dimitri" moved out of `.greet h1` entirely — it
+    is `#log`'s own first message now, an ordinary `.log p.agent` chat bubble rather than a status
+    heading, so it no longer shares this rule's 15px at all (it reads at the same 14px every other
+    bubble in the conversation does, which is correct: it is not a status line any more, a real
+    message in the chat it introduces). Items' and the Dashboard's own `.greet h1` status lines are
+    unaffected by this and still share the 15px described above.
+
 61. **`Test-PRD-P0-126-send_button_disabled_glyph_darker`** — A one-round correction to P0-124's
     own disabled glyph color, once it actually shipped and the owner looked at it: "what you have
     now, I think, is working good. The only thing I would change is when the submit button is
