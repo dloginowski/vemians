@@ -780,6 +780,17 @@ async function dispatchProductBatchPlan(args, { actor, role, env, mode }) {
         summary: r.summary,
         possibleDuplicate: Boolean(r.possibleDuplicate),
         duplicateReason: r.duplicateReason,
+        /* "They should show up but unchecked... I should tell you
+           specifically I want to update these" -- the owner's own words.
+           A quantity-reconciliation row whose current stock is not a
+           known-wrong 0 (draftProductUpdate's own needsConfirmation,
+           batch.js) needs the identical unchecked-by-default treatment
+           possibleDuplicate already has, for the identical reason: a real
+           sale since the sheet was made is the ordinary explanation for
+           ANY non-zero disagreement, never something to overwrite without
+           a person saying so on purpose. */
+        needsConfirmation: Boolean(r.needsConfirmation),
+        confirmReason: r.confirmReason,
       })),
     },
   };
@@ -2043,6 +2054,8 @@ export async function openBatchPlanFor(env, actor) {
       summary: r.summary,
       possibleDuplicate: Boolean(r.possibleDuplicate),
       duplicateReason: r.duplicateReason,
+      needsConfirmation: Boolean(r.needsConfirmation),
+      confirmReason: r.confirmReason,
     })),
   };
 }

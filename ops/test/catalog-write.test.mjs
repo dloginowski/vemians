@@ -8712,13 +8712,16 @@ check("test_PRD_P0_190_quantity_reconciliation_on_resubmit__a_different_quantity
   assert.equal(second.skipped.length, 0, `expected no skips, got: ${JSON.stringify(second.skipped)}`);
   /* REVISED: price is unchanged between the two sheets -- Test-PRD-P0-194-
      resubmit_no_op_suppression now correctly suppresses the catalog edit
-     itself (a true no-op on its own), leaving only the one row that
-     represents a real change: the stock adjustment. */
-  assert.equal(second.created.length, 1, `expected only the real stock adjustment, got: ${JSON.stringify(second)}`);
-  const stockRow = second.created.find((r) => /stock by/.test(r.summary));
-  assert.ok(stockRow, `expected the row to be the inventory.adjust itself, got: ${JSON.stringify(second.created)}`);
-  assert.match(stockRow.summary, /stock by \+4 \(3 -> 7\)/, "a +4 delta, from the CURRENT real count, never a guess");
-  assert.equal(f.onHand(sku), 7, "the real ledger now reflects the sheet's own corrected count");
+     itself (a true no-op on its own). The stock discrepancy itself is no
+     longer auto-applied either -- current on hand (3) is not the known-bad
+     0, so Test-PRD-P0-195-quantity_confirmation_required correctly treats a
+     real sale between the sheet being made and this resubmit as the
+     ordinary explanation, and parks the correction for a person to confirm
+     on purpose rather than overwriting it on the sheet's own say-so. */
+  assert.equal(second.created.length, 0, `expected no auto-apply, got: ${JSON.stringify(second)}`);
+  assert.equal(second.ready.length, 1, `expected the stock adjustment parked for confirmation, got: ${JSON.stringify(second)}`);
+  assert.match(second.ready[0].summary, /on hand is already 3, not 0/i, `expected the needs-confirmation reason, got: ${JSON.stringify(second.ready[0])}`);
+  assert.equal(f.onHand(sku), 3, "stock must stay exactly where it was until a person explicitly confirms the sheet's own corrected count");
 });
 
 check("test_PRD_P0_190_quantity_reconciliation_on_resubmit__a_resubmit_with_the_same_quantity_queues_no_adjustment_at_all", async () => {
@@ -8956,9 +8959,13 @@ check("test_PRD_P0_191_all_zero_resubmit_refused__one_sold_out_size_among_others
   const realFetch = globalThis.fetch;
   globalThis.fetch = f.square;
   let second;
+  let skuS;
   try {
     const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager", mode: "add" });
     assert.equal(first.created.length, 1);
+    const product = f.mirror("SELECT id FROM mirror_product WHERE title = 'Wool Coat'")[0];
+    const variants = f.mirror("SELECT sku, options FROM mirror_variant WHERE product_id = ?", product.id);
+    skuS = variants.find((v) => JSON.parse(v.options).Size === "S").sku;
 
     /* S has genuinely sold out; M is still in stock -- ordinary day-to-day
        inventory, never a reason to block the update to either size. */
@@ -8971,15 +8978,19 @@ check("test_PRD_P0_191_all_zero_resubmit_refused__one_sold_out_size_among_others
     globalThis.fetch = realFetch;
   }
 
-  assert.equal(second.ready.length, 0, `a partial stockout must never be flagged as all-zero, got: ${JSON.stringify(second)}`);
-  /* REVISED: price is unchanged between the two sheets -- Test-PRD-P0-194-
-     resubmit_no_op_suppression now correctly suppresses the catalog edit
-     itself as a no-op, leaving only the one real thing that changed: S's
-     own genuine, legitimate stockout (3 -> 0) -- never withheld just
-     because ONE size among several reads 0. */
-  assert.equal(second.created.length, 1, `expected S's own real stock correction, got: ${JSON.stringify(second)}`);
-  const stockRow = second.created.find((r) => /stock by/.test(r.summary));
-  assert.match(stockRow.summary, /stock by -3 \(3 -> 0\)/, `expected S's own real reduction, got: ${JSON.stringify(stockRow)}`);
+  /* REVISED: S's own 3 -> 0 is a real, nonzero-current quantity disagreement
+     -- Test-PRD-P0-195-quantity_confirmation_required now correctly parks it
+     for a person to confirm on purpose, a real sale since the sheet was made
+     being the ordinary explanation, rather than auto-applying it the way a
+     known-bad 0 already safely would. The POINT of this test still holds
+     either way: that park must never be the all-zero clash P0-191 itself
+     guards against -- a single size's own stockout is never read as "every
+     size reads 0," here or on the needs-confirmation path alike. */
+  assert.equal(second.created.length, 0, `expected no auto-apply, got: ${JSON.stringify(second)}`);
+  assert.equal(second.ready.length, 1, `expected S's own needs-confirmation park, got: ${JSON.stringify(second)}`);
+  assert.doesNotMatch(second.ready[0].summary, /every size .* reads 0 units/i, "a single sold-out size must never be read as the all-zero clash");
+  assert.match(second.ready[0].summary, /on hand is already 3, not 0/i, `expected S's own needs-confirmation reason, got: ${JSON.stringify(second.ready[0])}`);
+  assert.equal(f.onHand(skuS), 3, "stock must stay exactly where it was until a person explicitly confirms the sheet's own 0");
 });
 
 check("test_PRD_P0_191_all_zero_resubmit_refused__the_real_price_change_is_never_half_applied", async () => {
@@ -9004,6 +9015,152 @@ check("test_PRD_P0_191_all_zero_resubmit_refused__the_real_price_change_is_never
   const product = f.mirror("SELECT id FROM mirror_product WHERE title = 'Wool Coat'")[0];
   const variant = f.mirror("SELECT price_minor FROM mirror_variant WHERE product_id = ?", product.id)[0];
   assert.equal(variant.price_minor, 10000, "the price must NOT have silently changed while quantity was held for review -- it's all one parked decision");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-195 — a quantity correction on a resubmit is only ever auto-applied
+ * when current on hand is the known-bad 0 (Test-PRD-P0-31's own standing
+ * rule); any other disagreement needs a person to say so on purpose. "If we
+ * have a product and we sold it and the quantities decreased, and then I
+ * upload the original CSV file that has the original quantities, we don't
+ * necessarily want to update them because they may have been sold
+ * already... the only products we want to be updating by default are the
+ * ones that have wrong values, like if it's zero quantities we want to
+ * update those by default. All the other ones they should show up but they
+ * should be unchecked -- I should tell you specifically that I want to
+ * update these" -- the owner's own words.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_195_quantity_confirmation_required__a_known_bad_zero_on_hand_still_auto_applies_without_confirmation", async () => {
+  const f = await fixture({ withCommerce: true });
+  const csv1 = "title,category,price,style id,quantity\nWool Coat,Outerwear,100.00,01-04-060,3\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let second;
+  let sku;
+  try {
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager", mode: "add" });
+    assert.equal(first.created.length, 1);
+    const product = f.mirror("SELECT id FROM mirror_product WHERE title = 'Wool Coat'")[0];
+    sku = f.mirror("SELECT sku FROM mirror_variant WHERE product_id = ?", product.id)[0].sku;
+    assert.equal(f.onHand(sku), 3);
+
+    /* Simulates a real sale that sold out the item entirely BETWEEN the
+       create and this resubmit -- an append-only ledger row the same shape
+       a real Square sale would post (inventory_level is a derived VIEW,
+       Test-PRD-P0-31's own non-destructive ledger -- there is no column to
+       overwrite here even for a test). */
+    f.commerceDb._raw
+      .prepare(
+        "INSERT INTO inventory_adjustment (id, sku, location_id, delta, reason, actor) VALUES (?, ?, 'main', -3, 'sale', 'square-sync')",
+      )
+      .run(crypto.randomUUID(), sku);
+    assert.equal(f.onHand(sku), 0, "sanity: the ledger now reads the known-bad 0");
+
+    /* The SAME original sheet, resubmitted -- its own quantity (3) now
+       disagrees with current on hand (0), and 0 is always a failure mode,
+       never a real count worth preserving. */
+    second = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager", mode: "update" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.equal(second.ready.length, 0, `a known-bad 0 must never need confirmation, got: ${JSON.stringify(second)}`);
+  assert.equal(second.created.length, 1, `expected the stock correction to auto-apply, got: ${JSON.stringify(second)}`);
+  assert.match(second.created[0].summary, /stock by \+3 \(0 -> 3\)/, `expected the real correction, got: ${JSON.stringify(second.created[0])}`);
+  assert.equal(f.onHand(sku), 3, "a known-bad 0 is corrected without waiting for anyone to confirm it");
+});
+
+check("test_PRD_P0_195_quantity_confirmation_required__the_checklist_path_shows_the_row_unchecked_but_applies_it_once_explicitly_submitted", async () => {
+  const f = await fixture({ withCommerce: true });
+  const csv1 = "title,category,price,style id,quantity\nWool Coat,Outerwear,100.00,01-04-061,3\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let sku;
+  try {
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager", mode: "add" });
+    assert.equal(first.created.length, 1);
+    const product = f.mirror("SELECT id FROM mirror_product WHERE title = 'Wool Coat'")[0];
+    sku = f.mirror("SELECT sku FROM mirror_variant WHERE product_id = ?", product.id)[0].sku;
+    assert.equal(f.onHand(sku), 3);
+
+    const assets = await assetsFixtureWithRow({
+      extracted_text: "title,category,price,style id,quantity\nWool Coat,Outerwear,100.00,01-04-061,9\n",
+    });
+    const outcome = await dispatch(
+      "catalog_update_product_batch",
+      { asset_id: "ast_1" },
+      { actor: "mara@vemians.com", role: "manager", env: { ...f.env, ASSETS: assets }, allowed: new Set(["catalog_update_product_batch"]) },
+    );
+    assert.equal(outcome.kind, "checklist", `expected a checklist, got: ${JSON.stringify(outcome)}`);
+    const stockRow = outcome.checklist.rows.find((r) => /stock by/.test(r.summary));
+    assert.ok(stockRow, `expected a stock-adjustment row in the checklist, got: ${JSON.stringify(outcome.checklist.rows)}`);
+    /* The POINT of this test: the row is shown, same checklist, but flagged
+       unchecked-by-default -- never silently folded into the ready-to-go set
+       the way a price/title correction already safely is. */
+    assert.equal(stockRow.needsConfirmation, true, `expected the row flagged for confirmation, got: ${JSON.stringify(stockRow)}`);
+    assert.match(stockRow.confirmReason, /on hand is already 3, not 0/i, `expected the needs-confirmation reason, got: ${JSON.stringify(stockRow)}`);
+    assert.equal(f.onHand(sku), 3, "nothing applies merely by appearing in the checklist");
+
+    /* A person explicitly checks the box and submits THIS row -- the real
+       browser's own batch-submit-row call, driven here exactly the way
+       Test-PRD-P0-190's own checklist-submit-path test already does. */
+    const worker = (await import("../src/index.js")).default;
+    const res = await worker.fetch(
+      new Request("http://localhost/agent/batch-submit-row", {
+        method: "POST",
+        headers: { "Cf-Access-Jwt-Assertion": assertion(MANAGER_CLAIMS), "content-type": "application/json" },
+        body: JSON.stringify({ id: outcome.checklist.id, row: stockRow.row, title: stockRow.title }),
+      }),
+      { ...f.env, ...HTTP_ENV_EXTRA, ASSETS: assets },
+    );
+    const data = JSON.parse(await res.text());
+    assert.equal(res.status, 200);
+    assert.equal(data.ok, true);
+    assert.equal(data.status, "updated", "explicitly submitting a needs-confirmation row must actually apply it, never re-park it");
+    assert.equal(f.onHand(sku), 9, "the person's own explicit opt-in applies the sheet's own corrected count");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_195_quantity_confirmation_required__the_direct_upload_path_parks_it_as_a_clash_and_applies_only_once_approved", async () => {
+  const f = await fixture({ withCommerce: true });
+  const csv1 = "title,category,price,style id,quantity\nWool Coat,Outerwear,100.00,01-04-062,3\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let second;
+  let sku;
+  try {
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager", mode: "add" });
+    assert.equal(first.created.length, 1);
+    const product = f.mirror("SELECT id FROM mirror_product WHERE title = 'Wool Coat'")[0];
+    sku = f.mirror("SELECT sku FROM mirror_variant WHERE product_id = ?", product.id)[0].sku;
+    assert.equal(f.onHand(sku), 3);
+
+    /* The direct, no-checkbox /products/batch upload -- nothing here can
+       default a checkbox to unchecked, so a needs-confirmation row is
+       reclassified into an ordinary clash instead, the same gate every
+       other low-confidence row already gets. */
+    const csv2 = "title,category,price,style id,quantity\nWool Coat,Outerwear,100.00,01-04-062,11\n";
+    second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager", mode: "update" });
+    assert.equal(second.created.length, 0, `expected no auto-apply, got: ${JSON.stringify(second)}`);
+    assert.equal(second.ready.length, 1, `expected a parked clash, got: ${JSON.stringify(second)}`);
+    assert.ok(second.ready[0].url, "expected a real, openable approval link");
+    assert.equal(f.onHand(sku), 3, "stock must stay exactly where it was until the clash is approved");
+
+    const id = second.ready[0].url.split("/").pop();
+    const approver = { email: "owner@vemians.com", role: "owner", verified: true };
+    const result = await approvePending(f.env, id, approver);
+    assert.equal(result.ok, true, result.error);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.equal(f.onHand(sku), 11, "once a person actually approves it, the sheet's own corrected count really lands");
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
