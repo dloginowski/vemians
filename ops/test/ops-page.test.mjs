@@ -835,7 +835,9 @@ check("test_PRD_P0_203_table_columns_fit_content__no_column_is_wider_than_its_ow
   const { body } = await frontPage(OWNER);
   assert.match(body, /\.table-card table\s*\{[^}]*table-layout:\s*auto/s, "auto layout sizes each column to its own content");
   assert.doesNotMatch(body, /\.table-card table\s*\{[^}]*(?:min-)?width:/s, "the table is never stretched to the card");
-  for (const rule of [/\.table-card th\s*\{[^}]*/s, /\.table-card td\s*\{[^}]*/s, /\.table-card th, \.table-card td\s*\{[^}]*/s]) {
+  /* Anchored to the start of a line: an unanchored ".table-card td {" also matches inside the shared
+     "th, td" rule and would check that one three times over. */
+  for (const rule of [/^\.table-card th\s*\{[^}]*/m, /^\.table-card td\s*\{[^}]*/m, /^\.table-card th, \.table-card td\s*\{[^}]*/m]) {
     const m = body.match(rule);
     assert.ok(m, `rule ${rule} exists`);
     assert.doesNotMatch(m[0], /min-width|(?<!max-)width:\s*\d/, "no width floor or fixed width on any cell");
