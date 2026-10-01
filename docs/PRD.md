@@ -9238,6 +9238,32 @@ that does not trace to one of these is a process failure (see §12).
     separate "default a missing Size to OS" question those two attempts already settle on the ROW's own
     side, so neither comparison's own existing behavior shifts for a variant that never had "TBD" in it.
 
+125. **`Test-PRD-P0-193-new_variation_quantity_required`** — "If you're not able to add quantities to a
+    product, it's a fail mode and you cannot add that product and have to stop and ask for clarification" —
+    the owner's own words, closing the last silent-zero gap this session's own run of fixes surfaced: a
+    brand-new size/color added onto an EXISTING product via a resubmit (`Test-PRD-P0-179`'s own "we're not
+    rejecting them, we're adding to them") had no quantity mechanism at all — `catalog.update_product`'s own
+    `VARIATION_WITH_ID` never had a `quantity` field — so it always silently started at 0, no tracking, no
+    warning, regardless of what the sheet said.
+
+    **`quantity` now lives on `VARIATION_WITH_ID`, meaningful only on an entry with no `variant_id`** — the
+    identical restriction `option_values` one field up already has. Restocking an EXISTING variation stays
+    completely untouched, still `inventory.adjust`'s own separate, ledgered job; this only ever applies to a
+    variation that does not exist yet, where there is no existing count for a second approval to protect —
+    the same reasoning `catalog.create_product`'s own `quantity` field (creation) has always been built on.
+    Set as part of THIS SAME approved write: `run()` re-reads the just-synced `mirror_variant_index` for the
+    product (the one bulk, bounded read `catalog.create_product`'s own identical block already makes),
+    matches each new entry back to its own freshly-assigned variant by `option_values` — never by position,
+    since Square's own resulting order is never assumed to mirror the patch's — and pushes its real initial
+    count straight to Square, the same push-then-sync pair every other inventory write in this codebase
+    already makes.
+
+    **The exact same tolerance a fresh create already has, never a stricter one:** a blank quantity cell
+    still defaults to 1 (`draftProductUpdate`'s own new-variation path always supplies one now, mirroring
+    `draftGroupedProduct`'s identical create-path default); only an EXPLICIT 0 is refused outright —
+    `check()`'s own new, scoped refusal, parked as an ordinary editable clash — because a brand-new
+    size/color is never deliberately added with nothing to sell.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

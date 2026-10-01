@@ -490,6 +490,21 @@ const VARIATION_WITH_ID = {
       keyMaxLength: CAPS.CATALOG_OPTION_NAME_MAX,
       valueMaxLength: CAPS.CATALOG_OPTION_VALUE_MAX,
     },
+    /* REVISED: "if you're not able to add quantities to a product, it's a
+       fail mode and you cannot add that product and have to stop and ask
+       for clarification" -- the owner's own words, after a resubmit's own
+       brand-new size/color landed with no stock at all and no way to ever
+       set an initial count except a separate, manual inventory.adjust a
+       person had to remember to do by hand. Only meaningful on an entry
+       with NO variant_id, the exact same restriction option_values one
+       field up already has — restocking an EXISTING variation stays
+       inventory.adjust's own job, a real ledger entry, never a silent side
+       effect of an unrelated edit; a variation that does not exist yet has
+       no existing count for a second approval to protect, the identical
+       reasoning VARIATION_WITH_OPTIONS' own quantity field (creation) is
+       built on. Set as part of THIS SAME approved write (run() below), a
+       real Square inventory push — never a separate approval. */
+    quantity: { type: "integer" },
   },
 };
 
@@ -1172,6 +1187,12 @@ export const catalogWriteTools = {
     describe:
       "Edit an existing product in SQUARE by handle — title, description, category, variations, extra " +
       "images — then sync our mirror. A variation carrying `variant_id` is edited; one without is added. " +
+      "A brand-new (no variant_id) variation's own `quantity` is set as part of THIS SAME write — a real " +
+      "initial stock count, never a separate inventory.adjust approval, since there is no existing count " +
+      "yet to protect. Quantity is never required but is never silently skipped either: unset still " +
+      "defaults to 1, but an explicit 0 is refused outright — a brand-new size/color is never added with " +
+      "nothing to sell. `quantity` on an entry that already carries `variant_id` is ignored: restocking an " +
+      "EXISTING variation is inventory.adjust's own separate, ledgered job. " +
       "Nothing is removed: withdrawing a product or a variation is a separate path, because deleting a " +
       "commercial record destroys its history. Moving a product to a DIFFERENT category_id automatically " +
       "reassigns its style_id to match the new category's own numeric_id pair, with a freshly allocated " +
@@ -1209,6 +1230,40 @@ export const catalogWriteTools = {
         return {
           denied: `refused before Square saw it: ${problems.join(" | ")}`,
           detail: { reason: "invalid_product", problems },
+        };
+      }
+
+      /* REVISED: "if you're not able to add quantities to a product, it's a
+         fail mode and you cannot add that product and have to stop and ask
+         for clarification" -- the owner's own words. mergeVariations itself
+         never carries `quantity` through into `merged.variations` (it has
+         no business meaning to an EXISTING variation, which is exactly why
+         validateProposal's own quantity check above can never see it here)
+         so it needs this own explicit gate. Scoped to a brand-new (no
+         variant_id) entry only, the identical restriction `quantity` itself
+         is scoped to — restocking an EXISTING variation stays
+         inventory.adjust's own separate, ledgered job, completely untouched
+         by this. Mirrors catalog.create_product's own zero-quantity refusal
+         exactly: quantity left unset still defaults to 1 (batch.js's own
+         new-variation path always supplies one now), only an EXPLICIT 0 is
+         ever refused. */
+      const newVariations = (args.variations ?? []).filter((v) => !v.variant_id);
+      const badQuantity = newVariations.filter(
+        (v) => v.quantity !== undefined && (!Number.isInteger(v.quantity) || v.quantity < 0),
+      );
+      if (badQuantity.length) {
+        return {
+          denied: `${badQuantity.map((v) => v.title).join(", ")}: quantity must be a non-negative whole number`,
+          detail: { reason: "invalid_quantity" },
+        };
+      }
+      const zeroStockNew = newVariations.filter((v) => v.quantity === 0);
+      if (zeroStockNew.length) {
+        return {
+          denied:
+            `${zeroStockNew.map((v) => v.title).join(", ")}: quantity is 0 -- a brand-new size/color is never added ` +
+            "with nothing to sell. Leave quantity unset to default to 1, or give the actual count received.",
+          detail: { reason: "zero_quantity_new_variation" },
         };
       }
 
@@ -1290,6 +1345,60 @@ export const catalogWriteTools = {
         images,
         styleId: t.preflight.styleId,
       });
+
+      /* "If you're not able to add quantities to a product, it's a fail
+         mode... you have to stop and ask for clarification" -- the owner's
+         own words. check() already refused an explicit 0 above; a real
+         quantity on a brand-new (no variant_id) entry is set here, as part
+         of THIS SAME approved write -- a real Square inventory push, never
+         a second inventory.adjust approval, the identical reasoning
+         catalog.create_product's own identical block (above) is built on:
+         there is no EXISTING count yet for a second approval to protect.
+         readBack() (catalog-writer.js) never carries variations, so the
+         newly-assigned external_ref for each brand-new one is found the
+         same way create_product's own does -- a fresh, bulk, bounded read
+         of this one product's own variations, just-synced -- matched back
+         to the args entry that asked for it by its own option_values
+         (never by position: mergeVariations appends new entries after
+         every kept one, in patch order, but Square's own resulting order
+         is never assumed to mirror that). */
+      const withQuantity = (args.variations ?? []).filter((v) => !v.variant_id && v.quantity !== undefined);
+      if (out.product?.id && withQuantity.length) {
+        const variantRows = await t.db.catalog_mirror
+          .prepare("SELECT external_ref, options FROM mirror_variant_index WHERE product_id = ?")
+          .bind(out.product.id)
+          .all();
+        const stored = (variantRows.results ?? []).map((r) => {
+          let options = {};
+          try {
+            options = JSON.parse(r.options || "{}");
+          } catch {
+            options = {};
+          }
+          return { external_ref: r.external_ref, options };
+        });
+        const sameOptionValues = (a, b) => {
+          const norm = (o) => Object.fromEntries(Object.entries(o ?? {}).map(([k, v]) => [k.trim().toLowerCase(), String(v).trim().toLowerCase()]));
+          const na = norm(a);
+          const nb = norm(b);
+          const keys = Object.keys(na);
+          return keys.length === Object.keys(nb).length && keys.every((k) => nb[k] === na[k]);
+        };
+        const changes = withQuantity
+          .map((v) => {
+            const found = stored.find((s) => sameOptionValues(v.option_values ?? {}, s.options));
+            return found ? { externalRef: found.external_ref, onHand: v.quantity } : null;
+          })
+          .filter((c) => c !== null);
+        if (changes.length) {
+          await t.square.adapter.pushInventory(changes);
+          try {
+            await t.square.adapter.pullInventory({ catalogObjectIds: changes.map((c) => c.externalRef) });
+          } catch (err) {
+            console.error(`ERROR catalog.update_product: immediate post-write inventory sync failed, cron will reconcile — ${err.message}`);
+          }
+        }
+      }
 
       return {
         updated: true,
