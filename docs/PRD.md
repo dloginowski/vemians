@@ -7452,6 +7452,28 @@ that does not trace to one of these is a process failure (see §12).
     category-resolution role — which rows are one product, which category a row belongs to — is
     completely unaffected.
 
+    **REVISED ONCE MORE — a real production report: "I saw a bunch of failures where you couldn't
+    create a subcategory because it exists, but a category under Dress called Oversized is not the same
+    as a subcategory under Pants that's Oversized."** Traced to a genuine, separate bug, not a request:
+    `resolveCategoryByCode`'s own "the number wins, never second-guessed against the name column" rule
+    (this entry's own `category_and_subcategory_resolve_by_number_ignoring_a_mismatched_name_column`
+    test, above — deliberate and correct for a RESUBMIT whose category was genuinely renumbered) applies
+    just the same to two BRAND NEW top-level categories whose rows happen to share one leading code by a
+    plain spreadsheet mistake — "Dress" and "Pants," never meant to be the same category at all, silently
+    merged into whichever name resolved first. The merge itself was completely invisible; the only
+    symptom was a confusing, LATER "subcategory already exists" clash once a second row tried to create
+    "Oversized" under what it believed was a different parent.
+
+    The number still wins — that rule is unchanged and correct — but `resolveCategoryByCode` now checks
+    the row's own Category name against the number's real, already-resolved category (`nearestCategory`,
+    the identical fuzzy-match scoring `catalog.create_category`'s own near-duplicate check already uses)
+    whenever a name was given at all. A genuine mismatch (not just a typo or near-duplicate spelling)
+    leaves a plain, automatic NOTE on the one product that row actually creates — not a clash, nothing
+    here second-guesses the number — naming the real category it landed in and the code to use instead
+    if a separate category was truly intended, so the real cause is visible on the product itself
+    immediately, rather than surfacing several steps downstream as an unrelated-looking subcategory
+    collision.
+
 86. **`Test-PRD-P0-153-storefront_column_boundary`** — The owner's own words, after confirming the
     vendor-independent cost attribute above: "cost USD is the actual cost, and then we have margins
     provided, but... we never want the customers to see that... we need only specific columns." Cost,

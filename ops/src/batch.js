@@ -768,7 +768,29 @@ async function resolveCategoryByCode(env, { actor, role, categories, reserved, c
   const pool = categories.filter((c) => !c.parent_id);
 
   const byNumber = pool.find((c) => c.numeric_id != null && c.numeric_id !== "" && Number(c.numeric_id) === numeric);
-  if (byNumber) return { category: byNumber };
+  if (byNumber) {
+    /* "We have the source of truth, and we must map the incoming
+       spreadsheets to match ours" -- the owner's own words, the reason the
+       NUMBER wins outright here, never second-guessed against what the
+       row's own Category column happens to say. But a genuine real-world
+       report proved that silence has a real cost: two DIFFERENT intended
+       categories ("Dress", "Pants") that happen to share the same leading
+       code by a spreadsheet mistake get silently merged into whichever one
+       already holds that number -- invisible at the moment it happens, only
+       surfacing later as a confusing "subcategory already exists" clash
+       under what looks like the wrong parent. A real name/near-duplicate
+       mismatch is now a plain, automatic NOTE (never a clash — the number
+       still wins, exactly as asked) naming the real category this row
+       landed in, so a genuine mistake is visible immediately instead of
+       several steps downstream. */
+    const matchesName = !name || nearestCategory(name, [byNumber])?.score >= CAPS.CATEGORY_DUPLICATE_SIMILARITY;
+    return {
+      category: byNumber,
+      note: matchesName
+        ? undefined
+        : `category code "${padded}" already belongs to "${byNumber.name}", not "${name}" as this row's own Category column says -- filed under the existing "${byNumber.name}" (the number's own source of truth); give this row a different code if "${name}" was meant to be a separate category`,
+    };
+  }
 
   /* An exact name match, or a corrected near-duplicate spelling of one --
      "if they're improperly spelled, do correct the spelling and create the
@@ -1422,6 +1444,7 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
     notes.push(`style number "${base}": category ${catCode} matches no existing category, and no Category name column was given to create one from`);
   } else {
     topCategory = catOutcome.category;
+    if (catOutcome.note) notes.push(`style number "${base}": ${catOutcome.note}`);
   }
 
   /* SUBCATEGORY: two different rules, picked by whether a Subcategory
