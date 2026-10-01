@@ -1370,11 +1370,33 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
         clashes.push(`row ${rowNumber}: "${Object.values(optValues).join(", ") || "(no size/color)"}" is new on "${existing.title}" (${existing.handle}) and needs a real price to be added -- "${priceRaw}" is not a plain number like 45.00`);
         continue;
       }
+      /* "If you're not able to add quantities to a product, it's a fail
+         mode and you cannot add that product and have to stop and ask for
+         clarification" -- the owner's own words. A brand-new variation
+         added here used to have no quantity mechanism at all (VARIATION_
+         WITH_ID never had the field) and so always silently started at 0,
+         with no tracking and no warning, regardless of what the sheet
+         said -- the exact failure mode this whole resubmit system exists
+         to prevent. Same tolerance as a fresh create's own quantity column
+         (draftGroupedProduct's own identical comment): blank or
+         unparseable defaults to 1, noted; only an EXPLICIT 0 is ever a
+         clash (catalog.update_product's own matching refusal). */
+      const newQuantityRaw = pick(record, QUANTITY_KEYS);
+      let newQuantity = 1;
+      if (newQuantityRaw) {
+        const parsedNewQuantity = parseQuantity(newQuantityRaw);
+        if (parsedNewQuantity === null) {
+          notes.push(`row ${rowNumber}: quantity "${newQuantityRaw}" is not a plain whole number like 5 -- defaulted to 1`);
+        } else {
+          newQuantity = parsedNewQuantity;
+        }
+      }
       variations.push({
         title: [optValues.Color, optValues.Size].filter(Boolean).join(", ") || existing.title,
         price_minor: priceMinor,
         currency,
         option_values: optValues,
+        quantity: newQuantity,
         ...(unitCostMinor !== undefined ? { unit_cost_minor: unitCostMinor } : {}),
       });
       continue;

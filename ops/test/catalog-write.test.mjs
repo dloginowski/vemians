@@ -8326,6 +8326,106 @@ check("test_PRD_P0_179_import_style_number_matching__a_genuinely_new_size_on_a_r
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
+ * P0-193 — "If you're not able to add quantities to a product, it's a fail
+ * mode and you cannot add that product and have to stop and ask for
+ * clarification" -- the owner's own words. A brand-new size/color added on
+ * a resubmit used to have no quantity mechanism at all (catalog.update_
+ * product's own VARIATION_WITH_ID never had the field) -- it always
+ * silently started at 0, with no tracking and no warning, no matter what
+ * the sheet said, the exact failure mode this whole system exists to
+ * prevent.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_193_new_variation_quantity_required__a_real_quantity_on_a_brand_new_size_actually_lands_as_real_stock", async () => {
+  const f = await fixture({ withCommerce: true });
+  const csv1 = "title,category,price,style id,size\nWool Coat,Outerwear,100.00,01-04-050,S\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let second;
+  try {
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager", mode: "add" });
+    assert.equal(first.created.length, 1);
+
+    const csv2 =
+      "title,category,price,style id,size,quantity\n" +
+      "Wool Coat,Outerwear,100.00,01-04-050,S,\n" +
+      "Wool Coat,Outerwear,120.00,01-04-050,XL,6\n";
+    second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager", mode: "update" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.equal(second.ready.length, 0, `expected no clash, got: ${JSON.stringify(second)}`);
+  assert.equal(second.created.length, 1, `expected the new size to actually be added, got: ${JSON.stringify(second)}`);
+
+  const product = f.mirror("SELECT id FROM mirror_product WHERE title = 'Wool Coat'")[0];
+  const variants = f.mirror("SELECT sku, options FROM mirror_variant WHERE product_id = ?", product.id);
+  const xl = variants.find((v) => JSON.parse(v.options).Size === "XL");
+  assert.ok(xl, "XL must actually exist as a real variation now");
+  assert.equal(f.onHand(xl.sku), 6, "the sheet's own real quantity for the new size must actually land as real stock, never silently 0");
+});
+
+check("test_PRD_P0_193_new_variation_quantity_required__a_blank_quantity_on_a_brand_new_size_still_defaults_to_one_not_zero", async () => {
+  const f = await fixture({ withCommerce: true });
+  const csv1 = "title,category,price,style id,size\nWool Coat,Outerwear,100.00,01-04-051,S\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let second;
+  try {
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager", mode: "add" });
+    assert.equal(first.created.length, 1);
+
+    /* No quantity column at all -- "quantity is not required at all...
+       assume 1," the same tolerance a fresh create already has. */
+    const csv2 =
+      "title,category,price,style id,size\n" +
+      "Wool Coat,Outerwear,100.00,01-04-051,S\n" +
+      "Wool Coat,Outerwear,120.00,01-04-051,XL\n";
+    second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager", mode: "update" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.equal(second.ready.length, 0, `expected no clash, got: ${JSON.stringify(second)}`);
+  const product = f.mirror("SELECT id FROM mirror_product WHERE title = 'Wool Coat'")[0];
+  const variants = f.mirror("SELECT sku, options FROM mirror_variant WHERE product_id = ?", product.id);
+  const xl = variants.find((v) => JSON.parse(v.options).Size === "XL");
+  assert.ok(xl, "XL must still exist");
+  assert.equal(f.onHand(xl.sku), 1, "a blank quantity cell still defaults to 1, never the old silent 0");
+});
+
+check("test_PRD_P0_193_new_variation_quantity_required__an_explicit_zero_on_a_brand_new_size_is_a_clash_not_a_silent_add", async () => {
+  const f = await fixture({ withCommerce: true });
+  const csv1 = "title,category,price,style id,size\nWool Coat,Outerwear,100.00,01-04-052,S\n";
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let second;
+  try {
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "mara@vemians.com", role: "manager", mode: "add" });
+    assert.equal(first.created.length, 1);
+
+    const csv2 =
+      "title,category,price,style id,size,quantity\n" +
+      "Wool Coat,Outerwear,100.00,01-04-052,S,\n" +
+      "Wool Coat,Outerwear,120.00,01-04-052,XL,0\n";
+    second = await draftProductBatch(f.env, { text: csv2, actor: "mara@vemians.com", role: "manager", mode: "update" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.equal(second.created.length, 0, `an explicit 0 on a brand-new size must never silently add it, got: ${JSON.stringify(second)}`);
+  assert.equal(second.ready.length, 1, `expected a parked clash asking for clarification, got: ${JSON.stringify(second)}`);
+  assert.match(second.ready[0].summary, /quantity is 0/i, `expected the zero-quantity reason, got: ${JSON.stringify(second.ready[0])}`);
+
+  const product = f.mirror("SELECT id FROM mirror_product WHERE title = 'Wool Coat'")[0];
+  const variants = f.mirror("SELECT options FROM mirror_variant WHERE product_id = ?", product.id);
+  assert.equal(variants.length, 1, "XL must not have been added at all while its own quantity is unresolved");
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
  * P0-179, REVISED AGAIN — "I just want you to resubmit the existing CSV and
  * update the products to make them all in-house and update their costs. Why
  * is it such a fucking problem?" -- the owner's own words, after a whole
