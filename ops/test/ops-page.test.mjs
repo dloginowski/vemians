@@ -783,6 +783,21 @@ check("test_PRD_P0_197_table_data_never_wraps__a_long_value_scrolls_sideways_ins
   assert.match(body, /\.table-card\s*\{[^}]*overflow:\s*auto/s, "the card's own overflow is what carries a wide row sideways");
 });
 
+check("test_PRD_P0_199_no_run_without_a_click__a_page_load_never_starts_the_submit_loop_by_itself", async () => {
+  /* "All of the rows are being resubmitted over and over... it will never
+     run more than once per submit click" -- the owner's own words. The
+     checklist used to call its own submit loop on page load whenever a plan
+     with some rows already done was found, so every reload (a phone
+     restoring a tab, say) began another run nobody asked for. */
+  const { body } = await frontPage(OWNER);
+  const script = body.slice(body.indexOf("<script>"), body.lastIndexOf("</script>"));
+  assert.doesNotMatch(script, /if \(startDone\) runSubmit/, "no automatic call into the submit loop");
+  const calls = script.match(/runSubmit\(/g) ?? [];
+  assert.equal(calls.length, 2, "runSubmit is defined once and called once -- from the Submit button's own click handler");
+  assert.match(script, /submitBtn\.addEventListener\("click", \(\) => runSubmit\(checkedItems\(\)\)\)/, "the one call is the Submit click");
+  assert.match(script, /Nothing runs until you press Submit/, "a paused plan says so plainly");
+});
+
 check("test_PRD_P0_123_table_everything_centered__headers_and_data_are_both_centered", async () => {
   /* P0-122 centered headers only, leaving data left-aligned — the owner's
      own words right after seeing that: "make the data center aligned

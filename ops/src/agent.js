@@ -2039,14 +2039,14 @@ export async function submitBatchPlanRow({ id, row, title, identity, env }) {
  * uses — no second rendering path to maintain, no risk of the resumed view
  * ever looking different from a brand new one.
  *
- * REVISED: "this is not an agentic workflow at this point, it's just a
- * procedural ingest" — the owner's own words. `done`/`total` ride along so
- * the client can tell the two cases apart: `done === 0` is a plan nobody has
- * confirmed yet (still needs the "Ready to submit" review, same as always),
+ * `done`/`total` ride along so the client can tell the two cases apart:
+ * `done === 0` is a plan nobody has confirmed yet ("Ready to submit"),
  * while `done > 0` means Submit was already clicked once before the reload
- * — views.js auto-resumes the submit loop straight into these remaining
- * rows instead of asking again, with the progress bar already showing how
- * far it got.
+ * ("Paused — N of M already done"). REVISED (Test-PRD-P0-199-no_run_
+ * without_a_click): neither case runs anything by itself any more — the
+ * page only shows where the plan stands, and a run starts only when Submit
+ * is pressed. This used to auto-resume on load, which turned every reload
+ * and phone tab restore into another unrequested run.
  */
 export async function openBatchPlanFor(env, actor) {
   let planRow;
