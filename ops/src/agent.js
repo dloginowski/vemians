@@ -1982,3 +1982,86 @@ export async function submitBatchPlanRow({ id, row, title, identity, env }) {
 
   return { ok: true, httpStatus: 200, ...result, done, total };
 }
+
+/*
+ * "An ingestion in progress should be persistent if I reload a page... any
+ * existing jobs should persist even on reload... I feel like when I submit
+ * a job it should be... continue until it is completed" — the owner's own
+ * words, after a real 78-product batch review. agent_batch_plan (above) was
+ * ALREADY durable — the whole point of its own REVISED header comment, a
+ * real past incident losing an in-memory checklist mid-review — surviving a
+ * cold isolate or a redeploy fine. What was actually missing: nothing on
+ * the PAGE ITSELF ever asked whether one still existed after a reload; the
+ * data survived every time, silently, with no way back to it short of
+ * reading the database directly. index.js's own GET /agent/batch-open-plan
+ * calls this once, on page load, the same "cheap, actor-scoped GET" shape
+ * /agent/batch-progress already uses. Shaped identically to
+ * dispatchProductBatchPlan's own checklist mapping, so the client feeds it
+ * straight into the SAME checklistCard() a freshly-planned batch already
+ * uses — no second rendering path to maintain, no risk of the resumed view
+ * ever looking different from a brand new one.
+ */
+export async function openBatchPlanFor(env, actor) {
+  let planRow;
+  try {
+    planRow = await env.ASSETS.prepare(
+      "SELECT id, rows FROM agent_batch_plan WHERE actor = ? AND done < total ORDER BY created_at DESC LIMIT 1",
+    )
+      .bind(actor)
+      .first();
+  } catch (err) {
+    console.error(`ERROR agent: looking up an open batch plan for ${actor} failed — ${err.message}`);
+    return null;
+  }
+  if (!planRow) return null;
+  const rows = JSON.parse(planRow.rows);
+  if (!rows.length) return null;
+  return {
+    id: planRow.id,
+    rows: rows.map((r) => ({
+      row: r.rowNumber,
+      title: r.title,
+      summary: r.summary,
+      possibleDuplicate: Boolean(r.possibleDuplicate),
+      duplicateReason: r.duplicateReason,
+    })),
+  };
+}
+
+/*
+ * "I would have to hit cancel to actually clear a job in progress" — the
+ * owner's own words, already assuming Cancel did this. It never did:
+ * checklistCard's own Cancel button (views.js) only ever cleared the local
+ * chat panel, never telling the server anything at all — the plan row sat
+ * in agent_batch_plan forever either way, genuinely resumable (this is
+ * exactly what openBatchPlanFor, above, now surfaces), just with no way
+ * back to it. A person who actually means to abandon a batch, not merely
+ * navigate away from it, needs that to be real: this deletes the row
+ * outright, never left around the way a fully-SPENT plan deliberately is
+ * (agent_batch_plan's own header comment) — there is nothing left here
+ * worth resuming once a person has said so explicitly.
+ */
+export async function cancelBatchPlan({ id, identity, env }) {
+  const actor = identity.email;
+  let planRow;
+  try {
+    planRow = await env.ASSETS.prepare("SELECT actor FROM agent_batch_plan WHERE id = ?").bind(id).first();
+  } catch (err) {
+    console.error(`ERROR agent: reading batch plan ${id} for cancel failed — ${err.message}`);
+    return { ok: false, httpStatus: 404, reply: "That batch is unknown or has expired." };
+  }
+  /* Already gone -- cancelling twice (a double click, a stale tab) is
+     harmless, never an error the person asking needs to see. */
+  if (!planRow) return { ok: true, httpStatus: 200 };
+  if (planRow.actor !== actor) {
+    console.error(`ERROR agent: batch plan ${id} raised by ${planRow.actor} but cancelled by ${actor}; refused`);
+    return { ok: false, httpStatus: 403, reply: "That batch belongs to a different person." };
+  }
+  try {
+    await env.ASSETS.prepare("DELETE FROM agent_batch_plan WHERE id = ?").bind(id).run();
+  } catch (err) {
+    console.error(`ERROR agent: cancelling batch plan ${id} failed — ${err.message}`);
+    return { ok: false, httpStatus: 502, reply: "Could not cancel that batch — try again." };
+  }
+  return { ok: true, httpStatus: 200 };
+}
