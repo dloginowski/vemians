@@ -3933,6 +3933,43 @@ check("test_PRD_P0_136_square_custom_attributes__each_variation_can_carry_its_ow
   assert.equal(after.unit_cost_minor, 3100, "an edit that was not about cost must not reset it");
 });
 
+check("test_PRD_P0_136_square_custom_attributes__update_product_can_add_a_brand_new_option_bearing_variation", async () => {
+  /* "If there is additional options or additional sizes added to the same
+     style ID, we're just adding more to the existing item... we're not
+     rejecting them, we're adding to them" -- the owner's own words.
+     option_values used to be refused outright on catalog.update_product's
+     own schema, on the theory that growing an EXISTING product with a
+     brand-new size/color was a bigger decision than this tool should make
+     silently. mergeVariations (catalog-writer.js) already resolved an
+     entry with no variant_id as "add new" and already handled its
+     option_values correctly -- the ONLY thing missing was this tool's own
+     closed schema accepting the field at all. */
+  const f = await fixture();
+  const category = f.categories()[0];
+  const created = await approvedCall(f, "catalog.create_product", {
+    title: "Wool Sweater",
+    category_id: category.id,
+    variations: [{ title: "Medium", price_minor: 8000, currency: "USD", option_values: { Size: "M" } }],
+  });
+  assert.equal(created.ok, true, created.error);
+
+  const res = await approvedCall(f, "catalog.update_product", {
+    handle: created.data.product.handle,
+    variations: [{ title: "Large", price_minor: 8000, currency: "USD", option_values: { Size: "L" } }],
+  });
+  assert.equal(res.ok, true, res.error);
+
+  const product = f.mirror(`SELECT id FROM mirror_product WHERE handle = '${created.data.product.handle}'`)[0];
+  const variants = f.mirror(`SELECT title, options FROM mirror_variant_index WHERE product_id = '${product.id}' ORDER BY ordinal`);
+  assert.equal(variants.length, 2, "the original Medium must survive, not be replaced by the new Large");
+  assert.deepEqual(
+    variants.map((v) => v.title).sort(),
+    ["Large", "Medium"],
+  );
+  const large = variants.find((v) => v.title === "Large");
+  assert.deepEqual(JSON.parse(large.options), { Size: "L" }, "the new variation's own Size must actually be assigned, not dropped");
+});
+
 check("test_PRD_P0_136_square_custom_attributes__reusing_an_existing_vendor_name_does_not_create_a_second_vendor", async () => {
   const f = await fixture();
   await approvedCall(f, "catalog.set_square_attributes", { handle: COAT_HANDLE, vendor: "Acme Mills", commission: 20 });
