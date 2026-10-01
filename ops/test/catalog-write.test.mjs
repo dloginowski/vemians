@@ -409,6 +409,26 @@ function fakeSquare(seed = SEED, { vendors = [], failSearch = false, failUpsert 
           400,
         );
       }
+      /* Square's own rule, which the fake used to accept silently: once an
+         item declares item_options, EVERY variation must carry exactly one
+         value per option, in the same order. A real production 400 read
+         "Expected ItemVariation to have 2 Item Option Values, got 0". */
+      if (body.object?.type === "ITEM") {
+        const declared = body.object.item_data?.item_options ?? [];
+        if (declared.length) {
+          for (const v of body.object.item_data?.variations ?? []) {
+            const got = v.item_variation_data?.item_option_values ?? [];
+            const detail = got.length !== declared.length
+              ? `Expected ItemVariation to have ${declared.length} Item Option Values, got ${got.length}`
+              : declared.some((d, i) => got[i]?.item_option_id !== d.item_option_id)
+                ? "Expected ItemVariation to have Item Option at index 0"
+                : null;
+            if (detail) {
+              return jsonRes({ errors: [{ category: "INVALID_REQUEST_ERROR", code: "BAD_REQUEST", detail }] }, 400);
+            }
+          }
+        }
+      }
       const obj = structuredClone(body.object);
       record.upsert = obj.type;
       const mappings = [];
@@ -10752,6 +10772,50 @@ check("test_PRD_P0_181_resubmit_matching_refinements__a_legacy_vendor_less_produ
     )[0];
     assert.equal(after.vendor, "In-house", "populated automatically -- no vendor named means In-house");
     assert.equal(after.unit_cost_minor, 4200, "the cost actually landed, in the proper (vendor_information) location");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_208_every_variation_has_every_option__rows_of_one_product_with_different_options_are_filled_not_refused", async () => {
+  /* A real sheet: row 47 (style 001-004-002, "Evening dress") came back
+     'Square POST /v2/catalog/object failed with 400 ... Expected ItemVariation
+     to have 2 Item Option Values, got 0'. Rows of one product that name a
+     colour and a size, only a size, or neither, made variations with different
+     numbers of option values, which Square refuses. Each now carries a value
+     for every option the item declares. */
+  const f = await fixture({ actor: "keiko@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result, again;
+  try {
+    result = await draftProductBatch(f.env, {
+      text:
+        "Style #,Category,Subcategory,Description,Price\n" +
+        "001-004-002-BLK-M,Jackets,Evening Dresses,Evening dress,100.00\n" +
+        "001-004-002-BLK,Jackets,Evening Dresses,Evening dress,100.00\n" +
+        "001-004-002,Jackets,Evening Dresses,Evening dress,100.00\n",
+      actor: "keiko@vemians.com",
+      role: "manager", mode: "add",
+    });
+    assert.equal(result.ready.length, 0, `expected no refusal, got: ${JSON.stringify(result.ready)}`);
+    assert.equal(result.created.length, 1, JSON.stringify(result));
+    const item = [...f.square.objects.values()].find((o) => o.type === "ITEM" && o.item_data?.name === "Evening dress");
+    assert.ok(item, "the product reached Square");
+    const declared = item.item_data.item_options.length;
+    assert.equal(declared, 2, "colour and size");
+    for (const v of item.item_data.variations) {
+      assert.equal(v.item_variation_data.item_option_values.length, declared, "every variation carries a value for every option");
+    }
+
+    /* The update path: a product that already has colour and size gets a new
+       size-only row on a later sheet. */
+    again = await draftProductBatch(f.env, {
+      text: "Style #,Category,Subcategory,Description,Price\n001-004-002-XL,Jackets,Evening Dresses,Evening dress,100.00\n",
+      actor: "keiko@vemians.com",
+      role: "manager", mode: "update",
+    });
+    assert.equal(again.ready.length, 0, `expected no refusal on the update, got: ${JSON.stringify(again.ready)}`);
   } finally {
     globalThis.fetch = realFetch;
   }
