@@ -9468,6 +9468,13 @@ that does not trace to one of these is a process failure (see §12).
     "OFF-WHT", size "M"), and spaces around the dashes, and en/em dashes, are tolerated. A product with no
     category on file yet now says so ("no category on file yet") instead of a bare "no category".
 
+137. **`Test-PRD-P0-205-chat_upload_not_a_page`** — "Head to /products/batch on ops.vemians.com to upload it...
+    Why is it telling me to head somewhere when there is an upload button in the chat thing?" — the owner's own
+    words. The greeting script told the chat to point a person with a spreadsheet at `/products/batch` or
+    `/customers/batch`, although the chat's own paperclip button takes the file and the batch tools read it
+    from there. It now says to attach the CSV right in the chat with the paperclip, that the column mapping is
+    shown before anything is created, and never to send the person to another page for the upload.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
