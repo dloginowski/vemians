@@ -6564,6 +6564,36 @@ that does not trace to one of these is a process failure (see §12).
     product and to resolve which category/subcategory a row belongs to; style_id itself is always
     auto-assigned from that category afterward, never a literal value this file constructs or sends.
 
+    **REVISED ONCE MORE** — "all items... should have an option and associated sizes... let's just
+    keep a blanket rule... if we don't specify a size, it's going to be OS" — the owner's own words.
+    `"OS"` had been a reserved value a person could TYPE, by hand, into a Size column or a style
+    number's own trailing segment, since this feature first shipped — but nothing ever applied it as a
+    real DEFAULT: a row naming no size at all, by any means, simply built a variation with no Size key
+    whatsoever, the same as if Size were not a thing this shop's catalog used. `draftGroupedProduct` and
+    `draftNamedCategoryProduct` (`batch.js`) now default a row's own resolved `Size` to `"OS"` whenever
+    neither a style-number segment nor an explicit Size column gave a real one (a literal `"TBD"`,
+    already filtered out as not a real value, counts as none given either) — a blanket rule applied the
+    same simple way to every row, clothing or not, with no per-category configuration (the owner's own
+    explicit choice, having floated reviving category-level Option Set assignment and then declined it:
+    "don't make it too complicated... if we're giving you colors and sizes, you have to make sure that
+    set is added" — already true of the mechanism above; nothing else needed building).
+
+    A resubmit's own matching (`draftProductUpdate`) needed the identical default on its own, SEPARATE
+    `option_values` construction, for the same reason `Test-PRD-P0-179-import_style_number_matching`'s
+    own matching exists at all: a row that still gives no size must resolve to the SAME `"OS"` an
+    original creation already defaulted it to, or a plain resubmit of the exact same sheet would falsely
+    "lose" its own variation (0 matching keys found, parked as "not an existing variation" purely from
+    this new default's own introduction). Tried FIRST against the defaulted shape, since `"OS"` is the
+    standard now — but a row naming no size still falls back to matching the raw, undefaulted shape too,
+    so a genuinely legacy variant synced with no Size option at all (every product created before this
+    shipped) still resubmits correctly instead of newly breaking the moment this default existed.
+
+    Confirmed against the real fixture DB: a CSV row with neither a Size column nor a style-number size
+    segment creates a variation whose real Square `item_option_values` names `"OS"`, not no option at
+    all; resubmitting that exact same row afterward still matches and updates it, never parking as a
+    false clash. A legacy variant seeded directly with empty `options` (simulating a product that
+    predates this default) still matches a sizeless resubmit row too, via the raw-shape fallback.
+
 81. **`Test-PRD-P0-147-variants_grid`** — The owner's own words: "I want to see those properties also
     listed in the variants dropdown for each item... a whole grid of available size and color
     variations so that I can set their quantities directly out of that variants dropdown." An item
