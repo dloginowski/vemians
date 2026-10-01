@@ -767,7 +767,13 @@ async function dispatchProductBatchPlan(args, { actor, role, env, mode }) {
     table: batchDraftTable("products", { ready: plan.ready, skipped: plan.skipped }),
     checklist: {
       id,
-      rows: plan.rows.map((r) => ({ row: r.rowNumber, title: r.title, summary: r.summary })),
+      rows: plan.rows.map((r) => ({
+        row: r.rowNumber,
+        title: r.title,
+        summary: r.summary,
+        possibleDuplicate: Boolean(r.possibleDuplicate),
+        duplicateReason: r.duplicateReason,
+      })),
     },
   };
 }

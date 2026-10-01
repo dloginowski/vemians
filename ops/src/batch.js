@@ -48,6 +48,7 @@ import {
   productsByCategoryAndTitle,
   productsByTitle,
   variantsWithOptionsOf,
+  INHOUSE_VENDOR_NAME,
 } from "./tools/catalog-writer.js";
 import { nearestCategory } from "./tools/catalog-write.js";
 import { parkForApproval } from "./approvals.js";
@@ -1921,8 +1922,112 @@ export async function draftProductBatch(env, { text, actor, role, onProgress, mo
  * progress bar the browser can only build from a real response per row —
  * never a polled approximation of one big call still in flight.
  *
- * @returns { rows: [{rowNumber, title, args, summary}], ready: [...], skipped: [...], tooMany?: number }
+ * @returns { rows: [{rowNumber, title, args, summary, possibleDuplicate?, duplicateReason?}], ready: [...], skipped: [...], tooMany?: number }
  */
+/* A plain, order-independent signature for one variation's own real shape.
+   `includeQty` is false for a comparison against something already in the
+   catalog -- an existing product's own on-hand count drifts from the
+   moment it was first created (sold, restocked), so comparing it against
+   history would either miss a real duplicate the instant one unit sold, or
+   flag an unrelated coincidence; options/price do not drift that way and
+   are the real signal there. True only for a WITHIN-THIS-SAME-UPLOAD
+   comparison, where both rows come from the one fresh sheet and a matching
+   quantity is still a meaningful part of "this is the same row twice."
+   Never includes sku/title -- a row's own variation TITLE is already built
+   FROM its options (variationTitle, draftGroupedProduct's own comment), so
+   comparing options already covers "same variant name" too, without being
+   thrown off by two different castings of the same title string. */
+function variationSignature(v, { includeQty }) {
+  const options = Object.entries(v.option_values ?? {})
+    .map(([k, val]) => `${k.toLowerCase()}=${String(val).trim().toLowerCase()}`)
+    .sort()
+    .join("|");
+  return includeQty ? `${options}#${v.price_minor ?? ""}#${v.quantity ?? ""}` : `${options}#${v.price_minor ?? ""}`;
+}
+
+function productVariationsSignature(variations, { includeQty }) {
+  return (variations ?? [])
+    .map((v) => variationSignature(v, { includeQty }))
+    .sort()
+    .join(",");
+}
+
+/*
+ * "Maybe there are duplicate items... same quantity, same options, same
+ * variant names, same cost and price, that's a flag... offer to skip it...
+ * sometimes maybe somebody might enter the same value twice or re-upload
+ * the same file" — the owner's own words. Two kinds of duplicate, checked
+ * separately, ADD mode only ("update" mode's whole point is finding and
+ * matching an existing product, never a problem to flag):
+ *
+ * 1. WITHIN THIS SAME UPLOAD — two different rows (different style numbers,
+ *    or two different named-category rows) that resolve to the exact same
+ *    title, category, vendor, cost, and variation set (options/price/
+ *    quantity, all three) are almost certainly a copy-paste mistake or an
+ *    accidental re-paste of the same block, never two genuinely different
+ *    products that happen to share a style-number convention.
+ *
+ * 2. AGAINST THE EXISTING CATALOG — the same product already exists (same
+ *    title, category, vendor, cost, and variation options/price), most
+ *    often from resubmitting a file ADD mode already created once before.
+ *
+ * Never blocks anything on its own: `possibleDuplicate`/`duplicateReason`
+ * ride along on the row, read by the checklist (views.js' own
+ * checklistCard) to leave that one row UNCHECKED by default — a person
+ * still decides, one checkbox at a time, the "offer to skip it" the owner
+ * asked for, reusing the checklist's own existing checkbox rather than
+ * inventing a second mechanism beside it.
+ */
+async function flagLikelyDuplicates(env, mode, builtRows) {
+  if (mode !== "add") return;
+  const seenInBatch = new Map();
+  for (const row of builtRows) {
+    const args = row.args;
+    const title = (args.title ?? "").trim().toLowerCase();
+    const key = `${args.category_id ?? ""}|${title}`;
+    /* A blank vendor is never really "no vendor" once a product actually
+       exists -- vendorRefOrInHouse (catalog-writer.js) assigns the real
+       In-house vendor the moment it is created, so an incoming row with no
+       Vendor column at all must compare as THAT, not as blank, or a sheet
+       this shop's own plain style (no vendor column) could never match
+       anything it already created. */
+    const vendor = (args.vendor || INHOUSE_VENDOR_NAME).trim().toLowerCase();
+    const unitCost = args.unit_cost_minor ?? null;
+    const variationsSigWithQty = productVariationsSignature(args.variations, { includeQty: true });
+
+    const priorInBatch = seenInBatch.get(key) ?? [];
+    const batchMatch = priorInBatch.find((p) => p.sig === variationsSigWithQty && p.vendor === vendor && p.unitCost === unitCost);
+    if (batchMatch) {
+      row.possibleDuplicate = true;
+      row.duplicateReason = `same title, category, vendor, cost, options, quantity and price as row ${batchMatch.rowNumber} in this same upload`;
+    } else {
+      const candidates = args.category_id
+        ? await productsByCategoryAndTitle(env.CATALOG_MIRROR, args.category_id, args.title)
+        : await productsByTitle(env.CATALOG_MIRROR, args.title);
+      const incomingSigNoQty = productVariationsSignature(args.variations, { includeQty: false });
+      for (const existing of candidates) {
+        if ((existing.vendor ?? "").trim().toLowerCase() !== vendor) continue;
+        if ((existing.unit_cost_minor ?? null) !== unitCost) continue;
+        /* variantsWithOptionsOf's own options are already parsed JSON --
+           never re-parse an object a second time, which only ever throws
+           and silently loses every real option value to the catch below. */
+        const existingVariants = await variantsWithOptionsOf(env.CATALOG_MIRROR, existing.id);
+        const existingSig = productVariationsSignature(
+          existingVariants.map((v) => ({ option_values: v.options, price_minor: v.price_minor })),
+          { includeQty: false },
+        );
+        if (existingSig === incomingSigNoQty) {
+          row.possibleDuplicate = true;
+          row.duplicateReason = `an existing product, "${existing.title}" (${existing.handle}), already has the same title, category, vendor, cost, options and price`;
+          break;
+        }
+      }
+    }
+    priorInBatch.push({ rowNumber: row.rowNumber, sig: variationsSigWithQty, vendor, unitCost });
+    seenInBatch.set(key, priorInBatch);
+  }
+}
+
 export async function planProductBatch(env, { text, actor, role, mode }) {
   assertBatchMode(mode);
   const records = csvRecords(parseCsv(text));
@@ -1930,6 +2035,7 @@ export async function planProductBatch(env, { text, actor, role, mode }) {
     return { rows: [], ready: [], skipped: [], tooMany: records.length };
   }
   const { rows: built, clashes, rate } = await resolveProductRows(env, { actor, role, mode }, records);
+  await flagLikelyDuplicates(env, mode, built);
 
   const readyRows = [];
   const parkedFromGate = [];

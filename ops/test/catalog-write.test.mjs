@@ -5307,6 +5307,102 @@ check("test_PRD_P0_89_batch_preview_confirm__previews_the_first_rows_and_heading
   assert.equal(outcome.table.rows[0][vendorCol], "In-house", "a blank vendor cell really does become In-house at creation, not an unresolved dash");
 });
 
+/*
+ * P0-186 — a safety check for accidentally-duplicated batch rows
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_186_batch_duplicate_safety_check__two_identical_rows_in_one_upload_flag_the_second_as_a_possible_duplicate", async () => {
+  /* "Maybe there are duplicate items... same quantity, same options, same
+     variant names, same cost and price, that's a flag... offer to skip it
+     ... sometimes maybe somebody might enter the same value twice" — the
+     owner's own words. Two different style numbers, but otherwise
+     byte-identical rows (title, category, cost, price, quantity, no
+     options) — a classic copy-paste mistake, never two genuinely different
+     products that happen to share a style-number convention. */
+  const f = await fixture({ actor: "wren@vemians.com", role: "manager" });
+  const csv =
+    "title,category,price,style id,cost,quantity\n" +
+    "Wool Coat,Outerwear,450.00,01-04-001,210.00,5\n" +
+    "Wool Coat,Outerwear,450.00,01-04-002,210.00,5\n";
+  const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
+
+  const outcome = await dispatch(
+    "catalog_add_product_batch",
+    { asset_id: "ast_1" },
+    { actor: "wren@vemians.com", role: "manager", env, allowed: new Set(["catalog_add_product_batch"]) },
+  );
+  assert.equal(outcome.kind, "checklist");
+  assert.equal(outcome.checklist.rows.length, 2);
+  assert.ok(!outcome.checklist.rows[0].possibleDuplicate, "the first row is the original, never flagged against itself");
+  assert.ok(outcome.checklist.rows[1].possibleDuplicate, "the second, identical row must be flagged");
+  assert.match(outcome.checklist.rows[1].duplicateReason, /row 2 in this same upload/);
+});
+
+check("test_PRD_P0_186_batch_duplicate_safety_check__a_genuinely_different_price_or_quantity_is_never_flagged", async () => {
+  const f = await fixture({ actor: "sage@vemians.com", role: "manager" });
+  const csv =
+    "title,category,price,style id,cost,quantity\n" +
+    "Wool Coat,Outerwear,450.00,01-04-001,210.00,5\n" +
+    "Wool Coat,Outerwear,399.00,01-04-002,210.00,5\n";
+  const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
+
+  const outcome = await dispatch(
+    "catalog_add_product_batch",
+    { asset_id: "ast_1" },
+    { actor: "sage@vemians.com", role: "manager", env, allowed: new Set(["catalog_add_product_batch"]) },
+  );
+  assert.equal(outcome.checklist.rows.length, 2);
+  assert.ok(!outcome.checklist.rows[0].possibleDuplicate);
+  assert.ok(!outcome.checklist.rows[1].possibleDuplicate, "a genuinely different price must never be flagged as a duplicate");
+});
+
+check("test_PRD_P0_186_batch_duplicate_safety_check__re_uploading_the_same_sheet_flags_against_the_existing_catalog", async () => {
+  /* "Sometimes maybe somebody might re-upload the same file" — the real
+     scenario the within-batch check above cannot catch at all: the first
+     upload already finished (a real product now sits in the mirror), and
+     the SAME sheet comes in again later as its own, separate batch. */
+  const f = await fixture({ actor: "ember@vemians.com", role: "manager" });
+  const csv = "title,category,price,style id,cost,quantity\nWool Coat,Outerwear,450.00,01-04-001,210.00,5\n";
+
+  const firstEnv = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
+  const first = await draftProductBatchViaChat(
+    "catalog_add_product_batch",
+    { asset_id: "ast_1" },
+    { actor: "ember@vemians.com", role: "manager", env: firstEnv, square: f.square },
+  );
+  assert.equal(first.created.length, 1, `expected the first upload to actually create the product: ${JSON.stringify(first)}`);
+
+  const secondEnv = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
+  const second = await dispatch(
+    "catalog_add_product_batch",
+    { asset_id: "ast_1" },
+    { actor: "ember@vemians.com", role: "manager", env: secondEnv, allowed: new Set(["catalog_add_product_batch"]) },
+  );
+  assert.equal(second.kind, "checklist");
+  assert.equal(second.checklist.rows.length, 1);
+  assert.ok(second.checklist.rows[0].possibleDuplicate, "re-uploading the identical sheet must flag against the product already in the catalog");
+  assert.match(second.checklist.rows[0].duplicateReason, /already has the same title, category, vendor, cost, options and price/);
+});
+
+check("test_PRD_P0_186_batch_duplicate_safety_check__update_mode_never_flags_anything", async () => {
+  /* Update mode's whole point is finding and matching an existing product —
+     never a problem to flag, and flagLikelyDuplicates (batch.js) returns
+     immediately for any mode other than "add". */
+  const f = await fixture({ actor: "lark@vemians.com", role: "manager" });
+  const csv = "title,category,price,style id,cost,quantity\nWool Coat,Outerwear,450.00,01-04-001,210.00,5\n";
+  const env = { ...f.env, ASSETS: await assetsFixtureWithRow({ extracted_text: csv }) };
+
+  const outcome = await dispatch(
+    "catalog_update_product_batch",
+    { asset_id: "ast_1" },
+    { actor: "lark@vemians.com", role: "manager", env, allowed: new Set(["catalog_update_product_batch"]) },
+  );
+  /* Nothing exists yet to update -- a clash, parked, never a checklist row
+     at all; this only needs to prove no possibleDuplicate flag shows up
+     anywhere in that outcome. */
+  assert.doesNotMatch(JSON.stringify(outcome), /possibleDuplicate":true/);
+});
+
 check("test_PRD_P0_89_batch_preview_confirm__the_draft_tool_uses_the_actors_own_most_recently_previewed_asset", async () => {
   /* TWO real chat transcripts showed the model itself cannot be trusted to
      carry the asset id across the turn boundary between a preview and its
