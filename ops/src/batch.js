@@ -1113,6 +1113,10 @@ async function draftNamedCategoryProduct(env, category, resolutionError, nextAut
   if (notes.length) customFields["import notes"] = notes.join("; ").slice(0, CAPS.CATALOG_CUSTOM_FIELD_VALUE_MAX);
 
   const optValues = Object.fromEntries(Object.entries(optionValues(record)).filter(([, value]) => value.trim().toUpperCase() !== "TBD"));
+  /* "All items... should have... associated sizes... if we don't specify
+     a size, it's going to be OS" — the owner's own words; see
+     draftGroupedProduct's own identical comment for the full reasoning. */
+  if (!optValues.Size) optValues.Size = "OS";
 
   /* No `style_id` given at all -- catalog.create_product's own
      resolveStyleId mints one from `category_id`'s own NN-NN pair the
@@ -1251,12 +1255,24 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
 
   const variations = [];
   for (const { record, rowNumber, color, size } of groupRows) {
-    const optValues = Object.fromEntries(
+    const rawOptValues = Object.fromEntries(
       Object.entries({ ...(color ? { Color: color } : {}), ...(size ? { Size: size } : {}), ...optionValues(record) }).filter(
         ([, value]) => value.trim().toUpperCase() !== "TBD",
       ),
     );
-    const match = existingVariants.find((v) => sameOptions(optValues, v.options));
+    /* "All items... should have... associated sizes... if we don't
+       specify a size, it's going to be OS" — the owner's own words; see
+       draftGroupedProduct's own identical comment for the full reasoning.
+       Tried FIRST here, since OS is the standard going forward — but a
+       row naming no size at all still falls back to matching the raw,
+       undefaulted shape too, so a genuinely legacy variant synced with no
+       Size option at all (predating this default) still resubmits
+       correctly instead of parking as a false "not an existing variation"
+       clash the moment this shipped. */
+    const optValues = rawOptValues.Size ? rawOptValues : { ...rawOptValues, Size: "OS" };
+    const match =
+      existingVariants.find((v) => sameOptions(optValues, v.options)) ??
+      (optValues.Size === "OS" && !rawOptValues.Size ? existingVariants.find((v) => sameOptions(rawOptValues, v.options)) : undefined);
     if (!match) {
       clashes.push(
         `row ${rowNumber}: "${Object.values(optValues).join(", ") || "(no size/color)"}" is not an existing variation on "${existing.title}" (${existing.handle}) -- a resubmit can only update sizes/colors that already exist; add a new one by hand first`,
@@ -1676,6 +1692,18 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
         ([, value]) => value.trim().toUpperCase() !== "TBD",
       ),
     );
+    /* "All items... should have an option and associated sizes... if we
+       don't specify a size, it's going to be OS" — the owner's own words,
+       a blanket rule applied the same simple way to every row, no
+       per-category configuration. "OS" was already a reserved value a
+       person could type by hand, meaning "it fits all" (parseStyleNumber's
+       own comment, above) — this is the other half, making it the real
+       DEFAULT whenever no size was given at all (neither a style-number
+       segment nor an explicit Size column), rather than something that
+       has to be typed out for every single-size item. Never overrides a
+       real size actually given, including a literal "TBD" just filtered
+       out above — that is still "no real size," the same as none at all. */
+    if (!optValues.Size) optValues.Size = "OS";
     const variationTitle = [optValues.Color, optValues.Size].filter(Boolean).join(", ") || title;
     /* "It should never be looking, expecting an SKU in our spreadsheets,
        because the SKU is something that is generated automatically" — the

@@ -1017,7 +1017,10 @@ check("test_PRD_P0_31_inventory_ledger__a_spreadsheet_row_with_no_quantity_colum
     globalThis.fetch = realFetch;
   }
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.match(result.created[0].summary, /Wool Coat: 1 in stock/, "no quantity column at all -- defaults to 1, never left blank");
+  /* "OS", not the product title -- no size column at all now defaults to
+     the real Size value "OS" (Test-PRD-P0-147-variants_grid, revised),
+     rather than leaving the variation with no option at all. */
+  assert.match(result.created[0].summary, /OS: 1 in stock/, "no quantity column at all -- defaults to 1, never left blank");
 });
 
 check("test_PRD_P0_31_inventory_ledger__a_spreadsheet_quantity_column_is_honored_when_given", async () => {
@@ -1034,7 +1037,7 @@ check("test_PRD_P0_31_inventory_ledger__a_spreadsheet_quantity_column_is_honored
     globalThis.fetch = realFetch;
   }
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.match(result.created[0].summary, /Wool Coat: 12 in stock/);
+  assert.match(result.created[0].summary, /OS: 12 in stock/);
 });
 
 check("test_PRD_P0_31_inventory_ledger__a_spreadsheet_quantity_that_does_not_parse_defaults_to_1_instead_of_blocking_the_row", async () => {
@@ -1056,7 +1059,7 @@ check("test_PRD_P0_31_inventory_ledger__a_spreadsheet_quantity_that_does_not_par
   }
   assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
   assert.equal(result.created.length, 1);
-  assert.match(result.created[0].summary, /Wool Coat: 1 in stock/);
+  assert.match(result.created[0].summary, /OS: 1 in stock/);
 
   const row = f.mirror("SELECT custom_fields FROM mirror_product WHERE title = 'Wool Coat'")[0];
   assert.match(JSON.parse(row.custom_fields)["import notes"], /quantity "a dozen".*defaulted to 1/);
@@ -5951,6 +5954,115 @@ check("test_PRD_P0_146_dynamic_option_values__a_lone_trailing_segment_is_always_
      (top-level) Outerwear (Test-PRD-P0-177-fluid_style_id). */
   const row = f.mirror("SELECT style_id FROM mirror_product WHERE title = 'Silk Scarf'")[0];
   assert.equal(row.style_id, null);
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * P0-146 (REVISED ONCE MORE) — "all items... should have an option and
+ * associated sizes... let's just keep a blanket rule... if we don't
+ * specify a size, it's going to be OS" — the owner's own words. "OS" was
+ * already reserved (a person could TYPE it, above), but nothing ever
+ * applied it as a real DEFAULT when a row named no size at all, by any
+ * means (no style-number segment, no explicit Size column).
+ * ───────────────────────────────────────────────────────────────────────── */
+
+check("test_PRD_P0_146_dynamic_option_values__no_size_given_at_all_still_defaults_to_a_real_os_option", async () => {
+  const f = await fixture({ actor: "noor@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  /* A bare 3-segment style number -- no color, no size, not even a
+     trailing "OS" typed by hand -- and no Size/Color columns either. */
+  const csv = "title,category,price,style id,cost\n" + `Trench Coat,${outerwear.name},135.00,01-04-001,15.00\n`;
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "noor@vemians.com", role: "manager" , mode: "add"});
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
+
+  const sizeObj = [...f.square.objects.values()].find((o) => o.type === "ITEM_OPTION" && o.item_option_data?.name === "Size");
+  assert.ok(sizeObj, "a row with no size given at all must still get a real Size option, never none at all");
+  assert.equal(sizeObj.item_option_data.values[0].item_option_value_data.name, "OS");
+
+  const product = f.mirror("SELECT id FROM mirror_product WHERE title = 'Trench Coat'")[0];
+  const variant = f.mirror("SELECT options FROM mirror_variant WHERE product_id = ?", product.id)[0];
+  assert.equal(JSON.parse(variant.options).Size, "OS");
+});
+
+check("test_PRD_P0_146_dynamic_option_values__a_sizeless_resubmit_still_matches_the_same_now_os_defaulted_variation", async () => {
+  /* The exact failure this default could have introduced on its own:
+     create with no size (defaults to OS, just above), then resubmit the
+     IDENTICAL sheet -- a plain price update -- and confirm it still finds
+     and updates the same variation rather than parking as a false
+     "not an existing variation" clash now that a real Size value exists
+     where none did before. */
+  const f = await fixture({ actor: "noor@vemians.com", role: "manager" });
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const csv1 = "title,category,price,style id,cost\n" + `Trench Coat,${outerwear.name},135.00,01-04-002,15.00\n`;
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let second;
+  try {
+    const first = await draftProductBatch(f.env, { text: csv1, actor: "noor@vemians.com", role: "manager", mode: "add" });
+    assert.equal(first.created.length, 1, `expected the first submission to create, got: ${JSON.stringify(first)}`);
+
+    const csv2 = "title,category,price,style id,cost\n" + `Trench Coat,${outerwear.name},150.00,01-04-002,15.00\n`;
+    second = await draftProductBatch(f.env, { text: csv2, actor: "noor@vemians.com", role: "manager", mode: "update" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.equal(second.ready.length, 0, `expected no clashes, got: ${JSON.stringify(second.ready)}`);
+  assert.equal(second.created.length, 1);
+  assert.equal(second.created[0].action, "updated");
+
+  const product = f.mirror("SELECT id FROM mirror_product WHERE title = 'Trench Coat'")[0];
+  const variant = f.mirror("SELECT price_minor, options FROM mirror_variant WHERE product_id = ?", product.id)[0];
+  assert.equal(variant.price_minor, 15000, "the resubmit's own new price actually landed");
+  assert.equal(JSON.parse(variant.options).Size, "OS", "still the same OS-defaulted variation, not a second one");
+});
+
+check("test_PRD_P0_146_dynamic_option_values__a_sizeless_resubmit_still_matches_a_legacy_variant_with_no_size_option_at_all", async () => {
+  /* The other half of the same guarantee: a product that predates this
+     default entirely -- built directly the way a real sync from Square
+     already recorded it, with genuinely EMPTY options, never through
+     catalog.create_product (which would always apply the new default) --
+     must still resubmit correctly. The raw, undefaulted match is what
+     this depends on; without it, every pre-existing sizeless product in
+     this shop's real catalog would break the moment this default shipped. */
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  f.mirrorDb._raw
+    .prepare(
+      "INSERT INTO mirror_product (id, external_ref, handle, title, category_id, source_version, import_style_number) VALUES" +
+        " ('prod-legacy','SQ_ITEM_LEGACY','trench-coat-legacy','Trench Coat Legacy', ?, 5, '01-04-003')",
+    )
+    .run(outerwear.id);
+  f.mirrorDb._raw
+    .prepare(
+      "INSERT INTO mirror_variant (id, external_ref, product_id, sku, title, ordinal, price_minor, currency, options, vendor_id, unit_cost_minor, unit_cost_currency)" +
+        " VALUES ('var-legacy','SQ_VAR_LEGACY','prod-legacy','SKU-LEGACY','Trench Coat Legacy',0,13500,'USD','{}',NULL,1500,'USD')",
+    )
+    .run();
+
+  const csv = "title,category,price,style id,cost\n" + `Trench Coat Legacy,${outerwear.name},150.00,01-04-003,15.00\n`;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, { text: csv, actor: "mara@vemians.com", role: "manager", mode: "update" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.equal(result.ready.length, 0, `expected no clashes, got: ${JSON.stringify(result.ready)}`);
+  assert.equal(result.created.length, 1);
+  const variant = f.mirror("SELECT price_minor, options FROM mirror_variant WHERE product_id = 'prod-legacy'")[0];
+  assert.equal(variant.price_minor, 15000);
+  assert.equal(variant.options, "{}", "the legacy variant's own real, optionless shape must never be invented into a fake Size");
 });
 
 check("test_PRD_P0_146_dynamic_option_values__an_explicit_size_or_color_column_wins_over_the_full_style_numbers_own", async () => {
