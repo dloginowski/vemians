@@ -1683,6 +1683,18 @@ check("test_PRD_P0_165_approval_card_never_hidden_behind_the_bar__gate_floats_ab
   assert.match(body, /\.gate\s*\{[^}]*overflow-y:\s*auto/s, "a card taller than the space above the bar must scroll inside its own panel");
   assert.match(body, /\.gate\s*\{[^}]*background:\s*var\(--image-ground\)/s, "a floating panel needs its own solid fill or .log content behind it shows through unreadably");
   assert.doesNotMatch(body, /\.ops\.chat-page #gate/s, "#gate must carry no special layout CSS of its own any more — a position: fixed child needs none from its parent");
+
+  /* REVISED: "it could scale to fit the entire window, if there's space...
+     right now you're using half the space" -- the owner's own words,
+     looking at a long batch checklist capped at a flat 50vh regardless of
+     how tall the screen actually was. Replaced with a cap measured against
+     the real viewport (clearing .input-bar and matching .ops's own top
+     padding) rather than an arbitrary half -- height itself stays auto, so
+     this is a ceiling a tall checklist can grow into, never a floor a short
+     one gets stretched to. */
+  assert.doesNotMatch(body, /\.gate\s*\{[^}]*max-height:\s*50vh/s, "the panel must no longer be capped at an arbitrary half the screen");
+  assert.match(body, /\.gate\s*\{[^}]*max-height:\s*calc\(100vh - 70px\)/s, "it must size against the real viewport height instead");
+  assert.match(body, /\.gate\s*\{[^}]*max-height:\s*calc\(100dvh - 70px\)/s, "and prefer dvh where it's supported, same fallback order .ops.chat-page already uses");
 });
 
 check("test_PRD_P0_167_gate_matches_the_real_bubble_size__every_text_node_in_the_card_is_14px_not_just_the_heading", async () => {

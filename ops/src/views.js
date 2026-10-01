@@ -1160,10 +1160,25 @@ ${TABLE_CARD_CSS}
    rendered at 16.38px, caught by re-measuring rather than assuming
    "inherit" was enough. font-size: inherit cancels the multiplier outright,
    the same way font: inherit already does for the buttons below it. */
+/* REVISED: "it could scale to fit the entire window, if there's space...
+   right now you're using half the space" — the owner's own words, looking
+   at a long batch checklist. max-height was a flat 50vh since this panel
+   first floated free of .log (above) -- an arbitrary cap never revisited
+   against how tall the screen actually is, so a 78-row checklist scrolled
+   internally at half the window even on a tall monitor with nothing else
+   on the page competing for the other half. Now sized against the real
+   viewport: 58px (clearing .input-bar, unchanged) plus 12px (matching
+   .ops's own top padding) is all that is reserved, the rest is this
+   panel's to grow into -- up to that ceiling, never forced to it, since
+   height itself stays auto and a short one- or two-row checklist still
+   sizes to its own content, not to the full screen. dvh repeated after vh,
+   same fallback order .ops.chat-page (above) already uses, since a mobile
+   browser's own vh ignores its address bar and dvh does not. */
 .gate {
   border: 1px solid var(--ink); padding: 12px; border-radius: 10px;
   position: fixed; left: 8px; right: 8px; bottom: 58px; z-index: 21;
-  max-width: calc(64rem - 16px); max-height: 50vh; overflow-y: auto;
+  max-width: calc(64rem - 16px); overflow-y: auto;
+  max-height: calc(100vh - 70px); max-height: calc(100dvh - 70px);
   background: var(--image-ground); font-size: 14px;
 }
 .gate h3 { margin: 0 0 8px; font-weight: 700; font-size: inherit; }

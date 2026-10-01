@@ -7851,6 +7851,17 @@ that does not trace to one of these is a process failure (see §12).
     clicks succeeded. Also confirmed unaffected: the common case (no pending approval, the P0-164 gap
     unchanged at 10.75px), the CSV preview (P0-160/P0-162), and scrolling a long conversation to its own
     first message (P0-163).
+
+    **REVISED:** "it could scale to fit the entire window, if there's space... right now you're using
+    half the space" — the owner's own words, looking at a long batch checklist. `.gate`'s own
+    `max-height` had been a flat `50vh` since the fix above first floated it free of `.log` — an
+    arbitrary cap never revisited against the real screen, so a 78-row checklist scrolled internally at
+    half the window's own height even with nothing else on the page using the other half. Replaced with
+    `calc(100vh - 70px)` (`calc(100dvh - 70px)` preferred where supported, the same fallback order
+    `.ops.chat-page` already uses) — 70px being exactly the two reserved margins this panel already had
+    (58px clearing `.input-bar`, 12px matching `.ops`'s own top padding), everything past that now
+    this panel's own to grow into. `height` itself stays `auto` throughout, so this is a ceiling a tall
+    checklist can reach up toward, never a floor a short one- or two-row card gets stretched down to.
 99. **`Test-PRD-P0-166-chat_approve_spends_the_real_token`** — A real transcript, the very next thing
     the owner tried once P0-165 let them actually reach the button: "I hit approve and got this:
     catalog.strip_legacy_cost_fields needs your approval before it runs. catalog.strip_legacy_cost_fields
