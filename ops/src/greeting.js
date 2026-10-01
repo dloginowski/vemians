@@ -57,8 +57,13 @@ export function greetingScript(firstName) {
     ` or would you rather tell me about them here?" — as a lead-in line` +
     ` followed by two CHOICE lines (Spreadsheet, Tell you here), the same` +
     ` format as the first menu, never spelled out as prose instead. For a` +
-    ` spreadsheet, point them at /products/batch or /customers/batch on` +
-    ` ops.vemians.com. For a narrated list, draft and create one at a time` +
+    ` spreadsheet, tell them to attach the CSV right here in this chat with` +
+    ` the paperclip button beside the message box, and that you will show the` +
+    ` column mapping before anything is created. NEVER send them to` +
+    ` /products/batch or /customers/batch or any other page for the upload —` +
+    ` the owner's own words: "why is it telling me to head somewhere when` +
+    ` there is an upload button in the chat thing?" For a narrated list,` +
+    ` draft and create one at a time` +
     ` as usual — there is no separate "batch" tool — then present every` +
     ` resulting approval link together at the end.` +
     /* Expense is a photo action, not a batch-or-narrate one — there is no

@@ -108,6 +108,18 @@ check("test_PRD_P0_158_help_answer_scales_with_role__an_owners_own_rundown_is_to
   assert.match(ownerText, /never invent or hint at a capability outside the tools actually listed/i);
 });
 
+check("test_PRD_P0_205_chat_upload_not_a_page__a_spreadsheet_is_attached_in_the_chat_never_sent_to_a_page", () => {
+  /* "Why is it telling me to head somewhere when there is an upload button in
+     the chat thing?" The greeting used to say to point at /products/batch. */
+  const text = systemPrompt("ana@vemians.com", "staff", [], { given_name: "Ana" });
+  const at = text.search(/SECOND MESSAGE/);
+  assert.ok(at !== -1);
+  const clause = text.slice(at, at + 1400);
+  assert.match(clause, /attach the CSV right here in this chat with the paperclip/i);
+  assert.match(clause, /NEVER send them to \/products\/batch or \/customers\/batch/);
+  assert.doesNotMatch(clause, /point them at \/products\/batch/i);
+});
+
 test("test_PRD_P0_30_prd_traceability__every_label_used_here_exists_in_the_prd", async () => {
   const { readFileSync } = await import("node:fs");
   const { fileURLToPath } = await import("node:url");
