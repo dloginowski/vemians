@@ -8835,6 +8835,47 @@ that does not trace to one of these is a process failure (see §12).
     reproduces the exact "index 0" mismatch; the reorder makes the two lists agree regardless of which
     order either one happens to start in.
 
+118. **`Test-PRD-P0-186-batch_duplicate_safety_check`** — The owner's own words, thinking through what
+    could go wrong with a batch import: "maybe there are duplicate items... do a safety check and
+    confirm if you see like the same vendor, same cost and same MSRP, maybe that's a flag," refined
+    once further: "if you see the duplicate data entry, like same quantity, same options, same variant
+    names, same cost and price, that should be a flag saying, hey, are you sure? And offer to skip it,
+    right? Because sometimes maybe somebody might enter the same value twice or re-upload the same
+    file." ADD mode only — "update" mode's whole point is finding and matching an existing product,
+    never a problem to flag.
+
+    Two kinds of duplicate, checked separately by `flagLikelyDuplicates` (`batch.js`), called once per
+    `planProductBatch` run, right after `resolveProductRows`:
+
+    1. **WITHIN THIS SAME UPLOAD** — two different rows (different style numbers, or two different
+       named-category rows) that resolve to the exact same title, category, vendor, cost, and variation
+       set (options/price/quantity, all three) — a copy-paste mistake or an accidental re-paste of the
+       same block within one sheet.
+    2. **AGAINST THE EXISTING CATALOG** — the same product already exists (same title, category,
+       vendor, cost, and variation options/price) — most often from resubmitting a file ADD mode
+       already created once before. Stock quantity is deliberately EXCLUDED from this one comparison —
+       a real product's own on-hand count drifts the moment it is first created (sold, restocked), so
+       comparing it against history would either miss a real duplicate the instant one unit sold, or
+       flag an unrelated coincidence; options/price/vendor/cost do not drift that way and are the real
+       signal here. A row's own blank Vendor cell is compared as "In-house" — `vendorRefOrInHouse`
+       (`catalog-writer.js`) assigns that real vendor the moment any product is actually created, so an
+       incoming row with no Vendor column at all has to compare as THAT, never as a literal blank, or a
+       plain sheet with no vendor column could never match anything it had already created.
+
+    A variation's own signature never includes its SKU or title directly — a row's own variation TITLE
+    is already built FROM its options (`draftGroupedProduct`'s own `variationTitle`), so comparing
+    options already covers "same variant name" too, without being thrown off by two different castings
+    of the same title string.
+
+    Never blocks anything on its own: `possibleDuplicate`/`duplicateReason` ride along on the row,
+    through `dispatchProductBatchPlan`'s own checklist mapping (`agent.js`), to the checklist UI itself
+    (`checklistCard`, `views.js`) — "offer to skip it" reuses the checklist's own EXISTING per-row
+    checkbox as the skip mechanism, rather than inventing a second one beside it: a flagged row's own
+    checkbox starts UNCHECKED (every other row still starts checked, as it always has), with a visible
+    warning (the shop's own established `--accent` "needs your attention" color, the same one a dirty
+    save button or a clash already uses) naming why — a person still decides, one checkbox at a time,
+    never an automatic skip.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

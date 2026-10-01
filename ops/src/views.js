@@ -1185,6 +1185,12 @@ ${TABLE_CARD_CSS}
 .gate .checklist-fields { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
 .gate .checklist-title { font: inherit; color: inherit; background: transparent; border: 1px solid var(--rule); border-radius: 6px; padding: 3px 6px; }
 .gate .checklist-summary { color: var(--muted); font-size: 12px; }
+/* "That should be a flag saying, hey, are you sure?" — the owner's own
+   words. The same --accent this whole panel already reserves for "needs
+   your attention, unlike the field beside it" (a dirty save button, a
+   clash) rather than a new color this one row alone would carry. */
+.gate .checklist-row-duplicate { border: 1px solid var(--accent); border-radius: 6px; padding: 6px; }
+.gate .checklist-duplicate-warning { color: var(--accent); font-size: 12px; }
 .gate ul.checklist input[disabled] { cursor: default; opacity: 0.7; }
 .gate progress { width: 100%; margin: 8px 0; accent-color: var(--ink); }
 .gate .checklist-status { margin: 0; color: var(--muted); font-size: 13px; }
@@ -1805,15 +1811,26 @@ function checklistCard(c) {
      check and is what would actually get created; the title is the one
      field a person can fix on the spot — a typo, an auto-generated
      placeholder, a name they'd rather use — without cancelling and
-     re-uploading the whole sheet over it. */
+     re-uploading the whole sheet over it.
+     REVISED: "maybe somebody might enter the same value twice or re-upload
+     the same file... that should be a flag saying, hey, are you sure? And
+     offer to skip it" — the owner's own words. possibleDuplicate
+     (flagLikelyDuplicates, batch.js) reuses this same checkbox as the
+     "skip" mechanism it already is — unchecked by DEFAULT for a flagged
+     row, same as every other row's own default is checked, so a person
+     explicitly opts back in to create it rather than having to notice and
+     uncheck something that looked fine. No backtick template literals in
+     this file's own warning text below — this whole script block is
+     itself plain text inside the page's own outer template literal, and a
+     nested backtick would terminate THAT one early. */
   const list = el.querySelector("ul.checklist");
   c.rows.forEach((r) => {
     const li = document.createElement("li");
-    li.className = "checklist-row";
+    li.className = r.possibleDuplicate ? "checklist-row checklist-row-duplicate" : "checklist-row";
     li.dataset.row = String(r.row);
     const box = document.createElement("input");
     box.type = "checkbox";
-    box.checked = true;
+    box.checked = !r.possibleDuplicate;
     box.className = "checklist-check";
     const fields = document.createElement("div");
     fields.className = "checklist-fields";
@@ -1827,6 +1844,12 @@ function checklistCard(c) {
     summary.textContent = r.summary;
     fields.appendChild(titleInput);
     fields.appendChild(summary);
+    if (r.possibleDuplicate) {
+      const warning = document.createElement("span");
+      warning.className = "checklist-duplicate-warning";
+      warning.textContent = "Possible duplicate — " + r.duplicateReason + ". Unchecked by default; check the box to create it anyway.";
+      fields.appendChild(warning);
+    }
     li.appendChild(box);
     li.appendChild(fields);
     list.appendChild(li);
