@@ -1341,6 +1341,38 @@ function shopFormOf(base) {
   return `${String(parts[0]).padStart(2, "0")}-${String(parts[1]).padStart(2, "0")}-${String(parts[2]).padStart(3, "0")}`;
 }
 
+/* The same size and colour listed on two rows of a sheet is ONE variation, not
+   an error ("Blue, L" twice). Rows that agree on price and cost are merged (two
+   different quantities are two stock lots of the one variation, so they add);
+   rows that disagree on price or cost cannot both be right and are named. */
+function collapseDuplicateVariations(variations, rowNumbers, notes, clashes) {
+  const keyOf = (v) =>
+    v.variant_id
+      ? `id:${v.variant_id}`
+      : `opts:${JSON.stringify(Object.entries(v.option_values ?? {}).map(([k, x]) => [k.trim().toLowerCase(), String(x).trim().toLowerCase()]).sort())}`;
+  const out = [];
+  const outRows = [];
+  const seen = new Map();
+  variations.forEach((v, i) => {
+    const key = keyOf(v);
+    if (!seen.has(key)) {
+      seen.set(key, out.length);
+      out.push(v);
+      outRows.push(rowNumbers[i]);
+      return;
+    }
+    const j = seen.get(key);
+    const first = out[j];
+    if (first.price_minor !== v.price_minor || first.currency !== v.currency || (first.unit_cost_minor ?? null) !== (v.unit_cost_minor ?? null)) {
+      clashes.push(`rows ${outRows[j]} and ${rowNumbers[i]} are both "${v.title}" but with a different price or cost -- the same size and colour cannot have two prices; fix one of the two rows`);
+      return;
+    }
+    if (first.quantity !== undefined && v.quantity !== undefined && first.quantity !== v.quantity) first.quantity += v.quantity;
+    notes.push(`rows ${outRows[j]} and ${rowNumbers[i]} are both "${v.title}" -- merged into one variation`);
+  });
+  return out;
+}
+
 /* The values a variation's TITLE names ("M, Brown" -> {m, brown}) and the
    values a row's options name, compared as sets: order and case do not matter. */
 function variantTitleValues(title) {
@@ -1645,6 +1677,7 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
   }
 
   const variations = [];
+  const variationRowNumbers = [];
   const matchedVariantIds = new Set();
   for (const { record, rowNumber, color, size } of groupRows) {
     const rawOptValues = Object.fromEntries(
@@ -1732,6 +1765,7 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
           newQuantity = parsedNewQuantity;
         }
       }
+      variationRowNumbers.push(rowNumber);
       variations.push({
         title: [optValues.Color, optValues.Size].filter(Boolean).join(", ") || existing.title,
         price_minor: priceMinor,
@@ -1745,6 +1779,7 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
     if (priceMinor === null) {
       clashes.push(`row ${rowNumber}: price "${priceRaw}" is not a plain number like 45.00`);
     }
+    variationRowNumbers.push(rowNumber);
     variations.push({
       variant_id: match.id,
       title: match.title,
@@ -1824,6 +1859,29 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
           }
         }
       }
+    }
+  }
+
+  variations.splice(0, variations.length, ...collapseDuplicateVariations(variations, variationRowNumbers, notes, clashes));
+  /* Two rows for the SAME existing variation each queued a stock change
+     measured from the same current count, which would apply twice. One stands;
+     two different counts for one variation cannot both be right. */
+  {
+    const seenStock = new Map();
+    for (let i = 0; i < quantityAdjustments.length; i += 1) {
+      const adj = quantityAdjustments[i];
+      const variantId = adj.args?.variant_id;
+      if (!variantId) continue;
+      if (!seenStock.has(variantId)) {
+        seenStock.set(variantId, adj);
+        continue;
+      }
+      const kept = seenStock.get(variantId);
+      if (kept.args.delta !== adj.args.delta) {
+        clashes.push(`rows ${kept.displayRow} and ${adj.displayRow} both set the stock of the same size/colour, to different counts -- fix one of the two rows`);
+      }
+      quantityAdjustments.splice(i, 1);
+      i -= 1;
     }
   }
 
@@ -2292,7 +2350,9 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
      defaults to 1 (noted), the same tolerance a blank quantity cell
      already gets. */
   const variations = [];
+  const variationRowNumbers = [];
   for (const { record, rowNumber, color, size } of groupRows) {
+    variationRowNumbers.push(rowNumber);
     const priceRaw = pick(record, PRICE_KEYS);
     const priceMinor = parsePriceToMinor(priceRaw);
     if (priceMinor === null) {
@@ -2354,6 +2414,7 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
       ...(Object.keys(optValues).length ? { option_values: optValues } : {}),
     });
   }
+  variations.splice(0, variations.length, ...collapseDuplicateVariations(variations, variationRowNumbers, notes, clashes));
 
   /* REVISED — unit_cost_minor no longer needs a vendor to become a real
      argument (catalog-writer.js's own item-level fallback attribute); it is
