@@ -319,6 +319,18 @@ export async function productByHandle(db, handle) {
    (Test-PRD-P0-179-import_style_number_matching has the full reasoning).
    NULL is never searched for (every style-numbered CSV row has a real,
    non-empty base) — batch.js only ever calls this with one. */
+/* Every product that carries this sheet number. Normally one; two when a
+   sheet reused a number for a different item (the second was added as its own
+   item with its own ID, the sheet's number kept on both), which is why a
+   resubmit has to choose between them by name. */
+export async function productsByImportStyleNumber(db, importStyleNumber) {
+  const res = await db
+    .prepare(`${PRODUCT_WITH_VENDOR_SELECT} WHERE p.import_style_number = ? ORDER BY p.synced_at`)
+    .bind(importStyleNumber)
+    .all();
+  return res.results ?? [];
+}
+
 export async function productByImportStyleNumber(db, importStyleNumber) {
   return db
     .prepare(`${PRODUCT_WITH_VENDOR_SELECT} WHERE p.import_style_number = ?`)

@@ -11313,14 +11313,17 @@ check("test_PRD_P0_216_filled_option_values_match_on_resubmit__mixed_rows_resent
   }
 });
 
-check("test_PRD_P0_217_matched_row_name_check__a_row_matched_by_style_number_to_an_item_with_a_completely_different_name_is_held", async () => {
+check("test_PRD_P0_217_matched_row_name_check__a_row_whose_number_belongs_to_a_differently_named_item_is_added_as_a_new_item_with_a_note", async () => {
   /* The chat's own flag on a real sheet: "Oversize dress" resolved to update
-     the existing "Black hand-painted blazer". Updating would overwrite the
-     blazer's price, cost and stock with the dress's. */
+     the existing "Black hand-painted blazer", which would have overwritten
+     the blazer's price, cost and stock. The owner's answer: "just have it
+     auto-generate a new ID for that category and subcategory, and just note
+     it ... because it's a duplicate." */
   const f = await fixture({ actor: "keiko@vemians.com", role: "manager" });
   const realFetch = globalThis.fetch;
   globalThis.fetch = f.square;
   const head = "Style #,Category,Subcategory,Description,Price\n";
+  const dressSheet = head + "001-004-002,Jackets,Evening Dresses,Oversize dress,250.00\n";
   try {
     const made = await draftProductBatch(f.env, {
       text: head + "001-004-002,Jackets,Evening Dresses,Black hand-painted blazer,100.00\n",
@@ -11328,28 +11331,37 @@ check("test_PRD_P0_217_matched_row_name_check__a_row_matched_by_style_number_to_
       role: "manager", mode: "add",
     });
     assert.equal(made.created.length, 1, JSON.stringify(made));
-    const priceOf = () => f.mirror("SELECT v.price_minor AS p FROM mirror_variant_index v JOIN mirror_product p ON p.id = v.product_id WHERE p.title = 'Black hand-painted blazer'")[0]?.p;
-    assert.equal(Number(priceOf()), 10000);
+    const priceOf = (title) =>
+      f.mirror("SELECT v.price_minor AS p FROM mirror_variant_index v JOIN mirror_product p ON p.id = v.product_id WHERE p.title = ?", title)[0]?.p;
+    assert.equal(Number(priceOf("Black hand-painted blazer")), 10000);
 
-    const wrong = await draftProductBatch(f.env, {
-      text: head + "001-004-002,Jackets,Evening Dresses,Oversize dress,250.00\n",
-      actor: "keiko@vemians.com",
-      role: "manager", mode: "update",
-    });
-    assert.equal(wrong.created.length, 0, "nothing applied");
-    assert.equal(Number(priceOf()), 10000, "the blazer's price is untouched");
-    const held = [...wrong.ready, ...wrong.skipped];
-    assert.equal(held.length, 1);
-    assert.match(held[0].summary ?? held[0].reason, /is "Black hand-painted blazer" in the catalog, but the sheet calls this row "Oversize dress"/);
+    const dress = await draftProductBatch(f.env, { text: dressSheet, actor: "keiko@vemians.com", role: "manager", mode: "update" });
+    assert.equal(dress.ready.length, 0, `nothing is held: ${JSON.stringify(dress.ready)}`);
+    assert.equal(dress.skipped.length, 0, JSON.stringify(dress.skipped));
+    assert.equal(dress.created.length, 1, "added as its own item");
+    assert.equal(dress.created[0].action, "created");
+    assert.match(dress.created[0].summary, /already belongs to "Black hand-painted blazer"/, "the note says why the ID differs");
+    assert.equal(Number(priceOf("Black hand-painted blazer")), 10000, "the blazer is untouched");
+    assert.equal(Number(priceOf("Oversize dress")), 25000);
+    const ids = f.mirror("SELECT title, style_id, import_style_number FROM mirror_product WHERE title IN ('Black hand-painted blazer', 'Oversize dress') ORDER BY title");
+    assert.notEqual(ids[0].style_id, ids[1].style_id, "each item has its own style ID");
+    assert.equal(ids[1].import_style_number, "001-004-002", "the sheet's number is kept on record");
 
+    /* Resending the same sheet finds each item by its name: nothing new is made. */
+    const again = await draftProductBatch(f.env, { text: dressSheet, actor: "keiko@vemians.com", role: "manager", mode: "update" });
+    assert.equal(again.created.length, 0, `no third item: ${JSON.stringify(again.created)}`);
+    assert.equal(again.ready.length, 0);
+    assert.equal(f.mirror("SELECT COUNT(*) AS n FROM mirror_product WHERE title = 'Oversize dress'")[0].n, 1);
+
+    /* A spelling or plural difference of the ORIGINAL name is still that item. */
     const same = await draftProductBatch(f.env, {
       text: head + "001-004-002,Jackets,Evening Dresses,Black hand painted blazers,120.00\n",
       actor: "keiko@vemians.com",
       role: "manager", mode: "update",
     });
-    assert.equal(same.ready.length, 0, JSON.stringify(same.ready));
-    assert.equal(same.created.length, 1, "a spelling or plural difference is still the same item");
-    assert.equal(Number(priceOf()), 12000);
+    assert.equal(same.created.length, 1);
+    assert.equal(same.created[0].action, "updated");
+    assert.equal(Number(priceOf("Black hand-painted blazer")), 12000);
   } finally {
     globalThis.fetch = realFetch;
   }
