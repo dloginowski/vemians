@@ -4111,6 +4111,34 @@ check("test_PRD_P0_213_move_subcategory__only_subcategory_rows_get_an_arrow_butt
   assert.match(script, /data\.remaining > 0/, "a merge that works in batches is asked for again while products remain");
 });
 
+check("test_PRD_P0_214_placement_from_style_numbers__the_admin_route_answers_with_the_proposed_moves_and_staff_cannot_reach_it", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const res = await postForm("/admin/categories/placement", MANAGER, env(mirror), {});
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.ok(Array.isArray(data.moves) && Array.isArray(data.review) && typeof data.ok === "number", JSON.stringify(data));
+  const staff = await postForm("/admin/categories/placement", STAFF, env(mirror), {});
+  assert.equal(staff.status, 403);
+});
+
+check("test_PRD_P0_214_placement_from_style_numbers__the_page_offers_check_placement_and_applies_the_moves_one_by_one", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  assert.match(body, /<button type="button" class="admin-placement-btn"/, "a Check placement button appears once there are subcategories");
+  assert.match(body, /<div class="admin-placement" hidden><\/div>/, "with a panel for the answer");
+  const script = body.slice(body.indexOf("<script>"), body.lastIndexOf("</script>"));
+  assert.match(script, /\/admin\/categories\/placement/, "asks the server where each subcategory belongs");
+  assert.match(script, /await moveOneCategory\(data\.moves\[i\]\.id, data\.moves\[i\]\.target\.id\)/, "applies the proposed moves one at a time through the move route");
+  assert.match(script, /can't be decided from the sheet numbers/, "and lists the ones it cannot decide instead of guessing");
+  assert.match(script, /window\.confirm\("Move " \+ data\.moves\.length/, "after one confirmation");
+  const bare = await (await get("/admin", MANAGER, env(mirrorDb()))).text();
+  assert.doesNotMatch(bare, /admin-placement-btn" title/, "no button when there are no subcategories at all");
+});
+
 check("test_PRD_P0_138_nested_categories__admin_staff_cannot_reach_any_of_the_post_routes", async () => {
   const mirror = mirrorDb();
   seedProduct(mirror);

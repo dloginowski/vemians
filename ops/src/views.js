@@ -5630,6 +5630,21 @@ ${OPS_DARK_CSS}
   display: inline-flex; align-items: center; justify-content: center;
 }
 .admin-move-btn:hover { color: var(--ink); border-color: var(--ink); }
+/* "Check placement": a compact panel at the top of the categories list. */
+.admin-placement-btn {
+  flex: 0 0 auto; font: inherit; font-size: 12px; padding: 3px 8px; border: 1px solid var(--muted); border-radius: 4px;
+  background: var(--ground); color: var(--muted); cursor: pointer;
+}
+.admin-placement-btn:hover { color: var(--ink); border-color: var(--ink); }
+.admin-placement { margin: 4px 0 8px; padding: 8px; border: 1px solid var(--rule); border-radius: 6px; font-size: 13px; }
+.admin-placement[hidden] { display: none; }
+.admin-placement h4 { margin: 0 0 4px; font-size: 13px; }
+.admin-placement ul { margin: 2px 0 6px; padding-left: 18px; }
+.admin-placement li { margin: 2px 0; }
+.admin-placement .admin-placement-note { color: var(--muted); font-size: 12px; }
+.admin-placement .admin-placement-actions { display: flex; gap: 8px; margin-top: 6px; }
+.admin-placement .admin-placement-actions button { font: inherit; font-size: 13px; padding: 4px 10px; border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink); cursor: pointer; }
+.admin-placement .admin-placement-actions button:disabled { opacity: 0.5; cursor: default; }
 /* The list a move button opens: every category the subcategory could go
    under, shown with its full path. */
 .admin-move-menu {
@@ -5704,9 +5719,15 @@ export function adminPage(allCategories = [], allVendors = [], customFieldNames 
       <button type="button" class="admin-section-toggle" aria-label="Show categories" title="Show categories">${CARET_ICON}</button>
       <span class="admin-section-label">Categories</span>
       <span class="admin-section-header-spacer"></span>
+      ${
+        allCategories.some((c) => c.parent_id)
+          ? `<button type="button" class="admin-placement-btn" title="Check where each subcategory belongs, from its items' sheet style numbers">Check placement</button>`
+          : ""
+      }
       <button type="button" class="admin-category-add-toggle" data-parent-id="" aria-label="Add a top-level category" title="Add a category">+</button>
     </div>
     <div class="admin-section-body">
+      <div class="admin-placement" hidden></div>
       ${allCategories.length ? renderAdminCategoryNodes(allCategories, null, categoryProductCountsById) : `<p class="item-empty">No categories yet.</p>`}
       <!-- "Make sure that the main category add button also generates all
            of the proper fields so that it's perfectly aligned as well,
@@ -6184,6 +6205,121 @@ document.body.addEventListener("click", async (e) => {
   } finally {
     removeBtn.disabled = false;
   }
+});
+
+/* "Check placement" -- "we already have the spreadsheets with all of the
+   style IDs, so you should be able to figure out that I really can only
+   have this subcategory under a certain top-level category," the owner's
+   own words. Asks the server where each subcategory belongs by its items'
+   own sheet style numbers, lists the moves it would make (and the ones it
+   cannot decide), and applies them all on one click, one subcategory at a
+   time through the same move/merge route the arrow button uses. */
+async function moveOneCategory(categoryId, parentId) {
+  for (let guard = 0; guard < 200; guard++) {
+    const body = new FormData();
+    body.set("category_id", categoryId);
+    body.set("parent_id", parentId);
+    const res = await fetch("/admin/categories/move", { method: "POST", body });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "That category could not be moved.");
+    if (!(data.remaining > 0)) return;
+  }
+}
+function placementLine(text, cls) {
+  const li = document.createElement("li");
+  li.textContent = text;
+  if (cls) li.className = cls;
+  return li;
+}
+async function showPlacement(btn) {
+  const panel = document.querySelector(".admin-placement");
+  panel.hidden = false;
+  panel.textContent = "Checking…";
+  let data;
+  try {
+    const res = await fetch("/admin/categories/placement", { method: "POST", body: new FormData() });
+    data = await res.json();
+    if (!res.ok) throw new Error(data.error || "could not check");
+  } catch (err) {
+    panel.textContent = "Could not check placement: " + err.message;
+    return;
+  }
+  panel.textContent = "";
+  const h = document.createElement("h4");
+  h.textContent = "Placement from sheet style numbers";
+  panel.appendChild(h);
+  if (!data.moves.length && !data.review.length) {
+    const p = document.createElement("p");
+    p.textContent = data.ok + " subcategor" + (data.ok === 1 ? "y is" : "ies are") + " already under the right category. Nothing to move.";
+    panel.appendChild(p);
+  }
+  if (data.moves.length) {
+    const ul = document.createElement("ul");
+    for (const m of data.moves) {
+      ul.appendChild(
+        placementLine(
+          m.name + ": " + (m.parent ? m.parent.name : "?") + " → " + m.target.name + (m.merges ? " (merges into the one already there)" : "") + " — " + m.items + " item" + (m.items === 1 ? "" : "s") + ", sheet number " + m.code,
+        ),
+      );
+    }
+    panel.appendChild(ul);
+  }
+  if (data.review.length) {
+    const note = document.createElement("p");
+    note.className = "admin-placement-note";
+    note.textContent = "These can't be decided from the sheet numbers, so they are left for you:";
+    panel.appendChild(note);
+    const ul = document.createElement("ul");
+    for (const r of data.review) ul.appendChild(placementLine(r.name + " (under " + (r.parent ? r.parent.name : "?") + ", " + r.items + " item" + (r.items === 1 ? "" : "s") + "): " + r.why, "admin-placement-note"));
+    panel.appendChild(ul);
+  }
+  if (data.moves.length && data.ok) {
+    const n = document.createElement("p");
+    n.className = "admin-placement-note";
+    n.textContent = data.ok + " more already in the right place.";
+    panel.appendChild(n);
+  }
+  const actions = document.createElement("div");
+  actions.className = "admin-placement-actions";
+  if (data.moves.length) {
+    const go = document.createElement("button");
+    go.type = "button";
+    const merges = data.moves.filter((m) => m.merges).length;
+    go.textContent = "Move " + data.moves.length + (data.moves.length === 1 ? " subcategory" : " subcategories");
+    go.addEventListener("click", async () => {
+      if (!window.confirm("Move " + data.moves.length + " subcategor" + (data.moves.length === 1 ? "y" : "ies") + " to the category its items' sheet numbers point at" + (merges ? " (" + merges + " will merge into one that is already there)" : "") + "?")) return;
+      go.disabled = true;
+      for (let i = 0; i < data.moves.length; i++) {
+        go.textContent = "Moving " + (i + 1) + " of " + data.moves.length + "…";
+        try {
+          await moveOneCategory(data.moves[i].id, data.moves[i].target.id);
+        } catch (err) {
+          go.disabled = false;
+          go.textContent = "Move " + (data.moves.length - i) + " remaining";
+          const bad = document.createElement("p");
+          bad.className = "item-edit-error";
+          bad.textContent = data.moves[i].name + ": " + err.message + " The ones before it were moved.";
+          panel.appendChild(bad);
+          return;
+        }
+      }
+      location.reload();
+    });
+    actions.appendChild(go);
+  }
+  const close = document.createElement("button");
+  close.type = "button";
+  close.textContent = "Close";
+  close.addEventListener("click", () => {
+    panel.hidden = true;
+    panel.textContent = "";
+  });
+  actions.appendChild(close);
+  panel.appendChild(actions);
+}
+document.body.addEventListener("click", (e) => {
+  const btn = e.target.closest(".admin-placement-btn");
+  if (btn) showPlacement(btn);
 });
 
 /* Move a subcategory under a different category -- "build the move
