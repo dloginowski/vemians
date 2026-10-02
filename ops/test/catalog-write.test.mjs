@@ -11264,7 +11264,7 @@ check("test_PRD_P0_216_filled_option_values_match_on_resubmit__two_rows_that_fil
     });
     assert.equal(result.created.length, 0, "the identical pair is never sent to Square");
     const reported = JSON.stringify([...result.ready, ...result.skipped]);
-    assert.match(reported, /would carry the same size\/colour values/);
+    assert.match(reported, /BLK, M.* but with a different price or cost/, "named as a price conflict (P0-219) rather than passed to Square");
     assert.doesNotMatch(reported, /Invalid Object with Id/);
   } finally {
     globalThis.fetch = realFetch;
@@ -11637,6 +11637,79 @@ check("test_PRD_P0_218_declare_missing_options__sheet_rows_match_existing_variat
     assert.equal(again.skipped.length, 0, JSON.stringify(again.skipped));
     assert.equal(again.created.length, 0, `nothing added or changed: ${JSON.stringify(again.created)}`);
     assert.equal(count(), 2, "no variation was added");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_219_duplicate_sheet_rows__two_rows_for_the_same_size_and_colour_become_one_variation", async () => {
+  /* A real sheet: "Shirt dress": the variations "Blue, L" and "Blue, L" would
+     carry the same size/colour values. The same size and colour listed twice is
+     one variation, not an error. */
+  const f = await fixture({ actor: "keiko@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  const head = "Style #,Category,Subcategory,Description,Price,Quantity,Color,Size\n";
+  const itemOf = (name) => [...f.square.objects.values()].find((o) => o.type === "ITEM" && o.item_data?.name === name);
+  try {
+    /* Same price, same quantity: a plain repeat, collapsed. */
+    const repeat = await draftProductBatch(f.env, {
+      text: head + "001-005-001,Dresses,Shirt Dresses,Shirt dress,80.00,2,Blue,L\n001-005-001,Dresses,Shirt Dresses,Shirt dress,80.00,2,Blue,L\n001-005-001,Dresses,Shirt Dresses,Shirt dress,80.00,1,Blue,M\n",
+      actor: "keiko@vemians.com",
+      role: "manager", mode: "add",
+    });
+    assert.equal(repeat.ready.length, 0, JSON.stringify(repeat.ready));
+    assert.equal(repeat.created.length, 1, JSON.stringify(repeat));
+    assert.equal(itemOf("Shirt dress").item_data.variations.length, 2, "Blue L once, Blue M once");
+
+    /* Same price, different quantities: stock lots of one variation, added. */
+    const lots = await draftProductBatch(f.env, {
+      text: head + "001-005-002,Dresses,Shirt Dresses,Polo dress,80.00,2,Red,L\n001-005-002,Dresses,Shirt Dresses,Polo dress,80.00,3,Red,L\n",
+      actor: "keiko@vemians.com",
+      role: "manager", mode: "add",
+    });
+    assert.equal(lots.ready.length, 0, JSON.stringify(lots.ready));
+    assert.equal(lots.created.length, 1, JSON.stringify(lots));
+    assert.equal(itemOf("Polo dress").item_data.variations.length, 1);
+    assert.match(lots.created[0].summary, /5 in stock/, "the two quantities were added");
+
+    /* Different prices for the same size and colour cannot be both: named plainly. */
+    const clash = await draftProductBatch(f.env, {
+      text: head + "001-005-003,Dresses,Shirt Dresses,Wrap dress,80.00,1,Green,L\n001-005-003,Dresses,Shirt Dresses,Wrap dress,95.00,1,Green,L\n",
+      actor: "keiko@vemians.com",
+      role: "manager", mode: "add",
+    });
+    assert.equal(clash.created.length, 0);
+    assert.match(JSON.stringify([...clash.ready, ...clash.skipped]), /rows 2 and 3 .*different price/);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_219_duplicate_sheet_rows__a_resend_with_the_same_variation_twice_updates_it_once_and_moves_its_stock_once", async () => {
+  const f = await fixture({ actor: "keiko@vemians.com", role: "manager", withCommerce: true });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  const head = "Style #,Category,Subcategory,Description,Price,Quantity,Color,Size\n";
+  try {
+    const made = await draftProductBatch(f.env, {
+      text: head + "001-005-001,Dresses,Shirt Dresses,Shirt dress,80.00,1,Blue,L\n",
+      actor: "keiko@vemians.com",
+      role: "manager", mode: "add",
+    });
+    assert.equal(made.created.length, 1, JSON.stringify(made));
+    const again = await planProductBatch(f.env, {
+      text: head + "001-005-001,Dresses,Shirt Dresses,Shirt dress,90.00,5,Blue,L\n001-005-001,Dresses,Shirt Dresses,Shirt dress,90.00,5,Blue,L\n",
+      actor: "keiko@vemians.com",
+      role: "manager", mode: "update",
+    });
+    assert.equal(again.ready.length, 0, JSON.stringify(again.ready));
+    assert.equal(again.skipped.length, 0, JSON.stringify(again.skipped));
+    const updates = again.rows.filter((r) => r.toolName === "catalog.update_product");
+    assert.equal(updates.length, 1, "one catalog update");
+    assert.equal(updates[0].args.variations.length, 1, "the repeated variation is sent once");
+    const stock = again.rows.filter((r) => r.toolName === "inventory.adjust");
+    assert.ok(stock.length <= 1, `stock is moved at most once, got ${stock.length}`);
   } finally {
     globalThis.fetch = realFetch;
   }

@@ -9701,6 +9701,15 @@ that does not trace to one of these is a process failure (see §12).
     the call itself sets is taken from the call. A sheet row also matches an existing variation by title whatever
     options the mirror shows for it.
 
+151. **`Test-PRD-P0-219-duplicate_sheet_rows`** — A sheet row for "Shirt dress" (style 001-005-001) came back "the variations
+    \"Blue, L\" and \"Blue, L\" would carry the same size/colour values". The same size and colour listed on two
+    rows of a sheet is one variation, not an error. Rows that agree on price and cost are merged into one
+    variation, with a note on the product; where their quantities differ they are stock lots of the one variation
+    and are added. Rows that disagree on price or cost cannot both be right and are named plainly ("rows 2 and 3
+    are both \"Green, L\" but with a different price or cost"). On a resend, two rows for the same existing
+    variation update it once and move its stock once (each stock change is measured from the same current count,
+    so two would apply twice); two different counts for one variation are named instead of guessed.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
