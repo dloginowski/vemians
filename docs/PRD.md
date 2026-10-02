@@ -9721,6 +9721,20 @@ that does not trace to one of these is a process failure (see §12).
     variation update it once and move its stock once (each stock change is measured from the same current count,
     so two would apply twice); two different counts for one variation are named instead of guessed.
 
+152. **`Test-PRD-P0-220-agent_skill_endpoint`** — "If we just tell our agent, go to ops.vemians.com and add some items to the
+    inventory, it should have everything necessary to do this and understand how to get the CSV, how to add
+    new items or update existing ones" — the owner's own words. The bare domain told an outside agent nothing:
+    the whole host sits behind Cloudflare Access, and nothing on it said what to do. `GET /llms.txt` (the
+    conventional place an agent looks) and `GET /agent-skill.md` (the same text, for pasting) now serve one
+    document (`agent-guide.js`) that says, in order: sign in as a person with the manager role (writes name a
+    person, so there is no service-token path, and an agent that meets a login page must stop and ask); always
+    start from `GET /products/export.csv`, never from scratch or an older file; how to change an item, add a
+    size or colour, or add a new item; upload with `POST /products/batch` (`file`, `mode=update`); how to read
+    and report the result; and the house rules (nothing deletes, held stock counts, no guessing prices). It is
+    generated from the code's own constants (the export columns, the row and size limits), and a test pins
+    every export column into it, so it cannot drift. Behind the same Access login as every page, and asks for
+    no particular role: it is documentation, not data.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

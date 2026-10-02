@@ -3005,7 +3005,7 @@ export async function submitProductBatchRow(env, { actor, role, rate }, row, edi
    lists already recognize as their FIRST, canonical entry — a round-trip
    through this export and straight back into /products/batch or either
    batch chat tool needs no column renamed, nothing re-typed by hand. */
-const EXPORT_HEADERS = ["title", "category", "subcategory", "style id", "price", "cost", "quantity", "vendor", "vendor code", "commission", "color", "size"];
+export const EXPORT_HEADERS = ["title", "category", "subcategory", "style id", "price", "cost", "quantity", "vendor", "vendor code", "commission", "color", "size"];
 
 /* The writer's own placeholders for "no colour" / "no size" (neutralOptionValue,
    catalog-writer.js). Exported blank: a blank cell already means exactly that
