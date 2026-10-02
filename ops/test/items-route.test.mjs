@@ -4133,8 +4133,11 @@ check("test_PRD_P0_214_placement_from_style_numbers__the_page_offers_check_place
   const script = body.slice(body.indexOf("<script>"), body.lastIndexOf("</script>"));
   assert.match(script, /\/admin\/categories\/placement/, "asks the server where each subcategory belongs");
   assert.match(script, /await moveOneCategory\(data\.moves\[i\]\.id, data\.moves\[i\]\.target\.id\)/, "applies the proposed moves one at a time through the move route");
+  assert.match(script, /await setCategoryNumber\(plan\.steps\[i\]\.id, plan\.steps\[i\]\.to\)/, "then the renumbering steps, one at a time, through the number route");
+  assert.match(script, /const after = data\.moves\.length \? await fetchPlacement\(\) : data;/, "the renumbering is read again after the moves");
   assert.match(script, /can't be decided from the sheet numbers/, "and lists the ones it cannot decide instead of guessing");
-  assert.match(script, /window\.confirm\("Move " \+ data\.moves\.length/, "after one confirmation");
+  assert.doesNotMatch(script, /window\.confirm\("Move " \+ data\.moves\.length/, "no confirmation dialog: the button does the fix");
+  assert.doesNotMatch(script, /go\.textContent = "Move "/, "and no second button to press");
   const bare = await (await get("/admin", MANAGER, env(mirrorDb()))).text();
   assert.doesNotMatch(bare, /admin-placement-btn" title/, "no button when there are no subcategories at all");
 });

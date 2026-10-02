@@ -11781,3 +11781,137 @@ check("test_PRD_P0_189_inventory_csv_export__a_product_made_by_hand_exports_its_
     globalThis.fetch = realFetch;
   }
 });
+
+async function dressesFixture() {
+  /* An upload creates Dresses (top-level 01) with Evening Dresses (sheet 004) and
+     Shirt Dresses (sheet 005), then the numbers are scrambled by hand. */
+  const f = await fixture({ actor: "keiko@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  const made = await draftProductBatch(f.env, {
+    text:
+      "Style #,Category,Subcategory,Description,Price\n" +
+      "001-004-001,Dresses,Evening Dresses,Gala gown,200.00\n" +
+      "001-004-002,Dresses,Evening Dresses,Ball gown,210.00\n" +
+      "001-005-001,Dresses,Shirt Dresses,Poplin shirt dress,90.00\n",
+    actor: "keiko@vemians.com",
+    role: "manager", mode: "add",
+  });
+  globalThis.fetch = realFetch;
+  assert.equal(made.created.length, 3, JSON.stringify(made));
+  const sub = (name) => f.categories().find((c) => c.name === name);
+  return { f, sub };
+}
+
+check("test_PRD_P0_221_numbers_from_the_ledger__renumbering_steps_make_each_subcategory_number_equal_its_sheet_middle_number", async () => {
+  /* "They don't follow the same numbers as the spreadsheet... don't you have
+     the ledger? You should be able to fix these without me re-uploading." */
+  const { f, sub } = await dressesFixture();
+  const { subcategoryRenumbering } = await import("../src/tools/catalog-writer.js");
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    assert.equal(sub("Evening Dresses").numeric_id, "04");
+    assert.equal(sub("Shirt Dresses").numeric_id, "05");
+    const clean = await subcategoryRenumbering(f.env.CATALOG_MIRROR);
+    assert.deepEqual(clean.steps, [], "already matching: nothing to do");
+    assert.equal(clean.ok, 2);
+
+    /* Scramble them: Evening Dresses takes Shirt Dresses' free-looking neighbour, and
+       Shirt Dresses takes Evening Dresses' own number, so they sit swapped. */
+    await approvedCall(f, "catalog.set_category_number", { category_id: sub("Evening Dresses").id, numeric_id: "09" });
+    await approvedCall(f, "catalog.set_category_number", { category_id: sub("Shirt Dresses").id, numeric_id: "04" });
+    await approvedCall(f, "catalog.set_category_number", { category_id: sub("Evening Dresses").id, numeric_id: "05" });
+    assert.equal(sub("Evening Dresses").numeric_id, "05");
+    assert.equal(sub("Shirt Dresses").numeric_id, "04");
+
+    const plan = await subcategoryRenumbering(f.env.CATALOG_MIRROR);
+    assert.equal(plan.review.length, 0, JSON.stringify(plan.review));
+    assert.ok(plan.steps.some((s) => s.temporary), "a swap needs a temporary number to get through");
+    for (const step of plan.steps) {
+      const r = await approvedCall(f, "catalog.set_category_number", { category_id: step.id, numeric_id: step.to });
+      assert.equal(r.ok, true, `${step.name} -> ${step.to}: ${r.error}`);
+    }
+    assert.equal(sub("Evening Dresses").numeric_id, "04", "equals the sheet's middle number");
+    assert.equal(sub("Shirt Dresses").numeric_id, "05");
+    const ids = f.mirror("SELECT title, style_id FROM mirror_product ORDER BY title").map((r) => `${r.title}=${r.style_id}`);
+    assert.ok(ids.some((x) => /^Gala gown=01-04-/.test(x)), `products carry the corrected prefix: ${ids}`);
+    assert.ok(ids.some((x) => /^Poplin shirt dress=01-05-/.test(x)), ids.join(", "));
+    const again = await subcategoryRenumbering(f.env.CATALOG_MIRROR);
+    assert.deepEqual(again.steps, [], "and the plan is empty once it is done");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_221_numbers_from_the_ledger__a_sibling_with_no_sheet_information_is_moved_out_of_the_way", async () => {
+  const { f, sub } = await dressesFixture();
+  const { subcategoryRenumbering } = await import("../src/tools/catalog-writer.js");
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const dresses = f.categories().find((c) => c.name === "Dresses");
+    /* Free 04 by moving Evening Dresses off it, give 04 to an empty subcategory. */
+    await approvedCall(f, "catalog.set_category_number", { category_id: sub("Evening Dresses").id, numeric_id: "09" });
+    const misc = await approvedCall(f, "catalog.create_category", { name: "Miscellany", parent_id: dresses.id, numeric_id: "04", reason: "test" });
+    assert.equal(misc.ok, true, misc.error);
+    const plan = await subcategoryRenumbering(f.env.CATALOG_MIRROR);
+    const evict = plan.steps.find((s) => s.name === "Miscellanies" || s.name === "Miscellany");
+    assert.ok(evict, `the empty one is moved off 04: ${JSON.stringify(plan.steps)}`);
+    assert.equal(evict.madeRoomFor, "Evening Dresses");
+    for (const step of plan.steps) {
+      const r = await approvedCall(f, "catalog.set_category_number", { category_id: step.id, numeric_id: step.to });
+      assert.equal(r.ok, true, `${step.name} -> ${step.to}: ${r.error}`);
+    }
+    assert.equal(sub("Evening Dresses").numeric_id, "04");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_221_numbers_from_the_ledger__items_that_disagree_are_listed_not_renumbered", async () => {
+  const { f, sub } = await dressesFixture();
+  const { subcategoryRenumbering } = await import("../src/tools/catalog-writer.js");
+  f.mirrorDb._raw.prepare("UPDATE mirror_product SET import_style_number = '001-007-001' WHERE title = 'Ball gown'").run();
+  const plan = await subcategoryRenumbering(f.env.CATALOG_MIRROR);
+  assert.deepEqual(plan.steps, [], "nothing is guessed");
+  assert.equal(plan.review.length, 1);
+  assert.equal(plan.review[0].name, "Evening Dresses");
+  assert.match(plan.review[0].why, /different sheet numbers/);
+  void sub;
+});
+
+check("test_PRD_P0_221_numbers_from_the_ledger__a_matched_item_with_no_sheet_number_learns_it", async () => {
+  /* The numbers can only be read off items that remember theirs. An item made by
+     hand has none; the first sheet row that matches it writes it down. */
+  const f = await fixture({ actor: "keiko@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const seed = await draftProductBatch(f.env, {
+      text: "Style #,Category,Subcategory,Description,Price\n004-006-009,Sets,Suits,Seed suit,50.00\n",
+      actor: "keiko@vemians.com",
+      role: "manager", mode: "add",
+    });
+    assert.equal(seed.created.length, 1, JSON.stringify(seed));
+    const categoryId = f.mirror("SELECT category_id FROM mirror_product WHERE title = 'Seed suit'")[0].category_id;
+    const made = await approvedCall(f, "catalog.create_product", {
+      title: "Hand made suit",
+      category_id: categoryId,
+      variations: [{ title: "One", price_minor: 7000, currency: "USD" }],
+    });
+    assert.equal(made.ok, true, made.error);
+    const before = f.mirror("SELECT style_id, import_style_number FROM mirror_product WHERE title = 'Hand made suit'")[0];
+    assert.equal(before.import_style_number, null);
+    const row = await draftProductBatch(f.env, {
+      text: `Style #,Category,Subcategory,Description,Price\n${before.style_id},Sets,Suits,Hand made suit,80.00\n`,
+      actor: "keiko@vemians.com",
+      role: "manager", mode: "update",
+    });
+    assert.equal(row.ready.length, 0, JSON.stringify(row.ready));
+    const after = f.mirror("SELECT import_style_number FROM mirror_product WHERE title = 'Hand made suit'")[0];
+    assert.equal(after.import_style_number, before.style_id, "the sheet's number for this item is now on record");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});

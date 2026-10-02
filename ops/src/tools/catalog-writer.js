@@ -134,6 +134,140 @@ export async function subcategoryPlacement(db) {
   return { moves, review, ok };
 }
 
+/*
+ * "They don't follow the same numbers as the spreadsheet... didn't I just upload
+ * them? Don't you have the ledger? You should be able to fix these without me
+ * re-uploading" -- the owner's own words. An upload only gives the sheet's number
+ * to a subcategory it CREATES; one that already existed keeps whatever number it
+ * had. Every item an upload made (or matched) keeps its sheet's own number
+ * (import_style_number, e.g. 001-004-002), and that number's middle group is the
+ * number its subcategory is supposed to carry under its top-level category.
+ *
+ * Returns the ordered steps that make each subcategory's number equal that
+ * middle group, per parent (subcategory numbers are unique among siblings only):
+ *   - a subcategory whose items all say the same top and middle number, with the
+ *     top number being its parent's, gets that middle number;
+ *   - one whose target is held by a sibling waits for it; two that swap, or any
+ *     cycle, are broken with a free temporary number;
+ *   - a sibling with no sheet information that holds a wanted number is moved to
+ *     a free one to make room;
+ *   - items that disagree, two subcategories wanting the same number, or a number
+ *     above 99 are listed in `review` and left alone.
+ * Read-only: it plans, the Admin page applies each step through
+ * catalog.set_category_number (which also corrects every product's style ID).
+ */
+export async function subcategoryRenumbering(db) {
+  const categories = await listCategories(db);
+  const byId = new Map(categories.map((c) => [c.id, c]));
+  const res = await db
+    .prepare("SELECT category_id, import_style_number FROM mirror_product_index WHERE category_id IS NOT NULL")
+    .bind()
+    .all();
+  const stats = new Map();
+  for (const r of res.results ?? []) {
+    const m = /^\s*(\d+)\s*-\s*(\d+)\s*-/.exec(String(r.import_style_number ?? ""));
+    if (!m) continue;
+    const st = stats.get(r.category_id) ?? { items: 0, pairs: new Map() };
+    st.items += 1;
+    const key = `${Number(m[1])}|${Number(m[2])}`;
+    st.pairs.set(key, (st.pairs.get(key) ?? 0) + 1);
+    stats.set(r.category_id, st);
+  }
+  const pad = (n) => String(n).padStart(2, "0");
+  const steps = [];
+  const review = [];
+  let ok = 0;
+
+  const byParent = new Map();
+  for (const c of categories) {
+    if (!c.parent_id) continue;
+    if (!byParent.has(c.parent_id)) byParent.set(c.parent_id, []);
+    byParent.get(c.parent_id).push(c);
+  }
+
+  for (const [parentId, siblings] of byParent) {
+    const parent = byId.get(parentId);
+    const parentName = parent?.name ?? "?";
+    const parentTop = parent?.numeric_id != null && parent.numeric_id !== "" ? Number(parent.numeric_id) : null;
+    const wanted = new Map();
+    for (const sub of siblings) {
+      const st = stats.get(sub.id);
+      if (!st) continue;
+      const base = { id: sub.id, name: sub.name, parent: parentName, items: st.items };
+      if (st.pairs.size > 1) {
+        const parts = [...st.pairs.entries()].sort((a, b) => b[1] - a[1]).map(([k, n]) => `${n} item${n === 1 ? "" : "s"} say ${k.split("|").map((x) => pad(Number(x))).join("-")}`);
+        review.push({ ...base, why: `its items carry different sheet numbers (${parts.join(", ")})` });
+        continue;
+      }
+      const [top, mid] = [...st.pairs.keys()][0].split("|").map(Number);
+      if (parentTop === null || top !== parentTop) continue; /* where it belongs is the placement check's question first */
+      if (mid > 99) {
+        review.push({ ...base, why: `its sheet number's middle group ${mid} does not fit a two-digit number` });
+        continue;
+      }
+      if (String(sub.numeric_id ?? "") === pad(mid)) {
+        ok += 1;
+        continue;
+      }
+      wanted.set(sub.id, pad(mid));
+    }
+    /* two subcategories cannot both be number N */
+    const wantedBy = new Map();
+    for (const [id, n] of wanted) wantedBy.set(n, [...(wantedBy.get(n) ?? []), id]);
+    for (const [n, ids] of wantedBy) {
+      if (ids.length < 2) continue;
+      for (const id of ids) {
+        const sub = siblings.find((x) => x.id === id);
+        review.push({ id, name: sub.name, parent: parentName, items: stats.get(id)?.items ?? 0, why: `another subcategory under ${parentName} also wants number ${n}` });
+        wanted.delete(id);
+      }
+    }
+    if (wanted.size === 0) continue;
+
+    const current = new Map(siblings.map((x) => [x.id, x.numeric_id == null || x.numeric_id === "" ? null : String(x.numeric_id)]));
+    const targets = new Set(wanted.values());
+    const freeNumber = () => {
+      const used = new Set([...current.values(), ...targets]);
+      for (let n = 0; n <= 99; n += 1) if (!used.has(pad(n))) return pad(n);
+      return null;
+    };
+    const pending = new Set(wanted.keys());
+    const nameOf = (id) => siblings.find((x) => x.id === id)?.name ?? "?";
+    for (let guard = 0; pending.size && guard < siblings.length * 4 + 10; guard += 1) {
+      let progressed = false;
+      for (const id of [...pending]) {
+        const target = wanted.get(id);
+        const holder = siblings.find((x) => x.id !== id && current.get(x.id) === target);
+        if (!holder) {
+          steps.push({ id, name: nameOf(id), parent: parentName, from: current.get(id), to: target });
+          current.set(id, target);
+          pending.delete(id);
+          progressed = true;
+        } else if (!wanted.has(holder.id)) {
+          const free = freeNumber();
+          if (free === null) {
+            review.push({ id, name: nameOf(id), parent: parentName, items: stats.get(id)?.items ?? 0, why: `no free number is left under ${parentName} to make room for ${target}` });
+            pending.delete(id);
+            progressed = true;
+            continue;
+          }
+          steps.push({ id: holder.id, name: holder.name, parent: parentName, from: current.get(holder.id), to: free, madeRoomFor: nameOf(id) });
+          current.set(holder.id, free);
+          progressed = true;
+        }
+      }
+      if (!progressed && pending.size) {
+        const id = [...pending][0];
+        const free = freeNumber();
+        if (free === null) break;
+        steps.push({ id, name: nameOf(id), parent: parentName, from: current.get(id), to: free, temporary: true });
+        current.set(id, free);
+      }
+    }
+  }
+  return { steps, review, ok };
+}
+
 /* How many products currently sit in each category — the Admin panel's own
    remove button needs this to hide itself the same "not reachable, don't
    show it" way it already does for a category that still has subcategories

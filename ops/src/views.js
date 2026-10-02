@@ -6233,91 +6233,117 @@ function placementLine(text, cls) {
   if (cls) li.className = cls;
   return li;
 }
+async function setCategoryNumber(categoryId, numericId) {
+  const body = new FormData();
+  body.set("category_id", categoryId);
+  body.set("numeric_id", numericId);
+  const res = await fetch("/admin/categories/number", { method: "POST", body });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "That number could not be set.");
+}
+async function fetchPlacement() {
+  const res = await fetch("/admin/categories/placement", { method: "POST", body: new FormData() });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "could not check");
+  return data;
+}
+/* "Shouldn't you just fix that with the check button? Why are you asking me to
+   do this manually?" -- the owner's own words. The button reads where every
+   subcategory belongs and what number it should carry from its items' own
+   sheet numbers, and then DOES it: moves first, then the renumbering (read
+   again afterwards, because a move changes which siblings a number has to be
+   unique among). No confirmation, no second button; what it cannot decide is
+   listed and left alone. */
 async function showPlacement(btn) {
   const panel = document.querySelector(".admin-placement");
   panel.hidden = false;
   panel.textContent = "Checking…";
+  btn.disabled = true;
   let data;
   try {
-    const res = await fetch("/admin/categories/placement", { method: "POST", body: new FormData() });
-    data = await res.json();
-    if (!res.ok) throw new Error(data.error || "could not check");
+    data = await fetchPlacement();
   } catch (err) {
     panel.textContent = "Could not check placement: " + err.message;
+    btn.disabled = false;
     return;
   }
   panel.textContent = "";
   const h = document.createElement("h4");
-  h.textContent = "Placement from sheet style numbers";
+  h.textContent = "Placement and numbers from the sheets";
   panel.appendChild(h);
-  if (!data.moves.length && !data.review.length) {
-    const p = document.createElement("p");
-    p.textContent = data.ok + " subcategor" + (data.ok === 1 ? "y is" : "ies are") + " already under the right category. Nothing to move.";
-    panel.appendChild(p);
-  }
-  if (data.moves.length) {
-    const ul = document.createElement("ul");
-    for (const m of data.moves) {
-      ul.appendChild(
-        placementLine(
-          m.name + ": " + (m.parent ? m.parent.name : "?") + " → " + m.target.name + (m.merges ? " (merges into the one already there)" : "") + " — " + m.items + " item" + (m.items === 1 ? "" : "s") + ", sheet number " + m.code,
-        ),
-      );
-    }
-    panel.appendChild(ul);
-  }
-  if (data.review.length) {
+  const renumber = data.renumbering || { steps: [], review: [], ok: 0 };
+  const status = document.createElement("p");
+  panel.appendChild(status);
+  const detail = document.createElement("ul");
+  panel.appendChild(detail);
+  const showReview = (items, heading) => {
+    if (!items.length) return;
     const note = document.createElement("p");
     note.className = "admin-placement-note";
-    note.textContent = "These can't be decided from the sheet numbers, so they are left for you:";
+    note.textContent = heading;
     panel.appendChild(note);
     const ul = document.createElement("ul");
-    for (const r of data.review) ul.appendChild(placementLine(r.name + " (under " + (r.parent ? r.parent.name : "?") + ", " + r.items + " item" + (r.items === 1 ? "" : "s") + "): " + r.why, "admin-placement-note"));
+    for (const r of items) ul.appendChild(placementLine(r.name + " (under " + (r.parent && r.parent.name ? r.parent.name : r.parent || "?") + ", " + r.items + " item" + (r.items === 1 ? "" : "s") + "): " + r.why, "admin-placement-note"));
     panel.appendChild(ul);
-  }
-  if (data.moves.length && data.ok) {
-    const n = document.createElement("p");
-    n.className = "admin-placement-note";
-    n.textContent = data.ok + " more already in the right place.";
-    panel.appendChild(n);
-  }
-  const actions = document.createElement("div");
-  actions.className = "admin-placement-actions";
-  if (data.moves.length) {
-    const go = document.createElement("button");
-    go.type = "button";
-    const merges = data.moves.filter((m) => m.merges).length;
-    go.textContent = "Move " + data.moves.length + (data.moves.length === 1 ? " subcategory" : " subcategories");
-    go.addEventListener("click", async () => {
-      if (!window.confirm("Move " + data.moves.length + " subcategor" + (data.moves.length === 1 ? "y" : "ies") + " to the category its items' sheet numbers point at" + (merges ? " (" + merges + " will merge into one that is already there)" : "") + "?")) return;
-      go.disabled = true;
-      for (let i = 0; i < data.moves.length; i++) {
-        go.textContent = "Moving " + (i + 1) + " of " + data.moves.length + "…";
-        try {
-          await moveOneCategory(data.moves[i].id, data.moves[i].target.id);
-        } catch (err) {
-          go.disabled = false;
-          go.textContent = "Move " + (data.moves.length - i) + " remaining";
-          const bad = document.createElement("p");
-          bad.className = "item-edit-error";
-          bad.textContent = data.moves[i].name + ": " + err.message + " The ones before it were moved.";
-          panel.appendChild(bad);
-          return;
-        }
-      }
-      location.reload();
+  };
+  const closeRow = () => {
+    const actions = document.createElement("div");
+    actions.className = "admin-placement-actions";
+    const close = document.createElement("button");
+    close.type = "button";
+    close.textContent = "Close";
+    close.addEventListener("click", () => {
+      panel.hidden = true;
+      panel.textContent = "";
     });
-    actions.appendChild(go);
+    actions.appendChild(close);
+    panel.appendChild(actions);
+  };
+  if (!data.moves.length && !renumber.steps.length) {
+    status.textContent = "Everything the sheets say is already in place (" + data.ok + " under the right category, " + renumber.ok + " numbered to match). Nothing to fix.";
+    showReview(data.review, "These can't be decided from the sheet numbers, so they are left for you:");
+    showReview(renumber.review, "These numbers can't be decided from the sheets, so they are left for you:");
+    closeRow();
+    btn.disabled = false;
+    return;
   }
-  const close = document.createElement("button");
-  close.type = "button";
-  close.textContent = "Close";
-  close.addEventListener("click", () => {
-    panel.hidden = true;
-    panel.textContent = "";
-  });
-  actions.appendChild(close);
-  panel.appendChild(actions);
+  status.textContent = "Fixing…";
+  for (const m of data.moves) {
+    detail.appendChild(placementLine(m.name + ": " + (m.parent ? m.parent.name : "?") + " → " + m.target.name + (m.merges ? " (merges into the one already there)" : "") + " — " + m.items + " item" + (m.items === 1 ? "" : "s"), ""));
+  }
+  let step = "";
+  try {
+    for (let i = 0; i < data.moves.length; i++) {
+      step = data.moves[i].name;
+      status.textContent = "Moving " + (i + 1) + " of " + data.moves.length + ": " + data.moves[i].name + "…";
+      await moveOneCategory(data.moves[i].id, data.moves[i].target.id);
+    }
+    /* A move changes which siblings a number has to be unique among, so the
+       renumbering is read again from the state the moves left behind. */
+    const after = data.moves.length ? await fetchPlacement() : data;
+    const plan = after.renumbering || { steps: [], review: [], ok: 0 };
+    for (const r of plan.steps) {
+      detail.appendChild(placementLine(r.name + " (under " + r.parent + "): number " + (r.from || "none") + " → " + r.to + (r.temporary ? " (temporary, to swap)" : r.madeRoomFor ? " (to make room for " + r.madeRoomFor + ")" : ""), ""));
+    }
+    for (let i = 0; i < plan.steps.length; i++) {
+      step = plan.steps[i].name;
+      status.textContent = "Renumbering " + (i + 1) + " of " + plan.steps.length + ": " + plan.steps[i].name + " → " + plan.steps[i].to + "…";
+      await setCategoryNumber(plan.steps[i].id, plan.steps[i].to);
+    }
+    status.textContent = "Done: " + data.moves.length + " moved, " + plan.steps.length + " renumbered. Reloading…";
+    showReview(after.review, "These can't be decided from the sheet numbers, so they were left alone:");
+    showReview(plan.review, "These numbers can't be decided from the sheets, so they were left alone:");
+  } catch (err) {
+    const bad = document.createElement("p");
+    bad.className = "item-edit-error";
+    bad.textContent = step + ": " + err.message + " Everything before it was applied; press the button again to continue.";
+    panel.appendChild(bad);
+    status.textContent = "Stopped.";
+    closeRow();
+    btn.disabled = false;
+    return;
+  }
+  setTimeout(() => location.reload(), 1500);
 }
 document.body.addEventListener("click", (e) => {
   const btn = e.target.closest(".admin-placement-btn");
