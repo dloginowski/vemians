@@ -427,6 +427,29 @@ function fakeSquare(seed = SEED, { vendors = [], failSearch = false, failUpsert 
               return jsonRes({ errors: [{ category: "INVALID_REQUEST_ERROR", code: "BAD_REQUEST", detail }] }, 400);
             }
           }
+          /* And the other half: no two variations may carry the same
+             combination of option values. A real production 400 read
+             "variation ... has same item option value combination as sibling
+             variation #var-4". */
+          const seen = new Map();
+          for (const v of body.object.item_data?.variations ?? []) {
+            const key = (v.item_variation_data?.item_option_values ?? []).map((x) => x.item_option_value_id).join("|");
+            if (seen.has(key)) {
+              return jsonRes(
+                {
+                  errors: [
+                    {
+                      category: "INVALID_REQUEST_ERROR",
+                      code: "INVALID_VALUE",
+                      detail: `Invalid object: variation \`${seen.get(key)}\` has same item option value combination as sibling variation ${v.id}.`,
+                    },
+                  ],
+                },
+                400,
+              );
+            }
+            seen.set(key, v.id);
+          }
         }
       }
       const obj = structuredClone(body.object);
@@ -11191,6 +11214,58 @@ check("test_PRD_P0_215_subcategory_numbers_per_parent__a_row_whose_category_numb
     assert.equal(reported.length, 1, `the row is neither created nor silently dropped: ${JSON.stringify(again)}`);
     assert.match(JSON.stringify(reported[0]), /category number 01/);
     assert.equal(again.unchanged.length, 0);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_216_filled_option_values_match_on_resubmit__a_row_with_no_colour_or_size_matches_the_variation_whose_blanks_were_filled", async () => {
+  /* A real resubmit: "Embellished blazer 001-001-003" came back 'variation ...
+     has same item option value combination as sibling variation #var-4'. The
+     product's first run had filled a row's missing colour with "N/A" (and a
+     missing size with "OS"), but the resubmit matcher only knew a missing
+     value as MISSING, so the same row looked brand new, was added as a second
+     variation, and filled to the identical combination. A filler value now
+     counts as absent on both sides of the match. */
+  const f = await fixture({ actor: "keiko@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  const csv =
+    "Style #,Category,Subcategory,Description,Price\n" +
+    "001-004-002-BLK-M,Jackets,Evening Dresses,Evening dress,100.00\n" +
+    "001-004-002-BLK,Jackets,Evening Dresses,Evening dress,100.00\n" +
+    "001-004-002,Jackets,Evening Dresses,Evening dress,100.00\n";
+  try {
+    const first = await draftProductBatch(f.env, { text: csv, actor: "keiko@vemians.com", role: "manager", mode: "add" });
+    assert.equal(first.created.length, 1, JSON.stringify(first));
+    const before = [...f.square.objects.values()].find((o) => o.type === "ITEM" && o.item_data?.name === "Evening dress").item_data.variations.length;
+    const again = await draftProductBatch(f.env, { text: csv, actor: "keiko@vemians.com", role: "manager", mode: "update" });
+    assert.equal(again.ready.length, 0, `no refusal expected: ${JSON.stringify(again.ready)}`);
+    assert.equal(again.skipped.length, 0, JSON.stringify(again.skipped));
+    const after = [...f.square.objects.values()].find((o) => o.type === "ITEM" && o.item_data?.name === "Evening dress").item_data.variations.length;
+    assert.equal(after, before, "no duplicate variation was added");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_216_filled_option_values_match_on_resubmit__two_rows_that_fill_to_the_same_values_are_named_plainly_not_sent_to_square", async () => {
+  const f = await fixture({ actor: "keiko@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const result = await draftProductBatch(f.env, {
+      text:
+        "Style #,Category,Subcategory,Description,Price\n" +
+        "001-004-002-BLK-M,Jackets,Evening Dresses,Evening dress,100.00\n" +
+        "001-004-002-BLK-M,Jackets,Evening Dresses,Evening dress,110.00\n",
+      actor: "keiko@vemians.com",
+      role: "manager", mode: "add",
+    });
+    assert.equal(result.created.length, 0, "the identical pair is never sent to Square");
+    const reported = JSON.stringify([...result.ready, ...result.skipped]);
+    assert.match(reported, /would carry the same size\/colour values/);
+    assert.doesNotMatch(reported, /Invalid Object with Id/);
   } finally {
     globalThis.fetch = realFetch;
   }

@@ -1302,6 +1302,18 @@ function sameOptions(a, b) {
    already apply (or deliberately do not) on the ROW's own side; this stays
    neutral on that question so both the OS-defaulted and the raw/legacy
    fallback attempt keep comparing like with like. */
+/* Option values the writer itself supplies when a variation lacks one (see
+   neutralOptionValue, catalog-writer.js): "N/A" for any option, "OS" for a
+   size. They stand for "nothing specified". */
+function withoutFillers(options) {
+  return Object.fromEntries(
+    Object.entries(stripTbdOptions(options)).filter(([key, value]) => {
+      const v = String(value).trim().toUpperCase();
+      return !(v === "N/A" || (key.trim().toLowerCase() === "size" && v === "OS"));
+    }),
+  );
+}
+
 function stripTbdOptions(options) {
   return Object.fromEntries(Object.entries(options ?? {}).filter(([, value]) => String(value).trim().toUpperCase() !== "TBD"));
 }
@@ -1594,7 +1606,15 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
       existingVariants.find((v) => sameOptions(optValues, stripTbdOptions(v.options))) ??
       (optValues.Size === "OS" && !rawOptValues.Size
         ? existingVariants.find((v) => sameOptions(rawOptValues, stripTbdOptions(v.options)))
-        : undefined);
+        : undefined) ??
+      /* A value the writer filled in ("N/A" for a missing colour, "OS" for a
+         missing size, so Square accepts the variation) means "not
+         specified", exactly like a blank on the sheet. Without this a row
+         with no colour never matched the variation whose colour had been
+         filled "N/A", was added as a second variation, and was filled to the
+         identical combination -- which Square refuses ("same item option
+         value combination as sibling variation"). */
+      existingVariants.find((v) => sameOptions(withoutFillers(optValues), withoutFillers(v.options)));
     const priceRaw = pick(record, PRICE_KEYS);
     const priceMinor = parsePriceToMinor(priceRaw);
     const currency = (pick(record, CURRENCY_KEYS) || match?.currency || "USD").toUpperCase();

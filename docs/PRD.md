@@ -9648,6 +9648,16 @@ that does not trace to one of these is a process failure (see §12).
     counted and named in the result ("N already match what is on file"), and a row whose category number and name
     disagree is reported even when nothing else about it differs, instead of being dropped without a word.
 
+148. **`Test-PRD-P0-216-filled_option_values_match_on_resubmit`** — A re-sent row for "Embellished blazer" (style
+    001-001-003) came back from Square as "variation … has same item option value combination as sibling variation
+    #var-4". When a product's rows differ (one names a colour and size, another only a size, another neither), the
+    writer fills each missing option so Square accepts every variation: "N/A" for a missing colour, "OS" for a
+    missing size. The resubmit matcher only knew a missing value as MISSING, so a row with no colour never matched
+    the variation whose colour had been filled "N/A"; it was added as a second variation and filled to the identical
+    values. A filler value now counts as "not specified" on both sides of the match, so the row matches the
+    variation it already is. As a backstop, a product whose rows would still produce two variations with the same
+    values is refused before anything is sent, naming the two rows, instead of passing Square's id-only error on.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
