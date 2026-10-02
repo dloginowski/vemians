@@ -222,7 +222,7 @@ export async function styleIdCodesFor(db, categoryId) {
    column: a style_id a product has since moved away from is still
    reserved forever (the ledger's own append-only contract — schema.sql's
    own comment on it), so it must still count as used here. */
-export async function nextStyleIdFor(db, catCode, subCode) {
+export async function nextStyleIdFor(db, catCode, subCode, skip = []) {
   const prefix = `${catCode}-${subCode}-`;
   const res = await db
     .prepare("SELECT style_id FROM mirror_style_id_ledger WHERE style_id LIKE ? || '%'")
@@ -231,7 +231,13 @@ export async function nextStyleIdFor(db, catCode, subCode) {
   const used = (res.results ?? [])
     .map((r) => Number(r.style_id.slice(prefix.length)))
     .filter((n) => Number.isInteger(n));
-  const next = (used.length ? Math.max(...used) : 0) + 1;
+  let next = (used.length ? Math.max(...used) : 0) + 1;
+  /* `skip`: IDs the sheet being uploaded uses for OTHER rows, so a new ID
+     minted for one row can never be the number another row of the same sheet
+     expects ("make sure that nothing further down the spreadsheet clashes
+     with it" -- the owner's own words). */
+  const reserved = new Set(skip);
+  while (reserved.has(`${prefix}${String(next).padStart(3, "0")}`)) next += 1;
   return `${prefix}${String(next).padStart(3, "0")}`;
 }
 

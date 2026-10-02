@@ -9661,17 +9661,23 @@ that does not trace to one of these is a process failure (see §12).
 
 149. **`Test-PRD-P0-217-matched_row_name_check`** — On a real sheet the chat flagged that "Oversize dress" had resolved to
     update the existing "Black hand-painted blazer", which would have overwritten the blazer's price, cost and
-    stock with the dress's. The owner's answer: "just have it auto-generate a new ID for that category and
-    subcategory, and just note that you're changing its ID, because it's a duplicate." A style number identifies an
-    item (P0-177, P0-181), but when the sheet names a row something that shares not one word with the item that
-    holds the number (case, punctuation and plural ignored), it is a different item that reused the number. It is
-    added as a new item — its own ID, minted from its own category as always — with a note on the row and on the
-    product itself ("the sheet's style number X already belongs to \"A\" — this row (\"B\") is a different item, so
-    it was added as a new item with its own ID"), never applied over the other item and never held. The sheet's
-    number is kept on both items (`import_style_number`), so a resubmit picks each by its name — an exact title
-    first, then a shared word — and never makes a third. A row with no name at all matches by number as before.
-    Every upload row, with its sheet style number, outcome, resulting ID and the note, is already kept in the
-    upload ledger (`ingest_job`/`ingest_row`), which is how a later update is traced back to its sheet.
+    stock with the dress's. The owner's rule: "if you are seeing the same style ID used two times and they have
+    different cost and MSRP, vendor, those critical values, then they are truly different items, and you should
+    take the next available ID, just make sure nothing further down the spreadsheet clashes with it. If all of
+    these critical values are the same and it's just the title that changed, then just merge it, just overwrite
+    it." A style number identifies an item (P0-177, P0-181), so a row whose number is held by an item is matched
+    by NAME first (an exact title, then a shared word; case, punctuation and plural ignored) — two items can
+    carry one sheet number (`import_style_number`), and a resubmit finds each by its name. When no holder's name
+    fits: if a holder has the same price (every sheet price among its prices), the same cost (when the sheet gives
+    one) and the same vendor (no vendor means In-house), it is the same item under a new name and the sheet's name
+    simply replaces its title — even when it came from the Description column. Otherwise it is a different item
+    that reused the number: it is added as a new item with the next free ID from its own category, stepping past
+    every number the rest of the same sheet uses (`skip_style_ids` on catalog.create_product), with a note on the
+    row and on the product ("the sheet's style number X already belongs to \"A\" — this row (\"B\") is a
+    different item, so it was added as a new item with its own ID"). Never applied over the other item, never
+    held. A row with no name at all matches by number as before. Every upload row, with its sheet style number,
+    outcome, resulting ID and the note, is already kept in the upload ledger (`ingest_job`/`ingest_row`), which
+    is how a later update is traced back to its sheet.
 
 ## 4. P1 features
 

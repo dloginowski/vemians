@@ -136,11 +136,11 @@ import { contentTypeFor, isOurMediaKey, mediaKey, squareAcceptsType, STORABLE_IM
    reports how many are left (one Worker request has a Square-call budget). */
 const MERGE_BATCH_SIZE = 15;
 
-async function resolveStyleId(db, { categoryId = null }) {
+async function resolveStyleId(db, { categoryId = null, skip = [] }) {
   if (!categoryId) return { styleId: undefined, note: null };
   const codes = await styleIdCodesFor(db, categoryId);
   if (!codes) return { styleId: undefined, note: null };
-  const generated = await nextStyleIdFor(db, codes.catCode, codes.subCode);
+  const generated = await nextStyleIdFor(db, codes.catCode, codes.subCode, skip);
   return { styleId: generated, note: `style_id auto-assigned: ${generated}` };
 }
 
@@ -941,6 +941,10 @@ export const catalogWriteTools = {
          right after the item is created, and untouched by every future
          sync. */
       import_style_number: { type: "string", maxLength: 40 },
+      /* BATCH-IMPORT BOOKKEEPING ONLY, like import_style_number: shop style
+         IDs (NN-NN-NNN) the same sheet uses for its OTHER rows, which the
+         newly minted ID must step past. */
+      skip_style_ids: { type: "array", maxItems: 300, of: { type: "string", maxLength: 20 } },
     },
     async check(args, t) {
       const problems = validateProposal(args);
@@ -1046,7 +1050,7 @@ export const catalogWriteTools = {
          id should auto update from category and subcategory id" — the
          owner's own words. style_id is never given by hand any more, so
          there is no conflict to resolve either. */
-      const resolved = await resolveStyleId(t.db.catalog_mirror, { categoryId: chosen?.id ?? null });
+      const resolved = await resolveStyleId(t.db.catalog_mirror, { categoryId: chosen?.id ?? null, skip: args.skip_style_ids ?? [] });
 
       /* "I'm seeing wildly high prices... they have two extra zeros added to
          them" -- a real report, traced to exactly this line: price_minor is

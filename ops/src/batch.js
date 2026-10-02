@@ -1315,6 +1315,32 @@ function withoutFillers(options) {
   );
 }
 
+/* Are the critical values of a sheet row (price, cost, vendor) the same as the
+   item that holds its number? Only what the sheet actually gives is compared,
+   but a sheet that gives no price at all cannot show it is the same item. */
+async function sameCriticalValues(env, holder, groupRows, first) {
+  const variants = await variantsWithOptionsOf(env.CATALOG_MIRROR, holder.id);
+  const existingPrices = new Set(variants.map((v) => Number(v.price_minor)));
+  const existingCosts = new Set(variants.map((v) => (v.unit_cost_minor === null || v.unit_cost_minor === undefined ? null : Number(v.unit_cost_minor))));
+  const sheetPrices = groupRows.map(({ record }) => parsePriceToMinor(pick(record, PRICE_KEYS))).filter((n) => n !== null);
+  if (!sheetPrices.length || !sheetPrices.every((n) => existingPrices.has(n))) return false;
+  const sheetCosts = groupRows
+    .map(({ record }) => pick(record, LEGACY_COST_FIELD_KEYS))
+    .filter(Boolean)
+    .map((raw) => parsePriceToMinor(raw));
+  if (sheetCosts.some((n) => n === null || !existingCosts.has(n))) return false;
+  const sheetVendor = (pick(first, VENDOR_KEYS) || INHOUSE_VENDOR_NAME).trim().toLowerCase();
+  const holderVendor = String(holder.vendor || INHOUSE_VENDOR_NAME).trim().toLowerCase();
+  return sheetVendor === holderVendor;
+}
+
+/* A sheet's style number (001-004-003) in the shop's own shape (01-04-003). */
+function shopFormOf(base) {
+  const parts = String(base).split("-").map((n) => Number(n));
+  if (parts.length !== 3 || parts.some((n) => !Number.isInteger(n))) return null;
+  return `${String(parts[0]).padStart(2, "0")}-${String(parts[1]).padStart(2, "0")}-${String(parts[2]).padStart(3, "0")}`;
+}
+
 /* Do two names share at least one word (case, punctuation and plural
    ignored)? "Oversize dress" and "Black hand-painted blazer" share none. */
 function sharesAWord(a, b) {
@@ -1558,8 +1584,12 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
 
   const existingVariants = await variantsWithOptionsOf(env.CATALOG_MIRROR, existing.id);
 
-  const titleCol = pick(first, TITLE_KEYS);
-  const descriptionCol = pick(first, DESCRIPTION_KEYS);
+  /* ctx.titleFromSheet: the row is the same item under a new name (same price,
+     cost and vendor), so the sheet's name replaces the title -- even when it
+     came from the Description column, which is then not also a description. */
+  const sheetTitle = pick(first, TITLE_KEYS);
+  const titleCol = sheetTitle || ctx.titleFromSheet || "";
+  const descriptionCol = !sheetTitle && ctx.titleFromSheet ? "" : pick(first, DESCRIPTION_KEYS);
 
   const unitCostRaw = pick(first, LEGACY_COST_FIELD_KEYS);
   let unitCostMinor;
@@ -1905,19 +1935,6 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
      change -- this only ever suppresses the CATALOG edit itself. */
   const changes = catalogChangesFor({ existing, existingVariants, titleCol, descriptionCol, variations, categoryMove });
 
-  /* "Oversize dress" matched to an existing "Black hand-painted blazer" by
-     style number alone would silently overwrite the blazer's price, cost and
-     stock with the dress's. A style number is how an item is identified, but
-     two items sharing a number is exactly the sheet-versus-catalog mix-up a
-     person has to look at: when the sheet's name for the row shares not one
-     word with the matched item's title, the row is held for a person
-     instead of applied. */
-  const sheetName = titleCol || descriptionCol;
-  const nameMismatch =
-    sheetName && existing.title && !sharesAWord(sheetName, existing.title)
-      ? `style number "${base}" is "${existing.title}" in the catalog, but the sheet calls this row "${sheetName}" -- check the numbering; check the box only if it really is the same item`
-      : null;
-
   if (changes.length === 0) {
     /* A row whose number and name disagree is never dropped silently just
        because nothing else about it differs: it is reported, so a sheet that
@@ -1941,9 +1958,7 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
       toolName: "catalog.update_product",
       changes: changes.join("; "),
       categoryId: args.category_id ?? existing.category_id ?? null,
-      ...(categoryConflict || nameMismatch
-        ? { needsConfirmation: true, confirmReason: [categoryConflict, nameMismatch].filter(Boolean).join("; ") }
-        : {}),
+      ...(categoryConflict ? { needsConfirmation: true, confirmReason: categoryConflict } : {}),
     },
     extraRows: quantityAdjustments,
   };
@@ -2013,7 +2028,22 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
         numberHolders.find((p) => String(p.title).trim().toLowerCase() === wanted) ??
         numberHolders.find((p) => sharesAWord(sheetName, p.title)) ??
         null;
+      /* "If all of these critical values are the same and it's just the
+         title that changed, then just merge it... if it's the same price,
+         the same cost, the same vendor, then we don't care, just overwrite
+         it." -- the owner's own words. */
+      let overwriteTitle = false;
+      if (!existingByStyle) {
+        for (const holder of numberHolders) {
+          if (await sameCriticalValues(env, holder, groupRows, first)) {
+            existingByStyle = holder;
+            overwriteTitle = true;
+            break;
+          }
+        }
+      }
       if (!existingByStyle) reusedNumberOf = numberHolders[0];
+      else if (overwriteTitle) return draftProductUpdate(env, existingByStyle, base, groupRows, { ...ctx, titleFromSheet: sheetName });
     }
   }
   if (existingByStyle) {
@@ -2323,6 +2353,11 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
        never by the live, fluid style_id (Test-PRD-P0-179-
        import_style_number_matching). */
     import_style_number: base,
+    /* A number a DIFFERENT item already holds: the new ID is the next free
+       one, stepping past every number the rest of this same sheet uses. */
+    ...(reusedNumberOf && ctx.sheetNumbers
+      ? { skip_style_ids: [...new Set(ctx.sheetNumbers.map(shopFormOf).filter(Boolean))].slice(0, 300) }
+      : {}),
   };
 
   /* A real clash parks the whole group for a person to review and fix,
@@ -2440,7 +2475,7 @@ async function resolveProductRows(env, { actor, role, mode }, records) {
   const unchanged = [];
 
   for (const base of groupOrder) {
-    const outcome = await draftGroupedProduct(env, { actor, role, categories, reservedNumericIds, reservedSubcategoryNumericIds, categoryCache, nextAutoTitle, rate, mode }, base, groups.get(base));
+    const outcome = await draftGroupedProduct(env, { actor, role, categories, reservedNumericIds, reservedSubcategoryNumericIds, categoryCache, nextAutoTitle, rate, mode, sheetNumbers: groupOrder }, base, groups.get(base));
     /* The style ID the SHEET itself gave this group, kept on every row it
        produces (the catalog edit and any stock row alongside it) so the
        checklist and results can show it next to where the row lands. */

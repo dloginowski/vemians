@@ -11366,3 +11366,73 @@ check("test_PRD_P0_217_matched_row_name_check__a_row_whose_number_belongs_to_a_d
     globalThis.fetch = realFetch;
   }
 });
+
+check("test_PRD_P0_217_matched_row_name_check__same_price_cost_and_vendor_under_a_new_name_is_the_same_item_and_just_gets_renamed", async () => {
+  /* "If all of these critical values are the same and it's just the title that
+     changed, then just merge it... same price, same cost, same vendor, then we
+     don't care, just overwrite it." */
+  const f = await fixture({ actor: "keiko@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  const head = "Style #,Category,Subcategory,Description,Price,Unit Cost\n";
+  try {
+    const made = await draftProductBatch(f.env, {
+      text: head + "001-004-002,Jackets,Evening Dresses,Black hand-painted blazer,100.00,40.00\n",
+      actor: "keiko@vemians.com",
+      role: "manager", mode: "add",
+    });
+    assert.equal(made.created.length, 1, JSON.stringify(made));
+    const renamed = await draftProductBatch(f.env, {
+      text: head + "001-004-002,Jackets,Evening Dresses,Oversize dress,100.00,40.00\n",
+      actor: "keiko@vemians.com",
+      role: "manager", mode: "update",
+    });
+    assert.equal(renamed.ready.length, 0, JSON.stringify(renamed.ready));
+    assert.equal(renamed.created.length, 1);
+    assert.equal(renamed.created[0].action, "updated", "overwritten, not a second item");
+    const rows = f.mirror("SELECT title FROM mirror_product WHERE import_style_number = '001-004-002'");
+    assert.deepEqual(rows.map((r) => r.title), ["Oversize dress"], "one item, now under the sheet's name");
+
+    /* The same name and number but a DIFFERENT cost is a different item. */
+    const different = await draftProductBatch(f.env, {
+      text: head + "001-004-002,Jackets,Evening Dresses,Silk gown,100.00,55.00\n",
+      actor: "keiko@vemians.com",
+      role: "manager", mode: "update",
+    });
+    assert.equal(different.created[0].action, "created", "a different cost means a different item");
+    assert.equal(f.mirror("SELECT COUNT(*) AS n FROM mirror_product WHERE import_style_number = '001-004-002'")[0].n, 2);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_217_matched_row_name_check__a_renumbered_item_takes_the_next_free_id_never_one_a_later_row_of_the_same_sheet_uses", async () => {
+  const f = await fixture({ actor: "keiko@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  const head = "Style #,Category,Subcategory,Description,Price\n";
+  try {
+    const made = await draftProductBatch(f.env, {
+      text: head + "001-004-001,Jackets,Evening Dresses,Black hand-painted blazer,100.00\n",
+      actor: "keiko@vemians.com",
+      role: "manager", mode: "add",
+    });
+    assert.equal(made.created.length, 1, JSON.stringify(made));
+    /* Row 1 reuses the blazer's number for a different item; rows 2 and 3 are
+       the sheet's own numbers 002 and 003, which the renumbered one must not take. */
+    const sheet =
+      head +
+      "001-004-001,Jackets,Evening Dresses,Oversize dress,250.00\n" +
+      "001-004-002,Jackets,Evening Dresses,Silk gown,300.00\n" +
+      "001-004-003,Jackets,Evening Dresses,Linen coat,150.00\n";
+    const run = await draftProductBatch(f.env, { text: sheet, actor: "keiko@vemians.com", role: "manager", mode: "add" });
+    assert.equal(run.ready.length, 0, JSON.stringify(run.ready));
+    assert.equal(run.created.length, 3, JSON.stringify(run));
+    const id = (title) => f.mirror("SELECT style_id FROM mirror_product WHERE title = ?", title)[0].style_id;
+    assert.equal(id("Oversize dress"), "01-04-004", "steps past 002 and 003, which later rows of this sheet use");
+    const all = f.mirror("SELECT style_id FROM mirror_product WHERE style_id LIKE '01-04-%'").map((r) => r.style_id);
+    assert.equal(new Set(all).size, all.length, "no two items share an ID");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
