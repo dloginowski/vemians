@@ -220,6 +220,20 @@ export async function subcategoryRenumbering(db, { ledger = [] } = {}) {
       }
       if (!st) {
         const n = productCounts.get(sub.id) ?? 0;
+        const unnumbered = sub.numeric_id == null || sub.numeric_id === "" || String(sub.numeric_id) === "00";
+        if (n === 0 && unnumbered) {
+          /* "Nothing is at zero really... zero is not used by any categories or
+             subcategories" -- the owner's own words: 00 only ever comes from a
+             number handed out automatically. An empty subcategory carrying it has no
+             items to number it from, and is named rather than passed over. */
+          review.push({
+            id: sub.id,
+            name: sub.name,
+            parent: parentName,
+            items: 0,
+            why: `it has no items in it and ${sub.numeric_id == null || sub.numeric_id === "" ? "no number" : "an automatic 00 that no sheet uses"}, and no upload on record put anything in it by this name, so there is nothing to number it from. If it is a leftover duplicate, remove it; if not, set its number by hand.`,
+          });
+        }
         if (n > 0) {
           review.push({
             id: sub.id,

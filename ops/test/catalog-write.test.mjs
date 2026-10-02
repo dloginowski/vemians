@@ -11982,3 +11982,17 @@ check("test_PRD_P0_221_numbers_from_the_ledger__a_subcategory_whose_parent_numbe
   const bare = await subcategoryRenumbering(f.env.CATALOG_MIRROR);
   assert.match(bare.review[0].why, /has no number yet/);
 });
+
+check("test_PRD_P0_221_numbers_from_the_ledger__an_empty_subcategory_left_on_an_automatic_00_is_named_not_passed_over", async () => {
+  const { f } = await dressesFixture();
+  const { subcategoryRenumbering } = await import("../src/tools/catalog-writer.js");
+  const dresses = f.categories().find((c) => c.name === "Dresses");
+  const shirts = await approvedCall(f, "catalog.create_category", { name: "Capes", parent_id: dresses.id, reason: "test" });
+  assert.equal(shirts.ok, true, shirts.error);
+  f.mirrorDb._raw.prepare("UPDATE mirror_category SET numeric_id = '00' WHERE id = ?").run(shirts.data.category.id);
+  const plan = await subcategoryRenumbering(f.env.CATALOG_MIRROR);
+  const entry = plan.review.find((r) => /Cape/.test(r.name));
+  assert.ok(entry, `it is named: ${JSON.stringify(plan.review)}`);
+  assert.match(entry.why, /automatic 00 that no sheet uses/);
+  assert.equal(entry.items, 0);
+});
