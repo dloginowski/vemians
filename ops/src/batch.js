@@ -1908,7 +1908,12 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
      every other clash already is -- and no stock move is queued at all,
      never a silent reduction to zero on the strength of a sheet that may
      simply have lost its own quantity column. */
-  const allZeroStock = explicitQuantities.length > 0 && explicitQuantities.every((q) => q === 0);
+  /* Only worth stopping when the zeros would DO something: zero out stock that
+     is really on hand (a stock change was queued), or add a size at zero. A
+     sold-out product re-sent at 0 (an export sent straight back) changes
+     nothing and is not a data problem. */
+  const zerosWouldChangeSomething = quantityAdjustments.length > 0 || variations.some((v) => !v.variant_id);
+  const allZeroStock = explicitQuantities.length > 0 && explicitQuantities.every((q) => q === 0) && zerosWouldChangeSomething;
   if (allZeroStock) {
     clashes.push(
       `every size on this sheet reads 0 units for "${existing.title}" (${existing.handle}) -- that's not something we'd ever actually submit; confirm the real counts, then resubmit`,
@@ -3000,7 +3005,18 @@ export async function submitProductBatchRow(env, { actor, role, rate }, row, edi
    lists already recognize as their FIRST, canonical entry — a round-trip
    through this export and straight back into /products/batch or either
    batch chat tool needs no column renamed, nothing re-typed by hand. */
-const EXPORT_HEADERS = ["title", "category", "subcategory", "style id", "price", "cost", "quantity", "vendor", "vendor code", "commission"];
+const EXPORT_HEADERS = ["title", "category", "subcategory", "style id", "price", "cost", "quantity", "vendor", "vendor code", "commission", "color", "size"];
+
+/* The writer's own placeholders for "no colour" / "no size" (neutralOptionValue,
+   catalog-writer.js). Exported blank: a blank cell already means exactly that
+   on the way back in. */
+const exportOption = (value, optionName) => {
+  const v = String(value ?? "").trim();
+  if (!v) return "";
+  if (v.toUpperCase() === "N/A") return "";
+  if (optionName === "Size" && v.toUpperCase() === "OS") return "";
+  return v;
+};
 
 /*
  * "Any one of our employees that has the rights to add or see the
@@ -3059,7 +3075,10 @@ export async function exportProductsCsv(env) {
     const parent = leaf?.parent_id ? categoriesById.get(leaf.parent_id) : null;
     const category = parent ? parent.name : (leaf?.name ?? "");
     const subcategory = parent ? leaf.name : "";
-    const importStyleNumber = importStyleNumberById.get(p.id) || "";
+    /* The sheet's own number when this product came from one; otherwise its live
+       shop style ID, so a product made by hand still has a number a later sheet
+       can find it by (a resubmit matches either). */
+    const importStyleNumber = importStyleNumberById.get(p.id) || p.style_id || "";
 
     for (const v of p.variations) {
       /* The exact inverse of parseStyleNumber (above): color before size,
@@ -3083,6 +3102,10 @@ export async function exportProductsCsv(env) {
         vendorName,
         v.vendor_code || "",
         p.commission_pct != null ? String(p.commission_pct) : "",
+        /* Explicit columns win over the style number's suffix on the way back
+           in, and survive a colour with spaces or dashes in it. */
+        exportOption(v.options?.Color, "Color"),
+        exportOption(v.options?.Size, "Size"),
       ]);
     }
   }

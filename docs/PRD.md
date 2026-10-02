@@ -9139,6 +9139,17 @@ that does not trace to one of these is a process failure (see §12).
     carry (it reads the live `style_id` instead, for the Items tab's own display) — one more small, bulk,
     bounded-by-product-count read, never a query per row.
 
+
+    **Round trip, hardened (several people sending separate sheets that never cross-reference).** The file
+    is the one starting point everyone appends to, so exporting it and sending it straight back as an update
+    changes nothing: every product is recognised as already there, nothing is created, nothing is held (test:
+    export, re-upload, all products "already match"). Two changes make that true. `style id` falls back to the
+    product's live shop style ID when it has no sheet number (a product made by hand), so a later sheet can
+    find it by number. `color` and `size` are explicit columns (the writer's placeholders "N/A" and "OS"
+    exported blank, since blank already means that on the way in), which win over the style number's suffix and
+    survive a colour with spaces or dashes in it. And the "every size reads 0 units" guard now only fires when
+    the zeros would do something — zero out stock that is really on hand, or add a size at zero — so a sold-out
+    product re-sent at 0 is not a data problem.
 122. **`Test-PRD-P0-190-quantity_reconciliation_on_resubmit`** — "If there are discrepancies, I should
     upload the same file again, and you should be able to match all of the existing items, and the items
     that do not match with the spreadsheet should be updated... you should just be updating the number of

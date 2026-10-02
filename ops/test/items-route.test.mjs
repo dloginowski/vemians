@@ -4276,7 +4276,7 @@ check("test_PRD_P0_189_inventory_csv_export__a_manager_gets_a_real_csv_file_down
 
   const body = await res.text();
   const lines = body.trim().split("\r\n");
-  assert.equal(lines[0], "title,category,subcategory,style id,price,cost,quantity,vendor,vendor code,commission");
+  assert.equal(lines[0], "title,category,subcategory,style id,price,cost,quantity,vendor,vendor code,commission,color,size");
   assert.equal(lines.length, 2, "one header row, one product row");
   const row = lines[1].split(",");
   assert.equal(row[0], "Wool Coat");

@@ -75,7 +75,7 @@ import { normaliseCatalog } from "../../shared/commerce/square/catalog.js";
    text-module loader is registered here, before any of those imports run. */
 register("../../shared/test/text-modules.mjs", import.meta.url);
 const { approvePending, parkForApproval } = await import("../src/approvals.js");
-const { draftProductBatch, planProductBatch } = await import("../src/batch.js");
+const { draftProductBatch, planProductBatch, exportProductsCsv } = await import("../src/batch.js");
 const { dispatch, agentTurn, approve, NO_TEXT_TABLE_NOTE, readBatchProgress, startBatchRun, submitBatchPlanRow, openBatchPlanFor, cancelBatchPlan } = await import("../src/agent.js");
 const http = await import("node:http");
 
@@ -11710,6 +11710,73 @@ check("test_PRD_P0_219_duplicate_sheet_rows__a_resend_with_the_same_variation_tw
     assert.equal(updates[0].args.variations.length, 1, "the repeated variation is sent once");
     const stock = again.rows.filter((r) => r.toolName === "inventory.adjust");
     assert.ok(stock.length <= 1, `stock is moved at most once, got ${stock.length}`);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_189_inventory_csv_export__downloading_the_inventory_and_sending_it_straight_back_changes_nothing", async () => {
+  /* The owner's own point: several people send separate sheets that never
+     cross-reference. The export is meant to be the starting point everyone
+     appends to, so it has to round-trip exactly: export, upload as an update,
+     and every row is already there -- nothing created, nothing held. */
+  const f = await fixture({ actor: "keiko@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  const head = "Style #,Category,Subcategory,Description,Price,Quantity,Color,Size\n";
+  try {
+    const made = await draftProductBatch(f.env, {
+      text:
+        head +
+        "001-005-001,Dresses,Shirt Dresses,Shirt dress,80.00,2,Blue,L\n" +
+        "001-005-001,Dresses,Shirt Dresses,Shirt dress,80.00,1,Blue,M\n" +
+        "001-005-001,Dresses,Shirt Dresses,Shirt dress,80.00,1,Black and White,\n" +
+        "004-006-001,Sets,Suits,Suit,150.00,3,,\n" +
+        "006-002-002,Skirts,Evening Skirts,Evening skirt,60.00,4,Black,S\n",
+      actor: "keiko@vemians.com",
+      role: "manager", mode: "add",
+    });
+    assert.equal(made.ready.length, 0, JSON.stringify(made.ready));
+    assert.equal(made.created.length, 3, JSON.stringify(made));
+
+    const csv = await exportProductsCsv(f.env);
+    assert.match(csv.split("\r\n")[0], /,color,size$/, "explicit color and size columns");
+
+    const back = await draftProductBatch(f.env, { text: csv, actor: "keiko@vemians.com", role: "manager", mode: "update" });
+    assert.equal(back.created.length, 0, `nothing changes: ${JSON.stringify(back.created)}`);
+    assert.equal(back.ready.length, 0, JSON.stringify(back.ready));
+    assert.equal(back.skipped.length, 0, JSON.stringify(back.skipped));
+    assert.equal(back.unchanged.length, 3, "all three products are recognised as already there");
+    assert.equal(f.mirror("SELECT COUNT(*) AS n FROM mirror_product WHERE title IN ('Shirt dress', 'Suit', 'Evening skirt')")[0].n, 3, "no duplicate products");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_189_inventory_csv_export__a_product_made_by_hand_exports_its_live_style_id", async () => {
+  const f = await fixture({ actor: "keiko@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const seed = await draftProductBatch(f.env, {
+      text: "Style #,Category,Subcategory,Description,Price\n004-006-009,Sets,Suits,Seed suit,50.00\n",
+      actor: "keiko@vemians.com",
+      role: "manager", mode: "add",
+    });
+    assert.equal(seed.created.length, 1, JSON.stringify(seed));
+    const categoryId = f.mirror("SELECT category_id FROM mirror_product WHERE title = 'Seed suit'")[0].category_id;
+    const made = await approvedCall(f, "catalog.create_product", {
+      title: "Hand made suit",
+      category_id: categoryId,
+      variations: [{ title: "One", price_minor: 7000, currency: "USD" }],
+    });
+    assert.equal(made.ok, true, made.error);
+    const live = f.mirror("SELECT style_id, import_style_number FROM mirror_product WHERE title = 'Hand made suit'")[0];
+    assert.ok(live.style_id, "it has a live style ID");
+    assert.equal(live.import_style_number, null, "and no sheet number: it was not made from a sheet");
+    const rows = (await exportProductsCsv(f.env)).trim().split("\r\n").map((l) => l.split(","));
+    const mine = rows.find((r) => r[0] === "Hand made suit");
+    assert.equal(mine[3], live.style_id, "the style ID column carries the live ID, so a later sheet can find it by number");
   } finally {
     globalThis.fetch = realFetch;
   }
