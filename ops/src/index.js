@@ -78,7 +78,7 @@ import {
   whoamiPage,
   MEDIA_BASE_URL,
 } from "./views.js";
-import { draftCustomerBatch, draftProductBatch, parsePriceToMinor, exportProductsCsv, sheetKnowledge } from "./batch.js";
+import { draftCustomerBatch, draftProductBatch, parsePriceToMinor, exportProductsCsv, sheetKnowledge, sheetNamesSubcategory } from "./batch.js";
 import { inventoryAgentGuide } from "./agent-guide.js";
 import { ledgerSheetNumbers } from "./ingest.js";
 
@@ -1263,10 +1263,10 @@ async function ops(request, env, path) {
       const handle = String(form.get("handle") ?? "").trim();
       let categoryId = String(form.get("category_id") ?? "").trim();
       if (!handle) return json({ error: "give a product" }, 400);
-      const commit = async (tool, toolArgs) => {
-        const gate = await runTool(tool, toolArgs, { actor: email, role, env });
+      const commit = async (tool, toolArgs, extra = {}) => {
+        const gate = await runTool(tool, toolArgs, { actor: email, role, env, ...extra });
         if (!gate?.needsApproval) return { error: gate?.error || gate?.denied || `${tool} could not be proposed.` };
-        const done = await runTool(tool, toolArgs, { actor: email, role, env, approvalToken: gate.data.approval.token });
+        const done = await runTool(tool, toolArgs, { actor: email, role, env, approvalToken: gate.data.approval.token, ...extra });
         if (done?.error || done?.denied) return { error: done.error || done.denied };
         return {};
       };
@@ -1279,12 +1279,24 @@ async function ops(request, env, path) {
         const find = async () => (await listCategories(env.CATALOG_MIRROR)).find((c) => c.parent_id === parentId && fold(c.name) === fold(name));
         let found = await find();
         if (!found) {
-          const made = await commit("catalog.create_category", {
-            name,
-            parent_id: parentId,
-            reason: "created from the Admin panel's placement check",
-            ...(numericId ? { numeric_id: numericId } : {}),
-          });
+          /* Only a subcategory the stored sheets name under this category may be made
+             here, and it may sit beside a similarly worded sibling ("Casual Tops"
+             beside "Tops"), which the tool's own guard would otherwise refuse. */
+          const parent = (await listCategories(env.CATALOG_MIRROR)).find((c) => c.id === parentId);
+          const { items } = await sheetKnowledge(env.ASSETS);
+          if (!parent || !sheetNamesSubcategory(items, parent.name, name)) {
+            return json({ error: `the stored sheets do not name "${name}" under that category, so it was not created` }, 400);
+          }
+          const made = await commit(
+            "catalog.create_category",
+            {
+              name,
+              parent_id: parentId,
+              reason: "created from the Admin panel's placement check",
+              ...(numericId ? { numeric_id: numericId } : {}),
+            },
+            { allowNearDuplicate: true },
+          );
           if (made.error) return json({ error: made.error }, 400);
           found = await find();
         }

@@ -1501,7 +1501,7 @@ export const catalogWriteTools = {
       if (exact) return { denied: `"${exact.name}" already exists${parent ? ` under "${parent.name}"` : ""}. Use it.` };
 
       const near = nearestCategory(name, siblings);
-      if (near && near.score >= CAPS.CATEGORY_DUPLICATE_SIMILARITY) {
+      if (near && near.score >= CAPS.CATEGORY_DUPLICATE_SIMILARITY && !t.allowNearDuplicate) {
         return {
           denied:
             `"${name}" overlaps the existing${parent ? ` "${parent.name}"` : ""} category "${near.name}" (${near.score}). ` +

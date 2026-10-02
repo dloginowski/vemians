@@ -362,6 +362,9 @@ export async function runTool(name, args = {}, ctx = {}) {
     approved: false,
     preflight: null,
     now: ctx.now ?? (() => new Date()),
+    /* Set by a trusted server route only, never an argument: a subcategory the
+       owner's own sheets name may sit beside a similarly worded sibling. */
+    allowNearDuplicate: ctx.allowNearDuplicate === true,
   };
 
   /* 6. Read-only preflight: caps and state, before any token is issued. */
