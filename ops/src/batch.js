@@ -47,6 +47,7 @@ import {
   LEGACY_MARGIN_FIELD_KEYS,
   productByHandle,
   productByImportStyleNumber,
+  productsByImportStyleNumber,
   productByStyleId,
   productsByCategoryAndTitle,
   productsByTitle,
@@ -1904,19 +1905,6 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
      change -- this only ever suppresses the CATALOG edit itself. */
   const changes = catalogChangesFor({ existing, existingVariants, titleCol, descriptionCol, variations, categoryMove });
 
-  /* "Oversize dress" matched to an existing "Black hand-painted blazer" by
-     style number alone would silently overwrite the blazer's price, cost and
-     stock with the dress's. A style number is how an item is identified, but
-     two items sharing a number is exactly the sheet-versus-catalog mix-up a
-     person has to look at: when the sheet's name for the row shares not one
-     word with the matched item's title, the row is held for a person
-     instead of applied. */
-  const sheetName = titleCol || descriptionCol;
-  const nameMismatch =
-    sheetName && existing.title && !sharesAWord(sheetName, existing.title)
-      ? `style number "${base}" is "${existing.title}" in the catalog, but the sheet calls this row "${sheetName}" -- check the numbering; check the box only if it really is the same item`
-      : null;
-
   if (changes.length === 0) {
     /* A row whose number and name disagree is never dropped silently just
        because nothing else about it differs: it is reported, so a sheet that
@@ -1940,9 +1928,7 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
       toolName: "catalog.update_product",
       changes: changes.join("; "),
       categoryId: args.category_id ?? existing.category_id ?? null,
-      ...(categoryConflict || nameMismatch
-        ? { needsConfirmation: true, confirmReason: [categoryConflict, nameMismatch].filter(Boolean).join("; ") }
-        : {}),
+      ...(categoryConflict ? { needsConfirmation: true, confirmReason: categoryConflict } : {}),
     },
     extraRows: quantityAdjustments,
   };
@@ -1988,7 +1974,33 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
      "add" has always meant -- see the bottom of this function, past the
      category/title fallback, for the one place that used to turn a miss
      into a clash and no longer does. */
-  const existingByStyle = (await productByImportStyleNumber(env.CATALOG_MIRROR, base)) ?? (await productByStyleId(env.CATALOG_MIRROR, base));
+  /* "Just have it auto-generate a new ID for that category and subcategory,
+     and just note that you're changing its ID, because it's a duplicate" --
+     the owner's own words, after "Oversize dress" resolved to update an
+     existing "Black hand-painted blazer" that only shared its number. A
+     number identifies an item, but when the sheet names the row something
+     that shares not one word with the item that holds the number, it is a
+     DIFFERENT item that reused the number: it is added as a new item (its
+     own ID, minted from its category as always) with a note saying so, never
+     applied over the other item and never held. The sheet's number is kept on
+     it too, so a resubmit finds each of the two by its name. */
+  const sheetName = pick(first, TITLE_KEYS) || pick(first, DESCRIPTION_KEYS);
+  const numberHolders = await productsByImportStyleNumber(env.CATALOG_MIRROR, base);
+  const liveHolder = await productByStyleId(env.CATALOG_MIRROR, base);
+  if (liveHolder && !numberHolders.some((p) => p.id === liveHolder.id)) numberHolders.push(liveHolder);
+  let existingByStyle = null;
+  let reusedNumberOf = null;
+  if (numberHolders.length) {
+    if (!sheetName) existingByStyle = numberHolders[0];
+    else {
+      const wanted = sheetName.trim().toLowerCase();
+      existingByStyle =
+        numberHolders.find((p) => String(p.title).trim().toLowerCase() === wanted) ??
+        numberHolders.find((p) => sharesAWord(sheetName, p.title)) ??
+        null;
+      if (!existingByStyle) reusedNumberOf = numberHolders[0];
+    }
+  }
   if (existingByStyle) {
     return draftProductUpdate(env, existingByStyle, base, groupRows, ctx);
   }
@@ -2004,6 +2016,10 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
   const clashes = [];
   const resolved = await resolveSheetCategory(env, ctx, base, first);
   notes.push(...resolved.notes);
+  const reusedNumberNote = reusedNumberOf
+    ? `the sheet's style number "${base}" already belongs to "${reusedNumberOf.title}" -- this row ("${sheetName}") is a different item, so it was added as a new item with its own ID in its own category; the sheet's number is kept on record`
+    : null;
+  if (reusedNumberNote) notes.push(reusedNumberNote);
   clashes.push(...resolved.clashes);
   const category = resolved.category;
   const categoryConflict = resolved.conflict;
@@ -2308,6 +2324,9 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
       title,
       args,
       toolName: "catalog.create_product",
+      /* Shown with the row in the checklist and the results, and kept on the
+         product itself ("import notes"), so the renumbering can be traced. */
+      ...(reusedNumberNote ? { note: reusedNumberNote } : {}),
       ...(categoryConflict ? { needsConfirmation: true, confirmReason: categoryConflict } : {}),
     },
   };
