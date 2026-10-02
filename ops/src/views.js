@@ -6343,7 +6343,7 @@ async function showPlacement(btn) {
        each subcategory). */
     const itemMoves = (after.refiling && after.refiling.moves) || [];
     for (const r of itemMoves) {
-      detail.appendChild(placementLine(r.title + ": " + r.from.name + " → " + r.to.name + " (the sheet says " + r.code + ")"), ""));
+      detail.appendChild(placementLine(r.title + ": " + r.from.name + " → " + r.to.name + " (the sheet says " + r.code + ")", ""));
     }
     for (let i = 0; i < itemMoves.length; i++) {
       step = itemMoves[i].title;
