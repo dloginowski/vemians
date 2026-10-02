@@ -6179,7 +6179,7 @@ async function saveAll() {
     if (!(await sendSteps(planFieldSteps(changes, (v) => String(v).trim().toLowerCase(), makeTemp)))) allOk = false;
   }
 
-  if (allOk) location.reload();
+  if (allOk) reloadKeepingOpen();
   else saveAllBtn.disabled = false;
 }
 saveAllBtn.addEventListener("click", saveAll);
@@ -6191,6 +6191,35 @@ document.body.addEventListener("submit", (e) => {
   e.preventDefault();
   saveAll();
 });
+
+/* A reload used to collapse every category -- "why are you closing all the
+   categories when I delete a subcategory?" -- the owner's own words. Before the
+   page reloads, the categories that are open (and how far down the page is) are
+   remembered for the next load, which opens them again. */
+function adminNodeKey(node) {
+  const input = node.querySelector(":scope > .admin-category-row [name=category_id]");
+  return input ? input.value : "";
+}
+function reloadKeepingOpen() {
+  try {
+    const open = [...document.querySelectorAll(".admin-category-node.expanded")].map(adminNodeKey).filter(Boolean);
+    sessionStorage.setItem("adminOpenCategories", JSON.stringify({ open, y: window.scrollY }));
+  } catch {}
+  location.reload();
+}
+(function restoreOpenCategories() {
+  try {
+    const raw = sessionStorage.getItem("adminOpenCategories");
+    if (!raw) return;
+    sessionStorage.removeItem("adminOpenCategories");
+    const saved = JSON.parse(raw);
+    const open = new Set(saved.open || []);
+    document.querySelectorAll(".admin-category-node").forEach((node) => {
+      if (open.has(adminNodeKey(node))) node.classList.add("expanded");
+    });
+    window.scrollTo(0, saved.y || 0);
+  } catch {}
+})();
 
 /* Removing a category stays its own immediate, non-batched click — a
    destructive one-shot action, never a field to mark dirty and save
@@ -6204,7 +6233,7 @@ document.body.addEventListener("click", async (e) => {
   try {
     const res = await fetch("/admin/categories/remove", { method: "POST", body });
     if (res.ok) {
-      location.reload();
+      reloadKeepingOpen();
       return;
     }
     const data = await res.json().catch(() => ({}));
@@ -6379,7 +6408,7 @@ async function showPlacement(btn) {
       const reload = document.createElement("button");
       reload.type = "button";
       reload.textContent = "Reload the page";
-      reload.addEventListener("click", () => location.reload());
+      reload.addEventListener("click", () => reloadKeepingOpen());
       actions.appendChild(reload);
       panel.appendChild(actions);
       btn.disabled = false;
@@ -6395,7 +6424,7 @@ async function showPlacement(btn) {
     btn.disabled = false;
     return;
   }
-  setTimeout(() => location.reload(), 1500);
+  setTimeout(() => reloadKeepingOpen(), 1500);
 }
 document.body.addEventListener("click", (e) => {
   const btn = e.target.closest(".admin-placement-btn");
@@ -6482,13 +6511,13 @@ document.body.addEventListener("click", (e) => {
           return;
         }
         if (!(data.remaining > 0)) {
-          location.reload();
+          reloadKeepingOpen();
           return;
         }
         if (!moveBtn.dataset.icon) moveBtn.dataset.icon = moveBtn.innerHTML;
         moveBtn.textContent = String(data.remaining);
       }
-      location.reload();
+      reloadKeepingOpen();
     });
     menu.appendChild(opt);
   }
