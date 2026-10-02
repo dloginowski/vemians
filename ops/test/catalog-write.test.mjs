@@ -12142,3 +12142,66 @@ check("test_PRD_P0_222_sheet_truth__an_item_is_refiled_only_when_the_sheets_agre
   assert.equal(row.category_id, shirt.id);
   assert.match(row.style_id, /^01-05-/);
 });
+
+check("test_PRD_P0_222_sheet_truth__an_item_goes_where_its_own_sheet_row_says_even_when_its_style_number_points_at_another_category", async () => {
+  /* "All the vests are in jackets... there's nothing in dresses at all": the vest
+     rows name Jacket but carry numbers starting with Dresses' own (01-03). */
+  const { sheetKnowledge } = await import("../src/batch.js");
+  const csv =
+    "title,category,subcategory,price,style id\n" +
+    "Black vest,Jacket,Vest,10,001-003-001\n" +
+    "White vest,Jacket,Vest,10,001-003-002\n" +
+    "Knitted dress,Dresses,Knitted Dresses,10,001-003-003\n" +
+    "Twin A,Dresses,Capes,10,001-009-001\n" +
+    "Twin B,Dresses,Gowns,10,001-009-001\n";
+  const known = await sheetKnowledge(await assetsFixtureWithRow({ extracted_text: csv }));
+  const byBase = new Map(known.items.map((i) => [i.base, i]));
+  assert.equal(byBase.get("001-003-001").category, "Jacket");
+  assert.equal(byBase.get("001-003-001").subcategory, "Vest");
+  assert.equal(byBase.get("001-003-003").subcategory, "Knitted Dresses");
+  assert.equal(byBase.has("001-009-001"), false, "a full number two different rows share says nothing about either");
+  assert.ok(known.numbers.find((n) => n.top === 1 && n.mid === 3).ambiguous, "while the number 01-03 as a whole is ambiguous");
+  assert.deepEqual((await sheetKnowledge(null)), { numbers: [], items: [] });
+
+  const { f, evening } = await tweakedDresses();
+  const { itemRefiling } = await import("../src/tools/catalog-writer.js");
+  const db = f.env.CATALOG_MIRROR;
+  const jackets = await approvedCall(f, "catalog.create_category", { name: "Jackets", numeric_id: "03", reason: "test" });
+  assert.equal(jackets.ok, true, jackets.error);
+  const handleOf = f.mirror("SELECT handle FROM mirror_product WHERE title LIKE '%Gala%'")[0].handle;
+  f.mirrorDb._raw.prepare("UPDATE mirror_product SET import_style_number = '001-003-001' WHERE handle = ?").run(handleOf);
+  const itemTruth = [{ base: "001-003-001", category: "Jacket", subcategory: "Vest" }];
+
+  /* Jackets exists, Vests does not: the move names a subcategory to make, numbered after the others */
+  const plan = await itemRefiling(db, { itemTruth });
+  assert.equal(plan.moves.length, 1, JSON.stringify(plan));
+  assert.equal(plan.moves[0].handle, handleOf);
+  assert.equal(plan.moves[0].to.id, null);
+  assert.equal(plan.moves[0].to.name, "Vest");
+  assert.equal(plan.moves[0].to.parent_id, jackets.data.category.id);
+  assert.equal(plan.moves[0].to.number, "01");
+  assert.equal(plan.moves[0].from.id, evening.id);
+
+  /* once it exists, the item is simply moved there, and gets a style ID of its new home */
+  const vest = await approvedCall(f, "catalog.create_category", { name: "Vests", parent_id: jackets.data.category.id, numeric_id: "01", reason: "test" });
+  assert.equal(vest.ok, true, vest.error);
+  const plan2 = await itemRefiling(db, { itemTruth });
+  assert.equal(plan2.moves[0].to.id, vest.data.category.id);
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const moved = await approvedCall(f, "catalog.update_product", { handle: handleOf, category_id: vest.data.category.id });
+    assert.equal(moved.ok, true, moved.error);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.match(f.mirror("SELECT style_id FROM mirror_product WHERE handle = ?", handleOf)[0].style_id, /^03-01-/);
+  const settled = await itemRefiling(db, { itemTruth });
+  assert.deepEqual(settled.moves, [], "and it stays put once it is there");
+  assert.equal(settled.ok, 1);
+
+  /* a category the catalog has no top-level for is named, never created or guessed */
+  const none = await itemRefiling(db, { itemTruth: [{ base: "001-003-001", category: "Spaceships", subcategory: "Vest" }] });
+  assert.deepEqual(none.moves, []);
+  assert.ok(none.review.some((r) => /no top-level category is called "Spaceships"/.test(r.why)), JSON.stringify(none.review));
+});

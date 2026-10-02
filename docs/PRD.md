@@ -9807,6 +9807,15 @@ that does not trace to one of these is a process failure (see §12).
     subcategory moves, then item refiling, then renumbering, each re-read from the state the one before left, and lists
     whatever it still cannot decide. Subcategories left empty are not deleted for the owner (the existing remove button
     does that).
+    **An item goes where its own sheet row says.** The first real run showed the sheets themselves are inconsistent: the vest
+    rows say Jacket › Vest but carry style numbers starting with Dresses' number (01-03), so by number they sat in
+    Dresses; trench coats and winter coats carried Sets' numbers. "All the vests are in jackets... there's nothing in
+    dresses at all." `sheetKnowledge` (`batch.js`) also returns, per FULL style number, the category and subcategory its
+    own row names (only when every row with that exact number agrees), and `itemRefiling` files an item there: into the
+    existing top-level category of that name (none, or two, is listed and the item left alone) and the subcategory of that
+    name under it, made when missing and numbered after the others (a later renumbering pass gives it the sheet's own
+    number if the sheets name one). Items whose number no row carries still fall back to the number rules above, which
+    never create anything.
     A stray ")" shipped in the Check placement code once broke the whole Admin script (no subcategory expanded, no
     button worked) while every pattern test still passed; the Admin page's inline scripts are now parsed by a test.
 

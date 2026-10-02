@@ -6251,7 +6251,12 @@ async function setCategoryNumber(categoryId, numericId) {
 async function refileOneProduct(move) {
   const body = new FormData();
   body.set("handle", move.handle);
-  body.set("category_id", move.to.id);
+  if (move.to.id) body.set("category_id", move.to.id);
+  else {
+    body.set("parent_id", move.to.parent_id);
+    body.set("name", move.to.name);
+    body.set("numeric_id", move.to.number || "");
+  }
   const res = await fetch("/admin/products/refile", { method: "POST", body });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "That item could not be moved.");
@@ -6343,7 +6348,7 @@ async function showPlacement(btn) {
        each subcategory). */
     const itemMoves = (after.refiling && after.refiling.moves) || [];
     for (const r of itemMoves) {
-      detail.appendChild(placementLine(r.title + ": " + r.from.name + " → " + r.to.name + " (the sheet says " + r.code + ")", ""));
+      detail.appendChild(placementLine(r.title + ": " + r.from.name + " → " + r.to.name + " (its sheet row says so; style number " + r.code + ")" + (r.to.id ? "" : " — new subcategory"), ""));
     }
     for (let i = 0; i < itemMoves.length; i++) {
       step = itemMoves[i].title;
