@@ -9777,6 +9777,10 @@ that does not trace to one of these is a process failure (see §12).
     `subcategoryRenumbering` falls back to it (`ledgerSheetNumbers`, `ingest.js`) by parent and subcategory name
     (case and plural folded) when a subcategory's items remember nothing. And a subcategory with items but no source
     of numbers at all is no longer skipped in silence: the Check placement panel lists it, saying why.
+    **Two more silences closed.** A subcategory whose items' sheet numbers start with a top-level number its parent does
+    not have (or whose parent has no number yet) is listed with that reason instead of being skipped; and when the
+    fix leaves anything alone, the page no longer reloads after 1.5 seconds — which had wiped the explanation off the
+    screen before it could be read — it stays, with a "Reload the page" button.
 
 ## 4. P1 features
 

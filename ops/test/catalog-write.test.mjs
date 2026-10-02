@@ -11963,3 +11963,22 @@ check("test_PRD_P0_221_numbers_from_the_ledger__a_subcategory_whose_items_stored
     globalThis.fetch = realFetch;
   }
 });
+
+check("test_PRD_P0_221_numbers_from_the_ledger__a_subcategory_whose_parent_number_disagrees_with_its_sheet_numbers_is_listed_not_skipped_in_silence", async () => {
+  /* "Shirts are still at zero" and nothing said why: its items' sheet numbers
+     started with a top-level number its parent does not have. */
+  const { f, sub } = await dressesFixture();
+  const { subcategoryRenumbering } = await import("../src/tools/catalog-writer.js");
+  const dresses = f.categories().find((c) => c.name === "Dresses");
+  f.mirrorDb._raw.prepare("UPDATE mirror_category SET numeric_id = '07' WHERE id = ?").run(dresses.id);
+  await Promise.resolve(sub);
+  const plan = await subcategoryRenumbering(f.env.CATALOG_MIRROR);
+  assert.deepEqual(plan.steps, []);
+  const names = plan.review.map((r) => r.name).sort();
+  assert.deepEqual(names, ["Evening Dresses", "Shirt Dresses"], "both are named, not skipped");
+  assert.match(plan.review[0].why, /category 01, but its parent "Dresses" is numbered 07/);
+
+  f.mirrorDb._raw.prepare("UPDATE mirror_category SET numeric_id = NULL WHERE id = ?").run(dresses.id);
+  const bare = await subcategoryRenumbering(f.env.CATALOG_MIRROR);
+  assert.match(bare.review[0].why, /has no number yet/);
+});

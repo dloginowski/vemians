@@ -4397,3 +4397,14 @@ check("test_PRD_P0_189_inventory_csv_export__the_admin_panel_ends_with_an_invent
   const file = await get("/products/export.csv", MANAGER, env(mirror));
   assert.equal(file.status, 200, "and the link works for the person who sees it");
 });
+
+check("test_PRD_P0_221_numbers_from_the_ledger__the_page_never_reloads_away_what_the_fix_left_alone", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  const script = body.slice(body.indexOf("<script>"), body.lastIndexOf("</script>"));
+  assert.match(script, /const leftOver = after\.review\.length \+ plan\.review\.length;/, "it counts what was left alone");
+  assert.match(script, /\(leftOver \? "" : " Reloading…"\)/, "and only announces a reload when there is nothing to read");
+  assert.match(script, /reload\.textContent = "Reload the page";/, "otherwise the list stays and the person reloads when ready");
+});

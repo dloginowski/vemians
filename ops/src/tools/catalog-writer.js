@@ -238,7 +238,17 @@ export async function subcategoryRenumbering(db, { ledger = [] } = {}) {
         continue;
       }
       const [top, mid] = [...st.pairs.keys()][0].split("|").map(Number);
-      if (parentTop === null || top !== parentTop) continue; /* where it belongs is the placement check's question first */
+      if (parentTop === null) {
+        review.push({ ...base, why: `its items' sheet numbers start with ${pad(top)}, but its parent "${parentName}" has no number yet, so there is nothing to match them against` });
+        continue;
+      }
+      if (top !== parentTop) {
+        review.push({
+          ...base,
+          why: `its items' sheet numbers say category ${pad(top)}, but its parent "${parentName}" is numbered ${pad(parentTop)}; the sheets and the catalog disagree about the top-level number, so it was left alone`,
+        });
+        continue;
+      }
       if (mid > 99) {
         review.push({ ...base, why: `its sheet number's middle group ${mid} does not fit a two-digit number` });
         continue;
