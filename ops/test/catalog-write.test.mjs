@@ -2480,6 +2480,65 @@ check("test_PRD_P0_213_move_subcategory__a_merge_works_in_batches_and_reports_ho
   assert.equal(new Set(ids).size, ids.length, "no two products ended up with the same style ID");
 });
 
+check("test_PRD_P0_214_placement_from_style_numbers__each_subcategorys_right_parent_is_read_off_its_items_sheet_numbers", async () => {
+  /* "We already have the spreadsheets with all of the style IDs, so you
+     should be able to figure out that I really can only have this
+     subcategory under a certain top-level category." */
+  const { subcategoryPlacement } = await import("../src/tools/catalog-writer.js");
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const knitwear = f.categories().find((c) => c.name === "Knitwear");
+  await approvedCall(f, "catalog.set_category_number", { category_id: outerwear.id, numeric_id: "01" });
+  await approvedCall(f, "catalog.set_category_number", { category_id: knitwear.id, numeric_id: "02" });
+  const dresses = (await approvedCall(f, "catalog.create_category", { name: "Dresses", reason: "test" })).data.category;
+  await approvedCall(f, "catalog.set_category_number", { category_id: dresses.id, numeric_id: "03" });
+  const sub = async (name, parent, num) => {
+    const c = (await approvedCall(f, "catalog.create_category", { name, parent_id: parent.id, reason: "test" })).data.category;
+    await approvedCall(f, "catalog.set_category_number", { category_id: c.id, numeric_id: num });
+    return c;
+  };
+  const put = async (title, category, importNumber) => {
+    const r = await approvedCall(f, "catalog.create_product", {
+      ...COAT, title, category_id: category.id, ...(importNumber ? { import_style_number: importNumber } : {}),
+    });
+    assert.equal(r.ok, true, r.error);
+  };
+
+  const evening = await sub("Evening Dresses", outerwear, "10");   // sheets say 003 = Dresses: MOVE
+  await put("Gown A", evening, "003-004-001");
+  await put("Gown B", evening, "003-004-002");
+  const blazers = await sub("Blazers", outerwear, "11");           // sheets say 001 = Outerwear: already right
+  await put("Blazer A", blazers, "001-001-001");
+  const tops = await sub("Tops", knitwear, "12");                  // 002 and 003 mixed: a person decides
+  await put("Top A", tops, "002-002-001");
+  await put("Top B", tops, "003-002-001");
+  const misc = await sub("Misc", knitwear, "13");                  // 009 matches no top-level category
+  await put("Misc A", misc, "009-001-001");
+  const legacy = await sub("Legacy", knitwear, "14");              // no sheet number at all
+  await put("Legacy A", legacy, null);
+  const casuals = await sub("Casuals", outerwear, "15");           // 003 = Dresses, which already has a Casuals: MERGE
+  await put("Casual A", casuals, "003-005-001");
+  await sub("Casuals", dresses, "16");
+  await sub("Empty One", outerwear, "17");                         // no items: nothing to judge by
+
+  const result = await subcategoryPlacement(f.env.CATALOG_MIRROR);
+  const move = (name) => result.moves.find((m) => m.name === name);
+  assert.equal(move("Evening Dresses").target.name, "Dresses");
+  assert.equal(move("Evening Dresses").parent.name, "Outerwear");
+  assert.equal(move("Evening Dresses").merges, false);
+  assert.equal(move("Evening Dresses").items, 2);
+  assert.equal(move("Casuals").target.id, dresses.id, "the one under Outerwear is the one that moves");
+  assert.equal(move("Casuals").merges, true, "Dresses already has a Casuals, so it is a merge");
+  assert.equal(result.moves.length, 2, "nothing else is proposed");
+  assert.equal(result.ok, 1, "Blazers is already under the right category");
+  const why = (name) => result.review.find((r) => r.name === name)?.why ?? "";
+  assert.match(why("Tops"), /disagree: 1 item points at (Knitwear|Dresses), 1 item points at (Dresses|Knitwear)/);
+  /* names are folded to plural on creation: Misc -> Miscs, Legacy -> Legacies */
+  assert.match(why("Miscs"), /start with 09, and no top-level category has that number/);
+  assert.match(why("Legacies"), /none of its items has a sheet style number/);
+  assert.ok(!result.review.some((r) => r.name === "Empty Ones") && !result.moves.some((m) => m.name === "Empty Ones"), "a subcategory with no items is left out");
+});
+
 check("test_PRD_P0_138_nested_categories__a_subcategory_match_wins_over_a_top_level_match", async () => {
   /* REVISED (Test-PRD-P0-177-fluid_style_id): style_id never drives category
      assignment any more, so this is now about styleIdCodesFor's own

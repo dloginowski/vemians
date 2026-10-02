@@ -59,6 +59,81 @@ export async function listCategories(db) {
   return (res.results ?? []).map((r) => ({ id: r.id, name: r.name, parent_id: r.parent_id, numeric_id: r.numeric_id }));
 }
 
+/*
+ * Where each subcategory SHOULD sit, worked out from the sheets' own style
+ * numbers. "We already have the spreadsheets with all of the style IDs, so
+ * you should be able to figure out that I really can only have this
+ * subcategory under a certain top-level category" -- the owner's own words.
+ * Every product an upload made keeps its sheet's style number permanently
+ * (import_style_number, e.g. 001-004-002); that number's first group is the
+ * top-level category the sheet put it under. For each subcategory holding
+ * such products:
+ *   - every sheet number points at one top-level category (by the catalog's
+ *     own number) that is not its current parent -> a MOVE is proposed (a
+ *     merge, when that category already has a subcategory of the same name);
+ *   - they all agree with where it already is -> fine, counted;
+ *   - they point at different categories, at a number no top-level category
+ *     has, or no product has a sheet number at all -> listed for a person,
+ *     never moved on a guess.
+ * Read-only. A subcategory with no products is left out (nothing to judge
+ * it by).
+ */
+export async function subcategoryPlacement(db) {
+  const categories = await listCategories(db);
+  const byId = new Map(categories.map((c) => [c.id, c]));
+  const topByNumber = new Map(
+    categories.filter((c) => !c.parent_id && c.numeric_id != null && c.numeric_id !== "").map((c) => [Number(c.numeric_id), c]),
+  );
+  const res = await db
+    .prepare("SELECT category_id, import_style_number FROM mirror_product_index WHERE category_id IS NOT NULL")
+    .bind()
+    .all();
+  const stats = new Map();
+  for (const r of res.results ?? []) {
+    const st = stats.get(r.category_id) ?? { items: 0, unnumbered: 0, codes: new Map() };
+    st.items += 1;
+    const m = /^\s*(\d+)\s*-/.exec(String(r.import_style_number ?? ""));
+    if (m) st.codes.set(Number(m[1]), (st.codes.get(Number(m[1])) ?? 0) + 1);
+    else st.unnumbered += 1;
+    stats.set(r.category_id, st);
+  }
+  const pad = (n) => String(n).padStart(2, "0");
+  const moves = [];
+  const review = [];
+  let ok = 0;
+  for (const c of categories) {
+    if (!c.parent_id) continue;
+    const st = stats.get(c.id);
+    if (!st) continue;
+    const parent = byId.get(c.parent_id) ?? null;
+    const base = { id: c.id, name: c.name, parent: parent ? { id: parent.id, name: parent.name } : null, items: st.items };
+    if (st.codes.size === 0) {
+      review.push({ ...base, why: "none of its items has a sheet style number to go by" });
+      continue;
+    }
+    if (st.codes.size > 1) {
+      const split = [...st.codes.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([code, n]) => `${n} item${n === 1 ? " points" : "s point"} at ${topByNumber.get(code)?.name ?? `no category (number ${pad(code)})`}`);
+      review.push({ ...base, why: `its items disagree: ${split.join(", ")}` });
+      continue;
+    }
+    const [[code]] = [...st.codes.entries()];
+    const top = topByNumber.get(code);
+    if (!top) {
+      review.push({ ...base, why: `its items' sheet style numbers start with ${pad(code)}, and no top-level category has that number` });
+      continue;
+    }
+    if (c.parent_id === top.id) {
+      ok += 1;
+      continue;
+    }
+    const merges = categories.some((x) => x.id !== c.id && x.parent_id === top.id && x.name.toLowerCase() === c.name.toLowerCase());
+    moves.push({ ...base, target: { id: top.id, name: top.name }, code: pad(code), merges });
+  }
+  return { moves, review, ok };
+}
+
 /* How many products currently sit in each category — the Admin panel's own
    remove button needs this to hide itself the same "not reachable, don't
    show it" way it already does for a category that still has subcategories

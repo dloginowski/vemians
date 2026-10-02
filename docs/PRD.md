@@ -9606,6 +9606,25 @@ that does not trace to one of these is a process failure (see §12).
     picking one is the whole action, sent at once to `/admin/categories/move`, with a refusal shown as the
     error message and, for a merge, one confirmation first ("Coats already exists under Knitwear. Merge them?").
 
+146. **`Test-PRD-P0-214-placement_from_style_numbers`** — "You should be looking at the style, right? We already have the
+    spreadsheets with all of the style IDs, so you should be able to figure out that I really can only have this
+    subcategory under a certain top-level category." — the owner's own words, after moves and merges were built
+    but still left every decision to a person. Every product an upload made keeps its sheet's style number
+    permanently (`import_style_number`, e.g. 001-004-002); that number's first group is the top-level category
+    the sheet put it under. `subcategoryPlacement` (`catalog-writer.js`, read-only) works out, for each
+    subcategory that holds such products, where it belongs by the catalog's own category numbers: when every
+    sheet number points at one top-level category that is not its current parent, it proposes a MOVE (flagged a
+    merge when that category already has a subcategory of the same name); when they all agree with where it
+    already is, it counts it as fine; when they point at different categories ("its items disagree: 4 items
+    point at Tops, 3 items point at Dresses"), at a number no top-level category has, or no product has a
+    sheet number at all, it lists it for a person and moves nothing on a guess. A subcategory with no products
+    is left out. Admin's Categories header gets a "Check placement" button (shown once any subcategory exists)
+    that asks `/admin/categories/placement` and shows a compact panel: the proposed moves, the ones it cannot
+    decide, and how many are already right. "Move N subcategories" applies the proposals one at a time through
+    the same `catalog.move_category` route the arrow button uses (so a merge works in batches and every
+    refusal still applies), after one confirmation that says how many will merge; a refused move stops the
+    run, names the subcategory and says the earlier ones were moved.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

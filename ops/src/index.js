@@ -38,6 +38,7 @@ import { scanReceipt } from "./tools/receipt-ocr.js";
 import {
   listAllProducts,
   listCategories,
+  subcategoryPlacement,
   listCustomFieldNames,
   listItemOptions,
   listMirrorVendors,
@@ -1216,6 +1217,12 @@ async function ops(request, env, path) {
       toolName = "catalog.move_category";
       args = { category_id: categoryId, parent_id: parentId };
       summaryNoun = "category move";
+    } else if (suffix === "/categories/placement") {
+      /* Read-only: where each subcategory belongs by its items' sheet style
+         numbers (catalog-writer.js's own subcategoryPlacement). Nothing is
+         written; the page then applies the proposed moves one at a time
+         through /categories/move. */
+      return json(await subcategoryPlacement(env.CATALOG_MIRROR));
     } else if (suffix === "/categories/remove") {
       /* "I should not be able to delete a category until it has no more
          subcategories." The button itself is disabled server-side
