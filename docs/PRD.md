@@ -9781,6 +9781,8 @@ that does not trace to one of these is a process failure (see §12).
     not have (or whose parent has no number yet) is listed with that reason instead of being skipped; and when the
     fix leaves anything alone, the page no longer reloads after 1.5 seconds — which had wiped the explanation off the
     screen before it could be read — it stays, with a "Reload the page" button.
+    And "nothing is at zero... no sheet uses 0": a subcategory with no items in it and no number, or an automatic 00,
+    is named in the panel (with the suggestion to remove it if it is a leftover duplicate) instead of being passed over.
 
 ## 4. P1 features
 
