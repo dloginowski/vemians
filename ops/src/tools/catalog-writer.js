@@ -811,6 +811,9 @@ export function mergeVariations(current, patch) {
          to be silently dropped on the UPDATE side of a merge; only a
          brand-new added entry ever carried option_values through at all. */
       option_values: p.option_values ?? cur.option_values,
+      /* This call deliberately sets this variation's options, so Square's
+         current values must not override them (updateProduct). */
+      option_values_patched: Boolean(p.option_values),
     });
   }
   return { variations: [...order.map((id) => byId.get(id)), ...added] };
@@ -1817,9 +1820,20 @@ export function createSquareCatalogWriter(env, opts = {}) {
       const declaredOptionNames = await optionNamesFor(resolvedItemOptionExternalRefs);
       for (const v of keep) {
         const byOptionRef = new Map();
+        /* An existing variation carries what SQUARE says it carries. The
+           mirror's copy of its options can be empty or stale (it once read
+           "OS, N/A" for a variation that really was "S, Black and White"),
+           and resending that guess made two real variations identical. Only a
+           variation whose options this very call sets is taken from the call. */
+        if (v.id && v.external_ref && !v.option_values_patched) {
+          for (const ref of resolvedItemOptionExternalRefs) {
+            const live = await liveOptionValue(row.external_ref, v.external_ref, ref);
+            if (live) byOptionRef.set(ref, live);
+          }
+        }
         for (const [optionName, valueName] of Object.entries(v.option_values ?? {})) {
           const { itemOptionRef, itemOptionValueRef } = await ensureItemOptionValue(optionName, valueName, resolvedItemOptionExternalRefs);
-          byOptionRef.set(itemOptionRef, { item_option_id: itemOptionRef, item_option_value_id: itemOptionValueRef });
+          if (!byOptionRef.has(itemOptionRef)) byOptionRef.set(itemOptionRef, { item_option_id: itemOptionRef, item_option_value_id: itemOptionValueRef });
         }
         /* A variation missing one of the item's declared options takes that
            option's neutral value, or Square refuses the whole item. */
