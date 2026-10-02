@@ -12205,3 +12205,24 @@ check("test_PRD_P0_222_sheet_truth__an_item_goes_where_its_own_sheet_row_says_ev
   assert.deepEqual(none.moves, []);
   assert.ok(none.review.some((r) => /no top-level category is called "Spaceships"/.test(r.why)), JSON.stringify(none.review));
 });
+
+check("test_PRD_P0_222_sheet_truth__a_subcategory_the_sheets_name_may_be_made_beside_a_similar_sibling_but_only_by_the_trusted_route", async () => {
+  /* The placement check stopped at "Casual Tops": the near-duplicate guard
+     refused it beside "Tops". */
+  const { sheetNamesSubcategory } = await import("../src/batch.js");
+  const items = [{ base: "002-008-001", category: "Tops", subcategory: "Casual Tops" }];
+  assert.equal(sheetNamesSubcategory(items, "Tops", "Casual Tops"), true);
+  assert.equal(sheetNamesSubcategory(items, "tops", "casual top"), true, "case and plural folded");
+  assert.equal(sheetNamesSubcategory(items, "Dresses", "Casual Tops"), false, "under another category it is not named");
+  assert.equal(sheetNamesSubcategory(items, "Tops", "Capes"), false);
+  assert.equal(sheetNamesSubcategory(null, "Tops", "Casual Tops"), false);
+
+  const { f } = await tweakedDresses();
+  const dresses = f.categories().find((c) => c.name === "Dresses");
+  const near = await runTool("catalog.create_category", { name: "Casual Shirt Dress", parent_id: dresses.id, numeric_id: "09", reason: "test" }, f.ctx);
+  assert.equal(near.ok, false, "the agent-facing guard still refuses a near duplicate");
+  assert.match(near.error ?? "", /overlaps the existing/);
+  const trusted = await approvedCall(f, "catalog.create_category", { name: "Casual Shirt Dress", parent_id: dresses.id, numeric_id: "09", reason: "test" }, { ...f.ctx, allowNearDuplicate: true });
+  assert.equal(trusted.ok, true, trusted.error);
+  assert.ok(f.categories().some((c) => c.name === "Casual Shirt Dresses" && c.parent_id === dresses.id && c.numeric_id === "09"), "made, numbered as asked");
+});

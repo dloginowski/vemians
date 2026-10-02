@@ -657,6 +657,15 @@ export async function sheetKnowledge(db) {
   return { numbers, items };
 }
 
+/* True when the sheets' own rows name this subcategory under this category
+   (case, plural folded) -- the only thing that lets the placement check make a
+   subcategory the near-duplicate guard would otherwise refuse ("Casual Tops"
+   beside "Tops"). `items` is sheetKnowledge's. */
+export function sheetNamesSubcategory(items, categoryName, subcategoryName) {
+  const fold = (t) => singularCategoryWord(String(t).trim().toLowerCase());
+  return (items ?? []).some((i) => fold(i.category) === fold(categoryName) && fold(i.subcategory) === fold(subcategoryName));
+}
+
 /* Enough English to fold a category name onto its own plural, and no more —
    the identical rule catalog-write.js's own suggestCategory() already uses
    for the same reason (kept as its own small copy here rather than an

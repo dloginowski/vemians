@@ -9816,6 +9816,11 @@ that does not trace to one of these is a process failure (see §12).
     name under it, made when missing and numbered after the others (a later renumbering pass gives it the sheet's own
     number if the sheets name one). Items whose number no row carries still fall back to the number rules above, which
     never create anything.
+    **Making what the sheets name.** The run stopped at its first new subcategory: `catalog.create_category` refuses a
+    name that overlaps a sibling ("Casual Tops" beside "Tops", "T-shirts" beside "Shirts"), a guard meant for agents. The
+    sheets name these on purpose (Tops 02-05, Knitted Tops 02-07, Casual Tops 02-08), so the Admin refile route makes a
+    subcategory only when the stored sheets themselves name it under that category (`sheetNamesSubcategory`), and then
+    runs the tool with a server-side `allowNearDuplicate` context flag. It is not an argument, so no agent can set it.
     A stray ")" shipped in the Check placement code once broke the whole Admin script (no subcategory expanded, no
     button worked) while every pattern test still passed; the Admin page's inline scripts are now parsed by a test.
 
