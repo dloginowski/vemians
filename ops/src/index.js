@@ -79,6 +79,7 @@ import {
 } from "./views.js";
 import { draftCustomerBatch, draftProductBatch, parsePriceToMinor, exportProductsCsv } from "./batch.js";
 import { inventoryAgentGuide } from "./agent-guide.js";
+import { ledgerSheetNumbers } from "./ingest.js";
 
 const html = (body, status = 200) =>
   new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8" } });
@@ -1248,7 +1249,7 @@ async function ops(request, env, path) {
          numbers (catalog-writer.js's own subcategoryPlacement). Nothing is
          written; the page then applies the proposed moves one at a time
          through /categories/move. */
-      return json({ ...(await subcategoryPlacement(env.CATALOG_MIRROR)), renumbering: await subcategoryRenumbering(env.CATALOG_MIRROR) });
+      return json({ ...(await subcategoryPlacement(env.CATALOG_MIRROR)), renumbering: await subcategoryRenumbering(env.CATALOG_MIRROR, { ledger: await ledgerSheetNumbers(env.ASSETS) }) });
     } else if (suffix === "/categories/remove") {
       /* "I should not be able to delete a category until it has no more
          subcategories." The button itself is disabled server-side

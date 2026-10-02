@@ -9766,6 +9766,12 @@ that does not trace to one of these is a process failure (see §12).
     reloads. Because only items that remember their sheet number can be read, a sheet row that matches an item with no
     stored number (made by hand, or by an upload older than the field) now writes the row's number onto it — only ever
     filling a blank — so the ledger fills in as sheets are sent, and a resend teaches the next fix.
+    **Shirts left at 00.** A subcategory made without a sheet number is given the first free number (00), and its
+    items, made before the sheet number was kept on them, had none to read. The upload ledger (`ingest_row`) recorded
+    what every applied sheet row said (the sheet's number, and the category and subcategory it landed in by name), so
+    `subcategoryRenumbering` falls back to it (`ledgerSheetNumbers`, `ingest.js`) by parent and subcategory name
+    (case and plural folded) when a subcategory's items remember nothing. And a subcategory with items but no source
+    of numbers at all is no longer skipped in silence: the Check placement panel lists it, saying why.
 
 ## 4. P1 features
 

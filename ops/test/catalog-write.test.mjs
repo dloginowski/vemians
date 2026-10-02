@@ -11915,3 +11915,51 @@ check("test_PRD_P0_221_numbers_from_the_ledger__a_matched_item_with_no_sheet_num
     globalThis.fetch = realFetch;
   }
 });
+
+check("test_PRD_P0_221_numbers_from_the_ledger__a_subcategory_whose_items_stored_no_sheet_number_is_numbered_from_the_upload_ledger", async () => {
+  /* "Why didn't shirts get sorted to index one? They're at zero." Its items made
+     before the sheet number was kept on them have none, but the upload ledger
+     recorded what every sheet row said. */
+  const csv =
+    "title,category,subcategory,price,style id\n" +
+    "Poplin shirt,Tops,Shirts,60.00,002-001-001\n" +
+    "Linen shirt,Tops,Shirts,70.00,002-001-002\n" +
+    "Silk blouse,Tops,Blouses,80.00,002-002-001\n";
+  const { f, assets, env, identity, plan } = await ledgerFixture(csv);
+  const { subcategoryRenumbering } = await import("../src/tools/catalog-writer.js");
+  const { ledgerSheetNumbers } = await import("../src/ingest.js");
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const outcome = await plan();
+    assert.equal(outcome.kind, "checklist", JSON.stringify(outcome));
+    for (const r of outcome.checklist.rows) {
+      const done = await submitRow({ id: outcome.checklist.id, row: r.row, identity, env });
+      assert.equal(done.status, "created", JSON.stringify(done));
+    }
+    const sub = (name) => f.categories().find((c) => c.name === name);
+    assert.equal(sub("Shirts").numeric_id, "01", "created with the sheet's own number");
+
+    /* Make them look like items from before the sheet number was kept, and give
+       Shirts the auto-assigned 00 the owner saw. */
+    f.mirrorDb._raw.prepare("UPDATE mirror_product SET import_style_number = NULL").run();
+    await approvedCall(f, "catalog.set_category_number", { category_id: sub("Shirts").id, numeric_id: "00" });
+    assert.equal(sub("Shirts").numeric_id, "00");
+
+    const withoutLedger = await subcategoryRenumbering(f.env.CATALOG_MIRROR);
+    assert.deepEqual(withoutLedger.steps, [], "with no stored numbers and no ledger there is nothing to go on");
+    assert.ok(withoutLedger.review.some((r) => r.name === "Shirts" && /remembers a sheet style number/.test(r.why)), "and it says so instead of staying silently at 00");
+
+    const ledger = await ledgerSheetNumbers(assets);
+    assert.ok(ledger.length >= 3, `the ledger holds what the sheets said: ${JSON.stringify(ledger)}`);
+    const plan2 = await subcategoryRenumbering(f.env.CATALOG_MIRROR, { ledger });
+    const step = plan2.steps.find((s) => s.name === "Shirts");
+    assert.ok(step, JSON.stringify(plan2));
+    assert.equal(step.to, "01", "index one, as the sheet says");
+    const r = await approvedCall(f, "catalog.set_category_number", { category_id: step.id, numeric_id: step.to });
+    assert.equal(r.ok, true, r.error);
+    assert.equal(sub("Shirts").numeric_id, "01");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
