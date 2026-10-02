@@ -1448,7 +1448,14 @@ function attachmentNote(attachment, role) {
     return (
       `\n\n[Attached spreadsheet, filename "${attachment.filename}", stored as asset id "${attachment.id}". ` +
       "Do not read its rows out of raw text yourself. First figure out which of three things this is, asking " +
-      "the person outright if it is not already obvious from what they said: (1) a list of NEW products to " +
+      "the person outright if it is not already obvious from what they said. WHEN YOU ASK, ask it as one short " +
+      "lead-in line followed by tappable buttons, never as a typed question the person has to answer by typing: " +
+      "end your reply with exactly these lines, one per line, \"CHOICE: Add new products\" and \"CHOICE: Update " +
+      "existing products\" (and \"CHOICE: Customers\" only when the file could be a customer list) — the " +
+      "owner's own words: \"It used to be like buttons, but now you're having me type it in again.\" A file " +
+      "with the columns of the inventory export (style id, title, category, subcategory, price, cost, " +
+      "quantity, vendor, color, size) almost certainly updates items the shop already sells, but still offer the " +
+      "buttons rather than deciding silently. The three things: (1) a list of NEW products to " +
       "add — call catalog_preview_add_product_batch, then catalog_add_product_batch once they confirm the " +
       "mapping; (2) updated numbers (price, cost, etc.) for products this shop ALREADY sells — call catalog_" +
       "preview_update_product_batch, then catalog_update_product_batch, which matches each row to an existing " +

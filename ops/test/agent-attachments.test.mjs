@@ -460,3 +460,21 @@ test("test_PRD_P0_30_prd_traceability__every_label_used_here_exists_in_the_prd",
     assert.ok(prd.includes(label), `${label} is used here but is not a PRD feature`);
   }
 });
+
+test("test_PRD_P0_182_explicit_add_or_update_mode__a_spreadsheet_makes_the_assistant_ask_add_or_update_with_buttons_not_typed_text", () => {
+  /* "It used to be like buttons, but now you're having me type it in again." The
+     question depends on the model following a format, so the attachment note
+     names that format outright instead of leaving it to the general rule. */
+  const content = buildUserContent("here you go", {
+    kind: "document",
+    id: "a1",
+    filename: "inventory.csv",
+    extractedText: "title,price\nCoat,10\n",
+  }, "manager");
+  const text = typeof content === "string" ? content : content[0].text;
+  assert.match(text, /CHOICE: Add new products/);
+  assert.match(text, /CHOICE: Update existing products/);
+  assert.match(text, /never as a typed question/);
+  const staff = buildUserContent("here you go", { kind: "document", id: "a1", filename: "inventory.csv", extractedText: "title,price\n" }, "staff");
+  assert.doesNotMatch(typeof staff === "string" ? staff : staff[0].text, /CHOICE: Add new products/, "a role that cannot draft batches is not offered the choice");
+});
