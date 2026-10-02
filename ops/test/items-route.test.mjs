@@ -3691,7 +3691,7 @@ check("test_PRD_P0_138_nested_categories__admin_save_all_submits_every_dirty_for
   const mirror = mirrorDb();
   const body = await (await get("/admin", MANAGER, env(mirror))).text();
   assert.match(body, /const dirtyForms = \[\.\.\.document\.querySelectorAll\("form\[data-dirty='1'\]"\)\];/);
-  assert.match(body, /if \(allOk\) location\.reload\(\);/);
+  assert.match(body, /if \(allOk\) reloadKeepingOpen\(\);/);
 });
 
 check("test_PRD_P0_136_square_custom_attributes__admin_vendors_section_is_an_expanding_header_matching_categories", async () => {
