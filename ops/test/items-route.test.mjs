@@ -4380,3 +4380,20 @@ check("test_PRD_P0_220_agent_skill_endpoint__a_signed_in_person_gets_the_invento
     assert.equal(closed.status, 401, `${path} still refuses a request with no Access assertion`);
   }
 });
+
+check("test_PRD_P0_189_inventory_csv_export__the_admin_panel_ends_with_an_inventory_csv_download_link", async () => {
+  /* "Just put it as a link in the admin panel, on the bottom, like an inventory
+     CSV, because only admins should see it anyway." */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  assert.match(body, /<a href="\/products\/export\.csv" download="vemians-inventory\.csv">Inventory CSV<\/a>/, "the link is on the page");
+  assert.ok(body.indexOf("Inventory CSV") > body.indexOf("Custom Fields"), "at the bottom, after the last section");
+  assert.match(body, /\.admin-export a \{/, "and styled");
+  /* Admin needs the manager role, the same role the export itself needs. */
+  const staff = await get("/admin", STAFF, env(mirror));
+  assert.equal(staff.status, 403);
+  assert.doesNotMatch(await staff.text(), /Inventory CSV/);
+  const file = await get("/products/export.csv", MANAGER, env(mirror));
+  assert.equal(file.status, 200, "and the link works for the person who sees it");
+});

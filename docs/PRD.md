@@ -9159,6 +9159,11 @@ that does not trace to one of these is a process failure (see §12).
     survive a colour with spaces or dashes in it. And the "every size reads 0 units" guard now only fires when
     the zeros would do something — zero out stock that is really on hand, or add a size at zero — so a sold-out
     product re-sent at 0 is not a data problem.
+
+    **A link at the bottom of Admin** — "Present a download link for the CSV file... just put it as a link in the
+    admin panel, on the bottom, like an inventory CSV, because only admins should see it anyway." The Admin page ends
+    with an "Inventory CSV" link to `/products/export.csv`. Admin itself needs the manager role, the same role the
+    export needs, so nobody is shown a link they would be refused (a test pins both).
 122. **`Test-PRD-P0-190-quantity_reconciliation_on_resubmit`** — "If there are discrepancies, I should
     upload the same file again, and you should be able to match all of the existing items, and the items
     that do not match with the spreadsheet should be updated... you should just be updating the number of
