@@ -4440,3 +4440,18 @@ check("test_PRD_P0_222_sheet_truth__the_placement_answer_carries_the_item_refili
   assert.ok(moves > 0 && items > moves && numbers > items, "subcategory moves, then items, then renumbering");
   assert.match(script, /refiled, " \+ plan\.steps\.length \+ " renumbered/, "the summary counts the refiled items");
 });
+
+check("test_PRD_P0_222_sheet_truth__the_admin_pages_inline_script_is_valid_javascript_so_the_tree_still_expands", async () => {
+  /* A stray ")" in the Check placement code broke the whole script, so no
+     subcategory expanded and no button did anything, while every pattern test on
+     the script text still passed. The script is parsed, not just searched. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  const scripts = [...body.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+  assert.ok(scripts.length >= 1, "the page carries its script");
+  for (const script of scripts) {
+    assert.doesNotThrow(() => new Function(script), "every inline script on the Admin page must parse");
+  }
+});

@@ -9807,6 +9807,8 @@ that does not trace to one of these is a process failure (see §12).
     subcategory moves, then item refiling, then renumbering, each re-read from the state the one before left, and lists
     whatever it still cannot decide. Subcategories left empty are not deleted for the owner (the existing remove button
     does that).
+    A stray ")" shipped in the Check placement code once broke the whole Admin script (no subcategory expanded, no
+    button worked) while every pattern test still passed; the Admin page's inline scripts are now parsed by a test.
 
 ## 4. P1 features
 
