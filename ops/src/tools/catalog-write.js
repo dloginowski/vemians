@@ -1627,13 +1627,14 @@ export const catalogWriteTools = {
     resources: ["square"],
     minRole: "manager",
     describe:
-      "Move a SUBCATEGORY under a different category (or deeper under another subcategory). Keeps its name " +
+      "Move a SUBCATEGORY under a different TOP-LEVEL category -- never under another subcategory (this shop " +
+      "does not nest subcategories). Keeps its name " +
       "and its own number; every product in it, and in anything nested under it, stays where it is, and each " +
       "one's style_id PREFIX is corrected for the new top-level category (a real Square write per product " +
       "whose prefix changes; each keeps its own sequence number). A real Square write for the category " +
       "itself (category_data.parent_category). Refuses a top-level category (top-level and subcategory " +
-      "numbers are separate pools), moving a category under itself or one of its own descendants, a move " +
-      "to the parent it already has, and a destination that already holds a sibling of the same name.",
+      "numbers are separate pools), a destination that is itself a subcategory, a move to the parent it " +
+      "already has, and a destination that already holds a sibling of the same name.",
     undo: "another catalog.move_category call, back to the previous parent",
     schema: {
       category_id: { type: "string", required: true, format: "id" },
@@ -1654,7 +1655,28 @@ export const catalogWriteTools = {
         return { denied: `"${category.name}" is already under "${parent.name}"` };
       }
 
-      /* Never under itself or anything nested beneath it. */
+      /* "We do not want to have nested subcategories. You should only be
+         pointing me to parent top-level categories. Do not parent under
+         subcategories ever." -- the owner's own words. A destination that
+         is itself a subcategory is refused here, whatever page or caller
+         asked, so the tree never gets deeper than two levels through a move
+         (and a category can never end up under itself or its own
+         descendants, which only ever sit below a subcategory). */
+      if (parent.parent_id) {
+        return {
+          denied: `"${parent.name}" is itself a subcategory. A subcategory can only go under a top-level category, never under another subcategory.`,
+        };
+      }
+
+      const clash = categories.find(
+        (c) => c.id !== category.id && c.parent_id === parent.id && c.name.toLowerCase() === category.name.toLowerCase(),
+      );
+      if (clash) {
+        return { denied: `"${parent.name}" already has a subcategory named "${clash.name}". Rename one of them first.` };
+      }
+
+      /* Products in it and in anything already nested under it (an older
+         tree may still have some) all keep their category. */
       const subtree = new Set([category.id]);
       let grew = true;
       while (grew) {
@@ -1666,17 +1688,6 @@ export const catalogWriteTools = {
           }
         }
       }
-      if (subtree.has(parent.id)) {
-        return { denied: `"${parent.name}" is "${category.name}" itself or sits inside it, so it cannot be its new parent.` };
-      }
-
-      const clash = categories.find(
-        (c) => c.id !== category.id && c.parent_id === parent.id && c.name.toLowerCase() === category.name.toLowerCase(),
-      );
-      if (clash) {
-        return { denied: `"${parent.name}" already has a subcategory named "${clash.name}". Rename one of them first.` };
-      }
-
       const placeholders = [...subtree].map(() => "?").join(", ");
       const inside = await t.db.catalog_mirror
         .prepare(`SELECT COUNT(*) AS n FROM mirror_product_index WHERE category_id IN (${placeholders})`)
