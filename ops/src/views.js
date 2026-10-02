@@ -6337,9 +6337,24 @@ async function showPlacement(btn) {
       status.textContent = "Renumbering " + (i + 1) + " of " + plan.steps.length + ": " + plan.steps[i].name + " → " + plan.steps[i].to + "…";
       await setCategoryNumber(plan.steps[i].id, plan.steps[i].to);
     }
-    status.textContent = "Done: " + data.moves.length + " moved, " + plan.steps.length + " renumbered. Reloading…";
+    const leftOver = after.review.length + plan.review.length;
+    status.textContent = "Done: " + data.moves.length + " moved, " + plan.steps.length + " renumbered." + (leftOver ? "" : " Reloading…");
     showReview(after.review, "These can't be decided from the sheet numbers, so they were left alone:");
     showReview(plan.review, "These numbers can't be decided from the sheets, so they were left alone:");
+    /* Never reload away an explanation: when anything was left alone, the list
+       stays on screen until the person reloads it themselves. */
+    if (leftOver) {
+      const actions = document.createElement("div");
+      actions.className = "admin-placement-actions";
+      const reload = document.createElement("button");
+      reload.type = "button";
+      reload.textContent = "Reload the page";
+      reload.addEventListener("click", () => location.reload());
+      actions.appendChild(reload);
+      panel.appendChild(actions);
+      btn.disabled = false;
+      return;
+    }
   } catch (err) {
     const bad = document.createElement("p");
     bad.className = "item-edit-error";
