@@ -3507,6 +3507,9 @@ check("test_PRD_P0_212_admin_save_looks_at_all_changes__renames_are_checked_and_
   assert.match(script, /planFieldSteps\(changes, \(v\) => String\(v\)\.trim\(\)\.toLowerCase\(\), makeTemp\)/, "names are planned case-insensitively, one sibling group at a time");
   assert.match(script, /makeTemp = \(\) => "tmp-"/, "a swap goes through a temporary name");
   assert.match(script, /would both be named/, "a clash among the NEW names is reported on the page before anything is sent");
+  assert.match(script, /Rename one of them\./, "and says which two categories it means");
+  assert.match(script, /\.filter\(\(i\) => i !== input\)/, "a clash is only ever a CHANGED name meeting another row, never two rows that already shared a name");
+  assert.match(script, /classList\.add\("name-clash"\)/, "both rows are marked");
   assert.match(script, /setTimeout\(\(\) => showFormError\(clash\.anchor/, "and shown after the page's own click-dismiss handler has run");
   assert.match(script, /would share the number/, "two categories about to share a number are refused before any request");
   assert.doesNotMatch(script.slice(script.indexOf("async function saveAll")), /for \(const form of dirtyForms\) \{\s*if \(!\(await submitEditForm\(form\)\)\) allOk = false;/, "no longer one request per dirty form in page order");

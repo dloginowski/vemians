@@ -9573,7 +9573,10 @@ that does not trace to one of these is a process failure (see §12).
     temporary name to break the cycle, put back on failure; (3) category numbers get the same planning per
     pool (one for the top level, one for every subcategory), with a temporary number picked from the free
     ones, and two rows about to share a number are refused before any request. The server's rule is
-    unchanged: it still refuses a duplicate against what is saved at that moment.
+    unchanged: it still refuses a duplicate against what is saved at that moment. A clash is only ever one of the
+    person's own CHANGED names meeting another row at the same level; two rows that already shared a name
+    before the Save never block a rename elsewhere in the group, and the message names both categories
+    ("Outerwear (now Knitwear) and Knitwear") and marks both rows.
 
 ## 4. P1 features
 

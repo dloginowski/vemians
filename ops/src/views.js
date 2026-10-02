@@ -5595,6 +5595,7 @@ ${OPS_DARK_CSS}
    beats .field-dirty's own (0,1,1), so a dirty AND invalid field reads
    red, never orange. */
 .admin-category-numeric-id:invalid { border-color: var(--invalid); }
+.admin-category-name.name-clash { border-color: var(--invalid); }
 .admin-remove-btn, .admin-category-add-toggle {
   flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; padding: 0; font-size: 13px; line-height: 1;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--muted); cursor: pointer;
@@ -5983,20 +5984,24 @@ function changeOfForm(form, inputSelector) {
   return { form, input, saved: input.defaultValue.trim(), final: input.value.trim() };
 }
 function nameClashMessage(forms) {
-  /* Final names, whole sibling group at a time: a clash among the new values
-     is the person's own, and is shown before anything is sent. */
-  const groups = new Set(forms.map((f) => f.closest(".admin-category-node")?.parentElement).filter(Boolean));
-  for (const parent of groups) {
-    const inputs = [...parent.querySelectorAll(":scope > .admin-category-node > .admin-category-row .admin-category-name")];
-    const seen = new Map();
-    for (const input of inputs) {
-      const name = input.value.trim();
-      if (!name) return { anchor: input.closest("form"), message: "Give this category a name." };
-      const key = name.toLowerCase();
-      if (seen.has(key)) {
-        return { anchor: input.closest("form"), message: "Two categories at this level would both be named " + name + " after your changes." };
-      }
-      seen.set(key, input);
+  /* A clash is only ever the person's own: a CHANGED name that would equal
+     another row's name at the same level (changed or not). Two rows that
+     already shared a name before this Save are left alone -- they must
+     never block a rename elsewhere in the group. */
+  const label = (input) => (input.value.trim() === input.defaultValue.trim() ? input.defaultValue.trim() : input.defaultValue.trim() + " (now " + input.value.trim() + ")");
+  for (const form of forms) {
+    const input = form.querySelector(".admin-category-name");
+    const name = input.value.trim();
+    if (!name) return { anchor: form, inputs: [input], message: "Give this category a name." };
+    const node = form.closest(".admin-category-node");
+    const others = [...node.parentElement.querySelectorAll(":scope > .admin-category-node > .admin-category-row .admin-category-name")].filter((i) => i !== input);
+    const other = others.find((i) => i.value.trim().toLowerCase() === name.toLowerCase());
+    if (other) {
+      return {
+        anchor: form,
+        inputs: [input, other],
+        message: "Two categories at this level would both be named " + name + ": " + label(input) + " and " + label(other) + ". Rename one of them.",
+      };
     }
   }
   return null;
@@ -6038,6 +6043,10 @@ async function saveAll() {
   if (clash) {
     /* One tick later: the page's own click-anywhere-dismisses-errors handler
        runs after this one for the very same click and would remove it. */
+    clash.inputs.forEach((i) => {
+      i.classList.add("name-clash");
+      i.addEventListener("input", () => i.classList.remove("name-clash"), { once: true });
+    });
     setTimeout(() => showFormError(clash.anchor, clash.message), 0);
     return;
   }
