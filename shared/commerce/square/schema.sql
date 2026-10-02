@@ -64,17 +64,20 @@
 -- numeric_id is OURS, not Square's — a 2-digit "00".."99" code this shop
 -- assigns, later embedded in a product's own style_id (NN-NN-NNN: the first
 -- NN is a top-level category's own numeric_id, the second is a
--- SUBCATEGORY's). The owner's own words: "there's only up to 100
--- categories... zero to 99... it doesn't matter how deep the levels are...
--- once an ID is used by any subcategory, it stops being available" — ONE
--- shared 00-99 pool across every subcategory in the WHOLE tree regardless
--- of nesting depth or parent (the two partial unique indexes below), kept
--- SEPARATE from top-level categories' own 00-99 pool, so the style_id
--- format itself never has to change to accommodate nesting. A subcategory
--- NAME may repeat elsewhere in the tree (the owner's own words: "a
--- subcategory name can be used more than once, the ID cannot") — what
--- disambiguates two same-named subcategories is their own parent chain
--- (path_to_root), not the name; the UI shows only a node's own leaf name.
+-- SUBCATEGORY's). A top-level category's number is unique among the other
+-- top-level categories (00-99). A SUBCATEGORY's number is unique among its
+-- own SIBLINGS only (the subcategories under the same parent), so every
+-- top-level category can number its own subcategories 00-99 -- exactly how
+-- the spreadsheets do (001-004 and 003-004 are both real), and the owner's
+-- own words: "subcategory IDs need to match the style IDs. They need to be
+-- exactly the same." (This replaces the earlier rule, "once an ID is used by
+-- any subcategory it stops being available", one 00-99 pool across the
+-- WHOLE tree: no tree-wide number could ever equal a per-category sheet
+-- number.) A style_id stays unique because it also carries the top-level
+-- category's number. A subcategory NAME may repeat elsewhere in the tree —
+-- what disambiguates two same-named subcategories is their own parent
+-- chain (path_to_root), not the name; the UI shows only a node's own leaf
+-- name.
 CREATE TABLE mirror_category (
   id                   TEXT PRIMARY KEY,              -- ours
   external_ref         TEXT NOT NULL UNIQUE,          -- Square CATEGORY id
@@ -85,16 +88,14 @@ CREATE TABLE mirror_category (
   synced_at            TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Two SEPARATE pools, not one: a top-level category's own numeric_id must
--- be unique only among OTHER top-level categories, and a subcategory's
--- must be unique among EVERY subcategory regardless of depth or parent —
--- never against a top-level category's own numbers, which the style_id's
--- own first-segment/second-segment split keeps structurally apart anyway.
+-- Two SEPARATE scopes: a top-level category's own numeric_id must be unique
+-- only among OTHER top-level categories, and a subcategory's only among the
+-- subcategories under the SAME parent.
 CREATE UNIQUE INDEX idx_mirror_category_toplevel_numeric_id
   ON mirror_category (numeric_id)
   WHERE parent_id IS NULL AND numeric_id IS NOT NULL AND archived_at IS NULL;
 CREATE UNIQUE INDEX idx_mirror_category_sub_numeric_id
-  ON mirror_category (numeric_id)
+  ON mirror_category (parent_id, numeric_id)
   WHERE parent_id IS NOT NULL AND numeric_id IS NOT NULL AND archived_at IS NULL;
 
 CREATE VIEW mirror_category_index AS

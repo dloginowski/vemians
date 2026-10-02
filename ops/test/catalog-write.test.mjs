@@ -2246,37 +2246,31 @@ check("test_PRD_P0_138_nested_categories__two_top_level_categories_cannot_share_
   assert.match(conflict.error, /every top-level category shares one pool/);
 });
 
-check("test_PRD_P0_138_nested_categories__two_subcategories_under_different_parents_cannot_share_a_numeric_id", async () => {
-  /* The owner's own words: "once an ID is used by any subcategory, it
-     stops being available" — regardless of nesting depth or parent, ONE
-     shared pool for every subcategory in the whole tree. */
+check("test_PRD_P0_138_nested_categories__two_subcategories_under_different_parents_may_share_a_numeric_id_but_siblings_may_not", async () => {
+  /* The owner's own words: "subcategory IDs need to match the style IDs.
+     They need to be exactly the same." The sheets restart the middle
+     number under every first number (01-04 and 03-04 both exist), so a
+     subcategory's number is unique among its SIBLINGS only. */
   const f = await fixture();
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   const knitwear = f.categories().find((c) => c.name === "Knitwear");
-  const casualCoats = await approvedCall(f, "catalog.create_category", {
-    name: "Casual",
-    parent_id: outerwear.id,
-    reason: "test",
-  });
-  const casualKnits = await approvedCall(f, "catalog.create_category", {
-    name: "Casual",
-    parent_id: knitwear.id,
-    reason: "test",
-  });
+  const casualCoats = await approvedCall(f, "catalog.create_category", { name: "Casual", parent_id: outerwear.id, reason: "test" });
+  const casualKnits = await approvedCall(f, "catalog.create_category", { name: "Casual", parent_id: knitwear.id, reason: "test" });
+  const dressyCoats = await approvedCall(f, "catalog.create_category", { name: "Dressy", parent_id: outerwear.id, reason: "test" });
 
-  const first = await approvedCall(f, "catalog.set_category_number", {
-    category_id: casualCoats.data.category.id,
-    numeric_id: "05",
-  });
+  const first = await approvedCall(f, "catalog.set_category_number", { category_id: casualCoats.data.category.id, numeric_id: "05" });
   assert.equal(first.ok, true, first.error);
 
-  const conflict = await runTool(
-    "catalog.set_category_number",
-    { category_id: casualKnits.data.category.id, numeric_id: "05" },
-    f.ctx,
-  );
-  assert.equal(conflict.ok, false);
-  assert.match(conflict.error, /every subcategory in the whole tree/);
+  const otherParent = await approvedCall(f, "catalog.set_category_number", { category_id: casualKnits.data.category.id, numeric_id: "05" });
+  assert.equal(otherParent.ok, true, "the same middle number under a different parent is exactly what the sheets do: " + otherParent.error);
+
+  const sibling = await runTool("catalog.set_category_number", { category_id: dressyCoats.data.category.id, numeric_id: "05" }, f.ctx);
+  assert.equal(sibling.ok, false);
+  assert.match(sibling.error, /already assigned to "Casuals"/);
+  assert.match(sibling.error, /every subcategory under "Outerwear" numbers from its own/);
+
+  const created = await runTool("catalog.create_category", { name: "Formal", parent_id: outerwear.id, numeric_id: "05", reason: "test" }, f.ctx);
+  assert.equal(created.ok, false, "create_category applies the same per-parent rule");
 });
 
 check("test_PRD_P0_138_nested_categories__a_top_level_category_and_a_subcategory_may_share_the_same_number", async () => {
@@ -7239,7 +7233,7 @@ check("test_PRD_P0_152_style_number_grouping__a_row_naming_an_existing_category_
   assert.equal(result.created.length, 1, "no style number given at all, but the category/subcategory matched by name");
 
   const row = f.mirror("SELECT style_id FROM mirror_product WHERE title = 'White Blazer'")[0];
-  assert.equal(row.style_id, "70-00-002", "the real category/subcategory codes, plus the next free index after the seed row's own 001");
+  assert.equal(row.style_id, "70-01-002", "the real category/subcategory codes (the subcategory carries the sheet's own middle number), plus the next free index after the seed row's own 001");
 });
 
 check("test_PRD_P0_152_style_number_grouping__matching_a_named_category_folds_plural_and_singular", async () => {
@@ -7267,7 +7261,7 @@ check("test_PRD_P0_152_style_number_grouping__matching_a_named_category_folds_pl
   }
   assert.equal(result.created.length, 1, "the plural spellings still match the singular categories already on file");
   const row = f.mirror("SELECT style_id FROM mirror_product WHERE title = 'White Blazer'")[0];
-  assert.equal(row.style_id, "71-00-002");
+  assert.equal(row.style_id, "71-01-002");
 });
 
 check("test_PRD_P0_207_daily_limit_and_plurals__a_singular_subcategory_matches_its_existing_plural_when_the_plural_ends_in_ze_or_se", async () => {
@@ -7363,9 +7357,9 @@ check("test_PRD_P0_152_style_number_grouping__a_top_level_pool_with_no_free_numb
 
 check("test_PRD_P0_152_style_number_grouping__a_subcategory_pool_with_no_free_number_left_is_a_hard_fail", async () => {
   /* The identical hard-fail rule, one level down -- this shop's own
-     subcategory numeric_id pool is tree-wide, shared by every subcategory
-     regardless of parent (P0-138), so it can run out even while the
-     top-level pool still has plenty of room. */
+     subcategory numeric_id pool is per parent (one 00-99 under each top-level
+     category), so it can run out under one parent even while the top-level
+     pool still has plenty of room. */
   const f = await fixture({ actor: "noor@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   for (let n = 0; n < 100; n++) {
@@ -7373,7 +7367,9 @@ check("test_PRD_P0_152_style_number_grouping__a_subcategory_pool_with_no_free_nu
       .prepare("INSERT INTO mirror_category (id, external_ref, name, parent_id, numeric_id) VALUES (?, ?, ?, ?, ?)")
       .run(`sub-filler-${n}`, `SQ_SUB_FILLER_${n}`, `Sub Filler ${n}`, outerwear.id, String(n).padStart(2, "0"));
   }
-  const csv = "Style #,Category,Subcategory,Description,Price\n01-01-001,Outerwear,Brand New Subcategory,A coat,165.00\n";
+  /* A sheet number of 100 or more cannot be a two-digit code, so the
+     subcategory falls back to the next free one -- and none is left. */
+  const csv = "Style #,Category,Subcategory,Description,Price\n01-123-001,Outerwear,Brand New Subcategory,A coat,165.00\n";
   const result = await draftProductBatch(f.env, { text: csv, actor: "noor@vemians.com", role: "manager" , mode: "add"});
   assert.equal(result.created.length, 0);
   assert.equal(result.ready.length, 1);
@@ -7429,8 +7425,8 @@ check("test_PRD_P0_152_style_number_grouping__onprogress_fires_once_per_row_as_e
   const f = await fixture({ actor: "mara@vemians.com", role: "manager" });
   const csv =
     "Style #,Category,Subcategory,Description,Price\n" +
-    "70-01-001,Brand New Hats,Brand New Sun Hats,A hat,45.00\n" +
-    "71-01-001,Brand New Belts,Brand New Leather Belts,A belt,35.00\n";
+    "70-01-001,Millinery,Sun Hats,A hat,45.00\n" +
+    "71-01-001,Footwear,Leather Boots,A boot,35.00\n";
 
   const seen = [];
   const onProgress = (p) => seen.push(p);
@@ -8726,7 +8722,7 @@ check("test_PRD_P0_152_style_number_grouping__two_named_rows_matching_the_same_c
   const styleIds = f
     .mirror("SELECT style_id FROM mirror_product WHERE title IN ('White Blazer', 'Grey Blazer') ORDER BY style_id")
     .map((r) => r.style_id);
-  assert.deepEqual(styleIds, ["73-00-002", "73-00-003"], "each gets its own auto-generated index, never colliding");
+  assert.deepEqual(styleIds, ["73-01-002", "73-01-003"], "each gets its own auto-generated index, never colliding");
 });
 
 check("test_PRD_P0_89_batch_preview_confirm__a_named_category_row_previews_with_auto_generated_style_id_and_sku", async () => {
@@ -11049,4 +11045,92 @@ check("test_PRD_P0_208_every_variation_has_every_option__rows_of_one_product_wit
   } finally {
     globalThis.fetch = realFetch;
   }
+});
+
+check("test_PRD_P0_215_subcategory_numbers_per_parent__the_database_allows_one_number_under_two_parents_but_not_two_siblings", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const knitwear = f.categories().find((c) => c.name === "Knitwear");
+  const add = (id, parent, n) =>
+    f.mirrorDb._raw
+      .prepare("INSERT INTO mirror_category (id, external_ref, name, parent_id, numeric_id) VALUES (?, ?, ?, ?, ?)")
+      .run(id, `SQ_${id}`, id, parent, n);
+  add("sub-a", outerwear.id, "04");
+  add("sub-b", knitwear.id, "04");
+  assert.throws(() => add("sub-c", outerwear.id, "04"), /UNIQUE/, "two siblings still cannot share a number");
+});
+
+check("test_PRD_P0_215_subcategory_numbers_per_parent__an_upload_gives_each_subcategory_the_sheets_own_middle_number_under_every_top_level", async () => {
+  const f = await fixture({ actor: "keiko@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let result;
+  try {
+    result = await draftProductBatch(f.env, {
+      text:
+        "Style #,Category,Subcategory,Description,Price\n" +
+        "80-04-001,Tailoring,Blazers,A blazer,100.00\n" +
+        "81-04-001,Knits,Cardigans,A cardigan,80.00\n",
+      actor: "keiko@vemians.com",
+      role: "manager", mode: "add",
+    });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(result.ready.length, 0, `expected no refusal, got: ${JSON.stringify(result.ready)}`);
+  assert.equal(result.created.length, 2, JSON.stringify(result));
+  const subs = f.categories().filter((c) => ["Blazers", "Cardigans"].includes(c.name));
+  assert.deepEqual(subs.map((c) => c.numeric_id), ["04", "04"], "the same middle number under two different top-level categories");
+  const ids = f.mirror("SELECT style_id FROM mirror_product WHERE title IN ('A blazer', 'A cardigan') ORDER BY style_id").map((r) => r.style_id);
+  assert.deepEqual(ids, ["80-04-001", "81-04-001"], "the shop style IDs equal the sheet's numbers exactly");
+});
+
+check("test_PRD_P0_215_subcategory_numbers_per_parent__a_sheet_subcategory_number_that_names_a_different_subcategory_is_held", async () => {
+  const f = await fixture({ actor: "keiko@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  let first, second;
+  try {
+    first = await draftProductBatch(f.env, {
+      text: "Style #,Category,Subcategory,Description,Price\n82-04-001,Denim,Jeans,Some jeans,70.00\n",
+      actor: "keiko@vemians.com",
+      role: "manager", mode: "add",
+    });
+    assert.equal(first.created.length, 1, JSON.stringify(first));
+    second = await draftProductBatch(f.env, {
+      text: "Style #,Category,Subcategory,Description,Price\n82-04-002,Denim,Shorts,Some shorts,40.00\n",
+      actor: "keiko@vemians.com",
+      role: "manager", mode: "add",
+    });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(second.created.length, 0, "never filed under the wrong subcategory, never a duplicate made");
+  assert.equal(second.ready.length, 1, JSON.stringify(second));
+  assert.match(second.ready[0].summary, /04/);
+  assert.equal(f.categories().filter((c) => c.name === "Shorts").length, 0);
+});
+
+check("test_PRD_P0_215_subcategory_numbers_per_parent__moving_onto_a_parent_that_already_uses_the_number_is_refused_when_nothing_says_which_belongs", async () => {
+  const f = await fixture({ actor: "keiko@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const made = await draftProductBatch(f.env, {
+      text:
+        "Style #,Category,Subcategory,Description,Price\n" +
+        "80-04-001,Tailoring,Blazers,A blazer,100.00\n" +
+        "81-04-001,Knits,Cardigans,A cardigan,80.00\n",
+      actor: "keiko@vemians.com",
+      role: "manager", mode: "add",
+    });
+    assert.equal(made.created.length, 2, JSON.stringify(made));
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  const cardigans = f.categories().find((c) => c.name === "Cardigans");
+  const tailoring = f.categories().find((c) => c.name === "Tailorings" || c.name === "Tailoring");
+  const refused = await runTool("catalog.move_category", { category_id: cardigans.id, parent_id: tailoring.id }, f.ctx);
+  assert.equal(refused.ok, false);
+  assert.match(refused.error, /cannot share a number/);
 });

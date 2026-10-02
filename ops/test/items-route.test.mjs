@@ -3813,23 +3813,21 @@ check("test_PRD_P0_138_nested_categories__admin_each_queued_row_auto_fills_a_dis
      nextNumericId only ever looks at already-SAVED siblings. Every row
      after the first must bump past whatever numeric_id every OTHER
      still-open pending row already carries -- and, for a subcategory,
-     that pool is TREE-WIDE (every top-level category's own pending
-     add-form counts, not just the one under the same parent), matching
-     the same tree-wide pool P0-138's own siblings check already enforces
-     for already-saved subcategories. */
+     that pool is the one parent's own children (P0-215: numbers are unique
+     among siblings, as the sheets number them). */
   const mirror = mirrorDb();
   seedProduct(mirror);
   seedCategoryTree(mirror);
   const body = await (await get("/admin", MANAGER, env(mirror))).text();
   assert.match(
     body,
-    /const siblings = addToggle\.dataset\.parentId\s*\n\s*\? document\.querySelectorAll\("\.admin-category-children \.admin-category-node"\)/,
-    "a subcategory's own already-saved pool must be read tree-wide, not scoped to the one parent being clicked",
+    /const siblings = addToggle\.dataset\.parentId\s*\n\s*\? addToggle\.closest\("\.admin-category-node"\)\?\.querySelectorAll\(":scope > \.admin-category-children > \.admin-category-node"\)/,
+    "a subcategory's own already-saved pool is the children of the one parent being clicked (numbers are unique among siblings)",
   );
   assert.match(
     body,
-    /const pendingIds = \[\s*\n\s*\.\.\.document\.querySelectorAll\(\s*\n\s*addToggle\.dataset\.parentId\s*\n\s*\? "\.admin-category-node > \.admin-category-add-form:not\(\[hidden\]\) \.admin-category-new-numeric-id"\s*\n\s*: "\.admin-section-body > \.admin-category-add-form:not\(\[hidden\]\) \.admin-category-new-numeric-id",\s*\n\s*\),\s*\n\s*\]\s*\n\s*\.filter\(\(el\) => el !== idInput\)\s*\n\s*\.map\(\(el\) => Number\(el\.value\.trim\(\)\)\)\s*\n\s*\.filter\(\(n\) => Number\.isInteger\(n\)\);\s*\n\s*let suggested = Number\(nextNumericId\(siblings\)\);\s*\n\s*while \(pendingIds\.includes\(suggested\)\) suggested \+= 1;\s*\n\s*idInput\.value = String\(suggested\)\.padStart\(2, "0"\);/,
-    "the auto-fill must skip past every numeric_id already sitting in another still-open pending row anywhere in the tree, not just already-saved siblings under the same parent",
+    /const pendingIds = \[\s*\n\s*\.\.\.\(addToggle\.dataset\.parentId\s*\n\s*\? addToggle\.closest\("\.admin-category-node"\)\.querySelectorAll\(":scope > \.admin-category-add-form:not\(\[hidden\]\) \.admin-category-new-numeric-id"\)\s*\n\s*: document\.querySelectorAll\("\.admin-section-body > \.admin-category-add-form:not\(\[hidden\]\) \.admin-category-new-numeric-id"\)\),\s*\n\s*\]\s*\n\s*\.filter\(\(el\) => el !== idInput\)[\s\S]*?let suggested = Number\(nextNumericId\(siblings\)\);\s*\n\s*while \(pendingIds\.includes\(suggested\)\) suggested \+= 1;/,
+    "the auto-fill skips past every numeric_id already in another still-open pending row under the same parent",
   );
 });
 
@@ -3872,13 +3870,8 @@ check("test_PRD_P0_138_nested_categories__admin_backfills_every_blank_numeric_id
   );
   assert.match(
     body,
-    /backfillMissingNumericIds\(\[\.\.\.document\.querySelectorAll\("\.admin-section-body > \.admin-category-node"\)\]\);/,
-    "must run for the top-level pool",
-  );
-  assert.match(
-    body,
-    /backfillMissingNumericIds\(\[\.\.\.document\.querySelectorAll\("\.admin-category-children \.admin-category-node"\)\]\);/,
-    "must run for the subcategory pool -- every subcategory anywhere in the tree, the same one pool set_category_number itself enforces",
+    /for \(const pool of allNumericIdPools\(\)\) backfillMissingNumericIds\(pool\);/,
+    "must run for the top-level pool and for each parent's own subcategories",
   );
   /* Knitwear (cat4) has no numeric_id in this fixture -- still rendered
      blank by the server; the fill above happens only once this script
@@ -3921,7 +3914,7 @@ check("test_PRD_P0_138_nested_categories__admin_a_duplicate_numeric_id_is_flagge
   assert.match(body, /input\.setCustomValidity\(dupes\.length > 1 \? "Already assigned to another category" : ""\);/);
   assert.match(
     body,
-    /revalidateNumericIdPool\(\[\.\.\.document\.querySelectorAll\("\.admin-section-body > \.admin-category-node"\)\]\);/,
+    /for \(const pool of allNumericIdPools\(\)\) revalidateNumericIdPool\(pool\);/,
     "must also run once up front, to catch a pre-existing duplicate from legacy data",
   );
 });
@@ -4144,6 +4137,17 @@ check("test_PRD_P0_214_placement_from_style_numbers__the_page_offers_check_place
   assert.match(script, /window\.confirm\("Move " \+ data\.moves\.length/, "after one confirmation");
   const bare = await (await get("/admin", MANAGER, env(mirrorDb()))).text();
   assert.doesNotMatch(bare, /admin-placement-btn" title/, "no button when there are no subcategories at all");
+});
+
+check("test_PRD_P0_215_subcategory_numbers_per_parent__the_admin_page_checks_a_number_against_its_siblings_only", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  const script = body.slice(body.indexOf("<script>"), body.lastIndexOf("</script>"));
+  assert.match(script, /node\.parentElement\.querySelectorAll\(":scope > \.admin-category-node"\)/, "a node's pool is its own siblings");
+  assert.doesNotMatch(script, /document\.querySelectorAll\("\.admin-category-children \.admin-category-node"\)/, "never every subcategory in the tree at once");
+  assert.match(script, /for \(const pool of allNumericIdPools\(\)\) revalidateNumericIdPool\(pool\)/, "every parent's children are validated on load, each on its own");
 });
 
 check("test_PRD_P0_138_nested_categories__admin_staff_cannot_reach_any_of_the_post_routes", async () => {

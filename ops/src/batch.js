@@ -621,20 +621,21 @@ function nextTopLevelNumericId(categories, reserved) {
   return null;
 }
 
-/* The SAME idea as nextTopLevelNumericId, immediately above, for the OTHER
-   of this shop's own two numeric_id pools: every subcategory anywhere in
-   the tree, regardless of depth or parent, shares ONE pool (P0-138's own
-   two-pool rule — the identical scope the Admin panel's own
-   numericIdPoolFor already uses, and the same partial unique index
-   schema.sql enforces). `reserved` is its OWN separate set from the
-   top-level one — the two pools never collide with each other, so "01"
-   can be freely in use by a top-level category AND, separately, by a
-   subcategory at the same time. */
-function nextSubcategoryNumericId(categories, reserved) {
-  const used = new Set(categories.filter((c) => c.parent_id && c.numeric_id).map((c) => c.numeric_id));
+/* The SAME idea as nextTopLevelNumericId, immediately above, for a
+   SUBCATEGORY: its number is unique only among the subcategories under the
+   SAME parent (the sheets number each category's subcategories separately,
+   and "subcategory IDs need to match the style IDs" -- the owner's own
+   words; the same partial unique index schema.sql enforces). `reserved`
+   holds the numbers this batch has already claimed, keyed by parent. When
+   the sheet's own middle number is free under this parent it is used
+   exactly (`preferred`), otherwise the next free one. */
+function nextSubcategoryNumericId(categories, reserved, parentId, preferred = null) {
+  const used = new Set(categories.filter((c) => c.parent_id === parentId && c.numeric_id).map((c) => c.numeric_id));
+  const free = (code) => !used.has(code) && !reserved.has(`${parentId}:${code}`);
+  if (preferred && /^\d{2}$/.test(preferred) && free(preferred)) return preferred;
   for (let n = 0; n <= 99; n++) {
     const code = String(n).padStart(2, "0");
-    if (!used.has(code) && !reserved.has(code)) return code;
+    if (free(code)) return code;
   }
   return null;
 }
@@ -691,7 +692,7 @@ async function ensureNumbered(env, { actor, role, reserved, rate }, category, nu
    matchCategory both see it as real for every row after it.
    REVISED: `parentId`, when given, makes this create a SUBCATEGORY under
    that specific category instead — picking nextSubcategoryNumericId's
-   own tree-wide pool rather than nextTopLevelNumericId's, and keying the
+   own per-parent pool rather than nextTopLevelNumericId's, and keying the
    cache by parent TOO (`"a subcategory name can be used more than once
    [under a different parent]"` — P0-138 — so "Casual" under "Outerwear"
    and "Casual" under "Knitwear" must never share one cache entry).
@@ -710,9 +711,14 @@ async function ensureNumbered(env, { actor, role, reserved, rate }, category, nu
    by THIS function never goes out with no numeric_id, full stop; a pool
    with no free code left (all 100 of 00-99 already in use) is now a real
    error, never a silent unnumbered create. */
-async function resolveOrCreateCategory(env, { actor, role, categories, reserved, cache, parentId = null, rate }, name) {
+async function resolveOrCreateCategory(env, { actor, role, categories, reserved: batchReserved, cache, parentId = null, rate, preferredNumericId = null }, name) {
   const key = `${parentId ?? ""}::${name.trim().toLowerCase()}`;
   if (cache.has(key)) return cache.get(key);
+  /* A subcategory's numbers are reserved per parent; ensureNumbered and the
+     create path below see a plain set of codes for THIS parent. */
+  const reserved = parentId
+    ? { has: (code) => batchReserved.has(`${parentId}:${code}`), add: (code) => batchReserved.add(`${parentId}:${code}`) }
+    : batchReserved;
 
   const siblings = categories.filter((c) => (c.parent_id ?? null) === parentId);
   const near = nearestCategory(name, siblings);
@@ -726,7 +732,7 @@ async function resolveOrCreateCategory(env, { actor, role, categories, reserved,
        hand through the Admin panel, which still allows leaving numeric_id
        blank) still must not go out unnumbered — "it should all category
        have a must have a unique number... that's a hard fail" otherwise. */
-    const assignId = parentId ? nextSubcategoryNumericId(categories, reserved) : nextTopLevelNumericId(categories, reserved);
+    const assignId = parentId ? nextSubcategoryNumericId(categories, batchReserved, parentId, preferredNumericId) : nextTopLevelNumericId(categories, reserved);
     if (!assignId) {
       const outcome = { error: `no free ${parentId ? "subcategory" : "top-level category"} number available — all 100 codes (00-99) are already in use` };
       cache.set(key, outcome);
@@ -737,7 +743,7 @@ async function resolveOrCreateCategory(env, { actor, role, categories, reserved,
     return outcome;
   }
 
-  const numericId = parentId ? nextSubcategoryNumericId(categories, reserved) : nextTopLevelNumericId(categories, reserved);
+  const numericId = parentId ? nextSubcategoryNumericId(categories, batchReserved, parentId, preferredNumericId) : nextTopLevelNumericId(categories, reserved);
   if (!numericId) {
     const outcome = { error: `no free ${parentId ? "subcategory" : "top-level category"} number available — all 100 codes (00-99) are already in use` };
     cache.set(key, outcome);
@@ -888,7 +894,14 @@ async function resolveCategoryByCode(env, { actor, role, categories, reserved, c
      means there. */
   const exact = name ? pool.find((c) => c.name.trim().toLowerCase() === name.trim().toLowerCase()) : null;
   const near = !exact && name ? nearestCategory(name, pool) : null;
-  const matched = exact || (near && near.score >= CAPS.CATEGORY_DUPLICATE_SIMILARITY ? near : null);
+  /* A loose overlap of words ("Brand New Belts" against "Brand New Hats",
+     two of three words alike) is not a reason to merge two categories that
+     both carry their own numbers -- "what I'm afraid of is having duplicate
+     items being created under different categories," the owner's own words,
+     is exactly a silent merge like that. A near match is only trusted when
+     its words are the same set (plural/singular, extra filler), or when the
+     category it points at has no number yet (one that predates numbering). */
+  const matched = exact || (near && near.score >= CAPS.CATEGORY_DUPLICATE_SIMILARITY && (near.score === 1 || near.numeric_id == null || near.numeric_id === "") ? near : null);
   if (matched) {
     /* REVISED — already numbered, just not the way this row's own style
        number claims: no longer a genuine clash to park. "We already have
@@ -983,7 +996,7 @@ function autoTitler(existingCounts) {
  * The CATEGORY resolves by NUMBER (resolveCategoryByCode, above); the
  * SUBCATEGORY resolves by NAME instead (see this function's own body for
  * why — a real sheet's own subcategory digit turned out to be incompatible
- * with this shop's tree-wide-unique subcategory pool).
+ * with this shop's old tree-wide subcategory pool; numbers are now per parent and the sheet's own middle number is used).
  *
  * REVISED, then REVISED AGAIN: "the only hard rule here is that we must
  * have a unique SKU number or ID for each item... if that's true, then add
@@ -1417,26 +1430,48 @@ async function resolveSheetCategory(env, ctx, base, record, { nameOnly = false }
     else if (catOutcome.note) notes.push(`style number "${base}": ${catOutcome.note}`);
   }
 
+  /* "Subcategory IDs need to match the style IDs. They need to be exactly
+     the same" -- the owner's own words. A subcategory's number is unique
+     among its siblings, so the sheet's middle number picks THE subcategory
+     of that number under the category the first number picked. A name that
+     points elsewhere holds the row (the number wins, the same rule as the
+     top level); a number nothing has yet is created with exactly that
+     number, named from the sheet. */
+  const subNumeric = Number(subCode);
+  const subValid = Number.isInteger(subNumeric) && subNumeric >= 0 && subNumeric <= 99;
+  const subPadded = subValid ? String(subNumeric).padStart(2, "0") : null;
   let category = topCategory;
-  if (topCategory && subcategoryNameCol) {
-    let subcategory = matchCategory(subcategoryNameCol, categories.filter((c) => c.parent_id === topCategory.id));
-    if (!subcategory && !conflict) {
-      const outcome = await resolveOrCreateCategory(
-        env,
-        { actor, role, categories, reserved: reservedSubcategoryNumericIds, cache: categoryCache, parentId: topCategory.id, rate },
-        subcategoryNameCol,
-      );
-      if (outcome.error) {
-        clashes.push(`subcategory "${subcategoryNameCol}" does not exist yet under "${topCategory.name}" and could not be created: ${outcome.error}`);
-      } else {
-        subcategory = outcome.category;
+  if (topCategory) {
+    const children = categories.filter((c) => c.parent_id === topCategory.id);
+    const byNumber = subValid
+      ? children.find((c) => c.numeric_id != null && c.numeric_id !== "" && Number(c.numeric_id) === subNumeric)
+      : null;
+    if (byNumber) {
+      category = byNumber;
+      if (subcategoryNameCol && !conflict && !(nearestCategory(subcategoryNameCol, [byNumber])?.score >= CAPS.CATEGORY_DUPLICATE_SIMILARITY)) {
+        conflict = `the sheet's subcategory number ${subPadded} under "${topCategory.name}" is "${byNumber.name}" in the catalog, but the sheet's subcategory says "${subcategoryNameCol}" -- check the numbering; nothing was created or moved for this row`;
+      }
+    } else if (subcategoryNameCol) {
+      let subcategory = matchCategory(subcategoryNameCol, children);
+      if ((!subcategory || subcategory.numeric_id == null || subcategory.numeric_id === "") && !conflict) {
+        const outcome = await resolveOrCreateCategory(
+          env,
+          { actor, role, categories, reserved: reservedSubcategoryNumericIds, cache: categoryCache, parentId: topCategory.id, rate, preferredNumericId: subPadded },
+          subcategoryNameCol,
+        );
+        if (outcome.error) {
+          clashes.push(`subcategory "${subcategoryNameCol}" does not exist yet under "${topCategory.name}" and could not be created: ${outcome.error}`);
+        } else {
+          subcategory = outcome.category;
+        }
+      }
+      if (subcategory) {
+        category = subcategory;
+        if (subPadded && subcategory.numeric_id && subcategory.numeric_id !== subPadded) {
+          notes.push(`subcategory "${subcategory.name}" is numbered ${subcategory.numeric_id} in the catalog, not ${subPadded} as the sheet says -- filed under the existing one`);
+        }
       }
     }
-    if (subcategory) category = subcategory;
-  } else if (topCategory) {
-    const subNumeric = Number(subCode);
-    const match = categories.find((c) => c.parent_id && c.numeric_id != null && c.numeric_id !== "" && Number(c.numeric_id) === subNumeric);
-    if (match) category = match;
   } else if (subcategoryNameCol) {
     notes.push(`subcategory "${subcategoryNameCol}" was given without a resolvable category to nest it under`);
   }
