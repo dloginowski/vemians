@@ -156,9 +156,30 @@ export async function subcategoryPlacement(db) {
  * Read-only: it plans, the Admin page applies each step through
  * catalog.set_category_number (which also corrects every product's style ID).
  */
-export async function subcategoryRenumbering(db) {
+export async function subcategoryRenumbering(db, { ledger = [] } = {}) {
   const categories = await listCategories(db);
   const byId = new Map(categories.map((c) => [c.id, c]));
+  const productCounts = await categoryProductCounts(db);
+  /* Names as the ledger recorded them, folded the way category matching folds
+     (case, plural/singular), keyed parent|subcategory. */
+  const fold = (name) =>
+    String(name ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/ies$/, "y")
+      .replace(/(ss|x|ch|sh)es$/, "$1")
+      .replace(/([^s])s$/, "$1");
+  const ledgerStats = new Map();
+  for (const r of ledger) {
+    const m = /^\s*(\d+)\s*-\s*(\d+)\s*-/.exec(String(r.sheet_style_id ?? ""));
+    if (!m) continue;
+    const key = `${fold(r.result_category)}|${fold(r.result_subcategory)}`;
+    const st = ledgerStats.get(key) ?? { items: 0, pairs: new Map() };
+    st.items += 1;
+    const pair = `${Number(m[1])}|${Number(m[2])}`;
+    st.pairs.set(pair, (st.pairs.get(pair) ?? 0) + 1);
+    ledgerStats.set(key, st);
+  }
   const res = await db
     .prepare("SELECT category_id, import_style_number FROM mirror_product_index WHERE category_id IS NOT NULL")
     .bind()
@@ -191,9 +212,26 @@ export async function subcategoryRenumbering(db) {
     const parentTop = parent?.numeric_id != null && parent.numeric_id !== "" ? Number(parent.numeric_id) : null;
     const wanted = new Map();
     for (const sub of siblings) {
-      const st = stats.get(sub.id);
-      if (!st) continue;
-      const base = { id: sub.id, name: sub.name, parent: parentName, items: st.items };
+      let st = stats.get(sub.id);
+      let fromLedger = false;
+      if (!st) {
+        st = ledgerStats.get(`${fold(parentName)}|${fold(sub.name)}`);
+        fromLedger = Boolean(st);
+      }
+      if (!st) {
+        const n = productCounts.get(sub.id) ?? 0;
+        if (n > 0) {
+          review.push({
+            id: sub.id,
+            name: sub.name,
+            parent: parentName,
+            items: n,
+            why: "none of its items remembers a sheet style number, and no upload on record put anything in it by this name, so there is nothing to number it from. Re-sending a sheet that has them teaches it.",
+          });
+        }
+        continue;
+      }
+      const base = { id: sub.id, name: sub.name, parent: parentName, items: st.items, ...(fromLedger ? { fromLedger: true } : {}) };
       if (st.pairs.size > 1) {
         const parts = [...st.pairs.entries()].sort((a, b) => b[1] - a[1]).map(([k, n]) => `${n} item${n === 1 ? "" : "s"} say ${k.split("|").map((x) => pad(Number(x))).join("-")}`);
         review.push({ ...base, why: `its items carry different sheet numbers (${parts.join(", ")})` });

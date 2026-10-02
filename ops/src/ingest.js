@@ -465,6 +465,29 @@ export async function claimRow(db, { id, runId, key, actor, token }) {
 }
 
 /* The row's own outcome, and the check. Written after the row has run. */
+/* What the sheets said about where things go: every row an upload actually
+   applied, as (the sheet's own style number, the top-level category and
+   subcategory it landed in, by name). "Don't you have the ledger?" -- the
+   owner's own words: this is how a subcategory whose items never stored their
+   sheet number (made before the field, or from a sheet with no style numbers
+   on some rows) can still be numbered from what its sheets said. Read-only;
+   no ledger tables yet simply means nothing was ever uploaded. */
+export async function ledgerSheetNumbers(db) {
+  if (!db) return [];
+  return readOr([], async () => {
+    const res = await db
+      .prepare(
+        `SELECT sheet_style_id, result_category, result_subcategory
+           FROM ingest_row
+          WHERE submitted = 1 AND outcome IN ('created', 'updated', 'unchanged')
+            AND sheet_style_id <> '' AND COALESCE(result_subcategory, '') <> ''`,
+      )
+      .bind()
+      .all();
+    return res.results ?? [];
+  });
+}
+
 export async function finishRow(db, { id, key, outcome, detail, styleId, category, subcategory }) {
   await withSchema(db, () =>
     db
