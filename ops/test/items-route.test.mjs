@@ -4338,3 +4338,31 @@ test("test_PRD_P0_30_prd_traceability__every_label_used_in_this_file_exists_in_t
     assert.ok(prd.includes(label), `${label} is used here but is not a PRD feature`);
   }
 });
+
+check("test_PRD_P0_220_agent_skill_endpoint__a_signed_in_person_gets_the_inventory_instructions_at_llms_txt", async () => {
+  /* "If we just tell our agent, go to ops.vemians.com and add some items to
+     the inventory, it should have everything necessary to do this." */
+  const mirror = mirrorDb();
+  const { EXPORT_HEADERS } = await import("../src/batch.js");
+  for (const [path, type] of [["/llms.txt", /text\/plain/], ["/agent-skill.md", /text\/markdown/]]) {
+    const res = await get(path, STAFF, env(mirror));
+    assert.equal(res.status, 200, path);
+    assert.match(res.headers.get("content-type"), type);
+    const body = await res.text();
+    assert.match(body, /GET https:\/\/ops\.vemians\.com\/products\/export\.csv/, "how to get the CSV");
+    assert.match(body, /POST https:\/\/ops\.vemians\.com\/products\/batch/, "how to send it back");
+    assert.match(body, /mode = update/, "which mode");
+    assert.match(body, /manager/, "who may do it");
+    assert.match(body, /no service token|service token/i, "why a machine identity is refused");
+    for (const header of EXPORT_HEADERS) assert.ok(body.includes(`\`${header}\``), `the guide names the ${header} column`);
+    assert.match(body, /400 rows/, "the row limit comes from the code, not a copy of it");
+  }
+  const post = await worker.fetch(
+    new Request("http://localhost/llms.txt", { method: "POST", headers: { "Cf-Access-Jwt-Assertion": assertion(STAFF) } }),
+    env(mirror),
+    { waitUntil() {} },
+  );
+  assert.equal(post.status, 405);
+  const anon = await worker.fetch(new Request("http://localhost/llms.txt"), env(mirror), { waitUntil() {} });
+  assert.equal(anon.status, 401, "no Access assertion, no document: the same gate as every other page");
+});

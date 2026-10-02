@@ -77,6 +77,7 @@ import {
   MEDIA_BASE_URL,
 } from "./views.js";
 import { draftCustomerBatch, draftProductBatch, parsePriceToMinor, exportProductsCsv } from "./batch.js";
+import { inventoryAgentGuide } from "./agent-guide.js";
 
 const html = (body, status = 200) =>
   new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8" } });
@@ -374,6 +375,22 @@ async function ops(request, env, path) {
    * shape /products/batch and both batch chat tools already read, so what
    * comes out round-trips straight back in with nothing renamed by hand.
    */
+  /*
+   * /llms.txt and /agent-skill.md -- the instructions an outside agent needs to
+   * pull the inventory, change it and upload it back (agent-guide.js). Behind
+   * the same Cloudflare Access login as everything else on this host; it is
+   * documentation, not data, so it asks for no particular role.
+   */
+  if (path === "/llms.txt" || path === "/agent-skill.md") {
+    if (request.method !== "GET") {
+      return html(refusalPage(405, "This is a document to read, not a page to post to."), 405);
+    }
+    return new Response(inventoryAgentGuide(), {
+      status: 200,
+      headers: { "content-type": path === "/llms.txt" ? "text/plain; charset=utf-8" : "text/markdown; charset=utf-8" },
+    });
+  }
+
   if (path === "/products/export.csv") {
     if (request.method !== "GET") {
       return html(refusalPage(405, "This is a file to download, not a page to post to."), 405);
