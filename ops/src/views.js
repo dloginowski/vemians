@@ -3511,16 +3511,7 @@ function renderAdminCategoryNodes(categories, parentId, categoryProductCountsByI
           ${toggle}
           <form method="post" action="/admin/categories/rename" class="admin-category-rename-form">
             <input type="hidden" name="category_id" value="${esc(c.id)}">
-            ${
-              isTopLevel
-                ? nameInputHtml
-                : /* "A little button, like a P for parent... a little square icon inside
-                     of the subcategory field name, on the farthest right... so I can
-                     just click on the end and then choose a new parent from a drop
-                     down" -- the owner's own words. Inside the field itself, not
-                     beside it, so the row's other buttons keep their own columns. */
-                  `<span class="admin-category-name-wrap">${nameInputHtml}<button type="button" class="admin-move-btn" data-category-id="${esc(c.id)}" aria-label="Choose a new parent for ${esc(c.name)}" title="Move to a different parent">${MOVE_ICON}</button></span>`
-            }
+            ${nameInputHtml}
           </form>
           <form method="post" action="/admin/categories/number" class="admin-category-number-form">
             <input type="hidden" name="category_id" value="${esc(c.id)}">
@@ -3541,8 +3532,12 @@ function renderAdminCategoryNodes(categories, parentId, categoryProductCountsByI
                    shifting remove sideways relative to every
                    top-level row above it. The exact same width, held by
                    an inert spacer instead of a working button, cancels
-                   that out. */
-                `<span class="admin-category-toggle-spacer"></span>`
+                   that out. REVISED: "bring the arrow back where it was... exactly
+                   where it was. Don't put it inside the subcategory field" -- the
+                   owner's own words. The move arrow takes this very spot, the
+                   same width the spacer held (it shares the + and remove buttons'
+                   own CSS rule), so every row still lines up. */
+                `<button type="button" class="admin-move-btn" data-category-id="${esc(c.id)}" aria-label="Choose a new parent for ${esc(c.name)}" title="Move to a different parent">${MOVE_ICON}</button>`
           }
         </div>
         <div class="admin-category-children">${renderAdminCategoryNodes(categories, c.id, categoryProductCountsById)}</div>
@@ -5608,7 +5603,7 @@ ${OPS_DARK_CSS}
    red, never orange. */
 .admin-category-numeric-id:invalid { border-color: var(--invalid); }
 .admin-category-name.name-clash { border-color: var(--invalid); }
-.admin-remove-btn, .admin-category-add-toggle {
+.admin-remove-btn, .admin-category-add-toggle, .admin-move-btn {
   flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; padding: 0; font-size: 13px; line-height: 1;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--muted); cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;
@@ -5618,17 +5613,6 @@ ${OPS_DARK_CSS}
    actually be clicked ("I just wanted to disable it so that its
    alignment stays consistent" — the owner's own words). */
 .admin-remove-btn:disabled { opacity: 0.35; cursor: not-allowed; }
-/* The move button (an arrow -- "I like those arrows more than the P's,"
-   the owner's own words) sits INSIDE a subcategory's name field, at its
-   far right edge; the field leaves room for it. */
-.admin-category-name-wrap { position: relative; display: flex; flex: 1 1 auto; min-width: 0; }
-.admin-category-name-wrap > .admin-category-name { width: 100%; padding-right: 30px; }
-.admin-move-btn {
-  position: absolute; right: 3px; top: 50%; transform: translateY(-50%);
-  width: 20px; height: 20px; padding: 0; font: inherit; font-size: 11px; font-weight: 600; line-height: 1;
-  border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--muted); cursor: pointer;
-  display: inline-flex; align-items: center; justify-content: center;
-}
 .admin-move-btn:hover { color: var(--ink); border-color: var(--ink); }
 /* "Check placement": a compact panel at the top of the categories list. */
 .admin-placement-btn {
