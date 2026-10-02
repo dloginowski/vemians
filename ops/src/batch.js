@@ -1341,6 +1341,18 @@ function shopFormOf(base) {
   return `${String(parts[0]).padStart(2, "0")}-${String(parts[1]).padStart(2, "0")}-${String(parts[2]).padStart(3, "0")}`;
 }
 
+/* The values a variation's TITLE names ("M, Brown" -> {m, brown}) and the
+   values a row's options name, compared as sets: order and case do not matter. */
+function variantTitleValues(title) {
+  return new Set(String(title ?? "").split(/[,/|]+/).map((x) => x.trim().toLowerCase()).filter(Boolean));
+}
+function optionValueSet(options) {
+  return new Set(Object.values(options).map((x) => String(x).trim().toLowerCase()).filter(Boolean));
+}
+function sameValueSet(a, b) {
+  return a.size > 0 && a.size === b.size && [...a].every((x) => b.has(x));
+}
+
 /* Do two names share at least one word (case, punctuation and plural
    ignored)? "Oversize dress" and "Black hand-painted blazer" share none. */
 function sharesAWord(a, b) {
@@ -1633,6 +1645,7 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
   }
 
   const variations = [];
+  const matchedVariantIds = new Set();
   for (const { record, rowNumber, color, size } of groupRows) {
     const rawOptValues = Object.fromEntries(
       Object.entries({ ...(color ? { Color: color } : {}), ...(size ? { Size: size } : {}), ...optionValues(record) }).filter(
@@ -1661,7 +1674,21 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
          filled "N/A", was added as a second variation, and was filled to the
          identical combination -- which Square refuses ("same item option
          value combination as sibling variation"). */
-      existingVariants.find((v) => sameOptions(withoutFillers(optValues), withoutFillers(v.options)));
+      existingVariants.find((v) => sameOptions(withoutFillers(optValues), withoutFillers(v.options))) ??
+      /* "If it already matches, why are you even adding them?" -- the owner's
+         own words. A variation made by hand carries a title ("M, Brown") and
+         no Size/Colour options behind it, so nothing above can recognise it.
+         The row naming those same values (in any order, case aside) IS that
+         variation; adding it would make a second, identical one. Skipped for
+         a variation another row of this sheet already matched. */
+      existingVariants.find(
+        (v) =>
+          !matchedVariantIds.has(v.id) &&
+          Object.keys(withoutFillers(v.options)).length === 0 &&
+          (sameValueSet(variantTitleValues(v.title), optionValueSet(optValues)) ||
+            (!rawOptValues.Size && sameValueSet(variantTitleValues(v.title), optionValueSet(rawOptValues)))),
+      );
+    if (match) matchedVariantIds.add(match.id);
     const priceRaw = pick(record, PRICE_KEYS);
     const priceMinor = parsePriceToMinor(priceRaw);
     const currency = (pick(record, CURRENCY_KEYS) || match?.currency || "USD").toUpperCase();

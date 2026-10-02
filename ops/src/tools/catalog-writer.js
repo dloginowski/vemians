@@ -977,6 +977,21 @@ export function createSquareCatalogWriter(env, opts = {}) {
      exactly that. A variation lacking an option takes that option's neutral
      value: "OS" for a size (the shop's existing convention), "N/A" for
      anything else. */
+  /* The name of an EXISTING value of this option that one of a title's
+     comma/slash-separated parts equals (case aside), or null. */
+  async function optionValueNamedInTitle(optionRef, title) {
+    const parts = String(title ?? "").split(/[,/|]+/).map((x) => x.trim().toLowerCase()).filter(Boolean);
+    if (!parts.length) return null;
+    const res = await mirrorDb
+      .prepare(
+        "SELECT v.name AS name FROM mirror_item_option_value_index v JOIN mirror_item_option_index o ON o.id = v.item_option_id WHERE o.external_ref = ?",
+      )
+      .bind(optionRef)
+      .all();
+    const hit = (res.results ?? []).find((r) => parts.includes(String(r.name).trim().toLowerCase()));
+    return hit?.name ?? null;
+  }
+
   function neutralOptionValue(optionName) {
     return String(optionName).trim().toLowerCase() === "size" ? "OS" : "N/A";
   }
@@ -1690,7 +1705,7 @@ export function createSquareCatalogWriter(env, opts = {}) {
          sets — resolved to whatever is already mirrored, the same
          "resend the whole thing" fallback every other field on this
          function already follows. */
-      const resolvedItemOptionExternalRefs = await currentItemOptionExternalRefs(row.id);
+      const resolvedItemOptionExternalRefs = [...(await currentItemOptionExternalRefs(row.id))];
       /* Bug found while wiring up style_id-driven auto-categorization: an
          UNDEFINED categoryId used to resolve straight to null, which
          itemData() below reads as "omit categories/reporting_category
@@ -1765,6 +1780,21 @@ export function createSquareCatalogWriter(env, opts = {}) {
          fix never touched ordering. Built into a Map first, then reordered
          to follow itemOptionRefs' own order below — never Object.entries'
          own, which is meaningless to Square. */
+      /* An item can only carry values for the options it DECLARES. A product
+         that never declared Size (or declares nothing at all) and is sent a
+         variation naming a size used to have that size silently dropped, so
+         "M, Brown" and "OS, Brown" both became just "Brown" and Square refused
+         the pair as identical. Any option the variations name that the item
+         does not declare yet is declared now; every variation then carries a
+         value for it -- the neutral one ("OS" for a size, "N/A" otherwise)
+         where it has none -- by the fill below. */
+      for (const v of keep) {
+        for (const [optionName, valueName] of Object.entries(v.option_values ?? {})) {
+          if (!String(valueName ?? "").trim()) continue;
+          const { itemOptionRef } = await ensureItemOptionValue(optionName, valueName, resolvedItemOptionExternalRefs);
+          if (!resolvedItemOptionExternalRefs.includes(itemOptionRef)) resolvedItemOptionExternalRefs.push(itemOptionRef);
+        }
+      }
       const variationOptionValueRefs = [];
       const declaredOptionNames = await optionNamesFor(resolvedItemOptionExternalRefs);
       for (const v of keep) {
@@ -1778,7 +1808,14 @@ export function createSquareCatalogWriter(env, opts = {}) {
         for (const ref of resolvedItemOptionExternalRefs) {
           const name = declaredOptionNames.get(ref);
           if (byOptionRef.has(ref) || !name) continue;
-          const filled = await ensureItemOptionValue(name, neutralOptionValue(name), resolvedItemOptionExternalRefs);
+          /* A variation made by hand ("M, Brown") has its sizes and colours in
+             its title only. When the option being declared already has a value
+             that one of the title's words IS ("M" is a size, "Brown" a colour),
+             that is the value it gets, so two such variations never collapse
+             into the same neutral one. Only an existing value is used, never a
+             new one invented from a title. */
+          const fromTitle = v.id ? await optionValueNamedInTitle(ref, v.title) : null;
+          const filled = await ensureItemOptionValue(name, fromTitle ?? neutralOptionValue(name), resolvedItemOptionExternalRefs);
           byOptionRef.set(filled.itemOptionRef, { item_option_id: filled.itemOptionRef, item_option_value_id: filled.itemOptionValueRef });
         }
         variationOptionValueRefs.push(resolvedItemOptionExternalRefs.map((ref) => byOptionRef.get(ref)).filter(Boolean));
