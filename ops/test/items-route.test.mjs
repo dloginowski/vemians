@@ -4363,6 +4363,17 @@ check("test_PRD_P0_220_agent_skill_endpoint__a_signed_in_person_gets_the_invento
     { waitUntil() {} },
   );
   assert.equal(post.status, 405);
-  const anon = await worker.fetch(new Request("http://localhost/llms.txt"), env(mirror), { waitUntil() {} });
-  assert.equal(anon.status, 401, "no Access assertion, no document: the same gate as every other page");
+  /* The guide is documentation, served before the identity check so that an
+     Access bypass rule for exactly these two paths is all it takes for an agent
+     to read it without logging in. */
+  for (const path of ["/llms.txt", "/agent-skill.md"]) {
+    const anon = await worker.fetch(new Request(`http://localhost${path}`), env(mirror), { waitUntil() {} });
+    assert.equal(anon.status, 200, `${path} needs no login from the app's side`);
+    assert.match(await anon.text(), /products\/export\.csv/);
+  }
+  /* ...and nothing else opens up: every other path still fails closed. */
+  for (const path of ["/", "/products/export.csv", "/products/batch", "/items"]) {
+    const closed = await worker.fetch(new Request(`http://localhost${path}`), env(mirror), { waitUntil() {} });
+    assert.equal(closed.status, 401, `${path} still refuses a request with no Access assertion`);
+  }
 });

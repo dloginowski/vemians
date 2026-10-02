@@ -21,6 +21,7 @@ export function inventoryAgentGuide() {
   return `# Adding and updating inventory at ops.vemians.com
 
 You are reading the instructions for changing Vemians' catalog by CSV. Follow them in order.
+This document may be readable without signing in; everything it describes needs a signed-in person.
 
 ## 1. Sign in as a person
 

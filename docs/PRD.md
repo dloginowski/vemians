@@ -9732,8 +9732,11 @@ that does not trace to one of these is a process failure (see §12).
     size or colour, or add a new item; upload with `POST /products/batch` (`file`, `mode=update`); how to read
     and report the result; and the house rules (nothing deletes, held stock counts, no guessing prices). It is
     generated from the code's own constants (the export columns, the row and size limits), and a test pins
-    every export column into it, so it cannot drift. Behind the same Access login as every page, and asks for
-    no particular role: it is documentation, not data.
+    every export column into it, so it cannot drift. The app serves these two paths BEFORE its identity check
+    (documentation, not data), so an Access bypass rule for exactly `/llms.txt` and `/agent-skill.md` is all it
+    takes for an agent to read them without logging in; every other path, `/` included, still fails closed (a
+    test pins both). `/` must NOT be bypassed: a bypassed path never carries the signed Access identity, so
+    bypassing the front door would stop the app recognising anyone who is logged in.
 
 ## 4. P1 features
 
