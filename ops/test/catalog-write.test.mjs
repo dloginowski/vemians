@@ -11560,3 +11560,84 @@ check("test_PRD_P0_218_declare_missing_options__an_existing_variation_keeps_the_
     globalThis.fetch = realFetch;
   }
 });
+
+check("test_PRD_P0_218_declare_missing_options__an_existing_variation_keeps_square_values_even_when_the_mirror_holds_wrong_ones", async () => {
+  /* A real resend: "Suit": the variations "S, Black and White" and "OS, N/A"
+     would carry the same size/colour values. The mirror held the neutral
+     values for both (stale, not empty), so reading its copy made them
+     identical. Square is the authority on what an existing variation carries. */
+  const f = await fixture({ actor: "keiko@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const created = await approvedCall(f, "catalog.create_product", {
+      title: "Suit",
+      variations: [
+        { title: "S, Black and White", price_minor: 9000, currency: "USD", option_values: { Size: "S", Color: "Black and White" } },
+        { title: "OS, N/A", price_minor: 9000, currency: "USD", option_values: { Size: "OS", Color: "N/A" } },
+      ],
+    });
+    assert.equal(created.ok, true, created.error);
+    const handle = created.data.product.handle;
+    const productId = f.mirror("SELECT id FROM mirror_product WHERE handle = ?", handle)[0].id;
+    /* The mirror's copy says both are one size / no colour. */
+    f.mirrorDb._raw.prepare("UPDATE mirror_variant SET options = ? WHERE product_id = ?").run(JSON.stringify({ Size: "OS", Color: "N/A" }), productId);
+
+    const item = () => [...f.square.objects.values()].find((o) => o.type === "ITEM" && o.item_data?.name === "Suit");
+    const sorted = () =>
+      item().item_data.variations.map((v) => v.item_variation_data.item_option_values.map((x) => x.item_option_value_id).sort().join("|"));
+    const before = sorted();
+    const updated = await approvedCall(f, "catalog.update_product", {
+      handle,
+      variations: [{ title: "M, Black", price_minor: 9000, currency: "USD", option_values: { Size: "M", Color: "Black" } }],
+    });
+    assert.equal(updated.ok, true, updated.error);
+    const after = sorted();
+    assert.equal(after.length, 3);
+    assert.equal(new Set(after).size, 3, "no two variations are identical");
+    assert.deepEqual(after.slice(0, 2), before, "the two existing ones kept exactly the values Square had");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_218_declare_missing_options__sheet_rows_match_existing_variations_by_title_even_when_the_mirror_shows_wrong_options", async () => {
+  const f = await fixture({ actor: "keiko@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  const head = "Style #,Category,Subcategory,Description,Price,Color,Size\n";
+  try {
+    const seed = await draftProductBatch(f.env, {
+      text: head + "004-006-009,Sets,Suits,Seed suit,50.00,,\n",
+      actor: "keiko@vemians.com",
+      role: "manager", mode: "add",
+    });
+    assert.equal(seed.created.length, 1, JSON.stringify(seed));
+    const categoryId = f.mirror("SELECT category_id FROM mirror_product WHERE title = 'Seed suit'")[0].category_id;
+    const made = await approvedCall(f, "catalog.create_product", {
+      title: "Suit",
+      category_id: categoryId,
+      import_style_number: "004-006-001",
+      variations: [
+        { title: "S, Black and White", price_minor: 9000, currency: "USD", option_values: { Size: "S", Color: "Black and White" } },
+        { title: "OS, N/A", price_minor: 9000, currency: "USD", option_values: { Size: "OS", Color: "N/A" } },
+      ],
+    });
+    assert.equal(made.ok, true, made.error);
+    const productId = f.mirror("SELECT id FROM mirror_product WHERE title = 'Suit'")[0].id;
+    f.mirrorDb._raw.prepare("UPDATE mirror_variant SET options = ? WHERE product_id = ?").run(JSON.stringify({ Size: "XL", Color: "Red" }), productId);
+    const count = () => f.mirror("SELECT COUNT(*) AS n FROM mirror_variant WHERE product_id = ?", productId)[0].n;
+
+    const again = await draftProductBatch(f.env, {
+      text: head + "004-006-001,Sets,Suits,Suit,90.00,Black and White,S\n004-006-001,Sets,Suits,Suit,90.00,N/A,OS\n",
+      actor: "keiko@vemians.com",
+      role: "manager", mode: "update",
+    });
+    assert.equal(again.ready.length, 0, JSON.stringify(again.ready));
+    assert.equal(again.skipped.length, 0, JSON.stringify(again.skipped));
+    assert.equal(again.created.length, 0, `nothing added or changed: ${JSON.stringify(again.created)}`);
+    assert.equal(count(), 2, "no variation was added");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});

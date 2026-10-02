@@ -1679,12 +1679,12 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
          own words. A variation made by hand carries a title ("M, Brown") and
          no Size/Colour options behind it, so nothing above can recognise it.
          The row naming those same values (in any order, case aside) IS that
-         variation; adding it would make a second, identical one. Skipped for
-         a variation another row of this sheet already matched. */
+         variation; adding it would make a second, identical one. Applies
+         whatever options the mirror shows for it (they can be stale), and is
+         skipped for a variation another row of this sheet already matched. */
       existingVariants.find(
         (v) =>
           !matchedVariantIds.has(v.id) &&
-          Object.keys(withoutFillers(v.options)).length === 0 &&
           (sameValueSet(variantTitleValues(v.title), optionValueSet(optValues)) ||
             (!rawOptValues.Size && sameValueSet(variantTitleValues(v.title), optionValueSet(rawOptValues)))),
       );

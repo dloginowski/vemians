@@ -9696,6 +9696,10 @@ that does not trace to one of these is a process failure (see §12).
     and "OS, N/A" colliding) showed the mirror's copy of an existing variation's options can be empty or stale
     while Square holds real values: an existing variation now keeps the option values Square itself has for it
     (the item is read live, once per call) before any title-based or neutral fill is considered.
+    A further resend ("S, Black and White" and "OS, N/A" colliding) showed the mirror can hold WRONG values, not just
+    none: an existing variation now always carries what Square says it carries, and only a variation whose options
+    the call itself sets is taken from the call. A sheet row also matches an existing variation by title whatever
+    options the mirror shows for it.
 
 ## 4. P1 features
 
