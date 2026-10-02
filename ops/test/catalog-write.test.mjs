@@ -11436,3 +11436,89 @@ check("test_PRD_P0_217_matched_row_name_check__a_renumbered_item_takes_the_next_
     globalThis.fetch = realFetch;
   }
 });
+
+check("test_PRD_P0_218_declare_missing_options__new_sized_rows_on_a_product_that_never_declared_size_declare_it_and_fill_the_rest", async () => {
+  /* A real resend: "Lounge set": the variations "M, Brown" and "OS, Brown"
+     would carry the same size/colour values. The product declared no Size, so
+     both sizes were dropped on the way to Square. */
+  const f = await fixture({ actor: "keiko@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  const head = "Style #,Category,Subcategory,Description,Price\n";
+  try {
+    const created = await approvedCall(f, "catalog.create_product", {
+      title: "Lounge set",
+      variations: [{ title: "Black", price_minor: 9000, currency: "USD" }],
+    });
+    assert.equal(created.ok, true, created.error);
+    const handle = created.data.product.handle;
+    const item = () => [...f.square.objects.values()].find((o) => o.type === "ITEM" && o.item_data?.name === "Lounge set");
+    assert.equal((item().item_data.item_options ?? []).length, 0, "starts with no declared options");
+
+    const updated = await approvedCall(f, "catalog.update_product", {
+      handle,
+      variations: [
+        { title: "M, Brown", price_minor: 9000, currency: "USD", option_values: { Size: "M", Color: "Brown" } },
+        { title: "OS, Brown", price_minor: 9000, currency: "USD", option_values: { Size: "OS", Color: "Brown" } },
+      ],
+    });
+    assert.equal(updated.ok, true, updated.error);
+    const declared = item().item_data.item_options ?? [];
+    assert.equal(declared.length, 2, "Size and Color are now declared");
+    for (const v of item().item_data.variations) {
+      assert.equal(v.item_variation_data.item_option_values.length, 2, "every variation, the old one too, carries both values");
+    }
+    const keys = item().item_data.variations.map((v) => v.item_variation_data.item_option_values.map((x) => x.item_option_value_id).join("|"));
+    assert.equal(new Set(keys).size, keys.length, "no two variations are identical");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_218_declare_missing_options__rows_for_variations_a_product_already_has_by_title_match_them_and_add_nothing", async () => {
+  /* "If it already matches, why are you even adding them?" -- the owner's own
+     words. A legacy product's variations were made by hand with titles only
+     ("M, Brown"), no Size/Colour options behind them. The sheet's rows for the
+     same sizes and colours are those variations, not new ones. */
+  const f = await fixture({ actor: "keiko@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  const head = "Style #,Category,Subcategory,Description,Price,Color,Size\n";
+  try {
+    /* One ordinary upload creates the Sets / Lounge Sets categories. */
+    const seed = await draftProductBatch(f.env, {
+      text: head + "004-002-001,Sets,Lounge Sets,Seed set,50.00,,\n",
+      actor: "keiko@vemians.com",
+      role: "manager", mode: "add",
+    });
+    assert.equal(seed.created.length, 1, JSON.stringify(seed));
+    const categoryId = f.mirror("SELECT category_id FROM mirror_product WHERE title = 'Seed set'")[0].category_id;
+    /* The legacy product: variations known by title only, no Size/Colour options behind them. */
+    const legacy = await approvedCall(f, "catalog.create_product", {
+      title: "Lounge set",
+      category_id: categoryId,
+      import_style_number: "004-002-004",
+      variations: [
+        { title: "M, Brown", price_minor: 9000, currency: "USD" },
+        { title: "OS, Brown", price_minor: 9000, currency: "USD" },
+      ],
+    });
+    assert.equal(legacy.ok, true, legacy.error);
+    const legacyId = f.mirror("SELECT id FROM mirror_product WHERE title = 'Lounge set'")[0].id;
+    const countVariants = () => f.mirror("SELECT COUNT(*) AS n FROM mirror_variant WHERE product_id = ?", legacyId)[0].n;
+    assert.equal(countVariants(), 2);
+
+    const again = await draftProductBatch(f.env, {
+      text: head + "004-002-004,Sets,Lounge Sets,Lounge set,90.00,Brown,M\n004-002-004,Sets,Lounge Sets,Lounge set,90.00,Brown,\n",
+      actor: "keiko@vemians.com",
+      role: "manager", mode: "update",
+    });
+    assert.equal(again.ready.length, 0, JSON.stringify(again.ready));
+    assert.equal(again.skipped.length, 0, JSON.stringify(again.skipped));
+    assert.equal(again.created.length, 0, `nothing is added or changed: ${JSON.stringify(again.created)}`);
+    assert.equal(again.unchanged.length, 1, "reported as already matching");
+    assert.equal(countVariants(), 2, "no variation was added");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});

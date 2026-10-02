@@ -9679,6 +9679,21 @@ that does not trace to one of these is a process failure (see §12).
     outcome, resulting ID and the note, is already kept in the upload ledger (`ingest_job`/`ingest_row`), which
     is how a later update is traced back to its sheet.
 
+150. **`Test-PRD-P0-218-declare_missing_options`** — A resend of "Lounge set" (style 004-002-004) came back "the variations
+    \"M, Brown\" and \"OS, Brown\" would carry the same size/colour values". The owner: "If it already matches, why
+    are you even adding them?" The product already had those two variations, made by hand with titles only and no
+    Size/Colour options behind them, so the resubmit matcher could not recognise them; the sheet's rows were added
+    as new variations, and the missing option values were filled with the same neutral values on both. Three
+    fixes. (1) A sheet row now matches an existing variation by its TITLE when that variation has no options of
+    its own: the values the row names ("Brown", "M"), in any order and case, are the values the title names. A
+    row for a variation another row already matched is not matched twice. A row that matches and changes nothing
+    adds nothing and is reported as "already matches". (2) When variations name an option the item does not
+    declare yet (a product that never declared Size), the option is declared and every variation carries a value
+    for it, so a size is never silently dropped. (3) A hand-made variation filling a newly declared option takes
+    the existing value that a word of its title IS ("M" is a size, "Brown" a colour) before falling back to the
+    neutral one ("OS" for a size, "N/A" otherwise), so two such variations do not collapse into one identical
+    pair; a genuine collision is still refused plainly (P0-216).
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
