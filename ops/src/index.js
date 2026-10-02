@@ -1274,6 +1274,12 @@ async function ops(request, env, path) {
       return json({ error: result.error || result.denied || `That ${summaryNoun} change was refused.` }, 400);
     }
 
+    /* A move can be a merge that works in batches: the page asks again
+       while any products remain, so it needs the count, not a redirect. */
+    if (toolName === "catalog.move_category") {
+      return json({ ok: true, remaining: Number(result.data?.remaining ?? 0) });
+    }
+
     return new Response(null, { status: 303, headers: { Location: "/admin" } });
   }
 

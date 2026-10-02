@@ -131,6 +131,10 @@ import { contentTypeFor, isOurMediaKey, mediaKey, squareAcceptsType, STORABLE_IM
  * resolves to nothing — the product has no style_id yet, same as before
  * a category existed to give it one.
  */
+/* How many products one catalog.move_category merge call moves before it
+   reports how many are left (one Worker request has a Square-call budget). */
+const MERGE_BATCH_SIZE = 15;
+
 async function resolveStyleId(db, { categoryId = null }) {
   if (!categoryId) return { styleId: undefined, note: null };
   const codes = await styleIdCodesFor(db, categoryId);
@@ -1634,7 +1638,11 @@ export const catalogWriteTools = {
       "whose prefix changes; each keeps its own sequence number). A real Square write for the category " +
       "itself (category_data.parent_category). Refuses a top-level category (top-level and subcategory " +
       "numbers are separate pools), a destination that is itself a subcategory, a move to the parent it " +
-      "already has, and a destination that already holds a sibling of the same name.",
+      "already has. A destination that already holds a subcategory of the same name is a MERGE, not an " +
+      "error: every product in the moved one goes into the existing one (each takes a fresh style_id in it), " +
+      "then the emptied one is removed, so the same name never exists twice under one parent. A merge works " +
+      "in batches of 15 products per call and reports how many remain; call again until none do. It refuses " +
+      "to merge a subcategory that still has subcategories of its own.",
     undo: "another catalog.move_category call, back to the previous parent",
     schema: {
       category_id: { type: "string", required: true, format: "id" },
@@ -1668,15 +1676,20 @@ export const catalogWriteTools = {
         };
       }
 
-      const clash = categories.find(
+      /* "If I move denim jackets under jackets and it already has denim
+         jackets, I want to merge the two lists. I don't want you to give me
+         an error." -- the owner's own words. */
+      const twin = categories.find(
         (c) => c.id !== category.id && c.parent_id === parent.id && c.name.toLowerCase() === category.name.toLowerCase(),
       );
-      if (clash) {
-        return { denied: `"${parent.name}" already has a subcategory named "${clash.name}". Rename one of them first.` };
+      if (twin && categories.some((c) => c.parent_id === category.id)) {
+        return {
+          denied: `"${category.name}" has subcategories of its own, so it cannot be merged into the existing "${twin.name}" under "${parent.name}". Move those first.`,
+        };
       }
 
       /* Products in it and in anything already nested under it (an older
-         tree may still have some) all keep their category. */
+         tree may still have some) all keep their category on a plain move. */
       const subtree = new Set([category.id]);
       let grew = true;
       while (grew) {
@@ -1694,23 +1707,68 @@ export const catalogWriteTools = {
         .bind(...subtree)
         .first("n");
       const oldParent = categories.find((c) => c.id === category.parent_id);
+      const noun = `${inside} product${inside === 1 ? "" : "s"}`;
       return {
         ok: true,
-        summary:
-          `move "${category.name}" from "${oldParent?.name ?? "?"}" to "${parent.name}"` +
-          ` -- ${inside} product${inside === 1 ? "" : "s"} inside it get their style_id prefix corrected`,
-        preflight: { categoryId: category.id, parentId: parent.id, categoryName: category.name },
+        summary: twin
+          ? `merge "${category.name}" (from "${oldParent?.name ?? "?"}") into the existing "${twin.name}" under "${parent.name}" -- ${noun} move into it and get new style IDs there, then "${category.name}" is removed`
+          : `move "${category.name}" from "${oldParent?.name ?? "?"}" to "${parent.name}" -- ${noun} inside it get their style_id prefix corrected`,
+        preflight: { categoryId: category.id, parentId: parent.id, categoryName: category.name, mergeIntoId: twin?.id ?? null },
       };
     },
     async run(_args, t) {
-      const out = await t.square.moveCategory({ categoryId: t.preflight.categoryId, parentId: t.preflight.parentId });
-      const { updated: styleIdsUpdated, errors } = await t.square.resyncStyleIdPrefixes();
+      const { categoryId, parentId, mergeIntoId } = t.preflight;
+      if (!mergeIntoId) {
+        const out = await t.square.moveCategory({ categoryId, parentId });
+        const { updated: styleIdsUpdated, errors } = await t.square.resyncStyleIdPrefixes();
+        return {
+          moved: true,
+          merged: false,
+          remaining: 0,
+          category: out.category,
+          style_ids_updated: styleIdsUpdated,
+          style_id_errors: errors,
+          mirror_sync: out.sync,
+          authority: "square",
+        };
+      }
+
+      /* A merge: every product goes into the existing subcategory and takes
+         the next free style_id in it (its permanent sheet style number is
+         untouched), then the emptied one is removed. One Worker request can
+         only make so many Square calls, so it works through a batch and
+         reports how many are left; the caller asks again until none are. */
+      const batch = await t.db.catalog_mirror
+        .prepare("SELECT handle FROM mirror_product_index WHERE category_id = ? ORDER BY handle LIMIT ?")
+        .bind(categoryId, MERGE_BATCH_SIZE)
+        .all();
+      let movedCount = 0;
+      const errors = [];
+      for (const p of batch.results ?? []) {
+        try {
+          const resolved = await resolveStyleId(t.db.catalog_mirror, { categoryId: mergeIntoId });
+          await t.square.updateProduct({ handle: p.handle, categoryId: mergeIntoId, styleId: resolved.styleId });
+          movedCount += 1;
+        } catch (err) {
+          console.error(`ERROR catalog.move_category: merging ${p.handle} failed — ${err.message}`);
+          errors.push({ handle: p.handle, error: err.message });
+        }
+      }
+      const remaining = await t.db.catalog_mirror
+        .prepare("SELECT COUNT(*) AS n FROM mirror_product_index WHERE category_id = ?")
+        .bind(categoryId)
+        .first("n");
+      let removed = false;
+      if (remaining === 0 && errors.length === 0) {
+        await t.square.removeCategory({ categoryId });
+        removed = true;
+      }
       return {
-        moved: true,
-        category: out.category,
-        style_ids_updated: styleIdsUpdated,
-        style_id_errors: errors,
-        mirror_sync: out.sync,
+        moved: removed,
+        merged: removed,
+        merged_products: movedCount,
+        remaining,
+        errors,
         authority: "square",
       };
     },
