@@ -1325,8 +1325,6 @@ const CARET_ICON = `<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden=
    or like a trash icon button." A plain outline can, same stroke-only
    style as every other icon on this tile — never filled, so it never
    reads as already-pressed/active the way a solid glyph would. */
-const MOVE_ICON = `<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">` +
-  `<path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const TRASH_ICON = `<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">` +
   `<path d="M3.5 4.5h9M6 4.5V3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5M6.5 7.5v4M9.5 7.5v4" ` +
   `fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>` +
@@ -3505,12 +3503,22 @@ function renderAdminCategoryNodes(categories, parentId, categoryProductCountsByI
         : hasProducts
           ? `<button type="button" class="admin-remove-btn" disabled aria-label="Remove ${esc(c.name)}" title="Move its products to a different category first">${TRASH_ICON}</button>`
           : `<button type="button" class="admin-remove-btn" data-category-id="${esc(c.id)}" aria-label="Remove ${esc(c.name)}" title="Remove ${esc(c.name)}">${TRASH_ICON}</button>`;
+      const nameInputHtml = `<input type="text" class="admin-category-name" name="name" value="${esc(c.name)}" maxlength="60" title="Rename ${esc(c.name)}">`;
       return `<div class="admin-category-node" style="padding-left: ${parentId === null ? 0 : CATEGORY_NODE_TOGGLE_PX}px">
         <div class="admin-category-row">
           ${toggle}
           <form method="post" action="/admin/categories/rename" class="admin-category-rename-form">
             <input type="hidden" name="category_id" value="${esc(c.id)}">
-            <input type="text" class="admin-category-name" name="name" value="${esc(c.name)}" maxlength="60" title="Rename ${esc(c.name)}">
+            ${
+              isTopLevel
+                ? nameInputHtml
+                : /* "A little button, like a P for parent... a little square icon inside
+                     of the subcategory field name, on the farthest right... so I can
+                     just click on the end and then choose a new parent from a drop
+                     down" -- the owner's own words. Inside the field itself, not
+                     beside it, so the row's other buttons keep their own columns. */
+                  `<span class="admin-category-name-wrap">${nameInputHtml}<button type="button" class="admin-move-btn" data-category-id="${esc(c.id)}" aria-label="Choose a new parent for ${esc(c.name)}" title="Move to a different parent">P</button></span>`
+            }
           </form>
           <form method="post" action="/admin/categories/number" class="admin-category-number-form">
             <input type="hidden" name="category_id" value="${esc(c.id)}">
@@ -3531,11 +3539,8 @@ function renderAdminCategoryNodes(categories, parentId, categoryProductCountsByI
                    shifting remove sideways relative to every
                    top-level row above it. The exact same width, held by
                    an inert spacer instead of a working button, cancels
-                   that out. REVISED: "build the move subcategory control" --
-                   the owner's own words. The move button takes that very
-                   spot, the same width the spacer held, so every row still
-                   lines up. */
-                `<button type="button" class="admin-move-btn" data-category-id="${esc(c.id)}" aria-label="Move ${esc(c.name)} to a different category" title="Move to a different category">${MOVE_ICON}</button>`
+                   that out. */
+                `<span class="admin-category-toggle-spacer"></span>`
           }
         </div>
         <div class="admin-category-children">${renderAdminCategoryNodes(categories, c.id, categoryProductCountsById)}</div>
@@ -5601,7 +5606,7 @@ ${OPS_DARK_CSS}
    red, never orange. */
 .admin-category-numeric-id:invalid { border-color: var(--invalid); }
 .admin-category-name.name-clash { border-color: var(--invalid); }
-.admin-remove-btn, .admin-category-add-toggle, .admin-move-btn {
+.admin-remove-btn, .admin-category-add-toggle {
   flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; padding: 0; font-size: 13px; line-height: 1;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--muted); cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;
@@ -5611,6 +5616,17 @@ ${OPS_DARK_CSS}
    actually be clicked ("I just wanted to disable it so that its
    alignment stays consistent" — the owner's own words). */
 .admin-remove-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+/* The P (for parent) button sits INSIDE a subcategory's name field, at its
+   far right edge; the field leaves room for it. */
+.admin-category-name-wrap { position: relative; display: flex; flex: 1 1 auto; min-width: 0; }
+.admin-category-name-wrap > .admin-category-name { width: 100%; padding-right: 30px; }
+.admin-move-btn {
+  position: absolute; right: 3px; top: 50%; transform: translateY(-50%);
+  width: 20px; height: 20px; padding: 0; font: inherit; font-size: 11px; font-weight: 600; line-height: 1;
+  border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--muted); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.admin-move-btn:hover { color: var(--ink); border-color: var(--ink); }
 /* The list a move button opens: every category the subcategory could go
    under, shown with its full path. */
 .admin-move-menu {
@@ -6238,7 +6254,7 @@ document.body.addEventListener("click", (e) => {
   }
   document.body.appendChild(menu);
   const rect = moveBtn.getBoundingClientRect();
-  menu.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8)) + "px";
+  menu.style.left = Math.max(8, Math.min(rect.right - menu.offsetWidth, window.innerWidth - menu.offsetWidth - 8)) + "px";
   const below = rect.bottom + 4;
   menu.style.top = (below + menu.offsetHeight > window.innerHeight - 8 ? Math.max(8, rect.top - menu.offsetHeight - 4) : below) + "px";
 });
