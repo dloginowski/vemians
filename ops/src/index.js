@@ -1250,11 +1250,11 @@ async function ops(request, env, path) {
          numbers (catalog-writer.js's own subcategoryPlacement). Nothing is
          written; the page then applies the proposed moves one at a time
          through /categories/move. */
-      const { numbers: truth, items: itemTruth } = await sheetKnowledge(env.ASSETS);
+      const { numbers: truth, items: itemTruth, titled } = await sheetKnowledge(env.ASSETS);
       return json({
-        ...(await subcategoryPlacement(env.CATALOG_MIRROR)),
-        refiling: await itemRefiling(env.CATALOG_MIRROR, { truth, itemTruth }),
-        renumbering: await subcategoryRenumbering(env.CATALOG_MIRROR, { ledger: await ledgerSheetNumbers(env.ASSETS), truth }),
+        ...(await subcategoryPlacement(env.CATALOG_MIRROR, { itemTruth, titled })),
+        refiling: await itemRefiling(env.CATALOG_MIRROR, { truth, itemTruth, titled }),
+        renumbering: await subcategoryRenumbering(env.CATALOG_MIRROR, { ledger: await ledgerSheetNumbers(env.ASSETS), truth, itemTruth, titled }),
       });
     } else if (suffix === "/products/refile") {
       /* One item filed under the subcategory its own sheet row names: an existing

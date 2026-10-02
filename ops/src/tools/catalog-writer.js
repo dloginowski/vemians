@@ -78,18 +78,23 @@ export async function listCategories(db) {
  * Read-only. A subcategory with no products is left out (nothing to judge
  * it by).
  */
-export async function subcategoryPlacement(db) {
+export async function subcategoryPlacement(db, { itemTruth = [], titled = [] } = {}) {
   const categories = await listCategories(db);
   const byId = new Map(categories.map((c) => [c.id, c]));
   const topByNumber = new Map(
     categories.filter((c) => !c.parent_id && c.numeric_id != null && c.numeric_id !== "").map((c) => [Number(c.numeric_id), c]),
   );
   const res = await db
-    .prepare("SELECT category_id, import_style_number FROM mirror_product_index WHERE category_id IS NOT NULL")
+    .prepare("SELECT category_id, title, import_style_number FROM mirror_product_index WHERE category_id IS NOT NULL")
     .bind()
     .all();
+  const rowFor = sheetRowLookup({ itemTruth, titled });
   const stats = new Map();
   for (const r of res.results ?? []) {
+    /* an item whose own sheet row names the very category and subcategory it is in
+       is settled by name, whatever its style number's first group says */
+    const leaf = byId.get(r.category_id);
+    if (leaf && sitsWhereItsRowSays(rowFor, r, leaf, byId.get(leaf.parent_id))) continue;
     const st = stats.get(r.category_id) ?? { items: 0, unnumbered: 0, codes: new Map() };
     st.items += 1;
     const m = /^\s*(\d+)\s*-/.exec(String(r.import_style_number ?? ""));
@@ -156,7 +161,7 @@ export async function subcategoryPlacement(db) {
  * Read-only: it plans, the Admin page applies each step through
  * catalog.set_category_number (which also corrects every product's style ID).
  */
-export async function subcategoryRenumbering(db, { ledger = [], truth = [] } = {}) {
+export async function subcategoryRenumbering(db, { ledger = [], truth = [], itemTruth = [], titled = [] } = {}) {
   const categories = await listCategories(db);
   const byId = new Map(categories.map((c) => [c.id, c]));
   const productCounts = await categoryProductCounts(db);
@@ -174,9 +179,20 @@ export async function subcategoryRenumbering(db, { ledger = [], truth = [] } = {
      the sheets name -- a "Blazer" row of a Jackets sheet says nothing about
      Dresses. A name found under exactly one number of its parent is that
      subcategory's number, whatever its items currently say. */
-  const sureTruth = truth.filter((t) => !t.ambiguous);
+  /* A number the sheets use for two things is still decided under a parent when only
+     ONE of those things is under that parent's category: 01-03 heads "Knitted
+     Dresses" (Dresses) and "Vest" (Jacket), so under Dresses it is Knitted Dresses. */
+  const namesUnder = (parentName) =>
+    truth.flatMap((t) =>
+      t.ambiguous
+        ? (() => {
+            const here = t.ambiguous.filter((n) => fold(n.category) === fold(parentName));
+            return here.length === 1 ? [{ top: t.top, mid: t.mid, category: here[0].category, subcategory: here[0].subcategory }] : [];
+          })()
+        : [t],
+    );
   const midsFor = (parentTop, parentName, subName) =>
-    sureTruth
+    namesUnder(parentName)
       .filter((t) => Number(t.top) === parentTop && fold(t.category) === fold(parentName) && fold(t.subcategory) === fold(subName))
       .map((t) => Number(t.mid));
   const ledgerStats = new Map();
@@ -191,13 +207,16 @@ export async function subcategoryRenumbering(db, { ledger = [], truth = [] } = {
     ledgerStats.set(key, st);
   }
   const res = await db
-    .prepare("SELECT category_id, import_style_number FROM mirror_product_index WHERE category_id IS NOT NULL")
+    .prepare("SELECT category_id, title, import_style_number FROM mirror_product_index WHERE category_id IS NOT NULL")
     .bind()
     .all();
+  const rowFor = sheetRowLookup({ itemTruth, titled });
   const stats = new Map();
   for (const r of res.results ?? []) {
     const m = /^\s*(\d+)\s*-\s*(\d+)\s*-/.exec(String(r.import_style_number ?? ""));
     if (!m) continue;
+    const leaf = byId.get(r.category_id);
+    if (leaf && sitsWhereItsRowSays(rowFor, r, leaf, byId.get(leaf.parent_id))) continue;
     const st = stats.get(r.category_id) ?? { items: 0, pairs: new Map() };
     st.items += 1;
     const key = `${Number(m[1])}|${Number(m[2])}`;
@@ -223,13 +242,18 @@ export async function subcategoryRenumbering(db, { ledger = [], truth = [] } = {
     const wanted = new Map();
     const named = new Set();
     const lonely = [];
+    /* subcategories already on the number the sheets (or their items) give them: a
+       number one of these holds is never taken from it to suit another */
+    const settled = new Map();
     for (const sub of siblings) {
       /* The stored sheets name this subcategory under exactly one number of its
          parent's: that number is the answer, whatever its items say. */
       const mids = parentTop === null ? [] : midsFor(parentTop, parentName, sub.name);
       if (mids.length === 1 && mids[0] >= 1 && mids[0] <= 99) {
-        if (String(sub.numeric_id ?? "") === pad(mids[0])) ok += 1;
-        else {
+        if (String(sub.numeric_id ?? "") === pad(mids[0])) {
+          ok += 1;
+          settled.set(pad(mids[0]), sub);
+        } else {
           wanted.set(sub.id, pad(mids[0]));
           named.add(sub.id);
         }
@@ -298,9 +322,18 @@ export async function subcategoryRenumbering(db, { ledger = [], truth = [] } = {
       }
       if (String(sub.numeric_id ?? "") === pad(mid)) {
         ok += 1;
+        settled.set(pad(mid), sub);
         continue;
       }
       wanted.set(sub.id, pad(mid));
+    }
+    /* a number a settled sibling already holds is not taken from it */
+    for (const [id, n] of [...wanted]) {
+      const holder = settled.get(n);
+      if (!holder || holder.id === id) continue;
+      const sub = siblings.find((x) => x.id === id);
+      review.push({ id, name: sub.name, parent: parentName, items: stats.get(id)?.items ?? 0, why: `its items point at number ${n}, but ${holder.name} already holds ${n} and matches its own sheet numbers, so it was left alone` });
+      wanted.delete(id);
     }
     /* two subcategories cannot both be number N */
     const wantedBy = new Map();
@@ -387,7 +420,7 @@ export async function subcategoryRenumbering(db, { ledger = [], truth = [] } = {
  * subcategory that already exists: nothing is guessed, nothing is created, and
  * what cannot be decided is listed. Read-only; the Admin page applies each move through /admin/products/refile.
  */
-export async function itemRefiling(db, { truth = [], itemTruth = [] } = {}) {
+export async function itemRefiling(db, { truth = [], itemTruth = [], titled = [] } = {}) {
   const categories = await listCategories(db);
   const byId = new Map(categories.map((c) => [c.id, c]));
   const fold = (name) =>
@@ -399,12 +432,7 @@ export async function itemRefiling(db, { truth = [], itemTruth = [] } = {}) {
       .replace(/([^s])s$/, "$1");
   const pad = (n) => String(n).padStart(2, "0");
   const entries = new Map(truth.map((t) => [`${Number(t.top)}|${Number(t.mid)}`, t]));
-  const tripleOf = (raw) => {
-    const t = /^\s*(\d+)\s*-\s*(\d+)\s*-\s*(\d+)/.exec(String(raw ?? ""));
-    return t ? `${Number(t[1])}-${Number(t[2])}-${Number(t[3])}` : null;
-  };
-  /* what an item's OWN sheet row says, by its full style number */
-  const own = new Map(itemTruth.map((t) => [tripleOf(t.base), t]));
+  const rowFor = sheetRowLookup({ itemTruth, titled });
   const planned = new Map();
   const res = await db
     .prepare("SELECT handle, title, category_id, import_style_number FROM mirror_product_index WHERE category_id IS NOT NULL AND import_style_number IS NOT NULL")
@@ -416,7 +444,7 @@ export async function itemRefiling(db, { truth = [], itemTruth = [] } = {}) {
   for (const r of res.results ?? []) {
     const m = /^\s*(\d+)\s*-\s*(\d+)\s*-/.exec(String(r.import_style_number ?? ""));
     const cat = byId.get(r.category_id);
-    const row = own.get(tripleOf(r.import_style_number));
+    const row = rowFor(r.title, r.import_style_number);
     if (row && cat) {
       /* The item's own sheet row names its category and subcategory: that is where
          it goes, whatever its style number's first groups say (a row can carry a
@@ -472,9 +500,15 @@ export async function itemRefiling(db, { truth = [], itemTruth = [] } = {}) {
     const top = Number(m[1]);
     const mid = Number(m[2]);
     if (!parent || parent.numeric_id == null || Number(parent.numeric_id) !== top) continue;
-    const entry = entries.get(`${top}|${mid}`);
+    let entry = entries.get(`${top}|${mid}`);
     if (!entry) continue;
     const code = `${pad(top)}-${pad(mid)}`;
+    /* a number two things share is still decided here when only one of them is
+       under this item's own category */
+    if (entry.ambiguous) {
+      const here = entry.ambiguous.filter((n) => fold(n.category) === fold(parent.name));
+      if (here.length === 1) entry = { top: entry.top, mid: entry.mid, category: here[0].category, subcategory: here[0].subcategory };
+    }
     if (entry.ambiguous) {
       /* The sheets use this number for more than one thing. An item sitting in
          one of them is left where it is; one sitting anywhere else is named. */
@@ -2507,4 +2541,38 @@ export function createSquareCatalogWriter(env, opts = {}) {
       return { sync };
     },
   };
+}
+
+
+/* What an item's OWN sheet row says: by its full style number AND title first (two
+   different items can share a number -- a vest and a knitted dress, both
+   001-003-001 -- and are told apart by name), else by the number alone when every
+   row carrying it agrees. `itemTruth`/`titled` are batch.js's sheetKnowledge. */
+function sheetTitleKey(t) {
+  return String(t ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+function sheetTriple(raw) {
+  const t = /^\s*(\d+)\s*-\s*(\d+)\s*-\s*(\d+)/.exec(String(raw ?? ""));
+  return t ? `${Number(t[1])}-${Number(t[2])}-${Number(t[3])}` : null;
+}
+function sheetRowLookup({ itemTruth = [], titled = [] } = {}) {
+  const byTitle = new Map(titled.map((t) => [`${sheetTriple(t.base)}|${sheetTitleKey(t.title)}`, t]));
+  const byBase = new Map(itemTruth.map((t) => [sheetTriple(t.base), t]));
+  return (title, importNumber) => {
+    const base = sheetTriple(importNumber);
+    if (!base) return null;
+    return byTitle.get(`${base}|${sheetTitleKey(title)}`) ?? byBase.get(base) ?? null;
+  };
+}
+const foldSheetName = (name) =>
+  String(name ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/ies$/, "y")
+    .replace(/(ss|x|ch|sh)es$/, "$1")
+    .replace(/([^s])s$/, "$1");
+/* Is this item already where its own sheet row says (same category, same subcategory)? */
+function sitsWhereItsRowSays(rowFor, product, leaf, parent) {
+  const row = rowFor(product.title, product.import_style_number);
+  return Boolean(row && parent && foldSheetName(row.category) === foldSheetName(parent.name) && foldSheetName(row.subcategory) === foldSheetName(leaf.name));
 }

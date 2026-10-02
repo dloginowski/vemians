@@ -12106,10 +12106,16 @@ check("test_PRD_P0_222_sheet_truth__an_item_is_refiled_only_when_the_sheets_agre
 
   /* sheets that disagree about the number: the item is left where it is, or named */
   const ambiguous = await itemRefiling(db, {
+    truth: [...truth.slice(0, 1), { top: 1, mid: 5, ambiguous: [{ category: "Dresses", subcategory: "Shirt Dresses" }, { category: "Dresses", subcategory: "Capes" }] }],
+  });
+  assert.deepEqual(ambiguous.moves, [], "a number two things under the same category share moves nothing");
+  assert.ok(ambiguous.review.some((r) => /Gala/.test(r.name) && /Shirt Dresses \(Dresses\) and Capes \(Dresses\)/.test(r.why)), JSON.stringify(ambiguous.review));
+  /* ...but a number whose other claimant is under ANOTHER category is decided under this one */
+  const split = await itemRefiling(db, {
     truth: [...truth.slice(0, 1), { top: 1, mid: 5, ambiguous: [{ category: "Dresses", subcategory: "Shirt Dresses" }, { category: "Jackets", subcategory: "Blazers" }] }],
   });
-  assert.deepEqual(ambiguous.moves, [], "an ambiguous number moves nothing");
-  assert.ok(ambiguous.review.some((r) => /Gala/.test(r.name) && /Shirt Dresses \(Dresses\) and Blazers \(Jackets\)/.test(r.why)), JSON.stringify(ambiguous.review));
+  assert.equal(split.moves.length, 1, JSON.stringify(split));
+  assert.equal(split.moves[0].to.id, shirt.id, "under Dresses, 01-05 is Shirt Dresses");
   /* ...and an item already sitting in one of the candidates is not bothered */
   f.mirrorDb._raw.prepare("UPDATE mirror_product SET import_style_number = '001-004-001'").run();
   const sits = await itemRefiling(db, { truth: [{ top: 1, mid: 4, ambiguous: [{ category: "Dresses", subcategory: "Evening Dresses" }, { category: "Dresses", subcategory: "Gowns" }] }] });
@@ -12161,7 +12167,7 @@ check("test_PRD_P0_222_sheet_truth__an_item_goes_where_its_own_sheet_row_says_ev
   assert.equal(byBase.get("001-003-003").subcategory, "Knitted Dresses");
   assert.equal(byBase.has("001-009-001"), false, "a full number two different rows share says nothing about either");
   assert.ok(known.numbers.find((n) => n.top === 1 && n.mid === 3).ambiguous, "while the number 01-03 as a whole is ambiguous");
-  assert.deepEqual((await sheetKnowledge(null)), { numbers: [], items: [] });
+  assert.deepEqual((await sheetKnowledge(null)), { numbers: [], items: [], titled: [] });
 
   const { f, evening } = await tweakedDresses();
   const { itemRefiling } = await import("../src/tools/catalog-writer.js");
@@ -12225,4 +12231,55 @@ check("test_PRD_P0_222_sheet_truth__a_subcategory_the_sheets_name_may_be_made_be
   const trusted = await approvedCall(f, "catalog.create_category", { name: "Casual Shirt Dress", parent_id: dresses.id, numeric_id: "09", reason: "test" }, { ...f.ctx, allowNearDuplicate: true });
   assert.equal(trusted.ok, true, trusted.error);
   assert.ok(f.categories().some((c) => c.name === "Casual Shirt Dresses" && c.parent_id === dresses.id && c.numeric_id === "09"), "made, numbered as asked");
+});
+
+
+check("test_PRD_P0_222_sheet_truth__two_items_sharing_a_full_number_are_told_apart_by_title_and_a_shared_number_is_decided_under_its_own_category", async () => {
+  /* The second run left two vests in Dresses, and renumbered Knitted Dresses 03 -> 10 to
+     make room for them: 001-003-001 heads both a vest and a knitted dress in the
+     sheets, and 01-03 is "Knitted Dresses" under Dresses but "Vest" under Jacket. */
+  const { sheetKnowledge } = await import("../src/batch.js");
+  const csv =
+    "title,category,subcategory,price,style id\n" +
+    "Gala gown,Jacket,Vests,10,001-003-001\n" +
+    "Ball gown,Dresses,Knitted Dresses,10,001-003-001\n" +
+    "Plain dress,Dresses,Knitted Dresses,10,001-003-002\n";
+  const known = await sheetKnowledge(await assetsFixtureWithRow({ extracted_text: csv }));
+  assert.equal(known.items.some((i) => i.base === "001-003-001"), false, "by number alone that item is ambiguous");
+  const vest = known.titled.find((t) => t.title === "Gala gown");
+  assert.equal(vest.category, "Jacket", "by number AND title it is not");
+  assert.equal(known.titled.find((t) => t.title === "Ball gown").subcategory, "Knitted Dresses");
+
+  const { f, evening, shirt, sub } = await tweakedDresses();
+  const { itemRefiling, subcategoryRenumbering, subcategoryPlacement } = await import("../src/tools/catalog-writer.js");
+  const db = f.env.CATALOG_MIRROR;
+  const jackets = await approvedCall(f, "catalog.create_category", { name: "Jackets", numeric_id: "03", reason: "test" });
+  const vests = await approvedCall(f, "catalog.create_category", { name: "Vests", parent_id: jackets.data.category.id, numeric_id: "01", reason: "test" });
+  assert.equal(vests.ok, true, vests.error);
+  /* the "Gala gown" is really the vest and sits in Evening Dresses; "Ball gown" is the knitted dress */
+  f.mirrorDb._raw.prepare("UPDATE mirror_product SET import_style_number = '001-003-001' WHERE title LIKE '%Gala%'").run();
+  f.mirrorDb._raw.prepare("UPDATE mirror_product SET import_style_number = '001-003-001' WHERE title LIKE '%Ball%'").run();
+  const knit = await approvedCall(f, "catalog.create_category", { name: "Knitted Dresses", parent_id: sub("Dresses").id, numeric_id: "03", reason: "test" }, { ...f.ctx, allowNearDuplicate: true });
+  assert.equal(knit.ok, true, knit.error);
+  const plan = await itemRefiling(db, { itemTruth: known.items, titled: known.titled });
+  const where = Object.fromEntries(plan.moves.map((m) => [m.title, m.to.id]));
+  assert.equal(where["Gala gown"], vests.data.category.id, "the vest goes to Jackets");
+  assert.equal(where["Ball gown"], knit.data.category.id, "and the knitted dress with the very same number goes to Knitted Dresses, not after the vest");
+
+  /* Vests under Jackets holds the two vests (numbered as dresses) and a jacket numbered properly: by number
+     alone the items "disagree"; each one's own row says Jacket, so they do not */
+  f.mirrorDb._raw.prepare("UPDATE mirror_product SET category_id = ? WHERE title LIKE '%Gala%' OR title LIKE '%Poplin%'").run(vests.data.category.id);
+  f.mirrorDb._raw.prepare("UPDATE mirror_product SET import_style_number = '003-001-001' WHERE title LIKE '%Poplin%'").run();
+  const bare = await subcategoryPlacement(db);
+  assert.ok(bare.review.some((r) => r.id === vests.data.category.id && /disagree/.test(r.why)), "by number alone: " + JSON.stringify(bare.review));
+  const placement = await subcategoryPlacement(db, { itemTruth: known.items, titled: known.titled });
+  assert.ok(!placement.review.some((r) => r.id === vests.data.category.id && /disagree/.test(r.why)), JSON.stringify(placement.review));
+  void evening;
+
+  /* a shared number is decided under the category that has only one claimant: Knitted Dresses keeps 03 */
+  const truth = [{ top: 1, mid: 3, ambiguous: [{ category: "Dresses", subcategory: "Knitted Dresses" }, { category: "Jacket", subcategory: "Vests" }] }];
+  const renumber = await subcategoryRenumbering(db, { truth, itemTruth: known.items, titled: known.titled });
+  assert.equal(renumber.steps.find((s) => s.name === "Knitted Dresses"), undefined, "it stays on 03");
+  assert.ok(!renumber.steps.some((s) => /make room for Knitted/.test(s.madeRoomFor ?? "") && s.name === "Knitted Dresses"));
+  void shirt;
 });
