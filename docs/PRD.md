@@ -9825,6 +9825,13 @@ that does not trace to one of these is a process failure (see §12).
     the Admin page ends in a page reload, which collapsed every category. The reload now goes through one helper that
     remembers which categories are open (and the scroll position) in the session and opens them again on the next
     load; every reload on the Admin page uses it.
+    **The second run, read.** It filed three vests under Jackets but left two in Dresses and renumbered Knitted Dresses
+    03 → 10 "to make room" for the leftover Vests. The sheets reuse whole numbers (001-003-001 is both a vest and a
+    knitted dress), so `sheetKnowledge` also returns each item by number AND title (`titled`), and an item is found by
+    that first; a number two things share is decided under a category when only one of them is under it (01-03 is
+    "Knitted Dresses" under Dresses and "Vest" under Jacket); an item that already sits where its own row says no longer
+    counts toward the "its items disagree" and renumbering readings; and a subcategory already on the number its sheets
+    give it is never moved off it to suit another — the other one is listed instead.
     A stray ")" shipped in the Check placement code once broke the whole Admin script (no subcategory expanded, no
     button worked) while every pattern test still passed; the Admin page's inline scripts are now parsed by a test.
 

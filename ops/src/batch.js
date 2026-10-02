@@ -601,7 +601,7 @@ export function sheetNamesFromText(text) {
     const subcategory = String(pick(record, SUBCATEGORY_KEYS) ?? "").trim();
     if (!category || !subcategory) continue;
     const [top, mid] = base.split("-").map(Number);
-    out.push({ base, top, mid, category, subcategory });
+    out.push({ base, title: String(pick(record, TITLE_KEYS) ?? "").trim(), top, mid, category, subcategory });
   }
   return out;
 }
@@ -615,7 +615,7 @@ export async function sheetTruth(db) {
    subcategory its own row names -- only when every row carrying that exact number
    agrees; a number two different rows share says nothing about either. */
 export async function sheetKnowledge(db) {
-  if (!db) return { numbers: [], items: [] };
+  if (!db) return { numbers: [], items: [], titled: [] };
   let files = [];
   try {
     const res = await db
@@ -627,7 +627,7 @@ export async function sheetKnowledge(db) {
       .all();
     files = res.results ?? [];
   } catch {
-    return { numbers: [], items: [] };
+    return { numbers: [], items: [], titled: [] };
   }
   /* Every stored sheet row counts. A number is only "named" when ALL of them
      agree on both its category and its subcategory; the sheets are not always
@@ -637,6 +637,8 @@ export async function sheetKnowledge(db) {
   const fold = (t) => singularCategoryWord(String(t).trim().toLowerCase());
   const seen = new Map();
   const bases = new Map();
+  const titles = new Map();
+  const titleKey = (t) => String(t ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   for (const f of files) {
     for (const r of sheetNamesFromText(f.extracted_text)) {
       const key = `${r.top}|${r.mid}`;
@@ -647,6 +649,12 @@ export async function sheetKnowledge(db) {
       const own = bases.get(r.base) ?? new Map();
       if (!own.has(k)) own.set(k, { base: r.base, category: r.category, subcategory: r.subcategory });
       bases.set(r.base, own);
+      if (r.title) {
+        const tk = `${r.base}|${titleKey(r.title)}`;
+        const both = titles.get(tk) ?? new Map();
+        if (!both.has(k)) both.set(k, { base: r.base, title: r.title, category: r.category, subcategory: r.subcategory });
+        titles.set(tk, both);
+      }
     }
   }
   const numbers = [...seen.values()].map((names) => {
@@ -654,7 +662,10 @@ export async function sheetKnowledge(db) {
     return all.length === 1 ? all[0] : { top: all[0].top, mid: all[0].mid, ambiguous: all.map((n) => ({ category: n.category, subcategory: n.subcategory })) };
   });
   const items = [...bases.values()].filter((own) => own.size === 1).map((own) => [...own.values()][0]);
-  return { numbers, items };
+  /* the same, for one full number AND one title: two different items that share a
+     number (a vest and a knitted dress, both 001-003-001) are told apart by name */
+  const titled = [...titles.values()].filter((b) => b.size === 1).map((b) => [...b.values()][0]);
+  return { numbers, items, titled };
 }
 
 /* True when the sheets' own rows name this subcategory under this category
