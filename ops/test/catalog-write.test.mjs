@@ -2406,8 +2406,78 @@ check("test_PRD_P0_213_move_subcategory__the_refusals_a_top_level_category_the_s
   assert.match(await denied({ category_id: casual.id, parent_id: inner.id }), /is itself a subcategory/);
   assert.match(await denied({ category_id: casual.id, parent_id: casual.id }), /is itself a subcategory/);
   assert.match(await denied({ category_id: inner.id, parent_id: twin.id }), /is itself a subcategory/);
-  assert.match(await denied({ category_id: casual.id, parent_id: knitwear.id }), /already has a subcategory named "Casuals"/);
+  /* A same-named subcategory at the destination is a MERGE now, not an
+     error; this one still has "Inner" under it, so it cannot be merged. */
+  assert.match(await denied({ category_id: casual.id, parent_id: knitwear.id }), /cannot be merged into the existing/);
   assert.match(await denied({ category_id: casual.id, parent_id: "nope" }), /no category/);
+});
+
+async function mergeFixture(extraProducts = 0) {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const knitwear = f.categories().find((c) => c.name === "Knitwear");
+  await approvedCall(f, "catalog.set_category_number", { category_id: outerwear.id, numeric_id: "01" });
+  await approvedCall(f, "catalog.set_category_number", { category_id: knitwear.id, numeric_id: "02" });
+  const mover = (await approvedCall(f, "catalog.create_category", { name: "Denim Jackets", parent_id: outerwear.id, reason: "test" })).data.category;
+  await approvedCall(f, "catalog.set_category_number", { category_id: mover.id, numeric_id: "05" });
+  const twin = (await approvedCall(f, "catalog.create_category", { name: "Denim Jackets", parent_id: knitwear.id, reason: "test" })).data.category;
+  await approvedCall(f, "catalog.set_category_number", { category_id: twin.id, numeric_id: "06" });
+  const make = async (title, categoryId) => {
+    const r = await approvedCall(f, "catalog.create_product", { ...COAT, title, category_id: categoryId });
+    assert.equal(r.ok, true, r.error);
+    return r.data.product;
+  };
+  const existing = await make("Existing Denim", twin.id);
+  const moving = [];
+  for (let i = 0; i < 1 + extraProducts; i++) moving.push(await make(`Moving Denim ${i + 1}`, mover.id));
+  return { f, outerwear, knitwear, mover, twin, existing, moving };
+}
+
+check("test_PRD_P0_213_move_subcategory__moving_onto_a_same_named_subcategory_merges_the_two_lists_instead_of_refusing", async () => {
+  /* "If I move denim jackets under jackets and it already has denim jackets,
+     I want to merge the two lists. I don't want you to give me an error." */
+  const { f, knitwear, mover, twin, existing, moving } = await mergeFixture(2);
+  assert.equal(moving[0].style_id, "01-05-001", "sanity: before the merge it numbers under Outerwear");
+  assert.equal(existing.style_id, "02-06-001");
+
+  const merged = await approvedCall(f, "catalog.move_category", { category_id: mover.id, parent_id: knitwear.id });
+  assert.equal(merged.ok, true, merged.error);
+  assert.equal(merged.data.merged, true);
+  assert.equal(merged.data.merged_products, 3);
+  assert.equal(merged.data.remaining, 0);
+
+  const rows = f.mirror("SELECT title, category_id, style_id, import_style_number FROM mirror_product ORDER BY title");
+  const byTitle = Object.fromEntries(rows.map((r) => [r.title, r]));
+  for (const title of ["Existing Denim", "Moving Denim 1", "Moving Denim 2", "Moving Denim 3"]) {
+    assert.equal(byTitle[title].category_id, twin.id, `${title} is in the one remaining list`);
+  }
+  assert.equal(byTitle["Existing Denim"].style_id, "02-06-001", "what was already there keeps its style ID");
+  const movedIds = ["Moving Denim 1", "Moving Denim 2", "Moving Denim 3"].map((t) => byTitle[t].style_id).sort();
+  assert.deepEqual(movedIds, ["02-06-002", "02-06-003", "02-06-004"], "the merged-in products take the next free numbers, none repeated");
+
+  /* The emptied one is removed from Square. */
+  const mine = f.mirror("SELECT external_ref FROM mirror_category WHERE id = ?", mover.id)[0].external_ref;
+  assert.ok(f.calls().some((c) => c.method === "DELETE" && c.path.endsWith(mine)), "the emptied subcategory is deleted in Square");
+});
+
+check("test_PRD_P0_213_move_subcategory__a_merge_works_in_batches_and_reports_how_many_are_left", async () => {
+  /* One Worker request has a Square-call budget, so a merge moves 15 products
+     and says how many remain; the page asks again until none do. */
+  const { f, knitwear, mover, twin, moving } = await mergeFixture(15);
+  assert.equal(moving.length, 16);
+  const first = await approvedCall(f, "catalog.move_category", { category_id: mover.id, parent_id: knitwear.id });
+  assert.equal(first.ok, true, first.error);
+  assert.equal(first.data.merged, false, "not finished: the old subcategory is kept until it is empty");
+  assert.equal(first.data.remaining, 1);
+  assert.equal(f.mirror("SELECT COUNT(*) AS n FROM mirror_product WHERE category_id = ?", mover.id)[0].n, 1);
+
+  const second = await approvedCall(f, "catalog.move_category", { category_id: mover.id, parent_id: knitwear.id });
+  assert.equal(second.ok, true, second.error);
+  assert.equal(second.data.merged, true);
+  assert.equal(second.data.remaining, 0);
+  assert.equal(f.mirror("SELECT COUNT(*) AS n FROM mirror_product WHERE category_id = ?", twin.id)[0].n, 17);
+  const ids = f.mirror("SELECT style_id FROM mirror_product WHERE category_id = ?", twin.id).map((r) => r.style_id);
+  assert.equal(new Set(ids).size, ids.length, "no two products ended up with the same style ID");
 });
 
 check("test_PRD_P0_138_nested_categories__a_subcategory_match_wins_over_a_top_level_match", async () => {

@@ -4080,22 +4080,24 @@ check("test_PRD_P0_213_move_subcategory__the_admin_route_reaches_the_tool_and_re
   assert.equal(staff.status, 403);
 });
 
-check("test_PRD_P0_213_move_subcategory__only_subcategory_rows_get_a_p_button_inside_the_name_field", async () => {
-  /* "A little button, like a P for parent... a little square icon inside of
-     the subcategory field name, on the farthest right... so I can just click
-     on the end and then choose a new parent from a drop down." */
+check("test_PRD_P0_213_move_subcategory__only_subcategory_rows_get_an_arrow_button_inside_the_name_field", async () => {
+  /* "A little square icon inside of the subcategory field name, on the
+     farthest right... so I can just click on the end and then choose a new
+     parent from a drop down." REVISED: "I like those arrows more than the P's.
+     Bring back those arrows. Get rid of the P's." */
   const mirror = mirrorDb();
   seedProduct(mirror);
   seedCategoryTree(mirror);
   const body = await (await get("/admin", MANAGER, env(mirror))).text();
   const buttons = body.match(/class="admin-move-btn" data-category-id="[^"]+"/g) ?? [];
   assert.equal(buttons.length, 2, "Coats and Casual are subcategories; Outerwear and Knitwear are top-level");
-  assert.ok(!/class="admin-move-btn" data-category-id="cat1"/.test(body), "a top-level category has no P button");
+  assert.ok(!/class="admin-move-btn" data-category-id="cat1"/.test(body), "a top-level category has no move button");
   assert.match(
     body,
-    /<span class="admin-category-name-wrap"><input type="text" class="admin-category-name"[^>]*><button type="button" class="admin-move-btn" data-category-id="cat3"[^>]*>P<\/button><\/span>/,
-    "the P button is inside the name field's own wrapper, after the input",
+    /<span class="admin-category-name-wrap"><input type="text" class="admin-category-name"[^>]*><button type="button" class="admin-move-btn" data-category-id="cat3"[^>]*><svg[^>]*>[\s\S]*?<\/svg><\/button><\/span>/,
+    "the arrow button is inside the name field's own wrapper, after the input",
   );
+  assert.doesNotMatch(body, /class="admin-move-btn"[^>]*>P<\/button>/, "no P button any more");
   assert.match(body, /\.admin-move-btn \{\s*position: absolute; right: 3px;/, "pinned to the field's far right edge");
   assert.match(body, /\.admin-category-name-wrap > \.admin-category-name \{ width: 100%; padding-right: 30px; \}/, "and the field leaves room for it");
   const script = body.slice(body.indexOf("<script>"), body.lastIndexOf("</script>"));
@@ -4105,6 +4107,8 @@ check("test_PRD_P0_213_move_subcategory__only_subcategory_rows_get_a_p_button_in
     /querySelectorAll\("\.admin-section-body > \.admin-category-node"\)\]\.filter\(\(n\) => n !== currentParent\)/,
     "the list is the TOP-LEVEL categories only (never a subcategory), minus the one it is already under",
   );
+  assert.match(script, /window\.confirm\(adminNodeName\(node\) \+ " already exists under "/, "a same-named subcategory at the destination asks once to merge, never errors");
+  assert.match(script, /data\.remaining > 0/, "a merge that works in batches is asked for again while products remain");
 });
 
 check("test_PRD_P0_138_nested_categories__admin_staff_cannot_reach_any_of_the_post_routes", async () => {

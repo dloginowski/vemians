@@ -9584,21 +9584,27 @@ that does not trace to one of these is a process failure (see §12).
     `catalog.move_category` (manager) re-parents a SUBCATEGORY in Square (`category_data.parent_category`,
     `moveCategory` in `catalog-writer.js`, the same GET-then-POST-whole-object shape rename uses) and in the
     mirror. The subcategory keeps its name and its own number (subcategory numbers are unique across the whole
-    tree, so a move cannot collide); every product in it, and in anything nested under it, stays in it, and
-    each one's style_id PREFIX is corrected for the new top-level category through the same
-    `resyncStyleIdPrefixes` pass renumbering already runs, keeping each sequence number. Refused before any
-    approval: a top-level category (top-level and subcategory numbers are separate pools), a destination that is
-    itself a subcategory ("we do not want to have nested subcategories... you should only be pointing me to
-    parent top-level categories. Do not parent under subcategories ever" -- the owner's own words, so the
-    tool refuses it whatever page or caller asks, and a category can never end up under itself or its own
-    descendants), a move to the parent it already has, and a destination that already holds a sibling of the
-    same name. Admin gets a small square "P" (for parent) button on every
+    tree, so a move cannot collide); every product in it stays in it, and each one's style_id PREFIX is
+    corrected for the new top-level category through the same `resyncStyleIdPrefixes` pass renumbering already
+    runs, keeping each sequence number. Refused before any approval: a top-level category (top-level and
+    subcategory numbers are separate pools), a destination that is itself a subcategory ("we do not want to
+    have nested subcategories... you should only be pointing me to parent top-level categories. Do not parent
+    under subcategories ever" -- the owner's own words, so the tool refuses it whatever page or caller asks),
+    and a move to the parent it already has. A destination that already holds a subcategory of the SAME NAME is
+    a MERGE, not an error ("if I move denim jackets under jackets and it already has denim jackets, I want to
+    merge the two lists. I don't want you to give me an error"): every product in the moved one goes into the
+    existing one and takes the next free style_id there (what was already there keeps its own; every product's
+    permanent sheet style number is untouched), then the emptied one is removed in Square. A merge moves 15
+    products per call (one Worker request has a Square-call budget), keeps the old subcategory until it is empty
+    and reports how many remain, and the page asks again until none do; a moved subcategory that still has
+    subcategories of its own is refused for a merge. Admin gets a small square arrow button on every
     subcategory row, INSIDE its name field at the far right ("a little square icon inside of the subcategory
     field name, on the farthest right... so I can just click on the end and then choose a new parent from a
-    drop down" -- the owner's own words; the field leaves room for it, the row's other buttons and the
-    trailing spacer keep their columns); it opens a drop-down of the TOP-LEVEL categories it could go under
-    (never a subcategory, and not the one it is already under), and picking one is the whole action, sent at once to `/admin/categories/move` like Remove, with a refusal shown
-    as the error message.
+    drop down"; a "P" was tried and replaced: "I like those arrows more than the P's. Bring back those
+    arrows"); the field leaves room for it and the trailing spacer keeps its column. It opens a drop-down of
+    the TOP-LEVEL categories it could go under (never a subcategory, and not the one it is already under);
+    picking one is the whole action, sent at once to `/admin/categories/move`, with a refusal shown as the
+    error message and, for a merge, one confirmation first ("Coats already exists under Knitwear. Merge them?").
 
 ## 4. P1 features
 

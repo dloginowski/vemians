@@ -1325,6 +1325,8 @@ const CARET_ICON = `<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden=
    or like a trash icon button." A plain outline can, same stroke-only
    style as every other icon on this tile — never filled, so it never
    reads as already-pressed/active the way a solid glyph would. */
+const MOVE_ICON = `<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">` +
+  `<path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const TRASH_ICON = `<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">` +
   `<path d="M3.5 4.5h9M6 4.5V3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5M6.5 7.5v4M9.5 7.5v4" ` +
   `fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>` +
@@ -3517,7 +3519,7 @@ function renderAdminCategoryNodes(categories, parentId, categoryProductCountsByI
                      just click on the end and then choose a new parent from a drop
                      down" -- the owner's own words. Inside the field itself, not
                      beside it, so the row's other buttons keep their own columns. */
-                  `<span class="admin-category-name-wrap">${nameInputHtml}<button type="button" class="admin-move-btn" data-category-id="${esc(c.id)}" aria-label="Choose a new parent for ${esc(c.name)}" title="Move to a different parent">P</button></span>`
+                  `<span class="admin-category-name-wrap">${nameInputHtml}<button type="button" class="admin-move-btn" data-category-id="${esc(c.id)}" aria-label="Choose a new parent for ${esc(c.name)}" title="Move to a different parent">${MOVE_ICON}</button></span>`
             }
           </form>
           <form method="post" action="/admin/categories/number" class="admin-category-number-form">
@@ -5616,7 +5618,8 @@ ${OPS_DARK_CSS}
    actually be clicked ("I just wanted to disable it so that its
    alignment stays consistent" — the owner's own words). */
 .admin-remove-btn:disabled { opacity: 0.35; cursor: not-allowed; }
-/* The P (for parent) button sits INSIDE a subcategory's name field, at its
+/* The move button (an arrow -- "I like those arrows more than the P's,"
+   the owner's own words) sits INSIDE a subcategory's name field, at its
    far right edge; the field leaves room for it. */
 .admin-category-name-wrap { position: relative; display: flex; flex: 1 1 auto; min-width: 0; }
 .admin-category-name-wrap > .admin-category-name { width: 100%; padding-right: 30px; }
@@ -6227,23 +6230,49 @@ document.body.addEventListener("click", (e) => {
     opt.className = "admin-move-option";
     opt.textContent = adminNodeName(target);
     opt.addEventListener("click", async () => {
-      const body = new FormData();
-      body.set("category_id", adminNodeId(node));
-      body.set("parent_id", adminNodeId(target));
-      opt.disabled = true;
-      try {
-        const res = await fetch("/admin/categories/move", { method: "POST", body });
-        if (res.ok) {
+      /* "If I move denim jackets under jackets and it already has denim
+         jackets, I want to merge the two lists. I don't want an error." A
+         same-named subcategory at the destination makes this a merge: say
+         so once and let the person back out. */
+      const myName = adminNodeName(node).trim().toLowerCase();
+      const twinInTarget = [...target.querySelectorAll(":scope > .admin-category-children > .admin-category-node")].some(
+        (n) => adminNodeName(n).trim().toLowerCase() === myName,
+      );
+      if (twinInTarget && !window.confirm(adminNodeName(node) + " already exists under " + adminNodeName(target) + ". Merge them? Everything in this one goes into the existing one, and this one is removed.")) {
+        closeMoveMenu();
+        return;
+      }
+      closeMoveMenu();
+      moveBtn.disabled = true;
+      /* A merge works in batches: ask again while the server says products
+         remain, showing how many are left on the button. */
+      for (let guard = 0; guard < 200; guard++) {
+        const body = new FormData();
+        body.set("category_id", adminNodeId(node));
+        body.set("parent_id", adminNodeId(target));
+        let data = {};
+        try {
+          const res = await fetch("/admin/categories/move", { method: "POST", body });
+          data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            moveBtn.disabled = false;
+            moveBtn.innerHTML = moveBtn.dataset.icon || moveBtn.innerHTML;
+            showFormError(moveBtn, data.error || "That category could not be moved.");
+            return;
+          }
+        } catch {
+          moveBtn.disabled = false;
+          showFormError(moveBtn, "Could not reach the server — try again.");
+          return;
+        }
+        if (!(data.remaining > 0)) {
           location.reload();
           return;
         }
-        const data = await res.json().catch(() => ({}));
-        closeMoveMenu();
-        showFormError(moveBtn, data.error || "That category could not be moved.");
-      } catch {
-        closeMoveMenu();
-        showFormError(moveBtn, "Could not reach the server — try again.");
+        if (!moveBtn.dataset.icon) moveBtn.dataset.icon = moveBtn.innerHTML;
+        moveBtn.textContent = String(data.remaining);
       }
+      location.reload();
     });
     menu.appendChild(opt);
   }
