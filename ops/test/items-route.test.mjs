@@ -3639,10 +3639,14 @@ check("test_PRD_P0_138_nested_categories__admin_a_real_subcategory_row_gets_a_pl
   const cat3Idx = body.indexOf("Casual");
   const cat3Row = body.slice(cat3Idx, body.indexOf("admin-category-children", cat3Idx));
   assert.doesNotMatch(cat3Row, /admin-category-add-toggle/, "still never a working + on a subcategory");
+  /* REVISED (Test-PRD-P0-213-move_subcategory): the move arrow holds that
+     spot, the same width the spacer did (it shares the + button's own CSS
+     rule), so the row still closes out with one fixed-width element after the
+     real remove button. */
   assert.match(
     cat3Row,
-    /<\/button>\s*\n\s*<span class="admin-category-toggle-spacer"><\/span>\s*\n\s*<\/div>/,
-    "a plain spacer of the same width must close the row out instead, right after the real remove button",
+    /<\/button>\s*\n\s*<button type="button" class="admin-move-btn" data-category-id="cat3"[^>]*>[\s\S]*?<\/button>\s*\n\s*<\/div>/,
+    "the move arrow closes the row out, right after the real remove button, in the spacer's own spot",
   );
 });
 
@@ -4080,11 +4084,10 @@ check("test_PRD_P0_213_move_subcategory__the_admin_route_reaches_the_tool_and_re
   assert.equal(staff.status, 403);
 });
 
-check("test_PRD_P0_213_move_subcategory__only_subcategory_rows_get_an_arrow_button_inside_the_name_field", async () => {
-  /* "A little square icon inside of the subcategory field name, on the
-     farthest right... so I can just click on the end and then choose a new
-     parent from a drop down." REVISED: "I like those arrows more than the P's.
-     Bring back those arrows. Get rid of the P's." */
+check("test_PRD_P0_213_move_subcategory__only_subcategory_rows_get_an_arrow_button_at_the_end_of_the_row_never_inside_the_name_field", async () => {
+  /* "Bring the arrow back where it was... exactly where it was. Don't put it
+     inside of the subcategory field." -- the owner's own words. The arrow
+     takes the spot the trailing spacer held, after the remove button. */
   const mirror = mirrorDb();
   seedProduct(mirror);
   seedCategoryTree(mirror);
@@ -4092,14 +4095,16 @@ check("test_PRD_P0_213_move_subcategory__only_subcategory_rows_get_an_arrow_butt
   const buttons = body.match(/class="admin-move-btn" data-category-id="[^"]+"/g) ?? [];
   assert.equal(buttons.length, 2, "Coats and Casual are subcategories; Outerwear and Knitwear are top-level");
   assert.ok(!/class="admin-move-btn" data-category-id="cat1"/.test(body), "a top-level category has no move button");
+  assert.doesNotMatch(body, /admin-category-name-wrap/, "nothing is wrapped around the name field any more");
+  assert.doesNotMatch(body, /class="admin-move-btn"[^>]*>P<\/button>/, "no P button");
+  const cat3Idx = body.indexOf("Casual");
+  const cat3Row = body.slice(cat3Idx, body.indexOf("admin-category-children", cat3Idx));
   assert.match(
-    body,
-    /<span class="admin-category-name-wrap"><input type="text" class="admin-category-name"[^>]*><button type="button" class="admin-move-btn" data-category-id="cat3"[^>]*><svg[^>]*>[\s\S]*?<\/svg><\/button><\/span>/,
-    "the arrow button is inside the name field's own wrapper, after the input",
+    cat3Row,
+    /<\/button>\s*\n\s*<button type="button" class="admin-move-btn" data-category-id="cat3"[^>]*><svg[^>]*>[\s\S]*?<\/svg><\/button>\s*\n\s*<\/div>/,
+    "the arrow closes the row out, right after the remove button, in the spacer's own spot",
   );
-  assert.doesNotMatch(body, /class="admin-move-btn"[^>]*>P<\/button>/, "no P button any more");
-  assert.match(body, /\.admin-move-btn \{\s*position: absolute; right: 3px;/, "pinned to the field's far right edge");
-  assert.match(body, /\.admin-category-name-wrap > \.admin-category-name \{ width: 100%; padding-right: 30px; \}/, "and the field leaves room for it");
+  assert.match(body, /\.admin-remove-btn, \.admin-category-add-toggle, \.admin-move-btn \{/, "and takes exactly the same width as the + button");
   const script = body.slice(body.indexOf("<script>"), body.lastIndexOf("</script>"));
   assert.match(script, /\/admin\/categories\/move/, "picking a parent posts to the move route");
   assert.match(
@@ -4130,6 +4135,8 @@ check("test_PRD_P0_214_placement_from_style_numbers__the_page_offers_check_place
   const body = await (await get("/admin", MANAGER, env(mirror))).text();
   assert.match(body, /<button type="button" class="admin-placement-btn"/, "a Check placement button appears once there are subcategories");
   assert.match(body, /<div class="admin-placement" hidden><\/div>/, "with a panel for the answer");
+  assert.match(body, /\.admin-placement-btn \{\s*flex: 0 0 auto; font: inherit;[^}]*background: var\(--ground\)/, "the button is styled like the page's other small buttons, not a bare default one");
+  assert.match(body, /\.admin-placement \.admin-placement-actions button \{/, "and the panel's own buttons are styled too");
   const script = body.slice(body.indexOf("<script>"), body.lastIndexOf("</script>"));
   assert.match(script, /\/admin\/categories\/placement/, "asks the server where each subcategory belongs");
   assert.match(script, /await moveOneCategory\(data\.moves\[i\]\.id, data\.moves\[i\]\.target\.id\)/, "applies the proposed moves one at a time through the move route");

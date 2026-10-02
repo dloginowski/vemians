@@ -9598,10 +9598,10 @@ that does not trace to one of these is a process failure (see §12).
     products per call (one Worker request has a Square-call budget), keeps the old subcategory until it is empty
     and reports how many remain, and the page asks again until none do; a moved subcategory that still has
     subcategories of its own is refused for a merge. Admin gets a small square arrow button on every
-    subcategory row, INSIDE its name field at the far right ("a little square icon inside of the subcategory
-    field name, on the farthest right... so I can just click on the end and then choose a new parent from a
-    drop down"; a "P" was tried and replaced: "I like those arrows more than the P's. Bring back those
-    arrows"); the field leaves room for it and the trailing spacer keeps its column. It opens a drop-down of
+    subcategory row, at the END of the row in the spot the empty spacer held, after the remove button
+    ("bring the arrow back where it was... exactly where it was. Don't put it inside of the subcategory
+    field" -- the owner's own words, after a "P" inside the name field was tried and replaced; the arrow shares
+    the + and remove buttons' own width so every row lines up). It opens a drop-down of
     the TOP-LEVEL categories it could go under (never a subcategory, and not the one it is already under);
     picking one is the whole action, sent at once to `/admin/categories/move`, with a refusal shown as the
     error message and, for a merge, one confirmation first ("Coats already exists under Knitwear. Merge them?").
