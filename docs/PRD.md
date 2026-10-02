@@ -9640,6 +9640,10 @@ that does not trace to one of these is a process failure (see §12).
     numbers per parent. `catalog.move_category` onto a parent that already has a different subcategory with the
     moved one's number first moves that other one to the top-level category its items' sheet numbers point at
     (when they say so and the destination is free), and refuses, naming both, when nothing says which belongs.
+    A name that is a complete label as written is never auto-pluralized — "Oversize" stays "Oversize" ("Don't rename
+    Oversize to Oversizes"); matching still treats Oversize and Oversizes as the same, so an existing "Oversizes" is found.
+    On Admin, editing a category number never moves the field being typed in (rows re-sort around it, and only on a
+    complete two-digit number), so deleting a digit no longer closes the phone keyboard.
 
 ## 4. P1 features
 

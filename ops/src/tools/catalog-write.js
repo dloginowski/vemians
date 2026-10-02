@@ -194,8 +194,15 @@ function singular(t) {
    ("Millinery") still gets mechanically pluralized the same as any other,
    the identical "enough, not exhaustive" tradeoff singular() already makes
    for the reverse direction. */
+/* "Don't rename Oversize to Oversizes" -- the owner's own words. Names that
+   are already a complete label as written, whose plural reads wrong, are
+   kept exactly as given (matching still folds Oversize/Oversizes together,
+   so an "Oversizes" already in the catalog is still found). */
+const KEPT_AS_WRITTEN = new Set(["oversize"]);
+
 function pluralize(name) {
   const lower = name.toLowerCase();
+  if (KEPT_AS_WRITTEN.has(lower.split(/\s+/).pop())) return name;
   let base = name;
   if (name.length > 4 && lower.endsWith("ies")) base = `${name.slice(0, -3)}y`;
   else if (name.length > 4 && /(?:ss|x|ch|sh)es$/.test(lower)) base = name.slice(0, -2);

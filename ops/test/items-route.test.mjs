@@ -4150,6 +4150,24 @@ check("test_PRD_P0_215_subcategory_numbers_per_parent__the_admin_page_checks_a_n
   assert.match(script, /for \(const pool of allNumericIdPools\(\)\) revalidateNumericIdPool\(pool\)/, "every parent's children are validated on load, each on its own");
 });
 
+check("test_PRD_P0_215_subcategory_numbers_per_parent__editing_a_number_never_moves_the_field_being_typed_in", async () => {
+  /* "When I hit delete... it closes my keyboard and accepts it as if I hit
+     enter" -- the live re-sort re-appended every row, detaching the focused
+     field. Rows now move around the edited one, and only on a complete
+     two-digit number. The script's number tests also must not use \\d: the
+     page script is a template literal, which swallows a lone backslash. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  const script = body.slice(body.indexOf("<script>"), body.lastIndexOf("</script>"));
+  assert.match(script, /function resortNumericIdRow\(target\)/);
+  assert.doesNotMatch(script, /parent\.append\(/, "no re-append of the whole list (it drops focus)");
+  assert.match(script, /parent\.insertBefore\(n, node\)/, "other rows move around the edited one");
+  assert.match(script, /if \(!\/\^\[0-9\]\{2\}\$\/\.test\(target\.value\.trim\(\)\)\) return;/, "a half-typed number does not re-sort");
+  assert.doesNotMatch(script, /\/\^d\{2\}\$\//, "no number test that lost its backslash to the template literal");
+});
+
 check("test_PRD_P0_138_nested_categories__admin_staff_cannot_reach_any_of_the_post_routes", async () => {
   const mirror = mirrorDb();
   seedProduct(mirror);
