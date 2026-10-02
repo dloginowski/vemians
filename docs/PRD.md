@@ -9559,6 +9559,22 @@ that does not trace to one of these is a process failure (see §12).
     attachment is stored permanently and append-only, and each planned upload is saved row by row in the
     upload ledger.
 
+144. **`Test-PRD-P0-212-admin_save_looks_at_all_changes`** — "You're not updating them in sequence and you're using the
+    original unchanged values and telling me that my Pants already exists at the same level. You're not taking
+    into account all of my changes. You need to be looking at all of my current changes and detecting clashes
+    at my changes, not at the original." — the owner's own words, after renaming several categories in one
+    Save in Admin. Save-all sent each changed row on its own, in page order, and the server checks a rename
+    against the SAVED names of its siblings, so renaming one category to "Pants" while the one still saved as
+    "Pants" was being renamed in the same Save was refused, and a swap could never succeed. Save-all now treats
+    the changes as a set: (1) a clash among the NEW values (two siblings both ending up named the same,
+    compared case-insensitively, or a blank name) is reported on the page at the offending row before
+    anything is sent; (2) the renames of each sibling group are sent in an order where no step meets a name
+    still saved on another row (a chain is done from the end, `planFieldSteps`), and a swap uses one
+    temporary name to break the cycle, put back on failure; (3) category numbers get the same planning per
+    pool (one for the top level, one for every subcategory), with a temporary number picked from the free
+    ones, and two rows about to share a number are refused before any request. The server's rule is
+    unchanged: it still refuses a duplicate against what is saved at that moment.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

@@ -3492,6 +3492,26 @@ check("test_PRD_P0_138_nested_categories__admin_lists_the_whole_tree", async () 
   assert.match(body, /Knitwear/);
 });
 
+check("test_PRD_P0_212_admin_save_looks_at_all_changes__renames_are_checked_and_sent_as_a_set_not_one_by_one_against_saved_names", async () => {
+  /* "You're using the original unchanged values and telling me that my Pants
+     already exists at the same level... You need to be looking at all of my
+     current changes and detecting clashes at my changes, not at the
+     original." Save-all used to send each changed row alone, in page order,
+     against the SAVED names, so a chain or a swap of renames was refused. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  const script = body.slice(body.indexOf("<script>"), body.lastIndexOf("</script>"));
+  assert.match(script, /function planFieldSteps\(changes, norm, makeTemp\)/, "the changes are planned as a set");
+  assert.match(script, /planFieldSteps\(changes, \(v\) => String\(v\)\.trim\(\)\.toLowerCase\(\), makeTemp\)/, "names are planned case-insensitively, one sibling group at a time");
+  assert.match(script, /makeTemp = \(\) => "tmp-"/, "a swap goes through a temporary name");
+  assert.match(script, /would both be named/, "a clash among the NEW names is reported on the page before anything is sent");
+  assert.match(script, /setTimeout\(\(\) => showFormError\(clash\.anchor/, "and shown after the page's own click-dismiss handler has run");
+  assert.match(script, /would share the number/, "two categories about to share a number are refused before any request");
+  assert.doesNotMatch(script.slice(script.indexOf("async function saveAll")), /for \(const form of dirtyForms\) \{\s*if \(!\(await submitEditForm\(form\)\)\) allOk = false;/, "no longer one request per dirty form in page order");
+});
+
 check("test_PRD_P0_138_nested_categories__admin_a_node_with_children_gets_its_own_expandable_caret", async () => {
   /* "They need to be expandable... everything should look exactly the
      same like it used to" -- the exact same caret/collapsed-children
