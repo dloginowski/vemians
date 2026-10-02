@@ -977,10 +977,28 @@ export function createSquareCatalogWriter(env, opts = {}) {
      exactly that. A variation lacking an option takes that option's neutral
      value: "OS" for a size (the shop's existing convention), "N/A" for
      anything else. */
+  /* The option value Square itself holds for one variation of an item, read
+     live (the item is fetched once per call and kept), or null. */
+  const liveItems = new Map();
+  async function liveOptionValue(itemRef, variationRef, optionRef) {
+    if (!liveItems.has(itemRef)) {
+      try {
+        const res = await client.get(`/v2/catalog/object/${encodeURIComponent(itemRef)}`);
+        liveItems.set(itemRef, res?.object ?? null);
+      } catch (err) {
+        console.error(`ERROR catalog-writer: could not read item ${itemRef} live for its option values — ${err.message}`);
+        liveItems.set(itemRef, null);
+      }
+    }
+    const variation = (liveItems.get(itemRef)?.item_data?.variations ?? []).find((x) => x.id === variationRef);
+    const value = variation?.item_variation_data?.item_option_values?.find((o) => o.item_option_id === optionRef);
+    return value ? { item_option_id: optionRef, item_option_value_id: value.item_option_value_id } : null;
+  }
+
   /* The name of an EXISTING value of this option that one of a title's
      comma/slash-separated parts equals (case aside), or null. */
   async function optionValueNamedInTitle(optionRef, title) {
-    const parts = String(title ?? "").split(/[,/|]+/).map((x) => x.trim().toLowerCase()).filter(Boolean);
+    const parts = String(title ?? "").split(/\s*[,|]\s*|\s+\/\s+/).map((x) => x.trim().toLowerCase()).filter(Boolean);
     if (!parts.length) return null;
     const res = await mirrorDb
       .prepare(
@@ -1808,6 +1826,17 @@ export function createSquareCatalogWriter(env, opts = {}) {
         for (const ref of resolvedItemOptionExternalRefs) {
           const name = declaredOptionNames.get(ref);
           if (byOptionRef.has(ref) || !name) continue;
+          /* Square is the authority on what an existing variation carries. The
+             mirror's copy of its options can be empty or stale, and guessing
+             from it collapsed two real variations ("M, Black" and "OS, N/A")
+             into one identical pair. */
+          if (v.id && v.external_ref) {
+            const live = await liveOptionValue(row.external_ref, v.external_ref, ref);
+            if (live) {
+              byOptionRef.set(ref, live);
+              continue;
+            }
+          }
           /* A variation made by hand ("M, Brown") has its sizes and colours in
              its title only. When the option being declared already has a value
              that one of the title's words IS ("M" is a size, "Brown" a colour),

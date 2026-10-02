@@ -11522,3 +11522,41 @@ check("test_PRD_P0_218_declare_missing_options__rows_for_variations_a_product_al
     globalThis.fetch = realFetch;
   }
 });
+
+check("test_PRD_P0_218_declare_missing_options__an_existing_variation_keeps_the_option_values_square_already_has_when_the_mirror_lost_them", async () => {
+  /* A real resend: "Lounge set": the variations "M, Black" and "OS, N/A" would
+     carry the same size/colour values. Both existed in Square with real values;
+     the mirror's copy of their options was empty, so both were filled with the
+     same neutral value. Square itself is the authority on what they carry. */
+  const f = await fixture({ actor: "keiko@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const created = await approvedCall(f, "catalog.create_product", {
+      title: "Lounge set",
+      variations: [
+        { title: "Piece one", price_minor: 9000, currency: "USD", option_values: { Size: "M", Color: "Black" } },
+        { title: "Piece two", price_minor: 9000, currency: "USD", option_values: { Size: "OS", Color: "N/A" } },
+      ],
+    });
+    assert.equal(created.ok, true, created.error);
+    const handle = created.data.product.handle;
+    const productId = f.mirror("SELECT id FROM mirror_product WHERE handle = ?", handle)[0].id;
+    /* The mirror forgets the variations' options (a stale sync). */
+    f.mirrorDb._raw.prepare("UPDATE mirror_variant SET options = '{}' WHERE product_id = ?").run(productId);
+
+    const item = () => [...f.square.objects.values()].find((o) => o.type === "ITEM" && o.item_data?.name === "Lounge set");
+    const before = item().item_data.variations.map((v) => v.item_variation_data.item_option_values.map((x) => x.item_option_value_id).sort().join("|"));
+    const updated = await approvedCall(f, "catalog.update_product", {
+      handle,
+      variations: [{ title: "L, Black", price_minor: 9000, currency: "USD", option_values: { Size: "L", Color: "Black" } }],
+    });
+    assert.equal(updated.ok, true, updated.error);
+    const after = item().item_data.variations.map((v) => v.item_variation_data.item_option_values.map((x) => x.item_option_value_id).sort().join("|"));
+    assert.equal(after.length, 3);
+    assert.equal(new Set(after).size, 3, "no two variations are identical");
+    assert.deepEqual(after.slice(0, 2), before, "the two existing ones kept exactly the values Square had");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
