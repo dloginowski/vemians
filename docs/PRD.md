@@ -8773,6 +8773,15 @@ that does not trace to one of these is a process failure (see §12).
     as it always was for a MATCHED row's own price — there is simply no safe default to add a brand-new
     variation with none at all.
 
+
+    **The question is asked with buttons, not typed text** — "It used to be like buttons, but now you're
+    having me type it in again." The question is the model's to ask, so the attachment note
+    (`attachmentNote`, `agent.js`) now names the format outright instead of leaving it to the general
+    "offer choices as buttons" rule: one short lead-in line, then `CHOICE: Add new products` and `CHOICE:
+    Update existing products` (and `CHOICE: Customers` only when the file could be a customer list),
+    never a question the person has to answer by typing. A file shaped like the inventory export is
+    almost certainly an update, but still gets the buttons rather than a silent decision. A role that
+    cannot draft batches is not offered the choice at all (a test pins both).
 115. **`Test-PRD-P0-183-durable_batch_bookkeeping`** — "You should not be losing files like this,"
     the owner's own words, after several ordinary Worker redeploys inside one real working session
     each discarded an in-progress spreadsheet preview or reviewed checklist mid-task, every time
