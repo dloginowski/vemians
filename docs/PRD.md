@@ -9589,8 +9589,11 @@ that does not trace to one of these is a process failure (see §12).
     `resyncStyleIdPrefixes` pass renumbering already runs, keeping each sequence number. Refused before any
     approval: a top-level category (top-level and subcategory numbers are separate pools), moving a category
     under itself or one of its own descendants, a move to the parent it already has, and a destination that
-    already holds a sibling of the same name. Admin gets a move button on every subcategory row, in the spot
-    the empty spacer held so the rows stay aligned; it opens a list of every category it could go under
+    already holds a sibling of the same name. Admin gets a small square "P" (for parent) button on every
+    subcategory row, INSIDE its name field at the far right ("a little square icon inside of the subcategory
+    field name, on the farthest right... so I can just click on the end and then choose a new parent from a
+    drop down" -- the owner's own words; the field leaves room for it, the row's other buttons and the
+    trailing spacer keep their columns); it opens a drop-down of every category it could go under
     (leaving out itself, anything inside it and its current parent), shown with their full paths, and
     picking one is the whole action, sent at once to `/admin/categories/move` like Remove, with a refusal shown
     as the error message.
