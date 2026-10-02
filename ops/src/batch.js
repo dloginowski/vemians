@@ -838,19 +838,15 @@ const STYLE_NUMBER_BASE = /^\d+-\d+-\d+$/;
  * ID-resolved row and a name-resolved one in the same upload can never pick
  * the same code for two different categories.
  */
-async function resolveCategoryByCode(env, { actor, role, categories, reserved, cache, rate }, code, name, { numberFirst = true } = {}) {
+async function resolveCategoryByCode(env, { actor, role, categories, reserved, cache, rate }, code, name) {
   const numeric = Number(code);
-  const validCode = Number.isInteger(numeric) && numeric >= 0 && numeric <= 99;
-  if (!validCode && numberFirst) {
+  if (!Number.isInteger(numeric) || numeric < 0 || numeric > 99) {
     return { error: `"${code}" is not a plain 0-99 number this shop's own numbering can use` };
   }
-  let padded = validCode ? String(numeric).padStart(2, "0") : null;
+  const padded = String(numeric).padStart(2, "0");
   const pool = categories.filter((c) => !c.parent_id);
 
-  /* numberFirst false: the sheet's Category NAME decides (resolveSheetCategory),
-     so the number holding that code is never consulted -- only used as the
-     number a NEW category asks for, when it is free. */
-  const byNumber = numberFirst ? pool.find((c) => c.numeric_id != null && c.numeric_id !== "" && Number(c.numeric_id) === numeric) : null;
+  const byNumber = pool.find((c) => c.numeric_id != null && c.numeric_id !== "" && Number(c.numeric_id) === numeric);
   if (byNumber) {
     /* "We have the source of truth, and we must map the incoming
        spreadsheets to match ours" -- the owner's own words, the reason the
@@ -869,6 +865,14 @@ async function resolveCategoryByCode(env, { actor, role, categories, reserved, c
     const matchesName = !name || nearestCategory(name, [byNumber])?.score >= CAPS.CATEGORY_DUPLICATE_SIMILARITY;
     return {
       category: byNumber,
+      /* "My partner is being very careful about making sure that categories
+         and subcategories are numbered... what I'm afraid of is having
+         duplicate items being created under different categories" -- the
+         owner's own words. The number wins, but a name that points somewhere
+         else is never settled silently: the row is held for a person. */
+      conflict: matchesName
+        ? undefined
+        : `the sheet's category number ${padded} is "${byNumber.name}" in the catalog, but the sheet's category says "${name}" -- check the numbering; nothing was created or moved for this row`,
       note: matchesName
         ? undefined
         : `category code "${padded}" already belongs to "${byNumber.name}", not "${name}" as this row's own Category column says -- filed under the existing "${byNumber.name}" (the number's own source of truth); give this row a different code if "${name}" was meant to be a separate category`,
@@ -885,15 +889,6 @@ async function resolveCategoryByCode(env, { actor, role, categories, reserved, c
   const exact = name ? pool.find((c) => c.name.trim().toLowerCase() === name.trim().toLowerCase()) : null;
   const near = !exact && name ? nearestCategory(name, pool) : null;
   const matched = exact || (near && near.score >= CAPS.CATEGORY_DUPLICATE_SIMILARITY ? near : null);
-  if (!numberFirst) {
-    /* A number for a category this row creates or numbers: the sheet's own
-       code when it is free, else the next free one. */
-    const taken = (n) => !n || reserved.has(n) || pool.some((c) => c.numeric_id != null && c.numeric_id !== "" && Number(c.numeric_id) === Number(n));
-    if (taken(padded)) padded = nextTopLevelNumericId(categories, reserved);
-    if (!padded && !(name && pool.some((c) => c.name.trim().toLowerCase() === name.trim().toLowerCase()))) {
-      return { error: "no free top-level category number available -- all 100 codes (00-99) are already in use" };
-    }
-  }
   if (matched) {
     /* REVISED — already numbered, just not the way this row's own style
        number claims: no longer a genuine clash to park. "We already have
@@ -1372,24 +1367,28 @@ export function categoryLabels(categories, categoryId) {
 }
 
 /*
- * Where a row goes, by the sheet's own words. "Just follow the spreadsheets
- * exactly... the spreadsheets have the right categories and everything" --
- * the owner's own words, reversing the earlier number-first rule, which
- * filed a row under whatever top-level category happened to hold the style
- * number's first digits and silently ignored the Category column (a sheet
- * whose "001" meant Dresses had its dresses filed under Jackets).
+ * Where a row goes. "Ultimately, the name is not as important as the actual
+ * number, because we can always rename the categories, but the number will
+ * still stay the same. Names are useful, but they're not ultimately the main
+ * source of truth... what I'm afraid of is having duplicate items being
+ * created under different categories" -- the owner's own words.
  *
- *   - A Category NAME decides the top level: the existing top-level category
- *     of that name (singular or plural), else a corrected near-duplicate of
- *     one, else a new one is created -- never the number's category.
- *   - A Subcategory NAME decides the second level under it, the same way.
- *   - With NO category name at all, the style number's own digits are all
- *     the sheet gives, so they pick the category exactly as before.
+ *   - The style number's first group picks the TOP-LEVEL category by the
+ *     catalog's own number (resolveCategoryByCode). If the sheet's Category
+ *     name points at a different category than that number does, the row is
+ *     CONFLICTED: it resolves to the number's category but is held for a
+ *     person (`conflict`), and nothing is created or moved for it -- no
+ *     category either, so a disagreement can never leave a stray
+ *     subcategory under the wrong parent.
+ *   - The SUBCATEGORY is matched by NAME under that category (the sheet's
+ *     middle group restarts in every category, the catalog's subcategory
+ *     numbers are unique across all of them), created there when missing.
+ *   - With no Subcategory column, the middle group is matched as a number.
  *
- * `nameOnly` (a resubmit of an item already on file) does nothing at all
- * unless the sheet names a category, so an item is only ever moved because
- * the sheet said where it belongs. Returns { category (the leaf, or null),
- * notes, clashes }.
+ * `nameOnly` (a resubmit of an item already on file) does nothing unless the
+ * sheet names a category, so an item is only ever moved because the sheet
+ * said where it belongs. Returns { category (the leaf, or null), notes,
+ * clashes, conflict }.
  */
 async function resolveSheetCategory(env, ctx, base, record, { nameOnly = false } = {}) {
   const { actor, role, categories, reservedNumericIds, reservedSubcategoryNumericIds, categoryCache, rate } = ctx;
@@ -1398,40 +1397,30 @@ async function resolveSheetCategory(env, ctx, base, record, { nameOnly = false }
   const subcategoryNameCol = pick(record, SUBCATEGORY_KEYS);
   const notes = [];
   const clashes = [];
-  if (nameOnly && !categoryNameCol) return { category: null, notes, clashes };
+  let conflict = null;
+  if (nameOnly && !categoryNameCol) return { category: null, notes, clashes, conflict };
 
   let topCategory = null;
-  if (categoryNameCol) {
-    const outcome = await resolveCategoryByCode(
-      env,
-      { actor, role, categories, reserved: reservedNumericIds, cache: categoryCache, rate },
-      catCode,
-      categoryNameCol,
-      { numberFirst: false },
-    );
-    if (outcome.error) clashes.push(`category "${categoryNameCol}": ${outcome.error}`);
-    else topCategory = outcome.category;
+  const catOutcome = await resolveCategoryByCode(
+    env,
+    { actor, role, categories, reserved: reservedNumericIds, cache: categoryCache, rate },
+    catCode,
+    categoryNameCol,
+  );
+  if (catOutcome.error) {
+    clashes.push(`style number "${base}": category ${catCode}: ${catOutcome.error}`);
+  } else if (!catOutcome.category) {
+    notes.push(`style number "${base}": category ${catCode} matches no existing category, and no Category name column was given to create one from`);
   } else {
-    const catOutcome = await resolveCategoryByCode(
-      env,
-      { actor, role, categories, reserved: reservedNumericIds, cache: categoryCache, rate },
-      catCode,
-      "",
-    );
-    if (catOutcome.error) {
-      clashes.push(`style number "${base}": category ${catCode}: ${catOutcome.error}`);
-    } else if (!catOutcome.category) {
-      notes.push(`style number "${base}": category ${catCode} matches no existing category, and no Category name column was given to create one from`);
-    } else {
-      topCategory = catOutcome.category;
-      if (catOutcome.note) notes.push(`style number "${base}": ${catOutcome.note}`);
-    }
+    topCategory = catOutcome.category;
+    if (catOutcome.conflict) conflict = catOutcome.conflict;
+    else if (catOutcome.note) notes.push(`style number "${base}": ${catOutcome.note}`);
   }
 
   let category = topCategory;
   if (topCategory && subcategoryNameCol) {
     let subcategory = matchCategory(subcategoryNameCol, categories.filter((c) => c.parent_id === topCategory.id));
-    if (!subcategory) {
+    if (!subcategory && !conflict) {
       const outcome = await resolveOrCreateCategory(
         env,
         { actor, role, categories, reserved: reservedSubcategoryNumericIds, cache: categoryCache, parentId: topCategory.id, rate },
@@ -1444,16 +1433,14 @@ async function resolveSheetCategory(env, ctx, base, record, { nameOnly = false }
       }
     }
     if (subcategory) category = subcategory;
-  } else if (topCategory && !categoryNameCol) {
-    /* No name column at all: the style number's own middle digits, match
-       only, as before. */
+  } else if (topCategory) {
     const subNumeric = Number(subCode);
     const match = categories.find((c) => c.parent_id && c.numeric_id != null && c.numeric_id !== "" && Number(c.numeric_id) === subNumeric);
     if (match) category = match;
-  } else if (!topCategory && subcategoryNameCol) {
+  } else if (subcategoryNameCol) {
     notes.push(`subcategory "${subcategoryNameCol}" was given without a resolvable category to nest it under`);
   }
-  return { category, notes, clashes };
+  return { category, notes, clashes, conflict };
 }
 
 /*
@@ -1810,6 +1797,7 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
      earlier run filed under the wrong parent. Only when the sheet names a
      category; a sheet that says nothing about categories never moves one. */
   let sheetLeaf = null;
+  let categoryConflict = null;
   if (ctx.sheetCategory !== undefined) {
     /* A sheet with no style number: its category was already resolved by
        name (draftNamedCategoryProduct). */
@@ -1817,7 +1805,8 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
   } else if (ctx.categories) {
     const sheetCategory = await resolveSheetCategory(env, ctx, base, first, { nameOnly: true });
     clashes.push(...sheetCategory.clashes);
-    sheetLeaf = sheetCategory.category;
+    categoryConflict = sheetCategory.conflict;
+    sheetLeaf = categoryConflict ? null : sheetCategory.category;
   }
   const categoryMove = sheetLeaf ? categoryMoveText(ctx.categories ?? (await listCategories(env.CATALOG_MIRROR)), existing.category_id, sheetLeaf.id) : null;
   if (categoryMove) args.category_id = sheetLeaf.id;
@@ -1856,6 +1845,7 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
       toolName: "catalog.update_product",
       changes: changes.join("; "),
       categoryId: args.category_id ?? existing.category_id ?? null,
+      ...(categoryConflict ? { needsConfirmation: true, confirmReason: categoryConflict } : {}),
     },
     extraRows: quantityAdjustments,
   };
@@ -1919,6 +1909,7 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
   notes.push(...resolved.notes);
   clashes.push(...resolved.clashes);
   const category = resolved.category;
+  const categoryConflict = resolved.conflict;
 
   /* The sheet's own style number is only ever a LOCAL grouping key now
      (splitProductRecords' own `base`, above) — never sent to Square as a
@@ -2030,7 +2021,10 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
       scoped = false;
     }
     if (candidates.length === 1) {
-      return draftProductUpdate(env, candidates[0], base, groupRows, ctx);
+      /* Found by category + title, not by style number: it keeps the
+         category it is in. A stale number on the sheet is no reason to
+         hold or move an item whose names already matched. */
+      return draftProductUpdate(env, candidates[0], base, groupRows, { ...ctx, sheetCategory: null });
     }
     if (candidates.length > 1) {
       /* "If you have any doubts, pop up a window... are these the correct
@@ -2211,7 +2205,15 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
     return { clash: { row: firstRow, title, args, reason: clashes.join("; "), toolName: "catalog.create_product" } };
   }
 
-  return { row: { rowNumber: firstRow, title, args, toolName: "catalog.create_product" } };
+  return {
+    row: {
+      rowNumber: firstRow,
+      title,
+      args,
+      toolName: "catalog.create_product",
+      ...(categoryConflict ? { needsConfirmation: true, confirmReason: categoryConflict } : {}),
+    },
+  };
 }
 
 /**

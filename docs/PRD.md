@@ -9535,22 +9535,29 @@ that does not trace to one of these is a process failure (see §12).
     left, taking the room and ellipsizing, the tags at the right edge (still at the right with no breadcrumb).
     CSS only; the markup is unchanged.
 
-143. **`Test-PRD-P0-211-follow_the_sheet`** — "Just follow the spreadsheets exactly because I think you're mixing
-    shit up... the spreadsheets have the right categories and everything, and they're assigned to the proper
-    things. So if I resubmit these spreadsheets again, can you make sure that you are following them and that
-    the categories are properly assigned? Right now we just have a clusterfuck." — the owner's own words,
-    after "Evening Dresses" turned up as a subcategory of Jackets. The upload filed a row under whichever
-    top-level category held the style number's first digits (sheet "001" -> the catalog's number 01 ->
-    Jackets) and ignored the Category column. REVERSED: the sheet's Category and Subcategory NAMES decide
-    (`resolveSheetCategory`, `batch.js`): the existing category of that name (singular or plural), else a
-    corrected near-duplicate of one, else a new one, which takes the style number's own code as its number
-    when that is free and the next free number otherwise. The style number's digits only pick a category when
-    the sheet gives no category name at all. The same applies to an item already on file: a resubmit whose
-    sheet names a category the item is not in MOVES it there (`catalog.update_product` re-numbers its style
-    ID for the new category), shown in the checklist as a real change ("category Jackets › Evening Dresses ->
-    Dresses › Evening Dresses") and re-checked at submit time like every other change; a sheet that names no
-    category never moves an item. Replaces the earlier "number wins" rule (`Test-PRD-P0-152`'s
-    number-versus-name notes).
+143. **`Test-PRD-P0-211-number_is_the_truth`** — "Whatever category and subcategory numbers are [in the
+    spreadsheet], you want to make sure that's what you assign to our current numbering system... ultimately,
+    the name is not as important as the actual number, because we can always rename the categories, but the
+    number will still stay the same. Names are useful, but they're not the main source of truth. My partner is
+    being very careful about making sure that categories and subcategories are numbered and the style numbers
+    are accurate. What I'm afraid of is having duplicate items being created under different categories." —
+    the owner's own words, after "Evening Dresses" turned up under Jackets and a first fix (name first,
+    `Test-PRD-P0-210`'s sibling change) was reversed within the hour. The style number's first group picks the
+    top-level category by the catalog's own number (`resolveCategoryByCode`); the Subcategory NAME picks the
+    second level under it (the sheet's middle group restarts in every category, the catalog's subcategory
+    numbers do not -- the owner confirmed this), and a sheet with no Subcategory column matches the middle
+    group as a number. When the sheet's Category name points at a DIFFERENT category than its number does, the
+    row is held, never settled silently: it carries `needsConfirmation` with the reason ("the sheet's category
+    number 01 is "Outerwear" in the catalog, but the sheet's category says "Dresses" -- check the numbering;
+    nothing was created or moved for this row"), so it is an unchecked checklist row (parked on the direct
+    path), and no category or subcategory is created for it. An item already on file that a style number
+    finds is MOVED to the sheet's category when number and name agree (`catalog.update_product` re-numbers its
+    style ID), shown as a real change ("category Jackets › Evening Dresses -> Dresses › Evening Dresses") and
+    re-checked at submit time; once the partner fixes the numbering, re-sending the same sheet moves the
+    items. An item found by category + title keeps its category, whatever stale number the sheet carries, and
+    a sheet that names no category never moves an item. The uploaded sheets themselves are kept: every
+    attachment is stored permanently and append-only, and each planned upload is saved row by row in the
+    upload ledger.
 
 ## 4. P1 features
 
