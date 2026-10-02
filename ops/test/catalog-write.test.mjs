@@ -6729,52 +6729,17 @@ check("test_PRD_P0_152_style_number_grouping__category_and_subcategory_resolve_b
   assert.equal(f.categories().some((c) => c.name === "Not Outerwear At All"), false, "the mismatched name column is never used when the number already resolves to something real");
 });
 
-check("test_PRD_P0_211_follow_the_sheet__two_named_categories_sharing_one_leading_code_each_get_their_own_category", async () => {
-  /* The owner's own words: "just follow the spreadsheets exactly... the
-     spreadsheets have the right categories and everything." Two categories
-     ("Dress", "Pants") whose rows share the same leading style-number code
-     used to be merged into whichever one claimed that number first. The
-     Category column decides now: each row lands in its own named category,
-     and the second one takes the next free number instead of the shared code. */
-  const f = await fixture({ actor: "priya@vemians.com", role: "manager" });
-  const csv =
-    "Style #,Category,Subcategory,Description,Price\n" +
-    "90-01-001,Dress,Oversized,Oversized Dress,100.00\n" +
-    "90-01-002,Pants,Oversized,Oversized Pants,100.00\n";
-  const realFetch = globalThis.fetch;
-  globalThis.fetch = f.square;
-  let result;
-  try {
-    result = await draftProductBatch(f.env, { text: csv, actor: "priya@vemians.com", role: "manager", mode: "add" });
-  } finally {
-    globalThis.fetch = realFetch;
-  }
-  assert.equal(result.skipped.length, 0, `expected no skips, got: ${JSON.stringify(result.skipped)}`);
-  assert.equal(result.created.length, 2, `expected both rows to create cleanly, got: ${JSON.stringify(result)}`);
-  const categories = f.categories();
-  const dresses = categories.find((c) => !c.parent_id && c.name === "Dresses");
-  const pants = categories.find((c) => !c.parent_id && c.name === "Pants");
-  assert.ok(dresses && pants, "each named category exists in its own right");
-  assert.notEqual(dresses.numeric_id, pants.numeric_id, "and carries its own number");
-  assert.equal(dresses.numeric_id, "90", "the first takes the sheet's own code");
-  const filed = (title) => {
-    const row = f.mirror("SELECT category_id FROM mirror_product WHERE title = ?", title)[0];
-    const leaf = categories.find((c) => c.id === row.category_id);
-    return categories.find((c) => c.id === leaf.parent_id)?.name;
-  };
-  assert.equal(filed("Oversized Dress"), "Dresses");
-  assert.equal(filed("Oversized Pants"), "Pants");
-  const pantsRow = f.mirror("SELECT custom_fields FROM mirror_product WHERE title = 'Oversized Pants'")[0];
-  assert.doesNotMatch(JSON.stringify(pantsRow.custom_fields ?? "{}"), /already belongs to/);
-});
-
-check("test_PRD_P0_211_follow_the_sheet__the_category_column_decides_even_when_the_style_numbers_code_belongs_to_another_category", async () => {
-  /* "Just follow the spreadsheets exactly." The sheet's "01" is Outerwear's
-     number in this catalog, but its Category column says Dresses: the row
-     goes under Dresses, never under Outerwear. */
+check("test_PRD_P0_211_number_is_the_truth__a_row_whose_number_and_name_disagree_is_held_and_nothing_is_created_for_it", async () => {
+  /* "The name is not as important as the actual number... what I'm afraid of
+     is having duplicate items being created under different categories." The
+     sheet's "01" is Outerwear's number in this catalog but its Category
+     column says Dresses: the row is held for a person (parked on the direct
+     path, an unchecked row on the checklist), and no "Dresses" category and
+     no "Evening Dresses" subcategory is made under the wrong parent. */
   const f = await fixture({ actor: "keiko@vemians.com", role: "manager" });
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   await approvedCall(f, "catalog.set_category_number", { category_id: outerwear.id, numeric_id: "01" });
+  const before = f.categories().length;
   const realFetch = globalThis.fetch;
   globalThis.fetch = f.square;
   let result;
@@ -6787,24 +6752,41 @@ check("test_PRD_P0_211_follow_the_sheet__the_category_column_decides_even_when_t
   } finally {
     globalThis.fetch = realFetch;
   }
-  assert.equal(result.created.length, 1, JSON.stringify(result));
-  const cats = f.categories();
-  const row = f.mirror("SELECT category_id FROM mirror_product WHERE title = 'Evening dress'")[0];
-  const leaf = cats.find((c) => c.id === row.category_id);
-  const parent = cats.find((c) => c.id === leaf.parent_id);
-  assert.equal(leaf.name, "Evening Dresses");
-  assert.equal(parent.name, "Dresses", "filed under the category the sheet names");
-  assert.notEqual(parent.id, outerwear.id, "not under the category whose number the style number happened to start with");
-  assert.notEqual(parent.numeric_id, "01", "the new category could not take a number Outerwear already holds");
+  assert.equal(result.created.length, 0, "nothing is created for a conflicted row");
+  assert.equal(result.ready.length, 1, "it is held for a person");
+  assert.match(result.ready[0].summary ?? result.ready[0].reason ?? JSON.stringify(result.ready[0]), /category number 01 is "Outerwear" in the catalog, but the sheet's category says "Dresses"/);
+  assert.equal(f.categories().length, before, "no category or subcategory was made under the wrong parent");
+  assert.equal(f.mirror("SELECT COUNT(*) AS n FROM mirror_product WHERE title = 'Evening dress'")[0].n, 0);
 });
 
-check("test_PRD_P0_211_follow_the_sheet__a_resubmit_moves_an_item_filed_under_the_wrong_parent_to_the_category_the_sheet_names", async () => {
+check("test_PRD_P0_211_number_is_the_truth__the_conflict_shows_as_an_unchecked_checklist_row_with_the_reason", async () => {
+  const csv = "Style Number,Title,Category,Subcategory,Price\n001-004-002,Evening dress,Dresses,Evening Dresses,100.00\n";
+  const { f, plan } = await ledgerFixture(csv);
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  await approvedCall(f, "catalog.set_category_number", { category_id: outerwear.id, numeric_id: "01" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const planned = await plan();
+    assert.equal(planned.kind, "checklist", JSON.stringify(planned));
+    const row = planned.checklist.rows[0];
+    assert.equal(row.needsConfirmation, true, "held: unchecked by default");
+    assert.match(row.confirmReason, /number 01 is "Outerwear" in the catalog, but the sheet's category says "Dresses"/);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_211_number_is_the_truth__a_resubmit_moves_an_item_once_the_catalogs_numbering_agrees_with_the_sheet", async () => {
+  /* An earlier run filed the item under Jackets. The partner fixes the
+     numbering (Dresses is 01, Jackets moves to 03); the same sheet now
+     resolves its number to Dresses, the name agrees, and the item is moved
+     there, shown as a real change. */
   const csv = "Style Number,Title,Category,Subcategory,Price\n001-004-002,Evening dress,Dresses,Evening Dresses,100.00\n";
   const { f, env, identity, plan } = await ledgerFixture(csv);
   const realFetch = globalThis.fetch;
   globalThis.fetch = f.square;
   try {
-    /* An earlier run filed the item under the wrong parent. */
     const seed = await draftProductBatch(f.env, {
       text: "Style Number,Title,Category,Subcategory,Price\n001-004-002,Evening dress,Jackets,Evening Dresses,100.00\n",
       actor: "zeynep@vemians.com",
@@ -6819,21 +6801,23 @@ check("test_PRD_P0_211_follow_the_sheet__a_resubmit_moves_an_item_filed_under_th
     };
     assert.equal(parentOf(), "Jackets", "sanity: it starts under the wrong parent");
 
+    /* The partner's numbering fix. */
+    const jackets = f.categories().find((c) => !c.parent_id && c.name === "Jackets");
+    await approvedCall(f, "catalog.set_category_number", { category_id: jackets.id, numeric_id: "03" });
+    const dresses = (await approvedCall(f, "catalog.create_category", { name: "Dresses", reason: "test" })).data.category;
+    await approvedCall(f, "catalog.set_category_number", { category_id: dresses.id, numeric_id: "01" });
+
     const planned = await plan();
     assert.equal(planned.kind, "checklist", JSON.stringify(planned));
     const row = planned.checklist.rows[0];
+    assert.notEqual(row.needsConfirmation, true, "number and name agree now, so nothing holds it");
     assert.match(row.changes, /category Jackets › Evening Dresses -> Dresses › Evening Dresses/, "the move is shown as a real change");
-    assert.equal(row.category, "Dresses");
 
     const run = await startBatchRun({ id: planned.checklist.id, rows: [row.row], identity, env });
     const done = await submitBatchPlanRow({ id: planned.checklist.id, row: row.row, runId: run.runId, identity, env });
     assert.equal(done.status, "updated", JSON.stringify(done));
-    assert.equal(parentOf(), "Dresses", "the resubmit filed it where the sheet says");
+    assert.equal(parentOf(), "Dresses", "filed where the sheet's number and name agree");
     assert.equal(f.mirror("SELECT COUNT(*) AS n FROM mirror_product WHERE title = 'Evening dress'")[0].n, 1, "moved, not duplicated");
-
-    /* A second send of the same sheet is a no-op: nothing left to move. */
-    const again = await plan();
-    assert.ok(again.kind !== "checklist" || again.checklist.rows.length === 0, "nothing left to change on a second send");
   } finally {
     globalThis.fetch = realFetch;
   }
