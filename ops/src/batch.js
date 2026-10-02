@@ -1905,6 +1905,19 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
      change -- this only ever suppresses the CATALOG edit itself. */
   const changes = catalogChangesFor({ existing, existingVariants, titleCol, descriptionCol, variations, categoryMove });
 
+  /* "Oversize dress" matched to an existing "Black hand-painted blazer" by
+     style number alone would silently overwrite the blazer's price, cost and
+     stock with the dress's. A style number is how an item is identified, but
+     two items sharing a number is exactly the sheet-versus-catalog mix-up a
+     person has to look at: when the sheet's name for the row shares not one
+     word with the matched item's title, the row is held for a person
+     instead of applied. */
+  const sheetName = titleCol || descriptionCol;
+  const nameMismatch =
+    sheetName && existing.title && !sharesAWord(sheetName, existing.title)
+      ? `style number "${base}" is "${existing.title}" in the catalog, but the sheet calls this row "${sheetName}" -- check the numbering; check the box only if it really is the same item`
+      : null;
+
   if (changes.length === 0) {
     /* A row whose number and name disagree is never dropped silently just
        because nothing else about it differs: it is reported, so a sheet that
@@ -1928,7 +1941,9 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
       toolName: "catalog.update_product",
       changes: changes.join("; "),
       categoryId: args.category_id ?? existing.category_id ?? null,
-      ...(categoryConflict ? { needsConfirmation: true, confirmReason: categoryConflict } : {}),
+      ...(categoryConflict || nameMismatch
+        ? { needsConfirmation: true, confirmReason: [categoryConflict, nameMismatch].filter(Boolean).join("; ") }
+        : {}),
     },
     extraRows: quantityAdjustments,
   };
