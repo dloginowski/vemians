@@ -5670,6 +5670,9 @@ ${OPS_DARK_CSS}
 .admin-field-row { display: flex; align-items: center; gap: 6px; padding: 4px 0; }
 .admin-field-row-name { flex: 1 1 auto; min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
 .admin-field-add-form { display: flex; align-items: center; gap: 6px; padding: 4px 0; margin-top: 4px; }
+.admin-export { margin: 18px 0 6px; padding-top: 12px; border-top: 1px solid var(--muted); font-size: 13px; }
+.admin-export a { font-weight: 600; color: var(--ink); }
+.admin-export-note { color: var(--muted); margin-left: 6px; }
 .admin-field-add-form input[type="text"] {
   flex: 1 1 auto; min-width: 0; font: inherit; font-size: 13px; padding: 4px 6px;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--ink);
@@ -5777,6 +5780,10 @@ export function adminPage(allCategories = [], allVendors = [], customFieldNames 
       </form>
     </div>
   </section>
+  <p class="admin-export">
+    <a href="/products/export.csv" download="vemians-inventory.csv">Inventory CSV</a>
+    <span class="admin-export-note">the current catalog, one row per variation — start from this, change it, upload it back</span>
+  </p>
 </main>
 <script>
 /* "They need to be expandable... everything should look exactly the same
