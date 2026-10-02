@@ -9784,6 +9784,24 @@ that does not trace to one of these is a process failure (see §12).
     And "nothing is at zero... no sheet uses 0": a subcategory with no items in it and no number, or an automatic 00,
     is named in the panel (with the suggestion to remove it if it is a leftover duplicate) instead of being passed over.
 
+154. **`Test-PRD-P0-222-sheet_truth`** — The owner pressed Check placement and got "Vests (under Dresses): number 03 → 00",
+    five subcategories "left alone" because "its items carry different sheet numbers (3 items say 02-03, 2 items say
+    02-01)", and Shirts still not at 01 ("I can see the shirts in the spreadsheet and they are at one, not at zero.
+    Nothing is at zero, really"). Three causes, three fixes. (1) Making room for a renumbered sibling evicted the
+    holder to the SMALLEST free number — 00. The eviction (and the temporary number for a swap) now never picks 00 and
+    goes above every number in use. A subcategory with items still sitting on an automatic 00 that no sheet can number
+    takes the next free number, since no sheet uses 00. (2) Items that disagree are items in the wrong subcategory, and
+    the sheets say which is which: every uploaded CSV is kept whole in the ASSETS ledger, so `sheetTruth` (`batch.js`)
+    reads them all, newest sheet first, and returns what each style number's top and middle group is CALLED (the commonest
+    name within a sheet). `subcategoryRenumbering` takes `truth`: a subcategory whose name the sheets give under exactly
+    one number of its parent gets that number whatever its items say, and such a number beats one only its items suggest.
+    (3) `itemRefiling` (`catalog-writer.js`) files each item under the sibling subcategory its own sheet number names —
+    creating it, numbered as the sheet numbers it (or the next free number), when that name does not exist under its
+    category yet — through `/admin/products/refile` (`catalog.update_product` with a category; a new subcategory is made
+    once and reused). The Check placement button runs subcategory moves, then item refiling, then renumbering, each
+    re-read from the state the one before left, and lists whatever it still cannot decide. Subcategories left empty are
+    not deleted for the owner (the existing remove button does that).
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

@@ -156,7 +156,7 @@ export async function subcategoryPlacement(db) {
  * Read-only: it plans, the Admin page applies each step through
  * catalog.set_category_number (which also corrects every product's style ID).
  */
-export async function subcategoryRenumbering(db, { ledger = [] } = {}) {
+export async function subcategoryRenumbering(db, { ledger = [], truth = [] } = {}) {
   const categories = await listCategories(db);
   const byId = new Map(categories.map((c) => [c.id, c]));
   const productCounts = await categoryProductCounts(db);
@@ -169,6 +169,16 @@ export async function subcategoryRenumbering(db, { ledger = [] } = {}) {
       .replace(/ies$/, "y")
       .replace(/(ss|x|ch|sh)es$/, "$1")
       .replace(/([^s])s$/, "$1");
+  /* What the stored sheets call each numbered subcategory: top -> folded name -> the
+     middle numbers carrying it. A name found under exactly one number IS that
+     subcategory's number, whatever its items currently say. */
+  const truthMids = new Map();
+  for (const t of truth) {
+    const byName = truthMids.get(Number(t.top)) ?? new Map();
+    const key = fold(t.subcategory);
+    byName.set(key, [...new Set([...(byName.get(key) ?? []), Number(t.mid)])]);
+    truthMids.set(Number(t.top), byName);
+  }
   const ledgerStats = new Map();
   for (const r of ledger) {
     const m = /^\s*(\d+)\s*-\s*(\d+)\s*-/.exec(String(r.sheet_style_id ?? ""));
@@ -211,7 +221,20 @@ export async function subcategoryRenumbering(db, { ledger = [] } = {}) {
     const parentName = parent?.name ?? "?";
     const parentTop = parent?.numeric_id != null && parent.numeric_id !== "" ? Number(parent.numeric_id) : null;
     const wanted = new Map();
+    const named = new Set();
+    const lonely = [];
     for (const sub of siblings) {
+      /* The stored sheets name this subcategory under exactly one number of its
+         parent's: that number is the answer, whatever its items say. */
+      const mids = parentTop === null ? [] : truthMids.get(parentTop)?.get(fold(sub.name)) ?? [];
+      if (mids.length === 1 && mids[0] >= 1 && mids[0] <= 99) {
+        if (String(sub.numeric_id ?? "") === pad(mids[0])) ok += 1;
+        else {
+          wanted.set(sub.id, pad(mids[0]));
+          named.add(sub.id);
+        }
+        continue;
+      }
       let st = stats.get(sub.id);
       let fromLedger = false;
       if (!st) {
@@ -233,6 +256,12 @@ export async function subcategoryRenumbering(db, { ledger = [] } = {}) {
             items: 0,
             why: `it has no items in it and ${sub.numeric_id == null || sub.numeric_id === "" ? "no number" : "an automatic 00 that no sheet uses"}, and no upload on record put anything in it by this name, so there is nothing to number it from. If it is a leftover duplicate, remove it; if not, set its number by hand.`,
           });
+        }
+        if (n > 0 && String(sub.numeric_id ?? "") === "00") {
+          /* Nothing numbers it from a sheet, and 00 is never a sheet's number:
+             it takes the next free one after the others are settled. */
+          lonely.push(sub);
+          continue;
         }
         if (n > 0) {
           review.push({
@@ -276,21 +305,30 @@ export async function subcategoryRenumbering(db, { ledger = [] } = {}) {
     /* two subcategories cannot both be number N */
     const wantedBy = new Map();
     for (const [id, n] of wanted) wantedBy.set(n, [...(wantedBy.get(n) ?? []), id]);
-    for (const [n, ids] of wantedBy) {
-      if (ids.length < 2) continue;
+    for (const [n, claimants] of wantedBy) {
+      if (claimants.length < 2) continue;
+      /* A number the sheets give a subcategory BY NAME beats one only its items
+         suggest; the others wait in review (their items are refiled separately). */
+      const byName = claimants.filter((id) => named.has(id));
+      const ids = byName.length === 1 ? claimants.filter((id) => id !== byName[0]) : claimants;
       for (const id of ids) {
         const sub = siblings.find((x) => x.id === id);
         review.push({ id, name: sub.name, parent: parentName, items: stats.get(id)?.items ?? 0, why: `another subcategory under ${parentName} also wants number ${n}` });
         wanted.delete(id);
       }
     }
-    if (wanted.size === 0) continue;
+    if (wanted.size === 0 && lonely.length === 0) continue;
 
     const current = new Map(siblings.map((x) => [x.id, x.numeric_id == null || x.numeric_id === "" ? null : String(x.numeric_id)]));
     const targets = new Set(wanted.values());
+    /* Never 00 (no sheet uses it), and above everything taken so that a number a
+       later step wants is not sitting in the way. */
     const freeNumber = () => {
       const used = new Set([...current.values(), ...targets]);
-      for (let n = 0; n <= 99; n += 1) if (!used.has(pad(n))) return pad(n);
+      let high = 0;
+      for (const u of used) if (u != null) high = Math.max(high, Number(u));
+      for (let n = high + 1; n <= 99; n += 1) if (!used.has(pad(n))) return pad(n);
+      for (let n = 1; n <= high; n += 1) if (!used.has(pad(n))) return pad(n);
       return null;
     };
     const pending = new Set(wanted.keys());
@@ -326,8 +364,90 @@ export async function subcategoryRenumbering(db, { ledger = [] } = {}) {
         current.set(id, free);
       }
     }
+    for (const sub of lonely) {
+      const free = freeNumber();
+      if (free === null) {
+        review.push({ id: sub.id, name: sub.name, parent: parentName, items: productCounts.get(sub.id) ?? 0, why: `no free number is left under ${parentName} to replace its automatic 00` });
+        continue;
+      }
+      steps.push({ id: sub.id, name: sub.name, parent: parentName, from: current.get(sub.id), to: free, replacedZero: true });
+      current.set(sub.id, free);
+    }
   }
   return { steps, review, ok };
+}
+
+/*
+ * Items filed under the wrong subcategory, found from the sheets. A subcategory
+ * whose items carry different sheet numbers ("Shirts: 3 items say 02-03, 2 say
+ * 02-01") has some items in it that belong elsewhere: the stored sheets name
+ * what each number is (sheetTruth), so each item can simply be filed under the
+ * sibling subcategory its own number names -- created, numbered as the sheet
+ * numbers it, when that name does not exist under its category yet.
+ * Read-only; the Admin page applies each move through /admin/products/refile.
+ */
+export async function itemRefiling(db, { truth = [] } = {}) {
+  const categories = await listCategories(db);
+  const byId = new Map(categories.map((c) => [c.id, c]));
+  const fold = (name) =>
+    String(name ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/ies$/, "y")
+      .replace(/(ss|x|ch|sh)es$/, "$1")
+      .replace(/([^s])s$/, "$1");
+  const pad = (n) => String(n).padStart(2, "0");
+  const names = new Map(truth.map((t) => [`${Number(t.top)}|${Number(t.mid)}`, t.subcategory]));
+  const res = await db
+    .prepare("SELECT handle, title, category_id, import_style_number FROM mirror_product_index WHERE category_id IS NOT NULL AND import_style_number IS NOT NULL")
+    .bind()
+    .all();
+  const moves = [];
+  const review = [];
+  let ok = 0;
+  /* numbers a created subcategory has been given in this plan, per parent */
+  const planned = new Map();
+  for (const r of res.results ?? []) {
+    const m = /^\s*(\d+)\s*-\s*(\d+)\s*-/.exec(String(r.import_style_number ?? ""));
+    const cat = byId.get(r.category_id);
+    if (!m || !cat?.parent_id) continue;
+    const parent = byId.get(cat.parent_id);
+    const top = Number(m[1]);
+    const mid = Number(m[2]);
+    if (!parent || parent.numeric_id == null || Number(parent.numeric_id) !== top) continue;
+    const name = names.get(`${top}|${mid}`);
+    if (!name) continue;
+    if (fold(name) === fold(cat.name)) {
+      ok += 1;
+      continue;
+    }
+    const siblings = categories.filter((c) => c.parent_id === parent.id && fold(c.name) === fold(name));
+    if (siblings.length > 1) {
+      review.push({ name: r.title, parent: parent.name, items: 1, why: `the sheet files it under "${name}" (${pad(top)}-${pad(mid)}), but ${parent.name} has more than one subcategory by that name` });
+      continue;
+    }
+    const base = { handle: r.handle, title: r.title, from: { id: cat.id, name: cat.name }, parent: { id: parent.id, name: parent.name }, code: `${pad(top)}-${pad(mid)}` };
+    if (siblings.length === 1) {
+      moves.push({ ...base, to: { id: siblings[0].id, name: siblings[0].name } });
+      continue;
+    }
+    const made = planned.get(`${parent.id}|${fold(name)}`) ?? (() => {
+      const taken = new Set([...categories.filter((c) => c.parent_id === parent.id).map((c) => c.numeric_id), ...[...planned.values()].filter((p) => p.parent_id === parent.id).map((p) => p.number)]);
+      let high = 0;
+      for (const t of taken) if (t != null && t !== "") high = Math.max(high, Number(t));
+      let number = !taken.has(pad(mid)) && mid >= 1 && mid <= 99 ? pad(mid) : null;
+      for (let n = high + 1; number === null && n <= 99; n += 1) if (!taken.has(pad(n))) number = pad(n);
+      const plan = { id: null, name, parent_id: parent.id, number };
+      planned.set(`${parent.id}|${fold(name)}`, plan);
+      return plan;
+    })();
+    if (made.number === null) {
+      review.push({ name: r.title, parent: parent.name, items: 1, why: `the sheet files it under "${name}", which does not exist under ${parent.name}, and no number is free to create it` });
+      continue;
+    }
+    moves.push({ ...base, to: made });
+  }
+  return { moves, review, ok };
 }
 
 /* How many products currently sit in each category — the Admin panel's own

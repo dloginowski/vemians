@@ -577,6 +577,70 @@ function productRecords(text) {
   return withDetectedStyleColumn(csvRecords(parseCsv(text)));
 }
 
+/*
+ * What a stored sheet says each numbered subcategory is CALLED -- the other half
+ * of "the number is the truth". Every uploaded CSV is kept whole in the ASSETS
+ * ledger, so the sheet's own wording is still there long after the upload: for
+ * each style number's top and middle group, the subcategory (and category) name
+ * its rows carry. `sheetNamesFromText` reads one file; `sheetTruth` reads every
+ * stored sheet, newest first, and the newest sheet that mentions a number decides
+ * its name (the plurality within that sheet when its rows disagree).
+ */
+export function sheetNamesFromText(text) {
+  let records;
+  try {
+    records = productRecords(text);
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const record of records) {
+    const { base } = parseStyleNumber(pick(record, STYLE_ID_KEYS));
+    if (!STYLE_NUMBER_BASE.test(base)) continue;
+    const category = String(pick(record, CATEGORY_KEYS) ?? "").trim();
+    const subcategory = String(pick(record, SUBCATEGORY_KEYS) ?? "").trim();
+    if (!category || !subcategory) continue;
+    const [top, mid] = base.split("-").map(Number);
+    out.push({ top, mid, category, subcategory });
+  }
+  return out;
+}
+
+export async function sheetTruth(db) {
+  if (!db) return [];
+  let files = [];
+  try {
+    const res = await db
+      .prepare(
+        "SELECT extracted_text FROM asset WHERE extracted_text IS NOT NULL " +
+          "AND (lower(filename) LIKE '%.csv' OR lower(content_type) LIKE '%csv%') ORDER BY uploaded_at DESC LIMIT 100",
+      )
+      .bind()
+      .all();
+    files = res.results ?? [];
+  } catch {
+    return [];
+  }
+  const decided = new Map();
+  for (const f of files) {
+    const tally = new Map();
+    for (const r of sheetNamesFromText(f.extracted_text)) {
+      const key = `${r.top}|${r.mid}`;
+      const names = tally.get(key) ?? new Map();
+      const prior = names.get(r.subcategory.toLowerCase()) ?? { ...r, n: 0 };
+      prior.n += 1;
+      names.set(r.subcategory.toLowerCase(), prior);
+      tally.set(key, names);
+    }
+    for (const [key, names] of tally) {
+      if (decided.has(key)) continue;
+      const best = [...names.values()].sort((a, b) => b.n - a.n)[0];
+      decided.set(key, { top: best.top, mid: best.mid, category: best.category, subcategory: best.subcategory });
+    }
+  }
+  return [...decided.values()];
+}
+
 /* Enough English to fold a category name onto its own plural, and no more —
    the identical rule catalog-write.js's own suggestCategory() already uses
    for the same reason (kept as its own small copy here rather than an

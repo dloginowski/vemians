@@ -6248,6 +6248,19 @@ async function setCategoryNumber(categoryId, numericId) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "That number could not be set.");
 }
+async function refileOneProduct(move) {
+  const body = new FormData();
+  body.set("handle", move.handle);
+  if (move.to.id) body.set("category_id", move.to.id);
+  else {
+    body.set("parent_id", move.to.parent_id);
+    body.set("name", move.to.name);
+    body.set("numeric_id", move.to.number || "");
+  }
+  const res = await fetch("/admin/products/refile", { method: "POST", body });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "That item could not be moved.");
+}
 async function fetchPlacement() {
   const res = await fetch("/admin/categories/placement", { method: "POST", body: new FormData() });
   const data = await res.json();
@@ -6279,6 +6292,7 @@ async function showPlacement(btn) {
   h.textContent = "Placement and numbers from the sheets";
   panel.appendChild(h);
   const renumber = data.renumbering || { steps: [], review: [], ok: 0 };
+  const refiling = data.refiling || { moves: [], review: [], ok: 0 };
   const status = document.createElement("p");
   panel.appendChild(status);
   const detail = document.createElement("ul");
@@ -6306,9 +6320,10 @@ async function showPlacement(btn) {
     actions.appendChild(close);
     panel.appendChild(actions);
   };
-  if (!data.moves.length && !renumber.steps.length) {
+  if (!data.moves.length && !refiling.moves.length && !renumber.steps.length) {
     status.textContent = "Everything the sheets say is already in place (" + data.ok + " under the right category, " + renumber.ok + " numbered to match). Nothing to fix.";
     showReview(data.review, "These can't be decided from the sheet numbers, so they are left for you:");
+    showReview(refiling.review, "These items can't be filed from the sheets, so they are left for you:");
     showReview(renumber.review, "These numbers can't be decided from the sheets, so they are left for you:");
     closeRow();
     btn.disabled = false;
@@ -6327,19 +6342,34 @@ async function showPlacement(btn) {
     }
     /* A move changes which siblings a number has to be unique among, so the
        renumbering is read again from the state the moves left behind. */
-    const after = data.moves.length ? await fetchPlacement() : data;
+    let after = data.moves.length ? await fetchPlacement() : data;
+    /* Items the sheets file under another subcategory of the same category go
+       there next, again before any renumbering (which depends on what is left in
+       each subcategory). */
+    const itemMoves = (after.refiling && after.refiling.moves) || [];
+    for (const r of itemMoves) {
+      detail.appendChild(placementLine(r.title + ": " + r.from.name + " → " + r.to.name + " (the sheet says " + r.code + ")" + (r.to.id ? "" : " — new subcategory"), ""));
+    }
+    for (let i = 0; i < itemMoves.length; i++) {
+      step = itemMoves[i].title;
+      status.textContent = "Filing item " + (i + 1) + " of " + itemMoves.length + ": " + itemMoves[i].title + "…";
+      await refileOneProduct(itemMoves[i]);
+    }
+    if (itemMoves.length) after = await fetchPlacement();
     const plan = after.renumbering || { steps: [], review: [], ok: 0 };
+    const refileReview = (after.refiling && after.refiling.review) || [];
     for (const r of plan.steps) {
-      detail.appendChild(placementLine(r.name + " (under " + r.parent + "): number " + (r.from || "none") + " → " + r.to + (r.temporary ? " (temporary, to swap)" : r.madeRoomFor ? " (to make room for " + r.madeRoomFor + ")" : ""), ""));
+      detail.appendChild(placementLine(r.name + " (under " + r.parent + "): number " + (r.from || "none") + " → " + r.to + (r.temporary ? " (temporary, to swap)" : r.madeRoomFor ? " (to make room for " + r.madeRoomFor + ")" : r.replacedZero ? " (no sheet uses 00)" : ""), ""));
     }
     for (let i = 0; i < plan.steps.length; i++) {
       step = plan.steps[i].name;
       status.textContent = "Renumbering " + (i + 1) + " of " + plan.steps.length + ": " + plan.steps[i].name + " → " + plan.steps[i].to + "…";
       await setCategoryNumber(plan.steps[i].id, plan.steps[i].to);
     }
-    const leftOver = after.review.length + plan.review.length;
-    status.textContent = "Done: " + data.moves.length + " moved, " + plan.steps.length + " renumbered." + (leftOver ? "" : " Reloading…");
+    const leftOver = after.review.length + refileReview.length + plan.review.length;
+    status.textContent = "Done: " + data.moves.length + " moved, " + itemMoves.length + " item" + (itemMoves.length === 1 ? "" : "s") + " refiled, " + plan.steps.length + " renumbered." + (leftOver ? "" : " Reloading…");
     showReview(after.review, "These can't be decided from the sheet numbers, so they were left alone:");
+    showReview(refileReview, "These items can't be filed from the sheets, so they were left alone:");
     showReview(plan.review, "These numbers can't be decided from the sheets, so they were left alone:");
     /* Never reload away an explanation: when anything was left alone, the list
        stays on screen until the person reloads it themselves. */
