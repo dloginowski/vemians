@@ -387,7 +387,7 @@ export async function subcategoryRenumbering(db, { ledger = [], truth = [] } = {
  * subcategory that already exists: nothing is guessed, nothing is created, and
  * what cannot be decided is listed. Read-only; the Admin page applies each move through /admin/products/refile.
  */
-export async function itemRefiling(db, { truth = [] } = {}) {
+export async function itemRefiling(db, { truth = [], itemTruth = [] } = {}) {
   const categories = await listCategories(db);
   const byId = new Map(categories.map((c) => [c.id, c]));
   const fold = (name) =>
@@ -399,6 +399,13 @@ export async function itemRefiling(db, { truth = [] } = {}) {
       .replace(/([^s])s$/, "$1");
   const pad = (n) => String(n).padStart(2, "0");
   const entries = new Map(truth.map((t) => [`${Number(t.top)}|${Number(t.mid)}`, t]));
+  const tripleOf = (raw) => {
+    const t = /^\s*(\d+)\s*-\s*(\d+)\s*-\s*(\d+)/.exec(String(raw ?? ""));
+    return t ? `${Number(t[1])}-${Number(t[2])}-${Number(t[3])}` : null;
+  };
+  /* what an item's OWN sheet row says, by its full style number */
+  const own = new Map(itemTruth.map((t) => [tripleOf(t.base), t]));
+  const planned = new Map();
   const res = await db
     .prepare("SELECT handle, title, category_id, import_style_number FROM mirror_product_index WHERE category_id IS NOT NULL AND import_style_number IS NOT NULL")
     .bind()
@@ -409,6 +416,57 @@ export async function itemRefiling(db, { truth = [] } = {}) {
   for (const r of res.results ?? []) {
     const m = /^\s*(\d+)\s*-\s*(\d+)\s*-/.exec(String(r.import_style_number ?? ""));
     const cat = byId.get(r.category_id);
+    const row = own.get(tripleOf(r.import_style_number));
+    if (row && cat) {
+      /* The item's own sheet row names its category and subcategory: that is where
+         it goes, whatever its style number's first groups say (a row can carry a
+         number from another category -- vests numbered as dresses). Only a
+         top-level category that already exists is used; a missing subcategory under
+         it is made, since the sheet names it. */
+      const tops = categories.filter((c) => !c.parent_id && fold(c.name) === fold(row.category));
+      const base = { handle: r.handle, title: r.title, from: { id: cat.id, name: cat.name }, code: row.base };
+      if (tops.length !== 1) {
+        review.push({
+          name: r.title,
+          parent: byId.get(cat.parent_id)?.name ?? cat.name,
+          items: 1,
+          why: `its sheet row says ${row.category} › ${row.subcategory}, but ${tops.length ? `there is more than one top-level category called "${row.category}"` : `no top-level category is called "${row.category}"`}, so it was left where it is`,
+        });
+        continue;
+      }
+      const top = tops[0];
+      const leaves = categories.filter((c) => c.parent_id === top.id && fold(c.name) === fold(row.subcategory));
+      if (leaves.length > 1) {
+        review.push({ name: r.title, parent: top.name, items: 1, why: `its sheet row says ${row.category} › ${row.subcategory}, but ${top.name} has more than one subcategory by that name` });
+        continue;
+      }
+      if (leaves.length === 1) {
+        if (leaves[0].id === cat.id) ok += 1;
+        else moves.push({ ...base, parent: { id: top.id, name: top.name }, to: { id: leaves[0].id, name: leaves[0].name } });
+        continue;
+      }
+      const made =
+        planned.get(`${top.id}|${fold(row.subcategory)}`) ??
+        (() => {
+          const taken = new Set([
+            ...categories.filter((c) => c.parent_id === top.id).map((c) => c.numeric_id),
+            ...[...planned.values()].filter((p) => p.parent_id === top.id).map((p) => p.number),
+          ]);
+          let high = 0;
+          for (const t of taken) if (t != null && t !== "") high = Math.max(high, Number(t));
+          let number = null;
+          for (let n = high + 1; number === null && n <= 99; n += 1) if (!taken.has(pad(n))) number = pad(n);
+          const plan = { id: null, name: row.subcategory, parent_id: top.id, number };
+          planned.set(`${top.id}|${fold(row.subcategory)}`, plan);
+          return plan;
+        })();
+      if (made.number === null) {
+        review.push({ name: r.title, parent: top.name, items: 1, why: `its sheet row says ${row.category} › ${row.subcategory}, which does not exist yet, and no number is free to create it` });
+        continue;
+      }
+      moves.push({ ...base, parent: { id: top.id, name: top.name }, to: made });
+      continue;
+    }
     if (!m || !cat?.parent_id) continue;
     const parent = byId.get(cat.parent_id);
     const top = Number(m[1]);

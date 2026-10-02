@@ -601,13 +601,21 @@ export function sheetNamesFromText(text) {
     const subcategory = String(pick(record, SUBCATEGORY_KEYS) ?? "").trim();
     if (!category || !subcategory) continue;
     const [top, mid] = base.split("-").map(Number);
-    out.push({ top, mid, category, subcategory });
+    out.push({ base, top, mid, category, subcategory });
   }
   return out;
 }
 
 export async function sheetTruth(db) {
-  if (!db) return [];
+  return (await sheetKnowledge(db)).numbers;
+}
+
+/* `numbers`: what each top/middle number is called (see above). `items`: for each
+   FULL style number (e.g. 001-003-002) that appears in the sheets, the category and
+   subcategory its own row names -- only when every row carrying that exact number
+   agrees; a number two different rows share says nothing about either. */
+export async function sheetKnowledge(db) {
+  if (!db) return { numbers: [], items: [] };
   let files = [];
   try {
     const res = await db
@@ -619,7 +627,7 @@ export async function sheetTruth(db) {
       .all();
     files = res.results ?? [];
   } catch {
-    return [];
+    return { numbers: [], items: [] };
   }
   /* Every stored sheet row counts. A number is only "named" when ALL of them
      agree on both its category and its subcategory; the sheets are not always
@@ -628,6 +636,7 @@ export async function sheetTruth(db) {
      with every name it carries rather than decided by a vote. */
   const fold = (t) => singularCategoryWord(String(t).trim().toLowerCase());
   const seen = new Map();
+  const bases = new Map();
   for (const f of files) {
     for (const r of sheetNamesFromText(f.extracted_text)) {
       const key = `${r.top}|${r.mid}`;
@@ -635,12 +644,17 @@ export async function sheetTruth(db) {
       const k = `${fold(r.category)}|${fold(r.subcategory)}`;
       if (!names.has(k)) names.set(k, { top: r.top, mid: r.mid, category: r.category, subcategory: r.subcategory });
       seen.set(key, names);
+      const own = bases.get(r.base) ?? new Map();
+      if (!own.has(k)) own.set(k, { base: r.base, category: r.category, subcategory: r.subcategory });
+      bases.set(r.base, own);
     }
   }
-  return [...seen.values()].map((names) => {
+  const numbers = [...seen.values()].map((names) => {
     const all = [...names.values()];
     return all.length === 1 ? all[0] : { top: all[0].top, mid: all[0].mid, ambiguous: all.map((n) => ({ category: n.category, subcategory: n.subcategory })) };
   });
+  const items = [...bases.values()].filter((own) => own.size === 1).map((own) => [...own.values()][0]);
+  return { numbers, items };
 }
 
 /* Enough English to fold a category name onto its own plural, and no more —
