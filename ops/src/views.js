@@ -5846,10 +5846,19 @@ document.body.addEventListener("input", (e) => {
    straight to the value just vacated, so an ordinary "swap these two
    around" edit never lingers in the invalid state its own edit would
    otherwise create for an instant. */
+/* "Subcategory IDs need to match the style IDs. They need to be exactly the
+   same" -- the owner's own words. The sheets number each category's
+   subcategories from the start, so a number is unique among SIBLINGS only
+   (01-04 and 03-04 are both real): the pool is one parent's own children,
+   or the whole top level. */
 function numericIdPoolFor(node) {
-  return node.closest(".admin-category-children")
-    ? [...document.querySelectorAll(".admin-category-children .admin-category-node")]
-    : [...document.querySelectorAll(".admin-section-body > .admin-category-node")];
+  return [...node.parentElement.querySelectorAll(":scope > .admin-category-node")];
+}
+function allNumericIdPools() {
+  return [
+    [...document.querySelectorAll(".admin-section-body > .admin-category-node")],
+    ...[...document.querySelectorAll(".admin-category-children")].map((box) => [...box.querySelectorAll(":scope > .admin-category-node")]),
+  ];
 }
 function numericIdInputOf(node) {
   return node.querySelector(":scope > .admin-category-row .admin-category-numeric-id");
@@ -5931,14 +5940,12 @@ function backfillMissingNumericIds(nodes) {
     refreshDirtyState(input);
   }
 }
-backfillMissingNumericIds([...document.querySelectorAll(".admin-section-body > .admin-category-node")]);
-backfillMissingNumericIds([...document.querySelectorAll(".admin-category-children .admin-category-node")]);
+for (const pool of allNumericIdPools()) backfillMissingNumericIds(pool);
 /* Legacy data can already hold a genuine duplicate from before this
    invariant existed — checked once up front too, not only from here on
    as the owner types, so it shows red on load rather than waiting for a
    touch that never comes. */
-revalidateNumericIdPool([...document.querySelectorAll(".admin-section-body > .admin-category-node")]);
-revalidateNumericIdPool([...document.querySelectorAll(".admin-category-children .admin-category-node")]);
+for (const pool of allNumericIdPools()) revalidateNumericIdPool(pool);
 saveAllBtn.disabled = !document.querySelector("form[data-dirty='1']") || !!document.querySelector(".admin-category-numeric-id:invalid");
 
 function positionErrorPopover(p, anchor) {
@@ -6097,9 +6104,7 @@ async function saveAll() {
      string of requests if it is. */
   for (const form of numberForms) {
     const node = form.closest(".admin-category-node");
-    const pool = node.closest(".admin-category-children")
-      ? document.querySelectorAll(".admin-category-children .admin-category-node")
-      : document.querySelectorAll(".admin-section-body > .admin-category-node");
+    const pool = numericIdPoolFor(node);
     const mine = form.querySelector(".admin-category-numeric-id").value.trim();
     const sharing = [...pool].filter((n) => n.querySelector(":scope > .admin-category-row .admin-category-numeric-id")?.value.trim() === mine);
     if (mine && sharing.length > 1) {
@@ -6113,16 +6118,14 @@ async function saveAll() {
     if (!(await submitEditForm(form))) allOk = false;
   }
 
-  /* Numbers: one pool for the top level, one for every subcategory. */
+  /* Numbers: one pool for the top level, and one per parent for its subcategories. */
   const poolValues = (node) =>
-    [...(node.closest(".admin-category-children")
-      ? document.querySelectorAll(".admin-category-children .admin-category-node")
-      : document.querySelectorAll(".admin-section-body > .admin-category-node"))]
+    numericIdPoolFor(node)
       .map((n) => n.querySelector(":scope > .admin-category-row .admin-category-numeric-id"))
       .filter(Boolean);
   const numberPools = new Map();
   for (const form of numberForms) {
-    const key = form.closest(".admin-category-node").closest(".admin-category-children") ? "sub" : "top";
+    const key = form.closest(".admin-category-node").parentElement;
     if (!numberPools.has(key)) numberPools.set(key, []);
     numberPools.get(key).push(changeOfForm(form, ".admin-category-numeric-id"));
   }
@@ -6466,24 +6469,16 @@ document.body.addEventListener("click", (e) => {
     const idInput = form.querySelector(".admin-category-new-numeric-id");
     if (idInput && !idInput.value) {
       const siblings = addToggle.dataset.parentId
-        ? document.querySelectorAll(".admin-category-children .admin-category-node")
+        ? addToggle.closest(".admin-category-node")?.querySelectorAll(":scope > .admin-category-children > .admin-category-node") ?? []
         : addToggle.closest(".admin-section")?.querySelectorAll(":scope > .admin-section-body > .admin-category-node") ?? [];
       /* "You have to increment always. You can't just have the same ID
-         repeating" — the owner's own words. A SUBCATEGORY's own numeric_id
-         pool is tree-wide regardless of parent (P0-138's own two-pool
-         rule — every subcategory anywhere shares ONE pool, only a
-         top-level category's own pool is siblings-only), so a row queued
-         up under one category must still bump past a numeric_id already
-         sitting in a still-open pending row under a COMPLETELY DIFFERENT
-         category, not just one under the very same parent — matching the
-         siblings variable above, widened the exact same way for the
-         exact same reason. */
+         repeating" -- the owner's own words. A row queued up under a parent
+         must bump past a number already sitting in a still-open pending row
+         under that SAME parent (numbers are unique among siblings only). */
       const pendingIds = [
-        ...document.querySelectorAll(
-          addToggle.dataset.parentId
-            ? ".admin-category-node > .admin-category-add-form:not([hidden]) .admin-category-new-numeric-id"
-            : ".admin-section-body > .admin-category-add-form:not([hidden]) .admin-category-new-numeric-id",
-        ),
+        ...(addToggle.dataset.parentId
+          ? addToggle.closest(".admin-category-node").querySelectorAll(":scope > .admin-category-add-form:not([hidden]) .admin-category-new-numeric-id")
+          : document.querySelectorAll(".admin-section-body > .admin-category-add-form:not([hidden]) .admin-category-new-numeric-id")),
       ]
         .filter((el) => el !== idInput)
         .map((el) => Number(el.value.trim()))

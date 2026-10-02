@@ -9625,6 +9625,22 @@ that does not trace to one of these is a process failure (see §12).
     refusal still applies), after one confirmation that says how many will merge; a refused move stops the
     run, names the subcategory and says the earlier ones were moved.
 
+147. **`Test-PRD-P0-215-subcategory_numbers_per_parent`** — "Subcategory IDs need to match the style IDs. They need to be
+    exactly the same." — the owner's own words, after sheets and the catalog kept disagreeing. The spreadsheets
+    number each top-level category's subcategories from the start (001-004 and 003-004 are both real), but the
+    catalog required every subcategory number to be unique across the whole tree, so a subcategory could never
+    carry the sheet's own middle number. This **supersedes the second pool in P0-138**: a top-level category's
+    number is still unique among top-level categories (one 00-99 pool), while a subcategory's number is unique
+    only among its siblings, so every top-level category numbers its own subcategories 00-99 (migration 0014 and
+    `schema.sql`; it only relaxes a rule, so no existing row can break it). A product's style ID
+    (`NN-NN-NNN`) stays unique because it also carries the top-level number. An upload now resolves a subcategory
+    by its sheet number within the top-level category the sheet names (a missing one is created with exactly
+    that number); a number that already belongs to a differently named sibling is held for a person rather than
+    filed or duplicated. `catalog.create_category`, `catalog.set_category_number` and Admin's Save-all check
+    numbers per parent. `catalog.move_category` onto a parent that already has a different subcategory with the
+    moved one's number first moves that other one to the top-level category its items' sheet numbers point at
+    (when they say so and the destination is free), and refuses, naming both, when nothing says which belongs.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

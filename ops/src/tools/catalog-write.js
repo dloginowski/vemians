@@ -103,6 +103,7 @@ import {
   LEGACY_MARGIN_FIELD_KEYS,
   listAllProducts,
   listCategories,
+  subcategoryPlacement,
   listCustomFieldNames,
   listItemOptions,
   listMirrorVendors,
@@ -1501,10 +1502,12 @@ export const catalogWriteTools = {
       }
 
       /* Same validation catalog.set_category_number's own check() applies,
-         inlined rather than shared: two SEPARATE '00'-'99' pools (every
-         top-level category shares one, every subcategory regardless of
-         depth or parent shares the other), the same partial unique indexes
-         in schema.sql enforce at the database level either way. */
+         inlined rather than shared: every top-level category shares one
+         '00'-'99' pool, and the subcategories under each parent number from
+         a pool of their own ("subcategory IDs need to match the style IDs"
+         -- the owner's own words; the sheets number each category's
+         subcategories separately), the same partial unique indexes in
+         schema.sql enforce at the database level either way. */
       let numericId = null;
       if (args.numeric_id !== undefined && args.numeric_id.trim() !== "") {
         numericId = args.numeric_id.trim();
@@ -1512,13 +1515,15 @@ export const catalogWriteTools = {
           return { denied: `numeric_id '${args.numeric_id}' must be exactly two digits, "00" through "99"` };
         }
         const isSubcategory = Boolean(parent);
-        const conflict = categories.find((c) => c.numeric_id === numericId && (c.parent_id !== null) === isSubcategory);
+        const conflict = categories.find(
+          (c) => c.numeric_id === numericId && (isSubcategory ? c.parent_id === parent.id : c.parent_id === null),
+        );
         if (conflict) {
           return {
             denied:
               `numeric_id '${numericId}' is already assigned to "${conflict.name}" — ${
-                isSubcategory ? "every subcategory in the whole tree" : "every top-level category"
-              } shares one pool, so this number is not available until that one is freed.`,
+                isSubcategory ? `every subcategory under "${parent.name}" numbers from its own 00-99` : "every top-level category shares one pool of 00-99"
+              }, so this number is not available there until that one is freed.`,
           };
         }
       }
@@ -1618,8 +1623,8 @@ export const catalogWriteTools = {
    * wrong parent (Evening Dresses under Jackets) turned out to have no way
    * to be moved at all: the category tools could create, rename, renumber
    * and remove, never re-parent. The subcategory keeps its name and its own
-   * number (subcategory numbers are unique across the whole tree, so the
-   * move can never collide), every product in it (and in anything nested
+   * number (unless a different subcategory under the new parent already
+   * holds that number -- see the clash handling in check()), every product in it (and in anything nested
    * under it) stays in it, and each one's style_id prefix is corrected for
    * its new top-level category, the same retroactive pass renumbering a
    * category already runs.
@@ -1642,7 +1647,10 @@ export const catalogWriteTools = {
       "error: every product in the moved one goes into the existing one (each takes a fresh style_id in it), " +
       "then the emptied one is removed, so the same name never exists twice under one parent. A merge works " +
       "in batches of 15 products per call and reports how many remain; call again until none do. It refuses " +
-      "to merge a subcategory that still has subcategories of its own.",
+      "to merge a subcategory that still has subcategories of its own. Subcategory numbers are unique " +
+      "among siblings, so a DIFFERENT-named subcategory already under the destination with the moved one's " +
+      "number is a clash: if that other one's items' sheet style numbers say it belongs under a different " +
+      "top-level category it is moved there first; if nothing says which belongs, the move is refused.",
     undo: "another catalog.move_category call, back to the previous parent",
     schema: {
       category_id: { type: "string", required: true, format: "id" },
@@ -1688,6 +1696,39 @@ export const catalogWriteTools = {
         };
       }
 
+      /* Subcategory numbers are unique among siblings: a DIFFERENT-named
+         subcategory already under the destination with this one's number
+         cannot stay beside it. "If there's any clashing... maybe a
+         subcategory has the clashing number because it doesn't belong there
+         in the first place. So you just move the other one into its correct
+         parent" -- the owner's own words. The other one's right parent is
+         read off its items' sheet style numbers (subcategoryPlacement); when
+         that does not say, nothing is moved on a guess. */
+      let evict = null;
+      if (!twin && category.numeric_id) {
+        const sameNumber = categories.find(
+          (c) => c.id !== category.id && c.parent_id === parent.id && c.numeric_id === category.numeric_id,
+        );
+        if (sameNumber) {
+          const placement = await subcategoryPlacement(t.db.catalog_mirror);
+          const away = placement.moves.find((m) => m.id === sameNumber.id);
+          if (!away) {
+            return {
+              denied: `"${parent.name}" already has "${sameNumber.name}" numbered ${category.numeric_id}, and two subcategories under one category cannot share a number. Nothing on its items says it belongs elsewhere, so change one of the two numbers first.`,
+            };
+          }
+          const target = categories.find((c) => c.id === away.target.id);
+          const numberTaken = categories.some((c) => c.parent_id === target.id && c.numeric_id === sameNumber.numeric_id);
+          const nameTwin = categories.some((c) => c.parent_id === target.id && c.name.toLowerCase() === sameNumber.name.toLowerCase());
+          if (numberTaken || nameTwin) {
+            return {
+              denied: `"${sameNumber.name}" (numbered ${category.numeric_id}) belongs under "${target.name}" by its sheet numbers, but "${target.name}" already has a subcategory with that number or name. Move or merge that one first.`,
+            };
+          }
+          evict = { id: sameNumber.id, name: sameNumber.name, targetId: target.id, targetName: target.name };
+        }
+      }
+
       /* Products in it and in anything already nested under it (an older
          tree may still have some) all keep their category on a plain move. */
       const subtree = new Set([category.id]);
@@ -1712,13 +1753,17 @@ export const catalogWriteTools = {
         ok: true,
         summary: twin
           ? `merge "${category.name}" (from "${oldParent?.name ?? "?"}") into the existing "${twin.name}" under "${parent.name}" -- ${noun} move into it and get new style IDs there, then "${category.name}" is removed`
-          : `move "${category.name}" from "${oldParent?.name ?? "?"}" to "${parent.name}" -- ${noun} inside it get their style_id prefix corrected`,
-        preflight: { categoryId: category.id, parentId: parent.id, categoryName: category.name, mergeIntoId: twin?.id ?? null },
+          : `move "${category.name}" from "${oldParent?.name ?? "?"}" to "${parent.name}" -- ${noun} inside it get their style_id prefix corrected` +
+            (evict ? `; first "${evict.name}", which has the same number there, moves to "${evict.targetName}" where its items' sheet numbers say it belongs` : ""),
+        preflight: { categoryId: category.id, parentId: parent.id, categoryName: category.name, mergeIntoId: twin?.id ?? null, evict },
       };
     },
     async run(_args, t) {
       const { categoryId, parentId, mergeIntoId } = t.preflight;
       if (!mergeIntoId) {
+        if (t.preflight.evict) {
+          await t.square.moveCategory({ categoryId: t.preflight.evict.id, parentId: t.preflight.evict.targetId });
+        }
         const out = await t.square.moveCategory({ categoryId, parentId });
         const { updated: styleIdsUpdated, errors } = await t.square.resyncStyleIdPrefixes();
         return {
@@ -1867,11 +1912,11 @@ export const catalogWriteTools = {
     describe:
       "Assign or change a category or subcategory's own 2-digit numeric_id ('00'-'99'), the code that " +
       "later becomes a product's own style_id segment (NN-NN-NNN: the first NN is a TOP-LEVEL " +
-      "category's own numeric_id, the second is a SUBCATEGORY's, at whatever nesting depth). Top-level " +
-      "categories share ONE '00'-'99' pool; ALL subcategories, regardless of depth or parent, share a " +
-      "SEPARATE '00'-'99' pool of their own — once a number is given to any subcategory anywhere in the " +
-      "tree, it stops being available to any other, even one nested under a different category " +
-      "entirely. Assigning or changing this RETROACTIVELY corrects the style_id PREFIX of every product " +
+      "category's own numeric_id, the second is a SUBCATEGORY's). Top-level categories share ONE " +
+      "'00'-'99' pool; the subcategories under each parent number from a pool of their own — the same " +
+      "number may be used under two different parents (01-04 and 03-04 are both fine, exactly as the " +
+      "spreadsheets number them), and is unique only among siblings. Assigning or changing this " +
+      "RETROACTIVELY corrects the style_id PREFIX of every product " +
       "already sitting in this category or subcategory — a real Square write (the style_id Custom " +
       "Attribute) for each one, not just a mirror update. Only the prefix moves; each product keeps its " +
       "own sequence number exactly as it was, and no product ever changes CATEGORY as a side effect of " +
@@ -1909,14 +1954,15 @@ export const catalogWriteTools = {
       if (numericId !== null) {
         const isSubcategory = category.parent_id !== null;
         const conflict = categories.find(
-          (c) => c.id !== category.id && c.numeric_id === numericId && (c.parent_id !== null) === isSubcategory,
+          (c) => c.id !== category.id && c.numeric_id === numericId && c.parent_id === category.parent_id,
         );
         if (conflict) {
+          const parentName = categories.find((c) => c.id === category.parent_id)?.name;
           return {
             denied:
               `numeric_id '${numericId}' is already assigned to "${conflict.name}" — ${
-                isSubcategory ? "every subcategory in the whole tree" : "every top-level category"
-              } shares one pool, so this number is not available until that one is freed.`,
+                isSubcategory ? `every subcategory under "${parentName}" numbers from its own 00-99` : "every top-level category shares one pool of 00-99"
+              }, so this number is not available there until that one is freed.`,
           };
         }
       }
