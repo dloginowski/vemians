@@ -1257,13 +1257,11 @@ async function ops(request, env, path) {
         renumbering: await subcategoryRenumbering(env.CATALOG_MIRROR, { ledger: await ledgerSheetNumbers(env.ASSETS), truth }),
       });
     } else if (suffix === "/products/refile") {
-      /* One item filed under the subcategory its own sheet number names. The
-         target is either an existing subcategory (category_id) or one to create
-         under its category first (parent_id + name + numeric_id; reused when an
-         earlier item already made it). */
+      /* One item filed under the existing subcategory its own sheet number names. */
       const handle = String(form.get("handle") ?? "").trim();
-      let categoryId = String(form.get("category_id") ?? "").trim();
+      const categoryId = String(form.get("category_id") ?? "").trim();
       if (!handle) return json({ error: "give a product" }, 400);
+      if (!categoryId) return json({ error: "give the subcategory to file it under" }, 400);
       const commit = async (tool, toolArgs) => {
         const gate = await runTool(tool, toolArgs, { actor: email, role, env });
         if (!gate?.needsApproval) return { error: gate?.error || gate?.denied || `${tool} could not be proposed.` };
@@ -1271,27 +1269,6 @@ async function ops(request, env, path) {
         if (done?.error || done?.denied) return { error: done.error || done.denied };
         return {};
       };
-      if (!categoryId) {
-        const parentId = String(form.get("parent_id") ?? "").trim();
-        const name = String(form.get("name") ?? "").trim();
-        const numericId = String(form.get("numeric_id") ?? "").trim();
-        if (!parentId || !name) return json({ error: "give the subcategory to file it under" }, 400);
-        const fold = (n) => String(n).trim().toLowerCase().replace(/ies$/, "y").replace(/(ss|x|ch|sh)es$/, "$1").replace(/([^s])s$/, "$1");
-        const find = async () => (await listCategories(env.CATALOG_MIRROR)).find((c) => c.parent_id === parentId && fold(c.name) === fold(name));
-        let found = await find();
-        if (!found) {
-          const made = await commit("catalog.create_category", {
-            name,
-            parent_id: parentId,
-            reason: "created from the Admin panel's placement check",
-            ...(numericId ? { numeric_id: numericId } : {}),
-          });
-          if (made.error) return json({ error: made.error }, 400);
-          found = await find();
-        }
-        if (!found) return json({ error: `"${name}" could not be created` }, 400);
-        categoryId = found.id;
-      }
       const moved = await commit("catalog.update_product", { handle, category_id: categoryId });
       if (moved.error) return json({ error: moved.error }, 400);
       return json({ ok: true, category_id: categoryId });

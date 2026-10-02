@@ -4424,6 +4424,8 @@ check("test_PRD_P0_222_sheet_truth__the_placement_answer_carries_the_item_refili
   const noTarget = await postForm("/admin/products/refile", MANAGER, env(mirror), { handle: "some-product" });
   assert.equal(noTarget.status, 400);
   assert.match(await noTarget.text(), /give the subcategory to file it under/);
+  const wouldCreate = await postForm("/admin/products/refile", MANAGER, env(mirror), { handle: "some-product", parent_id: "cat1", name: "Capes" });
+  assert.equal(wouldCreate.status, 400, "a filing never creates a subcategory");
   const staff = await postForm("/admin/products/refile", STAFF, env(mirror), { handle: "some-product", category_id: "cat2" });
   assert.equal(staff.status, 403);
   const reaches = await postForm("/admin/products/refile", MANAGER, env(mirror), { handle: "some-product", category_id: "cat2" });

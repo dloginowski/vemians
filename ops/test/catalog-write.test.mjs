@@ -11999,7 +11999,7 @@ check("test_PRD_P0_221_numbers_from_the_ledger__an_empty_subcategory_left_on_an_
   assert.equal(entry.items, 0);
 });
 
-check("test_PRD_P0_222_sheet_truth__the_stored_sheets_name_what_each_number_is_and_the_newest_sheet_decides", async () => {
+check("test_PRD_P0_222_sheet_truth__a_number_is_named_only_when_every_stored_sheet_row_agrees_otherwise_it_is_ambiguous", async () => {
   const { sheetNamesFromText, sheetTruth } = await import("../src/batch.js");
   const csv =
     "title,category,subcategory,price,style id\n" +
@@ -12007,18 +12007,20 @@ check("test_PRD_P0_222_sheet_truth__the_stored_sheets_name_what_each_number_is_a
   assert.equal(sheetNamesFromText(csv).length, 4);
   assert.deepEqual(sheetNamesFromText("not,a,sheet\n1,2,3\n"), []);
   const assets = await assetsFixtureWithRow({ extracted_text: csv });
-  /* An older sheet that called number 3 something else, and a non-CSV note. */
+  /* a second sheet using number 9 for something else, and a non-CSV note */
   assets._raw
-    .prepare("INSERT INTO asset(id, store_key, filename, content_type, size_bytes, uploaded_by, extracted_text, text_truncated, uploaded_at) VALUES ('old', 'k', 'old.csv', 'text/csv', 1, 'm', ?, 0, '2020-01-01 00:00:00')")
-    .run("title,category,subcategory,price,style id\nX,Tops,Tunics,10,002-003-001\nY,Tops,Capes,10,002-009-001\n");
+    .prepare("INSERT INTO asset(id, store_key, filename, content_type, size_bytes, uploaded_by, extracted_text, text_truncated) VALUES ('s2', 'k', 'two.csv', 'text/csv', 1, 'm', ?, 0)")
+    .run("title,category,subcategory,price,style id\nX,Tops,Capes,10,002-009-001\nY,Jackets,Blazers,10,002-009-002\nZ,Tops,shirt,10,002-001-003\n");
   assets._raw
     .prepare("INSERT INTO asset(id, store_key, filename, content_type, size_bytes, uploaded_by, extracted_text, text_truncated) VALUES ('note', 'k2', 'note.txt', 'text/plain', 1, 'm', 'Capes 002-009-001', 0)")
     .run();
   const truth = await sheetTruth(assets);
-  const name = (t, m) => truth.find((r) => r.top === t && r.mid === m)?.subcategory;
-  assert.equal(name(2, 1), "Shirts");
-  assert.equal(name(2, 3), "Blouses", "within one sheet the commonest name wins; the older sheet's Tunics does not");
-  assert.equal(name(2, 9), "Capes", "a number only an older sheet mentions is still known");
+  const entry = (t, m) => truth.find((r) => r.top === t && r.mid === m);
+  assert.equal(entry(2, 1).subcategory, "Shirts", "every row agrees (case and plural folded)");
+  assert.equal(entry(2, 1).ambiguous, undefined);
+  assert.ok(entry(2, 3).ambiguous, "Blouses and Shirts both claim 02-03: no vote, it is ambiguous");
+  assert.deepEqual(entry(2, 3).ambiguous.map((n) => n.subcategory).sort(), ["Blouses", "Shirts"]);
+  assert.ok(entry(2, 9).ambiguous, "the same number under two different categories is ambiguous too");
   assert.deepEqual(await sheetTruth(null), []);
 });
 
@@ -12046,8 +12048,8 @@ check("test_PRD_P0_222_sheet_truth__a_subcategory_is_numbered_by_its_name_even_w
   assert.ok(bare.review.some((r) => r.name === "Evening Dresses" && /different sheet numbers/.test(r.why)), "without the sheet names it cannot decide");
 
   const truth = [
-    { top: 1, mid: 3, subcategory: "Shirt Dresses" },
-    { top: 1, mid: 4, subcategory: "Evening Dresses" },
+    { top: 1, mid: 3, category: "Dresses", subcategory: "Shirt Dresses" },
+    { top: 1, mid: 4, category: "Dresses", subcategory: "Evening Dresses" },
   ];
   const plan = await subcategoryRenumbering(f.env.CATALOG_MIRROR, { truth });
   assert.ok(!plan.review.some((r) => r.name === "Evening Dresses"), `named by the sheet, not left in review: ${JSON.stringify(plan.review)}`);
@@ -12059,6 +12061,14 @@ check("test_PRD_P0_222_sheet_truth__a_subcategory_is_numbered_by_its_name_even_w
   assert.equal(evicted.to, "06", "it goes above every number in use, out of the way");
   assert.ok(plan.steps.indexOf(evicted) < plan.steps.indexOf(toShirt), "and it leaves before the other arrives");
   assert.equal(plan.steps.find((s) => s.id === evening.id), undefined, "Evening Dresses is already on its number");
+
+  /* a number the sheets disagree about, or name under another category, decides nothing */
+  const ambiguous = await subcategoryRenumbering(f.env.CATALOG_MIRROR, {
+    truth: [{ top: 1, mid: 3, ambiguous: [{ category: "Dresses", subcategory: "Shirt Dresses" }, { category: "Dresses", subcategory: "Vests" }] }],
+  });
+  assert.equal(ambiguous.steps.find((s) => s.id === shirt.id), undefined, "an ambiguous number does not number anything");
+  const elsewhere = await subcategoryRenumbering(f.env.CATALOG_MIRROR, { truth: [{ top: 1, mid: 3, category: "Jackets", subcategory: "Shirt Dresses" }] });
+  assert.equal(elsewhere.steps.find((s) => s.id === shirt.id), undefined, "a name the sheets give under a different category says nothing about Dresses");
 });
 
 check("test_PRD_P0_222_sheet_truth__a_subcategory_left_on_00_with_items_and_no_sheet_to_number_it_gets_the_next_free_number", async () => {
@@ -12076,17 +12086,17 @@ check("test_PRD_P0_222_sheet_truth__a_subcategory_left_on_00_with_items_and_no_s
   assert.equal(r.ok, true, r.error);
 });
 
-check("test_PRD_P0_222_sheet_truth__an_item_is_refiled_under_the_subcategory_its_own_sheet_number_names_creating_it_when_missing", async () => {
-  /* "Shirts: 3 items say 02-03, 2 items say 02-01": the ones that say 03 belong in
-     whatever the sheet calls 03. */
+check("test_PRD_P0_222_sheet_truth__an_item_is_refiled_only_when_the_sheets_agree_and_the_target_exists_nothing_is_created", async () => {
+  /* "Oversize dress -> Blazer (01-01)" and "Lounge set -> Winter Coats (04-02)"
+     were proposed from sheets that use those numbers for different things. */
   const { f, evening, shirt } = await tweakedDresses();
   const { itemRefiling } = await import("../src/tools/catalog-writer.js");
   const db = f.env.CATALOG_MIRROR;
   assert.deepEqual((await itemRefiling(db, { truth: [] })).moves, [], "no sheet names, nothing to go on");
   f.mirrorDb._raw.prepare("UPDATE mirror_product SET import_style_number = '001-005-009' WHERE title LIKE '%Gala%'").run();
   const truth = [
-    { top: 1, mid: 4, subcategory: "Evening Dresses" },
-    { top: 1, mid: 5, subcategory: "Shirt Dresses" },
+    { top: 1, mid: 4, category: "Dresses", subcategory: "Evening Dresses" },
+    { top: 1, mid: 5, category: "Dresses", subcategory: "Shirt Dresses" },
   ];
   const plan = await itemRefiling(db, { truth });
   assert.equal(plan.moves.length, 1, JSON.stringify(plan));
@@ -12094,13 +12104,29 @@ check("test_PRD_P0_222_sheet_truth__an_item_is_refiled_under_the_subcategory_its
   assert.equal(plan.moves[0].to.id, shirt.id, "filed under the existing sibling of that name");
   assert.equal(plan.ok, 2, "the other two already sit where their numbers say");
 
-  /* a number whose name does not exist yet: created, numbered as the sheet numbers it */
-  f.mirrorDb._raw.prepare("UPDATE mirror_product SET import_style_number = '001-009-001' WHERE title LIKE '%Gala%'").run();
-  const created = await itemRefiling(db, { truth: [...truth, { top: 1, mid: 9, subcategory: "Capes" }] });
-  assert.equal(created.moves.length, 1);
-  assert.equal(created.moves[0].to.id, null);
-  assert.equal(created.moves[0].to.name, "Capes");
-  assert.equal(created.moves[0].to.number, "09");
+  /* sheets that disagree about the number: the item is left where it is, or named */
+  const ambiguous = await itemRefiling(db, {
+    truth: [...truth.slice(0, 1), { top: 1, mid: 5, ambiguous: [{ category: "Dresses", subcategory: "Shirt Dresses" }, { category: "Jackets", subcategory: "Blazers" }] }],
+  });
+  assert.deepEqual(ambiguous.moves, [], "an ambiguous number moves nothing");
+  assert.ok(ambiguous.review.some((r) => /Gala/.test(r.name) && /Shirt Dresses \(Dresses\) and Blazers \(Jackets\)/.test(r.why)), JSON.stringify(ambiguous.review));
+  /* ...and an item already sitting in one of the candidates is not bothered */
+  f.mirrorDb._raw.prepare("UPDATE mirror_product SET import_style_number = '001-004-001'").run();
+  const sits = await itemRefiling(db, { truth: [{ top: 1, mid: 4, ambiguous: [{ category: "Dresses", subcategory: "Evening Dresses" }, { category: "Dresses", subcategory: "Gowns" }] }] });
+  assert.deepEqual(sits.moves, []);
+  assert.deepEqual(sits.review.filter((r) => /Gala|Ball/.test(r.name)), []);
+
+  /* a sheet naming another category says nothing about this one */
+  f.mirrorDb._raw.prepare("UPDATE mirror_product SET import_style_number = '001-005-009' WHERE title LIKE '%Gala%'").run();
+  const other = await itemRefiling(db, { truth: [{ top: 1, mid: 5, category: "Jackets", subcategory: "Blazers" }] });
+  assert.deepEqual(other.moves, []);
+  assert.deepEqual(other.review, []);
+
+  /* a name that does not exist under the category: listed, never created */
+  const missing = await itemRefiling(db, { truth: [{ top: 1, mid: 5, category: "Dresses", subcategory: "Capes" }] });
+  assert.deepEqual(missing.moves, []);
+  assert.ok(missing.review.some((r) => /Gala/.test(r.name) && /nothing is created/.test(r.why)), JSON.stringify(missing.review));
+  assert.equal(f.categories().some((c) => c.name === "Capes"), false);
 
   /* and the move itself re-files the item and gives it a style ID in its new home */
   const handle = plan.moves[0].handle;

@@ -9792,15 +9792,21 @@ that does not trace to one of these is a process failure (see §12).
     goes above every number in use. A subcategory with items still sitting on an automatic 00 that no sheet can number
     takes the next free number, since no sheet uses 00. (2) Items that disagree are items in the wrong subcategory, and
     the sheets say which is which: every uploaded CSV is kept whole in the ASSETS ledger, so `sheetTruth` (`batch.js`)
-    reads them all, newest sheet first, and returns what each style number's top and middle group is CALLED (the commonest
-    name within a sheet). `subcategoryRenumbering` takes `truth`: a subcategory whose name the sheets give under exactly
-    one number of its parent gets that number whatever its items say, and such a number beats one only its items suggest.
-    (3) `itemRefiling` (`catalog-writer.js`) files each item under the sibling subcategory its own sheet number names —
-    creating it, numbered as the sheet numbers it (or the next free number), when that name does not exist under its
-    category yet — through `/admin/products/refile` (`catalog.update_product` with a category; a new subcategory is made
-    once and reused). The Check placement button runs subcategory moves, then item refiling, then renumbering, each
-    re-read from the state the one before left, and lists whatever it still cannot decide. Subcategories left empty are
-    not deleted for the owner (the existing remove button does that).
+    reads them all and returns what each style number's top and middle group is CALLED. **Only when every stored row
+    agrees**, on category and subcategory: the sheets are not consistent (04-02 heads both "Lounge Sets" and "Winter
+    Coats", 01-01 both an oversize dress and a "Blazer"), and the first version, which took the newest sheet or the
+    commonest name, proposed filing lounge sets under Winter Coats and oversize dresses under Blazer and creating
+    subcategories like "Dress Pants". A number whose rows disagree is `ambiguous`, carrying every name, and decides
+    nothing; a name is also only used under the category the sheet names (a "Blazer" of a Jackets sheet says nothing about
+    Dresses). `subcategoryRenumbering` takes `truth`: a subcategory whose name the sheets give, unanimously and under its
+    parent's own name, under exactly one number gets that number whatever its items say, and such a number beats one only
+    its items suggest. (3) `itemRefiling` (`catalog-writer.js`) files an item under the sibling subcategory its own sheet
+    number names, only for an unambiguous number and only into a subcategory that already exists (nothing is created; what
+    cannot be decided, including a number used for two things where the item sits in neither, is listed with the
+    reason), through `/admin/products/refile` (`catalog.update_product` with a category). The Check placement button runs
+    subcategory moves, then item refiling, then renumbering, each re-read from the state the one before left, and lists
+    whatever it still cannot decide. Subcategories left empty are not deleted for the owner (the existing remove button
+    does that).
 
 ## 4. P1 features
 
