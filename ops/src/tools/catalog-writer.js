@@ -169,16 +169,16 @@ export async function subcategoryRenumbering(db, { ledger = [], truth = [] } = {
       .replace(/ies$/, "y")
       .replace(/(ss|x|ch|sh)es$/, "$1")
       .replace(/([^s])s$/, "$1");
-  /* What the stored sheets call each numbered subcategory: top -> folded name -> the
-     middle numbers carrying it. A name found under exactly one number IS that
+  /* What the stored sheets call each numbered subcategory. Only a number whose
+     every sheet row agrees (no `ambiguous`) counts, and only under the category
+     the sheets name -- a "Blazer" row of a Jackets sheet says nothing about
+     Dresses. A name found under exactly one number of its parent is that
      subcategory's number, whatever its items currently say. */
-  const truthMids = new Map();
-  for (const t of truth) {
-    const byName = truthMids.get(Number(t.top)) ?? new Map();
-    const key = fold(t.subcategory);
-    byName.set(key, [...new Set([...(byName.get(key) ?? []), Number(t.mid)])]);
-    truthMids.set(Number(t.top), byName);
-  }
+  const sureTruth = truth.filter((t) => !t.ambiguous);
+  const midsFor = (parentTop, parentName, subName) =>
+    sureTruth
+      .filter((t) => Number(t.top) === parentTop && fold(t.category) === fold(parentName) && fold(t.subcategory) === fold(subName))
+      .map((t) => Number(t.mid));
   const ledgerStats = new Map();
   for (const r of ledger) {
     const m = /^\s*(\d+)\s*-\s*(\d+)\s*-/.exec(String(r.sheet_style_id ?? ""));
@@ -226,7 +226,7 @@ export async function subcategoryRenumbering(db, { ledger = [], truth = [] } = {
     for (const sub of siblings) {
       /* The stored sheets name this subcategory under exactly one number of its
          parent's: that number is the answer, whatever its items say. */
-      const mids = parentTop === null ? [] : truthMids.get(parentTop)?.get(fold(sub.name)) ?? [];
+      const mids = parentTop === null ? [] : midsFor(parentTop, parentName, sub.name);
       if (mids.length === 1 && mids[0] >= 1 && mids[0] <= 99) {
         if (String(sub.numeric_id ?? "") === pad(mids[0])) ok += 1;
         else {
@@ -382,9 +382,10 @@ export async function subcategoryRenumbering(db, { ledger = [], truth = [] } = {
  * whose items carry different sheet numbers ("Shirts: 3 items say 02-03, 2 say
  * 02-01") has some items in it that belong elsewhere: the stored sheets name
  * what each number is (sheetTruth), so each item can simply be filed under the
- * sibling subcategory its own number names -- created, numbered as the sheet
- * numbers it, when that name does not exist under its category yet.
- * Read-only; the Admin page applies each move through /admin/products/refile.
+ * sibling subcategory its own number names -- but only when every stored sheet
+ * row agrees what that number is (and under which category), and only into a
+ * subcategory that already exists: nothing is guessed, nothing is created, and
+ * what cannot be decided is listed. Read-only; the Admin page applies each move through /admin/products/refile.
  */
 export async function itemRefiling(db, { truth = [] } = {}) {
   const categories = await listCategories(db);
@@ -397,7 +398,7 @@ export async function itemRefiling(db, { truth = [] } = {}) {
       .replace(/(ss|x|ch|sh)es$/, "$1")
       .replace(/([^s])s$/, "$1");
   const pad = (n) => String(n).padStart(2, "0");
-  const names = new Map(truth.map((t) => [`${Number(t.top)}|${Number(t.mid)}`, t.subcategory]));
+  const entries = new Map(truth.map((t) => [`${Number(t.top)}|${Number(t.mid)}`, t]));
   const res = await db
     .prepare("SELECT handle, title, category_id, import_style_number FROM mirror_product_index WHERE category_id IS NOT NULL AND import_style_number IS NOT NULL")
     .bind()
@@ -405,8 +406,6 @@ export async function itemRefiling(db, { truth = [] } = {}) {
   const moves = [];
   const review = [];
   let ok = 0;
-  /* numbers a created subcategory has been given in this plan, per parent */
-  const planned = new Map();
   for (const r of res.results ?? []) {
     const m = /^\s*(\d+)\s*-\s*(\d+)\s*-/.exec(String(r.import_style_number ?? ""));
     const cat = byId.get(r.category_id);
@@ -415,37 +414,48 @@ export async function itemRefiling(db, { truth = [] } = {}) {
     const top = Number(m[1]);
     const mid = Number(m[2]);
     if (!parent || parent.numeric_id == null || Number(parent.numeric_id) !== top) continue;
-    const name = names.get(`${top}|${mid}`);
-    if (!name) continue;
-    if (fold(name) === fold(cat.name)) {
+    const entry = entries.get(`${top}|${mid}`);
+    if (!entry) continue;
+    const code = `${pad(top)}-${pad(mid)}`;
+    if (entry.ambiguous) {
+      /* The sheets use this number for more than one thing. An item sitting in
+         one of them is left where it is; one sitting anywhere else is named. */
+      const here = entry.ambiguous.filter((n) => fold(n.category) === fold(parent.name));
+      if (!here.length || here.some((n) => fold(n.subcategory) === fold(cat.name))) continue;
+      review.push({
+        name: r.title,
+        parent: parent.name,
+        items: 1,
+        why: `its sheet number ${code} is used for ${entry.ambiguous.map((n) => `${n.subcategory} (${n.category})`).join(" and ")} in your sheets, and it is in ${cat.name}, so the number cannot say where it belongs`,
+      });
+      continue;
+    }
+    /* A sheet naming a different category than this one says nothing about it. */
+    if (fold(entry.category) !== fold(parent.name)) continue;
+    if (fold(entry.subcategory) === fold(cat.name)) {
       ok += 1;
       continue;
     }
-    const siblings = categories.filter((c) => c.parent_id === parent.id && fold(c.name) === fold(name));
-    if (siblings.length > 1) {
-      review.push({ name: r.title, parent: parent.name, items: 1, why: `the sheet files it under "${name}" (${pad(top)}-${pad(mid)}), but ${parent.name} has more than one subcategory by that name` });
+    const siblings = categories.filter((c) => c.parent_id === parent.id && fold(c.name) === fold(entry.subcategory));
+    if (siblings.length !== 1) {
+      review.push({
+        name: r.title,
+        parent: parent.name,
+        items: 1,
+        why: siblings.length
+          ? `the sheet files it under "${entry.subcategory}" (${code}), but ${parent.name} has more than one subcategory by that name`
+          : `the sheet files it under "${entry.subcategory}" (${code}), which does not exist under ${parent.name}; nothing is created for you, so move it by hand or add that subcategory`,
+      });
       continue;
     }
-    const base = { handle: r.handle, title: r.title, from: { id: cat.id, name: cat.name }, parent: { id: parent.id, name: parent.name }, code: `${pad(top)}-${pad(mid)}` };
-    if (siblings.length === 1) {
-      moves.push({ ...base, to: { id: siblings[0].id, name: siblings[0].name } });
-      continue;
-    }
-    const made = planned.get(`${parent.id}|${fold(name)}`) ?? (() => {
-      const taken = new Set([...categories.filter((c) => c.parent_id === parent.id).map((c) => c.numeric_id), ...[...planned.values()].filter((p) => p.parent_id === parent.id).map((p) => p.number)]);
-      let high = 0;
-      for (const t of taken) if (t != null && t !== "") high = Math.max(high, Number(t));
-      let number = !taken.has(pad(mid)) && mid >= 1 && mid <= 99 ? pad(mid) : null;
-      for (let n = high + 1; number === null && n <= 99; n += 1) if (!taken.has(pad(n))) number = pad(n);
-      const plan = { id: null, name, parent_id: parent.id, number };
-      planned.set(`${parent.id}|${fold(name)}`, plan);
-      return plan;
-    })();
-    if (made.number === null) {
-      review.push({ name: r.title, parent: parent.name, items: 1, why: `the sheet files it under "${name}", which does not exist under ${parent.name}, and no number is free to create it` });
-      continue;
-    }
-    moves.push({ ...base, to: made });
+    moves.push({
+      handle: r.handle,
+      title: r.title,
+      from: { id: cat.id, name: cat.name },
+      to: { id: siblings[0].id, name: siblings[0].name },
+      parent: { id: parent.id, name: parent.name },
+      code,
+    });
   }
   return { moves, review, ok };
 }
