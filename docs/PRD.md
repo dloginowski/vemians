@@ -9535,6 +9535,23 @@ that does not trace to one of these is a process failure (see §12).
     left, taking the room and ellipsizing, the tags at the right edge (still at the right with no breadcrumb).
     CSS only; the markup is unchanged.
 
+143. **`Test-PRD-P0-211-follow_the_sheet`** — "Just follow the spreadsheets exactly because I think you're mixing
+    shit up... the spreadsheets have the right categories and everything, and they're assigned to the proper
+    things. So if I resubmit these spreadsheets again, can you make sure that you are following them and that
+    the categories are properly assigned? Right now we just have a clusterfuck." — the owner's own words,
+    after "Evening Dresses" turned up as a subcategory of Jackets. The upload filed a row under whichever
+    top-level category held the style number's first digits (sheet "001" -> the catalog's number 01 ->
+    Jackets) and ignored the Category column. REVERSED: the sheet's Category and Subcategory NAMES decide
+    (`resolveSheetCategory`, `batch.js`): the existing category of that name (singular or plural), else a
+    corrected near-duplicate of one, else a new one, which takes the style number's own code as its number
+    when that is free and the next free number otherwise. The style number's digits only pick a category when
+    the sheet gives no category name at all. The same applies to an item already on file: a resubmit whose
+    sheet names a category the item is not in MOVES it there (`catalog.update_product` re-numbers its style
+    ID for the new category), shown in the checklist as a real change ("category Jackets › Evening Dresses ->
+    Dresses › Evening Dresses") and re-checked at submit time like every other change; a sheet that names no
+    category never moves an item. Replaces the earlier "number wins" rule (`Test-PRD-P0-152`'s
+    number-versus-name notes).
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

@@ -838,15 +838,19 @@ const STYLE_NUMBER_BASE = /^\d+-\d+-\d+$/;
  * ID-resolved row and a name-resolved one in the same upload can never pick
  * the same code for two different categories.
  */
-async function resolveCategoryByCode(env, { actor, role, categories, reserved, cache, rate }, code, name) {
+async function resolveCategoryByCode(env, { actor, role, categories, reserved, cache, rate }, code, name, { numberFirst = true } = {}) {
   const numeric = Number(code);
-  if (!Number.isInteger(numeric) || numeric < 0 || numeric > 99) {
+  const validCode = Number.isInteger(numeric) && numeric >= 0 && numeric <= 99;
+  if (!validCode && numberFirst) {
     return { error: `"${code}" is not a plain 0-99 number this shop's own numbering can use` };
   }
-  const padded = String(numeric).padStart(2, "0");
+  let padded = validCode ? String(numeric).padStart(2, "0") : null;
   const pool = categories.filter((c) => !c.parent_id);
 
-  const byNumber = pool.find((c) => c.numeric_id != null && c.numeric_id !== "" && Number(c.numeric_id) === numeric);
+  /* numberFirst false: the sheet's Category NAME decides (resolveSheetCategory),
+     so the number holding that code is never consulted -- only used as the
+     number a NEW category asks for, when it is free. */
+  const byNumber = numberFirst ? pool.find((c) => c.numeric_id != null && c.numeric_id !== "" && Number(c.numeric_id) === numeric) : null;
   if (byNumber) {
     /* "We have the source of truth, and we must map the incoming
        spreadsheets to match ours" -- the owner's own words, the reason the
@@ -881,6 +885,15 @@ async function resolveCategoryByCode(env, { actor, role, categories, reserved, c
   const exact = name ? pool.find((c) => c.name.trim().toLowerCase() === name.trim().toLowerCase()) : null;
   const near = !exact && name ? nearestCategory(name, pool) : null;
   const matched = exact || (near && near.score >= CAPS.CATEGORY_DUPLICATE_SIMILARITY ? near : null);
+  if (!numberFirst) {
+    /* A number for a category this row creates or numbers: the sheet's own
+       code when it is free, else the next free one. */
+    const taken = (n) => !n || reserved.has(n) || pool.some((c) => c.numeric_id != null && c.numeric_id !== "" && Number(c.numeric_id) === Number(n));
+    if (taken(padded)) padded = nextTopLevelNumericId(categories, reserved);
+    if (!padded && !(name && pool.some((c) => c.name.trim().toLowerCase() === name.trim().toLowerCase()))) {
+      return { error: "no free top-level category number available -- all 100 codes (00-99) are already in use" };
+    }
+  }
   if (matched) {
     /* REVISED — already numbered, just not the way this row's own style
        number claims: no longer a genuine clash to park. "We already have
@@ -1160,7 +1173,7 @@ async function draftNamedCategoryProduct(env, category, resolutionError, nextAut
       scoped = false;
     }
     if (candidates.length === 1) {
-      return draftProductUpdate(env, candidates[0], rawTitle, [{ record, rowNumber, color: undefined, size: undefined }], ctx);
+      return draftProductUpdate(env, candidates[0], rawTitle, [{ record, rowNumber, color: undefined, size: undefined }], { ...ctx, sheetCategory: category });
     }
     if (candidates.length > 1) {
       const scope = scoped ? `in "${category.name}"` : "anywhere in the catalog (no category match narrowed the search)";
@@ -1309,8 +1322,9 @@ function variationLabel(options) {
  * construction does); a variation with no variant_id is a brand-new size/
  * color and always a real change.
  */
-export function catalogChangesFor({ existing, existingVariants, titleCol, descriptionCol, variations }) {
+export function catalogChangesFor({ existing, existingVariants, titleCol, descriptionCol, variations, categoryMove = null }) {
   const changes = [];
+  if (categoryMove) changes.push(categoryMove);
   if (titleCol && titleCol.slice(0, 200) !== existing.title) {
     changes.push(`title "${existing.title}" -> "${titleCol.slice(0, 200)}"`);
   }
@@ -1337,11 +1351,109 @@ export function catalogChangesFor({ existing, existingVariants, titleCol, descri
 /* The top-level category and (when there is one) subcategory NAMES a
    category id lands in -- "I want to see our result category and
    subcategory that's actually being applied," the owner's own words. */
+/* "Jackets › Evening Dresses" for a category id (or just the top level). */
+export function categoryPathText(categories, categoryId) {
+  const labels = categoryLabels(categories, categoryId);
+  return [labels.category, labels.subcategory].filter(Boolean).join(" › ") || "no category";
+}
+
+/* The one change line for an item the sheet files somewhere else; null when
+   there is no move (no target, or it already sits there). */
+export function categoryMoveText(categories, fromId, toId) {
+  if (!toId || toId === (fromId ?? null)) return null;
+  return `category ${categoryPathText(categories, fromId)} -> ${categoryPathText(categories, toId)}`;
+}
+
 export function categoryLabels(categories, categoryId) {
   const leaf = categoryId ? categories.find((c) => c.id === categoryId) : null;
   if (!leaf) return { category: "", subcategory: "" };
   const parent = leaf.parent_id ? categories.find((c) => c.id === leaf.parent_id) : null;
   return parent ? { category: parent.name, subcategory: leaf.name } : { category: leaf.name, subcategory: "" };
+}
+
+/*
+ * Where a row goes, by the sheet's own words. "Just follow the spreadsheets
+ * exactly... the spreadsheets have the right categories and everything" --
+ * the owner's own words, reversing the earlier number-first rule, which
+ * filed a row under whatever top-level category happened to hold the style
+ * number's first digits and silently ignored the Category column (a sheet
+ * whose "001" meant Dresses had its dresses filed under Jackets).
+ *
+ *   - A Category NAME decides the top level: the existing top-level category
+ *     of that name (singular or plural), else a corrected near-duplicate of
+ *     one, else a new one is created -- never the number's category.
+ *   - A Subcategory NAME decides the second level under it, the same way.
+ *   - With NO category name at all, the style number's own digits are all
+ *     the sheet gives, so they pick the category exactly as before.
+ *
+ * `nameOnly` (a resubmit of an item already on file) does nothing at all
+ * unless the sheet names a category, so an item is only ever moved because
+ * the sheet said where it belongs. Returns { category (the leaf, or null),
+ * notes, clashes }.
+ */
+async function resolveSheetCategory(env, ctx, base, record, { nameOnly = false } = {}) {
+  const { actor, role, categories, reservedNumericIds, reservedSubcategoryNumericIds, categoryCache, rate } = ctx;
+  const [catCode, subCode] = base.split("-");
+  const categoryNameCol = pick(record, CATEGORY_KEYS);
+  const subcategoryNameCol = pick(record, SUBCATEGORY_KEYS);
+  const notes = [];
+  const clashes = [];
+  if (nameOnly && !categoryNameCol) return { category: null, notes, clashes };
+
+  let topCategory = null;
+  if (categoryNameCol) {
+    const outcome = await resolveCategoryByCode(
+      env,
+      { actor, role, categories, reserved: reservedNumericIds, cache: categoryCache, rate },
+      catCode,
+      categoryNameCol,
+      { numberFirst: false },
+    );
+    if (outcome.error) clashes.push(`category "${categoryNameCol}": ${outcome.error}`);
+    else topCategory = outcome.category;
+  } else {
+    const catOutcome = await resolveCategoryByCode(
+      env,
+      { actor, role, categories, reserved: reservedNumericIds, cache: categoryCache, rate },
+      catCode,
+      "",
+    );
+    if (catOutcome.error) {
+      clashes.push(`style number "${base}": category ${catCode}: ${catOutcome.error}`);
+    } else if (!catOutcome.category) {
+      notes.push(`style number "${base}": category ${catCode} matches no existing category, and no Category name column was given to create one from`);
+    } else {
+      topCategory = catOutcome.category;
+      if (catOutcome.note) notes.push(`style number "${base}": ${catOutcome.note}`);
+    }
+  }
+
+  let category = topCategory;
+  if (topCategory && subcategoryNameCol) {
+    let subcategory = matchCategory(subcategoryNameCol, categories.filter((c) => c.parent_id === topCategory.id));
+    if (!subcategory) {
+      const outcome = await resolveOrCreateCategory(
+        env,
+        { actor, role, categories, reserved: reservedSubcategoryNumericIds, cache: categoryCache, parentId: topCategory.id, rate },
+        subcategoryNameCol,
+      );
+      if (outcome.error) {
+        clashes.push(`subcategory "${subcategoryNameCol}" does not exist yet under "${topCategory.name}" and could not be created: ${outcome.error}`);
+      } else {
+        subcategory = outcome.category;
+      }
+    }
+    if (subcategory) category = subcategory;
+  } else if (topCategory && !categoryNameCol) {
+    /* No name column at all: the style number's own middle digits, match
+       only, as before. */
+    const subNumeric = Number(subCode);
+    const match = categories.find((c) => c.parent_id && c.numeric_id != null && c.numeric_id !== "" && Number(c.numeric_id) === subNumeric);
+    if (match) category = match;
+  } else if (!topCategory && subcategoryNameCol) {
+    notes.push(`subcategory "${subcategoryNameCol}" was given without a resolvable category to nest it under`);
+  }
+  return { category, notes, clashes };
 }
 
 /*
@@ -1691,6 +1803,25 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
     ...(variations.length ? { variations } : {}),
   };
 
+  /* "Follow the spreadsheets exactly... they're assigned to the proper
+     things" -- the owner's own words. An item already on file that the sheet
+     files somewhere else is MOVED there (catalog.update_product re-numbers
+     its style ID for the new category), so re-sending a sheet fixes items an
+     earlier run filed under the wrong parent. Only when the sheet names a
+     category; a sheet that says nothing about categories never moves one. */
+  let sheetLeaf = null;
+  if (ctx.sheetCategory !== undefined) {
+    /* A sheet with no style number: its category was already resolved by
+       name (draftNamedCategoryProduct). */
+    sheetLeaf = ctx.sheetCategory;
+  } else if (ctx.categories) {
+    const sheetCategory = await resolveSheetCategory(env, ctx, base, first, { nameOnly: true });
+    clashes.push(...sheetCategory.clashes);
+    sheetLeaf = sheetCategory.category;
+  }
+  const categoryMove = sheetLeaf ? categoryMoveText(ctx.categories ?? (await listCategories(env.CATALOG_MIRROR)), existing.category_id, sheetLeaf.id) : null;
+  if (categoryMove) args.category_id = sheetLeaf.id;
+
   if (clashes.length) {
     return { clash: { row: firstRow, title, args, reason: clashes.join("; "), toolName: "catalog.update_product" }, extraRows: quantityAdjustments };
   }
@@ -1711,7 +1842,7 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
      reconciliation this same row may have queued (extraRows) is entirely
      independent and still shows up on its own when it represents a real
      change -- this only ever suppresses the CATALOG edit itself. */
-  const changes = catalogChangesFor({ existing, existingVariants, titleCol, descriptionCol, variations });
+  const changes = catalogChangesFor({ existing, existingVariants, titleCol, descriptionCol, variations, categoryMove });
 
   if (changes.length === 0) {
     return { extraRows: quantityAdjustments };
@@ -1724,7 +1855,7 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
       args,
       toolName: "catalog.update_product",
       changes: changes.join("; "),
-      categoryId: existing.category_id ?? null,
+      categoryId: args.category_id ?? existing.category_id ?? null,
     },
     extraRows: quantityAdjustments,
   };
@@ -1775,96 +1906,19 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
     return draftProductUpdate(env, existingByStyle, base, groupRows, ctx);
   }
 
-  const [catCode, subCode] = base.split("-");
+  /* "Just follow the spreadsheets exactly... the spreadsheets have the right
+     categories and everything, and they're assigned to the proper things" --
+     the owner's own words. The sheet's Category and Subcategory NAMES decide
+     where a row goes (resolveSheetCategory, above); the style number's own
+     digits only stand in when the sheet gives no category name at all. */
   const categoryNameCol = pick(first, CATEGORY_KEYS);
   const subcategoryNameCol = pick(first, SUBCATEGORY_KEYS);
-  /* Something this file could safely default is noted here, in plain
-     text, on the product itself. Something it could NOT safely decide for
-     itself goes in `clashes` instead -- the whole row still gets built (so
-     a person reviewing the parked approval sees a complete, editable
-     proposal), but it is parked rather than created outright. */
   const notes = [];
   const clashes = [];
-
-  const catOutcome = await resolveCategoryByCode(
-    env,
-    { actor, role, categories, reserved: reservedNumericIds, cache: categoryCache, rate },
-    catCode,
-    categoryNameCol,
-  );
-  let topCategory = null;
-  if (catOutcome.error) {
-    clashes.push(`style number "${base}": category ${catCode}: ${catOutcome.error}`);
-  } else if (!catOutcome.category) {
-    /* Nothing to decide -- just plain absence, not a clash: no code
-       matched anything, and no name was even given to try creating one
-       from. Automatic, unassigned, noted. */
-    notes.push(`style number "${base}": category ${catCode} matches no existing category, and no Category name column was given to create one from`);
-  } else {
-    topCategory = catOutcome.category;
-    if (catOutcome.note) notes.push(`style number "${base}": ${catOutcome.note}`);
-  }
-
-  /* SUBCATEGORY: two different rules, picked by whether a Subcategory
-     NAME column exists at all -- only even attempted once a real
-     top-level category exists to nest under; a subcategory named beside
-     an unresolved top-level category has nowhere to go, and rides along
-     with whatever `clashes`/`notes` the category resolution above already
-     recorded, rather than reporting its own second, redundant problem.
-     WITH a name column (the owner's own actual sample sheet) — resolves
-     by NAME, NOT by number, REVISED against that real file: this shop's
-     own subcategory numeric_id pool is TREE-WIDE unique (P0-138's own
-     two-pool rule, a real database constraint), but a real sheet's own
-     middle segment restarts at 1 for every new top-level category
-     ("Blazer" under Jacket and "Dress Pants" under Pants both landed on
-     "001") — the two conventions are genuinely incompatible, not a
-     matter of preference. Matched (or created) by name under the
-     category actually resolved above, the same mechanism P0-146's own
-     Subcategory column already uses, auto-assigning THIS shop's own
-     real, tree-wide-unique numeric_id (nextSubcategoryNumericId) rather
-     than the sheet's own locally-scoped one. A CREATE failure (a real
-     Square refusal, a rate cap) IS a clash -- parked, same as the
-     top-level category's own.
-     WITH NO name column (a bare style number, from before that column
-     existed) — resolves by NUMBER instead, tree-wide, MATCH ONLY, never
-     creating: a subcategory whose own numeric_id equals the sheet's own
-     middle segment, with nothing else to go on. This never risks the
-     same cross-category collision a name-less CREATE would, since
-     nothing here ever assigns a new number from a per-parent-scoped
-     digit; a number that matches nothing yet simply leaves this row at
-     the top-level category — not a clash either, nothing here disagreed
-     with anything. */
-  let category = topCategory;
-  if (topCategory && subcategoryNameCol) {
-    let subcategory = matchCategory(subcategoryNameCol, categories.filter((c) => c.parent_id === topCategory.id));
-    if (!subcategory) {
-      const outcome = await resolveOrCreateCategory(
-        env,
-        { actor, role, categories, reserved: reservedSubcategoryNumericIds, cache: categoryCache, parentId: topCategory.id, rate },
-        subcategoryNameCol,
-      );
-      if (outcome.error) {
-        clashes.push(`subcategory "${subcategoryNameCol}" does not exist yet under "${topCategory.name}" and could not be created: ${outcome.error}`);
-      } else {
-        subcategory = outcome.category;
-      }
-    }
-    if (subcategory) {
-      category = subcategory;
-    }
-  } else if (topCategory) {
-    const subNumeric = Number(subCode);
-    const match = categories.find(
-      (c) => c.parent_id && c.numeric_id != null && c.numeric_id !== "" && Number(c.numeric_id) === subNumeric,
-    );
-    if (match) {
-      category = match;
-    }
-  } else if (subcategoryNameCol) {
-    /* Nowhere to nest -- but nothing DISAGREES either, there is simply no
-       category to check the subcategory against. Automatic, noted. */
-    notes.push(`subcategory "${subcategoryNameCol}" was given without a resolvable category to nest it under`);
-  }
+  const resolved = await resolveSheetCategory(env, ctx, base, first);
+  notes.push(...resolved.notes);
+  clashes.push(...resolved.clashes);
+  const category = resolved.category;
 
   /* The sheet's own style number is only ever a LOCAL grouping key now
      (splitProductRecords' own `base`, above) — never sent to Square as a
@@ -2652,6 +2706,9 @@ export async function submitProductBatchRow(env, { actor, role, rate }, row, edi
         titleCol: target.args.title,
         descriptionCol: target.args.description,
         variations: target.args.variations ?? [],
+        categoryMove: target.args.category_id
+          ? categoryMoveText(await listCategories(env.CATALOG_MIRROR), current.category_id, target.args.category_id)
+          : null,
       });
       if (changes.length === 0) {
         const placement = await appliedPlacement(env, target.args.handle, planned);
