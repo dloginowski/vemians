@@ -1344,7 +1344,7 @@ function shopFormOf(base) {
 /* The values a variation's TITLE names ("M, Brown" -> {m, brown}) and the
    values a row's options name, compared as sets: order and case do not matter. */
 function variantTitleValues(title) {
-  return new Set(String(title ?? "").split(/[,/|]+/).map((x) => x.trim().toLowerCase()).filter(Boolean));
+  return new Set(String(title ?? "").split(/\s*[,|]\s*|\s+\/\s+/).map((x) => x.trim().toLowerCase()).filter(Boolean));
 }
 function optionValueSet(options) {
   return new Set(Object.values(options).map((x) => String(x).trim().toLowerCase()).filter(Boolean));

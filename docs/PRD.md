@@ -9692,7 +9692,10 @@ that does not trace to one of these is a process failure (see §12).
     for it, so a size is never silently dropped. (3) A hand-made variation filling a newly declared option takes
     the existing value that a word of its title IS ("M" is a size, "Brown" a colour) before falling back to the
     neutral one ("OS" for a size, "N/A" otherwise), so two such variations do not collapse into one identical
-    pair; a genuine collision is still refused plainly (P0-216).
+    pair; a genuine collision is still refused plainly (P0-216). (4) A later resend of the same product ("M, Black"
+    and "OS, N/A" colliding) showed the mirror's copy of an existing variation's options can be empty or stale
+    while Square holds real values: an existing variation now keeps the option values Square itself has for it
+    (the item is read live, once per call) before any title-based or neutral fill is considered.
 
 ## 4. P1 features
 
