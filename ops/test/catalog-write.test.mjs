@@ -7275,7 +7275,7 @@ check("test_PRD_P0_207_daily_limit_and_plurals__a_singular_subcategory_matches_i
   let first, second;
   try {
     first = await draftProductBatch(f.env, {
-      text: "title,category,subcategory,price\nOversize Dress,Jackets,Oversize,90.00\nLeather Bag,Accessories,Purse,60.00\n",
+      text: "title,category,subcategory,price\nOversize Dress,Jackets,Oversizes,90.00\nLeather Bag,Accessories,Purse,60.00\n",
       actor: "keiko@vemians.com",
       role: "manager", mode: "add",
     });
@@ -11133,4 +11133,15 @@ check("test_PRD_P0_215_subcategory_numbers_per_parent__moving_onto_a_parent_that
   const refused = await runTool("catalog.move_category", { category_id: cardigans.id, parent_id: tailoring.id }, f.ctx);
   assert.equal(refused.ok, false);
   assert.match(refused.error, /cannot share a number/);
+});
+
+check("test_PRD_P0_215_subcategory_numbers_per_parent__oversize_kept_as_written_a_new_oversize_subcategory_is_not_renamed_to_oversizes", async () => {
+  /* "Don't rename Oversize to Oversizes" -- the owner's own words. */
+  const f = await fixture();
+  const made = await approvedCall(f, "catalog.create_category", { name: "Oversize", reason: "test" });
+  assert.equal(made.ok, true, made.error);
+  assert.equal(made.data.category.name, "Oversize");
+  assert.equal(f.categories().find((c) => c.name === "Oversizes"), undefined);
+  const other = await approvedCall(f, "catalog.create_category", { name: "Eyewear", reason: "test" });
+  assert.equal(other.data.category.name, "Eyewears", "every other name still follows the plural rule");
 });

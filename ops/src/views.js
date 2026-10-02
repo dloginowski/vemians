@@ -5816,18 +5816,29 @@ document.body.addEventListener("input", (e) => {
    update its sorting" — the exact same instant client-side resort the
    Items tab's own tree already does, on every keystroke, well before the
    actual write is ever sent. */
-document.body.addEventListener("input", (e) => {
-  if (!e.target.matches(".admin-category-numeric-id")) return;
-  const node = e.target.closest(".admin-category-node");
+function resortNumericIdRow(target) {
+  const node = target.closest(".admin-category-node");
   const parent = node?.parentElement;
   if (!parent) return;
+  /* Only a complete two-digit number re-sorts: a half-typed or blank value
+     (mid-delete) would otherwise throw the row to the top or bottom while
+     the owner is still editing it. */
+  if (!/^[0-9]{2}$/.test(target.value.trim())) return;
   const siblings = [...parent.querySelectorAll(":scope > .admin-category-node")];
   const key = (el) => {
     const raw = el.querySelector(":scope > .admin-category-row .admin-category-numeric-id")?.value.trim();
-    return raw ? Number(raw) : Infinity;
+    return /^[0-9]{2}$/.test(raw ?? "") ? Number(raw) : Infinity;
   };
-  parent.append(...[...siblings].sort((a, b) => key(a) - key(b)));
-});
+  const sorted = [...siblings].sort((a, b) => key(a) - key(b));
+  if (sorted.every((n, i) => n === siblings[i])) return;
+  /* "When I hit delete... it closes my keyboard" -- the owner's own words.
+     Moving the row being edited detaches its field, and the browser drops
+     focus (and the phone keyboard) with it. So the row stays exactly where
+     it is in the document and every OTHER row is moved around it. */
+  const at = sorted.indexOf(node);
+  for (const n of sorted.slice(0, at)) parent.insertBefore(n, node);
+  for (const n of sorted.slice(at + 1).reverse()) parent.insertBefore(n, node.nextSibling);
+}
 
 /* "Deleting a category ID or subcategory ID or setting an ID that's
    already used should result in a red invalid box... you can still
@@ -5868,7 +5879,7 @@ function revalidateNumericIdPool(pool) {
   for (const node of pool) {
     const input = numericIdInputOf(node);
     const v = input?.value.trim();
-    if (!v || !/^\d{2}$/.test(v)) continue;
+    if (!v || !/^[0-9]{2}$/.test(v)) continue;
     if (!byValue.has(v)) byValue.set(v, []);
     byValue.get(v).push(input);
   }
@@ -5890,7 +5901,7 @@ document.body.addEventListener("input", (e) => {
   const pool = numericIdPoolFor(node);
   const newValue = input.value.trim();
   const prevValue = input.dataset.prevValue ?? "";
-  if (/^\d{2}$/.test(newValue) && newValue !== prevValue) {
+  if (/^[0-9]{2}$/.test(newValue) && newValue !== prevValue) {
     const conflict = pool.find((n) => n !== node && numericIdInputOf(n)?.value.trim() === newValue);
     if (conflict) {
       const conflictInput = numericIdInputOf(conflict);
@@ -5898,9 +5909,13 @@ document.body.addEventListener("input", (e) => {
       refreshDirtyState(conflictInput);
     }
   }
-  input.dataset.prevValue = newValue;
+  /* Only a complete number is remembered as "the value to hand the other
+     row" in a swap, never a half-typed one. */
+  if (/^[0-9]{2}$/.test(newValue)) input.dataset.prevValue = newValue;
   revalidateNumericIdPool(pool);
   refreshDirtyState(input);
+  /* After the swap, so the other row's new number counts in the order. */
+  resortNumericIdRow(input);
 });
 
 /* "When I add one you just automatically increment it by one the
