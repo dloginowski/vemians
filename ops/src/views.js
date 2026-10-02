@@ -2775,8 +2775,16 @@ ${INPUT_BAR_CSS}
    that original row, moved into its own element so it can keep the
    exact same space-between layout it always had, unaffected by the new
    line stacked beneath it. */
-.item-bottom { bottom: 0; display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; }
-.item-bottom-row { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+/* REVISED: "make the web pill indicator in the item grid be in line with the
+   breadcrumb line, the same way the price is in line with the item name" --
+   the owner's own words. One row now, like .item-top above it: the
+   breadcrumb on the left (it takes the room and ellipsizes), the tags on
+   the right. The markup order is unchanged (tags first), so flex order puts
+   the breadcrumb first; with no breadcrumb the tags still sit at the right
+   edge. */
+.item-bottom { bottom: 0; display: flex; flex-direction: row; align-items: center; gap: 6px; padding: 6px 8px; }
+.item-bottom-row { order: 2; margin-left: auto; flex: 0 0 auto; display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.item-bottom .item-breadcrumb { order: 1; flex: 1 1 auto; min-width: 0; }
 /* One clickable segment per category level — "I should be able to click
    on them to browse through them." font: inherit/no background/no
    border so a segment reads as text with an underline, not a button,

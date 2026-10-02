@@ -9528,6 +9528,13 @@ that does not trace to one of these is a process failure (see §12).
     Close button. Counts and failed lines span a pause and a resume. The two stops that already existed (the
     run is over, Cloudflare's daily write limit) still end the loop and now mark the row that hit them.
 
+142. **`Test-PRD-P0-210-item_tile_pill_inline`** — "Make the web pill indicator in the item list, in the item grid, to
+    be in line with the breadcrumb line, right? Just the same way that the price is in line with the item name."
+    — the owner's own words. On an item tile's bottom bar the tags (the "Web" and "Inactive" pills) sat on their
+    own line above the breadcrumb. The bar is now one row, like the title bar above it: the breadcrumb on the
+    left, taking the room and ellipsizing, the tags at the right edge (still at the right with no breadcrumb).
+    CSS only; the markup is unchanged.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
