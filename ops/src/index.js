@@ -324,6 +324,25 @@ async function ingestAgentAttachment(env, { file, email }) {
 }
 
 async function ops(request, env, path) {
+  /*
+   * /llms.txt and /agent-skill.md -- the instructions an outside agent needs to
+   * pull the inventory, change it and upload it back (agent-guide.js). Served
+   * BEFORE the identity check on purpose: it is documentation, not data, and
+   * the owner wants an agent to be able to read it without logging in ("I want
+   * their agents to be able to check it out before ... without logging in").
+   * Whether a request reaches this point without a login at all is Cloudflare
+   * Access's setting, not this file's (docs/deploy-cloudflare.md): until an
+   * Access bypass rule exists for exactly these two paths, Access still
+   * answers an unauthenticated request with its own login page first. Nothing
+   * else is reachable this way: every other path still fails closed below.
+   */
+  if (request.method === "GET" && (path === "/llms.txt" || path === "/agent-skill.md")) {
+    return new Response(inventoryAgentGuide(), {
+      status: 200,
+      headers: { "content-type": path === "/llms.txt" ? "text/plain; charset=utf-8" : "text/markdown; charset=utf-8" },
+    });
+  }
+
   const identity = await readAccessIdentity(request, env);
 
   if (!identity.ok) {
@@ -375,20 +394,9 @@ async function ops(request, env, path) {
    * shape /products/batch and both batch chat tools already read, so what
    * comes out round-trips straight back in with nothing renamed by hand.
    */
-  /*
-   * /llms.txt and /agent-skill.md -- the instructions an outside agent needs to
-   * pull the inventory, change it and upload it back (agent-guide.js). Behind
-   * the same Cloudflare Access login as everything else on this host; it is
-   * documentation, not data, so it asks for no particular role.
-   */
+  /* The guide itself is served above, before the identity check; a POST to it is refused here. */
   if (path === "/llms.txt" || path === "/agent-skill.md") {
-    if (request.method !== "GET") {
-      return html(refusalPage(405, "This is a document to read, not a page to post to."), 405);
-    }
-    return new Response(inventoryAgentGuide(), {
-      status: 200,
-      headers: { "content-type": path === "/llms.txt" ? "text/plain; charset=utf-8" : "text/markdown; charset=utf-8" },
-    });
+    return html(refusalPage(405, "This is a document to read, not a page to post to."), 405);
   }
 
   if (path === "/products/export.csv") {
