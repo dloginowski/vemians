@@ -1325,6 +1325,8 @@ const CARET_ICON = `<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden=
    or like a trash icon button." A plain outline can, same stroke-only
    style as every other icon on this tile — never filled, so it never
    reads as already-pressed/active the way a solid glyph would. */
+const MOVE_ICON = `<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">` +
+  `<path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const TRASH_ICON = `<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">` +
   `<path d="M3.5 4.5h9M6 4.5V3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5M6.5 7.5v4M9.5 7.5v4" ` +
   `fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>` +
@@ -3529,8 +3531,11 @@ function renderAdminCategoryNodes(categories, parentId, categoryProductCountsByI
                    shifting remove sideways relative to every
                    top-level row above it. The exact same width, held by
                    an inert spacer instead of a working button, cancels
-                   that out. */
-                `<span class="admin-category-toggle-spacer"></span>`
+                   that out. REVISED: "build the move subcategory control" --
+                   the owner's own words. The move button takes that very
+                   spot, the same width the spacer held, so every row still
+                   lines up. */
+                `<button type="button" class="admin-move-btn" data-category-id="${esc(c.id)}" aria-label="Move ${esc(c.name)} to a different category" title="Move to a different category">${MOVE_ICON}</button>`
           }
         </div>
         <div class="admin-category-children">${renderAdminCategoryNodes(categories, c.id, categoryProductCountsById)}</div>
@@ -5596,7 +5601,7 @@ ${OPS_DARK_CSS}
    red, never orange. */
 .admin-category-numeric-id:invalid { border-color: var(--invalid); }
 .admin-category-name.name-clash { border-color: var(--invalid); }
-.admin-remove-btn, .admin-category-add-toggle {
+.admin-remove-btn, .admin-category-add-toggle, .admin-move-btn {
   flex: 0 0 auto; width: ${CATEGORY_NODE_TOGGLE_PX}px; height: ${CATEGORY_NODE_TOGGLE_PX}px; padding: 0; font-size: 13px; line-height: 1;
   border: 1px solid var(--muted); border-radius: 4px; background: var(--ground); color: var(--muted); cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;
@@ -5606,6 +5611,19 @@ ${OPS_DARK_CSS}
    actually be clicked ("I just wanted to disable it so that its
    alignment stays consistent" — the owner's own words). */
 .admin-remove-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+/* The list a move button opens: every category the subcategory could go
+   under, shown with its full path. */
+.admin-move-menu {
+  position: fixed; z-index: 60; max-height: 50vh; overflow-y: auto; min-width: 200px; max-width: calc(100vw - 16px);
+  padding: 4px; border: 1px solid var(--rule); border-radius: 6px; background: var(--ground);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4); display: flex; flex-direction: column; gap: 2px;
+}
+.admin-move-menu p { margin: 0; padding: 4px 8px; font-size: 12px; color: var(--muted); }
+.admin-move-option {
+  font: inherit; font-size: 13px; text-align: left; padding: 6px 8px; border: none; border-radius: 4px;
+  background: transparent; color: var(--ink); cursor: pointer;
+}
+.admin-move-option:hover { background: rgba(255, 255, 255, 0.12); }
 /* Hidden until its own + is clicked (either a subcategory's own row, or
    the top-level one in .admin-section-header) — matching the old
    per-tile add-form exactly, right down to landing at the same indent a
@@ -6147,6 +6165,82 @@ document.body.addEventListener("click", async (e) => {
   } finally {
     removeBtn.disabled = false;
   }
+});
+
+/* Move a subcategory under a different category -- "build the move
+   subcategory control," the owner's own words. The button opens a list of
+   every category it could go under (not itself, anything inside it, or the
+   parent it already has), shown with its full path; picking one is the
+   whole action, sent at once like Remove, never a field to save later. */
+function closeMoveMenu() {
+  document.querySelectorAll(".admin-move-menu").forEach((m) => m.remove());
+}
+function adminNodeId(node) {
+  return node.querySelector(":scope > .admin-category-row [name=category_id]").value;
+}
+function adminNodeName(node) {
+  return node.querySelector(":scope > .admin-category-row .admin-category-name").defaultValue;
+}
+function adminNodePath(node) {
+  const names = [];
+  for (let n = node; n; n = n.parentElement ? n.parentElement.closest(".admin-category-node") : null) names.unshift(adminNodeName(n));
+  return names.join(" › ");
+}
+document.body.addEventListener("click", (e) => {
+  const moveBtn = e.target.closest(".admin-move-btn");
+  const insideMenu = e.target.closest(".admin-move-menu");
+  if (!moveBtn && !insideMenu) {
+    closeMoveMenu();
+    return;
+  }
+  if (!moveBtn) return;
+  closeMoveMenu();
+  const node = moveBtn.closest(".admin-category-node");
+  const currentParent = node.parentElement ? node.parentElement.closest(".admin-category-node") : null;
+  const options = [...document.querySelectorAll(".admin-category-node")].filter(
+    (n) => n !== node && !node.contains(n) && n !== currentParent,
+  );
+  const menu = document.createElement("div");
+  menu.className = "admin-move-menu";
+  const heading = document.createElement("p");
+  heading.textContent = "Move " + adminNodeName(node) + " under…";
+  menu.appendChild(heading);
+  if (!options.length) {
+    const none = document.createElement("p");
+    none.textContent = "No other category to move it under.";
+    menu.appendChild(none);
+  }
+  for (const target of options) {
+    const opt = document.createElement("button");
+    opt.type = "button";
+    opt.className = "admin-move-option";
+    opt.textContent = adminNodePath(target);
+    opt.addEventListener("click", async () => {
+      const body = new FormData();
+      body.set("category_id", adminNodeId(node));
+      body.set("parent_id", adminNodeId(target));
+      opt.disabled = true;
+      try {
+        const res = await fetch("/admin/categories/move", { method: "POST", body });
+        if (res.ok) {
+          location.reload();
+          return;
+        }
+        const data = await res.json().catch(() => ({}));
+        closeMoveMenu();
+        showFormError(moveBtn, data.error || "That category could not be moved.");
+      } catch {
+        closeMoveMenu();
+        showFormError(moveBtn, "Could not reach the server — try again.");
+      }
+    });
+    menu.appendChild(opt);
+  }
+  document.body.appendChild(menu);
+  const rect = moveBtn.getBoundingClientRect();
+  menu.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8)) + "px";
+  const below = rect.bottom + 4;
+  menu.style.top = (below + menu.offsetHeight > window.innerHeight - 8 ? Math.max(8, rect.top - menu.offsetHeight - 4) : below) + "px";
 });
 
 document.body.addEventListener("click", (e) => {

@@ -9578,6 +9578,23 @@ that does not trace to one of these is a process failure (see §12).
     before the Save never block a rename elsewhere in the group, and the message names both categories
     ("Outerwear (now Knitwear) and Knitwear") and marks both rows.
 
+145. **`Test-PRD-P0-213-move_subcategory`** — "Do Option 2, build the move subcategory control" — the owner's own words,
+    after subcategories created under the wrong parent (Evening Dresses under Jackets) turned out to have no way
+    to be moved: the category tools could create, rename, renumber and remove, never re-parent. New T2 tool
+    `catalog.move_category` (manager) re-parents a SUBCATEGORY in Square (`category_data.parent_category`,
+    `moveCategory` in `catalog-writer.js`, the same GET-then-POST-whole-object shape rename uses) and in the
+    mirror. The subcategory keeps its name and its own number (subcategory numbers are unique across the whole
+    tree, so a move cannot collide); every product in it, and in anything nested under it, stays in it, and
+    each one's style_id PREFIX is corrected for the new top-level category through the same
+    `resyncStyleIdPrefixes` pass renumbering already runs, keeping each sequence number. Refused before any
+    approval: a top-level category (top-level and subcategory numbers are separate pools), moving a category
+    under itself or one of its own descendants, a move to the parent it already has, and a destination that
+    already holds a sibling of the same name. Admin gets a move button on every subcategory row, in the spot
+    the empty spacer held so the rows stay aligned; it opens a list of every category it could go under
+    (leaving out itself, anything inside it and its current parent), shown with their full paths, and
+    picking one is the whole action, sent at once to `/admin/categories/move` like Remove, with a refusal shown
+    as the error message.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
