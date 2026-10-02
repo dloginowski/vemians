@@ -9587,15 +9587,17 @@ that does not trace to one of these is a process failure (see §12).
     tree, so a move cannot collide); every product in it, and in anything nested under it, stays in it, and
     each one's style_id PREFIX is corrected for the new top-level category through the same
     `resyncStyleIdPrefixes` pass renumbering already runs, keeping each sequence number. Refused before any
-    approval: a top-level category (top-level and subcategory numbers are separate pools), moving a category
-    under itself or one of its own descendants, a move to the parent it already has, and a destination that
-    already holds a sibling of the same name. Admin gets a small square "P" (for parent) button on every
+    approval: a top-level category (top-level and subcategory numbers are separate pools), a destination that is
+    itself a subcategory ("we do not want to have nested subcategories... you should only be pointing me to
+    parent top-level categories. Do not parent under subcategories ever" -- the owner's own words, so the
+    tool refuses it whatever page or caller asks, and a category can never end up under itself or its own
+    descendants), a move to the parent it already has, and a destination that already holds a sibling of the
+    same name. Admin gets a small square "P" (for parent) button on every
     subcategory row, INSIDE its name field at the far right ("a little square icon inside of the subcategory
     field name, on the farthest right... so I can just click on the end and then choose a new parent from a
     drop down" -- the owner's own words; the field leaves room for it, the row's other buttons and the
-    trailing spacer keep their columns); it opens a drop-down of every category it could go under
-    (leaving out itself, anything inside it and its current parent), shown with their full paths, and
-    picking one is the whole action, sent at once to `/admin/categories/move` like Remove, with a refusal shown
+    trailing spacer keep their columns); it opens a drop-down of the TOP-LEVEL categories it could go under
+    (never a subcategory, and not the one it is already under), and picking one is the whole action, sent at once to `/admin/categories/move` like Remove, with a refusal shown
     as the error message.
 
 ## 4. P1 features

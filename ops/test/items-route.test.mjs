@@ -4100,7 +4100,11 @@ check("test_PRD_P0_213_move_subcategory__only_subcategory_rows_get_a_p_button_in
   assert.match(body, /\.admin-category-name-wrap > \.admin-category-name \{ width: 100%; padding-right: 30px; \}/, "and the field leaves room for it");
   const script = body.slice(body.indexOf("<script>"), body.lastIndexOf("</script>"));
   assert.match(script, /\/admin\/categories\/move/, "picking a parent posts to the move route");
-  assert.match(script, /!node\.contains\(n\) && n !== currentParent/, "the list leaves out the category itself, anything inside it, and its current parent");
+  assert.match(
+    script,
+    /querySelectorAll\("\.admin-section-body > \.admin-category-node"\)\]\.filter\(\(n\) => n !== currentParent\)/,
+    "the list is the TOP-LEVEL categories only (never a subcategory), minus the one it is already under",
+  );
 });
 
 check("test_PRD_P0_138_nested_categories__admin_staff_cannot_reach_any_of_the_post_routes", async () => {

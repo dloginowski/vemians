@@ -6185,9 +6185,11 @@ document.body.addEventListener("click", async (e) => {
 
 /* Move a subcategory under a different category -- "build the move
    subcategory control," the owner's own words. The button opens a list of
-   every category it could go under (not itself, anything inside it, or the
-   parent it already has), shown with its full path; picking one is the
-   whole action, sent at once like Remove, never a field to save later. */
+   the TOP-LEVEL categories it could go under (not the one it is already
+   under): "we do not want to have nested subcategories... only be pointing
+   me to parent top-level categories. Do not parent under subcategories
+   ever." Picking one is the whole action, sent at once like Remove, never a
+   field to save later. */
 function closeMoveMenu() {
   document.querySelectorAll(".admin-move-menu").forEach((m) => m.remove());
 }
@@ -6196,11 +6198,6 @@ function adminNodeId(node) {
 }
 function adminNodeName(node) {
   return node.querySelector(":scope > .admin-category-row .admin-category-name").defaultValue;
-}
-function adminNodePath(node) {
-  const names = [];
-  for (let n = node; n; n = n.parentElement ? n.parentElement.closest(".admin-category-node") : null) names.unshift(adminNodeName(n));
-  return names.join(" › ");
 }
 document.body.addEventListener("click", (e) => {
   const moveBtn = e.target.closest(".admin-move-btn");
@@ -6213,9 +6210,7 @@ document.body.addEventListener("click", (e) => {
   closeMoveMenu();
   const node = moveBtn.closest(".admin-category-node");
   const currentParent = node.parentElement ? node.parentElement.closest(".admin-category-node") : null;
-  const options = [...document.querySelectorAll(".admin-category-node")].filter(
-    (n) => n !== node && !node.contains(n) && n !== currentParent,
-  );
+  const options = [...document.querySelectorAll(".admin-section-body > .admin-category-node")].filter((n) => n !== currentParent);
   const menu = document.createElement("div");
   menu.className = "admin-move-menu";
   const heading = document.createElement("p");
@@ -6230,7 +6225,7 @@ document.body.addEventListener("click", (e) => {
     const opt = document.createElement("button");
     opt.type = "button";
     opt.className = "admin-move-option";
-    opt.textContent = adminNodePath(target);
+    opt.textContent = adminNodeName(target);
     opt.addEventListener("click", async () => {
       const body = new FormData();
       body.set("category_id", adminNodeId(node));

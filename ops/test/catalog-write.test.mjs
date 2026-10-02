@@ -2386,7 +2386,7 @@ check("test_PRD_P0_213_move_subcategory__moving_a_subcategory_reparents_it_in_sq
   assert.equal(product.style_id, "02-05-001", "its prefix follows the new top-level category, its sequence number untouched");
 });
 
-check("test_PRD_P0_213_move_subcategory__the_refusals_a_top_level_category_the_same_parent_a_cycle_and_a_name_clash", async () => {
+check("test_PRD_P0_213_move_subcategory__the_refusals_a_top_level_category_the_same_parent_a_subcategory_destination_and_a_name_clash", async () => {
   const f = await fixture();
   const outerwear = f.categories().find((c) => c.name === "Outerwear");
   const knitwear = f.categories().find((c) => c.name === "Knitwear");
@@ -2394,19 +2394,20 @@ check("test_PRD_P0_213_move_subcategory__the_refusals_a_top_level_category_the_s
   const inner = (await approvedCall(f, "catalog.create_category", { name: "Inner", parent_id: casual.id, reason: "test" })).data.category;
   const twin = (await approvedCall(f, "catalog.create_category", { name: "Casual", parent_id: knitwear.id, reason: "test" })).data.category;
 
-  const gate = async (args) => runTool("catalog.move_category", args, f.ctx);
   const denied = async (args) => {
-    const r = await gate(args);
+    const r = await runTool("catalog.move_category", args, f.ctx);
     assert.equal(r.needsApproval, undefined, "refused before any approval is issued");
     return r.denied ?? r.error ?? "";
   };
   assert.match(await denied({ category_id: outerwear.id, parent_id: knitwear.id }), /top-level category/);
   assert.match(await denied({ category_id: casual.id, parent_id: outerwear.id }), /already under/);
-  assert.match(await denied({ category_id: casual.id, parent_id: inner.id }), /itself or sits inside it/);
-  assert.match(await denied({ category_id: casual.id, parent_id: casual.id }), /itself or sits inside it|already under/);
+  /* "We do not want to have nested subcategories... Do not parent under
+     subcategories ever." -- the owner's own words. */
+  assert.match(await denied({ category_id: casual.id, parent_id: inner.id }), /is itself a subcategory/);
+  assert.match(await denied({ category_id: casual.id, parent_id: casual.id }), /is itself a subcategory/);
+  assert.match(await denied({ category_id: inner.id, parent_id: twin.id }), /is itself a subcategory/);
   assert.match(await denied({ category_id: casual.id, parent_id: knitwear.id }), /already has a subcategory named "Casuals"/);
-  assert.match(await denied({ category_id: casual.id, parent_id: "nope" }), /no category 'nope'|no category/);
-  void twin;
+  assert.match(await denied({ category_id: casual.id, parent_id: "nope" }), /no category/);
 });
 
 check("test_PRD_P0_138_nested_categories__a_subcategory_match_wins_over_a_top_level_match", async () => {
