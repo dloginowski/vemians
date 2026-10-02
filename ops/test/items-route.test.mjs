@@ -4134,7 +4134,7 @@ check("test_PRD_P0_214_placement_from_style_numbers__the_page_offers_check_place
   assert.match(script, /\/admin\/categories\/placement/, "asks the server where each subcategory belongs");
   assert.match(script, /await moveOneCategory\(data\.moves\[i\]\.id, data\.moves\[i\]\.target\.id\)/, "applies the proposed moves one at a time through the move route");
   assert.match(script, /await setCategoryNumber\(plan\.steps\[i\]\.id, plan\.steps\[i\]\.to\)/, "then the renumbering steps, one at a time, through the number route");
-  assert.match(script, /const after = data\.moves\.length \? await fetchPlacement\(\) : data;/, "the renumbering is read again after the moves");
+  assert.match(script, /let after = data\.moves\.length \? await fetchPlacement\(\) : data;/, "the renumbering is read again after the moves");
   assert.match(script, /can't be decided from the sheet numbers/, "and lists the ones it cannot decide instead of guessing");
   assert.doesNotMatch(script, /window\.confirm\("Move " \+ data\.moves\.length/, "no confirmation dialog: the button does the fix");
   assert.doesNotMatch(script, /go\.textContent = "Move "/, "and no second button to press");
@@ -4404,7 +4404,37 @@ check("test_PRD_P0_221_numbers_from_the_ledger__the_page_never_reloads_away_what
   seedCategoryTree(mirror);
   const body = await (await get("/admin", MANAGER, env(mirror))).text();
   const script = body.slice(body.indexOf("<script>"), body.lastIndexOf("</script>"));
-  assert.match(script, /const leftOver = after\.review\.length \+ plan\.review\.length;/, "it counts what was left alone");
+  assert.match(script, /const leftOver = after\.review\.length \+ refileReview\.length \+ plan\.review\.length;/, "it counts what was left alone");
   assert.match(script, /\(leftOver \? "" : " Reloading…"\)/, "and only announces a reload when there is nothing to read");
   assert.match(script, /reload\.textContent = "Reload the page";/, "otherwise the list stays and the person reloads when ready");
+});
+
+check("test_PRD_P0_222_sheet_truth__the_placement_answer_carries_the_item_refiling_and_the_page_applies_it_between_moves_and_renumbering", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const res = await postForm("/admin/categories/placement", MANAGER, env(mirror), {});
+  const data = await res.json();
+  assert.ok(data.refiling && Array.isArray(data.refiling.moves) && Array.isArray(data.refiling.review), JSON.stringify(data));
+  assert.ok(data.renumbering && Array.isArray(data.renumbering.steps), "the renumbering is still there");
+
+  const missing = await postForm("/admin/products/refile", MANAGER, env(mirror), {});
+  assert.equal(missing.status, 400);
+  assert.match(await missing.text(), /give a product/);
+  const noTarget = await postForm("/admin/products/refile", MANAGER, env(mirror), { handle: "some-product" });
+  assert.equal(noTarget.status, 400);
+  assert.match(await noTarget.text(), /give the subcategory to file it under/);
+  const staff = await postForm("/admin/products/refile", STAFF, env(mirror), { handle: "some-product", category_id: "cat2" });
+  assert.equal(staff.status, 403);
+  const reaches = await postForm("/admin/products/refile", MANAGER, env(mirror), { handle: "some-product", category_id: "cat2" });
+  assert.equal(reaches.status, 400, "reaches the tool layer, which stops at this file's missing Square client or an unknown product");
+
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  const script = body.slice(body.indexOf("<script>"), body.lastIndexOf("</script>"));
+  assert.match(script, /\/admin\/products\/refile/, "each item is filed through its own route");
+  const moves = script.indexOf("await moveOneCategory(data.moves[i].id");
+  const items = script.indexOf("await refileOneProduct(itemMoves[i])");
+  const numbers = script.indexOf("await setCategoryNumber(plan.steps[i].id");
+  assert.ok(moves > 0 && items > moves && numbers > items, "subcategory moves, then items, then renumbering");
+  assert.match(script, /refiled, " \+ plan\.steps\.length \+ " renumbered/, "the summary counts the refiled items");
 });

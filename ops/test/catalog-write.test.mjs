@@ -11947,8 +11947,10 @@ check("test_PRD_P0_221_numbers_from_the_ledger__a_subcategory_whose_items_stored
     assert.equal(sub("Shirts").numeric_id, "00");
 
     const withoutLedger = await subcategoryRenumbering(f.env.CATALOG_MIRROR);
-    assert.deepEqual(withoutLedger.steps, [], "with no stored numbers and no ledger there is nothing to go on");
-    assert.ok(withoutLedger.review.some((r) => r.name === "Shirts" && /remembers a sheet style number/.test(r.why)), "and it says so instead of staying silently at 00");
+    const bareShirts = withoutLedger.steps.find((s) => s.name === "Shirts");
+    assert.ok(bareShirts, "with no stored numbers and no ledger it is still not left on 00: no sheet uses 00");
+    assert.equal(bareShirts.replacedZero, true);
+    assert.notEqual(bareShirts.to, "01", "but without a sheet to read it cannot know it is 01");
 
     const ledger = await ledgerSheetNumbers(assets);
     assert.ok(ledger.length >= 3, `the ledger holds what the sheets said: ${JSON.stringify(ledger)}`);
@@ -11995,4 +11997,122 @@ check("test_PRD_P0_221_numbers_from_the_ledger__an_empty_subcategory_left_on_an_
   assert.ok(entry, `it is named: ${JSON.stringify(plan.review)}`);
   assert.match(entry.why, /automatic 00 that no sheet uses/);
   assert.equal(entry.items, 0);
+});
+
+check("test_PRD_P0_222_sheet_truth__the_stored_sheets_name_what_each_number_is_and_the_newest_sheet_decides", async () => {
+  const { sheetNamesFromText, sheetTruth } = await import("../src/batch.js");
+  const csv =
+    "title,category,subcategory,price,style id\n" +
+    "A,Tops,Shirts,10,002-001-001\nB,Tops,Shirts,10,002-001-002\nC,Tops,Blouses,10,002-003-001\nD,Tops,Shirts,10,002-003-002\n";
+  assert.equal(sheetNamesFromText(csv).length, 4);
+  assert.deepEqual(sheetNamesFromText("not,a,sheet\n1,2,3\n"), []);
+  const assets = await assetsFixtureWithRow({ extracted_text: csv });
+  /* An older sheet that called number 3 something else, and a non-CSV note. */
+  assets._raw
+    .prepare("INSERT INTO asset(id, store_key, filename, content_type, size_bytes, uploaded_by, extracted_text, text_truncated, uploaded_at) VALUES ('old', 'k', 'old.csv', 'text/csv', 1, 'm', ?, 0, '2020-01-01 00:00:00')")
+    .run("title,category,subcategory,price,style id\nX,Tops,Tunics,10,002-003-001\nY,Tops,Capes,10,002-009-001\n");
+  assets._raw
+    .prepare("INSERT INTO asset(id, store_key, filename, content_type, size_bytes, uploaded_by, extracted_text, text_truncated) VALUES ('note', 'k2', 'note.txt', 'text/plain', 1, 'm', 'Capes 002-009-001', 0)")
+    .run();
+  const truth = await sheetTruth(assets);
+  const name = (t, m) => truth.find((r) => r.top === t && r.mid === m)?.subcategory;
+  assert.equal(name(2, 1), "Shirts");
+  assert.equal(name(2, 3), "Blouses", "within one sheet the commonest name wins; the older sheet's Tunics does not");
+  assert.equal(name(2, 9), "Capes", "a number only an older sheet mentions is still known");
+  assert.deepEqual(await sheetTruth(null), []);
+});
+
+async function tweakedDresses() {
+  const { f, sub } = await dressesFixture();
+  const evening = sub("Evening Dresses");
+  const shirt = sub("Shirt Dresses");
+  assert.equal(evening.numeric_id, "04");
+  assert.equal(shirt.numeric_id, "05");
+  return { f, sub, evening, shirt };
+}
+
+check("test_PRD_P0_222_sheet_truth__a_subcategory_is_numbered_by_its_name_even_when_its_items_disagree_and_a_sibling_is_evicted_to_a_number_that_is_not_00", async () => {
+  /* "Shirts... its items carry different sheet numbers" and "Vests 03 -> 00 (to
+     make room)": the sheet's own name for the number settles it, and nothing is
+     ever sent to 00. */
+  const { f, evening, shirt } = await tweakedDresses();
+  const { subcategoryRenumbering } = await import("../src/tools/catalog-writer.js");
+  const dresses = f.categories().find((c) => c.name === "Dresses");
+  const vests = await approvedCall(f, "catalog.create_category", { name: "Vests", parent_id: dresses.id, numeric_id: "03", reason: "test" });
+  assert.equal(vests.ok, true, vests.error);
+  /* one Evening Dresses item carries another subcategory's sheet number */
+  f.mirrorDb._raw.prepare("UPDATE mirror_product SET import_style_number = '001-005-009' WHERE title LIKE 'Gala%' OR title LIKE '%Gala%'").run();
+  const bare = await subcategoryRenumbering(f.env.CATALOG_MIRROR);
+  assert.ok(bare.review.some((r) => r.name === "Evening Dresses" && /different sheet numbers/.test(r.why)), "without the sheet names it cannot decide");
+
+  const truth = [
+    { top: 1, mid: 3, subcategory: "Shirt Dresses" },
+    { top: 1, mid: 4, subcategory: "Evening Dresses" },
+  ];
+  const plan = await subcategoryRenumbering(f.env.CATALOG_MIRROR, { truth });
+  assert.ok(!plan.review.some((r) => r.name === "Evening Dresses"), `named by the sheet, not left in review: ${JSON.stringify(plan.review)}`);
+  const toShirt = plan.steps.find((s) => s.id === shirt.id);
+  assert.equal(toShirt.to, "03", "Shirt Dresses takes the number the sheet gives that name");
+  const evicted = plan.steps.find((s) => s.name === "Vests");
+  assert.ok(evicted, JSON.stringify(plan.steps));
+  assert.notEqual(evicted.to, "00", "the evicted sibling is never sent to 00");
+  assert.equal(evicted.to, "06", "it goes above every number in use, out of the way");
+  assert.ok(plan.steps.indexOf(evicted) < plan.steps.indexOf(toShirt), "and it leaves before the other arrives");
+  assert.equal(plan.steps.find((s) => s.id === evening.id), undefined, "Evening Dresses is already on its number");
+});
+
+check("test_PRD_P0_222_sheet_truth__a_subcategory_left_on_00_with_items_and_no_sheet_to_number_it_gets_the_next_free_number", async () => {
+  /* "Nothing is at zero really": 00 is never a sheet's number. */
+  const { f, shirt } = await tweakedDresses();
+  const { subcategoryRenumbering } = await import("../src/tools/catalog-writer.js");
+  f.mirrorDb._raw.prepare("UPDATE mirror_product SET import_style_number = NULL").run();
+  await approvedCall(f, "catalog.set_category_number", { category_id: shirt.id, numeric_id: "00" });
+  const plan = await subcategoryRenumbering(f.env.CATALOG_MIRROR);
+  const step = plan.steps.find((s) => s.id === shirt.id);
+  assert.ok(step, JSON.stringify(plan));
+  assert.equal(step.to, "05", "above the 04 Evening Dresses holds, never back to 00");
+  assert.equal(step.replacedZero, true);
+  const r = await approvedCall(f, "catalog.set_category_number", { category_id: step.id, numeric_id: step.to });
+  assert.equal(r.ok, true, r.error);
+});
+
+check("test_PRD_P0_222_sheet_truth__an_item_is_refiled_under_the_subcategory_its_own_sheet_number_names_creating_it_when_missing", async () => {
+  /* "Shirts: 3 items say 02-03, 2 items say 02-01": the ones that say 03 belong in
+     whatever the sheet calls 03. */
+  const { f, evening, shirt } = await tweakedDresses();
+  const { itemRefiling } = await import("../src/tools/catalog-writer.js");
+  const db = f.env.CATALOG_MIRROR;
+  assert.deepEqual((await itemRefiling(db, { truth: [] })).moves, [], "no sheet names, nothing to go on");
+  f.mirrorDb._raw.prepare("UPDATE mirror_product SET import_style_number = '001-005-009' WHERE title LIKE '%Gala%'").run();
+  const truth = [
+    { top: 1, mid: 4, subcategory: "Evening Dresses" },
+    { top: 1, mid: 5, subcategory: "Shirt Dresses" },
+  ];
+  const plan = await itemRefiling(db, { truth });
+  assert.equal(plan.moves.length, 1, JSON.stringify(plan));
+  assert.equal(plan.moves[0].from.id, evening.id);
+  assert.equal(plan.moves[0].to.id, shirt.id, "filed under the existing sibling of that name");
+  assert.equal(plan.ok, 2, "the other two already sit where their numbers say");
+
+  /* a number whose name does not exist yet: created, numbered as the sheet numbers it */
+  f.mirrorDb._raw.prepare("UPDATE mirror_product SET import_style_number = '001-009-001' WHERE title LIKE '%Gala%'").run();
+  const created = await itemRefiling(db, { truth: [...truth, { top: 1, mid: 9, subcategory: "Capes" }] });
+  assert.equal(created.moves.length, 1);
+  assert.equal(created.moves[0].to.id, null);
+  assert.equal(created.moves[0].to.name, "Capes");
+  assert.equal(created.moves[0].to.number, "09");
+
+  /* and the move itself re-files the item and gives it a style ID in its new home */
+  const handle = plan.moves[0].handle;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  try {
+    const moved = await approvedCall(f, "catalog.update_product", { handle, category_id: shirt.id });
+    assert.equal(moved.ok, true, moved.error);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  const row = f.mirror("SELECT category_id, style_id FROM mirror_product WHERE handle = ?", handle)[0];
+  assert.equal(row.category_id, shirt.id);
+  assert.match(row.style_id, /^01-05-/);
 });
