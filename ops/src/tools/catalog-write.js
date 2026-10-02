@@ -12,6 +12,7 @@
  *   catalog.update_product   T2  the same path for an edit
  *   catalog.create_category  T2  separate, deliberate, and rarely right — now nestable
  *   catalog.rename_category  T2  the deliberate rename create_category's own describe text points at
+ *   catalog.move_category    T2  re-parent a subcategory under a different category — its items follow, style_id prefixes corrected
  *   catalog.remove_category  T2  archives it in Square, never a real delete — refused while it has children
  *   catalog.set_category_number T2 a category/subcategory's own 2-digit style_id code — OURS, not Square's
  *   catalog.set_channel      T2  which audience sees a product — OURS, not Square's
@@ -1601,6 +1602,103 @@ export const catalogWriteTools = {
       return {
         renamed: true,
         category: out.category,
+        mirror_sync: out.sync,
+        authority: "square",
+      };
+    },
+  },
+
+  /*
+   * Move a subcategory under a different parent. "Build the move subcategory
+   * control" -- the owner's own words, after subcategories created under the
+   * wrong parent (Evening Dresses under Jackets) turned out to have no way
+   * to be moved at all: the category tools could create, rename, renumber
+   * and remove, never re-parent. The subcategory keeps its name and its own
+   * number (subcategory numbers are unique across the whole tree, so the
+   * move can never collide), every product in it (and in anything nested
+   * under it) stays in it, and each one's style_id prefix is corrected for
+   * its new top-level category, the same retroactive pass renumbering a
+   * category already runs.
+   */
+  "catalog.move_category": {
+    tier: "T2",
+    domain: "catalog",
+    stores: ["catalog_mirror"],
+    resources: ["square"],
+    minRole: "manager",
+    describe:
+      "Move a SUBCATEGORY under a different category (or deeper under another subcategory). Keeps its name " +
+      "and its own number; every product in it, and in anything nested under it, stays where it is, and each " +
+      "one's style_id PREFIX is corrected for the new top-level category (a real Square write per product " +
+      "whose prefix changes; each keeps its own sequence number). A real Square write for the category " +
+      "itself (category_data.parent_category). Refuses a top-level category (top-level and subcategory " +
+      "numbers are separate pools), moving a category under itself or one of its own descendants, a move " +
+      "to the parent it already has, and a destination that already holds a sibling of the same name.",
+    undo: "another catalog.move_category call, back to the previous parent",
+    schema: {
+      category_id: { type: "string", required: true, format: "id" },
+      parent_id: { type: "string", required: true, format: "id" },
+    },
+    async check(args, t) {
+      const categories = await listCategories(t.db.catalog_mirror);
+      const category = categories.find((c) => c.id === args.category_id);
+      if (!category) return { denied: `no category '${args.category_id}'` };
+      if (!category.parent_id) {
+        return {
+          denied: `"${category.name}" is a top-level category. Only a subcategory can be moved -- top-level categories and subcategories number from separate pools.`,
+        };
+      }
+      const parent = categories.find((c) => c.id === args.parent_id);
+      if (!parent) return { denied: `no category '${args.parent_id}' to move it under` };
+      if (parent.id === category.parent_id) {
+        return { denied: `"${category.name}" is already under "${parent.name}"` };
+      }
+
+      /* Never under itself or anything nested beneath it. */
+      const subtree = new Set([category.id]);
+      let grew = true;
+      while (grew) {
+        grew = false;
+        for (const c of categories) {
+          if (c.parent_id && subtree.has(c.parent_id) && !subtree.has(c.id)) {
+            subtree.add(c.id);
+            grew = true;
+          }
+        }
+      }
+      if (subtree.has(parent.id)) {
+        return { denied: `"${parent.name}" is "${category.name}" itself or sits inside it, so it cannot be its new parent.` };
+      }
+
+      const clash = categories.find(
+        (c) => c.id !== category.id && c.parent_id === parent.id && c.name.toLowerCase() === category.name.toLowerCase(),
+      );
+      if (clash) {
+        return { denied: `"${parent.name}" already has a subcategory named "${clash.name}". Rename one of them first.` };
+      }
+
+      const placeholders = [...subtree].map(() => "?").join(", ");
+      const inside = await t.db.catalog_mirror
+        .prepare(`SELECT COUNT(*) AS n FROM mirror_product_index WHERE category_id IN (${placeholders})`)
+        .bind(...subtree)
+        .first("n");
+      const oldParent = categories.find((c) => c.id === category.parent_id);
+      return {
+        ok: true,
+        summary:
+          `move "${category.name}" from "${oldParent?.name ?? "?"}" to "${parent.name}"` +
+          ` -- ${inside} product${inside === 1 ? "" : "s"} inside it get their style_id prefix corrected`,
+        preflight: { categoryId: category.id, parentId: parent.id, categoryName: category.name },
+      };
+    },
+    async run(_args, t) {
+      const out = await t.square.moveCategory({ categoryId: t.preflight.categoryId, parentId: t.preflight.parentId });
+      const { updated: styleIdsUpdated, errors } = await t.square.resyncStyleIdPrefixes();
+      return {
+        moved: true,
+        category: out.category,
+        style_ids_updated: styleIdsUpdated,
+        style_id_errors: errors,
         mirror_sync: out.sync,
         authority: "square",
       };

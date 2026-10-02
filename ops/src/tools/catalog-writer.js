@@ -1878,6 +1878,41 @@ export function createSquareCatalogWriter(env, opts = {}) {
     },
 
     /**
+     * Re-parent an EXISTING subcategory under a different category -- the
+     * owner's own request: "build the move subcategory control", after
+     * "Evening Dresses" turned up under Jackets. The same shape renameCategory
+     * has (GET the live object, POST it back whole, so nothing this codebase
+     * does not track is clobbered), changing only
+     * category_data.parent_category. Name, number and every product's own
+     * category assignment are untouched; the style_id prefix of the products
+     * inside is corrected by the caller (resyncStyleIdPrefixes) afterwards.
+     */
+    async moveCategory({ categoryId, parentId }) {
+      const cat = await categoryRef(categoryId);
+      const parent = await categoryRef(parentId);
+      const res = await client.get(`/v2/catalog/object/${encodeURIComponent(cat.external_ref)}`);
+      if (!res?.object) {
+        throw new Error(`Square has no catalog object '${cat.external_ref}' to move`);
+      }
+      await client.post("/v2/catalog/object", {
+        idempotency_key: idempotencyKey(`catalog.move_category:${cat.external_ref}:${res.object.version}:${parent.external_ref}`),
+        object: {
+          ...res.object,
+          category_data: {
+            ...res.object.category_data,
+            parent_category: { id: parent.external_ref },
+          },
+        },
+      });
+      const sync = await syncAfterWrite();
+      const row = await mirrorDb
+        .prepare("SELECT id, name, parent_id FROM mirror_category WHERE external_ref = ?")
+        .bind(cat.external_ref)
+        .first();
+      return { category: row ? { id: row.id, name: row.name, parent_id: row.parent_id } : null, sync };
+    },
+
+    /**
      * Remove a category/subcategory. Real production error, ground truth
      * over the setProductPresence-style guess this used to make: "Square
      * POST /v2/catalog/object failed with 400 — INVALID_REQUEST_ERROR/

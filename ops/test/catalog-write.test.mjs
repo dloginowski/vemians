@@ -2350,6 +2350,65 @@ check("test_PRD_P0_138_nested_categories__assigning_a_numeric_id_retroactively_r
   assert.equal(product.category_id, casual.id, "the resync never moves a product to a different category");
 });
 
+check("test_PRD_P0_213_move_subcategory__moving_a_subcategory_reparents_it_in_square_and_corrects_its_products_style_id_prefix", async () => {
+  /* "Build the move subcategory control" -- the owner's own words, after
+     subcategories created under the wrong parent had no way to be moved. */
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  await approvedCall(f, "catalog.set_category_number", { category_id: outerwear.id, numeric_id: "01" });
+  const casual = (await approvedCall(f, "catalog.create_category", { name: "Casual", parent_id: outerwear.id, reason: "test" })).data.category;
+  await approvedCall(f, "catalog.set_category_number", { category_id: casual.id, numeric_id: "05" });
+  const dresses = (await approvedCall(f, "catalog.create_category", { name: "Dresses", reason: "test" })).data.category;
+  await approvedCall(f, "catalog.set_category_number", { category_id: dresses.id, numeric_id: "02" });
+
+  const created = await approvedCall(f, "catalog.create_product", { ...COAT, category_id: casual.id });
+  assert.equal(created.ok, true, created.error);
+  assert.equal(created.data.product.style_id, "01-05-001", "sanity: top-level 01, subcategory 05");
+
+  const moved = await approvedCall(f, "catalog.move_category", { category_id: casual.id, parent_id: dresses.id });
+  assert.equal(moved.ok, true, moved.error);
+  assert.equal(moved.data.style_ids_updated, 1);
+  assert.deepEqual(moved.data.style_id_errors, []);
+
+  /* A real Square write for the category itself. */
+  const catUpsert = f.calls().filter((c) => c.path === "/v2/catalog/object" && c.upsert === "CATEGORY").pop();
+  assert.ok(catUpsert, "the move must actually write the category to Square");
+  const dressesRef = f.mirror("SELECT external_ref FROM mirror_category WHERE id = ?", dresses.id)[0].external_ref;
+  assert.equal(catUpsert.body.object.category_data.parent_category.id, dressesRef);
+  assert.equal(catUpsert.body.object.category_data.name, "Casuals", "the name is kept");
+
+  const after = f.categories().find((c) => c.id === casual.id);
+  assert.equal(after.parent_id, dresses.id, "the mirror shows the new parent");
+  assert.equal(after.numeric_id, "05", "the subcategory keeps its own number");
+
+  const product = f.mirror(`SELECT style_id, category_id FROM mirror_product WHERE handle = '${created.data.product.handle}'`)[0];
+  assert.equal(product.category_id, casual.id, "the product stays in the subcategory");
+  assert.equal(product.style_id, "02-05-001", "its prefix follows the new top-level category, its sequence number untouched");
+});
+
+check("test_PRD_P0_213_move_subcategory__the_refusals_a_top_level_category_the_same_parent_a_cycle_and_a_name_clash", async () => {
+  const f = await fixture();
+  const outerwear = f.categories().find((c) => c.name === "Outerwear");
+  const knitwear = f.categories().find((c) => c.name === "Knitwear");
+  const casual = (await approvedCall(f, "catalog.create_category", { name: "Casual", parent_id: outerwear.id, reason: "test" })).data.category;
+  const inner = (await approvedCall(f, "catalog.create_category", { name: "Inner", parent_id: casual.id, reason: "test" })).data.category;
+  const twin = (await approvedCall(f, "catalog.create_category", { name: "Casual", parent_id: knitwear.id, reason: "test" })).data.category;
+
+  const gate = async (args) => runTool("catalog.move_category", args, f.ctx);
+  const denied = async (args) => {
+    const r = await gate(args);
+    assert.equal(r.needsApproval, undefined, "refused before any approval is issued");
+    return r.denied ?? r.error ?? "";
+  };
+  assert.match(await denied({ category_id: outerwear.id, parent_id: knitwear.id }), /top-level category/);
+  assert.match(await denied({ category_id: casual.id, parent_id: outerwear.id }), /already under/);
+  assert.match(await denied({ category_id: casual.id, parent_id: inner.id }), /itself or sits inside it/);
+  assert.match(await denied({ category_id: casual.id, parent_id: casual.id }), /itself or sits inside it|already under/);
+  assert.match(await denied({ category_id: casual.id, parent_id: knitwear.id }), /already has a subcategory named "Casuals"/);
+  assert.match(await denied({ category_id: casual.id, parent_id: "nope" }), /no category 'nope'|no category/);
+  void twin;
+});
+
 check("test_PRD_P0_138_nested_categories__a_subcategory_match_wins_over_a_top_level_match", async () => {
   /* REVISED (Test-PRD-P0-177-fluid_style_id): style_id never drives category
      assignment any more, so this is now about styleIdCodesFor's own

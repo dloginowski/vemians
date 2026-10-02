@@ -1208,6 +1208,14 @@ async function ops(request, env, path) {
       toolName = "catalog.rename_category";
       args = { category_id: categoryId, name };
       summaryNoun = "category name";
+    } else if (suffix === "/categories/move") {
+      const categoryId = String(form.get("category_id") ?? "").trim();
+      const parentId = String(form.get("parent_id") ?? "").trim();
+      if (!categoryId) return json({ error: "give a category" }, 400);
+      if (!parentId) return json({ error: "give the category to move it under" }, 400);
+      toolName = "catalog.move_category";
+      args = { category_id: categoryId, parent_id: parentId };
+      summaryNoun = "category move";
     } else if (suffix === "/categories/remove") {
       /* "I should not be able to delete a category until it has no more
          subcategories." The button itself is disabled server-side

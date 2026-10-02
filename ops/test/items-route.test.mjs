@@ -3639,11 +3639,16 @@ check("test_PRD_P0_138_nested_categories__admin_a_real_subcategory_row_gets_a_pl
   const cat3Idx = body.indexOf("Casual");
   const cat3Row = body.slice(cat3Idx, body.indexOf("admin-category-children", cat3Idx));
   assert.doesNotMatch(cat3Row, /admin-category-add-toggle/, "still never a working + on a subcategory");
+  /* REVISED (Test-PRD-P0-213-move_subcategory): the move button now holds
+     that spot, the same width the spacer did (it shares the + button's own
+     CSS rule), so the row still closes out with one fixed-width element
+     after the real remove button. */
   assert.match(
     cat3Row,
-    /<\/button>\s*\n\s*<span class="admin-category-toggle-spacer"><\/span>\s*\n\s*<\/div>/,
-    "a plain spacer of the same width must close the row out instead, right after the real remove button",
+    /<\/button>\s*\n\s*<button type="button" class="admin-move-btn" data-category-id="cat3"[^>]*>[\s\S]*?<\/button>\s*\n\s*<\/div>/,
+    "the move button closes the row out, right after the real remove button, in the spacer's own spot",
   );
+  assert.match(body, /\.admin-remove-btn, \.admin-category-add-toggle, \.admin-move-btn \{/, "and takes exactly the same width as the + button");
 });
 
 check("test_PRD_P0_138_nested_categories__admin_top_level_add_form_also_reserves_remove_and_plus", async () => {
@@ -4060,6 +4065,37 @@ check("test_PRD_P0_138_nested_categories__admin_removing_a_leaf_category_reaches
   const res = await postForm("/admin/categories/remove", MANAGER, env(mirror), { category_id: "cat4" });
   assert.equal(res.status, 400);
   assert.match(await res.text(), /SQUARE_ACCESS_TOKEN is unset/);
+});
+
+check("test_PRD_P0_213_move_subcategory__the_admin_route_reaches_the_tool_and_refuses_a_missing_parent_and_staff", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  /* A legal move (Coats, under Outerwear, to Knitwear) passes the tool's own
+     check and stops only at the missing Square client this file's env always
+     hits; whether the Square write itself happens is catalog-write.test.mjs's
+     job. */
+  const ok = await postForm("/admin/categories/move", MANAGER, env(mirror), { category_id: "cat2", parent_id: "cat4" });
+  assert.equal(ok.status, 400);
+  assert.match(await ok.text(), /SQUARE_ACCESS_TOKEN is unset/);
+  const missing = await postForm("/admin/categories/move", MANAGER, env(mirror), { category_id: "cat2" });
+  assert.equal(missing.status, 400);
+  assert.match(await missing.text(), /give the category to move it under/);
+  const staff = await postForm("/admin/categories/move", STAFF, env(mirror), { category_id: "cat2", parent_id: "cat4" });
+  assert.equal(staff.status, 403);
+});
+
+check("test_PRD_P0_213_move_subcategory__only_subcategory_rows_get_a_move_button_in_the_spacer_spot", async () => {
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  const buttons = body.match(/class="admin-move-btn" data-category-id="[^"]+"/g) ?? [];
+  assert.equal(buttons.length, 2, "Coats and Casual are subcategories; Outerwear and Knitwear are top-level");
+  assert.ok(!/class="admin-move-btn" data-category-id="cat1"/.test(body), "a top-level category has no move button");
+  const script = body.slice(body.indexOf("<script>"), body.lastIndexOf("</script>"));
+  assert.match(script, /\/admin\/categories\/move/, "picking a parent posts to the move route");
+  assert.match(script, /!node\.contains\(n\) && n !== currentParent/, "the list leaves out the category itself, anything inside it, and its current parent");
 });
 
 check("test_PRD_P0_138_nested_categories__admin_staff_cannot_reach_any_of_the_post_routes", async () => {
