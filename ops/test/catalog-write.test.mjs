@@ -11312,3 +11312,45 @@ check("test_PRD_P0_216_filled_option_values_match_on_resubmit__mixed_rows_resent
     globalThis.fetch = realFetch;
   }
 });
+
+check("test_PRD_P0_217_matched_row_name_check__a_row_matched_by_style_number_to_an_item_with_a_completely_different_name_is_held", async () => {
+  /* The chat's own flag on a real sheet: "Oversize dress" resolved to update
+     the existing "Black hand-painted blazer". Updating would overwrite the
+     blazer's price, cost and stock with the dress's. */
+  const f = await fixture({ actor: "keiko@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  const head = "Style #,Category,Subcategory,Description,Price\n";
+  try {
+    const made = await draftProductBatch(f.env, {
+      text: head + "001-004-002,Jackets,Evening Dresses,Black hand-painted blazer,100.00\n",
+      actor: "keiko@vemians.com",
+      role: "manager", mode: "add",
+    });
+    assert.equal(made.created.length, 1, JSON.stringify(made));
+    const priceOf = () => f.mirror("SELECT v.price_minor AS p FROM mirror_variant_index v JOIN mirror_product p ON p.id = v.product_id WHERE p.title = 'Black hand-painted blazer'")[0]?.p;
+    assert.equal(Number(priceOf()), 10000);
+
+    const wrong = await draftProductBatch(f.env, {
+      text: head + "001-004-002,Jackets,Evening Dresses,Oversize dress,250.00\n",
+      actor: "keiko@vemians.com",
+      role: "manager", mode: "update",
+    });
+    assert.equal(wrong.created.length, 0, "nothing applied");
+    assert.equal(Number(priceOf()), 10000, "the blazer's price is untouched");
+    const held = [...wrong.ready, ...wrong.skipped];
+    assert.equal(held.length, 1);
+    assert.match(held[0].summary ?? held[0].reason, /is "Black hand-painted blazer" in the catalog, but the sheet calls this row "Oversize dress"/);
+
+    const same = await draftProductBatch(f.env, {
+      text: head + "001-004-002,Jackets,Evening Dresses,Black hand painted blazers,120.00\n",
+      actor: "keiko@vemians.com",
+      role: "manager", mode: "update",
+    });
+    assert.equal(same.ready.length, 0, JSON.stringify(same.ready));
+    assert.equal(same.created.length, 1, "a spelling or plural difference is still the same item");
+    assert.equal(Number(priceOf()), 12000);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
