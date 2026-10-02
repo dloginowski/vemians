@@ -5945,6 +5945,82 @@ async function submitEditForm(form) {
     return false;
   }
 }
+/* "You're using the original unchanged values and telling me that my Pants
+   already exists at the same level... You need to be looking at all of my
+   current changes and detecting clashes at my changes, not at the original"
+   -- the owner's own words. Every dirty row used to be sent on its own, in
+   page order, and the server checks each against what is SAVED, so renaming
+   one category to "Pants" while the one still saved as "Pants" was being
+   renamed in the same Save was refused -- and a swap could never work. Save
+   now (1) checks the clashes among the NEW values as a whole, on the page,
+   and (2) sends the changes in an order no step clashes with what is saved
+   at that moment, using a temporary value only to break a swap. */
+function planFieldSteps(changes, norm, makeTemp) {
+  const stored = new Map(changes.map((c) => [c, c.saved]));
+  const pending = changes.slice();
+  const steps = [];
+  let guard = changes.length * 4 + 8;
+  while (pending.length && guard-- > 0) {
+    const ready = pending.find(
+      (c) => norm(c.final) === "" || !changes.some((d) => d !== c && norm(stored.get(d)) === norm(c.final)),
+    );
+    if (ready) {
+      steps.push({ change: ready, value: ready.final });
+      stored.set(ready, ready.final);
+      pending.splice(pending.indexOf(ready), 1);
+    } else {
+      const c = pending[0];
+      const tmp = makeTemp(c);
+      steps.push({ change: c, value: tmp });
+      stored.set(c, tmp);
+    }
+  }
+  return steps;
+}
+let tempCounter = 0;
+function changeOfForm(form, inputSelector) {
+  const input = form.querySelector(inputSelector);
+  return { form, input, saved: input.defaultValue.trim(), final: input.value.trim() };
+}
+function nameClashMessage(forms) {
+  /* Final names, whole sibling group at a time: a clash among the new values
+     is the person's own, and is shown before anything is sent. */
+  const groups = new Set(forms.map((f) => f.closest(".admin-category-node")?.parentElement).filter(Boolean));
+  for (const parent of groups) {
+    const inputs = [...parent.querySelectorAll(":scope > .admin-category-node > .admin-category-row .admin-category-name")];
+    const seen = new Map();
+    for (const input of inputs) {
+      const name = input.value.trim();
+      if (!name) return { anchor: input.closest("form"), message: "Give this category a name." };
+      const key = name.toLowerCase();
+      if (seen.has(key)) {
+        return { anchor: input.closest("form"), message: "Two categories at this level would both be named " + name + " after your changes." };
+      }
+      seen.set(key, input);
+    }
+  }
+  return null;
+}
+async function sendSteps(steps) {
+  const applied = new Map();
+  for (const step of steps) {
+    step.change.input.value = step.value;
+    if (!(await submitEditForm(step.change.form))) {
+      /* Put back whatever a temporary value left behind, then show the
+         person's own values again. */
+      for (const [c, v] of applied) {
+        if (v !== c.saved && v !== c.final) {
+          c.input.value = c.saved;
+          await submitEditForm(c.form);
+        }
+      }
+      for (const st of steps) st.change.input.value = st.change.final;
+      return false;
+    }
+    applied.set(step.change, step.value);
+  }
+  return true;
+}
 async function saveAll() {
   /* saveAllBtn.disabled already guards a click; Enter inside a form fires
      a native submit this page's own submit listener routes here too,
@@ -5953,11 +6029,80 @@ async function saveAll() {
   if (document.querySelector(".admin-category-numeric-id:invalid")) return;
   const dirtyForms = [...document.querySelectorAll("form[data-dirty='1']")];
   if (!dirtyForms.length) return;
+  document.querySelectorAll(".item-edit-error").forEach((p) => p.remove());
+  const renameForms = dirtyForms.filter((f) => f.matches(".admin-category-rename-form"));
+  const numberForms = dirtyForms.filter((f) => f.matches(".admin-category-number-form"));
+  const otherForms = dirtyForms.filter((f) => !renameForms.includes(f) && !numberForms.includes(f));
+
+  const clash = nameClashMessage(renameForms);
+  if (clash) {
+    /* One tick later: the page's own click-anywhere-dismisses-errors handler
+       runs after this one for the very same click and would remove it. */
+    setTimeout(() => showFormError(clash.anchor, clash.message), 0);
+    return;
+  }
+  /* Two categories in one pool about to share a number is the page's own
+     "cannot save that" state; never reached normally, but never worth a
+     string of requests if it is. */
+  for (const form of numberForms) {
+    const node = form.closest(".admin-category-node");
+    const pool = node.closest(".admin-category-children")
+      ? document.querySelectorAll(".admin-category-children .admin-category-node")
+      : document.querySelectorAll(".admin-section-body > .admin-category-node");
+    const mine = form.querySelector(".admin-category-numeric-id").value.trim();
+    const sharing = [...pool].filter((n) => n.querySelector(":scope > .admin-category-row .admin-category-numeric-id")?.value.trim() === mine);
+    if (mine && sharing.length > 1) {
+      setTimeout(() => showFormError(form, "Two categories would share the number " + mine + " after your changes."), 0);
+      return;
+    }
+  }
   saveAllBtn.disabled = true;
   let allOk = true;
-  for (const form of dirtyForms) {
+  for (const form of otherForms) {
     if (!(await submitEditForm(form))) allOk = false;
   }
+
+  /* Numbers: one pool for the top level, one for every subcategory. */
+  const poolValues = (node) =>
+    [...(node.closest(".admin-category-children")
+      ? document.querySelectorAll(".admin-category-children .admin-category-node")
+      : document.querySelectorAll(".admin-section-body > .admin-category-node"))]
+      .map((n) => n.querySelector(":scope > .admin-category-row .admin-category-numeric-id"))
+      .filter(Boolean);
+  const numberPools = new Map();
+  for (const form of numberForms) {
+    const key = form.closest(".admin-category-node").closest(".admin-category-children") ? "sub" : "top";
+    if (!numberPools.has(key)) numberPools.set(key, []);
+    numberPools.get(key).push(changeOfForm(form, ".admin-category-numeric-id"));
+  }
+  for (const changes of numberPools.values()) {
+    const inputs = poolValues(changes[0].form.closest(".admin-category-node"));
+    const used = new Set(inputs.map((i) => i.defaultValue.trim()).concat(inputs.map((i) => i.value.trim())));
+    const makeTemp = () => {
+      for (let n = 0; n < 100; n++) {
+        const v = String(n).padStart(2, "0");
+        if (!used.has(v)) {
+          used.add(v);
+          return v;
+        }
+      }
+      return changes[0].saved;
+    };
+    if (!(await sendSteps(planFieldSteps(changes, (v) => String(v).trim(), makeTemp)))) allOk = false;
+  }
+
+  /* Names: one group per parent. */
+  const nameGroups = new Map();
+  for (const form of renameForms) {
+    const parent = form.closest(".admin-category-node").parentElement;
+    if (!nameGroups.has(parent)) nameGroups.set(parent, []);
+    nameGroups.get(parent).push(changeOfForm(form, ".admin-category-name"));
+  }
+  for (const changes of nameGroups.values()) {
+    const makeTemp = () => "tmp-" + Date.now().toString(36) + "-" + ++tempCounter;
+    if (!(await sendSteps(planFieldSteps(changes, (v) => String(v).trim().toLowerCase(), makeTemp)))) allOk = false;
+  }
+
   if (allOk) location.reload();
   else saveAllBtn.disabled = false;
 }
