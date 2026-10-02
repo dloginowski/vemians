@@ -1200,6 +1200,20 @@ export function createSquareCatalogWriter(env, opts = {}) {
   }
 
   function itemData({ title, description, catRef, variations, itemRef, imageIds, customAttributeValues: attrs, vendorInfos, itemOptionRefs, variationOptionValueRefs }) {
+    /* Square refuses two variations with the same combination of option
+       values, with an error naming only opaque ids. Said plainly here, before
+       anything is sent, so the person sees which two rows collide. */
+    const seenCombos = new Map();
+    (variationOptionValueRefs ?? []).forEach((refs, i) => {
+      if (!refs?.length) return;
+      const key = refs.map((r) => r.item_option_value_id).join("|");
+      if (seenCombos.has(key)) {
+        throw new Error(
+          `"${title}": the variations "${variations[seenCombos.get(key)]?.title ?? seenCombos.get(key)}" and "${variations[i]?.title ?? i}" would carry the same size/colour values, and Square does not allow two variations to be identical. Change or remove one of the two rows.`,
+        );
+      }
+      seenCombos.set(key, i);
+    });
     return {
       name: title,
       /* Photographs already in Square are LINKED here at creation rather than
