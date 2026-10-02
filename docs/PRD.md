@@ -9655,7 +9655,8 @@ that does not trace to one of these is a process failure (see §12).
     missing size. The resubmit matcher only knew a missing value as MISSING, so a row with no colour never matched
     the variation whose colour had been filled "N/A"; it was added as a second variation and filled to the identical
     values. A filler value now counts as "not specified" on both sides of the match, so the row matches the
-    variation it already is. As a backstop, a product whose rows would still produce two variations with the same
+    variation it already is. A resend of a mixed product (colour and size, colour only, size only, neither) in any order adds nothing; only
+    genuinely new rows are added. As a backstop, a product whose rows would still produce two variations with the same
     values is refused before anything is sent, naming the two rows, instead of passing Square's id-only error on.
 
 ## 4. P1 features

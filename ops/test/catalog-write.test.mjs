@@ -11270,3 +11270,45 @@ check("test_PRD_P0_216_filled_option_values_match_on_resubmit__two_rows_that_fil
     globalThis.fetch = realFetch;
   }
 });
+
+check("test_PRD_P0_216_filled_option_values_match_on_resubmit__mixed_rows_resent_in_any_order_never_duplicate_a_variation", async () => {
+  /* Rows of one product that name a colour and size, a colour only, a size
+     only, or neither, resent in a different order and with extra new rows. */
+  const f = await fixture({ actor: "keiko@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  const head = "Style #,Category,Subcategory,Description,Price\n";
+  const rows = [
+    "004-001-001-BLK-M,Sets,Evening Sets,Trench coat,100.00",
+    "004-001-001-BLK-L,Sets,Evening Sets,Trench coat,100.00",
+    "004-001-001-BLK,Sets,Evening Sets,Trench coat,100.00",
+    "004-001-001-M,Sets,Evening Sets,Trench coat,100.00",
+    "004-001-001,Sets,Evening Sets,Trench coat,100.00",
+  ];
+  const variationsOf = () =>
+    [...f.square.objects.values()].find((o) => o.type === "ITEM" && o.item_data?.name === "Trench coat").item_data.variations;
+  try {
+    const first = await draftProductBatch(f.env, { text: head + rows.join("\n") + "\n", actor: "keiko@vemians.com", role: "manager", mode: "add" });
+    assert.equal(first.ready.length, 0, JSON.stringify(first.ready));
+    assert.equal(first.created.length, 1, JSON.stringify(first));
+    const count = variationsOf().length;
+    const orders = [[...rows].reverse(), [rows[4], rows[2], rows[0], rows[3], rows[1]], [rows[3], rows[4]]];
+    for (const order of orders) {
+      const again = await draftProductBatch(f.env, { text: head + order.join("\n") + "\n", actor: "keiko@vemians.com", role: "manager", mode: "update" });
+      assert.equal(again.ready.length, 0, `refused on resend ${JSON.stringify(order)}: ${JSON.stringify(again.ready)}`);
+      assert.equal(again.skipped.length, 0, JSON.stringify(again.skipped));
+      assert.equal(variationsOf().length, count, "resending the same rows adds nothing");
+    }
+    const extra = await draftProductBatch(f.env, {
+      text: head + "004-001-001-BLK-XL,Sets,Evening Sets,Trench coat,100.00\n004-001-001-RED,Sets,Evening Sets,Trench coat,100.00\n",
+      actor: "keiko@vemians.com",
+      role: "manager", mode: "update",
+    });
+    assert.equal(extra.ready.length, 0, JSON.stringify(extra.ready));
+    assert.equal(variationsOf().length, count + 2, "two genuinely new rows are added");
+    const keys = variationsOf().map((v) => v.item_variation_data.item_option_values.map((x) => x.item_option_value_id).join("|"));
+    assert.equal(new Set(keys).size, keys.length, "no two variations share a combination");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
