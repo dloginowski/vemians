@@ -1315,6 +1315,24 @@ function withoutFillers(options) {
   );
 }
 
+/* "Don't you have the ledger?" -- the owner's own words. An item remembers the
+   number its sheet gave it (import_style_number) from the moment an upload
+   creates it. One that was made by hand, or by an upload older than that, has
+   none; when a sheet's row is matched to it, the number is written down, so the
+   next question ("which top-level and subcategory number does this item's sheet
+   put it under?") has an answer. Only ever fills a blank, never replaces one. */
+async function learnSheetNumber(env, product, base) {
+  if (!product?.id || product.import_style_number || !/^\d+-\d+-\d+$/.test(String(base))) return;
+  try {
+    await env.CATALOG_MIRROR
+      .prepare("UPDATE mirror_product SET import_style_number = ? WHERE id = ? AND (import_style_number IS NULL OR import_style_number = '')")
+      .bind(base, product.id)
+      .run();
+  } catch (err) {
+    console.error(`ERROR batch.js: could not record sheet number ${base} for product ${product.id} — ${err.message}`);
+  }
+}
+
 /* Are the critical values of a sheet row (price, cost, vendor) the same as the
    item that holds its number? Only what the sheet actually gives is compared,
    but a sheet that gives no price at all cannot show it is the same item. */
@@ -2133,10 +2151,14 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
         }
       }
       if (!existingByStyle) reusedNumberOf = numberHolders[0];
-      else if (overwriteTitle) return draftProductUpdate(env, existingByStyle, base, groupRows, { ...ctx, titleFromSheet: sheetName });
+      else if (overwriteTitle) {
+        await learnSheetNumber(env, existingByStyle, base);
+        return draftProductUpdate(env, existingByStyle, base, groupRows, { ...ctx, titleFromSheet: sheetName });
+      }
     }
   }
   if (existingByStyle) {
+    await learnSheetNumber(env, existingByStyle, base);
     return draftProductUpdate(env, existingByStyle, base, groupRows, ctx);
   }
 
@@ -2272,6 +2294,7 @@ async function draftGroupedProduct(env, ctx, base, groupRows) {
       /* Found by category + title, not by style number: it keeps the
          category it is in. A stale number on the sheet is no reason to
          hold or move an item whose names already matched. */
+      await learnSheetNumber(env, candidates[0], base);
       return draftProductUpdate(env, candidates[0], base, groupRows, { ...ctx, sheetCategory: null });
     }
     if (candidates.length > 1) {

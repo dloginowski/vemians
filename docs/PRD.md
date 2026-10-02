@@ -9747,6 +9747,26 @@ that does not trace to one of these is a process failure (see §12).
     test pins both). `/` must NOT be bypassed: a bypassed path never carries the signed Access identity, so
     bypassing the front door would stop the app recognising anyone who is logged in.
 
+153. **`Test-PRD-P0-221-numbers_from_the_ledger`** — "The subcategories are random, they don't follow the same numbers as the
+    spreadsheet... didn't I just upload them? Don't you have the ledger? You should be able to fix these without me
+    re-uploading all the time... Shouldn't you just fix that with the check button? Why are you asking me to do this
+    manually?" — the owner's own words, after a resubmit did not fix the Dresses subcategories. An upload only gives the
+    sheet's number to a subcategory it CREATES; one that already existed kept its number, so re-sending the sheet could
+    never renumber it. Every item an upload made keeps its sheet's own number (`import_style_number`, e.g. 001-004-002),
+    and that number's middle group is the number its subcategory is supposed to carry under its top-level category.
+    `subcategoryRenumbering` (`catalog-writer.js`, read-only) derives, per parent (subcategory numbers are unique among
+    siblings only), the ordered steps that make each subcategory's number equal that middle group: items that all agree,
+    under a parent whose own number is their first group; a target held by a sibling waits for it; swaps and any cycle go
+    through a free temporary number; a sibling with no sheet information that holds a wanted number is moved to a free
+    one to make room. Items that disagree, two subcategories wanting one number, and a middle group over 99 are listed
+    and left alone. Each step is applied through `catalog.set_category_number`, which also corrects every product's style
+    ID prefix. **The Check placement button now does the fix itself** — no confirmation, no second button: it moves what
+    is under the wrong category (P0-214), reads the renumbering again from the state the moves left (a move changes which
+    siblings a number must be unique among), applies every step with progress shown, lists what it cannot decide, and
+    reloads. Because only items that remember their sheet number can be read, a sheet row that matches an item with no
+    stored number (made by hand, or by an upload older than the field) now writes the row's number onto it — only ever
+    filling a blank — so the ledger fills in as sheets are sent, and a resend teaches the next fix.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

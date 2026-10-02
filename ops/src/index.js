@@ -39,6 +39,7 @@ import {
   listAllProducts,
   listCategories,
   subcategoryPlacement,
+  subcategoryRenumbering,
   listCustomFieldNames,
   listItemOptions,
   listMirrorVendors,
@@ -1247,7 +1248,7 @@ async function ops(request, env, path) {
          numbers (catalog-writer.js's own subcategoryPlacement). Nothing is
          written; the page then applies the proposed moves one at a time
          through /categories/move. */
-      return json(await subcategoryPlacement(env.CATALOG_MIRROR));
+      return json({ ...(await subcategoryPlacement(env.CATALOG_MIRROR)), renumbering: await subcategoryRenumbering(env.CATALOG_MIRROR) });
     } else if (suffix === "/categories/remove") {
       /* "I should not be able to delete a category until it has no more
          subcategories." The button itself is disabled server-side
