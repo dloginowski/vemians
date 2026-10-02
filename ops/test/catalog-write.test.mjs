@@ -12110,12 +12110,13 @@ check("test_PRD_P0_222_sheet_truth__an_item_is_refiled_only_when_the_sheets_agre
   });
   assert.deepEqual(ambiguous.moves, [], "a number two things under the same category share moves nothing");
   assert.ok(ambiguous.review.some((r) => /Gala/.test(r.name) && /Shirt Dresses \(Dresses\) and Capes \(Dresses\)/.test(r.why)), JSON.stringify(ambiguous.review));
-  /* ...but a number whose other claimant is under ANOTHER category is decided under this one */
+  /* ...and an item that merely SITS under one of the claimants' category is not assumed to be that
+     claimant: a vest put in Dresses is not a knitted dress because it is there */
   const split = await itemRefiling(db, {
     truth: [...truth.slice(0, 1), { top: 1, mid: 5, ambiguous: [{ category: "Dresses", subcategory: "Shirt Dresses" }, { category: "Jackets", subcategory: "Blazers" }] }],
   });
-  assert.equal(split.moves.length, 1, JSON.stringify(split));
-  assert.equal(split.moves[0].to.id, shirt.id, "under Dresses, 01-05 is Shirt Dresses");
+  assert.deepEqual(split.moves, [], JSON.stringify(split));
+  assert.ok(split.review.some((r) => /Gala/.test(r.name)), "it is named, not moved");
   /* ...and an item already sitting in one of the candidates is not bothered */
   f.mirrorDb._raw.prepare("UPDATE mirror_product SET import_style_number = '001-004-001'").run();
   const sits = await itemRefiling(db, { truth: [{ top: 1, mid: 4, ambiguous: [{ category: "Dresses", subcategory: "Evening Dresses" }, { category: "Dresses", subcategory: "Gowns" }] }] });
@@ -12207,7 +12208,7 @@ check("test_PRD_P0_222_sheet_truth__an_item_goes_where_its_own_sheet_row_says_ev
   assert.equal(settled.ok, 1);
 
   /* a category the catalog has no top-level for is named, never created or guessed */
-  const none = await itemRefiling(db, { itemTruth: [{ base: "001-003-001", category: "Spaceships", subcategory: "Vest" }] });
+  const none = await itemRefiling(db, { itemTruth: [{ base: "001-003-001", category: "Spaceships", subcategory: "Capes" }] });
   assert.deepEqual(none.moves, []);
   assert.ok(none.review.some((r) => /no top-level category is called "Spaceships"/.test(r.why)), JSON.stringify(none.review));
 });
@@ -12282,4 +12283,69 @@ check("test_PRD_P0_222_sheet_truth__two_items_sharing_a_full_number_are_told_apa
   assert.equal(renumber.steps.find((s) => s.name === "Knitted Dresses"), undefined, "it stays on 03");
   assert.ok(!renumber.steps.some((s) => /make room for Knitted/.test(s.madeRoomFor ?? "") && s.name === "Knitted Dresses"));
   void shirt;
+});
+
+
+check("test_PRD_P0_222_sheet_truth__an_item_with_no_row_of_its_own_on_a_shared_number_is_told_by_its_title_and_never_by_where_it_sits", async () => {
+  /* The third run put two vests into Knitted Dresses and the trench coat into Evening
+     Sets: their number (01-03, 04-01) heads two things, and I had decided it by the
+     category the item was sitting in. "A vest is a vest." */
+  const { f, evening, shirt } = await tweakedDresses();
+  const { itemRefiling } = await import("../src/tools/catalog-writer.js");
+  const db = f.env.CATALOG_MIRROR;
+  const jackets = await approvedCall(f, "catalog.create_category", { name: "Jackets", numeric_id: "03", reason: "test" });
+  const vests = await approvedCall(f, "catalog.create_category", { name: "Vests", parent_id: jackets.data.category.id, numeric_id: "01", reason: "test" });
+  assert.equal(vests.ok, true, vests.error);
+  /* two products in Dresses > Evening Dresses on number 001-003-00x with no row of their own */
+  f.mirrorDb._raw.prepare("UPDATE mirror_product SET import_style_number = '001-003-002' WHERE title LIKE '%Gala%'").run();
+  f.mirrorDb._raw.prepare("UPDATE mirror_product SET import_style_number = '001-003-003' WHERE title LIKE '%Ball%'").run();
+  f.mirrorDb._raw.prepare("UPDATE mirror_product SET title = 'Embellished vest, white' WHERE title LIKE '%Gala%'").run();
+  const truth = [{ top: 1, mid: 3, ambiguous: [{ category: "Jacket", subcategory: "Vests" }, { category: "Dresses", subcategory: "Knitted Dresses" }] }];
+  const plan = await itemRefiling(db, { truth });
+  const vestMove = plan.moves.find((m) => /vest/i.test(m.title));
+  assert.ok(vestMove, JSON.stringify(plan));
+  assert.equal(vestMove.to.id, vests.data.category.id, "the title says vest: it goes to Jackets > Vests");
+  const ball = plan.moves.find((m) => /Ball/.test(m.title));
+  assert.equal(ball, undefined, "a title that fits neither is not moved on a guess");
+  assert.ok(plan.review.some((r) => /Ball/.test(r.name) && /cannot say where it belongs/.test(r.why)), JSON.stringify(plan.review));
+  void evening; void shirt;
+});
+
+check("test_PRD_P0_222_sheet_truth__a_sheet_category_the_catalog_lacks_falls_back_to_the_same_named_subcategory_under_the_items_own_category", async () => {
+  /* "Trench Coat (Coat)": there is no top-level Coat, but Trench Coats exists under Sets. */
+  const { f, evening, shirt } = await tweakedDresses();
+  const { itemRefiling } = await import("../src/tools/catalog-writer.js");
+  const db = f.env.CATALOG_MIRROR;
+  const dresses = f.categories().find((c) => c.name === "Dresses");
+  const trench = await approvedCall(f, "catalog.create_category", { name: "Trench Coats", parent_id: dresses.id, numeric_id: "11", reason: "test" }, { ...f.ctx, allowNearDuplicate: true });
+  assert.equal(trench.ok, true, trench.error);
+  f.mirrorDb._raw.prepare("UPDATE mirror_product SET import_style_number = '001-004-001', title = 'Trench coat' WHERE title LIKE '%Gala%'").run();
+  const itemTruth = [{ base: "001-004-001", category: "Coat", subcategory: "Trench Coat" }];
+  const plan = await itemRefiling(db, { itemTruth, titled: [] });
+  const move = plan.moves.find((m) => m.title === "Trench coat");
+  assert.ok(move, JSON.stringify(plan));
+  assert.equal(move.from.id, evening.id);
+  assert.equal(move.to.id, trench.data.category.id, "filed under the Trench Coats it already has beside it");
+  void shirt;
+});
+
+check("test_PRD_P0_222_sheet_truth__a_number_the_sheets_name_for_a_subcategory_is_not_blocked_by_a_sibling_whose_items_merely_suggest_it", async () => {
+  /* "Knitted Dresses: its items point at 03, but Vests already holds 03 and matches its own
+     sheet numbers": the sheets name 01-03 Knitted Dresses under Dresses. */
+  const { f, evening, shirt } = await tweakedDresses();
+  const { subcategoryRenumbering } = await import("../src/tools/catalog-writer.js");
+  const dresses = f.categories().find((c) => c.name === "Dresses");
+  const knit = await approvedCall(f, "catalog.create_category", { name: "Knitted Dresses", parent_id: dresses.id, numeric_id: "10", reason: "test" }, { ...f.ctx, allowNearDuplicate: true });
+  assert.equal(knit.ok, true, knit.error);
+  /* Shirt Dresses (05) holds items that only SUGGEST 03 */
+  f.mirrorDb._raw.prepare("UPDATE mirror_product SET import_style_number = '001-003-009' WHERE category_id = ?").run(shirt.id);
+  await approvedCall(f, "catalog.set_category_number", { category_id: shirt.id, numeric_id: "03" });
+  const truth = [{ top: 1, mid: 3, category: "Dresses", subcategory: "Knitted Dresses" }];
+  const plan = await subcategoryRenumbering(f.env.CATALOG_MIRROR, { truth });
+  const toKnit = plan.steps.find((s) => s.id === knit.data.category.id);
+  assert.ok(toKnit, JSON.stringify(plan));
+  assert.equal(toKnit.to, "03", "Knitted Dresses takes the number the sheets give it");
+  const out = plan.steps.find((s) => s.id === shirt.id);
+  assert.ok(out && out.to !== "03", "and the sibling that only suggested it makes room");
+  void evening;
 });

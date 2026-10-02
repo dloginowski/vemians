@@ -245,6 +245,7 @@ export async function subcategoryRenumbering(db, { ledger = [], truth = [], item
     /* subcategories already on the number the sheets (or their items) give them: a
        number one of these holds is never taken from it to suit another */
     const settled = new Map();
+    const settledByName = new Set();
     for (const sub of siblings) {
       /* The stored sheets name this subcategory under exactly one number of its
          parent's: that number is the answer, whatever its items say. */
@@ -253,6 +254,7 @@ export async function subcategoryRenumbering(db, { ledger = [], truth = [], item
         if (String(sub.numeric_id ?? "") === pad(mids[0])) {
           ok += 1;
           settled.set(pad(mids[0]), sub);
+          settledByName.add(sub.id);
         } else {
           wanted.set(sub.id, pad(mids[0]));
           named.add(sub.id);
@@ -331,6 +333,8 @@ export async function subcategoryRenumbering(db, { ledger = [], truth = [], item
     for (const [id, n] of [...wanted]) {
       const holder = settled.get(n);
       if (!holder || holder.id === id) continue;
+      /* what the sheets name a subcategory outranks what a holder's items merely suggest */
+      if (named.has(id) && !settledByName.has(holder.id)) continue;
       const sub = siblings.find((x) => x.id === id);
       review.push({ id, name: sub.name, parent: parentName, items: stats.get(id)?.items ?? 0, why: `its items point at number ${n}, but ${holder.name} already holds ${n} and matches its own sheet numbers, so it was left alone` });
       wanted.delete(id);
@@ -444,7 +448,25 @@ export async function itemRefiling(db, { truth = [], itemTruth = [], titled = []
   for (const r of res.results ?? []) {
     const m = /^\s*(\d+)\s*-\s*(\d+)\s*-/.exec(String(r.import_style_number ?? ""));
     const cat = byId.get(r.category_id);
-    const row = rowFor(r.title, r.import_style_number);
+    let row = rowFor(r.title, r.import_style_number);
+    if (!row && m && cat) {
+      /* No row of its own, and its number heads more than one thing (01-03 is a
+         vest AND a knitted dress): its own title says which -- "Black hand-painted
+         vest" is the Vests, whatever category it was put in by mistake. Only when
+         exactly one of the things shares a word with the title. */
+      const shared = entries.get(`${Number(m[1])}|${Number(m[2])}`);
+      const sitsInOne = (shared?.ambiguous ?? []).some((n) => fold(n.subcategory) === fold(cat.name) && fold(n.category) === fold(byId.get(cat.parent_id)?.name));
+      if (shared?.ambiguous && !sitsInOne) {
+        const words = (t) => new Set(String(t).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).map(foldSheetName));
+        const mine = words(r.title);
+        const hits = shared.ambiguous.filter((n) => [...words(n.subcategory)].some((w) => mine.has(w)));
+        const fitsHere = [...words(cat.name)].some((w) => mine.has(w));
+        const sameCategory = hits.length === 1 && fold(hits[0].category) === fold(byId.get(cat.parent_id)?.name);
+        /* a title that already fits where the item sits is left there when the only other
+           claimant is under the same category (a shirt dress is not an evening dress) */
+        if (hits.length === 1 && !(fitsHere && sameCategory)) row = { base: `${pad(Number(m[1]))}-${pad(Number(m[2]))}`, category: hits[0].category, subcategory: hits[0].subcategory };
+      }
+    }
     if (row && cat) {
       /* The item's own sheet row names its category and subcategory: that is where
          it goes, whatever its style number's first groups say (a row can carry a
@@ -453,6 +475,18 @@ export async function itemRefiling(db, { truth = [], itemTruth = [], titled = []
          it is made, since the sheet names it. */
       const tops = categories.filter((c) => !c.parent_id && fold(c.name) === fold(row.category));
       const base = { handle: r.handle, title: r.title, from: { id: cat.id, name: cat.name }, code: row.base };
+      if (tops.length === 0) {
+        /* The sheet's category is not one the catalog has ("Coat"), but the item's own
+           category already has a subcategory by the sheet's subcategory name
+           (Trench Coats under Sets): the subcategory name is what settles it. */
+        const home = cat.parent_id ? byId.get(cat.parent_id) : cat;
+        const kin = home ? categories.filter((c) => c.parent_id === home.id && fold(c.name) === fold(row.subcategory)) : [];
+        if (kin.length === 1) {
+          if (kin[0].id === cat.id) ok += 1;
+          else moves.push({ ...base, parent: { id: home.id, name: home.name }, to: { id: kin[0].id, name: kin[0].name } });
+          continue;
+        }
+      }
       if (tops.length !== 1) {
         review.push({
           name: r.title,
@@ -500,15 +534,9 @@ export async function itemRefiling(db, { truth = [], itemTruth = [], titled = []
     const top = Number(m[1]);
     const mid = Number(m[2]);
     if (!parent || parent.numeric_id == null || Number(parent.numeric_id) !== top) continue;
-    let entry = entries.get(`${top}|${mid}`);
+    const entry = entries.get(`${top}|${mid}`);
     if (!entry) continue;
     const code = `${pad(top)}-${pad(mid)}`;
-    /* a number two things share is still decided here when only one of them is
-       under this item's own category */
-    if (entry.ambiguous) {
-      const here = entry.ambiguous.filter((n) => fold(n.category) === fold(parent.name));
-      if (here.length === 1) entry = { top: entry.top, mid: entry.mid, category: here[0].category, subcategory: here[0].subcategory };
-    }
     if (entry.ambiguous) {
       /* The sheets use this number for more than one thing. An item sitting in
          one of them is left where it is; one sitting anywhere else is named. */

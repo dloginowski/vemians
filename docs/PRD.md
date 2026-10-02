@@ -9832,6 +9832,14 @@ that does not trace to one of these is a process failure (see §12).
     "Knitted Dresses" under Dresses and "Vest" under Jacket); an item that already sits where its own row says no longer
     counts toward the "its items disagree" and renumbering readings; and a subcategory already on the number its sheets
     give it is never moved off it to suit another — the other one is listed instead.
+    **The third run, read.** It put two vests into Knitted Dresses and the trench coat into Evening Sets, because I decided a
+    shared number (01-03, 04-01) by the category the item happened to be sitting in — a vest put in Dresses is not a
+    knitted dress. That rule is gone. An item with no row of its own on a shared number is told by its own title: exactly
+    one of the things the number heads must share a word with it ("Black hand-painted vest" → Vests), and it is left alone
+    when its title already fits where it sits and the other claimant is in the same category. When the sheet's category is
+    one the catalog lacks ("Coat"), the same-named subcategory under the item's own category settles it (Trench Coats under
+    Sets). A number the sheets give a subcategory by name is no longer blocked by a sibling whose items merely suggest it
+    (Knitted Dresses 10 → 03 is not held up by Vests); only a sibling already on a number the sheets name it keeps it.
     A stray ")" shipped in the Check placement code once broke the whole Admin script (no subcategory expanded, no
     button worked) while every pattern test still passed; the Admin page's inline scripts are now parsed by a test.
 
