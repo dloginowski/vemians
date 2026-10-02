@@ -3021,6 +3021,20 @@ check("test_PRD_P0_130_item_tile_photo__no_dedicated_expand_button_a_click_anywh
   );
 });
 
+check("test_PRD_P0_210_item_tile_pill_inline__the_bottom_bar_is_one_row_with_the_breadcrumb_left_and_the_tags_right", async () => {
+  /* "Make the web pill indicator in the item grid be in line with the
+     breadcrumb line, the same way the price is in line with the item name."
+     The tags used to sit on their own line above the breadcrumb. */
+  const mirror = mirrorDb();
+  seedProduct(mirror, { channel: "website" });
+  const res = await get("/items", STAFF, env(mirror));
+  const body = await res.text();
+  assert.match(body, /\.item-bottom \{[^}]*flex-direction: row;[^}]*align-items: center;/, "one row, not a stacked column");
+  assert.doesNotMatch(body, /\.item-bottom \{[^}]*flex-direction: column/, "no stacked lines any more");
+  assert.match(body, /\.item-bottom-row \{[^}]*order: 2;[^}]*margin-left: auto;/, "the tags sit at the right edge, even with no breadcrumb");
+  assert.match(body, /\.item-bottom \.item-breadcrumb \{[^}]*order: 1;[^}]*flex: 1 1 auto;[^}]*min-width: 0;/, "the breadcrumb takes the room on the left and ellipsizes");
+});
+
 check("test_PRD_P0_130_item_tile_photo__only_a_website_item_gets_a_channel_tag", async () => {
   /* "Web is a much shorter, cleaner tag... what's the in-store for?" —
      direct_link (the assumed, unremarkable default) gets no tag at all;
