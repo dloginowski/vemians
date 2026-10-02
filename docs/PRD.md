@@ -9821,6 +9821,10 @@ that does not trace to one of these is a process failure (see §12).
     sheets name these on purpose (Tops 02-05, Knitted Tops 02-07, Casual Tops 02-08), so the Admin refile route makes a
     subcategory only when the stored sheets themselves name it under that category (`sheetNamesSubcategory`), and then
     runs the tool with a server-side `allowNearDuplicate` context flag. It is not an argument, so no agent can set it.
+    **Reloads keep the tree open.** "Why are you closing all the categories when I delete a subcategory?" Every change on
+    the Admin page ends in a page reload, which collapsed every category. The reload now goes through one helper that
+    remembers which categories are open (and the scroll position) in the session and opens them again on the next
+    load; every reload on the Admin page uses it.
     A stray ")" shipped in the Check placement code once broke the whole Admin script (no subcategory expanded, no
     button worked) while every pattern test still passed; the Admin page's inline scripts are now parsed by a test.
 

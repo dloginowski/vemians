@@ -3691,7 +3691,7 @@ check("test_PRD_P0_138_nested_categories__admin_save_all_submits_every_dirty_for
   const mirror = mirrorDb();
   const body = await (await get("/admin", MANAGER, env(mirror))).text();
   assert.match(body, /const dirtyForms = \[\.\.\.document\.querySelectorAll\("form\[data-dirty='1'\]"\)\];/);
-  assert.match(body, /if \(allOk\) location\.reload\(\);/);
+  assert.match(body, /if \(allOk\) reloadKeepingOpen\(\);/);
 });
 
 check("test_PRD_P0_136_square_custom_attributes__admin_vendors_section_is_an_expanding_header_matching_categories", async () => {
@@ -4454,4 +4454,52 @@ check("test_PRD_P0_222_sheet_truth__the_admin_pages_inline_script_is_valid_javas
   for (const script of scripts) {
     assert.doesNotThrow(() => new Function(script), "every inline script on the Admin page must parse");
   }
+});
+
+check("test_PRD_P0_222_sheet_truth__a_reload_on_the_admin_page_keeps_the_open_categories_open", async () => {
+  /* "Why are you closing all the categories when I delete a subcategory?" Every
+     reload after a change used to collapse the tree. */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  seedCategoryTree(mirror);
+  const body = await (await get("/admin", MANAGER, env(mirror))).text();
+  const script = body.slice(body.indexOf("<script>") + 8, body.lastIndexOf("</script>"));
+  assert.equal((script.match(/location\.reload\(\)/g) ?? []).length, 1, "the only real reload is the one inside the keep-open helper");
+
+  /* run the helper and the restore step against a tiny fake page */
+  const start = script.indexOf("function adminNodeKey");
+  const end = script.indexOf("/* Removing a category stays its own immediate");
+  assert.ok(start > 0 && end > start);
+  const piece = script.slice(start, end);
+  const mkNode = (id, expanded) => ({
+    cls: new Set(expanded ? ["expanded"] : []),
+    classList: { add(c) { this.owner.cls.add(c); }, contains(c) { return this.owner.cls.has(c); } },
+    querySelector() { return id ? { value: id } : null; },
+  });
+  const nodes = [mkNode("cat1", true), mkNode("cat2", false), mkNode("cat3", true), mkNode("", true)];
+  for (const n of nodes) n.classList.owner = n;
+  const store = new Map();
+  let reloads = 0;
+  let scrolled = null;
+  const makeWindow = (scrollY) => ({
+    document: {
+      querySelectorAll: (sel) => (sel === ".admin-category-node.expanded" ? nodes.filter((n) => n.cls.has("expanded")) : nodes),
+    },
+    sessionStorage: { setItem: (k, v) => store.set(k, v), getItem: (k) => store.get(k) ?? null, removeItem: (k) => store.delete(k) },
+    location: { reload: () => { reloads += 1; } },
+    window: { scrollY, scrollTo: (x, y) => { scrolled = y; } },
+  });
+  const run = (scope) => new Function("document", "sessionStorage", "location", "window", `${piece}\nreturn { reloadKeepingOpen };`)(scope.document, scope.sessionStorage, scope.location, scope.window);
+  const first = makeWindow(240);
+  const api = run(first);
+  api.reloadKeepingOpen();
+  assert.equal(reloads, 1, "it still reloads");
+  assert.deepEqual(JSON.parse(store.get("adminOpenCategories")).open, ["cat1", "cat3"], "the open categories with an id are remembered");
+
+  /* a fresh page: everything starts closed, the restore step opens them again */
+  for (const n of nodes) n.cls.clear();
+  run(makeWindow(0));
+  assert.deepEqual(nodes.map((n) => n.cls.has("expanded")), [true, false, true, false], "the same ones are open again");
+  assert.equal(scrolled, 240, "and the page is back where it was");
+  assert.equal(store.has("adminOpenCategories"), false, "the memory is used once");
 });
