@@ -636,10 +636,13 @@ function formatBatchDraft(kind, result) {
   const created = result.created ?? [];
   const ready = result.ready ?? [];
   const counts = batchCounts(created);
+  const unchanged = result.unchanged ?? [];
   const lines = [
     `${counts.created} ${kind} created` +
       (counts.updated ? `, ${counts.updated} updated` : "") +
-      `, ${ready.length} need a person's decision, ${result.skipped.length} skipped.`,
+      `, ${ready.length} need a person's decision, ${result.skipped.length} skipped` +
+      (unchanged.length ? `, ${unchanged.length} already match what is on file (nothing to change)` : "") +
+      ".",
   ];
   for (const r of created) lines.push(`- Row ${r.row} "${r.title}": ${r.action ?? "created"} — ${r.summary}`);
   for (const r of ready) lines.push(`- Row ${r.row} "${r.title}": ${r.summary} — ${r.url}`);
@@ -656,13 +659,15 @@ function batchDraftTable(kind, result) {
     ...created.map((r) => [String(r.row), r.title, r.action ?? "created", r.summary]),
     ...ready.map((r) => [String(r.row), r.title, "needs a person", `${r.summary} — ${r.url}`]),
     ...result.skipped.map((s) => [String(s.row), s.title, "skipped", s.reason]),
+    ...(result.unchanged ?? []).map((u) => [String(u.row), u.title, "already matches", "nothing to change"]),
   ];
   rows.sort((a, b) => Number(a[0]) - Number(b[0]));
   return {
     title:
       `${kind[0].toUpperCase()}${kind.slice(1)}: ${counts.created} created` +
       (counts.updated ? `, ${counts.updated} updated` : "") +
-      `, ${ready.length} need a person's decision, ${result.skipped.length} skipped`,
+      `, ${ready.length} need a person's decision, ${result.skipped.length} skipped` +
+      ((result.unchanged ?? []).length ? `, ${result.unchanged.length} already match` : ""),
     columns: ["Row", "Title", "Status", "Detail"],
     rows,
     /* "It says 9 need a person's decision but the next preview row is too
@@ -763,7 +768,7 @@ async function dispatchProductBatchPlan(args, { actor, role, env, mode }) {
      one-call draft always did for this same shape (formatBatchDraft/
      batchDraftTable already treat a missing `created` as empty). */
   if (!plan.rows.length) {
-    const result = { ready: plan.ready, skipped: plan.skipped, tooMany: plan.tooMany };
+    const result = { ready: plan.ready, skipped: plan.skipped, unchanged: plan.unchanged, tooMany: plan.tooMany };
     return { isError: false, text: formatBatchDraft("products", result), table: batchDraftTable("products", result) };
   }
 
@@ -777,7 +782,9 @@ async function dispatchProductBatchPlan(args, { actor, role, env, mode }) {
   }
   const readyCount = plan.rows.length;
   const lines = [
-    `${readyCount} products ready to submit, ${plan.ready.length} need a person's decision, ${plan.skipped.length} skipped.`,
+    `${readyCount} products ready to submit, ${plan.ready.length} need a person's decision, ${plan.skipped.length} skipped` +
+      ((plan.unchanged ?? []).length ? `, ${plan.unchanged.length} already match what is on file (left out of the list)` : "") +
+      ".",
     /* mode "add" never matches at all (Test-PRD-P0-182-explicit_add_or_
        update_mode) -- every ready row here really is a fresh create, so
        this only needs the update-mode caveat when it could possibly be
@@ -792,7 +799,7 @@ async function dispatchProductBatchPlan(args, { actor, role, env, mode }) {
   return {
     isError: false,
     text: lines.join("\n"),
-    table: batchDraftTable("products", { ready: plan.ready, skipped: plan.skipped }),
+    table: batchDraftTable("products", { ready: plan.ready, skipped: plan.skipped, unchanged: plan.unchanged }),
     checklist: checklistFromPlan(id, plan.rows),
   };
 }

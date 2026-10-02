@@ -75,7 +75,7 @@ import { normaliseCatalog } from "../../shared/commerce/square/catalog.js";
    text-module loader is registered here, before any of those imports run. */
 register("../../shared/test/text-modules.mjs", import.meta.url);
 const { approvePending, parkForApproval } = await import("../src/approvals.js");
-const { draftProductBatch } = await import("../src/batch.js");
+const { draftProductBatch, planProductBatch } = await import("../src/batch.js");
 const { dispatch, agentTurn, approve, NO_TEXT_TABLE_NOTE, readBatchProgress, startBatchRun, submitBatchPlanRow, openBatchPlanFor, cancelBatchPlan } = await import("../src/agent.js");
 const http = await import("node:http");
 
@@ -11144,4 +11144,54 @@ check("test_PRD_P0_215_subcategory_numbers_per_parent__oversize_kept_as_written_
   assert.equal(f.categories().find((c) => c.name === "Oversizes"), undefined);
   const other = await approvedCall(f, "catalog.create_category", { name: "Eyewear", reason: "test" });
   assert.equal(other.data.category.name, "Eyewears", "every other name still follows the plural rule");
+});
+
+check("test_PRD_P0_215_subcategory_numbers_per_parent__a_resubmitted_sheet_that_already_matches_says_so_instead_of_an_empty_result", async () => {
+  /* A real report: "0 / 0 / 0 on this file, twice, for a 16-product sheet."
+     A row whose values already match is intentionally left out of the list,
+     but the result said nothing about it, so a sheet that needed no changes
+     looked exactly like a broken one. */
+  const f = await fixture({ actor: "probe@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  const csv =
+    "Style #,Category,Subcategory,Description,Price\n" +
+    "001-004-001,Jackets,Evening Dresses,Dress A,100.00\n" +
+    "001-004-002,Jackets,Evening Dresses,Dress B,100.00\n" +
+    "002-001-001,Tops,Tees,Tee A,30.00\n";
+  try {
+    const added = await draftProductBatch(f.env, { text: csv, actor: "probe@vemians.com", role: "manager", mode: "add" });
+    assert.equal(added.created.length, 3, JSON.stringify(added));
+
+    const again = await draftProductBatch(f.env, { text: csv, actor: "probe@vemians.com", role: "manager", mode: "update" });
+    assert.equal(again.created.length, 0);
+    assert.equal(again.unchanged.length, 3, "every matching row is counted, not dropped without a word");
+    assert.deepEqual(again.unchanged.map((u) => u.title).sort(), ["Dress A", "Dress B", "Tee A"]);
+
+    const plan = await planProductBatch(f.env, { text: csv, actor: "probe@vemians.com", role: "manager", mode: "update" });
+    assert.equal(plan.rows.length, 0);
+    assert.equal(plan.unchanged.length, 3, "the checklist path counts them too");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+check("test_PRD_P0_215_subcategory_numbers_per_parent__a_row_whose_category_number_and_name_disagree_is_reported_even_when_nothing_else_differs", async () => {
+  const f = await fixture({ actor: "probe@vemians.com", role: "manager" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = f.square;
+  const csv = "Style #,Category,Subcategory,Description,Price\n001-004-001,Jackets,Evening Dresses,Dress A,100.00\n";
+  try {
+    const added = await draftProductBatch(f.env, { text: csv, actor: "probe@vemians.com", role: "manager", mode: "add" });
+    assert.equal(added.created.length, 1, JSON.stringify(added));
+    /* The catalog's category 01 is later renamed, so the sheet's name no longer agrees with its number. */
+    f.mirrorDb._raw.prepare("UPDATE mirror_category SET name = 'Coats' WHERE name = 'Jackets'").run();
+    const again = await draftProductBatch(f.env, { text: csv, actor: "probe@vemians.com", role: "manager", mode: "update" });
+    const reported = [...again.ready, ...again.skipped];
+    assert.equal(reported.length, 1, `the row is neither created nor silently dropped: ${JSON.stringify(again)}`);
+    assert.match(JSON.stringify(reported[0]), /category number 01/);
+    assert.equal(again.unchanged.length, 0);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });

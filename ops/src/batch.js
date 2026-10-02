@@ -1869,7 +1869,18 @@ async function draftProductUpdate(env, existing, base, groupRows, ctx) {
   const changes = catalogChangesFor({ existing, existingVariants, titleCol, descriptionCol, variations, categoryMove });
 
   if (changes.length === 0) {
-    return { extraRows: quantityAdjustments };
+    /* A row whose number and name disagree is never dropped silently just
+       because nothing else about it differs: it is reported, so a sheet that
+       "does nothing" always says why. */
+    if (categoryConflict) {
+      return {
+        clash: { row: firstRow, title, args, reason: categoryConflict, toolName: "catalog.update_product" },
+        extraRows: quantityAdjustments,
+      };
+    }
+    /* Also never silent: counted, so the result can say "N rows already
+       match what is on file" instead of an unexplained 0 / 0 / 0. */
+    return { extraRows: quantityAdjustments, unchanged: { row: firstRow, title } };
   }
 
   return {
@@ -2341,6 +2352,7 @@ async function resolveProductRows(env, { actor, role, mode }, records) {
   const { groups, groupOrder, namedRecords } = splitProductRecords(records);
 
   const clashes = [];
+  const unchanged = [];
 
   for (const base of groupOrder) {
     const outcome = await draftGroupedProduct(env, { actor, role, categories, reservedNumericIds, reservedSubcategoryNumericIds, categoryCache, nextAutoTitle, rate, mode }, base, groups.get(base));
@@ -2350,6 +2362,7 @@ async function resolveProductRows(env, { actor, role, mode }, records) {
     for (const r of [outcome.row, ...(outcome.extraRows ?? [])]) if (r) r.sheetStyleId = base;
     if (outcome.clash) clashes.push(outcome.clash);
     else if (outcome.row) rows.push(outcome.row);
+    if (outcome.unchanged) unchanged.push(outcome.unchanged);
     if (outcome.extraRows?.length) rows.push(...outcome.extraRows);
   }
 
@@ -2363,6 +2376,7 @@ async function resolveProductRows(env, { actor, role, mode }, records) {
     const outcome = await draftNamedCategoryProduct(env, resolved.category ?? null, resolved.error, nextAutoTitle, record, rowNumber, mode, { actor, role, rate });
     if (outcome.clash) clashes.push(outcome.clash);
     else if (outcome.row) rows.push(outcome.row);
+    if (outcome.unchanged) unchanged.push(outcome.unchanged);
     if (outcome.extraRows?.length) rows.push(...outcome.extraRows);
   }
 
@@ -2380,7 +2394,7 @@ async function resolveProductRows(env, { actor, role, mode }, records) {
     if (!row.changes) row.changes = row.toolName === "catalog.create_product" ? "new product" : "";
   }
 
-  return { rows, clashes, rate };
+  return { rows, clashes, unchanged, rate };
 }
 
 export async function draftProductBatch(env, { text, actor, role, onProgress, mode }) {
@@ -2389,7 +2403,7 @@ export async function draftProductBatch(env, { text, actor, role, onProgress, mo
   if (records.length > CAPS.BATCH_MAX_ROWS) {
     return { created: [], ready: [], skipped: [], tooMany: records.length };
   }
-  const { rows: resolvedRows, clashes, rate } = await resolveProductRows(env, { actor, role, mode }, records);
+  const { rows: resolvedRows, clashes, unchanged, rate } = await resolveProductRows(env, { actor, role, mode }, records);
 
   /* "They should show up but unchecked -- I should tell you specifically I
      want to update these" -- the owner's own words, about a quantity
@@ -2425,6 +2439,7 @@ export async function draftProductBatch(env, { text, actor, role, onProgress, mo
     created: madeRows,
     ready: [...parkedFromClashes, ...parkedFromDenials].sort((a, b) => a.row - b.row),
     skipped: [...refused, ...refusedClashes].sort((a, b) => a.row - b.row),
+    unchanged,
   };
 }
 
@@ -2628,7 +2643,7 @@ export async function planProductBatch(env, { text, actor, role, mode }) {
   if (records.length > CAPS.BATCH_MAX_ROWS) {
     return { rows: [], ready: [], skipped: [], tooMany: records.length };
   }
-  const { rows: built, clashes, rate } = await resolveProductRows(env, { actor, role, mode }, records);
+  const { rows: built, clashes, unchanged, rate } = await resolveProductRows(env, { actor, role, mode }, records);
   await flagLikelyDuplicates(env, built);
 
   const readyRows = [];
@@ -2651,6 +2666,7 @@ export async function planProductBatch(env, { text, actor, role, mode }) {
     rows: readyRows,
     ready: [...parkedFromClashes, ...parkedFromGate].sort((a, b) => a.row - b.row),
     skipped: [...skippedFromGate, ...refusedClashes].sort((a, b) => a.row - b.row),
+    unchanged,
     rate,
   };
 }

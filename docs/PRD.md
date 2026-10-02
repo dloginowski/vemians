@@ -9644,6 +9644,9 @@ that does not trace to one of these is a process failure (see §12).
     Oversize to Oversizes"); matching still treats Oversize and Oversizes as the same, so an existing "Oversizes" is found.
     On Admin, editing a category number never moves the field being typed in (rows re-sort around it, and only on a
     complete two-digit number), so deleting a digit no longer closes the phone keyboard.
+    A re-sent sheet never comes back as an unexplained "0 / 0 / 0": rows that already match what is on file are
+    counted and named in the result ("N already match what is on file"), and a row whose category number and name
+    disagree is reported even when nothing else about it differs, instead of being dropped without a word.
 
 ## 4. P1 features
 
