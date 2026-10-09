@@ -9843,6 +9843,18 @@ that does not trace to one of these is a process failure (see §12).
     A stray ")" shipped in the Check placement code once broke the whole Admin script (no subcategory expanded, no
     button worked) while every pattern test still passed; the Admin page's inline scripts are now parsed by a test.
 
+155. **`Test-PRD-P0-223-photo_cache`** — "When I upload a photo directly after taking a picture, the photo does not get saved...
+    make sure that when I take a photo, you have it stored in cache so that way it actually gets uploaded. I should not
+    have to use an existing photo from my library." — the owner's own words. The item tile's camera button now asks
+    **Take a photo** (a second file input with `capture="environment"`, which opens the camera directly) or **Choose from
+    library** (the existing input). Whichever way a photo arrives, it is copied into the browser's own database
+    (IndexedDB, `vemians-photo-outbox`) before anything is sent, and stays there until the server has confirmed it saved
+    it; a photo that could not be sent (no signal, a server error) is kept and sent when the page is next opened or the
+    phone comes back online, and appears on its item without being taken again; one the server refuses (a type or size
+    it will not take) is dropped after saying why, rather than retried for ever. A page the phone discards while the
+    camera is open never receives the picture at all, which no cache can recover; the capture input is what makes that
+    rare.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

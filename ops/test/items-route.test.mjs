@@ -4503,3 +4503,95 @@ check("test_PRD_P0_222_sheet_truth__a_reload_on_the_admin_page_keeps_the_open_ca
   assert.equal(scrolled, 240, "and the page is back where it was");
   assert.equal(store.has("adminOpenCategories"), false, "the memory is used once");
 });
+
+check("test_PRD_P0_223_photo_cache__the_camera_button_offers_take_a_photo_and_choose_from_library_and_a_taken_photo_is_cached_until_the_server_has_it", async () => {
+  /* "When I upload a photo directly after taking a picture, the photo does not get
+     saved... make sure that when I take a photo, you have it stored in cache so it
+     actually gets uploaded. I should not have to use an existing photo from my library." */
+  const mirror = mirrorDb();
+  seedProduct(mirror);
+  const body = await (await get("/items", MANAGER, env(mirror))).text();
+  assert.match(body, /<input type="file" class="variant-photo-input" accept="image\/\*" hidden>/, "the library input is still there");
+  assert.match(body, /<input type="file" class="variant-photo-input variant-photo-camera" accept="image\/\*" capture="environment" hidden>/, "and a second one opens the camera directly");
+  const scripts = [...body.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+  for (const script of scripts) assert.doesNotThrow(() => new Function(script), "every inline script parses");
+  const script = scripts.find((x) => x.includes("function uploadVariantPhoto"));
+  assert.match(script, /Take a photo/);
+  assert.match(script, /Choose from library/);
+
+  /* run the real cache + upload code against a tiny fake browser */
+  const start = script.indexOf("function photoOutbox()");
+  const end = script.indexOf("/* The camera button asks which");
+  assert.ok(start > 0 && end > start);
+  const piece = script.slice(start, end);
+
+  const store = new Map();
+  const fakeIndexedDB = {
+    open() {
+      const req = {};
+      const db = {
+        transaction() {
+          const tx = {};
+          const objectStore = {
+            put: (v) => { store.set(v.id, v); const r = { result: v.id }; queueMicrotask(() => tx.oncomplete()); return r; },
+            delete: (id) => { store.delete(id); const r = { result: undefined }; queueMicrotask(() => tx.oncomplete()); return r; },
+            getAll: () => { const r = { result: [...store.values()] }; queueMicrotask(() => tx.oncomplete()); return r; },
+          };
+          tx.objectStore = () => objectStore;
+          return tx;
+        },
+      };
+      req.result = db;
+      queueMicrotask(() => req.onsuccess());
+      return req;
+    },
+  };
+  const alerts = [];
+  const slides = [];
+  let outcome = { ok: true, status: 200, json: { url: "https://m/x.jpg", id: "img1" } };
+  const calls = [];
+  const fakeFetch = async (url, init) => {
+    calls.push({ url, name: init.body.get("file")?.name, variant: init.body.get("variant_id") });
+    if (outcome === "offline") throw new TypeError("offline");
+    return { ok: outcome.ok, status: outcome.status, json: async () => outcome.json };
+  };
+  const tile = { dataset: { handle: "silk-blouse" } };
+  const doc = { querySelectorAll: () => [tile] };
+  const winListeners = {};
+  const api = new Function(
+    "indexedDB", "fetch", "alert", "document", "window", "addPhotoSlide", "FormData",
+    `${piece}\nreturn { uploadVariantPhoto, resendCachedPhotos, sendCachedPhoto, outboxAll };`,
+  )(fakeIndexedDB, fakeFetch, (m) => alerts.push(m), doc, { addEventListener: (n, f) => { winListeners[n] = f; } }, (...a) => slides.push(a),
+    class FakeFormData { constructor() { this.m = new Map(); } set(k, v, n) { this.m.set(k, n ? Object.assign(Object.create(v), { name: n }) : v); } get(k) { return this.m.get(k); } });
+
+  const photo = { name: "IMG_1.jpg" };
+  const makeInput = () => ({ files: [photo], value: "x", disabled: false, dataset: { variantId: "v1", variantLabel: "Red" }, closest: () => tile });
+
+  /* 1. a good upload: cached first, sent, removed from the cache, shown */
+  await api.uploadVariantPhoto(makeInput());
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].variant, "v1");
+  assert.equal((await api.outboxAll()).length, 0, "saved: nothing left waiting");
+  assert.equal(slides.length, 1);
+
+  /* 2. no signal: the photo stays cached and the person is told it is kept */
+  outcome = "offline";
+  const input = makeInput();
+  await api.uploadVariantPhoto(input);
+  assert.equal(input.value, "", "the input is cleared");
+  assert.equal((await api.outboxAll()).length, 1, "the photo is kept on the phone");
+  assert.match(alerts.at(-1), /saved on this phone/);
+
+  /* 3. back online / next visit: it is sent and shown without taking it again */
+  outcome = { ok: true, status: 200, json: { url: "https://m/y.jpg", id: "img2" } };
+  await api.resendCachedPhotos();
+  assert.equal((await api.outboxAll()).length, 0);
+  assert.equal(slides.length, 2, "the cached photo appears on its item");
+  assert.ok(winListeners.online, "and it is retried when the phone comes back online");
+
+  /* 4. a refusal is not kept forever */
+  outcome = { ok: false, status: 415, json: { error: "unrecognised image type" } };
+  await api.uploadVariantPhoto(makeInput());
+  assert.equal((await api.outboxAll()).length, 0, "a photo the server refuses is not retried for ever");
+  assert.match(alerts.at(-1), /unrecognised image type/);
+});

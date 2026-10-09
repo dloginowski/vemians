@@ -3376,6 +3376,16 @@ ${INPUT_BAR_CSS}
 }
 .variant-photo-upload:hover { background: var(--image-ground); }
 .variant-photo-upload:disabled { opacity: 0.5; cursor: default; }
+.photo-menu {
+  position: fixed; z-index: 60; display: flex; flex-direction: column; min-width: 170px;
+  background: var(--ground); border: 1px solid var(--muted); border-radius: 8px; padding: 4px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+}
+.photo-menu-option {
+  font: inherit; text-align: left; padding: 12px 14px; border: 0; border-radius: 6px;
+  background: transparent; color: inherit; cursor: pointer; min-height: 44px;
+}
+.photo-menu-option:hover { background: var(--image-ground); }
 /* "Any changed fields should be marked with an orange highlight" — added
    to the specific field that changed (onItemsGridChange, below), not just
    the form it lives in. Specific enough (element + class, twice over) to
@@ -4404,7 +4414,7 @@ function itemTile(product, canEdit, allCategories = [], allVendors = [], customF
       ${attrRows ? `<div class="item-fields">${attrRows}</div>` : ""}
       ${fieldRows ? `<div class="item-fields">${fieldRows}</div>` : ""}
       ${customFieldsForm}
-      ${canEdit ? `<input type="file" class="variant-photo-input" accept="image/*" hidden>` : ""}
+      ${canEdit ? `<input type="file" class="variant-photo-input" accept="image/*" hidden><input type="file" class="variant-photo-input variant-photo-camera" accept="image/*" capture="environment" hidden>` : ""}
     </div>
   </article>`;
 }
@@ -4939,9 +4949,18 @@ document.getElementById("items-grid").addEventListener("click", async (e) => {
   }
   const photoUploadBtn = e.target.closest(".variant-photo-upload");
   if (photoUploadBtn) {
-    triggerVariantPhotoUpload(photoUploadBtn);
+    showPhotoMenu(photoUploadBtn);
     return;
   }
+  const photoOption = e.target.closest(".photo-menu-option");
+  if (photoOption) {
+    const menu = photoOption.closest(".photo-menu");
+    const anchor = menu && menu._anchor;
+    closePhotoMenu();
+    if (anchor) triggerVariantPhotoUpload(anchor, photoOption.dataset.mode);
+    return;
+  }
+  if (!e.target.closest(".photo-menu")) closePhotoMenu();
   const photoDeleteBtn = e.target.closest(".item-photo-delete");
   if (photoDeleteBtn) {
     await deletePhoto(photoDeleteBtn);
@@ -5229,9 +5248,9 @@ async function stepStock(button) {
    itself so the input's own change handler, below, has everything it
    needs without re-deriving either one — no server round trip resolves a
    label; the button the person already clicked already carries it. */
-function triggerVariantPhotoUpload(button) {
+function triggerVariantPhotoUpload(button, mode) {
   const tile = button.closest(".item-tile");
-  const input = tile?.querySelector(".variant-photo-input");
+  const input = tile?.querySelector(mode === "camera" ? ".variant-photo-camera" : ".variant-photo-input:not(.variant-photo-camera)");
   if (!input) return;
   input.dataset.variantId = button.dataset.variantId || "";
   const label =
@@ -5242,30 +5261,136 @@ function triggerVariantPhotoUpload(button) {
   input.click();
 }
 
+/* "When I take a photo, you need to have it stored in cache so that way it
+   actually gets uploaded" -- the owner's own words. A picture taken with the
+   camera is only handed to the page once, in the file input; if the upload then
+   fails (a weak signal in the shop) or the phone reloads the page, it was gone.
+   So the moment a photo arrives it is copied into this browser's own database
+   (IndexedDB), and it stays there until the server has confirmed it saved it. A
+   photo that could not be sent is tried again on the next visit to this page, or
+   as soon as the phone is back online. */
+function photoOutbox() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open("vemians-photo-outbox", 1);
+    req.onupgradeneeded = () => req.result.createObjectStore("photos", { keyPath: "id" });
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function outboxRun(mode, work) {
+  try {
+    const db = await photoOutbox();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction("photos", mode);
+      const result = work(tx.objectStore("photos"));
+      tx.oncomplete = () => resolve(result && "result" in result ? result.result : true);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  } catch {
+    return null;
+  }
+}
+const outboxPut = (entry) => outboxRun("readwrite", (store) => store.put(entry));
+const outboxDelete = (id) => outboxRun("readwrite", (store) => store.delete(id));
+const outboxAll = async () => (await outboxRun("readonly", (store) => store.getAll())) || [];
+
+/* One cached photo -> the server. Returns "saved", "kept" (could not reach the
+   server: still cached, tried again later) or "refused" (the server said no: no
+   point keeping it). */
+async function sendCachedPhoto(entry, tile) {
+  try {
+    const body = new FormData();
+    body.set("file", entry.file, entry.name || "photo.jpg");
+    if (entry.variantId) body.set("variant_id", entry.variantId);
+    const res = await fetch("/items/" + entry.handle + "/photo", { method: "POST", body });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      await outboxDelete(entry.id);
+      addPhotoSlide(tile, data.url, entry.variantId ? entry.label : "", data.id);
+      return "saved";
+    }
+    if (res.status >= 500 || res.status === 429) return "kept";
+    await outboxDelete(entry.id);
+    alert(data.error || "That photo could not be uploaded.");
+    return "refused";
+  } catch {
+    return "kept";
+  }
+}
+
 async function uploadVariantPhoto(input) {
   const file = input.files[0];
   if (!file) return;
   const tile = input.closest(".item-tile");
-  const variantId = input.dataset.variantId || "";
-  const label = input.dataset.variantLabel || "";
+  const entry = {
+    id: Date.now() + "-" + Math.random().toString(36).slice(2),
+    handle: tile.dataset.handle,
+    variantId: input.dataset.variantId || "",
+    label: input.dataset.variantLabel || "",
+    name: file.name,
+    file,
+  };
   input.disabled = true;
+  /* cached first: from here on the photo no longer depends on this input */
+  const cached = await outboxPut(entry);
+  input.value = "";
   try {
-    const body = new FormData();
-    body.set("file", file);
-    if (variantId) body.set("variant_id", variantId);
-    const res = await fetch("/items/" + tile.dataset.handle + "/photo", { method: "POST", body });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      alert(data.error || "That photo could not be uploaded.");
-      return;
+    const outcome = await sendCachedPhoto(entry, tile);
+    if (outcome === "kept") {
+      alert(cached ? "The photo is saved on this phone and could not be sent yet. It will be sent when you are back online or open this page again." : "Could not reach the server — try again.");
     }
-    addPhotoSlide(tile, data.url, variantId ? label : "", data.id);
-  } catch {
-    alert("Could not reach the server — try again.");
   } finally {
-    input.value = "";
     input.disabled = false;
   }
+}
+
+/* Photos still waiting from an earlier visit (or an upload that failed): sent
+   when the page opens and whenever the phone comes back online. */
+let resendingPhotos = false;
+async function resendCachedPhotos() {
+  if (resendingPhotos) return;
+  resendingPhotos = true;
+  try {
+    for (const entry of await outboxAll()) {
+      const tile = [...document.querySelectorAll(".item-tile")].find((t) => t.dataset.handle === entry.handle);
+      if (!tile) continue;
+      const outcome = await sendCachedPhoto(entry, tile);
+      if (outcome === "kept") break;
+    }
+  } finally {
+    resendingPhotos = false;
+  }
+}
+window.addEventListener("online", resendCachedPhotos);
+resendCachedPhotos();
+
+/* The camera button asks which: take a picture now, or pick one that is already
+   on the phone. */
+function closePhotoMenu() {
+  document.querySelectorAll(".photo-menu").forEach((m) => m.remove());
+}
+function showPhotoMenu(button) {
+  const existing = document.querySelector(".photo-menu");
+  const same = existing && existing._anchor === button;
+  closePhotoMenu();
+  if (same) return;
+  const menu = document.createElement("div");
+  menu.className = "photo-menu";
+  menu._anchor = button;
+  for (const [mode, text] of [["camera", "Take a photo"], ["library", "Choose from library"]]) {
+    const option = document.createElement("button");
+    option.type = "button";
+    option.className = "photo-menu-option";
+    option.dataset.mode = mode;
+    option.textContent = text;
+    menu.appendChild(option);
+  }
+  document.body.appendChild(menu);
+  const rect = button.getBoundingClientRect();
+  menu.style.left = Math.max(8, Math.min(rect.right - menu.offsetWidth, window.innerWidth - menu.offsetWidth - 8)) + "px";
+  const below = rect.bottom + 4;
+  menu.style.top = (below + menu.offsetHeight > window.innerHeight - 8 ? Math.max(8, rect.top - menu.offsetHeight - 4) : below) + "px";
 }
 
 /* The server's own TRASH_ICON, carried into the client script as data —
