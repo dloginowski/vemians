@@ -9867,6 +9867,14 @@ that does not trace to one of these is a process failure (see §12).
     items are left out, and an unknown category name comes back with a note to check `catalog.categories`.
     `catalog.search` now says in its description that it is a seeded sample and points at the new tool.
 
+157. **`Test-PRD-P0-225-attach_menu`** — "Whenever I click the add button, I should be able to browse my photos or select my
+    camera. That functionality only lets me browse." — the owner's own words, about the chat's + button. It opened one plain
+    file input, which on a phone shows only the file browser. The button now asks **Take a photo** (a file input with
+    `capture="environment"`, so the camera opens directly), **Photo library** (`accept="image/*"`) or **Browse files**
+    (anything: spreadsheets and other documents still go through here), opening above the button since the composer sits at
+    the bottom of the screen. Whichever input produced the file, it is held in one place (`staged`), so the cancel (x)
+    button, the placeholder, the Send button's enabled state and the send itself work exactly as before.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,
