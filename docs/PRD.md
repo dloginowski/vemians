@@ -9855,6 +9855,18 @@ that does not trace to one of these is a process failure (see §12).
     camera is open never receives the picture at all, which no cache can recover; the capture input is what makes that
     rare.
 
+156. **`Test-PRD-P0-224-find_products`** — "I'm trying to update the photo for the latest item in the containers drink
+    subcategory and my agent is not able to see it. Why is my agent not able to see it?" — the owner's own words. The chat
+    agent had no way to look at the shop's real items: `catalog.search` reads a small seeded sample index (not the mirror),
+    `catalog.product` needs a handle the agent does not have, and `catalog.categories` lists categories only. So "the latest
+    item in Containers › Drink" could not be found, whatever had been uploaded. New T0 tool `catalog.find_products`
+    (`catalog-write.js`, `findProducts` in `catalog-writer.js`) reads OUR mirror, **newest first**: by `category` (a category or
+    subcategory NAME, case and plural folded, including everything under it) or `category_id`, and/or `q` (title, handle,
+    style ID, sheet style number), optional `status`, with each result's handle (for `catalog.product` /
+    `catalog.update_product`, whose `images` attaches a photo), style ID, category path, photo and variation counts; archived
+    items are left out, and an unknown category name comes back with a note to check `catalog.categories`.
+    `catalog.search` now says in its description that it is a seeded sample and points at the new tool.
+
 ## 4. P1 features
 
 1. **`Test-PRD-P1-01-agent_read_tools`** — Natural-language read across catalog, orders,

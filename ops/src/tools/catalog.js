@@ -17,7 +17,8 @@ export const catalogTools = {
     stores: [],
     minRole: "staff",
     describe:
-      "Search the derived catalog index by free text, brand or status. Returns index " +
+      "Search a small SEEDED sample index by free text, brand or status -- NOT the shop's real, live items " +
+      "(use catalog.find_products for those). Returns index " +
       "records — never edit from one, re-read the shard with catalog.get.",
     undo: null,
     schema: {

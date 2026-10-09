@@ -96,12 +96,13 @@
  * calling DeleteCatalogObject) and archived in the mirror. An edit is another
  * edit. The originals in R2 are never removed by any code path in this repo.
  */
-import { CAPS } from "./caps.js";
+import { CAPS, rowLimit } from "./caps.js";
 import {
   INHOUSE_VENDOR_NAME,
   LEGACY_COST_FIELD_KEYS,
   LEGACY_MARGIN_FIELD_KEYS,
   listAllProducts,
+  findProducts,
   listCategories,
   subcategoryPlacement,
   listCustomFieldNames,
@@ -633,6 +634,49 @@ export const catalogWriteTools = {
    * instant of creation and never again. custom_fields comes back parsed,
    * not as a JSON string a model would have to re-parse itself.
    */
+  "catalog.find_products": {
+    tier: "T0",
+    domain: "catalog",
+    stores: ["catalog_mirror"],
+    minRole: "staff",
+    describe:
+      "FIND the shop's real products in OUR mirror, NEWEST FIRST -- the way to see what is actually in a " +
+      "category or subcategory (\"the latest item in Containers › Drink\"), to look an item up by words in its " +
+      "title, its handle, its style ID or its sheet style number, or to see which items have no photo yet. " +
+      "Give `category` (a category or subcategory NAME, case and plural folded; it includes everything " +
+      "under it) or `category_id` from catalog.categories, and/or `q`. Each result has the handle you " +
+      "then pass to catalog.product (full detail) or catalog.update_product (change it, including its " +
+      "photo via `images`). This is the live catalog; catalog.search only reads a small seeded sample " +
+      "and will not show the shop's real items.",
+    undo: null,
+    schema: {
+      q: { type: "string", maxLength: 100 },
+      category: { type: "string", maxLength: 60 },
+      category_id: { type: "string", format: "id" },
+      status: { type: "string", enum: ["active", "draft", "archived"] },
+      limit: { type: "integer", min: 1, max: CAPS.MAX_ROWS },
+    },
+    async run(args, t) {
+      const limit = rowLimit(args.limit);
+      const found = await findProducts(t.db.catalog_mirror, {
+        q: args.q ?? "",
+        category: args.category ?? "",
+        categoryId: args.category_id ?? "",
+        status: args.status ?? "",
+        limit,
+      });
+      return {
+        ...found,
+        count: found.products.length,
+        limit,
+        order: "newest first",
+        ...(args.category && found.matched_categories.length === 0
+          ? { note: `no category or subcategory is named "${args.category}" -- call catalog.categories for the exact names` }
+          : {}),
+      };
+    },
+  },
+
   "catalog.product": {
     tier: "T0",
     domain: "catalog",

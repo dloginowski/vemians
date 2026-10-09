@@ -12349,3 +12349,62 @@ check("test_PRD_P0_222_sheet_truth__a_number_the_sheets_name_for_a_subcategory_i
   assert.ok(out && out.to !== "03", "and the sibling that only suggested it makes room");
   void evening;
 });
+
+check("test_PRD_P0_224_find_products__the_agent_can_list_what_is_in_a_subcategory_newest_first_and_see_its_photo_count", async () => {
+  /* "I'm trying to update the photo for the latest item in the Containers drink
+     subcategory and my agent is not able to see it": catalog.search reads a seeded
+     sample, catalog.product needs a handle, catalog.categories lists categories only. */
+  const { f, evening, shirt } = await tweakedDresses();
+  const dresses = f.categories().find((c) => c.name === "Dresses");
+  const run = (args) => runTool("catalog.find_products", args, f.ctx);
+
+  const all = await run({ category: "Dresses" });
+  assert.equal(all.ok, true, all.error);
+  const titles = all.data.products.map((p) => p.title);
+  assert.deepEqual(titles, ["Poplin shirt dress", "Ball gown", "Gala gown"], "everything under Dresses, the most recently added first");
+  assert.equal(all.data.order, "newest first");
+  assert.deepEqual(all.data.matched_categories, ["Dresses"]);
+  assert.equal(all.data.products[0].category, "Dresses › Shirt Dresses");
+  assert.ok(all.data.products[0].style_id, "the style ID is there to quote");
+
+  const sub = await run({ category: "evening dress" });
+  assert.deepEqual(sub.data.products.map((p) => p.title), ["Ball gown", "Gala gown"], "a subcategory by name, case and plural folded");
+  const byId = await run({ category_id: shirt.id });
+  assert.deepEqual(byId.data.products.map((p) => p.title), ["Poplin shirt dress"]);
+  const latest = await run({ category: "Dresses", limit: 1 });
+  assert.deepEqual(latest.data.products.map((p) => p.title), ["Poplin shirt dress"], "'the latest item' is the first row");
+
+  const word = await run({ q: "gala" });
+  assert.deepEqual(word.data.products.map((p) => p.title), ["Gala gown"]);
+  const bySheet = await run({ q: "001-004-002" });
+  assert.equal(bySheet.data.products.length, 1, JSON.stringify(bySheet.data));
+
+  const missing = await run({ category: "Containers" });
+  assert.deepEqual(missing.data.products, []);
+  assert.match(missing.data.note, /no category or subcategory is named "Containers"/);
+
+  /* a photo added from the Items tile shows in the count */
+  const handle = all.data.products[0].handle;
+  const pid = f.mirror("SELECT id FROM mirror_product WHERE handle = ?", handle)[0].id;
+  assert.equal(all.data.products[0].photos, 0);
+  f.mirrorDb._raw.prepare("INSERT INTO mirror_image(id, external_ref, product_id, source_url, ordinal, media_key) VALUES ('img1', 'ops-upload:1', ?, 'https://m/a.jpg', 0, 'k1')").run(pid);
+  const withPhoto = await run({ category_id: shirt.id });
+  assert.equal(withPhoto.data.products[0].photos, 1);
+
+  /* archived items are left out */
+  f.mirrorDb._raw.prepare("UPDATE mirror_product SET archived_at = datetime('now') WHERE handle = ?").run(handle);
+  assert.equal((await run({ category_id: shirt.id })).data.products.length, 0);
+  void evening; void dresses;
+});
+
+check("test_PRD_P0_224_find_products__staff_can_use_it_and_catalog_search_says_it_is_only_a_sample", async () => {
+  const { describeTools } = await import("../src/tools/index.js");
+  const staff = describeTools("staff");
+  const find = staff.find((t) => t.name === "catalog.find_products");
+  assert.ok(find, "staff can look at what is in the shop");
+  assert.equal(find.tier, "T0");
+  assert.match(find.describe, /NEWEST FIRST/);
+  const search = staff.find((t) => t.name === "catalog.search");
+  assert.match(search.describe, /SEEDED sample/);
+  assert.match(search.describe, /catalog\.find_products/, "and points at the tool that reads the real shop");
+});
