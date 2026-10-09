@@ -1062,6 +1062,88 @@ export async function archiveImage(db, { productId, imageId }) {
  * (grouped here rather than N+1 queries per product), the same trade every
  * other list view in this codebase makes at this scale.
  */
+/*
+ * Find products in OUR mirror -- what the shop actually has, newest first. The
+ * chat agent could not see a new item ("the latest item in Containers › Drink"):
+ * catalog.search reads a seeded sample index, catalog.product needs the handle
+ * already, and catalog.categories lists categories only, so nothing let it list
+ * the products in a subcategory. `categoryId` / `category` (a name, case and
+ * plural folded) match that category AND any subcategory under it; `q` matches
+ * title, handle, style ID or the sheet's style number; newest is the product
+ * the mirror saw first-hand most recently (insertion order).
+ */
+export async function findProducts(db, { q = "", categoryId = "", category = "", status = "", limit = 25 } = {}) {
+  const categories = await listCategories(db);
+  const fold = (name) =>
+    String(name ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/ies$/, "y")
+      .replace(/(ss|x|ch|sh)es$/, "$1")
+      .replace(/([^s])s$/, "$1");
+  const byId = new Map(categories.map((c) => [c.id, c]));
+  const roots = categoryId
+    ? categories.filter((c) => c.id === categoryId)
+    : category
+      ? categories.filter((c) => fold(c.name) === fold(category))
+      : null;
+  const clauses = ["p.archived_at IS NULL"];
+  const binds = [];
+  if (roots) {
+    const ids = new Set(roots.map((c) => c.id));
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const c of categories) if (c.parent_id && ids.has(c.parent_id) && !ids.has(c.id)) { ids.add(c.id); grew = true; }
+    }
+    if (ids.size === 0) return { products: [], matched_categories: [] };
+    clauses.push(`p.category_id IN (${[...ids].map(() => "?").join(", ")})`);
+    binds.push(...ids);
+  }
+  if (status) {
+    clauses.push("p.status = ?");
+    binds.push(status);
+  }
+  const text = String(q ?? "").trim().toLowerCase();
+  if (text) {
+    clauses.push("(lower(p.title) LIKE ? OR lower(p.handle) LIKE ? OR lower(COALESCE(p.style_id, '')) LIKE ? OR lower(COALESCE(p.import_style_number, '')) LIKE ?)");
+    const like = `%${text.replace(/[%_]/g, " ")}%`;
+    binds.push(like, like, like, like);
+  }
+  const res = await db
+    .prepare(
+      `SELECT p.handle, p.title, p.style_id, p.import_style_number, p.status, p.channel, p.category_id,
+              (SELECT COUNT(*) FROM mirror_image_index i WHERE i.product_id = p.id) AS photos,
+              (SELECT COUNT(*) FROM mirror_variant_index v WHERE v.product_id = p.id) AS variations
+         FROM mirror_product p
+        WHERE ${clauses.join(" AND ")}
+        ORDER BY p.rowid DESC
+        LIMIT ?`,
+    )
+    .bind(...binds, limit)
+    .all();
+  const pathOf = (id) => {
+    const leaf = byId.get(id);
+    if (!leaf) return "";
+    const parent = leaf.parent_id ? byId.get(leaf.parent_id) : null;
+    return parent ? `${parent.name} › ${leaf.name}` : leaf.name;
+  };
+  return {
+    products: (res.results ?? []).map((r) => ({
+      handle: r.handle,
+      title: r.title,
+      style_id: r.style_id,
+      sheet_style_number: r.import_style_number,
+      category: pathOf(r.category_id),
+      status: r.status,
+      channel: r.channel,
+      photos: Number(r.photos),
+      variations: Number(r.variations),
+    })),
+    matched_categories: roots ? roots.map((c) => pathOf(c.id)) : [],
+  };
+}
+
 export async function listAllProducts(db, { limit } = {}) {
   /* mirror_product, not mirror_product_index: an archived product is the
      ONLY way the Items tab's own "Inactive" filter (P0-131) ever shows
