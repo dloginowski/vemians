@@ -220,6 +220,16 @@ const INPUT_BAR_CSS = `
    faint rather than opaque, the same contrast pairing --ink text always
    has against a dark ground on this page. */
 .input-bar .icon-btn { width: 34px; height: 34px; background: rgba(255, 255, 255, 0.08); color: var(--ink); }
+.attach-menu {
+  position: fixed; z-index: 60; display: flex; flex-direction: column; min-width: 180px;
+  background: #1c1c1e; color: #fff; border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 10px; padding: 4px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+}
+.attach-menu-option {
+  font: inherit; text-align: left; padding: 12px 14px; border: 0; border-radius: 6px;
+  background: transparent; color: inherit; cursor: pointer; min-height: 44px;
+}
+.attach-menu-option:hover, .attach-menu-option:focus-visible { background: rgba(255, 255, 255, 0.12); }
 .input-bar .icon-btn:hover { background: rgba(255, 255, 255, 0.16); color: var(--accent); }
 .input-bar .icon-btn[aria-pressed="true"] { color: var(--accent); background: rgba(217, 119, 87, 0.14); }
 /* The mic is orange in its resting state too, unlike every other icon-btn
@@ -1631,6 +1641,8 @@ ${id}
       <button type="submit" class="send-btn" id="chat-send" aria-label="Send" title="Send" disabled>${SEND_ICON}</button>
     </div>
     <input type="file" id="attach-input" hidden>
+    <input type="file" id="attach-photos" accept="image/*" hidden>
+    <input type="file" id="attach-camera" accept="image/*" capture="environment" hidden>
   </form>
 </main>
 <script>
@@ -2342,6 +2354,15 @@ function checklistCard(c) {
 const ATTACH_ICON_HTML = ${JSON.stringify(ATTACH_ICON)};
 const CANCEL_ICON_HTML = ${JSON.stringify(CANCEL_ICON)};
 const fileInput = document.getElementById("attach-input");
+/* "Whenever I click the add button, I should be able to browse my photos or select my
+   camera. That functionality only lets me browse." -- the owner's own words. One plain
+   file input shows only the phone's file browser; the button now asks which: take a
+   photo (the camera opens directly), pick from the photo library, or browse files
+   (spreadsheets and other documents still go here). Whichever input produced the file,
+   it is held in one place, so everything below that asks "is something attached?" is
+   unchanged. */
+const attachInputs = [fileInput, document.getElementById("attach-photos"), document.getElementById("attach-camera")];
+let staged = null;
 const attachBtn = document.getElementById("attach-btn");
 const qInput = document.getElementById("q");
 const sendBtn = document.getElementById("chat-send");
@@ -2361,7 +2382,8 @@ function updateSendState() {
 }
 
 function clearAttachments() {
-  fileInput.value = "";
+  staged = null;
+  attachInputs.forEach((input) => { input.value = ""; });
   qInput.placeholder = DEFAULT_PLACEHOLDER;
   attachBtn.removeAttribute("aria-pressed");
   attachBtn.innerHTML = ATTACH_ICON_HTML;
@@ -2371,7 +2393,7 @@ function clearAttachments() {
 }
 
 function pickedFile() {
-  return fileInput.files[0] || null;
+  return staged;
 }
 
 qInput.addEventListener("input", updateSendState);
@@ -2395,17 +2417,54 @@ attachBtn.addEventListener("click", () => {
     clearAttachments();
     return;
   }
-  fileInput.click();
+  showAttachMenu();
 });
 
-fileInput.addEventListener("change", () => {
-  if (!fileInput.files[0]) return;
-  qInput.placeholder = 'Attached "' + fileInput.files[0].name + '" — add a note (optional)';
+attachInputs.forEach((input) => input.addEventListener("change", () => {
+  if (!input.files[0]) return;
+  staged = input.files[0];
+  qInput.placeholder = 'Attached "' + staged.name + '" — add a note (optional)';
   attachBtn.setAttribute("aria-pressed", "true");
   attachBtn.innerHTML = CANCEL_ICON_HTML;
   attachBtn.setAttribute("aria-label", "Remove attachment");
   attachBtn.setAttribute("title", "Remove attachment");
   updateSendState();
+}));
+
+/* The three ways to attach, offered above the button (it sits at the bottom of the screen). */
+function closeAttachMenu() {
+  document.querySelectorAll(".attach-menu").forEach((m) => m.remove());
+}
+function showAttachMenu() {
+  if (document.querySelector(".attach-menu")) {
+    closeAttachMenu();
+    return;
+  }
+  const menu = document.createElement("div");
+  menu.className = "attach-menu";
+  const ways = [
+    ["Take a photo", attachInputs[2]],
+    ["Photo library", attachInputs[1]],
+    ["Browse files", attachInputs[0]],
+  ];
+  for (const [text, input] of ways) {
+    const option = document.createElement("button");
+    option.type = "button";
+    option.className = "attach-menu-option";
+    option.textContent = text;
+    option.addEventListener("click", () => {
+      closeAttachMenu();
+      input.click();
+    });
+    menu.appendChild(option);
+  }
+  document.body.appendChild(menu);
+  const rect = attachBtn.getBoundingClientRect();
+  menu.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8)) + "px";
+  menu.style.top = Math.max(8, rect.top - menu.offsetHeight - 6) + "px";
+}
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".attach-menu") && !e.target.closest("#attach-btn")) closeAttachMenu();
 });
 
 /* Voice input. Support for SpeechRecognition is inconsistent across

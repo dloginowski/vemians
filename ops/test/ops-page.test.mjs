@@ -1432,9 +1432,9 @@ check("test_PRD_P0_97_placeholder_names_the_attachment__the_attach_name_line_is_
 check("test_PRD_P0_97_placeholder_names_the_attachment__picking_a_file_swaps_the_inputs_own_placeholder", async () => {
   const { body } = await frontPage(OWNER);
   const script = body.slice(body.indexOf("attach-input"));
-  const changeHandler = script.slice(script.indexOf("fileInput.addEventListener"), script.indexOf("fileInput.addEventListener") + 300);
+  const changeHandler = script.slice(script.indexOf("attachInputs.forEach((input) => input.addEventListener"), script.indexOf("attachInputs.forEach((input) => input.addEventListener") + 300);
   assert.match(changeHandler, /qInput\.placeholder\s*=/, "picking a file must overwrite the input's own placeholder, not a separate element");
-  assert.match(changeHandler, /fileInput\.files\[0\]\.name/, "the new placeholder must be built from the picked file's own name");
+  assert.match(changeHandler, /staged\.name/, "the new placeholder must be built from the picked file's own name");
   assert.doesNotMatch(changeHandler, /attachName/, "there must be no separate attach-name element left to update");
 });
 
@@ -1446,7 +1446,7 @@ check("test_PRD_P0_97_placeholder_names_the_attachment__clearing_restores_the_or
   const { body } = await frontPage(OWNER);
   const script = body.slice(body.indexOf("attach-input"));
   assert.match(script, /const DEFAULT_PLACEHOLDER = qInput\.placeholder/, "the original placeholder must be captured once, before anything overwrites it");
-  assert.match(script, /function clearAttachments\(\) \{[^}]*qInput\.placeholder = DEFAULT_PLACEHOLDER/s, "clearing must restore the captured original placeholder");
+  assert.match(script, /function clearAttachments\(\) \{[\s\S]{0,200}qInput\.placeholder = DEFAULT_PLACEHOLDER/, "clearing must restore the captured original placeholder");
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -1462,7 +1462,7 @@ check("test_PRD_P0_98_cancellable_attachment__clicking_the_button_while_a_file_i
   const clickHandler = script.slice(script.indexOf("attachBtn.addEventListener(\"click\""), script.indexOf("attachBtn.addEventListener(\"click\"") + 200);
   assert.match(clickHandler, /if \(pickedFile\(\)\) \{/, "clicking with a file already staged must check pickedFile() first");
   assert.match(clickHandler, /clearAttachments\(\);/, "and cancel it via the same clearAttachments() used after every send");
-  assert.match(clickHandler, /fileInput\.click\(\);/, "clicking with nothing staged must still open the file picker");
+  assert.match(clickHandler, /showAttachMenu\(\);/, "clicking with nothing staged must offer the ways to attach");
 });
 
 check("test_PRD_P0_98_cancellable_attachment__the_icon_and_accessible_name_swap_with_the_state", async () => {
@@ -1470,7 +1470,7 @@ check("test_PRD_P0_98_cancellable_attachment__the_icon_and_accessible_name_swap_
   const script = body.slice(body.indexOf("attach-input"));
   /* Picking a file swaps to the cancel icon and names what the button now
      does — not what it always does. */
-  const changeHandler = script.slice(script.indexOf("fileInput.addEventListener"), script.indexOf("fileInput.addEventListener") + 400);
+  const changeHandler = script.slice(script.indexOf("attachInputs.forEach((input) => input.addEventListener"), script.indexOf("attachInputs.forEach((input) => input.addEventListener") + 400);
   assert.match(changeHandler, /attachBtn\.innerHTML = CANCEL_ICON_HTML/, "picking a file must swap the button's own icon to the cancel glyph");
   assert.match(changeHandler, /attachBtn\.setAttribute\("aria-label", "Remove attachment"\)/, "the accessible name must say what the button now does");
   /* Clearing (send, or the button itself) swaps both back. */
@@ -1538,7 +1538,7 @@ check("test_PRD_P0_124_send_button_active_state__the_button_starts_disabled_and_
   assert.match(script, /qInput\.addEventListener\("input", updateSendState\)/, "typing must re-check the button's own state");
   const clearFn = script.slice(script.indexOf("function clearAttachments"), script.indexOf("function clearAttachments") + 400);
   assert.match(clearFn, /updateSendState\(\);/, "clearing (after send, or removing an attachment) must re-check the button's own state too");
-  const changeHandler = script.slice(script.indexOf("fileInput.addEventListener"), script.indexOf("fileInput.addEventListener") + 450);
+  const changeHandler = script.slice(script.indexOf("attachInputs.forEach((input) => input.addEventListener"), script.indexOf("attachInputs.forEach((input) => input.addEventListener") + 450);
   assert.match(changeHandler, /updateSendState\(\);/, "picking a file must re-check the button's own state");
   const resultHandler = script.slice(script.indexOf('addEventListener("result"'), script.indexOf('addEventListener("result"') + 300);
   assert.match(resultHandler, /updateSendState\(\);/, "a dictation result landing in the field must re-check the button's own state too");
@@ -2054,4 +2054,59 @@ check("test_PRD_P0_22_access_gated_ops__an_unverified_assertion_is_refused_off_l
 
 test("every label in this file is unique and well formed", () => {
   assert.ok(usedLabels.size >= 5, `expected the checks above to register labels, saw ${usedLabels.size}`);
+});
+
+check("test_PRD_P0_225_attach_menu__the_add_button_offers_take_a_photo_photo_library_and_browse_files", async () => {
+  /* "Whenever I click the add button, I should be able to browse my photos or select my
+     camera. That functionality only lets me browse." One plain file input shows only the
+     phone's file browser. */
+  const { body } = await frontPage(OWNER);
+  assert.match(body, /<input type="file" id="attach-input" hidden>/, "files (spreadsheets and the like) still have their own input");
+  assert.match(body, /<input type="file" id="attach-photos" accept="image\/\*" hidden>/, "the photo library");
+  assert.match(body, /<input type="file" id="attach-camera" accept="image\/\*" capture="environment" hidden>/, "and the camera opens directly");
+  const scripts = [...body.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+  for (const script of scripts) assert.doesNotThrow(() => new Function(script), "every inline script parses");
+  const script = scripts.find((x) => x.includes("function showAttachMenu"));
+
+  /* run the real menu code against a tiny fake page */
+  const start = script.indexOf("function closeAttachMenu()");
+  const end = script.indexOf('document.addEventListener("click", (e) => {\n  if (!e.target.closest(".attach-menu")');
+  assert.ok(start > 0 && end > start);
+  const piece = script.slice(start, end);
+  const menus = [];
+  const makeEl = (tag) => ({
+    tag, className: "", textContent: "", style: {}, children: [], handlers: {}, offsetWidth: 180, offsetHeight: 150,
+    appendChild(c) { this.children.push(c); },
+    addEventListener(n, f) { this.handlers[n] = f; },
+    remove() { const i = menus.indexOf(this); if (i >= 0) menus.splice(i, 1); },
+  });
+  const fakeDocument = {
+    createElement: makeEl,
+    body: { appendChild: (m) => menus.push(m) },
+    querySelector: (sel) => (sel === ".attach-menu" ? menus[0] ?? null : null),
+    querySelectorAll: (sel) => (sel === ".attach-menu" ? [...menus] : []),
+  };
+  const clicked = [];
+  const mkInput = (name) => ({ click: () => clicked.push(name) });
+  const attachInputs = [mkInput("files"), mkInput("photos"), mkInput("camera")];
+  const attachBtn = { getBoundingClientRect: () => ({ left: 10, top: 700 }) };
+  const api = new Function("document", "window", "attachInputs", "attachBtn", `${piece}\nreturn { showAttachMenu, closeAttachMenu };`)(
+    fakeDocument, { innerWidth: 400 }, attachInputs, attachBtn,
+  );
+
+  api.showAttachMenu();
+  assert.equal(menus.length, 1);
+  assert.deepEqual(menus[0].children.map((c) => c.textContent), ["Take a photo", "Photo library", "Browse files"]);
+  assert.equal(menus[0].style.top, "544px", "it opens above the button, which sits at the bottom of the screen");
+  menus[0].children[0].handlers.click();
+  assert.deepEqual(clicked, ["camera"], "Take a photo opens the camera input");
+  assert.equal(menus.length, 0, "and the menu closes");
+  api.showAttachMenu();
+  menus[0].children[1].handlers.click();
+  api.showAttachMenu();
+  menus[0].children[2].handlers.click();
+  assert.deepEqual(clicked, ["camera", "photos", "files"]);
+  api.showAttachMenu();
+  api.showAttachMenu();
+  assert.equal(menus.length, 0, "pressing the button again closes it");
 });
